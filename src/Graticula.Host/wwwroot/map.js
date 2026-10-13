@@ -138,8 +138,9 @@
       "esri/layers/GeoJSONLayer", "esri/layers/VectorTileLayer",
       "esri/layers/WebTileLayer", "esri/layers/MapImageLayer",
       "esri/layers/ImageryLayer", "esri/Basemap",
+      "esri/views/SceneView", "esri/layers/ElevationLayer", "esri/geometry/Multipoint",
     ], (Map, MapView, FeatureLayer, GeoJSONLayer, VectorTileLayer, WebTileLayer,
-        MapImageLayer, ImageryLayer, Basemap) => {
+        MapImageLayer, ImageryLayer, Basemap, SceneView, ElevationLayer, Multipoint) => {
 
       /*
         The ground, and there are two of them.
@@ -217,6 +218,82 @@
         A world extent in 3857 cannot be misread, because it carries its own
         spatial reference. Whatever is drawn then moves the view to its own extent.
       */
+      /*
+        <b>An elevation surface in 3D — ADR-182.</b> `scene=1` on an image service its owner made an elevation surface
+        opens a SceneView whose ground is that service, read by the SDK's own ElevationLayer from the LERC tiles the
+        server writes for it, with this server's ground draped over it and lit from a fixed light so the relief reads.
+        The service's own hillshade draped on top laid a grey sheet over every sea, at half strength and at less, and
+        was taken off. The 2D path below is untouched: this returns before it.
+      */
+      if (face === "ImageServer" && service && query.get("scene") === "1") {
+        const at = `${location.origin}/rest/services/${service.split("/").map(encodeURIComponent).join("/")}/ImageServer`;
+        const surface = new ElevationLayer({ url: at });
+        const scene = new SceneView({
+          container: "view",
+          map: new Map({ basemap, layers: ground, ground: { layers: [surface] } }),
+          // Named: with no basemap a global scene takes WGS 84, and a Web Mercator surface is then refused as ground.
+          spatialReference: { wkid: 102100 },
+          environment: { lighting: { type: "virtual" } },
+        });
+
+        document.getElementById("which").textContent = `${service} (ImageServer, 3D)`;
+
+        // "Ground" is the heights in 3D, as ArcGIS uses the word; what lies on them is said as draped (the ux review,
+        // 2026-10-13: the 2D sentence about a tile template said "Ground is OpenStreetMap" one line above this one).
+        const draped = template ? "Your basemap" : osm ? "OpenStreetMap" : own.length ? own.join(", ") : "Natural Earth";
+        document.getElementById("ground").textContent =
+          `Ground heights come from ${service}, read as an elevation layer. ${draped} is draped over it so you can tell where you are.`;
+
+        surface.when(
+          async () => {
+            await scene.when();
+            const box = surface.fullExtent;
+            const low = surface.sourceJSON?.minValues?.[0], high = surface.sourceJSON?.maxValues?.[0];
+            const metres = v => `${Math.round(v).toLocaleString()} m`;
+            const flat = `${location.pathname}${location.search.replace(/[?&]scene=1/, "").replace(/^&/, "?")}`;
+            document.getElementById("facts").innerHTML =
+              (Number.isFinite(low) && Number.isFinite(high) ? `<span>Heights ${metres(low)} to ${metres(high)}, not exaggerated</span>` : "")
+              + `<span>Drag to pan, right-drag to tilt and turn, scroll to zoom</span>`
+              + `<a href="${flat.replace(/"/g, "&quot;")}">2D map</a> <a href="${at}">Service</a> `
+              + `<button id="frameLayer">Frame highest ground</button>`;
+
+            // Looking at its highest ground, from the south and close: framed whole, a 2,500 m mountain across 200 km
+            // of model reads as flat. The heights are the SDK's own reading of the surface on a coarse grid.
+            const n = 16, points = [];
+            for (let i = 0; i < n; i++) {
+              for (let j = 0; j < n; j++) {
+                points.push([box.xmin + (box.width * (i + 0.5)) / n, box.ymin + (box.height * (j + 0.5)) / n]);
+              }
+            }
+            let target = null;
+            const frame = () => (target ? scene.goTo(target) : Promise.resolve())
+              .catch(error => problem("The scene could not move to the surface's highest ground.", String(error.message || error)));
+            document.getElementById("frameLayer").onclick = frame;
+            try {
+              const sampled = await surface.queryElevation(
+                new Multipoint({ points, spatialReference: box.spatialReference }), { demResolution: "auto" });
+              const top = sampled.geometry.points.reduce((a, b) => (b[2] > a[2] ? b : a));
+              // As longitude and latitude, which goTo reads in any scene; a point object in the surface's own metres was
+              // not read and the camera went to 0, 0.
+              const longitude = top[0] / 20037508.342789244 * 180;
+              const latitude = Math.atan(Math.exp(top[1] / 6378137)) * 360 / Math.PI - 90;
+              // From the side the data is on: looking north at a summit near the model's southern edge put the edge
+              // itself — heights dropping to nothing — in the foreground.
+              const fromNorth = top[1] < (box.ymin + box.ymax) / 2;
+              target = { center: [longitude, latitude], zoom: 11, heading: fromNorth ? 180 : 0, tilt: 72 };
+              await frame();
+            } catch (error) {
+              // Said rather than swallowed: a rejection inside this callback reaches nobody otherwise.
+              problem("The scene could not move to the surface's highest ground.", String(error.message || error));
+            }
+          },
+          error => problem(
+            "The SDK could not read this service as an elevation surface.",
+            `${at}<br><br>${error.message || error}<br><br>An image service is a surface when its owner has made `
+            + "it one on its page in the console."));
+        return;
+      }
+
       const view = new MapView({
         container: "view",
         map: new Map({ basemap, layers: ground }),
@@ -466,6 +543,13 @@
           async () => {
             await view.when();
             await describe(features);
+
+            // ADR-182: an elevation surface is offered in 3D from here, as 3D offers the way back.
+            if (face === "ImageServer" && features.sourceJSON?.cacheType === "Elevation") {
+              const facts = document.getElementById("facts");
+              const scene = `${location.pathname}${location.search}${location.search ? "&" : "?"}scene=1`;
+              facts.insertAdjacentHTML("beforeend", ` <a href="${scene.replace(/"/g, "&quot;")}">3D scene</a>`);
+            }
 
             if (!features.fullExtent) {
               problem(

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(83);
+    public static SchemaVersion ComponentSchemaVersion => new(84);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -118,7 +118,18 @@ public static class PlatformMigrations
         AnImageServiceTurnsWcsOffV81,
         AServiceStatesItsInspireSettingsV82,
         ALayerMayCarryATitleV83,
+        AnImageMayBeAnElevationSurfaceV84,
     ]);
+
+    /// <summary>
+    /// An image service may be an elevation surface — ADR-182: its owner says so, and it is then served as ArcGIS serves
+    /// one, LERC tiles in the Web Mercator scheme, which a 3D scene takes as its ground.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A column with a default; a build before this one never reads it.</remarks>
+    private static Migration AnImageMayBeAnElevationSurfaceV84 => Migration.Expand(
+        new SchemaVersion(84),
+        "An image service may be an elevation surface (ADR-182).",
+        "alter table coverage add column if not exists elevation boolean not null default false");
 
     /// <summary>
     /// The rows of a service's layers may be exported as a file — a GeoPackage, a Shapefile, a workbook and the

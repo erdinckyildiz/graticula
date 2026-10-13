@@ -7985,6 +7985,7 @@ function drawServiceSettings(name, folder) {
 
   if (open === "general") section("sharing", () => drawGeneralSharing(name, folder));
   if (open === "general" && serviceOpenKind === "ImageServer") drawImageDownloadSetting(name, folder);
+  if (open === "general" && serviceOpenKind === "ImageServer") drawImageElevationSetting(name, folder);
   if (open === "general") drawOgcSetting(name, folder);
 
   // An old layer address lands here with `layer=`; that layer's block is the one brought into view.
@@ -8921,6 +8922,7 @@ function serviceSettingsMarkup(name, folder) {
       <p class="lede" id="generalSharing">Reading who can reach this…</p>
       <div class="row"><button type="button" data-share="${h(folder ? folder + "/" + name : name)}">Change sharing…</button></div>
       <div id="generalDownload"></div>
+      <div id="generalElevation"></div>
       <div id="generalOgc"></div>
       <div id="generalDangerSlot"></div>
     </section>
@@ -29156,6 +29158,64 @@ async function drawImageDownloadSetting(name, folder) {
       if (serviceDoc) {
         const caps = String(serviceDoc.capabilities || "").split(",").map(one => one.trim()).filter(c => c && c !== "Download");
         serviceDoc.capabilities = (on ? [...caps, "Download"] : caps).join(",");
+      }
+    } catch (e) {
+      event.target.checked = !on;
+      if (said) {
+        said.classList.add("bad-inline");
+        const why = String(e.message || e);
+        said.textContent = `Not changed: ${why.charAt(0).toLowerCase()}${why.slice(1)}`;
+      }
+    } finally {
+      saving = false;
+      event.target.removeAttribute("aria-busy");
+    }
+  });
+}
+
+/**
+ * Whether an image service is an elevation surface — ADR-182: served as ArcGIS serves one, so a 3D scene takes it as its
+ * ground. One band only; a temperature is a float too, which is why its owner says so rather than the server guessing.
+ */
+async function drawImageElevationSetting(name, folder) {
+  const box = $("generalElevation");
+  if (!box) return;
+  const at = serviceOpen;
+  let style;
+  try { style = await api(`/admin/coverages/${encodeURIComponent(name)}/style?folder=${encodeURIComponent(folder || "")}`); }
+  catch { box.innerHTML = ""; return; }
+  if (serviceOpen !== at || !$("generalElevation")) return;
+  const scene = `/studio/map.html?face=imageserver&scene=1&service=${encodeURIComponent(folder ? `${folder}/${name}` : name)}`;
+  if (style?.bands !== 1) {
+    box.innerHTML = `<h4>Elevation surface</h4>
+      <p class="hint">Only a single-band image can be an elevation layer; this one has ${num(style?.bands ?? 0)} bands.</p>`;
+    return;
+  }
+  // Opens in a new tab and says so, to the eye and to a screen reader (the ux review, 2026-10-13).
+  const sceneLink = `<a href="${h(scene)}" target="_blank" rel="noopener">Open in a 3D scene ↗<span class="sr-only"> (opens in a new tab)</span></a>`;
+  box.innerHTML = `<h4>Elevation surface</h4>
+    <label class="check-row"><input type="checkbox" id="imageElevationOn"${style.elevation ? " checked" : ""} aria-describedby="imageElevationHint">
+      <span>Serve as an elevation layer (ground for 3D scenes)</span></label>
+    <p class="hint" id="imageElevationHint">For a terrain model whose cell values are heights. When on, its tiles are served
+      as LERC heights in Web Mercator, which ArcGIS 3D scenes take as ground. Maps that draw it as an image are unchanged.</p>
+    <p class="hint" id="imageElevationSaid" role="status" aria-live="polite">${style.elevation ? sceneLink : ""}</p>`;
+  let saving = false;
+  $("imageElevationOn").addEventListener("change", async event => {
+    // Held while it saves by a flag rather than by disabling it, which would drop keyboard focus.
+    if (saving) { event.target.checked = !event.target.checked; return; }
+    saving = true;
+    const on = event.target.checked;
+    const said = $("imageElevationSaid");
+    event.target.setAttribute("aria-busy", "true");
+    if (said) { said.classList.remove("bad-inline"); said.textContent = "Saving…"; }
+    try {
+      await api(`/admin/coverages/${encodeURIComponent(name)}/elevation?folder=${encodeURIComponent(folder || "")}`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ elevation: on }) });
+      if (said) {
+        said.classList.remove("bad-inline");
+        said.innerHTML = on
+          ? `Saved. 3D scenes can now use it as ground. ${sceneLink}`
+          : "Saved. It is no longer served as ground, so 3D scenes that use it will show flat ground.";
       }
     } catch (e) {
       event.target.checked = !on;

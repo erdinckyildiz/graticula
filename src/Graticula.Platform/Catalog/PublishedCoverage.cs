@@ -109,6 +109,13 @@ public sealed class PublishedCoverage
     public bool Download { get; init; }
 
     /// <summary>
+    /// Whether it is an elevation surface — ADR-182: its owner's choice, served as ArcGIS serves one, LERC tiles in the
+    /// Web Mercator scheme a 3D scene takes as its ground. One band; a temperature is a float too, which is why it is
+    /// chosen rather than guessed.
+    /// </summary>
+    public bool Elevation { get; init; }
+
+    /// <summary>
     /// Its images as a catalog lists them — ADR-152 — or null when none was recorded: its files in order, numbered from
     /// one, named by their files.
     /// </summary>
@@ -277,6 +284,15 @@ public interface ICoverageCatalog
     /// <returns>Whether the coverage exists.</returns>
     System.Threading.Tasks.Task<bool> SetDownloadAsync(
         string? folder, string serviceName, bool download, System.Threading.CancellationToken cancellationToken);
+
+    /// <summary>Makes an image service an elevation surface, or stops it being one — ADR-182.</summary>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="serviceName">The service name.</param>
+    /// <param name="elevation">Whether it is one.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the coverage exists.</returns>
+    System.Threading.Tasks.Task<bool> SetElevationAsync(
+        string? folder, string serviceName, bool elevation, System.Threading.CancellationToken cancellationToken);
 
     /// <summary>
     /// Points a coverage at another file and what it is — ADR-147, a mosaic grown by more images, and ADR-148, an image

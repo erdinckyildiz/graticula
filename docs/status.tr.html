@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>30f1e58b</code> · 2026-10-13 15:21</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7fd3ac98</code> · 2026-10-13 16:41</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">180</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">332/412</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">332/414</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">79 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">270 ödendi · 5 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4825</div><div class="kpi-l">test</div><div class="kpi-n">481 kaynak dosya, 216,460 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4839</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 217,221 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">96 madde</span></div><p><b>77 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">98 madde</span></div><p><b>79 ADR conditions</b> outstanding across 57 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -148,6 +148,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -385,11 +386,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">179</td><td>A layer may carry a title</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — one column, one setter, and the three faces that composed a title each read it…</td><td class="num">1/1</td></tr>
 <tr><td class="id">180</td><td>The outbound licence is the Graticula Community License</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision, which is the owner&#x27;s · MEDIUM for the licence text, which no…</td><td class="num">3/3</td></tr>
 <tr><td class="id">181</td><td>The ArcGIS REST API version this server reports is 12.1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num">0/1</td></tr>
+<tr><td class="id">182</td><td>An image service can be an elevation surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-165</span><span class="owner">[OWNER]</span></div><p>May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-167</span><span class="owner">[OWNER]</span></div><p>An elevation surface — four inferences, for the owner.</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -512,8 +515,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1356</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.5%"></div></div><div class="bar-n">875</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.8%"></div></div><div class="bar-n">743</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.3%"></div></div><div class="bar-n">885</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:54.9%"></div></div><div class="bar-n">745</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.0%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.2%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:20.9%"></div></div><div class="bar-n">283</div></div>
@@ -522,10 +525,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">122</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.7%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">49</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.0%"></div></div><div class="bar-n">41</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7fd3ac98</code><time>2026-10-13</time><span>An image service&#x27;s exports, slope and default stretch answer what was asked</span></li>
+<li><code>ae95ebe5</code><time>2026-10-13</time><span>ADR-181: the ArcGIS REST API version this server reports is 12.1</span></li>
 <li><code>30f1e58b</code><time>2026-10-13</time><span>An image service is described from all of its image, and says its description</span></li>
 <li><code>231c0d41</code><time>2026-10-13</time><span>The licence is the Graticula Community License 1.1: Software defined, a patent licence, no contributions for now</span></li>
 <li><code>32e8092c</code><time>2026-10-13</time><span>ADR-180: the outbound licence is the Community License 1.0</span></li>
@@ -538,8 +543,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4756f911</code><time>2026-10-13</time><span>A drawn map reads in pages of 500,000: a million polygons at full extent in 10.5 s, where it took 65</span></li>
 <li><code>270d21ef</code><time>2026-10-13</time><span>Small attachments give their connection back before a slow client reads them, and a raster file declaring an impossible image is refused at the door</span></li>
 <li><code>c85732a5</code><time>2026-10-13</time><span>A background import waits out a full datastore budget; a request is still refused at once</span></li>
-<li><code>9b53ae73</code><time>2026-10-13</time><span>A symbology a publish carries is read as the symbology route reads one, and refused when it does not parse</span></li>
-<li><code>d8210dd6</code><time>2026-10-12</time><span>HTML is escaped by a type: the directory and every page built on it take Html, and a raw value has to say Html.Markup</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

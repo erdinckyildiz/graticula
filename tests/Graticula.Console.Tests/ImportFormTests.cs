@@ -532,6 +532,18 @@ public sealed class ImportFormTests : ConsoleTest
             await WaitForAsync("(document.getElementById('svcDeleteNote')?.textContent || '').includes('cannot be recovered')",
                 "Settings › General does not say the uploaded image is deleted with the service.");
 
+            // ADR-182: a one-band image may be made an elevation surface there, off until its owner says so, and the
+            // control keeps focus while it saves and then offers the 3D scene.
+            await WaitForAsync(Shown("#imageElevationOn"), "Settings › General offers a one-band image no elevation surface.");
+            Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('imageElevationOn').checked"),
+                "A new image is an elevation surface before its owner said so.");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('imageElevationOn').focus(), true)");
+            await ClickAsync("#imageElevationOn");
+            await WaitForAsync("/^Saved\\. 3D scenes can now use it/.test(document.getElementById('imageElevationSaid').textContent)"
+                + " && !!document.querySelector('#imageElevationSaid a[href*=\"scene=1\"]')"
+                + " && document.activeElement && document.activeElement.id === 'imageElevationOn'",
+                "Making it an elevation surface did not say so, offer the 3D scene, or keep focus on the control.");
+
             NothingWentWrong(await PageErrorsAsync());
         }
         finally

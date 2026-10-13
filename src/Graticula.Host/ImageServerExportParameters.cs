@@ -47,6 +47,37 @@ internal sealed class ImageServerExportParameters
     internal static ImageServerExportParameters ForTile(Envelope extent, int size, int srid) =>
         new(extent, size, size, MapImageFormat.Png, srid);
 
+    /// <summary>
+    /// One tile of an elevation surface — ADR-182: its values themselves, as LERC, never its owner's drawing or raster
+    /// function, because a 3D scene reads the numbers as heights.
+    /// </summary>
+    /// <remarks>
+    /// <b>One more sample than pixels each way</b>, as Esri's elevation tiles are 257 × 257 for a 256 scheme: the heights
+    /// sit on the tile's corners and edges, so neighbouring tiles share theirs and a scene's ground has no seams. The
+    /// extent is widened by half a pixel each side so that sample centres fall on that lattice.
+    /// </remarks>
+    internal static ImageServerExportParameters ForSurfaceTile(Envelope extent, int size, int srid)
+    {
+        double halfX = extent.Width / size / 2, halfY = extent.Height / size / 2;
+        return new(new Envelope(extent.MinX - halfX, extent.MinY - halfY, extent.MaxX + halfX, extent.MaxY + halfY),
+            size + 1, size + 1, MapImageFormat.Png, srid, raw: true)
+        {
+            Function = RasterFunction.None,
+            Lerc = true,
+            Surface = true,
+            Tolerance = SurfaceTolerance,
+        };
+    }
+
+    /// <summary>
+    /// The largest error a surface tile's height may carry, in its own units — ten centimetres for metres, what Esri's
+    /// Terrain3D tiles state. Far under what a 30 m model measures to, and what keeps a tile near its size there.
+    /// </summary>
+    internal const double SurfaceTolerance = 0.1;
+
+    /// <summary>Whether this is an elevation surface's tile — ADR-182: written as LERC 1, which a 3D scene decodes.</summary>
+    public bool Surface { get; private init; }
+
     /// <summary>A picture of an extent at a size, in a reference — a WMS map's, ADR-162.</summary>
     internal static ImageServerExportParameters ForMap(Envelope extent, int width, int height, int srid) =>
         new(extent, width, height, MapImageFormat.Png, srid);
@@ -285,6 +316,7 @@ internal sealed class ImageServerExportParameters
             Display = Display,
             Interpolation = Interpolation,
             Lerc = Lerc,
+            Surface = Surface,
             Tolerance = Tolerance,
             BoxSrid = Srid,
         };

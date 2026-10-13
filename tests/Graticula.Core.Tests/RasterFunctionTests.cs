@@ -129,6 +129,7 @@ public sealed class RasterFunctionTests
     [InlineData("{\"rasterFunction\":\"Hillshade\",\"rasterFunctionArguments\":{\"HillshadeType\":1}}", "HillshadeType")]
     [InlineData("{\"rasterFunctionDefinition\":{\"name\":\"Hillshade\"}}", "rasterFunctionDefinition")]
     [InlineData("{\"name\":\"Hillshade\"}", "`name`")]
+    [InlineData("{\"rasterFunction\":\"Hillshade\",\"rasterFunctionArguments\":{\"Raster\":{\"rasterFunction\":\"Mask\",\"rasterFunctionArguments\":{\"IncludedRanges\":[0.5,9000]}}}}", "over Mask")]
     public void What_is_asked_for_and_not_applied_is_refused_rather_than_drawn_as_something_else(string rule, string named)
     {
         Assert.False(RasterFunction.TryParseRule(rule, out _, out string? error));

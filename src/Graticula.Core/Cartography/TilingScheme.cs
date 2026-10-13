@@ -288,7 +288,12 @@ public sealed class TilingScheme
         return Math.Max(1, (int)Math.Ceiling((frame / span) - 1e-9));
     }
 
-    private static TilingScheme WebMercator()
+    /// <summary>
+    /// ArcGIS Online's Web Mercator scheme, whatever reference a coverage is stored in — ADR-182: an elevation surface is
+    /// tiled in it, because a global 3D scene takes ground only in its own reference, which a basemap makes this one.
+    /// </summary>
+    /// <returns>The scheme.</returns>
+    public static TilingScheme WebMercator()
     {
         // The scheme every web map and every ArcGIS client already shares: the whole
         // world in one 256-pixel tile at level 0, halving from there. The origin is the

@@ -345,6 +345,7 @@ internal static partial class ImageServerEndpoints
         string serviceName,
         ICoverageCatalog coverages,
         ICoverageReaderFactory readers,
+        IProjector projector,
         CancellationToken cancellation)
     {
         PublishedCoverage? coverage =
@@ -356,7 +357,16 @@ internal static partial class ImageServerEndpoints
         }
 
         CoverageInfo info = coverage.Info;
-        TilingScheme scheme = TilingScheme.For(info);
+        TilingScheme scheme = SchemeOf(coverage);
+
+        // ADR-182: an elevation surface's extents are written in its tiling scheme's reference, as Esri's Terrain3D writes
+        // them. The JavaScript SDK carries a queried point into the scheme's reference and compares it with `fullExtent`
+        // as numbers: in degrees beside metres every point was outside, and every height was zero. Each extent names its
+        // reference, and `spatialReference` stays the coverage's, which is what a request without one is read in.
+        (Envelope stated, int statedSrid) = coverage.Elevation
+            && await ProjectEnvelopeAsync(info.Extent, info.Srid, scheme.Srid, projector, cancellation).ConfigureAwait(false) is { } carried
+            ? (carried, scheme.Srid)
+            : (info.Extent, info.Srid);
 
         BandStatistics[] statistics =
             await MeasureAsync(coverage, readers, cancellation).ConfigureAwait(false);
@@ -370,9 +380,9 @@ internal static partial class ImageServerEndpoints
             // ADR-126: what its owner wrote, as the FeatureServer and MapServer documents state theirs. It was kept on the
             // service row, given to WMS and WCS as their abstract, and left out of this document alone.
             description = coverage.Description ?? string.Empty,
-            extent = Box(info.Extent, info.Srid),
-            initialExtent = Box(info.Extent, info.Srid),
-            fullExtent = Box(info.Extent, info.Srid),
+            extent = Box(stated, statedSrid),
+            initialExtent = Box(stated, statedSrid),
+            fullExtent = Box(stated, statedSrid),
             pixelSizeX = info.PixelWidth,
             pixelSizeY = info.PixelHeight,
             bandCount = info.Bands.Count,
@@ -380,7 +390,8 @@ internal static partial class ImageServerEndpoints
             minPixelSize = 0,
             maxPixelSize = 0,
             copyrightText = string.Empty,
-            serviceDataType = "esriImageServiceDataTypeGeneric",
+            // ADR-182: an elevation surface says so, as Esri's elevation services do.
+            serviceDataType = coverage.Elevation ? "esriImageServiceDataTypeElevation" : "esriImageServiceDataTypeGeneric",
 
             // <b>Named, because a client reads this before it asks.</b> `jpgpng` is
             // first for the same reason it is the SDK's default, and it is answered as
@@ -480,7 +491,11 @@ internal static partial class ImageServerEndpoints
             */
             singleFusedMapCache = false,
             exportTilesAllowed = false,
-            tileInfo = TileInfo(scheme),
+            tileInfo = TileInfo(scheme, coverage.Elevation ? "LERC" : "PNG", coverage.Elevation ? SurfaceLevels(scheme, stated, info) : scheme.Levels.Count),
+
+            // ADR-182: what the JavaScript SDK reads to open an image service as a 3D scene's ground — a LERC scheme and
+            // this, as Esri's Terrain3D says it. Absent for imagery, which the SDK then opens as tiled imagery as before.
+            cacheType = coverage.Elevation ? "Elevation" : null,
 
             // ADR-128: `histograms` answers, from the same sample as the statistics.
             hasHistograms = true,
@@ -573,6 +588,11 @@ internal static partial class ImageServerEndpoints
                     [
                         ("ArcGIS SDK", "/studio/map.html?face=imageserver"
                             + $"&service={Uri.EscapeDataString(coverage.QualifiedName)}"),
+                        // ADR-182: an elevation surface is also a 3D scene's ground, which is what it is for.
+                        .. (coverage.Elevation
+                            ? new[] { ("ArcGIS SDK scene", "/studio/map.html?face=imageserver&scene=1"
+                                + $"&service={Uri.EscapeDataString(coverage.QualifiedName)}") }
+                            : []),
                         ("Export", $"{path}/exportImage?bbox={Extent(info.Extent)}"
                             + $"&bboxSR={info.Srid.ToString(CultureInfo.InvariantCulture)}"
                             + "&size=800,600&format=png&f=image"),
@@ -681,8 +701,26 @@ internal static partial class ImageServerEndpoints
                 + "reference this server's projection database has.");
         }
 
+        return await ProjectEnvelopeAsync(asked.Extent, asked.BoxSrid, asked.Srid, projector, cancellation).ConfigureAwait(false)
+            is { } carried
+            ? (asked.Reframed(carried), null)
+            : (null, $"The `bbox` could not be carried from EPSG:{asked.BoxSrid.ToString(CultureInfo.InvariantCulture)} "
+                + $"into EPSG:{asked.Srid.ToString(CultureInfo.InvariantCulture)}: it lies outside where that projection is defined.");
+    }
+
+    /// <summary>
+    /// The box around a box carried into another reference, its edges projected at many points; null where nothing of it
+    /// could be.
+    /// </summary>
+    internal static async Task<Envelope?> ProjectEnvelopeAsync(
+        Envelope box, int fromSrid, int toSrid, IProjector projector, CancellationToken cancellation)
+    {
+        if (fromSrid == toSrid)
+        {
+            return box;
+        }
+
         const int Along = 32;
-        Envelope box = asked.Extent;
         List<Geometry> edge = new(Along * 4);
 
         for (int i = 0; i < Along; i++)
@@ -695,7 +733,7 @@ internal static partial class ImageServerEndpoints
         }
 
         (IReadOnlyList<Geometry> projected, _) =
-            await projector.ProjectAsync(edge, asked.BoxSrid, asked.Srid, cancellation).ConfigureAwait(false);
+            await projector.ProjectAsync(edge, fromSrid, toSrid, cancellation).ConfigureAwait(false);
 
         double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
         double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
@@ -711,10 +749,7 @@ internal static partial class ImageServerEndpoints
             }
         }
 
-        return maxX > minX && maxY > minY
-            ? (asked.Reframed(new Envelope(minX, minY, maxX, maxY)), null)
-            : (null, $"The `bbox` could not be carried from EPSG:{asked.BoxSrid.ToString(CultureInfo.InvariantCulture)} "
-                + $"into EPSG:{asked.Srid.ToString(CultureInfo.InvariantCulture)}: it lies outside where that projection is defined.");
+        return maxX > minX && maxY > minY ? new Envelope(minX, minY, maxX, maxY) : null;
     }
 
     /// <summary>Draws a coverage over one extent at one size and writes the image.</summary>
@@ -977,7 +1012,11 @@ internal static partial class ImageServerEndpoints
                     && (derived || values.NoData is not { } none || values.Samples[i * values.Bands] != none);
             }
 
-            return (LercWriter.Write(values.Samples, valid, width, height, values.Bands, values.Kind, asked.Tolerance), null);
+            // ADR-182: a surface tile is LERC 1, the version a 3D scene's elevation decoder reads; one band.
+            return asked.Surface
+                ? (Lerc1Writer.Write(values.Bands == 1 ? values.Samples : [.. values.Samples.Where((_, i) => i % values.Bands == 0)],
+                    valid, width, height, asked.Tolerance), null)
+                : (LercWriter.Write(values.Samples, valid, width, height, values.Bands, values.Kind, asked.Tolerance), null);
         }
 
         // Ground outside the image was zero in a float file that declared no no-data — sea level, on a DEM, and nothing
@@ -1578,15 +1617,18 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        TilingScheme scheme = TilingScheme.For(coverage.Info);
+        TilingScheme scheme = SchemeOf(coverage);
 
         if (await RefusedAsync(context, scheme, level, row, column, 1, 1).ConfigureAwait(false))
         {
             return;
         }
 
-        ImageServerExportParameters asked = ImageServerExportParameters.ForTile(
-            scheme.Tile(level, row, column), scheme.TileSize, scheme.Srid);
+        // ADR-182: an elevation surface's tile is its heights as LERC, which is what a 3D scene decodes; there is no
+        // format parameter on this route for a client to ask, so the service's kind decides.
+        ImageServerExportParameters asked = coverage.Elevation
+            ? ImageServerExportParameters.ForSurfaceTile(scheme.Tile(level, row, column), scheme.TileSize, scheme.Srid)
+            : ImageServerExportParameters.ForTile(scheme.Tile(level, row, column), scheme.TileSize, scheme.Srid);
 
         // ADR-159: a multidimensional service's tiles are its first slice, as its exported pictures are by default.
         if (IsMultidimensional(coverage))
@@ -1608,6 +1650,7 @@ internal static partial class ImageServerEndpoints
     /// <param name="across">How many columns wide the block is.</param>
     /// <param name="down">How many rows tall it is.</param>
     /// <param name="coverages">The catalogue.</param>
+    /// <param name="projector">Carries the coverage's extent into the scheme's reference when they differ — ADR-182.</param>
     /// <param name="cancellation">Cancellation.</param>
     /// <returns>A task.</returns>
     /// <remarks>
@@ -1639,6 +1682,7 @@ internal static partial class ImageServerEndpoints
         int across,
         int down,
         ICoverageCatalog coverages,
+        IProjector projector,
         CancellationToken cancellation)
     {
         PublishedCoverage? coverage =
@@ -1649,7 +1693,7 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        TilingScheme scheme = TilingScheme.For(coverage.Info);
+        TilingScheme scheme = SchemeOf(coverage);
 
         if (await RefusedAsync(context, scheme, level, row, column, across, down)
                 .ConfigureAwait(false))
@@ -1657,14 +1701,22 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        int[] data = new int[across * down];
+        // ADR-182: an elevation surface's scheme is Web Mercator's whatever the coverage is stored in, so its ground is
+        // carried there first; otherwise the two are one reference and this is the extent itself.
+        Envelope? ground = await ProjectEnvelopeAsync(coverage.Info.Extent, coverage.Info.Srid, scheme.Srid, projector, cancellation)
+            .ConfigureAwait(false);
 
-        for (int y = 0; y < down; y++)
+        int[] data = new int[across * down];
+        int wide = scheme.TilesAcross(level);
+        int tall = scheme.TilesDown(level);
+
+        for (int y = 0; y < down && ground is { } g && (long)row + y < tall; y++)
         {
-            for (int x = 0; x < across; x++)
+            for (int x = 0; x < across && (long)column + x < wide; x++)
             {
+                Envelope tile = scheme.Tile(level, row + y, column + x);
                 data[(y * across) + x] =
-                    scheme.Covers(coverage.Info, level, row + y, column + x) ? 1 : 0;
+                    tile.MinX < g.MaxX && tile.MaxX > g.MinX && tile.MinY < g.MaxY && tile.MaxY > g.MinY ? 1 : 0;
             }
         }
 
@@ -1758,8 +1810,11 @@ internal static partial class ImageServerEndpoints
         int wide = scheme.TilesAcross(level);
         int tall = scheme.TilesDown(level);
 
-        if (row < 0 || column < 0
-            || (long)column + across > wide || (long)row + down > tall)
+        // ADR-182: a block that starts on the grid and reaches past its far edge is answered, the cells past it zero,
+        // as Esri's Terrain3D answers tilemap/1/0/0/32/32 — the JavaScript SDK asks exactly that at the coarse levels,
+        // and refusing it left a 3D scene's ground at zero height everywhere. A block that starts off the grid is still
+        // refused, which is also what keeps a row near the top of the integer range from wrapping.
+        if (row < 0 || column < 0 || column >= wide || row >= tall)
         {
             await RefuseAsync(
                     context,
@@ -1784,8 +1839,35 @@ internal static partial class ImageServerEndpoints
         return false;
     }
 
+    /// <summary>
+    /// The scheme a coverage's <c>tile</c> and <c>tilemap</c> are named in: its own reference's, or — ADR-182 — Web
+    /// Mercator's for an elevation surface, the only one a global 3D scene over an ordinary basemap takes as ground.
+    /// </summary>
+    internal static TilingScheme SchemeOf(PublishedCoverage coverage) =>
+        coverage.Elevation ? TilingScheme.WebMercator() : TilingScheme.For(coverage.Info);
+
+    /// <summary>
+    /// How many of the Web Mercator levels an elevation surface publishes — ADR-182: through the first finer than its
+    /// own pixels, and no further. With all 24 a scene asked for heights at 2 cm from a 30 m model, reading a tile per
+    /// query for nothing; Esri's Terrain3D publishes 17 for the same reason.
+    /// </summary>
+    private static int SurfaceLevels(TilingScheme scheme, Envelope stated, CoverageInfo info)
+    {
+        double native = stated.Width / info.Width;
+        int coarser = 0;
+
+        while (coarser < scheme.Levels.Count - 1 && scheme.Levels[coarser + 1].Resolution >= native)
+        {
+            coarser++;
+        }
+
+        return Math.Min(scheme.Levels.Count, coarser + 2);
+    }
+
     /// <summary>The scheme, in the shape a client reads it in.</summary>
     /// <param name="scheme">The scheme.</param>
+    /// <param name="format">What a tile is: PNG for imagery, LERC for an elevation surface (ADR-182).</param>
+    /// <param name="levels">How many of its levels to publish, coarsest first.</param>
     /// <returns>An <c>tileInfo</c> object.</returns>
     /// <remarks>
     /// <b><c>format</c> is PNG because a tile may be transparent</b>, which is the same
@@ -1794,16 +1876,17 @@ internal static partial class ImageServerEndpoints
     /// <c>compressionQuality</c> is stated as zero rather than omitted, which is how every
     /// ArcGIS scheme states *not applicable* for a lossless format.
     /// </remarks>
-    private static object TileInfo(TilingScheme scheme) => new
+    private static object TileInfo(TilingScheme scheme, string format, int levels) => new
     {
         rows = scheme.TileSize,
         cols = scheme.TileSize,
         dpi = (int)TilingScheme.Dpi,
-        format = "PNG",
+        format,
         compressionQuality = 0,
         origin = new { x = scheme.OriginX, y = scheme.OriginY },
         spatialReference = new { wkid = scheme.Srid, latestWkid = scheme.Srid },
         lods = scheme.Levels
+            .Take(levels)
             .Select(l => new { level = l.Level, resolution = l.Resolution, scale = l.Scale })
             .ToArray(),
     };
@@ -2317,12 +2400,16 @@ internal static partial class ImageServerEndpoints
     private static async Task KeyPropertiesAsync(
         HttpContext context, string serviceName, ICoverageCatalog coverages, CancellationToken cancellation)
     {
-        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is null)
+        if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
         {
             return;
         }
 
-        await Results.Ok(new { }).ExecuteAsync(context).ConfigureAwait(false);
+        // ADR-182: ArcGIS's raster key property for what the values are; said only when this server knows it.
+        await (coverage.Elevation
+                ? Results.Text("{\"DataType\":\"Elevation\"}", "application/json")
+                : (IResult)Results.Ok(new { }))
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>

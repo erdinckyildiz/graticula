@@ -67,6 +67,9 @@ internal static partial class CoverageAdminEndpoints
 
         // ADR-148: ArcGIS's Download capability, on or off.
         app.MapPut("/admin/coverages/{name}/download", SetDownloadAsync);
+
+        // ADR-182: an elevation surface, which a 3D scene takes as its ground.
+        app.MapPut("/admin/coverages/{name}/elevation", SetElevationAsync);
         app.MapGet("/admin/coverages", ListAsync);
 
         // <b>Here rather than on `/admin/services`, and sharing deliberately stays
@@ -1015,6 +1018,46 @@ internal static partial class CoverageAdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>What <c>PUT …/elevation</c> reads — ADR-182.</summary>
+    /// <param name="Elevation">Whether the image service is an elevation surface.</param>
+    internal sealed record ElevationRequest(bool Elevation);
+
+    /// <summary>
+    /// Makes an image service an elevation surface or stops it being one — ADR-182; whoever manages it may. One band only:
+    /// a surface is one height a place.
+    /// </summary>
+    private static async Task SetElevationAsync(
+        HttpContext context, string name, string? folder, ElevationRequest body, ICoverageCatalog coverages,
+        IAuditLog audit, CancellationToken cancellation)
+    {
+        string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        if (await ManagedAsync(context, coverages, name, at, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            return;
+        }
+
+        if (body.Elevation && coverage.Info.Bands.Count != 1)
+        {
+            await Refuse(context, 400,
+                $"'{Qualify(name, at)}' has {coverage.Info.Bands.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
+                + "bands, and an elevation surface is one height a place: one band.").ConfigureAwait(false);
+            return;
+        }
+
+        await coverages.SetElevationAsync(at, name, body.Elevation, cancellation).ConfigureAwait(false);
+        await RecordAsync(context, audit, "coverage.elevation", Qualify(name, at), new { elevation = body.Elevation }, cancellation)
+            .ConfigureAwait(false);
+        await Results.Ok(new
+        {
+            name = Qualify(name, at),
+            elevation = body.Elevation,
+            note = body.Elevation
+                ? "Served as an elevation surface: LERC tiles in the Web Mercator scheme, which an ArcGIS 3D scene takes as its ground."
+                : "Served as imagery: PNG tiles in its own reference's scheme.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
     /// <summary>What <c>PUT …/style</c> reads.</summary>
     /// <param name="Stretch">auto (from the data), full (the format's range) or fixed.</param>
     /// <param name="Minimum">The low end of a fixed stretch.</param>
@@ -1076,6 +1119,8 @@ internal static partial class CoverageAdminEndpoints
             uploaded = Uploaded(settings, coverage.Path),
             // ADR-148: whether everyone it is shared with may download its file.
             download = coverage.Download,
+            // ADR-182: whether it is served as an elevation surface.
+            elevation = coverage.Elevation,
             // ADR-140: how many images it was made of — a mosaic's delete takes them all.
             images = Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(coverage.Path) && File.Exists(coverage.Path)
                 ? Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(coverage.Path).Count

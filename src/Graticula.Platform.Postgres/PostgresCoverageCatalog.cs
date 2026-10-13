@@ -38,7 +38,8 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         s.created_at, s.updated_at,
         (select coalesce(array_agg(gi.group_id), '{}')
            from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
-        s.description, s.tags, s.content_folder_id, c.download, c.images, c.classes, s.ogc_off, s.ogc_fees, s.ogc_access_constraints, s.ogc_inspire
+        s.description, s.tags, s.content_folder_id, c.download, c.images, c.classes, s.ogc_off, s.ogc_fees, s.ogc_access_constraints, s.ogc_inspire,
+        c.elevation
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -339,6 +340,29 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetElevationAsync(
+        string? folder, string serviceName, bool elevation, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update coverage c
+               set elevation = @elevation
+              from service s
+             where c.service_id = s.id
+               and lower(s.name) = lower(@name)
+               and coalesce(s.folder, '') = coalesce(@folder, '')
+            """);
+
+        command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+        command.Parameters.AddWithValue("elevation", elevation);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> ReplaceImageAsync(
         string? folder, string serviceName, string path, CoverageInfo info, CancellationToken cancellationToken)
     {
@@ -505,6 +529,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             OgcFees = reader.IsDBNull(33) ? null : reader.GetString(33),
             OgcAccessConstraints = reader.IsDBNull(34) ? null : reader.GetString(34),
             Inspire = Graticula.Catalog.InspireSettings.Parse(reader.IsDBNull(35) ? null : reader.GetString(35)),
+            Elevation = !reader.IsDBNull(36) && reader.GetBoolean(36),
         };
     }
 

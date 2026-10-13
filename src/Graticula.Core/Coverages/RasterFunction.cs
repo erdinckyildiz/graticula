@@ -277,6 +277,19 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
             JsonElement arguments = root.TryGetProperty("rasterFunctionArguments", out JsonElement given)
                 && given.ValueKind == JsonValueKind.Object ? given : default;
 
+            // A function over another function — Hillshade over Mask — was applied to the image and the inner one dropped
+            // (found 2026-10-13 drawing a masked hillshade for the 3D viewer: the sea was shaded). One function at a time
+            // is what this reads, so a chain is refused rather than half-applied. Stretch over a function is a display
+            // rule and is read before this (ADR-151).
+            if (Find(arguments, "Raster") is { ValueKind: JsonValueKind.Object } inner
+                && inner.TryGetProperty("rasterFunction", out JsonElement innerName) && innerName.ValueKind == JsonValueKind.String
+                && innerName.GetString() is { Length: > 0 } chained && !chained.Equals("None", StringComparison.OrdinalIgnoreCase))
+            {
+                error = $"`renderingRule` applies {name} over {chained}, and this image service applies one raster function "
+                    + "to the image itself, not one over another. Refused rather than drawn with the inner one left out.";
+                return false;
+            }
+
             if (kind is RasterFunctionKind.Ndvi or RasterFunctionKind.BandArithmetic or RasterFunctionKind.ExtractBand)
             {
                 return TryBandFunction(kind, arguments, out function, out error);

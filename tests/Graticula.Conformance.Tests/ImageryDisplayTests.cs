@@ -279,6 +279,99 @@ public sealed class ImageryDisplayTests : ArcGisClient
         }
     }
 
+    [Fact]
+    public async Task An_elevation_surface_is_served_as_a_3D_scene_takes_its_ground()
+    {
+        // ADR-182, measured first in a headless SceneView: the JS SDK opens an image service as ground when its scheme
+        // says LERC and its cacheType says Elevation, asks tiles in Web Mercator, decodes them as LERC 1 only, compares a
+        // point with fullExtent in the scheme's metres, and asks tilemap blocks past the grid's edge.
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_surf_{Guid.NewGuid():N}"[..16];
+        string colour = $"zz_surc_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        try
+        {
+            foreach ((string n, byte[] file) in new[] { (name, Elevation()), (colour, Elevation(Side, bands: 3)) })
+            {
+                using MultipartFormDataContent form = new();
+                form.Add(new ByteArrayContent(file), "file", "dem.tif");
+                form.Add(new StringContent(n), "name");
+                (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+                Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {Encoding.UTF8.GetString(madeBody)}");
+            }
+
+            // Imagery until its owner says otherwise.
+            JsonElement before = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement;
+            Assert.Equal("PNG", before.GetProperty("tileInfo").GetProperty("format").GetString());
+            Assert.Equal("esriImageServiceDataTypeGeneric", before.GetProperty("serviceDataType").GetString());
+
+            (HttpStatusCode refused, byte[] why) = await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{colour}/elevation?folder=hosted",
+                new StringContent("{\"elevation\":true}", Encoding.UTF8, "application/json"));
+            Assert.True(refused == HttpStatusCode.BadRequest && Encoding.UTF8.GetString(why).Contains("one band", StringComparison.Ordinal),
+                $"Three bands made a surface: {(int)refused} {Encoding.UTF8.GetString(why)}");
+
+            (HttpStatusCode set, byte[] setBody) = await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{name}/elevation?folder=hosted",
+                new StringContent("{\"elevation\":true}", Encoding.UTF8, "application/json"));
+            Assert.True(set == HttpStatusCode.OK, $"Making it a surface answered {(int)set}: {Encoding.UTF8.GetString(setBody)}");
+
+            JsonElement doc = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement;
+            JsonElement tileInfo = doc.GetProperty("tileInfo");
+            Assert.Equal("esriImageServiceDataTypeElevation", doc.GetProperty("serviceDataType").GetString());
+            Assert.Equal("Elevation", doc.GetProperty("cacheType").GetString());
+            Assert.Equal("LERC", tileInfo.GetProperty("format").GetString());
+            Assert.Equal(3857, tileInfo.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
+            Assert.Equal(3857, doc.GetProperty("fullExtent").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+            Assert.Equal(30 * 20037508.342789244 / 180, doc.GetProperty("fullExtent").GetProperty("xmin").GetDouble(), 0);
+            Assert.Equal(4326, doc.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+            // Published through the first level finer than its own pixels, not all 24: this model's are 0.01° — about
+            // 1,470 Mercator metres at its latitude — so level 7 (1,223 m) is the last, nine levels.
+            int levels = tileInfo.GetProperty("lods").GetArrayLength();
+            Assert.Equal(9, levels);
+
+            Assert.Contains("\"DataType\":\"Elevation\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get, $"{service}/keyProperties?f=json")).Body),
+                StringComparison.Ordinal);
+
+            // The tile over the model at the finest level published: LERC 1, one sample past each edge.
+            int z = levels - 1;
+            double lon = 30.32, lat = 40.68;
+            int column = (int)((lon + 180) / 360 * (1 << z));
+            int row = (int)((1 - (Math.Log(Math.Tan(lat * Math.PI / 180) + (1 / Math.Cos(lat * Math.PI / 180))) / Math.PI)) / 2 * (1 << z));
+            byte[] tile = (await SendAsync(root, token!, HttpMethod.Get, $"{service}/tile/{z}/{row}/{column}")).Body;
+            Assert.Equal("CntZImage ", Encoding.ASCII.GetString(tile, 0, Math.Min(10, tile.Length)));
+            Assert.Equal((257, 257), (BitConverter.ToInt32(tile, 22), BitConverter.ToInt32(tile, 18)));
+
+            // A block from the grid's corner past its edge comes back whole, the cells past it empty.
+            JsonElement block = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}/tilemap/1/0/0/32/32?f=json")).Body).RootElement;
+            Assert.Equal(1024, block.GetProperty("data").GetArrayLength());
+            // Level 1 is two by two: the model is in row 0, column 1, the north-east quarter.
+            JsonElement cells = block.GetProperty("data");
+            Assert.Equal((0, 1, 0), (cells[0].GetInt32(), cells[1].GetInt32(), cells[2].GetInt32()));
+            Assert.Equal(0, block.GetProperty("data")[33].GetInt32());    // row 1, column 1: the south-east quarter, no model
+
+            Assert.Contains("scene=1", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=html")).Body),
+                StringComparison.Ordinal);
+
+            // And back to imagery.
+            await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{name}/elevation?folder=hosted",
+                new StringContent("{\"elevation\":false}", Encoding.UTF8, "application/json"));
+            Assert.Equal("PNG", JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body).RootElement
+                .GetProperty("tileInfo").GetProperty("format").GetString());
+        }
+        finally
+        {
+            foreach (string n in new[] { name, colour })
+            {
+                (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{n}?folder=hosted");
+                Assert.Equal(HttpStatusCode.OK, removed);
+            }
+        }
+    }
+
     private static int Paeth(int a, int b, int c)
     {
         int p = a + b - c, pa = Math.Abs(p - a), pb = Math.Abs(p - b), pc = Math.Abs(p - c);

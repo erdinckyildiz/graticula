@@ -4626,9 +4626,11 @@ h4.spaced { margin-top: 24px; }
 
 /* Settings › General › Download (ADR-148): the box in its own column, the text hanging beside it, a row tall enough to
    touch; and room before the danger panel below (the ux review, 2026-10-03). */
-#generalDownload { margin-block: 20px 24px; }
-#generalDownload .check-row { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; min-height: 32px; }
-#generalDownload #imageDownloadHint { padding-left: 28px; }
+/* ADR-182: the elevation surface's box beside it, styled as one — it had none of this and its link touched the next
+   heading (the ux review, 2026-10-13). */
+#generalDownload, #generalElevation { margin-block: 20px 24px; }
+#generalDownload .check-row, #generalElevation .check-row { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: center; min-height: 32px; }
+#generalDownload #imageDownloadHint, #generalElevation #imageElevationHint, #generalElevation #imageElevationSaid { padding-left: 28px; }
 /* A long address wraps rather than being cut at the card's edge at 390 px. */
 #geometryServiceSource, #geometryServiceSays { overflow-wrap: anywhere; }
 /* Add images while it works: still focusable, plainly busy. */
