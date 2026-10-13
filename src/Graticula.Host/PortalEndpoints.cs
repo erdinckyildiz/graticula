@@ -1283,11 +1283,15 @@ internal static class PortalEndpoints
         }
 
         // Saved web maps, under the same query and the same sharing rule (ADR-079 §5.3).
+        //
+        // <b>With the groups they are shared into, since 2026-10-13</b> (D-292). A map and an image service
+        // carry `SharedWith` as a service does, and passing none here made `group:` match services alone, so a
+        // group member looking for a map shared with the group found nothing.
         foreach (WebMap map in await ReadableMapsAsync(context, maps, cancellation).ConfigureAwait(false))
         {
             object item = MapItem(context, map);
 
-            if (PortalQuery.Matches(item, query))
+            if (PortalQuery.Matches(item, query, map.SharedWith))
             {
                 results.Add(new PortalListed(map.Id, item, Map: map));
             }
@@ -1298,7 +1302,7 @@ internal static class PortalEndpoints
         {
             object item = CoverageItem(context, coverage);
 
-            if (PortalQuery.Matches(item, query))
+            if (PortalQuery.Matches(item, query, coverage.SharedWith))
             {
                 results.Add(new PortalListed(CoverageItemId(coverage), item, Coverage: coverage));
             }

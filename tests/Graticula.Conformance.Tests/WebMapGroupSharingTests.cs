@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -108,6 +109,19 @@ public sealed class WebMapGroupSharingTests : ArcGisClient
 
             (_, string detail) = await SendAsync(root, admin, HttpMethod.Get, $"/admin/groups/{group}");
             Assert.Contains($"\"mapId\":\"{map}\"", detail.Replace(" ", "", StringComparison.Ordinal), StringComparison.Ordinal);
+
+            // <b>And a group search finds it, for the member</b> — D-292: `group:` passed groups for services alone,
+            // so Pro's and the Python API's way of listing a group's content never found a map in it.
+            // The id is the portal's, read where Pro reads it: the member's own groups.
+            (_, string groups) = await SendAsync(root, memberToken, HttpMethod.Get, "/sharing/rest/community/groups?f=json");
+            string groupId = JsonDocument.Parse(groups).RootElement.GetProperty("results").EnumerateArray()
+                .First(g => g.GetProperty("title").GetString() == group).GetProperty("id").GetString()!;
+            (_, string inGroup) = await SendAsync(root, memberToken, HttpMethod.Get,
+                $"/sharing/rest/search?q={Uri.EscapeDataString($"group:{groupId}")}&num=100&f=json");
+            Assert.True(
+                JsonDocument.Parse(inGroup).RootElement.GetProperty("results").EnumerateArray()
+                    .Any(r => r.GetProperty("id").GetString() == map),
+                $"q=group:{groupId} does not list the map shared into that group: {inGroup}");
 
             // Taken out again, the member loses it.
             (HttpStatusCode unshared, _) = await SendAsync(root, admin, HttpMethod.Delete, $"/admin/groups/{group}/maps/{map}");

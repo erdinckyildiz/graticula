@@ -193,6 +193,15 @@ public sealed class ImageryGroupSharingTests : ArcGisClient
             (_, string hidden) = await SendAsync(root, strangerToken, HttpMethod.Get, search);
             Assert.False(Lists(hidden, name), $"Portal search lists the image service for a stranger: {hidden}");
 
+            // And by the group itself, which is how Pro and the Python API list a group's content — D-292.
+            // The id is the portal's, read where Pro reads it: the member's own groups.
+            (_, string groups) = await SendAsync(root, memberToken, HttpMethod.Get, "/sharing/rest/community/groups?f=json");
+            string groupId = JsonDocument.Parse(groups).RootElement.GetProperty("results").EnumerateArray()
+                .First(g => g.GetProperty("title").GetString() == group).GetProperty("id").GetString()!;
+            (_, string inGroup) = await SendAsync(root, memberToken, HttpMethod.Get,
+                $"/sharing/rest/search?q={Uri.EscapeDataString($"group:{groupId}")}&num=100&f=json");
+            Assert.True(Lists(inGroup, name), $"q=group:{groupId} does not list the image service shared into it: {inGroup}");
+
             (HttpStatusCode unshared, _) = await SendAsync(root, admin, HttpMethod.Delete, $"/admin/groups/{group}/items/{name}?folder=hosted");
             Assert.Equal(HttpStatusCode.OK, unshared);
             (_, string after) = await SendAsync(root, memberToken, HttpMethod.Get, document);
