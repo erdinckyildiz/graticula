@@ -1700,10 +1700,13 @@ internal static class PortalEndpoints
             title = coverage.ServiceName,
             name = coverage.ServiceName,
             type = "Image Service",
-            typeKeywords = context.RequestServices.GetService(typeof(HostSettings)) is HostSettings settings
-                && CoverageAdminEndpoints.Uploaded(settings, coverage.Path)
-                    ? [.. ImageServiceKeywords, "Hosted Service"]
-                    : ImageServiceKeywords,
+            // ADR-182: an elevation surface says so, as Esri's Terrain3D item does — "Elevation 3D Layer" is the keyword
+            // ArcGIS Pro's elevation-source browser and the JavaScript SDK's portal-item loader recognise one by.
+            typeKeywords = (string[])[
+                .. ImageServiceKeywords,
+                .. (coverage.Elevation ? ["Elevation 3D Layer"] : Array.Empty<string>()),
+                .. (context.RequestServices.GetService(typeof(HostSettings)) is HostSettings settings
+                    && CoverageAdminEndpoints.Uploaded(settings, coverage.Path) ? ["Hosted Service"] : Array.Empty<string>())],
             description = coverage.Description,
             snippet = coverage.Description,
             accessInformation = coverage.CopyrightText,

@@ -339,6 +339,11 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.Contains("\"DataType\":\"Elevation\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get, $"{service}/keyProperties?f=json")).Body),
                 StringComparison.Ordinal);
 
+            // Its portal item says so too, as Esri's Terrain3D item does.
+            JsonElement item = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&f=json")).Body)
+                .RootElement.GetProperty("results").EnumerateArray().First(r => r.GetProperty("name").GetString() == name);
+            Assert.Contains("Elevation 3D Layer", item.GetProperty("typeKeywords").EnumerateArray().Select(k => k.GetString()));
+
             // The tile over the model at the finest level published: LERC 1, one sample past each edge.
             int z = levels - 1;
             double lon = 30.32, lat = 40.68;
