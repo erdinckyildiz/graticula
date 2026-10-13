@@ -1151,8 +1151,14 @@ internal static partial class WmsEndpoints
           looked complete — the failure ADR-070 §2 named when it refused to lower the ceiling. The visible range is
           what bounds a drawn map now. The ceiling stays what one query may read, so it is the page size, and the
           pages follow one another in identity order, which every provider gives a limited read (D-21).
+
+          <b>And a whole drawing's pages are ten times the ceiling — owner decision 2026-10-13.</b> Each page is
+          sorted afresh, so a wide view of a dense layer paid the sort once per 50,000 features — seven times, about
+          a second and a half each. A drawing reads `FeatureQuery.MaximumDrawingLimit` at a time instead; nothing a
+          client is answered with is loosened, because only a query built for drawing may ask for that many, and
+          the statement timeout is what bounds one read.
         */
-        int page = limit;
+        int page = whole ? FeatureQuery.MaximumDrawingLimit : limit;
 
         FeatureQuery Page(int offset) => new(
             limit: page,
@@ -1163,7 +1169,8 @@ internal static partial class WmsEndpoints
             outSrid: srid == layer.Definition.Srid ? null : srid,
             filterSrid: srid == layer.Definition.Srid ? null : srid,
             maxAllowableOffset: transform.UnitsPerPixel,
-            where: where);
+            where: where,
+            drawing: whole);
 
         /*
           <b>What the clip above could not reach, drawn as nothing rather than refused.</b>

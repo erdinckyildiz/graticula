@@ -31,6 +31,18 @@ public sealed class FeatureQuery
     /// </remarks>
     public const int MaximumLimit = 50_000;
 
+    /// <summary>
+    /// The most one read for a drawing may return — a drawn map's page, not a cap on what it draws.
+    /// </summary>
+    /// <remarks>
+    /// <b>Owner decision 2026-10-13.</b> A drawn map reads every feature in view (2026-10-10), page after page in
+    /// identity order, and each page is sorted afresh: at the query ceiling of 50,000 a wide view of a dense layer
+    /// paid that sort seven times, about one and a half seconds each. Drawing reads in pages ten times larger; the
+    /// statement timeout is what bounds one of them. Only a query built with <c>drawing: true</c> may ask for more
+    /// than <see cref="MaximumLimit"/>, so nothing that answers a client is loosened.
+    /// </remarks>
+    public const int MaximumDrawingLimit = 500_000;
+
     /// <summary>Creates a query.</summary>
     /// <param name="limit">Maximum features to return.</param>
     /// <param name="boundingBox">
@@ -82,6 +94,9 @@ public sealed class FeatureQuery
     /// The reference the filter geometry is in, or null when it is already the
     /// layer's. See <see cref="FilterSrid"/>.
     /// </param>
+    /// <param name="drawing">
+    /// Whether this is one page of a drawn map, which may ask for up to <see cref="MaximumDrawingLimit"/>.
+    /// </param>
     public FeatureQuery(
         int limit,
         Envelope? boundingBox = null,
@@ -99,10 +114,11 @@ public sealed class FeatureQuery
         double? maxAllowableOffset = null,
         int? outSrid = null,
         ParsedWhere? where = null,
-        int? filterSrid = null)
+        int? filterSrid = null,
+        bool drawing = false)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumLimit);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, drawing ? MaximumDrawingLimit : MaximumLimit);
         ArgumentOutOfRangeException.ThrowIfNegative(offset);
 
         Limit = limit;

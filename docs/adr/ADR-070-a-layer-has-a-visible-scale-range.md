@@ -95,8 +95,15 @@ Refused otherwise, in the endpoint and by a check constraint.
   on both faces. The range is now the only bound on a drawn map; a thumbnail and a composition preview
   still sample, and say so. The same day the MapServer **layer** document was found stating `0` and `0`
   while its service document and legend carried the range; it carries it now.)*
+  *(Amended 2026-10-13 by owner decision: **a drawn map reads in pages of 500,000, not of the record ceiling.**
+  Each page was sorted afresh, so a wide view of a dense layer paid the sort once per 50,000 features. A query built
+  for drawing may now ask for `FeatureQuery.MaximumDrawingLimit` at a time — nothing a client is answered with is
+  loosened — and the statement timeout bounds one read; there is still no cap on what a drawn map draws. Measured
+  on the local bench with 927,350 Istanbul polygons at full extent, 1600 × 1000: **65.5 s before, 10.5 s after**,
+  three runs each, and the two PNGs byte-identical
+  ([benchmarks/map-rendering](../../benchmarks/map-rendering/RESULTS.md), *Drawing in pages*).)*
 - **Where a map opens.** *(Added 2026-10-12, under the owner's delegation of that night's decisions — "kararları
-  ver" — and listed for confirmation.)* A layer whose whole extent is outside its range has its FeatureServer and
+  ver" — and listed for confirmation; **confirmed by the owner 2026-10-13**.)* A layer whose whole extent is outside its range has its FeatureServer and
   MapServer documents' `initialExtent` moved to an 800×600 picture inside the range, centred on the densest tile at
   the level the range begins (`VisibleRangeSuggestion.DensestPlaceAsync`, the same counts the suggestion makes);
   `fullExtent` is unchanged. Framed one level inside the limit, because the densest place at the limit is the slowest

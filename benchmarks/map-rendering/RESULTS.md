@@ -93,3 +93,21 @@ account for.
 expensive half and built the pipeline to avoid allocating per feature for exactly that
 reason. The buffers were the right call and the reason was wrong — the expense is
 upstream, in the query. A future optimisation belongs there, not in the canvas.
+
+## Drawing in pages of 500,000 — 2026-10-13
+
+**What was measured.** A drawn map reads every feature in its view, page after page in identity order, and each page
+is sorted afresh. Until this, the page was the record ceiling, 50,000. [`drawing-pages.py`](drawing-pages.py)
+registers the local bench database as a data source, publishes `public.polygons` (927,350 Istanbul polygons, 3857,
+GiST index), clears its visible range so the whole layer is in view, and times MapServer export at full extent,
+1600 × 1000 PNG. The same catalogue and database were served by two builds: v1.0.344 on 18496, and the change
+(drawing pages of `FeatureQuery.MaximumDrawingLimit`, 500,000) on 18495.
+
+| Build | Page | Run 1 | Run 2 | Run 3 |
+|---|---|---|---|---|
+| v1.0.344 | 50,000 | 65.42 s | 65.59 s | 65.55 s |
+| this change | 500,000 | 10.12 s | 10.66 s | 10.56 s |
+
+The two PNGs are byte-identical (SHA-256 `d2c11bd6e295bb89…`), so the sixfold difference is the sort, paid nineteen
+times against twice, and nothing about what is drawn. Ten seconds for a million polygons is still slow; it is now
+the drawing, not the reading.

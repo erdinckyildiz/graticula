@@ -543,7 +543,7 @@ which job needs stating before both grow.
    new file encodes HTML by hand. **Left, by name, in that test's list**: the OAuth sign-in pages, their
    own renderer with `System.Text.Encodings.Web`'s encoder, which writes non-ASCII as numeric references
    where `WebUtility` does not, on pages whose title ArcGIS clients read — a byte change nothing local
-   can check; and WMS GetFeatureInfo's `text/html`, in a project the host's type is not visible from.
+   can check, **postponed by owner decision 2026-10-13 until a sign-in through ArcGIS Pro can be tried**; and WMS GetFeatureInfo's `text/html`, in a project the host's type is not visible from.
 4. **The relationship with [ADR-020](ADR-020-admin-console-and-service-status.md)
    is stated** before the console ships anything that overlaps this directory.
    Two browsable surfaces with no boundary is how both end up half-built.
