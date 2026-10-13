@@ -23,7 +23,12 @@
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
     <PackageVersion Include="ITfoxtec.Identity.Saml2" Version="4.21.0" />
-    <PackageVersion Include="System.Security.Cryptography.Xml" Version="9.0.20" />
+    <!-- 9.0.21, 2026-10-14: GHSA-846f-f764-76mx (Pkcs) and GHSA-r955-8q5j-3h83, -7hqp-7c5m-4vq6 and -c399-9853-6jmj
+         (Xml), four denial-of-service advisories published 2026-10-13 against 9.0.20, which the security workflow's
+         dependency check failed on the next morning. Pkcs comes through Xml and ITfoxtec.Identity.Saml2 and is pinned
+         here so that the transitive copy moves with it. -->
+    <PackageVersion Include="System.Security.Cryptography.Xml" Version="9.0.21" />
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="9.0.21" />
     <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
     <PackageVersion Include="System.DirectoryServices.Protocols" Version="9.0.9" />
   </ItemGroup>
