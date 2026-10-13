@@ -2563,9 +2563,12 @@ public static class Program
         // which was the same rule until GeoParquet layers gained tiles that day (ADR-066 §9,
         // amended): their VectorTileServer answered and the directory never listed it, so a
         // client browsing for it could not find what a client holding the URL could use.
+        // <b>And the owner's switches, since 2026-10-13</b> (D-291): the data deciding a face exists
+        // is half of it, and a face turned off answers 404 at its door, so listing it was a broken
+        // link and a disclosure ADR-031 condition 2 forbids.
         List<PublishedService> tileable =
         [
-            .. visible.Where(ServiceFaces.Tileable),
+            .. visible.Where(ServiceFaces.AnswersTiles),
         ];
 
         // <b>Every service with a drawable layer also has a MapServer</b>, added
@@ -2574,7 +2577,12 @@ public static class Program
         // argument the WFS link on a service page made three commits earlier.
         List<PublishedService> drawable =
         [
-            .. visible.Where(ServiceFaces.Drawable),
+            .. visible.Where(ServiceFaces.AnswersMap),
+        ];
+
+        List<PublishedService> featured =
+        [
+            .. visible.Where(ServiceFaces.AnswersFeatures),
         ];
 
         /*
@@ -2605,7 +2613,7 @@ public static class Program
 
         List<(string Name, string Type)> everything =
         [
-            .. visible.Select(s => (s.QualifiedName, Type: "FeatureServer")),
+            .. featured.Select(s => (s.QualifiedName, Type: "FeatureServer")),
             .. drawable.Select(s => (s.QualifiedName, Type: "MapServer")),
             .. tileable.Select(s => (s.QualifiedName, Type: "VectorTileServer")),
             .. imagery.Select(c => (c.QualifiedName, Type: "ImageServer")),
@@ -2651,7 +2659,7 @@ public static class Program
         }
 
         return Results.Ok(FeatureServerMetadataWriter.Catalogue(
-            visible.Select(s => s.Name),
+            featured.Select(s => s.Name),
             folders,
             folder,
             tileable.Select(s => s.Name),

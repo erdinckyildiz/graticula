@@ -1932,18 +1932,28 @@ internal static class PortalEndpoints
     /// </remarks>
     /// <param name="service">The service.</param>
     /// <returns>FeatureServer or VectorTileServer, then MapServer and VectorTileServer where it answers them.</returns>
+    /// <remarks>
+    /// <b>Only faces that answer, since 2026-10-13</b> (D-291). The primary face was listed unconditionally and the
+    /// other two from the data alone, so a service whose owner turned its features off was an item whose address
+    /// answered 404, and OGC API Records' <c>describes</c> link followed it there. The primary face's item keeps the
+    /// service's own id when it is listed, and is simply absent when its face is off: the id resolves to what the
+    /// face's own door would say.
+    /// </remarks>
     internal static IEnumerable<string> FacesOf(PublishedService service)
     {
         string primary = PrimaryFace(service);
 
-        yield return primary;
+        if (primary == "VectorTileServer" ? ServiceFaces.AnswersTiles(service) : ServiceFaces.AnswersFeatures(service))
+        {
+            yield return primary;
+        }
 
-        if (primary != "MapServer" && ServiceFaces.Drawable(service))
+        if (primary != "MapServer" && ServiceFaces.AnswersMap(service))
         {
             yield return "MapServer";
         }
 
-        if (primary != "VectorTileServer" && ServiceFaces.Tileable(service))
+        if (primary != "VectorTileServer" && ServiceFaces.AnswersTiles(service))
         {
             yield return "VectorTileServer";
         }

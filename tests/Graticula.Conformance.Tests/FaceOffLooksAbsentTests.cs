@@ -298,6 +298,101 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// A face turned off leaves the services directory and the portal, as well as its door.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>[D-291](../../docs/architecture-debt.md).</b> The doors above refuse exactly as absent, and the two
+    /// listings went on naming the face: the directory listed a FeatureServer and a MapServer for a service whose
+    /// features were off, and a VectorTileServer whose tiles were off, and the portal made an item of each. Every
+    /// one was a link to a 404 — and an anonymous directory saying a service exists is the disclosure ADR-031
+    /// condition 2 makes the refusal identical to prevent.
+    /// </para>
+    /// <para>
+    /// <b>Both switches, because the listings read them from different rules.</b> MapServer goes with the feature
+    /// face (its door asks <c>AllowsFeatures</c>), and the tile face answers to its own switch alone.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task A_face_turned_off_is_not_listed_by_the_directory_or_the_portal()
+    {
+        string root = await RequireServerAsync();
+        string? service = await AnyTileServiceNameAsync();
+
+        Assert.False(
+            service is null,
+            "GRATICULA_TEST_TILE_SERVICE is not set, so this test FAILS rather than skips: it needs a service "
+            + "that answers all three layer faces, so that turning each off has something to remove.");
+
+        string[] parts = service!.Split('/');
+        string? folder = parts.Length > 1 ? parts[0] : null;
+        string bare = parts[^1];
+
+        // The faces listed while everything is on, read rather than assumed: the assertions below are about
+        // what disappears, and a face that was never listed would pass them for the wrong reason.
+        Assert.Equal(
+            ["FeatureServer", "MapServer", "VectorTileServer"],
+            await DirectoryFacesAsync(folder, service));
+        Assert.Equal(
+            ["FeatureServer", "MapServer", "VectorTileServer"],
+            await PortalFacesAsync(bare, service));
+
+        string before = await CapabilitiesAsync(root, bare, folder);
+
+        try
+        {
+            await SetFeatureFaceAsync(root, bare, folder, serves: false);
+
+            Assert.Equal(["VectorTileServer"], await DirectoryFacesAsync(folder, service));
+            Assert.Equal(["VectorTileServer"], await PortalFacesAsync(bare, service));
+
+            await RestoreAsync(root, bare, before);
+            await SetTileFaceAsync(root, bare, folder, serves: false);
+
+            Assert.Equal(["FeatureServer", "MapServer"], await DirectoryFacesAsync(folder, service));
+            Assert.Equal(["FeatureServer", "MapServer"], await PortalFacesAsync(bare, service));
+        }
+        finally
+        {
+            await RestoreAsync(root, bare, before);
+        }
+
+        Assert.Equal(
+            ["FeatureServer", "MapServer", "VectorTileServer"],
+            await DirectoryFacesAsync(folder, service));
+    }
+
+    /// <summary>The types the services directory lists for one service, sorted.</summary>
+    private async Task<List<string>> DirectoryFacesAsync(string? folder, string qualified)
+    {
+        JsonElement directory = await GetJsonAsync(folder is null ? "/rest/services" : $"/rest/services/{folder}");
+
+        return
+        [
+            .. directory.GetProperty("services").EnumerateArray()
+                .Where(s => string.Equals(s.GetProperty("name").GetString(), qualified, StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.GetProperty("type").GetString()!)
+                .Order(StringComparer.Ordinal),
+        ];
+    }
+
+    /// <summary>The faces the portal's search makes items of for one service, sorted.</summary>
+    private async Task<List<string>> PortalFacesAsync(string bare, string qualified)
+    {
+        JsonElement found = await GetJsonAsync($"/sharing/rest/search?q={Uri.EscapeDataString(bare)}&num=100");
+        string marker = $"/rest/services/{qualified}/";
+
+        return
+        [
+            .. found.GetProperty("results").EnumerateArray()
+                .Select(item => item.TryGetProperty("url", out JsonElement url) ? url.GetString() : null)
+                .Where(url => url is not null && url.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                .Select(url => url![(url!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) + marker.Length)..])
+                .Order(StringComparer.Ordinal),
+        ];
+    }
+
     /// <summary>A service that serves tiles, or null.</summary>
     private static Task<string?> AnyTileServiceNameAsync()
     {
