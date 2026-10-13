@@ -87,6 +87,10 @@ public sealed class ImageryUploadTests : ArcGisClient
             Assert.Contains("ortho", tags);
             Assert.Contains("Hosted Service", item.GetProperty("typeKeywords").EnumerateArray().Select(t => t.GetString()));
 
+            // And the service says it too, as a FeatureServer does: the document's description was always empty.
+            (_, string served) = await SendAsync(root, token!, HttpMethod.Get, $"/rest/services/hosted/{name}/ImageServer?f=json");
+            Assert.Equal("Orthophoto of the test square.", JsonDocument.Parse(served).RootElement.GetProperty("description").GetString());
+
             string thumbnail = item.GetProperty("thumbnail").GetString()!;
             using HttpRequestMessage picture = new(HttpMethod.Get,
                 new Uri($"{root}/sharing/rest/content/items/{item.GetProperty("id").GetString()}/info/{thumbnail}"));

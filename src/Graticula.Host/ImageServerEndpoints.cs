@@ -366,7 +366,9 @@ internal static partial class ImageServerEndpoints
             currentVersion = 10.81,
             serviceDescription = string.Empty,
             name = coverage.QualifiedName,
-            description = string.Empty,
+            // ADR-126: what its owner wrote, as the FeatureServer and MapServer documents state theirs. It was kept on the
+            // service row, given to WMS and WCS as their abstract, and left out of this document alone.
+            description = coverage.Description ?? string.Empty,
             extent = Box(info.Extent, info.Srid),
             initialExtent = Box(info.Extent, info.Srid),
             fullExtent = Box(info.Extent, info.Srid),
@@ -2436,15 +2438,77 @@ internal static partial class ImageServerEndpoints
             ? (info.Width, info.Height)
             : (info.Overviews[level - 1].Width, info.Overviews[level - 1].Height);
 
-        // Bounded, so a file with no pyramid does not read a hundred megapixels to
-        // describe itself.
-        width = Math.Min(width, 512);
-        height = Math.Min(height, 512);
-
         using ICoverageReader reader =
             await readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
 
-        return await reader.ReadAsync(level, 0, 0, width, height, cancellation).ConfigureAwait(false);
+        return await ReadWholeAsync(reader, level, width, height, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>The most samples one read of the sample asks for, every band counted.</summary>
+    private const int SampleReadBudget = 1 << 22;
+
+    /// <summary>
+    /// One resolution of a coverage, all of it, every <c>step</c>-th pixel each way so that no side passes 512.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The whole image, thinned — not its top-left corner.</b> This cut the window to 512 a side from the origin,
+    /// which is the whole image only when the coarsest overview is that small. A mosaic of four Copernicus DEM tiles
+    /// has a 900-pixel coarsest level, so its statistics described one tile: 496 m as the maximum of a service whose
+    /// Uludağ is 2,489 m, and the default stretch painted every mountain white. Everything reading the sample —
+    /// <see cref="ThroughSample"/> takes it as covering the extent — was told the same thing.
+    /// </para>
+    /// <para>
+    /// <b>Read in strips, so a file without a pyramid is bounded by memory rather than refused.</b> Where one
+    /// thinned row's source rows would pass <see cref="SampleReadBudget"/>, only the row sampled is read.
+    /// </para>
+    /// </remarks>
+    internal static async Task<CoverageWindow> ReadWholeAsync(
+        ICoverageReader reader, int level, int width, int height, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+
+        int step = Math.Max(1, (int)Math.Ceiling(Math.Max(width, height) / 512.0));
+
+        if (step == 1)
+        {
+            return await reader.ReadAsync(level, 0, 0, width, height, cancellation).ConfigureAwait(false);
+        }
+
+        int across = ((width - 1) / step) + 1;
+        int down = ((height - 1) / step) + 1;
+        int bands = reader.Info.Bands.Count;
+        double[] samples = new double[across * down * bands];
+
+        long perRow = (long)width * bands * step;
+        int rowsAtOnce = perRow > SampleReadBudget ? 1 : (int)Math.Max(1, SampleReadBudget / perRow);
+
+        for (int row = 0; row < down; row += rowsAtOnce)
+        {
+            int rows = Math.Min(rowsAtOnce, down - row);
+
+            // Consecutive source rows when they fit, so a pyramid's level is read in a few strips; the sampled row
+            // alone when they do not.
+            bool contiguous = perRow <= SampleReadBudget;
+            int top = row * step;
+            int tall = contiguous ? Math.Min(rows * step, height - top) : 1;
+
+            CoverageWindow strip = await reader.ReadAsync(level, 0, top, width, tall, cancellation).ConfigureAwait(false);
+
+            for (int r = 0; r < rows; r++)
+            {
+                int y = contiguous ? r * step : 0;
+
+                for (int c = 0; c < across; c++)
+                {
+                    int from = ((y * strip.Width) + (c * step)) * bands;
+                    int to = ((((row + r) * across) + c) * bands);
+                    Array.Copy(strip.Samples, from, samples, to, bands);
+                }
+            }
+        }
+
+        return new CoverageWindow(across, down, bands, samples);
     }
 
     /// <summary>The sample, or null when the file cannot be read now.</summary>
