@@ -509,6 +509,44 @@ internal static class PortalEndpoints
             httpsPort = PortOf(context, https: true),
             currentVersion = PortalVersion,
             access = "public",
+
+            // <b>What every ArcGIS Enterprise portal says about itself and this one did not — 2026-10-13.</b> Pro's
+            // portal browser threw a NullReferenceException building its tree (ItemBaseVM.set_DisplayName, read
+            // from Pro's own exception events) without sending a request, so whatever it lacked it had already
+            // been given: this document. These are the fields two public Enterprise 11.3 and 12.1 portals carry
+            // and this one lacked, each with the value that is true here — the gallery and Living Atlas queries
+            // empty because this portal has none of those groups, as an Enterprise portal off the internet has.
+            portalDeploymentType = "ArcGISEnterprise",
+            culture = "en",
+            units = "metric",
+            description = (string?)null,
+            thumbnail = (string?)null,
+            portalThumbnail = (string?)null,
+            hasCategorySchema = false,
+            hasClassificationSchema = false,
+            isReadOnly = false,
+            disableSignup = true,
+            commentsEnabled = false,
+            supportsSceneServices = false,
+            supports3DTilesServices = false,
+            supportsHostedNotebooks = false,
+            featuredGroups = Array.Empty<object>(),
+            homePageFeaturedContent = string.Empty,
+            homePageFeaturedContentCount = 0,
+            rotatorPanels = Array.Empty<object>(),
+            livingAtlasGroupQuery = string.Empty,
+            basemapGalleryGroupQuery = string.Empty,
+            vectorBasemapGalleryGroupQuery = string.Empty,
+            stylesGroupQuery = string.Empty,
+            symbolSetsGroupQuery = string.Empty,
+            colorSetsGroupQuery = string.Empty,
+            templatesGroupQuery = string.Empty,
+            galleryTemplatesGroupQuery = string.Empty,
+            layerTemplatesGroupQuery = string.Empty,
+            rasterFunctionTemplatesGroupQuery = string.Empty,
+            contentCategorySetsGroupQuery = string.Empty,
+            featuredItemsGroupQuery = string.Empty,
+            analysisLayersGroupQuery = string.Empty,
             user = signedIn ? Self(context, current, groups) : null,
 
             // <b>Pro asks where the geometry service is rather than assuming.</b>
@@ -688,6 +726,8 @@ internal static class PortalEndpoints
             level = "2",
             disabled = false,
             units = "metric",
+            culture = "en",
+            region = string.Empty,
 
             // <b>The same groups <see cref="GroupsAsync"/> lists, from the same
             // read.</b> This was an empty array until 2026-09-09 with a comment
@@ -1716,6 +1756,7 @@ internal static class PortalEndpoints
             accessInformation = coverage.CopyrightText,
             tags = coverage.Tags.Concat(coverage.Folder is null ? [] : new[] { coverage.Folder })
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            categories = Array.Empty<string>(),
             url = $"{Origin(context)}/rest/services/{coverage.QualifiedName}/ImageServer",
             thumbnail = $"thumbnail/{ThumbnailFile}",
             access = Access(coverage.Sharing),
@@ -1819,6 +1860,7 @@ internal static class PortalEndpoints
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = map.Snippet,
             tags = map.Tags ?? [],
+            categories = Array.Empty<string>(),
             url = (string?)null,
             access = Access(map.Sharing),
             spatialReference = (string?)null,
@@ -2112,6 +2154,9 @@ internal static class PortalEndpoints
             // ADR-111: the service's own tags; the folder stays as one, as it always was.
             tags = service.Tags.Concat(service.Folder is null ? [] : new[] { service.Folder })
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            // No organisation here defines categories (categorySchema is empty), so none is the truth — and an
+            // ArcGIS item always carries the array, which a client walks without asking whether it is there.
+            categories = Array.Empty<string>(),
             url = $"{Origin(context)}/rest/services/{service.QualifiedName}/{face}",
 
             // Relative to the item's `info/`, as a portal's is — V-50; null when there is nothing to draw.

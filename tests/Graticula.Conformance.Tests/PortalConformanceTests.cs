@@ -209,6 +209,40 @@ public sealed class PortalConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task The_portal_says_what_every_enterprise_portal_says_about_itself()
+    {
+        // <b>Pro read these before it asked anything.</b> Its portal browser threw building its tree with no
+        // request on the wire, so the gap was in this document. The strings are strings — empty where this
+        // portal has no such group — because an absent one and a null one are both what a client trips on.
+        string root = await RequireServerAsync();
+
+        string? token = await TokenAsync(root);
+
+        Assert.False(string.IsNullOrWhiteSpace(token), "no credentials, so this FAILS.");
+
+        JsonElement self = await GetJsonAsync($"/sharing/rest/portals/self?f=json&token={token}");
+
+        string[] strings =
+        [
+            "portalDeploymentType", "culture", "units", "livingAtlasGroupQuery", "basemapGalleryGroupQuery",
+            "vectorBasemapGalleryGroupQuery", "stylesGroupQuery", "symbolSetsGroupQuery", "colorSetsGroupQuery",
+            "templatesGroupQuery", "galleryTemplatesGroupQuery", "layerTemplatesGroupQuery",
+            "rasterFunctionTemplatesGroupQuery", "contentCategorySetsGroupQuery", "featuredItemsGroupQuery",
+        ];
+
+        foreach (string name in strings)
+        {
+            Assert.True(
+                self.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String,
+                $"portals/self has no string {name}");
+        }
+
+        Assert.Equal("ArcGISEnterprise", self.GetProperty("portalDeploymentType").GetString());
+        Assert.False(self.GetProperty("hasCategorySchema").GetBoolean());
+        Assert.Equal(JsonValueKind.String, self.GetProperty("user").GetProperty("culture").ValueKind);
+    }
+
+    [Fact]
     public async Task Every_user_document_names_the_organisation_its_categories_live_under()
     {
         // <b>Pro takes the organisation from the user, not from the portal.</b> The
