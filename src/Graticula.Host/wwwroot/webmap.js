@@ -177,8 +177,10 @@ function wmRedraw(container, markup) {
   const active = document.activeElement;
   const key = active && container.contains(active) ? active.dataset.focus : null;
   const fallback = active && container.contains(active) ? active.dataset.focusFallback : null;
+  const edits = wmEditsIn(container);
 
   container.innerHTML = markup;
+  wmPutEditsBack(container, edits);
 
   if (!key) return;
 
@@ -191,6 +193,79 @@ function wmRedraw(container, markup) {
 
   const other = fallback && container.querySelector(`[data-focus="${CSS.escape(fallback)}"]`);
   if (other) other.focus();
+}
+
+/** A form control's name across a redraw: its id, or a radio's group and value. */
+function wmEditKey(el) {
+  if (el.type === "radio" && el.name) return `radio:${el.name}:${el.value}`;
+  return el.id ? `id:${el.id}` : null;
+}
+
+/**
+ * What the reader typed or chose in a container and has not applied: every control whose value differs from the
+ * one its markup was drawn with, beside that markup value.
+ *
+ * <b>Why a redraw has to carry these.</b> The layer list is redrawn from the map's saved state whenever anything
+ * about a layer arrives — a thumbnail, a count, a map move — and a redraw drew every open panel from what was saved,
+ * so a pop-up's text, a title, a label expression the reader was half-way through went back to the saved value under
+ * their hands. CI caught it as a test whose typed text was gone one run in six (2026-10-13); a person loses the
+ * sentence they were writing.
+ */
+function wmEditsIn(container) {
+  const edits = [];
+  for (const el of container.querySelectorAll("input, textarea, select")) {
+    if (el.type === "file" || el.type === "hidden") continue;
+    const key = wmEditKey(el);
+    if (!key) continue;
+    if (el.type === "checkbox" || el.type === "radio") {
+      if (el.checked !== el.defaultChecked) edits.push({ key, checked: el.checked, was: el.defaultChecked });
+    } else if (el instanceof HTMLSelectElement) {
+      const was = [...el.options].map(o => o.defaultSelected).join();
+      if ([...el.options].map(o => o.selected).join() !== was) edits.push({ key, value: el.value, was });
+    } else if (el.value !== el.defaultValue) {
+      edits.push({ key, value: el.value, was: el.defaultValue, start: el.selectionStart, end: el.selectionEnd });
+    }
+  }
+  return edits;
+}
+
+/**
+ * Puts unapplied edits back after a redraw — but only where the redraw drew the control from the same saved value
+ * it was drawn from before. Where that value changed, something was applied or reset and the new markup is the truth.
+ */
+function wmPutEditsBack(container, edits) {
+  for (const edit of edits) {
+    const el = [...container.querySelectorAll("input, textarea, select")].find(e => wmEditKey(e) === edit.key);
+    if (!el) continue;
+    if ("checked" in edit) {
+      if (el.defaultChecked === edit.was) el.checked = edit.checked;
+    } else if (el instanceof HTMLSelectElement) {
+      if ([...el.options].map(o => o.defaultSelected).join() === edit.was) el.value = edit.value;
+    } else if (el.defaultValue === edit.was) {
+      el.value = edit.value;
+      if (edit.start != null && typeof el.setSelectionRange === "function") {
+        try { el.setSelectionRange(edit.start, edit.end); } catch { /* a type with no selection */ }
+      }
+    }
+  }
+
+  // A pop-up panel shows the part its chosen content mode uses (ADR-122); a restored choice has to show it too.
+  for (const chosen of container.querySelectorAll('input[type=radio][name^="popMode-"]:checked')) {
+    const panel = chosen.closest(".lstyle");
+    if (!panel) continue;
+    panel.classList.toggle("popmode-text", chosen.value === "text");
+    panel.classList.toggle("popmode-fields", chosen.value !== "text");
+  }
+}
+
+/** Returns every control in a panel to the value it was drawn with, so a redraw has no edit there to carry. */
+function wmForgetEdits(panel) {
+  if (!panel) return;
+  for (const el of panel.querySelectorAll("input, textarea, select")) {
+    if (el.type === "checkbox" || el.type === "radio") el.checked = el.defaultChecked;
+    else if (el instanceof HTMLSelectElement) for (const o of el.options) o.selected = o.defaultSelected;
+    else if (el.type !== "file") el.value = el.defaultValue;
+  }
 }
 
 // ----------------------------------------------------------------------------- the map
@@ -1885,6 +1960,9 @@ wm$("layerList").addEventListener("click", event => {
   if (!t) return;
   const layer = wmLayerById(t.dataset.layer);
   if (!layer) return;
+
+  // A reset asks for the saved state, so what was typed in its panel is let go before the redraw would keep it.
+  if (/Reset$/.test(t.dataset.act)) wmForgetEdits(t.closest(".lstyle"));
 
   switch (t.dataset.act) {
     case "up": wmMove(layer, +1); break;

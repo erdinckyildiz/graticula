@@ -512,6 +512,19 @@ public sealed class WebMapViewerTests : ConsoleTest
                 """), "Typing text in the pop-up did not choose Text.");
             await ClickAsync("#pop-pops [data-act=popInsert]");
             Assert.Matches(@"^Seen \{[^}]+\}$", await Browser.EvaluateAsync<string>("document.getElementById('popText-pops').value") ?? "");
+
+            // <b>And it survives a redraw it did not ask for.</b> The layer list is redrawn whenever a thumbnail or a
+            // count arrives, and it used to draw the panel from the saved pop-up — so the text above was gone one CI
+            // run in six (v1.0.366), and a reader loses what they were writing. Forced here rather than waited for.
+            string kept = await Browser.EvaluateAsync<string>("""
+                (() => {
+                  wmDrawLayerList();
+                  return document.getElementById('popText-pops').value
+                    + '|' + document.querySelector('input[name="popMode-pops"][value=text]').checked
+                    + '|' + document.getElementById('pop-pops').classList.contains('popmode-text');
+                })()
+                """) ?? "";
+            Assert.Matches(@"^Seen \{[^}]+\}\|true\|true$", kept);
             await Browser.EvaluateAsync<bool>("""
                 (() => {
                   const r = document.querySelector('input[name="popMode-pops"][value=fields]');
