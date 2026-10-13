@@ -30,4 +30,9 @@
     <Compile Include="..\shared\TilePackageReaders.cs" Link="TilePackageReaders.cs" />
     <Compile Include="..\shared\TestPictures.cs" Link="TestPictures.cs" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- ADR-176 condition 4: the OGC and W3C schemas an SLD is validated against, offline. Schemas/NOTICE.md. -->
+    <None Include="Schemas\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

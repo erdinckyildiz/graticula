@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Xml;
 using System.Xml.Linq;
+using System.Xml.Schema;
 using Graticula.Api.Wms;
 using Graticula.Geometries;
 using Xunit;
@@ -365,6 +368,77 @@ public sealed class OgcStylesTests
 
         // The heatmap layer has no SLD form and says so with its NamedStyle.
         Assert.Single(written.Descendants(), e => e.Name.LocalName == "NamedStyle");
+    }
+
+    /// <summary>
+    /// ADR-176 condition 4: both SLDs this server writes are valid against OGC's own schemas, read offline.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Validated, not resembled.</b> The other tests here check names, namespaces and counts — what a person checking
+    /// by eye would check. The manual run of 2026-10-06 validated against the schemas themselves, and nothing repeated it,
+    /// because the suite does not fetch from the network. The schemas are copied into <c>Schemas/</c> (with their
+    /// licences, <c>Schemas/NOTICE.md</c>) and every <c>schemas.opengis.net</c> and <c>www.w3.org</c> address is
+    /// answered from there, so a validation that would have gone to the network fails instead of passing.
+    /// </para>
+    /// <para>
+    /// <b>Warnings are failures</b>: an element the schema set cannot place is reported as a warning by
+    /// <see cref="XmlReader"/>, and a document that only "validates" because a schema was not found validates nothing.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData("1.1.0", false)]
+    [InlineData("1.1.0", true)]
+    [InlineData("1.0.0", false)]
+    [InlineData("1.0.0", true)]
+    public void The_sld_is_valid_against_the_ogc_schema(string version, bool namesFeatureTypes)
+    {
+        string document = version == "1.0.0"
+            ? StyledLayerDescriptor.Write10(SldLayers, "s", namesFeatureTypes)
+            : StyledLayerDescriptor.Write(SldLayers, "s", namesFeatureTypes);
+
+        XmlSchemaSet schemas = new() { XmlResolver = new LocalSchemas() };
+        schemas.Add("http://www.opengis.net/sld", $"http://schemas.opengis.net/sld/{version}/StyledLayerDescriptor.xsd");
+        schemas.Compile();
+
+        List<string> problems = [];
+        XmlReaderSettings settings = new()
+        {
+            ValidationType = ValidationType.Schema,
+            Schemas = schemas,
+            ValidationFlags = XmlSchemaValidationFlags.ReportValidationWarnings,
+        };
+        settings.ValidationEventHandler += (_, e) =>
+            problems.Add($"{e.Severity} at {e.Exception?.LineNumber}:{e.Exception?.LinePosition}: {e.Message}");
+
+        using (XmlReader reader = XmlReader.Create(new StringReader(document), settings))
+        {
+            while (reader.Read())
+            {
+            }
+        }
+
+        Assert.True(problems.Count == 0, $"SLD {version} is not valid:\n  " + string.Join("\n  ", problems));
+    }
+
+    /// <summary>Answers schema addresses from the copies in <c>Schemas/</c>, and refuses to reach the network.</summary>
+    private sealed class LocalSchemas : XmlResolver
+    {
+        private static readonly string Root = Path.Combine(AppContext.BaseDirectory, "Schemas");
+
+        public override object? GetEntity(Uri absoluteUri, string? role, Type? ofObjectToReturn)
+        {
+            string local = Path.Combine(Root, absoluteUri.Host, absoluteUri.AbsolutePath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+
+            if (!File.Exists(local))
+            {
+                throw new FileNotFoundException(
+                    $"{absoluteUri} is not among the copied schemas; fetch it into Schemas/ (and note it in NOTICE.md) rather "
+                    + "than let validation reach the network.", local);
+            }
+
+            return File.OpenRead(local);
+        }
     }
 
     /// <summary>

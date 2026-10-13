@@ -257,6 +257,16 @@ moved into `WmsEndpoints.SldLayerOf` so that both faces call one function.
 4. **Schema validation of the SLD in the test suite.** Validation against the schemas was done by hand (§4). No
    test repeats it, because the suite does not fetch schemas from the network. **PARTLY DISCHARGED** 2026-10-06 by
    the manual run.
+   **DISCHARGED 2026-10-13 — repeated by a test, and offline.** The SLD 1.0.0 and 1.1.0 schemas and everything they
+   import — SE 1.1.0, Filter 1.0.0 and 1.1.0, GML 2.1.2 and 3.1.1, OWS 1.0.0, xlink and xml, 63 files — are copied
+   unmodified into `tests/Graticula.Host.Tests/Schemas/` under the host and path each was fetched from, with both
+   licences in full in `Schemas/NOTICE.md`. `OgcStylesTests.The_sld_is_valid_against_the_ogc_schema` validates both
+   versions, with and without feature-type names, through a resolver that answers every schema address from those
+   copies and fails rather than reaching the network; a warning counts as a failure, since a document that only
+   validates because a schema went unfound validates nothing. **Which OGC licence covers the schemas is `INFERRED`**
+   and listed for confirmation: their headers send a reader to OGC's legal page, which offers the OGC Software
+   License 1.0 and Apache 2.0 without saying which applies to schemas; both permit copying with the notice kept,
+   and the NOTICE carries the first, the one the headers' wording matches.
 
 ## 11. Dissent
 
