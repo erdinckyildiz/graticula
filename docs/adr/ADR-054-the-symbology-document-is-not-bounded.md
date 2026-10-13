@@ -205,3 +205,14 @@ arrival.
    third, writing `CimStyle.FromMapLibre`'s output through `SetSymbologyAsync`. Found by an audit of the
    live conditions. **What is owed is the revisit this line asks for, not a quiet patch**: whether a
    published symbology goes through the same reading, and what a publish answers when it does not pass.
+   **DISCHARGED 2026-10-13 for the writer it found, by owner decision — and the trigger stands for the
+   next one.** Revisited: this decision holds — no class cap, one reader — and the second writer is
+   brought under it rather than given rules of its own. `TryReadPublication`, which all three publish
+   doors go through, reads a carried symbology with `SymbologyConversion.Read` and stores its canonical
+   form, as the route does; a document that does not parse refuses the publish `400` with
+   `symbology:` and the reader's sentence, and nothing is published. No columns (the table is not read
+   there, which is the route's own fallback when a schema cannot be read) and no pictures (the console's
+   publish dialog writes none, and the migration tool keeps a picture by URL through the route).
+   `APublishedSymbologyIsReadTests` publishes one that does not parse and one that does.
+   `Tools/SymbologyMigrator.cs` remains a writer through `CimStyle.FromMapLibre`, a one-way migration
+   of documents this server wrote itself.

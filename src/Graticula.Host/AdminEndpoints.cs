@@ -11562,6 +11562,32 @@ internal static partial class AdminEndpoints
             return false;
         }
 
+        /*
+          <b>A symbology carried by the publish is read as `PUT …/symbology` reads one — ADR-054
+          condition 2, owner decision 2026-10-13.</b> ADR-057 let a publish carry its appearance, and
+          that made this the second writer to `layer.symbology` the condition warned of: the document
+          went into the catalogue as it arrived, while the route beside it refused one that did not
+          parse, and the difference showed up later as a layer that could not be drawn. What is stored
+          is the reader's canonical form, as the route stores it. No columns: the table is not read
+          here, and `Read` reports nothing about fields without them, which is the route's own fallback
+          when a schema cannot be read. No pictures: the console's publish dialog writes CIM without
+          them, and the migration tool keeps a picture by URL through the route, not through this.
+        */
+        string? symbology = null;
+
+        if (!string.IsNullOrWhiteSpace(request.Symbology))
+        {
+            try
+            {
+                symbology = SymbologyConversion.Read(request.Symbology, kind).Canonical;
+            }
+            catch (SymbologyException e)
+            {
+                error = $"symbology: {e.Message}";
+                return false;
+            }
+        }
+
         // <b>These last three used to be missing, and the record's defaults are why
         // nobody noticed.</b> Until 2026-08-16 this call stopped at `scope`;
         // ServiceName, ParentLayerIndex and CacheSeconds all default to null on
@@ -11589,7 +11615,7 @@ internal static partial class AdminEndpoints
             request.ParentLayerId,
             request.CacheSeconds,
             string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim(),
-            string.IsNullOrWhiteSpace(request.Symbology) ? null : request.Symbology);
+            symbology);
 
         return true;
     }

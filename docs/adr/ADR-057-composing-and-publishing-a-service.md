@@ -10,6 +10,8 @@
 
 
 > **Amended 2026-10-03 by [ADR-166](ADR-166-ogc-faces-are-turned-off-one-by-one.md).** §5g: each OGC face may be turned off by the service's owner as well as following the feature face.
+>
+> **Amended 2026-10-13 by [ADR-054](ADR-054-the-symbology-document-is-not-bounded.md) condition 2, owner decision.** A symbology a publish carries is read by `SymbologyConversion.Read` and stored in its canonical form, as `PUT /admin/layers/{name}/symbology` stores one; a document that does not parse refuses the publish `400`.
 
 ---
 
