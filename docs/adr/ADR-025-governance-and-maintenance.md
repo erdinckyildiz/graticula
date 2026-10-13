@@ -93,7 +93,12 @@ from Apache-2.0 to the Elastic License 2.0 — so the option this paragraph call
 *already declined* was exercised ten days after the paragraph was written. **The
 flexibility a CLA preserves was not worth nothing; it was worth exactly the move
 that has just been made**, and it cost nothing only because there were no outside
-contributors to track down.
+contributors to track down. **It was made a second time on 2026-10-13
+([ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md)), to a licence that forbids
+modification without permission — and again there was nobody to track down.** That
+licence also changes what a contribution *is*: a pull request is a modification, so it
+needs permission before it is written, and how that permission is given is
+[Q-166](../open-questions.md).
 
 **What survives is the other half**, and it was always the stronger one: the cost of asking a contributor to sign paperwork
 assigning rights to a project that promises them nothing in return. That is a

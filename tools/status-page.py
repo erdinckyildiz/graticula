@@ -1005,7 +1005,7 @@ def build():
     parts.append('</ol></section>')
 
     parts.append(
-        f'<footer><p>Graticula · Elastic License 2.0 · {esc(ui("footer"))} '
+        f'<footer><p>Graticula · Community License 1.0 · {esc(ui("footer"))} '
         f'<code>tools/status-page.py</code></p></footer>')
     parts.append('</main>')
 

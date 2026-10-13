@@ -35,12 +35,15 @@ Four reasons. Only one is technical.
    arrive here by reasoning.
 2. **Licensing and packaging.** They are separately sold and separately
    licensed. ~~We are Apache-2.0 with no licence to meter — Q-73 — so this reason~~
-   **Corrected 2026-08-25 by [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md):
-   we are Elastic License 2.0.** The argument is unchanged and is now slightly
+   **Corrected 2026-08-25 by [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md):**
+   ~~**we are Elastic License 2.0.**~~ The argument is unchanged and is now slightly
    stronger — ELv2 has a licence-key clause and this product has no key to enforce,
    so there is still nothing to meter — but the licence name in it was wrong, and
    this reason
-   evaporates entirely.
+   evaporates entirely. **And again 2026-10-13 —
+   [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md): the Community License 1.0,
+   which has no licence-key clause at all and charges no per-user or per-deployment
+   fee.** Nothing to meter, still.
 3. **One catalogue over many serving sites.** *This is the real one.* A large
    organisation federates several Server sites under one Portal: imagery on one,
    geoprocessing on another, hosted features on a third, each sized and

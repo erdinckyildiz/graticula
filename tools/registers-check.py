@@ -1893,18 +1893,25 @@ def an_outbound_licence_claim_that_is_stale():
     the pattern requires the claim to be about *this* project.
     """
     exempt = ("reviews", "research", "phase-0-exit-plan.md",
-              "ADR-047-the-outbound-licence-is-elastic-2.md")
+              "ADR-047-the-outbound-licence-is-elastic-2.md",
+              "ADR-180-the-outbound-licence-is-the-community-licence.md")
+
+    # <b>And ELv2 is now a former licence too.</b> ADR-180 replaced it on 2026-10-13 with
+    # the Community License 1.0, which moves both of ELv2's lines -- hosting becomes
+    # allowed, modification forbidden -- so a document still calling this project ELv2 is
+    # wrong about both. The old licences are one alternation, used by every shape below.
+    former = (r"(Apache[- ]2\.0|Apache License|Elastic License 2\.0|Elastic[- ]2\.0|ELv2)")
 
     ours = re.compile(
         r"(?:we are|this product is|this project is|the project is|outbound licence:|"
-        r"licensed under the)\s+(?:the\s+)?\**(Apache[- ]2\.0|Apache License)"
+        r"licensed under the)\s+(?:the\s+)?\**" + former
 
         # <b>And the shape a footer uses, which is the one that got through.</b> The status
         # page's footer read `Graticula · Apache-2.0` for eleven days after ADR-047, on the
         # page the owner reads as the dashboard -- because every pattern above expects a
         # sentence and a footer is a byline. A product name beside a licence is a claim about
         # that product's licence whether or not there is a verb in it.
-        r"|Graticula\s*(?:·|\||-|—)\s*(Apache[- ]2\.0|Apache License)",
+        + r"|Graticula\s*(?:·|\||-|—)\s*" + former,
         re.I)
 
     # <b>And the shape a table uses, which is the third one this check has missed.</b>
@@ -1917,7 +1924,7 @@ def an_outbound_licence_claim_that_is_stale():
     # is the licence is a claim about the licence, with no verb anywhere in it.
     ours = re.compile(
         ours.pattern
-        + r"|\|\s*\**Licen[cs]e\**\s*\|\s*\**(Apache[- ]2\.0|Apache License)",
+        + r"|\|\s*\**Licen[cs]e\**\s*\|\s*\**" + former,
         re.I)
 
     promise = re.compile(
@@ -1960,13 +1967,14 @@ def an_outbound_licence_claim_that_is_stale():
             for found in ours.finditer(flowed):
                 problems.append(
                     f'{shown} says "{found.group(0)[:60]}". The outbound licence has been '
-                    "the Elastic License 2.0 since 2026-08-25 (ADR-047). Four documents "
-                    "reasoned from the old one, so this is not a cosmetic correction. D-130.")
+                    "the Community License 1.0 since 2026-10-13 (ADR-180), and ELv2 before "
+                    "that (ADR-047). Documents reasoned from each old one, so this is not a "
+                    "cosmetic correction. D-130.")
 
             for found in promise.finditer(flowed):
                 problems.append(
                     f'{shown} says "{found.group(0)[:60]}". This project is '
-                    "source-available, not open source (ADR-047), and CONTRIBUTING.md "
+                    "source-available, not open source (ADR-047, ADR-180), and CONTRIBUTING.md "
                     "promised contributors otherwise until 2026-08-25. D-130.")
 
     return problems

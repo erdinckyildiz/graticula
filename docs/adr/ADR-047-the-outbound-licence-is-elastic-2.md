@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED` |
+| **Status** | `ACCEPTED` · **SUPERSEDED by [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md), 2026-10-13** |
 | **Confidence** | `HIGH` for the decision · `MEDIUM` for what it will cost in adoption |
 | **Decided** | 2026-08-25 |
 | **Supersedes** | The Apache-2.0 choice recorded in [phase-0-exit-plan.md](../phase-0-exit-plan.md) B0, 2026-08-13 |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) — the whole decision. v1.0.0 to v1.0.352 were released under ELv2 and stay under it; the Community License 1.0 binds from v1.0.353 |
 
 ---
 

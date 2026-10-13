@@ -47,6 +47,16 @@ public and before a single outside contribution existed, so no contributor's wor
 was moved under terms they did not choose. That is luck about timing, not a
 property of the process.
 
+**And it has changed again, which makes this whole section conditional.** On
+2026-10-13 the licence became the Community License 1.0
+([ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md)), and that
+licence forbids modifying the software without the copyright holder's prior written
+permission. **Writing a pull request is modifying it.** So: **ask first** — open an
+issue describing the change and wait for a yes before you write it. Nobody had
+contributed when this changed, so again no one's work moved under terms they did not
+choose. How permission is given beyond that is not yet decided
+([Q-166](docs/open-questions.md)).
+
 **There is still no CLA, and the reason is now narrower.** Asking for a signature
 assigning rights to a project that promises you nothing in return is a bad trade
 in a gift, and it is measurably a deterrent to the drive-by contributions this

@@ -155,7 +155,8 @@ the same fact.
   question has no subject and [ADR-030](ADR-030-reading-the-reference-implementation.md) is
   `WITHDRAWN`. **And the contradiction this bullet names is about *our own* licence, which was
   settled on 2026-08-25** by [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md): the
-  outbound licence is the Elastic License 2.0 and this project is source-available, not open
+  outbound licence is ~~the Elastic License 2.0~~ **the Community License 1.0 since 2026-10-13,
+  [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md)** and this project is source-available, not open
   source. `README` and `CLAUDE.md` §7 both carry that now; `product-context.md` and
   `competitive-position.md` did not until 2026-09-09, which is the propagation shape
   [D-130](../architecture-debt.md) records. *(This bullet conflated the two licences — the

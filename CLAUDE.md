@@ -205,11 +205,15 @@ These came from the project owner and are inputs, not open questions. See
 [product-context.md](docs/product-context.md).
 
 - **Licensing:** ~~open source, copyleft (GPL/AGPL) acceptable. No commercial
-  closed-source distribution constraint.~~ **Reversed 2026-08-25 by owner decision —
+  closed-source distribution constraint.~~ ~~**Reversed 2026-08-25 by owner decision —
   [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md). The outbound
-  licence is the Elastic License 2.0 and the project is *source-available*, not open
-  source.** Anyone may read, run, modify, distribute and charge money for it; nobody
-  may offer it to third parties as a hosted or managed service. **`open source` is no
+  licence is the Elastic License 2.0**~~ **Changed again 2026-10-13 by owner decision —
+  [ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md). The outbound
+  licence is the Community License 1.0 and the project is *source-available*, not open
+  source.** Anyone may use, run, deploy and host it for third parties, paid included,
+  and pass on unmodified copies; **modifying it, building on it, or running a modified
+  version needs the copyright holder's written permission.** v1.0.352 and earlier stay
+  under ELv2, which cannot be taken back. **`open source` is no
   longer a true description of this project** and `tools/registers-check.py` fails the
   build if it comes back — the old sentence stood in four documents that reasoned
   *from* it, which is the propagation shape [D-130](docs/architecture-debt.md) records.

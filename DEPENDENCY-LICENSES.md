@@ -2,9 +2,15 @@
 
 Required by §55.
 
-**Outbound licence: Elastic License 2.0** — owner decision 2026-08-25,
-[ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md), replacing the
-Apache-2.0 taken on 2026-08-13 under Q-73. See `LICENSE` and `NOTICE`.
+**Outbound licence: Community License 1.0** — owner decision 2026-10-13,
+[ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md), replacing the Elastic
+License 2.0 of [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)
+(2026-08-25), which replaced the Apache-2.0 taken on 2026-08-13 under Q-73. See
+`LICENSE` and `NOTICE`. **The compatibility answer below carries over unchanged:** the
+new licence forbids modification where ELv2 forbade hosting, and both are restrictions a
+copyleft dependency would forbid and no permissive one does. The column still says
+*ELv2* because that is what it was measured against; the measurement is the same for
+either.
 
 **What changed for this file, and what did not.** The outbound licence decides what
 *we* promise; it does not touch what our dependencies require, so every attribution

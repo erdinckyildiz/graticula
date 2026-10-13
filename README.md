@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/banner-dark.png">
-  <img alt="Graticula — a GIS server and its portal, from one container and one Postgres. v1, PostGIS, Elastic License 2.0." src="docs/banner-light.png">
+  <img alt="Graticula — a GIS server and its portal, from one container and one Postgres. v1, PostGIS, Graticula Community License 1.0." src="docs/banner-light.png">
 </picture>
 
 <p align="center"><a href="https://graticula.com"><b>graticula.com</b></a></p>
@@ -405,10 +405,15 @@ and a status page that is wrong is most confidently wrong about whatever changed
 
 ## Licence
 
-**Elastic License 2.0** — source-available. Read it, run it, change it, distribute it,
-charge money for it. The one thing you may not do is offer it to third parties as a hosted
-or managed service. That is the whole restriction
-([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)).
+**Graticula Community License 1.0** — source-available. Use it, run it commercially,
+deploy it for clients, host it for third parties as a paid service, and pass on unmodified
+copies. What needs the copyright holder's written permission is changing it: modifying it,
+building on it, or distributing or running a modified version. Configuration through its
+documented settings, environment variables and APIs is not a change
+([ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md)).
+
+Releases up to and including v1.0.352 were published under the Elastic License 2.0
+([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)) and stay under it.
 
 See [LICENSE](LICENSE), [NOTICE](NOTICE) and
 [DEPENDENCY-LICENSES.md](DEPENDENCY-LICENSES.md).

@@ -283,7 +283,7 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.title="Graticula" \
       org.opencontainers.image.description="An ArcGIS-compatible GIS server over PostGIS." \
       org.opencontainers.image.source="https://github.com/erdinckyildiz/graticula" \
-      org.opencontainers.image.licenses="Elastic-2.0" \
+      org.opencontainers.image.licenses="LicenseRef-Graticula-Community-1.0" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 

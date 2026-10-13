@@ -24,7 +24,7 @@ folded into the sections below yet.
 | | GeoServer | GeoNode | Peer server | ArcGIS Enterprise | Us |
 |---|---|---|---|---|---|
 | Age / maturity | ~20 years, large base | Mature, OSGeo | **8 months**, 4,894 commits, 4 stars, no release (verified 2026-08-15) | Decades, dominant | Nothing built |
-| Licence | GPL | GPL | ~~Elastic 2.0, open core~~ **console Apache-2.0; server unknown** | Commercial | ~~Copyleft, TBD~~ **Elastic License 2.0 — source-available** |
+| Licence | GPL | GPL | ~~Elastic 2.0, open core~~ **console Apache-2.0; server unknown** | Commercial | ~~Copyleft, TBD~~ ~~**Elastic License 2.0 — source-available**~~ **Community License 1.0 — source-available, no modification without permission ([ADR-180](adr/ADR-180-the-outbound-licence-is-the-community-licence.md))** |
 | Governance | OSGeo, multi-vendor | OSGeo | Single vendor | Esri | — |
 
 > **Two cells in the licence row were corrected 2026-09-09, for different reasons.**

@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>552a9858</code> · 2026-10-13 13:03</p>
+<p class="stamp">Şu commit’ten üretildi: <code>9adeb199</code> · 2026-10-13 13:04</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">178</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">329/408</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">76 canlı · 3 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">179</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">330/411</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">78 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">160 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">270 ödendi · 5 tetiğini bekliyor · 1 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-166</b> — The Community License 1.0 — three inferences and three drafting gaps, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">95 madde</span></div><p><b>76 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">97 madde</span></div><p><b>78 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -148,6 +148,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-180 · The outbound licence is the Commun</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -250,7 +251,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">044</td><td>Tiles are served, because the claim had to be true</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">6/6</td></tr>
 <tr><td class="id">045</td><td>The server keeps a log you can ask questions of</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">046</td><td>Admission control bounds the queue, not the wait</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
-<tr><td class="id">047</td><td>The outbound licence is Elastic License 2.0</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the decision · MEDIUM for what it will cost in adoption</td><td class="num">2/3</td></tr>
+<tr><td class="id">047</td><td>The outbound licence is Elastic License 2.0</td><td><span class="pill muted">ACCEPTED · SUPERSEDED by…</span><div class="muted-t">ACCEPTED · SUPERSEDED by ADR-180, 2026-10-13</div></td><td class="muted-t">HIGH for the decision · MEDIUM for what it will cost in adoption</td><td class="num">2/3</td></tr>
 <tr><td class="id">048</td><td>CI does not run the real-data suites, and says so on every run</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the exclusion · MEDIUM for whether announcing it is enough</td><td class="num">1/2</td></tr>
 <tr><td class="id">049</td><td>A face refuses in its own vocabulary, even when that vocabulary has no word for it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for refusing at all · MEDIUM for which exception code</td><td class="num"></td></tr>
 <tr><td class="id">050</td><td>A release is a tag, and what it publishes is two images</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the registry and the trigger · MEDIUM for the tag scheme</td><td class="num"></td></tr>
@@ -382,11 +383,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">177</td><td>OGC API Records is a searchable catalogue of the portal&#x27;s items</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every claimed class has a test against a running server, and OWSLib 0.25 and…</td><td class="num">1/3</td></tr>
 <tr><td class="id">178</td><td>HTTP Basic on the OGC faces, over HTTPS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — QGIS 3.28 signs in with its own authentication manager and saves a WFS-T insert…</td><td class="num">0/1</td></tr>
 <tr><td class="id">179</td><td>A layer may carry a title</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH — one column, one setter, and the three faces that composed a title each read it…</td><td class="num">1/1</td></tr>
+<tr><td class="id">180</td><td>The outbound licence is the Community License 1.0</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision, which is the owner&#x27;s · MEDIUM for the licence text, which nobody…</td><td class="num">1/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-165</span><span class="owner">[OWNER]</span></div><p>May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-166</span><span class="owner">Owner</span></div><p>The Community License 1.0 — three inferences and three drafting gaps, for the owner.</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -523,6 +526,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>9adeb199</code><time>2026-10-13</time><span>A geodatabase import streams into the datastore: 1.2 million points with the server at 175 MB, not 2 GB</span></li>
 <li><code>552a9858</code><time>2026-10-13</time><span>The 64 MB a data upload is promised is 64 MB: the routes that read a file raise the server&#x27;s 30 MB</span></li>
 <li><code>e2611a6f</code><time>2026-10-13</time><span>A GeoTIFF somebody else chose is opened in the import reader&#x27;s process before this server opens it</span></li>
 <li><code>be83fd17</code><time>2026-10-13</time><span>No change to who administers leaves nobody able to sign in, and now a test says so over HTTP</span></li>
@@ -536,7 +540,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3f7cada4</code><time>2026-10-12</time><span>Two tests that failed v1.0.338&#x27;s CI stop racing: the pop-up is set and applied in one turn, and the reclaim test is not a deadline test</span></li>
 <li><code>da613593</code><time>2026-10-12</time><span>GET /admin/layers/{name} reads one layer back, as the listing describes it</span></li>
 <li><code>4d31fe60</code><time>2026-10-12</time><span>The attachment pool under slow readers is measured: the ninth waits and gets 504, the feature path does not notice, and a 1 MB file does not release early</span></li>
-<li><code>efe04605</code><time>2026-10-12</time><span>The importer draws from the connection budget: an import and the requests reading the datastore compete for one pool of permits</span></li>
 </ol></section>
-<footer><p>Graticula · Elastic License 2.0 · üreten: <code>tools/status-page.py</code></p></footer>
+<footer><p>Graticula · Community License 1.0 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

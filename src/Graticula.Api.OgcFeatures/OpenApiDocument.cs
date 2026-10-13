@@ -55,7 +55,7 @@ public static class OpenApiDocument
             json.WriteString("version", "1.0.0");
 
             json.WriteStartObject("license");
-            json.WriteString("name", "Elastic-2.0");
+            json.WriteString("name", "Community License 1.0");
             json.WriteEndObject();
 
             json.WriteEndObject();
