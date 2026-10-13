@@ -98,12 +98,14 @@ internal static class ArcGisAppendEndpoints
         }
 
         IFormCollection form;
+        HostedDataEndpoints.AllowUpload(context);
 
         try
         {
             form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         }
-        catch (InvalidDataException e)
+        catch (Exception e) when (e is InvalidDataException
+            or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await RefuseAsync(context, 413, $"The upload is larger than this server accepts. ({e.Message})").ConfigureAwait(false);
             return;

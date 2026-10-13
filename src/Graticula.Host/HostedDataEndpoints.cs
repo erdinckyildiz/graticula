@@ -76,6 +76,27 @@ internal static class HostedDataEndpoints
     /// </remarks>
     public const long MaximumBytes = 64L * 1024 * 1024;
 
+    /// <summary>What a multipart body carries beside the file: its boundaries, headers and the form's other fields.</summary>
+    private const long EnvelopeBytes = 1024 * 1024;
+
+    /// <summary>
+    /// Raises this request's body limit to <see cref="MaximumBytes"/>, which Kestrel's own default is under.
+    /// </summary>
+    /// <remarks>
+    /// <b>Until 2026-10-13 the 64 MB this class names was 30.</b> Kestrel refuses a body over 30,000,000 bytes before
+    /// the handler sees it, so an upload between the two was answered <c>413</c> with Kestrel's sentence rather than
+    /// this server's, and the size check below never ran — found when a 40 MB geodatabase, inside the documented limit,
+    /// could not be uploaded for ADR-038 condition 1's measurement. The image routes had raised theirs
+    /// (<c>CoverageAdminEndpoints.MaximumUploadBytes</c>); the three routes that read a data file had not.
+    /// </remarks>
+    internal static void AllowUpload(HttpContext context)
+    {
+        if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+        {
+            limit.MaxRequestBodySize = MaximumBytes + EnvelopeBytes;
+        }
+    }
+
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
     public static void Map(WebApplication app)
@@ -161,12 +182,14 @@ internal static class HostedDataEndpoints
         }
 
         IFormCollection form;
+        AllowUpload(context);
 
         try
         {
             form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         }
-        catch (System.IO.InvalidDataException e)
+        catch (Exception e) when (e is System.IO.InvalidDataException
+            or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await Fail(context, 413,
                 $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). "
@@ -2209,12 +2232,14 @@ internal static class HostedDataEndpoints
         }
 
         IFormCollection form;
+        AllowUpload(context);
 
         try
         {
             form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         }
-        catch (System.IO.InvalidDataException e)
+        catch (Exception e) when (e is System.IO.InvalidDataException
+            or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await Fail(context, 413,
                 $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). ({e.Message})")
