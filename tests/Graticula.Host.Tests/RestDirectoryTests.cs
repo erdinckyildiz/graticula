@@ -131,6 +131,18 @@ public sealed class RestDirectoryTests
     }
 
     [Fact]
+    public void TheVersionIsWrittenAsEsriWritesIt()
+    {
+        // ADR-181: two decimals were fixed, so 12.1 read 12.10.
+        string page = RestDirectory.Folder(
+            "/rest/services", folder: null, version: 12.1, folders: [], services: []);
+
+        Assert.Contains("version 12.1<", page, System.StringComparison.Ordinal);
+        Assert.Contains("version 10.81<", RestDirectory.Folder(
+            "/rest/services", folder: null, version: 10.81, folders: [], services: []), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BreadcrumbJoinsTheServiceToItsType()
     {
         // There is no resource at .../parcels, only at .../parcels/FeatureServer,

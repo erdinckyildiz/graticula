@@ -445,7 +445,16 @@ public sealed class FeatureServerMetadataWriterTests
         JsonElement document = Json(FeatureServerMetadataWriter.Service([], "Query"));
 
         Assert.Empty(document.GetProperty("layers").EnumerateArray());
-        Assert.Equal(10.81, document.GetProperty("currentVersion").GetDouble(), 2);
+        Assert.Equal(12.1, document.GetProperty("currentVersion").GetDouble(), 2);
+    }
+
+    [Fact]
+    public void The_server_says_the_version_it_claims_in_full()
+    {
+        // ADR-181.
+        JsonElement info = Json(FeatureServerMetadataWriter.ServerInfo("https://example.test/tokens"));
+        Assert.Equal(12.1, info.GetProperty("currentVersion").GetDouble(), 2);
+        Assert.Equal("12.1.0", info.GetProperty("fullVersion").GetString());
     }
 
     private static FeatureServerMetadataWriter.ServiceLayer OneLayer() =>

@@ -40,11 +40,13 @@ public static class FeatureServerMetadataWriter
     /// <b>A number clients compare against, so it is a claim rather than a
     /// label.</b> Reporting a high version invites a client to use operations we
     /// do not implement; reporting a very low one makes modern clients refuse to
-    /// connect. 10.81 is chosen as a version whose feature set we can largely
-    /// honour for query, and it is a stated approximation rather than a
-    /// measurement — nothing has been conformance-tested against any release.
+    /// connect. <b>12.1 since 2026-10-13, by owner decision</b>
+    /// (<a href="../../docs/adr/ADR-181-the-rest-api-version-is-12-1.md">ADR-181</a>); it was 10.81, chosen
+    /// before any client had been run against this server. Every comparison the JavaScript SDK 5.1 makes
+    /// above 10.81 was read for the ADR, and the ones that reach a face this server has either change
+    /// nothing or are gated on a capability it does not advertise.
     /// </remarks>
-    public const double CurrentVersion = 10.81;
+    public const double CurrentVersion = 12.1;
 
     /// <summary>The maximum features one query will return.</summary>
     /// <remarks>Mirrors <see cref="FeatureQuery.MaximumLimit"/>, so a client that

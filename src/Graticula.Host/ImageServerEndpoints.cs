@@ -363,7 +363,8 @@ internal static partial class ImageServerEndpoints
 
         object document = new
         {
-            currentVersion = 10.81,
+            // The one the other faces claim, rather than a copy of its number that would stay behind when it moves.
+            currentVersion = Graticula.Api.ArcGis.FeatureServerMetadataWriter.CurrentVersion,
             serviceDescription = string.Empty,
             name = coverage.QualifiedName,
             // ADR-126: what its owner wrote, as the FeatureServer and MapServer documents state theirs. It was kept on the

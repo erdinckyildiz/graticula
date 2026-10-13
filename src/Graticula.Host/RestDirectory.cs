@@ -240,7 +240,7 @@ internal static class RestDirectory
 
         body.Append(
             $"<p class=\"sub\">REST services directory · version "
-            + $"{version.ToString("0.00", CultureInfo.InvariantCulture)}</p>");
+            + $"{version.ToString("0.0#", CultureInfo.InvariantCulture)}</p>"); // 12.1 as Esri writes it, not 12.10
 
         List<string> folderList = [.. folders];
 
