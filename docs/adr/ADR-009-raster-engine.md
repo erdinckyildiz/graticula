@@ -383,6 +383,20 @@ overviews), [ADR-010](ADR-010-caching.md) (proxied ranges are cacheable),
    the server starts and kills — and is the same argument that already put the geodatabase
    reader out of process. That parser is out of process because its input is chosen by
    somebody else; **so is this one.**
+
+   **PARTLY DISCHARGED 2026-10-13 — the bomb half, with the owner's numbers; the isolation half
+   is left.** A file may declare at most **1,048,576 pixels a side and 2^36 (about 68.7 billion)
+   in all** (`CoverageBounds`, `Graticula:RasterMaximumSide` and `Graticula:RasterMaximumPixels`),
+   read from the tags the reader already parsed and checked before anything is catalogued, at the
+   three places a file comes in: registration in place, an upload published as an image service,
+   and an image added to one later. The largest real orthophotos, 100,000 a side and ten billion
+   pixels, fit with room. **A mosaic is not held to it**, deliberately: it is a virtual join of
+   files that each were, and may legitimately be wider than any one of them — a country at ten
+   centimetres is fifteen million pixels across. A file over the bound is refused `400`, named as
+   its sender named it, with the two settings to raise. `CoverageBoundsTests` holds the arithmetic
+   and `ImageryDisplayTests` uploads a few-kilobyte TIFF declaring two million pixels a side and
+   finds it refused with nothing published. **Still open**: the parser runs in the serving
+   process — ADR-037 §5's child process is the shape, and it is the larger half.
 2. **A-032 must be measured** before proxying is committed to at scale. If
    imagery traffic dwarfs tile traffic, the default flips.
    ***(Deferred 2026-09-09 with the decision it is a condition on.)***

@@ -149,6 +149,7 @@ public interface IAttachmentStore
 public sealed class OpenAttachment : IAsyncDisposable
 {
     private readonly Func<ValueTask> _release;
+    private int _released;
 
     /// <summary>Creates the handle.</summary>
     /// <param name="info">What it is.</param>
@@ -168,5 +169,10 @@ public sealed class OpenAttachment : IAsyncDisposable
     public Stream Content { get; }
 
     /// <inheritdoc/>
-    public ValueTask DisposeAsync() => _release();
+    /// <remarks>
+    /// <b>Once, whoever calls it.</b> A buffered download gives the connection back before it writes to the client,
+    /// and the caller that opened it still disposes it on the way out (ADR-013 condition 2).
+    /// </remarks>
+    public ValueTask DisposeAsync() =>
+        Interlocked.Exchange(ref _released, 1) == 0 ? _release() : ValueTask.CompletedTask;
 }

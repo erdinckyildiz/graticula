@@ -29,7 +29,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
     /// <summary>A float elevation model as the smallest GeoTIFF this server opens.</summary>
     private static byte[] Elevation() => Elevation(Side);
 
-    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0, int srid = 4326, double north = 41.0, int bands = 1)
+    private static byte[] Elevation(int side, double west = 30.0, double pixel = 0, int srid = 4326, double north = 41.0, int bands = 1, int declared = 0)
     {
         using MemoryStream file = new();
         using BinaryWriter w = new(file);
@@ -54,10 +54,16 @@ public sealed class ImageryDisplayTests : ArcGisClient
         bool geographic = srid == 4326;
         foreach (ushort k in new ushort[] { 1, 1, 0, 3, 1024, 0, 1, (ushort)(geographic ? 2 : 1), 1025, 0, 1, 1, (ushort)(geographic ? 2048 : 3072), 0, 1, (ushort)srid }) w.Write(k);
 
+        // `declared` makes the tags claim an image far larger than the bytes behind them — the shape of a
+        // decompression bomb, which ADR-009 condition 1 bounds at the door.
         (ushort Tag, ushort Type, int Count, int Value)[] tags =
         [
-            (256, 3, 1, side), (257, 3, 1, side), (258, 3, 1, 32), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, imageAt),
-            (277, 3, 1, bands), (278, 3, 1, side), (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
+            declared > 0 ? ((ushort)256, (ushort)4, 1, declared) : ((ushort)256, (ushort)3, 1, side),
+            declared > 0 ? ((ushort)257, (ushort)4, 1, declared) : ((ushort)257, (ushort)3, 1, side),
+            (258, 3, 1, 32), (259, 3, 1, 1), (262, 3, 1, 1), (273, 4, 1, imageAt),
+            (277, 3, 1, bands),
+            declared > 0 ? ((ushort)278, (ushort)4, 1, declared) : ((ushort)278, (ushort)3, 1, side),
+            (279, 4, 1, image.Length), (284, 3, 1, 1), (339, 3, 1, 3),
             (33550, 12, 3, scaleAt), (33922, 12, 6, tieAt), (34735, 3, 16, geoAt),
         ];
 
@@ -474,6 +480,44 @@ public sealed class ImageryDisplayTests : ArcGisClient
             && why.Contains("bands", StringComparison.Ordinal), $"A mosaic of other bands answered {(int)refused}: {why}");
         Assert.Contains("\"error\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
             $"/rest/services/hosted/{refusedName}/ImageServer?f=json")).Body), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// ADR-009 condition 1, owner decision 2026-10-13: a file that declares an image past the bound is refused at the
+    /// door, with nothing catalogued.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two million pixels a side, in a file of a few kilobytes.</b> Opening a TIFF reads its tags and allocates
+    /// nothing from them, so until this such a file was catalogued and refused per request by the read path.
+    /// </remarks>
+    [Fact]
+    public async Task A_file_declaring_an_image_past_the_bound_is_refused_and_nothing_is_published()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_bomb_{Guid.NewGuid():N}"[..16];
+
+        using MultipartFormDataContent form = new();
+        form.Add(new ByteArrayContent(Elevation(8, declared: 2_000_000)), "file", "bomb.tif");
+        form.Add(new StringContent(name), "name");
+
+        (HttpStatusCode refused, byte[] body) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+        string why = Encoding.UTF8.GetString(body);
+
+        try
+        {
+            Assert.True(refused == HttpStatusCode.BadRequest, $"A file declaring 2,000,000 pixels a side answered {(int)refused}: {why}");
+            Assert.Contains("bomb.tif", why, StringComparison.Ordinal);
+            Assert.Contains("2,000,000", why, StringComparison.Ordinal);
+            Assert.Contains("\"error\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"/rest/services/hosted/{name}/ImageServer?f=json")).Body), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+        }
     }
 
     [Fact]

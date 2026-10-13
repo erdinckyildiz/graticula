@@ -443,6 +443,14 @@ internal static partial class CoverageAdminEndpoints
                         return null;
                     }
 
+                    // ADR-009 condition 1: the dimensions a file declares, bounded before it joins the mosaic.
+                    if (CoverageBounds.Refusal(Path.GetFileName(file.Name), reader.Info,
+                            context.RequestServices.GetRequiredService<HostSettings>()) is { } tooLarge)
+                    {
+                        await Refuse(context, 400, tooLarge).ConfigureAwait(false);
+                        return null;
+                    }
+
                     infos.Add(reader.Info);
                 }
                 catch (InvalidDataException)
@@ -744,6 +752,14 @@ internal static partial class CoverageAdminEndpoints
                     await Refuse(context, 400,
                         $"{Path.GetFileName(file.Name)} carries no EPSG code in its GeoKey directory, so this server cannot "
                         + "say what its coordinates mean. Save it with its coordinate system and upload it again.").ConfigureAwait(false);
+                    return;
+                }
+
+                // ADR-009 condition 1: the dimensions a file declares, bounded before anything is catalogued.
+                if (CoverageBounds.Refusal(Path.GetFileName(file.Name), read,
+                        context.RequestServices.GetRequiredService<HostSettings>()) is { } tooLarge)
+                {
+                    await Refuse(context, 400, tooLarge).ConfigureAwait(false);
                     return;
                 }
 
@@ -1329,6 +1345,14 @@ internal static partial class CoverageAdminEndpoints
                 + "be drawn beside anything else.")
                 .ConfigureAwait(false);
 
+            return;
+        }
+
+        // ADR-009 condition 1: the dimensions the file declares, bounded before anything is catalogued.
+        if (CoverageBounds.Refusal(Path.GetFileName(request.Path), info,
+                context.RequestServices.GetRequiredService<HostSettings>()) is { } tooLarge)
+        {
+            await Refuse(context, 400, tooLarge).ConfigureAwait(false);
             return;
         }
 

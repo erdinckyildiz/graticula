@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -506,6 +507,7 @@ internal static class AttachmentEndpoints
         int attachmentId,
         CatalogFallback catalog,
         LayerConnections connections,
+        AttachmentBuffer buffer,
         CancellationToken cancellation)
     {
         if (await ResolveAsync(context, serviceName, layerId, catalog, connections, write: false, cancellation)
@@ -514,9 +516,38 @@ internal static class AttachmentEndpoints
             return;
         }
 
-        await using OpenAttachment? open =
-            await store.OpenAsync(attachmentId, cancellation).ConfigureAwait(false);
+        OpenAttachment? open = await store.OpenAsync(attachmentId, cancellation).ConfigureAwait(false);
 
+        try
+        {
+            await WriteAsync(context, open, objectId, attachmentId, buffer, cancellation).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (open is not null)
+            {
+                await open.DisposeAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>Writes an opened attachment, buffered when it is small enough and there is room.</summary>
+    /// <remarks>
+    /// <b>Buffered: read whole, the connection given back, then written — owner decision 2026-10-13, ADR-013
+    /// condition 2.</b> Streamed, a slow client holds one of the attachment pool's eight connections for as long
+    /// as it reads; a one-megabyte photo held one for six seconds over a slow phone (benchmarks/attachment-pool).
+    /// <see cref="AttachmentBuffer"/> decides, by size and by what is already held; when it says no, this streams
+    /// exactly as before. Disposing <paramref name="open"/> early is safe: the caller's dispose of an already
+    /// disposed attachment does nothing.
+    /// </remarks>
+    private static async Task WriteAsync(
+        HttpContext context,
+        OpenAttachment? open,
+        long objectId,
+        int attachmentId,
+        AttachmentBuffer buffer,
+        CancellationToken cancellation)
+    {
         if (open is null || open.Info.FeatureId != objectId)
         {
             // The feature check matters: without it an attachment id is a
@@ -543,7 +574,43 @@ internal static class AttachmentEndpoints
         disposition.SetHttpFileName(open.Info.Name);
         response.Headers[HeaderNames.ContentDisposition] = disposition.ToString();
 
-        await open.Content.CopyToAsync(response.Body, cancellation).ConfigureAwait(false);
+        using IDisposable? room = buffer.TryReserve(open.Info.Size);
+
+        if (room is null)
+        {
+            await open.Content.CopyToAsync(response.Body, cancellation).ConfigureAwait(false);
+            return;
+        }
+
+        int size = (int)open.Info.Size;
+        byte[] bytes = ArrayPool<byte>.Shared.Rent(size);
+
+        try
+        {
+            int read = 0;
+
+            while (read < size)
+            {
+                int n = await open.Content.ReadAsync(bytes.AsMemory(read, size - read), cancellation)
+                    .ConfigureAwait(false);
+
+                if (n == 0)
+                {
+                    break;
+                }
+
+                read += n;
+            }
+
+            // The connection goes back here, before the first byte reaches the client.
+            await open.DisposeAsync().ConfigureAwait(false);
+
+            await response.Body.WriteAsync(bytes.AsMemory(0, read), cancellation).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(bytes);
+        }
     }
 
     // ---------- upload ----------

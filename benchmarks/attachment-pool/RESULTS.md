@@ -57,3 +57,18 @@ the timeout. A fourth wave, readers 25 to 32 in a run like this one, would get t
   for milliseconds instead of seconds. The cost moves to memory: once a buffered download no longer waits for a
   connection, nothing bounds the bytes held. It needs a per-file threshold **and** a cap on the total bytes buffered at
   once. Both are a decision, and this run measures why it is worth taking. It does not take it.
+
+## 3. After buffer-and-release — 2026-10-13
+
+The owner chose the two numbers: attachments up to 8 MB are read whole and their connection given back before the
+client is written to, with at most 128 MB held at once (`AttachmentBuffer`). Run 2 again, on the same fixture:
+
+| Readers | First byte, before | First byte, after |
+|---|---|---|
+| 1–8 | 0–16 ms | 0–31 ms |
+| 9–16 | 6.3–7.0 s | 0–31 ms |
+| 17–20 | 12.6–13.2 s | 0–31 ms |
+
+All twenty read to the end with `200`. The waves are gone: twenty phones reading a photo hold twenty megabytes for
+as long as they read, and no connection. A 24 MB attachment is over the 8 MB threshold and streams exactly as in
+run 1, so the ninth of nine such readers still waits for the pool; that case is what the pool's eight is for.

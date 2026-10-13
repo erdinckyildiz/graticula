@@ -196,6 +196,10 @@ public static class Program
         // register.
         builder.Services.AddSingleton(settings);
 
+        // ADR-013 condition 2, owner decision 2026-10-13: small attachments are read whole and their connection given
+        // back before a slow client is written to, within a bound on what is held at once.
+        builder.Services.AddSingleton(new AttachmentBuffer(settings.AttachmentBufferBytes, settings.AttachmentBufferTotalBytes));
+
         builder.Services.AddSingleton(_ => new SecretProtector(
             settings.SecretKeyVersion, Convert.FromBase64String(settings.SecretKeyBase64)));
 

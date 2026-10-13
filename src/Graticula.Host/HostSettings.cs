@@ -239,7 +239,26 @@ internal sealed record HostSettings(
     // <b>How long the reader may take to write one layer of a feature export — ADR-106 §5.2.</b> An hour, INFERRED:
     // the reader is killed at the deadline and the job fails naming it, which is better than a worker that waits
     // for ever on a driver that hung.
-    int FeatureExportTimeoutMinutes = FeatureExporter.DefaultTimeoutMinutes)
+    int FeatureExportTimeoutMinutes = FeatureExporter.DefaultTimeoutMinutes,
+
+    // <b>Attachments up to this size are read into memory and their connection given back before the client is
+    // written to — owner decision 2026-10-13, ADR-013 condition 2.</b> Eight megabytes: a phone's photo is one to
+    // five, and benchmarks/attachment-pool measured a one-megabyte attachment holding its connection for six of the
+    // ten seconds a slow phone took to read it. Zero turns buffering off.
+    long AttachmentBufferBytes = AttachmentBuffer.DefaultFileBytes,
+
+    // <b>And at most this much held at once across every download, after which they stream as before.</b> 128 MB:
+    // the bound buffering would otherwise lose, since a buffered download no longer waits for one of the pool's
+    // eight connections. Over it, a download is not refused; it is streamed.
+    long AttachmentBufferTotalBytes = AttachmentBuffer.DefaultTotalBytes,
+
+    // <b>The largest image a file may declare when it is registered or uploaded — owner decision 2026-10-13,
+    // ADR-009 condition 1.</b> A side of 1,048,576 pixels and 2^36 (about 68.7 billion) in all: the largest real
+    // orthophotos (100,000 a side, ten billion pixels) fit with room, and a file declaring a million by a million in
+    // a few kilobytes is refused at the door rather than catalogued and refused per request. A mosaic is not held to
+    // it, since a mosaic is a virtual join of files that each were.
+    int RasterMaximumSide = CoverageBounds.DefaultMaximumSide,
+    long RasterMaximumPixels = CoverageBounds.DefaultMaximumPixels)
 {
     /// <summary>How long past its lifetime a tile may be served while its source cannot build it.</summary>
     public TimeSpan TileStaleIfError => TimeSpan.FromHours(TileStaleIfErrorHours);
@@ -669,7 +688,14 @@ internal sealed record HostSettings(
 
             // At least one row, so a cap of zero is not a refusal of every export with a sentence about a number.
             Math.Max(1L, keys.Value("FeatureExportMaxRows", FeatureExporter.DefaultMaximumRows)),
-            Math.Max(1, keys.Value("FeatureExportTimeoutMinutes", FeatureExporter.DefaultTimeoutMinutes)));
+            Math.Max(1, keys.Value("FeatureExportTimeoutMinutes", FeatureExporter.DefaultTimeoutMinutes)),
+
+            // Megabytes, as the other byte budgets here are; zero is off and a negative number the same zero.
+            Math.Max(0L, keys.Value("AttachmentBufferMB", AttachmentBuffer.DefaultFileBytes / 1048576)) * 1048576,
+            Math.Max(0L, keys.Value("AttachmentBufferTotalMB", AttachmentBuffer.DefaultTotalBytes / 1048576)) * 1048576,
+
+            Math.Max(1, keys.Value("RasterMaximumSide", CoverageBounds.DefaultMaximumSide)),
+            Math.Max(1L, keys.Value("RasterMaximumPixels", CoverageBounds.DefaultMaximumPixels)));
     }
 
     /// <summary>

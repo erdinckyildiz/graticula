@@ -591,6 +591,16 @@ by argument; nobody has pointed a slow reader at it.
    one connection whatever the file's size. It is the number of connections the deployment
    gives to slow readers. Eight stays, and that is now a choice with its consequence measured
    rather than a guess.
+
+   **DISCHARGED 2026-10-13 — the two numbers chosen by the owner, built, and measured again.**
+   Attachments up to **8 MB** are read whole into a pooled buffer and their connection given back
+   before the first byte reaches the client, while at most **128 MB** is held at once across every
+   download; past either, a download streams exactly as before, never refused
+   (`AttachmentBuffer`, `Graticula:AttachmentBufferMB` and `Graticula:AttachmentBufferTotalMB`,
+   zero is off). The pool stays eight. **Measured again** with run 2's twenty slow readers of a
+   1 MB attachment: every one starts in 0–31 ms, where readers 9 to 20 had waited 6 and 13
+   seconds; a 24 MB attachment streams as before. `AttachmentBufferTests` holds the size, the
+   total and the room given back once.
 3. ~~**Declared relationships are validated on publish**~~ **DISCHARGED 2026-08-15.** A declaration is refused unless both columns exist and can be compared, and the refusal lists the columns that do exist. What is *not* checked, and is said in the response rather than implied, is whether the values mean the same thing. Original:, at minimum that the join
    columns exist and are type-compatible. An unvalidated declaration fails at
    query time in front of a user.
