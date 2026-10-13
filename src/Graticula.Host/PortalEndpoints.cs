@@ -165,6 +165,11 @@ internal static class PortalEndpoints
         Discoverable(app, $"{Path}/portals/{{id}}/categorySchema", CategorySchemaAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>The servers federated with this portal, which is one: itself — 2026-10-13.</b> Pro asks for
+        // portals/self/servers twice after signing in, and answered 404 it had no hosting server to add data to.
+        Discoverable(app, $"{Path}/portals/{{id}}/servers", ServersAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
         // POST as well as GET, because a portal search is a search: Pro sends `q`
         // in a form body when it is long enough to be worth one.
         app.MapMethods($"{Path}/community/groups", ["GET", "HEAD", "POST"], GroupsAsync)
@@ -758,6 +763,34 @@ internal static class PortalEndpoints
                 state = "active",
                 expDate = -1,
                 maxUsersPerLevel = new { },
+            })
+            : Unknown("Organization");
+
+    /// <summary>The servers federated with this portal: this one, which hosts what it publishes.</summary>
+    /// <remarks>
+    /// <b>One server, and the portal and it are the same process.</b> An Enterprise portal lists each ArcGIS Server
+    /// federated with it and marks the one that hosts; here the portal and the server are one, so the list names
+    /// this server once, as the hosting server, at the address the caller reached.
+    /// </remarks>
+    private static IResult ServersAsync(HttpContext context, string id) =>
+        string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+            ? Results.Ok(new
+            {
+                servers = new[]
+                {
+                    new
+                    {
+                        id = PortalId(context),
+                        name = context.Request.Host.Value,
+                        url = Origin(context),
+                        adminUrl = $"{Origin(context)}/admin",
+                        isHosted = true,
+                        serverType = "ArcGIS",
+                        serverRole = "HOSTING_SERVER",
+                        serverFunction = string.Empty,
+                    },
+                },
             })
             : Unknown("Organization");
 
