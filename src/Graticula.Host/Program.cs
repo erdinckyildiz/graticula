@@ -629,7 +629,7 @@ public static class Program
             return new PostGisImporter(
                 services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool),
                 RefusalWhen(services.GetRequiredService<SourceQuiesce>(), datastore),
-                async cancellation => await budget.EnterAsync(datastore, cancellation).ConfigureAwait(false));
+                async cancellation => await budget.EnterOrWaitAsync(datastore, cancellation).ConfigureAwait(false));
         });
 
         // <b>The raster reader and the coverage catalogue, ADR-043.</b> The factory is

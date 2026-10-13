@@ -377,4 +377,54 @@ public sealed class ConnectionBudgetTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await waiting);
     }
+
+    /// <summary>
+    /// Inside <see cref="ConnectionBudget.Patiently"/> a full source is waited out — owner decision 2026-10-13,
+    /// ADR-011 condition 1 — and outside one it is refused exactly as before.
+    /// </summary>
+    [Fact]
+    public async Task A_patient_flow_waits_for_a_full_source_and_any_other_is_refused()
+    {
+        using ConnectionBudget budget = new(worker: 0, perSource: 1, wait: Brief, waitersPerPermit: 1);
+
+        ConnectionBudget.Lease held = await budget.EnterAsync("db", CancellationToken.None);
+
+        // Outside a patient scope: the old answer, at once.
+        await Assert.ThrowsAsync<ConnectionBudgetFullException>(
+            async () => await budget.EnterOrWaitAsync("db", CancellationToken.None));
+
+        Task<ConnectionBudget.Lease> waiting;
+
+        using (ConnectionBudget.Patiently(TimeSpan.FromSeconds(20)))
+        {
+            waiting = budget.EnterOrWaitAsync("db", CancellationToken.None).AsTask();
+        }
+
+        // The scope's end does not reach a wait already inside it: the flow that started it carries it.
+        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        Assert.False(waiting.IsCompleted, "A patient flow gave up on a full source instead of waiting.");
+
+        held.Dispose();
+
+        using ConnectionBudget.Lease got = await waiting.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // And the scope is gone afterwards: the next refusal is immediate again.
+        await Assert.ThrowsAsync<ConnectionBudgetFullException>(
+            async () => await budget.EnterOrWaitAsync("db", CancellationToken.None));
+    }
+
+    /// <summary>A patient flow still stops when its patience runs out, with the budget's own refusal.</summary>
+    [Fact]
+    public async Task A_patient_flow_gives_up_when_its_patience_is_spent()
+    {
+        using ConnectionBudget budget = new(worker: 0, perSource: 1, wait: Brief, waitersPerPermit: 1);
+
+        using ConnectionBudget.Lease held = await budget.EnterAsync("db", CancellationToken.None);
+
+        using (ConnectionBudget.Patiently(TimeSpan.FromSeconds(2)))
+        {
+            await Assert.ThrowsAsync<ConnectionBudgetFullException>(
+                async () => await budget.EnterOrWaitAsync("db", CancellationToken.None));
+        }
+    }
 }

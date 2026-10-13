@@ -340,11 +340,18 @@ run as jobs), admin API (§39), geoprocessing (§36).
    pool on, holds one around the hand-off. The key is the datastore's connection string, the
    string a datastore layer's reads are budgeted under, so imports and requests draw from one
    pool of permits. `PostGisImporterTests` counts a permit taken for every connection and none
-   left held, and fails when the release on close is taken out. **What a full budget does to an
+   left held, and fails when the release on close is taken out. ~~**What a full budget does to an
    import is `INFERRED`, listed for confirmation**: it is refused as a read is — a request gets
    the budget's 503 and a retry, a geodatabase import job fails with the budget's sentence and is
-   run again by whoever asked — rather than waiting longer than a request would. The condition
-   stays partly discharged on its own terms: no job yet reads a registered source.)*
+   run again by whoever asked — rather than waiting longer than a request would.~~ **Decided by the
+   owner 2026-10-13, the other way for jobs: a request is refused as a read is, and a background
+   import waits.** `ConnectionBudget.Patiently` marks a flow as willing to wait; the geodatabase
+   import job runs inside one for up to ten minutes, and `EnterOrWaitAsync` — the importer's permit —
+   retries a full source there at one second, doubling to thirty, before giving the budget's own
+   refusal. Nothing a request does is inside a patient scope, so a request's answer is unchanged.
+   `ConnectionBudgetTests` holds both: a patient flow waits for a held permit and takes it when it is
+   given back, a plain one is refused at once, and patience that runs out ends in the refusal. The
+   condition stays partly discharged on its own terms: no job yet reads a registered source.)*
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
    *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps

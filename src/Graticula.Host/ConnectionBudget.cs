@@ -306,6 +306,66 @@ internal sealed class ConnectionBudget : IDisposable
         return new Lease(perSource, _global);
     }
 
+    /// <summary>Until when the work in this flow waits for a permit rather than being refused, or null.</summary>
+    private static readonly AsyncLocal<DateTimeOffset?> PatientUntil = new();
+
+    /// <summary>
+    /// Makes the work in this flow wait for a permit, for up to <paramref name="patience"/>, rather than being
+    /// refused when the source is full — owner decision 2026-10-13, ADR-011 condition 1.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>For a background job, and only there.</b> A request is refused at once when its source is full, because
+    /// a caller waiting on a reply is better told to retry than kept (ADR-046). A job has no caller waiting: a
+    /// geodatabase import that ran for an hour and failed because a burst of requests took every permit for a
+    /// second is a worse answer than one that waited for the burst to pass. The job says so by running its work
+    /// inside this scope; nothing a request does is inside one.
+    /// </para>
+    /// <para>
+    /// <b>Carried by the flow, not passed down</b>, because the code that asks for a permit — the importer's one
+    /// connection seam — is shared by requests and jobs and cannot tell them apart; the job can.
+    /// </para>
+    /// </remarks>
+    /// <param name="patience">How long to keep trying.</param>
+    /// <returns>What ends the scope.</returns>
+    public static IDisposable Patiently(TimeSpan patience)
+    {
+        DateTimeOffset? was = PatientUntil.Value;
+        PatientUntil.Value = DateTimeOffset.UtcNow + patience;
+        return new Restore(was);
+    }
+
+    /// <summary>
+    /// A permit, waiting and retrying while the flow is inside <see cref="Patiently"/> and the source is full;
+    /// outside one, exactly <see cref="EnterAsync"/>.
+    /// </summary>
+    /// <param name="source">A key identifying the data source — its connection string.</param>
+    /// <param name="cancellationToken">The caller's own cancellation.</param>
+    /// <returns>A lease.</returns>
+    public async ValueTask<Lease> EnterOrWaitAsync(string source, CancellationToken cancellationToken)
+    {
+        TimeSpan delay = TimeSpan.FromSeconds(1);
+
+        while (true)
+        {
+            try
+            {
+                return await EnterAsync(source, cancellationToken).ConfigureAwait(false);
+            }
+            catch (ConnectionBudgetFullException)
+                when (PatientUntil.Value is { } until && DateTimeOffset.UtcNow + delay < until)
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, TimeSpan.FromSeconds(30).Ticks));
+            }
+        }
+    }
+
+    private sealed class Restore(DateTimeOffset? was) : IDisposable
+    {
+        public void Dispose() => PatientUntil.Value = was;
+    }
+
     /// <summary>A held slot. Disposing it returns the slot, narrow gate last.</summary>
     /// <remarks>
     /// <b>A struct, because this is on the query path.</b> One of these is taken per query and the

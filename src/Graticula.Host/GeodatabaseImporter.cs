@@ -204,7 +204,13 @@ internal sealed class GeodatabaseImporter : BackgroundService
 
             Busy();
 
-            await RunAsync(job, stopping).ConfigureAwait(false);
+            // <b>A full datastore budget is waited out, for up to ten minutes — owner decision 2026-10-13,
+            // ADR-011 condition 1.</b> A request is refused at once when every permit is taken; an import
+            // that has been running for an hour is not failed for a burst that passes in a second.
+            using (ConnectionBudget.Patiently(TimeSpan.FromMinutes(10)))
+            {
+                await RunAsync(job, stopping).ConfigureAwait(false);
+            }
         }
     }
 
