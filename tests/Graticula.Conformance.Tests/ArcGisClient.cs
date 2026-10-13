@@ -92,6 +92,12 @@ public abstract class ArcGisClient : IDisposable
             // a host the operator named.
             ServerCertificateCustomValidationCallback =
                 HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+
+            // <b>No cookie jar — D-293.</b> Every caller here says who it is on each request, with a token,
+            // or says nothing and means anonymous. A jar made the second untrue: a test that signed a member
+            // in through this client left the member's session cookie on every request after it, so a
+            // request meant to be a stranger's was the member's, and a sharing leak could pass.
+            UseCookies = false,
         };
 
         _http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
