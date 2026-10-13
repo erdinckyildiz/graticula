@@ -209,7 +209,7 @@ These came from the project owner and are inputs, not open questions. See
   [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md). The outbound
   licence is the Elastic License 2.0**~~ **Changed again 2026-10-13 by owner decision —
   [ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md). The outbound
-  licence is the Community License 1.0 and the project is *source-available*, not open
+  licence is the Graticula Community License — 1.1 since the same day — and the project is *source-available*, not open
   source.** Anyone may use, run, deploy and host it for third parties, paid included,
   and pass on unmodified copies; **modifying it, building on it, or running a modified
   version needs the copyright holder's written permission.** v1.0.352 and earlier stay

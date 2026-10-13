@@ -1967,7 +1967,7 @@ def an_outbound_licence_claim_that_is_stale():
             for found in ours.finditer(flowed):
                 problems.append(
                     f'{shown} says "{found.group(0)[:60]}". The outbound licence has been '
-                    "the Community License 1.0 since 2026-10-13 (ADR-180), and ELv2 before "
+                    "the Graticula Community License since 2026-10-13 (ADR-180), and ELv2 before "
                     "that (ADR-047). Documents reasoned from each old one, so this is not a "
                     "cosmetic correction. D-130.")
 

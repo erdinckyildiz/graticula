@@ -2,7 +2,7 @@ Graticula
 Copyright 2026 Erdinç Yıldız and the Graticula contributors
 
 This product includes software developed as part of the Graticula project,
-licensed under the Graticula Community License 1.0. See LICENSE.
+licensed under the Graticula Community License 1.1. See LICENSE.
 
 Graticula is source-available rather than open source, by owner decision on
 2026-10-13 — ADR-180. You may use it, run it commercially, deploy it for
@@ -14,8 +14,10 @@ environment variables, APIs and extension points is not modification. That is
 the whole of it, and it is stated here as plainly as in the licence because a
 reader who has to infer it from a licence name has been told nothing.
 
+Contributions are not accepted for now (LICENSE section 9).
+
 Releases v1.0.0 to v1.0.352 were published under the Elastic License 2.0
-(ADR-047) and remain under it.
+(ADR-047) and remain under it; v1.0.353 under Community License 1.0.
 
 Third-party dependencies retain their own licences. The obligations they
 create — including attribution, source-availability and driver bill-of-material

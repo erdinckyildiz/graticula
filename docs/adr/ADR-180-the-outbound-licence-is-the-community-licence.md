@@ -1,9 +1,9 @@
-# ADR-180 — The outbound licence is the Community License 1.0
+# ADR-180 — The outbound licence is the Graticula Community License
 
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `HIGH` for the decision, which is the owner's · `MEDIUM` for the licence text, which nobody has reviewed |
+| **Confidence** | `HIGH` for the decision, which is the owner's · `MEDIUM` for the licence text, which no lawyer has reviewed |
 | **Decided** | 2026-10-13 |
 | **Supersedes** | [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md) |
 | **Superseded by** | — |
@@ -24,7 +24,7 @@ services"*, and forbids instead what ELv2 permitted: modifying it, creating deri
 works, and distributing or operating a modified version, without the copyright holder's
 prior written permission.
 
-| | ELv2 (ADR-047, v1.0.0 – v1.0.352) | Community License 1.0 (from v1.0.353) |
+| | ELv2 (ADR-047, v1.0.0 – v1.0.352) | Community License 1.0 (v1.0.353), 1.1 from v1.0.354 |
 |---|---|---|
 | Run it, commercially included | yes | yes |
 | Deploy it for a client | yes | yes |
@@ -32,7 +32,7 @@ prior written permission.
 | Redistribute it | yes, modified or not | **unmodified only** |
 | Modify it, or build a derivative work | yes | **only with written permission** |
 | Configure it through documented settings, environment, APIs, plugins | yes | yes — §3 says this is not modification |
-| Patent grant | yes | **none** |
+| Patent grant | yes | **none** in 1.0 · yes from 1.1 (§5b) |
 
 ## 2. Alternatives considered
 
@@ -109,7 +109,8 @@ list, and it is what the image labels carry.
 
 ## 5. Decision
 
-**The outbound licence is the Community License 1.0**, the owner's text, in `LICENSE`.
+**The outbound licence is the Community License 1.0**, the owner's text, in `LICENSE` —
+**amended the same day to 1.1, §5b.**
 `NOTICE` states in plain words what it allows and what it forbids, because a reader who has
 to infer that from a licence name has been told nothing — which was ADR-047's reason too,
 and holds more strongly for a name nobody recognises.
@@ -127,7 +128,12 @@ and holds more strongly for a name nobody recognises.
 `tools/registers-check.py` keeps failing the build on the latter, and now also fails it on
 a document that still names ELv2 as this project's licence.
 
-### 5a. What is inferred, for the owner to confirm — [Q-166](../open-questions.md)
+### 5a. What was inferred — confirmed by the owner 2026-10-13, [Q-166](../open-questions.md)
+
+*"1. Evet. 2. Uygun. 3. Şimdilik verilmeyecek."* The holder's name and the identifier
+stand as written below. **Contribution permission is not being given for now**, which is
+stronger than item 3 assumed: CONTRIBUTING.md no longer says *ask in an issue*, it says
+contributions are not accepted, and §9 of the 1.1 text says the same.
 
 1. **The copyright holder is `Erdinç Yıldız`**, as `NOTICE` has said since 2026-08-25. One
    commit is authored as *Erdinç Kadir YILDIZ*; the legal name is the owner's to give.
@@ -137,6 +143,27 @@ a document that still names ELv2 as this project's licence.
    permission before it is written, and that the DCO sign-off still applies when it is.
    How permission is given — an issue, an e-mail, a standing grant for pull requests — is
    not decided.
+
+### 5b. The 1.1 amendment, 2026-10-13
+
+Asked about §3's drafting gaps, the owner asked *"Nasıl yapalım?"*, was given four
+additions, and approved them: *"Olur ekle"*. **Nothing in 1.0 was changed; four things
+were added**, so the decision in §5 stands word for word.
+
+| | What 1.1 adds | Why |
+|---|---|---|
+| Title | *Graticula* Community License 1.1 | Several unrelated licences are called *Community License*; the name now names its product (§3, the fourth) |
+| §0 | A definition of *the Software*: source, object code, container images and documentation, excluding third-party components | The text used the word nine times and never said what it covered — images and documentation in particular (§3, the fourth) |
+| §1 | A patent licence, ending for anyone who sues claiming the Software infringes a patent | ELv2 had one and 1.0 did not (§3, the third). It costs nothing where the holder has no patents |
+| §9 | Contributions are not accepted without written agreement; one accepted is licensed to the holder irrevocably, relicensing included | Records the owner's *"şimdilik verilmeyecek"* in the licence, and keeps relicensing possible if that changes — the move ADR-047 and this ADR could make only because nobody else had contributed |
+
+**Identifiers move with the version**: `LicenseRef-Graticula-Community-1.1` in image labels
+and *Graticula Community License 1.1* in the OpenAPI documents. **v1.0.353 alone was
+released under 1.0** and stays under it; 1.1 binds from v1.0.354.
+
+**Still not reviewed by a lawyer.** The additions are adapted from Apache-2.0's and ELv2's
+patent clauses and from common contribution terms, not drafted by somebody qualified to.
+The owner was told so and chose to proceed.
 
 ## 6. Consequences
 
@@ -166,9 +193,12 @@ which is runtime output; nothing stores it and nothing reads it.
    Struck text, `reviews/`, `research/` and ADR-047 keep the old name, because they record
    what was true when they were written.)*
 2. **The three inferences in §5a are confirmed or changed by the owner** — Q-166.
+   *(**Discharged 2026-10-13**: all three confirmed, the third narrowed to *no
+   contributions for now* — §5a.)*
 3. **The owner decides whether the drafting gaps in §3 are repaired** — patent grant,
    definition of *the Software*, a contribution clause. Not repairing them is a valid
    answer; not deciding is not. Q-166.
+   *(**Discharged 2026-10-13**: repaired, as the 1.1 text — §5b.)*
 
 ## 8. Revisit triggers
 

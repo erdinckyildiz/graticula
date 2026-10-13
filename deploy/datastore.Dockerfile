@@ -34,7 +34,7 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.title="Graticula datastore" \
       org.opencontainers.image.description="PostGIS, configured as the Graticula platform store and hosted datastore." \
       org.opencontainers.image.source="https://github.com/erdinckyildiz/graticula" \
-      org.opencontainers.image.licenses="LicenseRef-Graticula-Community-1.0" \
+      org.opencontainers.image.licenses="LicenseRef-Graticula-Community-1.1" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 

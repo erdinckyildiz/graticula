@@ -56,7 +56,7 @@ request path to compute something that never changes, and it puts a font parser
 — an attacker-facing binary parser, historically a rich source of CVEs — inside
 the server process. The .NET options are also awkward: the obvious rasteriser
 sits under a licence ~~Apache-2.0~~ ~~**ELv2 — corrected 2026-08-25,
-[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md)**~~ **the Community License 1.0 —
+[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md)**~~ **the Graticula Community License —
 corrected 2026-10-13, [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md)** — outbound cannot carry.
 **The constraint is unchanged in substance**: an inbound licence we cannot
 redistribute under is a problem whatever we license our own code as, because the

@@ -2,7 +2,7 @@
 
 Required by §55.
 
-**Outbound licence: Community License 1.0** — owner decision 2026-10-13,
+**Outbound licence: Graticula Community License 1.1** — owner decision 2026-10-13,
 [ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md), replacing the Elastic
 License 2.0 of [ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)
 (2026-08-25), which replaced the Apache-2.0 taken on 2026-08-13 under Q-73. See

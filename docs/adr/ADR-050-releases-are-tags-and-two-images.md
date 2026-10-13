@@ -180,7 +180,7 @@ and nothing in the server reads it.
 it refuses a store), [ADR-025](ADR-025-governance-and-maintenance.md) (what is promised about
 maintenance), ~~[ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md)~~
 [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) (the licence in the image
-labels, `LicenseRef-Graticula-Community-1.0` from v1.0.353).
+labels: `LicenseRef-Graticula-Community-1.0` on v1.0.353, `-1.1` from v1.0.354).
 
 **Depended on by**: [D-19](../architecture-debt.md) closes on this.
 

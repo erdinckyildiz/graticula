@@ -190,7 +190,7 @@ matters twice over: ~~this product is Apache-2.0 and~~ ~~**this product is Elast
 License 2.0 — corrected 2026-08-25,
 [ADR-047](ADR-047-the-outbound-licence-is-elastic-2.md) — and still** must be
 redistributable by
-anyone who forks it,~~ **this product is the Community License 1.0 — corrected
+anyone who forks it,~~ **this product is the Graticula Community License — corrected
 2026-10-13, [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md) — and must
 still be redistributable by anyone who passes on an unmodified copy,** and its users are specifically people who **cannot or will
 not enter into Esri licensing** ([product-context.md](../product-context.md)).

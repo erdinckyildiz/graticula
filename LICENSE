@@ -1,8 +1,12 @@
-# Community License 1.0
+# Graticula Community License 1.1
 
 Copyright (c) 2026 Erdinç Yıldız
 
 All rights reserved except as expressly granted below.
+
+## 0. Definitions
+
+"Software" means the Graticula source code, object code, container images and documentation published by the copyright holder, in any version released under this License, excluding third-party components described in Section 5.
 
 ## 1. License Grant
 
@@ -15,6 +19,8 @@ Subject to compliance with this License, the copyright holder grants you a world
 - Inspect and review the source code.
 
 No per-user, per-client, or per-deployment license fee is required.
+
+The copyright holder also grants you a license under any patent claims it can license, to the extent necessary to exercise the rights granted above. If you assert in litigation that the Software infringes a patent, the patent license granted to you ends immediately.
 
 ## 2. Modification Restrictions
 
@@ -47,3 +53,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ## 8. Limitation of Liability
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES ARISING FROM USE OF THE SOFTWARE.
+
+## 9. Contributions
+
+The copyright holder does not accept contributions unless it has agreed to do so in writing. A contribution made with that agreement is licensed to the copyright holder perpetually and irrevocably, with the right to use, modify, sublicense and relicense it, including under terms other than this License.

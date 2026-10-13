@@ -41,7 +41,7 @@ Four reasons. Only one is technical.
    so there is still nothing to meter — but the licence name in it was wrong, and
    this reason
    evaporates entirely. **And again 2026-10-13 —
-   [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md): the Community License 1.0,
+   [ADR-180](ADR-180-the-outbound-licence-is-the-community-licence.md): the Graticula Community License,
    which has no licence-key clause at all and charges no per-user or per-deployment
    fee.** Nothing to meter, still.
 3. **One catalogue over many serving sites.** *This is the real one.* A large

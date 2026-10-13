@@ -766,7 +766,7 @@ internal static partial class OgcStylesDocuments
         json.WriteString("description", "The styles of this server's vector tile services, read-only.");
         json.WriteString("version", "1.0.0");
         json.WriteStartObject("license");
-        json.WriteString("name", "Community License 1.0");
+        json.WriteString("name", "Graticula Community License 1.1");
         json.WriteEndObject();
         json.WriteEndObject();
 

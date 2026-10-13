@@ -51,11 +51,12 @@ property of the process.
 2026-10-13 the licence became the Community License 1.0
 ([ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md)), and that
 licence forbids modifying the software without the copyright holder's prior written
-permission. **Writing a pull request is modifying it.** So: **ask first** — open an
-issue describing the change and wait for a yes before you write it. Nobody had
-contributed when this changed, so again no one's work moved under terms they did not
-choose. How permission is given beyond that is not yet decided
-([Q-166](docs/open-questions.md)).
+permission. **Writing a pull request is modifying it.** ~~So: **ask first** — open an
+issue describing the change and wait for a yes before you write it.~~ **Contributions
+are not accepted for now** — the owner's answer to [Q-166](docs/open-questions.md), and
+§9 of the licence since 1.1. Issues reporting a bug or asking a question are welcome; a
+pull request will be closed unread. Nobody had contributed when this changed, so again
+no one's work moved under terms they did not choose.
 
 **There is still no CLA, and the reason is now narrower.** Asking for a signature
 assigning rights to a project that promises you nothing in return is a bad trade
