@@ -209,6 +209,46 @@ public sealed class PortalConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task Every_user_document_names_the_organisation_its_categories_live_under()
+    {
+        // <b>Pro takes the organisation from the user, not from the portal.</b> The
+        // user inside portals/self carried no orgId, so Pro's Add Elevation Source
+        // dialog asked for portals//categorySchema, got a 404 and showed *Object
+        // reference not set*. community/users/{name} had it all along; the other two
+        // doors to the same person did not.
+        string root = await RequireServerAsync();
+
+        string? token = await TokenAsync(root);
+
+        Assert.False(string.IsNullOrWhiteSpace(token), "no credentials, so this FAILS.");
+
+        string user = Environment.GetEnvironmentVariable("GRATICULA_TEST_USER")!;
+
+        string org = (await GetJsonAsync("/sharing/rest/portals/self?f=json")).GetProperty("id").GetString()!;
+
+        (string Name, JsonElement User)[] doors =
+        [
+            ("portals/self user", (await GetJsonAsync($"/sharing/rest/portals/self?f=json&token={token}")).GetProperty("user")),
+            ("community/self", await GetJsonAsync($"/sharing/rest/community/self?f=json&token={token}")),
+            ("community/users", await GetJsonAsync($"/sharing/rest/community/users/{user}?f=json&token={token}")),
+        ];
+
+        foreach ((string name, JsonElement document) in doors)
+        {
+            Assert.True(
+                document.TryGetProperty("orgId", out JsonElement orgId) && orgId.ValueKind == JsonValueKind.String,
+                $"{name} carries no orgId: {document}");
+
+            Assert.Equal(org, orgId.GetString());
+
+            using HttpResponseMessage categories = await Http.GetAsync(
+                new Uri($"{root}/sharing/rest/portals/{orgId.GetString()}/categorySchema?f=json&token={token}"));
+
+            Assert.True(categories.IsSuccessStatusCode, $"categorySchema from {name}'s orgId answered {(int)categories.StatusCode}");
+        }
+    }
+
+    [Fact]
     public async Task Every_document_arcgis_pro_walks_through_answers()
     {
         // <b>The chain, as ArcGIS Pro actually walks it.</b> Each of these was

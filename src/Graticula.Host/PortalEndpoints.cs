@@ -509,7 +509,7 @@ internal static class PortalEndpoints
             httpsPort = PortOf(context, https: true),
             currentVersion = PortalVersion,
             access = "public",
-            user = signedIn ? Self(current, groups) : null,
+            user = signedIn ? Self(context, current, groups) : null,
 
             // <b>Pro asks where the geometry service is rather than assuming.</b>
             // We have one (ADR-022) and it is at the address every ArcGIS client
@@ -592,7 +592,7 @@ internal static class PortalEndpoints
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
 
-        return Results.Ok(Self(current, groups));
+        return Results.Ok(Self(context, current, groups));
     }
 
     /// <summary>One user's profile.</summary>
@@ -632,12 +632,40 @@ internal static class PortalEndpoints
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        bool administrator = current.Authorization.Allows(Privilege.AdminManageServer);
-
         IReadOnlyList<object> groups =
             await MineAsync(context, directory, cancellation).ConfigureAwait(false);
 
-        return Results.Ok(new
+        return Results.Ok(Self(context, current, groups));
+    }
+
+    /// <summary>The signed-in caller, as a portal describes one.</summary>
+    /// <remarks>
+    /// <b>The group list is here rather than on one document, and that is the point
+    /// of putting it here.</b> A portal client reads the caller's groups from
+    /// whichever of <c>portals/self</c>, <c>community/self</c> and
+    /// <c>community/users/{{name}}</c> it happens to use, and a decision that shows
+    /// up in one of the three is a decision that looks unimplemented from the other
+    /// two. This carried no group list at all until 2026-09-09 — absence rather than
+    /// a false claim, but absence is what a client reads as *none*.
+    /// <para>
+    /// <b>The same holds for every other field, and it took a crash to learn it.</b> Until
+    /// 2026-10-13 only <c>community/users/{{name}}</c> carried <c>orgId</c>; the user inside
+    /// <c>portals/self</c> did not. Pro's Add Elevation Source dialog builds
+    /// <c>portals/{{orgId}}/categorySchema</c> from that user, asked for
+    /// <c>portals//categorySchema</c> and got a 404 in the same second it showed *Object
+    /// reference not set* — the link is read from the request log, not from Pro's code. So
+    /// there is one profile and three doors to it, not three profiles.
+    /// </para>
+    /// </remarks>
+    /// <param name="context">The request, for the organisation's id.</param>
+    /// <param name="current">Who is asking.</param>
+    /// <param name="groups">Their groups, from <see cref="MineAsync"/>.</param>
+    /// <returns>The user document.</returns>
+    private static object Self(HttpContext context, RequestPrincipal current, IReadOnlyList<object> groups)
+    {
+        bool administrator = current.Authorization.Allows(Privilege.AdminManageServer);
+
+        return new
         {
             username = current.Principal.Name,
             fullName = current.Principal.Name,
@@ -668,36 +696,8 @@ internal static class PortalEndpoints
             // be explained in a comment is a field that is lying to somebody who
             // cannot read the comment.
             groups,
-        });
+        };
     }
-
-    /// <summary>The signed-in caller, as a portal describes one.</summary>
-    /// <remarks>
-    /// <b>The group list is here rather than on one document, and that is the point
-    /// of putting it here.</b> A portal client reads the caller's groups from
-    /// whichever of <c>portals/self</c>, <c>community/self</c> and
-    /// <c>community/users/{{name}}</c> it happens to use, and a decision that shows
-    /// up in one of the three is a decision that looks unimplemented from the other
-    /// two. This carried no group list at all until 2026-09-09 — absence rather than
-    /// a false claim, but absence is what a client reads as *none*.
-    /// </remarks>
-    /// <param name="current">Who is asking.</param>
-    /// <param name="groups">Their groups, from <see cref="MineAsync"/>.</param>
-    /// <returns>The user document.</returns>
-    private static object Self(RequestPrincipal current, IReadOnlyList<object> groups) => new
-    {
-        username = current.Principal.Name,
-        fullName = current.Principal.Name,
-        access = "private",
-        groups,
-
-        // <b>Role is reported as what this caller can do, not as a stored value.</b>
-        // ADR-035 made privileges editable, so a fixed role string would be a claim
-        // that goes stale the first time somebody edits one.
-        role = current.Authorization.Allows(Privilege.AdminManageServer)
-            ? "org_admin"
-            : "org_user",
-    };
 
     /// <summary>
     /// A portal's subscription, of which this server has none.
