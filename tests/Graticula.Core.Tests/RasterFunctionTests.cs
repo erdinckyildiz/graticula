@@ -105,6 +105,47 @@ public sealed class RasterFunctionTests
     }
 
     [Fact]
+    public void Slope_type_two_is_percent_rise_and_survives_being_stored()
+    {
+        // Reviewer, 2026-10-13: SlopeType 2 answered degrees. A plane rising one cell size a cell is 45° and 100%.
+        Assert.True(RasterFunction.TryParseRule(
+            "{\"rasterFunction\":\"Slope\",\"rasterFunctionArguments\":{\"SlopeType\":2}}", out RasterFunction? percent, out string? error), error);
+        Assert.Equal(100, Centre(percent!, Plane(10, 0)), 6);
+        Assert.Equal(25, Centre(percent!, Plane(2.5, 0)), 6);
+
+        Assert.True(RasterFunction.TryParseRule(
+            "{\"rasterFunction\":\"Slope\",\"rasterFunctionArguments\":{\"SlopeType\":1}}", out RasterFunction? degrees, out _));
+        Assert.Equal(45, Centre(degrees!, Plane(10, 0)), 6);
+        Assert.NotEqual(percent, degrees);
+
+        // An owner who keeps it as the service's drawing keeps percent.
+        Assert.Equal("function:slope:percent", percent!.ToStyleText());
+        Assert.True(RasterFunction.FromStyleText("stretch:auto;function:slope:percent").Percent);
+        Assert.False(RasterFunction.FromStyleText("stretch:auto;function:slope").Percent);
+    }
+
+    [Theory]
+    [InlineData("{\"rasterFunction\":\"Slope\",\"rasterFunctionArguments\":{\"SlopeType\":3}}", "SlopeType")]
+    [InlineData("{\"rasterFunction\":\"Hillshade\",\"rasterFunctionArguments\":{\"HillshadeType\":1}}", "HillshadeType")]
+    [InlineData("{\"rasterFunctionDefinition\":{\"name\":\"Hillshade\"}}", "rasterFunctionDefinition")]
+    [InlineData("{\"name\":\"Hillshade\"}", "`name`")]
+    public void What_is_asked_for_and_not_applied_is_refused_rather_than_drawn_as_something_else(string rule, string named)
+    {
+        Assert.False(RasterFunction.TryParseRule(rule, out _, out string? error));
+        Assert.Contains(named, error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Esris_scaling_arguments_beside_an_ordinary_hillshade_are_not_a_refusal()
+    {
+        // Esri's own Hillshade template carries PSPower and PSZFactor with the types they do not apply to.
+        Assert.True(RasterFunction.TryParseRule(
+            "{\"rasterFunction\":\"Hillshade\",\"rasterFunctionArguments\":{\"HillshadeType\":0,\"PSPower\":0.664,\"PSZFactor\":0.024}}",
+            out RasterFunction? shade, out string? error), error);
+        Assert.Equal(RasterFunctionKind.Hillshade, shade!.Kind);
+    }
+
+    [Fact]
     public void A_stored_style_names_its_function_beside_its_ramp()
     {
         Assert.Equal(RasterFunctionKind.Slope, RasterFunction.FromStyleText("stretch:auto;ramp:terrain;function:slope").Kind);

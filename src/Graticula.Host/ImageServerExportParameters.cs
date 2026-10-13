@@ -67,6 +67,7 @@ internal sealed class ImageServerExportParameters
         Height = height;
         Format = format;
         Srid = srid;
+        BoxSrid = srid;
     }
 
     /// <summary>The ground to draw, in the coverage's own reference.</summary>
@@ -191,31 +192,22 @@ internal sealed class ImageServerExportParameters
             function = under;
         }
 
-        // <b>`bboxSR` says what the box is written in; `imageSR` says what to draw
-        // in.</b> Esri allows them to differ and this server does not: a request that
-        // gave two would have its extent read in one and its pixels laid out in the
-        // other, which is a picture of the right place at the wrong shape. Both are
-        // read, and disagreeing is refused rather than silently resolved.
+        // <b>`bboxSR` says what the box is written in; `imageSR` says what to draw in</b>, and since 2026-10-13 they
+        // may differ, as Esri's own exportImage example has them (bboxSR=4326, imageSR=3857). They were refused until
+        // then — and so was bboxSR=3857 with imageSR=102100, one projection under two codes. The box is carried into
+        // the image's reference by the caller, which has the projector (see BoxSrid); one given alone is both, as before.
         if (!TryReference(parameter("bboxSR"), info, out int boxSrid, out error)
             || !TryReference(parameter("imageSR"), info, out int imageSrid, out error))
         {
             return false;
         }
 
-        if (parameter("bboxSR") is { Length: > 0 } && parameter("imageSR") is { Length: > 0 }
-            && boxSrid != imageSrid)
-        {
-            error = $"`bboxSR` is EPSG:{boxSrid.ToString(CultureInfo.InvariantCulture)} and "
-                + $"`imageSR` is EPSG:{imageSrid.ToString(CultureInfo.InvariantCulture)}. This "
-                + "server draws in the reference the extent is written in; asking for two "
-                + "would give a picture of the right ground at the wrong shape.";
+        bool boxGiven = parameter("bboxSR") is { Length: > 0 };
+        bool imageGiven = parameter("imageSR") is { Length: > 0 };
+        int srid = imageGiven ? imageSrid : boxSrid;
+        int written = boxGiven ? boxSrid : srid;
 
-            return false;
-        }
-
-        int srid = parameter("bboxSR") is { Length: > 0 } ? boxSrid : imageSrid;
-
-        if (!TryExtent(parameter("bbox"), info, srid, out Envelope extent, out error))
+        if (!TryExtent(parameter("bbox"), info, written, out Envelope extent, out error))
         {
             return false;
         }
@@ -234,6 +226,16 @@ internal sealed class ImageServerExportParameters
 
         if (!raw && !TryFormat(parameter("format"), out format, out error))
         {
+            return false;
+        }
+
+        // A GeoTIFF names its reference in a 16-bit key, and the writer clamped every larger code to 65535 — which
+        // GeoTIFF reads as user-defined, a file with no reference at all. 102100 now arrives as 3857; an Esri code
+        // with no EPSG twin is refused rather than written into a file that cannot say what it is.
+        if (raw && !lerc && srid > ushort.MaxValue)
+        {
+            error = $"A GeoTIFF names its reference by an EPSG code, and {srid.ToString(CultureInfo.InvariantCulture)} "
+                + "is not one it can carry. Ask in the EPSG code for the same reference, or for `format=lerc`.";
             return false;
         }
 
@@ -264,9 +266,28 @@ internal sealed class ImageServerExportParameters
             Interpolation = resampling,
             Lerc = lerc,
             Tolerance = tolerance,
+            BoxSrid = written,
         };
         return true;
     }
+
+    /// <summary>
+    /// The reference <c>bbox</c> was written in, when it is not <see cref="Srid"/> — the caller carries
+    /// <see cref="Extent"/> into <see cref="Srid"/> with <see cref="Reframed"/> before anything is drawn.
+    /// </summary>
+    public int BoxSrid { get; private init; }
+
+    /// <summary>The same request over another extent, written in <see cref="Srid"/>.</summary>
+    internal ImageServerExportParameters Reframed(Envelope extent) =>
+        new(extent, Width, Height, Format, Srid, Raw)
+        {
+            Function = Function,
+            Display = Display,
+            Interpolation = Interpolation,
+            Lerc = Lerc,
+            Tolerance = Tolerance,
+            BoxSrid = Srid,
+        };
 
     /// <summary>
     /// Reads what a LERC request adds — ADR-137: the version, of which this server writes the second (every decoder
@@ -673,6 +694,7 @@ internal sealed class ImageServerExportParameters
                 return false;
             }
 
+            srid = Graticula.Api.ArcGis.ArcGisGeometryReader.Canonical(srid);
             return true;
         }
 
@@ -687,6 +709,9 @@ internal sealed class ImageServerExportParameters
             return false;
         }
 
+        // 102100 is Esri's code for 3857 and every ArcGIS client sends it: one reference, one number, so that a 3857
+        // image is drawn without a warp and a GeoTIFF of it says EPSG:3857 rather than nothing.
+        srid = Graticula.Api.ArcGis.ArcGisGeometryReader.Canonical(srid);
         return true;
     }
 

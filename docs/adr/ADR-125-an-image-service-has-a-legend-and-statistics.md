@@ -39,7 +39,9 @@ stretch uses, so the two agree.
 ## 3. Counterarguments to the preferred option
 
 - *Sampled statistics are not exact*, and `minValues` on the root says so less plainly than it might: a single
-  pixel below the sampled minimum is clipped by a min–max stretch. Recorded rather than hidden; histograms remain
+  pixel below the sampled minimum is clipped by a min–max stretch. *(Since 2026-10-13 one band is stretched over two
+  standard deviations, as colour was, so the clipping is deliberate at both ends and the legend's High and Low are
+  the stretch's, not the sample's extremes.)* Recorded rather than hidden; histograms remain
   unserved (`hasHistograms: false`).
 
 ## 4. Evidence

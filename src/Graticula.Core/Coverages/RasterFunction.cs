@@ -81,6 +81,12 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
     /// <summary>The one band a function's result is: 32-bit values, NaN where nothing could be worked out.</summary>
     public static IReadOnlyList<BandInfo> ResultBands { get; } = [new BandInfo(0, SampleKind.Real32, double.NaN, null, null)];
 
+    /// <summary>
+    /// Whether a slope is percent rise rather than degrees — ArcGIS's <c>SlopeType</c> 2. It was read by nobody until
+    /// 2026-10-13, and a client asking for percent got degrees: 24.3 at Uludağ where it meant 45.
+    /// </summary>
+    public bool Percent { get; init; }
+
     /// <summary>NDVI's red band, from zero — ArcGIS's <c>VisibleBandID</c>.</summary>
     public int RedBand { get; init; } = -1;
 
@@ -243,6 +249,19 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
                 ? named.GetString() ?? string.Empty
                 : string.Empty;
 
+            // A rule that names no function but says something else — a `rasterFunctionDefinition`, a `name` — was drawn
+            // as the image, the accepted-and-not-applied shape this method's own refusal exists to prevent (reviewer,
+            // 2026-10-13). An empty object is still the service's own drawing.
+            if (name.Length == 0 && root.EnumerateObject().Any())
+            {
+                string said = string.Join(", ", root.EnumerateObject().Select(p => $"`{p.Name}`"));
+                error = $"`renderingRule` has {said} and no `rasterFunction` naming what to apply. This image service reads "
+                    + $"{{\"rasterFunction\":\"<name>\",\"rasterFunctionArguments\":{{…}}}} with one of {string.Join(", ", Names)}"
+                    + " or None; a raster function template (`rasterFunctionDefinition`) is not read. Refused rather than "
+                    + "drawn as if it had been applied.";
+                return false;
+            }
+
             if (name.Length == 0 || name.Equals("None", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
@@ -269,11 +288,38 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
                 return TryValueFunction(kind, arguments, out function, out error);
             }
 
+            // ArcGIS's SlopeType: 1 degrees, 2 percent rise, 3 scaled by PSPower and PSZFactor. HillshadeType: 0 one light,
+            // 1 several. Scaled and several are not applied here, so they are refused rather than answered as degrees
+            // and one light. PSPower and PSZFactor alone are not refused: Esri's own templates carry them beside the
+            // types they do not apply to.
+            double slopeType = Argument(arguments, "SlopeType", 1);
+            double shadeType = Argument(arguments, "HillshadeType", 0);
+
+            if (kind == RasterFunctionKind.Slope && slopeType is not (1 or 2))
+            {
+                error = $"Slope's `SlopeType` {slopeType.ToString(CultureInfo.InvariantCulture)} is not applied here: this "
+                    + "server answers 1, degrees, and 2, percent rise. Scaled slope (3) is refused rather than answered in degrees.";
+                function = None;
+                return false;
+            }
+
+            if (kind == RasterFunctionKind.Hillshade && shadeType != 0)
+            {
+                error = $"Hillshade's `HillshadeType` {shadeType.ToString(CultureInfo.InvariantCulture)} is not applied here: "
+                    + "this server shades from one light, `Azimuth` and `Altitude` (HillshadeType 0). Multidirectional "
+                    + "hillshade is refused rather than drawn from one light.";
+                function = None;
+                return false;
+            }
+
             function = new RasterFunction(
                 kind,
                 Argument(arguments, "Azimuth", 315),
                 Argument(arguments, "Altitude", 45),
-                Argument(arguments, "ZFactor", 1));
+                Argument(arguments, "ZFactor", 1))
+            {
+                Percent = kind == RasterFunctionKind.Slope && slopeType == 2,
+            };
 
             if (function.ZFactor <= 0 || function.Altitude is < 0 or > 90)
             {
@@ -689,6 +735,9 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
                     ? new RasterFunction(kind) { Expression = expression }
                     : null;
 
+            case RasterFunctionKind.Slope:
+                return new RasterFunction(kind) { Percent = rest.Equals("percent", StringComparison.OrdinalIgnoreCase) };
+
             // ADR-156's functions carry geometry and tables a style does not store; they are asked for, not kept.
             case RasterFunctionKind.Clip or RasterFunctionKind.Remap or RasterFunctionKind.Mask
                 or RasterFunctionKind.Statistics or RasterFunctionKind.Arithmetic:
@@ -707,6 +756,7 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
         RasterFunctionKind.Ndvi => string.Create(CultureInfo.InvariantCulture, $"function:ndvi:{RedBand}:{InfraredBand}{(Scientific ? ":s" : "")}"),
         RasterFunctionKind.ExtractBand => "function:extractband:" + string.Join(",", BandIds ?? []),
         RasterFunctionKind.BandArithmetic => "function:bandarithmetic:" + Expression!.Text.Replace(";", string.Empty, StringComparison.Ordinal),
+        RasterFunctionKind.Slope when Percent => "function:slope:percent",
         _ => "function:" + Kind.ToString().ToLowerInvariant(),
     };
 
@@ -716,6 +766,7 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
         RasterFunctionKind.Hillshade => new CoverageStyle(StretchKind.Fixed, 0, 255),
         // Over 0–45°: ordinary terrain is under 15°, and 0–90° drew it all one green (design review 2026-10-02); steeper
         // than 45° is the ramp's red.
+        RasterFunctionKind.Slope when Percent => new CoverageStyle(StretchKind.Fixed, 0, 100).WithRamp("slope"),
         RasterFunctionKind.Slope => new CoverageStyle(StretchKind.Fixed, 0, 45).WithRamp("slope"),
         RasterFunctionKind.Aspect => new CoverageStyle(StretchKind.Fixed, 0, 360).WithRamp("aspect"),
         // ADR-151: bare ground and water brown, vegetation green, over the index's own range.
@@ -856,6 +907,7 @@ public sealed record RasterFunction(RasterFunctionKind Kind, double Azimuth = 31
 
                 result[(y * w) + x] = Kind switch
                 {
+                    RasterFunctionKind.Slope when Percent => Math.Tan(slope) * 100,
                     RasterFunctionKind.Slope => slope * 180 / Math.PI,
                     RasterFunctionKind.Aspect => CompassAspect(dzdx, dzdy),
                     _ => Shade(slope, MathAspect(dzdx, dzdy), zenith, azimuth),

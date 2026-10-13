@@ -61,6 +61,12 @@ public static class GeoTiffWriter
             throw new ArgumentException("There is not one value per band per pixel.", nameof(samples));
         }
 
+        // The GeoKey is 16 bits. A larger code was clamped to 65535, user-defined, and the file had no reference.
+        if (srid is <= 0 or > ushort.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(srid), srid, "A GeoTIFF carries an EPSG code of at most 65535.");
+        }
+
         (int bytes, ushort format) = kind switch
         {
             SampleKind.Unsigned8 => (1, (ushort)1),
@@ -97,7 +103,7 @@ public static class GeoTiffWriter
             1, 1, 0, 3,
             1024, 0, 1, geographic ? (ushort)2 : (ushort)1,
             1025, 0, 1, 1,
-            geographic ? (ushort)2048 : (ushort)3072, 0, 1, (ushort)Math.Clamp(srid, 0, ushort.MaxValue),
+            geographic ? (ushort)2048 : (ushort)3072, 0, 1, (ushort)srid,
         ];
         ushort[] bitsPerSample = [.. System.Linq.Enumerable.Repeat((ushort)(bytes * 8), bands)];
         ushort[] sampleFormat = [.. System.Linq.Enumerable.Repeat(format, bands)];

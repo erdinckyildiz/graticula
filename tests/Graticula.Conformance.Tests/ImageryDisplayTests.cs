@@ -186,6 +186,99 @@ public sealed class ImageryDisplayTests : ArcGisClient
         return values;
     }
 
+    /// <summary>One tag of a little-endian TIFF's first directory: its type, count and value or offset; null when absent.</summary>
+    private static (int Type, int Count, int Value)? Tag(byte[] tiff, int wanted)
+    {
+        int directory = BitConverter.ToInt32(tiff, 4);
+        int entries = BitConverter.ToUInt16(tiff, directory);
+
+        for (int i = 0; i < entries; i++)
+        {
+            int at = directory + 2 + (i * 12);
+
+            if (BitConverter.ToUInt16(tiff, at) == wanted)
+            {
+                int type = BitConverter.ToUInt16(tiff, at + 2);
+                int count = BitConverter.ToInt32(tiff, at + 4);
+                return (type, count, type == 3 && count == 1 ? BitConverter.ToUInt16(tiff, at + 8) : BitConverter.ToInt32(tiff, at + 8));
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The value of one GeoKey — 2048 geographic, 3072 projected — or null.</summary>
+    private static int? GeoKey(byte[] tiff, int key)
+    {
+        if (Tag(tiff, 34735) is not { } directory)
+        {
+            return null;
+        }
+
+        for (int i = 4; i < directory.Count; i += 4)
+        {
+            if (BitConverter.ToUInt16(tiff, directory.Value + (i * 2)) == key)
+            {
+                return BitConverter.ToUInt16(tiff, directory.Value + ((i + 3) * 2));
+            }
+        }
+
+        return null;
+    }
+
+    [Fact]
+    public async Task A_float_export_marks_ground_off_the_image_and_names_its_reference_however_Esri_spells_it()
+    {
+        // Reviewer, 2026-10-13: off the image a float GeoTIFF said 0 — sea level, on a DEM — with no no-data tag;
+        // imageSR=102100 wrote a file with no reference (GeoKey 65535); bboxSR=4326 with imageSR=3857, Esri's own
+        // exportImage example, was refused.
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_edge_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        try
+        {
+            using MultipartFormDataContent form = new();
+            form.Add(new ByteArrayContent(Elevation()), "file", "dem.tif");
+            form.Add(new StringContent(name), "name");
+            (HttpStatusCode made, byte[] madeBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {Encoding.UTF8.GetString(madeBody)}");
+
+            // The model is 30–30.64°E, 40.36–41°N; this box reaches 0.16° past it on the west, in 0.01° pixels.
+            byte[] wide = (await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?bbox=29.84,40.36,30.64,41&bboxSR=4326&size=80,64&format=tiff&f=image")).Body;
+            float[] values = Floats(wide);
+            Assert.True(float.IsNaN(values[0]), $"Off the image the file says {values[0]}.");
+            Assert.False(float.IsNaN(values[(10 * 80) + 40]), "On the image the file says nothing.");
+            Assert.True(Tag(wide, 42113) is { Count: > 0 }, "The file declares no no-data value.");
+
+            foreach (string sr in new[] { "102100", Uri.EscapeDataString("{\"wkid\":102100,\"latestWkid\":3857}") })
+            {
+                byte[] mercator = (await SendAsync(root, token!, HttpMethod.Get,
+                    $"{service}/exportImage?bbox=30,40.36,30.64,41&bboxSR=4326&imageSR={sr}&size=64,64&format=tiff&f=image")).Body;
+                Assert.True(mercator.Length > 8 && mercator[0] == (byte)'I', Encoding.UTF8.GetString(mercator));
+                Assert.Equal(3857, GeoKey(mercator, 3072));
+            }
+
+            // The box written in degrees, the image drawn in metres, and the answer says where it is in metres.
+            JsonElement said = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?bbox=30,40.36,30.64,41&bboxSR=4326&imageSR=3857&size=64,64&f=json")).Body).RootElement;
+            JsonElement extent = said.GetProperty("extent");
+            Assert.Equal(3857, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+            Assert.Equal(30 * 20037508.342789244 / 180, extent.GetProperty("xmin").GetDouble(), 0);
+            Assert.Equal(30.64 * 20037508.342789244 / 180, extent.GetProperty("xmax").GetDouble(), 0);
+        }
+        finally
+        {
+            (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, removed);
+        }
+    }
+
     private static int Paeth(int a, int b, int c)
     {
         int p = a + b - c, pa = Math.Abs(p - a), pb = Math.Abs(p - b), pc = Math.Abs(p - c);
@@ -671,8 +764,13 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 .RootElement.GetProperty("layers")[0];
             Assert.Equal("Stretched", layer.GetProperty("legendType").GetString());
             string[] labels = [.. layer.GetProperty("legend").EnumerateArray().Select(e => e.GetProperty("label").GetString() ?? "")];
-            Assert.True(labels.Length == 2 && labels[0].StartsWith("High : 2", StringComparison.Ordinal)
-                && labels[1].StartsWith("Low : 8", StringComparison.Ordinal), $"The legend reads {string.Join(" | ", labels)}.");
+            // The ends of the ramp, which are the stretch's: two standard deviations either side of the mean since
+            // 2026-10-13, so inside the model's 800–2500 rather than at its edges.
+            Assert.True(labels.Length == 2 && labels[0].StartsWith("High : ", StringComparison.Ordinal)
+                && labels[1].StartsWith("Low : ", StringComparison.Ordinal), $"The legend reads {string.Join(" | ", labels)}.");
+            double high = double.Parse(labels[0]["High : ".Length..], System.Globalization.CultureInfo.InvariantCulture);
+            double low = double.Parse(labels[1]["Low : ".Length..], System.Globalization.CultureInfo.InvariantCulture);
+            Assert.True(low is > 800 and < 1200 && high is > 2100 and < 2500, $"The legend reads {string.Join(" | ", labels)}.");
             Assert.False(string.IsNullOrEmpty(layer.GetProperty("legend")[0].GetProperty("imageData").GetString()));
 
             Assert.Equal("{}", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get, $"{service}/keyProperties?f=json")).Body).Trim());

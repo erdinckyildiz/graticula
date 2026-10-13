@@ -106,8 +106,10 @@ bands in order, a non-empty `mosaicRule` and a `time`. It reads and does not app
 3. **An imagery layer's stretch and colours are set, and the default does not blacken 12-bit or whiten float data** —
    **DISCHARGED 2026-10-01**, `ImageryDisplayTests` (a float elevation model drawn 0–255 by default where the format's
    range drew it all 255) and `ImportFormTests.An_image_services_display_is_set_on_its_page`. Eight-bit data keeps the
-   full range; wider data is stretched over its sampled values — one band between its minimum and maximum, colour two
-   standard deviations about the mean — fixed, so tiles agree. `stretch:auto|full|lo,hi` and `;ramp:<name>` in the
+   full range; wider data is stretched over its sampled values — ~~one band between its minimum and maximum, colour two
+   standard deviations about the mean~~ **two standard deviations about the mean, one band as well as colour, since
+   2026-10-13**: min–max drew the showcase's Copernicus DEM nearly black, Uludağ setting the top and the city at 3 of
+   255 (ArcGIS veteran review) — fixed, so tiles agree. `stretch:auto|full|lo,hi` and `;ramp:<name>` in the
    stored style; five named ramps for one or two bands.
    The Display page's picture is drawn under the controls before they are saved — `GET /admin/coverages/{name}/preview`,
    its owner's only — with the ramp and the range it runs over beneath it (design review 2026-10-01).

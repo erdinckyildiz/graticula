@@ -69,4 +69,14 @@ public sealed class GeoTiffWriterTests
             File.Delete(path);
         }
     }
+
+    [Theory]
+    [InlineData(102100)]
+    [InlineData(0)]
+    public void A_code_a_GeoKey_cannot_carry_is_refused_rather_than_written_as_no_reference(int srid)
+    {
+        // It was clamped to 65535, which GeoTIFF reads as user-defined: a file that says nothing about where it is.
+        Assert.Throws<ArgumentOutOfRangeException>(() => GeoTiffWriter.Write(
+            new double[4], 2, 2, 1, SampleKind.Real32, 0, 0, 1, 1, srid, false, null));
+    }
 }

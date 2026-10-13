@@ -909,11 +909,10 @@ public sealed class ImageServerConformanceTests : ArcGisClient
     }
 
     [Fact]
-    public async Task Two_different_references_in_one_request_are_refused()
+    public async Task A_box_in_one_reference_is_drawn_in_another()
     {
-        // Esri allows bboxSR and imageSR to differ; this server does not, because the
-        // extent would be read in one and the pixels laid out in the other — a picture
-        // of the right ground at the wrong shape.
+        // Esri's own exportImage example: bboxSR=4326, imageSR=3857. Refused here until 2026-10-13, when the box began
+        // to be carried into the image's reference before drawing; the answer's extent is in the image's.
         string? service = await AnyImageServiceAsync();
 
         if (service is null)
@@ -921,13 +920,16 @@ public sealed class ImageServerConformanceTests : ArcGisClient
             return;
         }
 
-        (_, string refusal, _) = await FetchAsync(
+        (_, string body, _) = await FetchAsync(
             $"/rest/services/{service}/ImageServer/exportImage"
-            + "?bboxSR=4326&imageSR=3857&bbox=0,0,1,1&f=image");
+            + "?bboxSR=4326&imageSR=3857&bbox=0,0,1,1&size=16,16&f=json");
 
-        JsonElement error = JsonDocument.Parse(refusal).RootElement.GetProperty("error");
-
-        Assert.Equal(400, error.GetProperty("code").GetInt32());
+        JsonElement answer = JsonDocument.Parse(body).RootElement;
+        Assert.False(answer.TryGetProperty("error", out _), body);
+        JsonElement extent = answer.GetProperty("extent");
+        Assert.Equal(3857, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        Assert.Equal(Mercator(1, 1).X, extent.GetProperty("xmax").GetDouble(), 0);
+        Assert.Equal(Mercator(1, 1).Y, extent.GetProperty("ymax").GetDouble(), 0);
     }
 
     /// <summary>WGS 84 to Web Mercator, which is a sphere and a logarithm.</summary>

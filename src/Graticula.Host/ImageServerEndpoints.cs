@@ -630,6 +630,17 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
+        if (asked!.BoxSrid != asked.Srid)
+        {
+            (asked, error) = await ReframeAsync(asked!, projector, cancellation).ConfigureAwait(false);
+
+            if (error is not null)
+            {
+                await RefuseAsync(context, 400, error).ConfigureAwait(false);
+                return;
+            }
+        }
+
         // ADR-152, ADR-153: the images a mosaic rule or a time chooses, in their order.
         (readers, error) = await MosaicReadersAsync(context, parameter, coverage, readers,
                 asked!.Srid == coverage.Info.Srid ? asked.Extent : coverage.Info.Extent, cancellation)
@@ -644,6 +655,66 @@ internal static partial class ImageServerEndpoints
         await ExportOnceAsync(
                 context, coverage, asked!, readers, canvases, projector, budget, cancellation)
             .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// A <c>bbox</c> written in one reference, carried into the one the image is drawn in — Esri's exportImage example,
+    /// <c>bboxSR=4326&amp;imageSR=3857</c>.
+    /// </summary>
+    /// <remarks>
+    /// The box's edges are projected at many points rather than its corners alone, because a straight edge in one
+    /// reference is a curve in another and the corners would cut the ground the curve bulges into. The image's extent
+    /// is the box around what came back, as ArcGIS's is.
+    /// </remarks>
+    internal static async Task<(ImageServerExportParameters? Asked, string? Error)> ReframeAsync(
+        ImageServerExportParameters asked, IProjector projector, CancellationToken cancellation)
+    {
+        if (!await projector.KnowsAsync(asked.BoxSrid, cancellation).ConfigureAwait(false))
+        {
+            return (null, $"`bboxSR` EPSG:{asked.BoxSrid.ToString(CultureInfo.InvariantCulture)} is not a coordinate "
+                + "reference this server's projection database has.");
+        }
+
+        if (!await projector.KnowsAsync(asked.Srid, cancellation).ConfigureAwait(false))
+        {
+            return (null, $"`imageSR` EPSG:{asked.Srid.ToString(CultureInfo.InvariantCulture)} is not a coordinate "
+                + "reference this server's projection database has.");
+        }
+
+        const int Along = 32;
+        Envelope box = asked.Extent;
+        List<Geometry> edge = new(Along * 4);
+
+        for (int i = 0; i < Along; i++)
+        {
+            double t = (double)i / Along;
+            edge.Add(new Point(box.MinX + (box.Width * t), box.MinY));
+            edge.Add(new Point(box.MaxX, box.MinY + (box.Height * t)));
+            edge.Add(new Point(box.MaxX - (box.Width * t), box.MaxY));
+            edge.Add(new Point(box.MinX, box.MaxY - (box.Height * t)));
+        }
+
+        (IReadOnlyList<Geometry> projected, _) =
+            await projector.ProjectAsync(edge, asked.BoxSrid, asked.Srid, cancellation).ConfigureAwait(false);
+
+        double minX = double.PositiveInfinity, minY = double.PositiveInfinity;
+        double maxX = double.NegativeInfinity, maxY = double.NegativeInfinity;
+
+        foreach (Geometry g in projected)
+        {
+            if (g is Point { IsEmpty: false } p && double.IsFinite(p.X) && double.IsFinite(p.Y))
+            {
+                minX = Math.Min(minX, p.X);
+                minY = Math.Min(minY, p.Y);
+                maxX = Math.Max(maxX, p.X);
+                maxY = Math.Max(maxY, p.Y);
+            }
+        }
+
+        return maxX > minX && maxY > minY
+            ? (asked.Reframed(new Envelope(minX, minY, maxX, maxY)), null)
+            : (null, $"The `bbox` could not be carried from EPSG:{asked.BoxSrid.ToString(CultureInfo.InvariantCulture)} "
+                + $"into EPSG:{asked.Srid.ToString(CultureInfo.InvariantCulture)}: it lies outside where that projection is defined.");
     }
 
     /// <summary>Draws a coverage over one extent at one size and writes the image.</summary>
@@ -909,6 +980,26 @@ internal static partial class ImageServerEndpoints
             return (LercWriter.Write(values.Samples, valid, width, height, values.Bands, values.Kind, asked.Tolerance), null);
         }
 
+        // Ground outside the image was zero in a float file that declared no no-data — sea level, on a DEM, and nothing
+        // in the file said otherwise (reviewer, 2026-10-13; PNG and LERC already left it out). A float image has NaN for
+        // it, and the file says so. An integer image with no no-data of its own has no value that cannot be a reading,
+        // and keeps zero.
+        double? noData = values.NoData;
+
+        if (noData is null && values.Kind is SampleKind.Real32 or SampleKind.Real64)
+        {
+            for (int i = 0; i < width * height; i++)
+            {
+                // No map of what was taken means nothing was: the request lies wholly off the image.
+                if (values.Taken is not { } took || took[i] < 0)
+                {
+                    Array.Fill(values.Samples, double.NaN, i * values.Bands, values.Bands);
+                }
+            }
+
+            noData = double.NaN;
+        }
+
         byte[] file = GeoTiffWriter.Write(
             values.Samples,
             width,
@@ -921,7 +1012,7 @@ internal static partial class ImageServerEndpoints
             asked.Extent.Height / height,
             asked.Srid,
             AxisOrder.IsGeographic(asked.Srid),
-            values.NoData);
+            noData);
 
         return (file, null);
     }
@@ -2028,8 +2119,8 @@ internal static partial class ImageServerEndpoints
     /// <b>The full range is right for bytes and wrong for everything else.</b> A 12-bit satellite image stretched over
     /// 0–65535 is nearly black, and a float elevation model stretched over 0–1 is white — the reviewer's finding.
     /// Eight-bit data keeps the full range, which is its own range; anything wider is stretched over what it holds:
-    /// one band between its sampled minimum and maximum, colour between two standard deviations either side of the
-    /// mean, as ArcGIS stretches imagery by default.
+    /// two standard deviations either side of the mean, as ArcGIS stretches imagery by default — for one band too since
+    /// 2026-10-13, which had been its minimum and maximum and drew an elevation model nearly black.
     /// </para>
     /// <para>
     /// <b>Fixed, not per window</b>, so adjacent tiles agree — the property ADR-043 chose the full range for. Kept by
@@ -2378,12 +2469,9 @@ internal static partial class ImageServerEndpoints
             return CoverageStyle.Default;
         }
 
-        if (bands.Length < 3)
-        {
-            return new CoverageStyle(StretchKind.Fixed, bands[0].Minimum, bands[0].Maximum);
-        }
-
-        BandStatistics[] colour = bands[..3];
+        // One band by the same two standard deviations as colour, since 2026-10-13. Its minimum and maximum drew the
+        // showcase's DEM nearly black: Uludağ's 2,489 m set the top, and the city under 300 m came out at 3 of 255.
+        BandStatistics[] colour = bands.Length < 3 ? bands[..1] : bands[..3];
         double low = Math.Max(colour.Min(b => b.Minimum), colour.Min(b => b.Mean - (2 * b.StandardDeviation)));
         double high = Math.Min(colour.Max(b => b.Maximum), colour.Max(b => b.Mean + (2 * b.StandardDeviation)));
 
