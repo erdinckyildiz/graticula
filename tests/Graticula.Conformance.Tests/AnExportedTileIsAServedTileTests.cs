@@ -196,6 +196,16 @@ public sealed class AnExportedTileIsAServedTileTests : ArcGisClient
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal("application/vnd.pmtiles", response.Content.Headers.ContentType?.MediaType);
 
+        // <b>`check=1` names the package and its size and sends nothing</b> — D-289: Studio asks first and then hands the
+        // address to the browser, which shows its own progress and writes to disk as the package comes.
+        (HttpStatusCode asked, byte[] answer, HttpResponseMessage checkedResponse) = await DownloadAsync(
+            $"{root}{download}{(download.Contains('?', StringComparison.Ordinal) ? "&" : "?")}check=1", authenticated: true);
+        Assert.Equal(HttpStatusCode.OK, asked);
+        Assert.Equal("application/json", checkedResponse.Content.Headers.ContentType?.MediaType);
+        JsonElement named = JsonDocument.Parse(answer).RootElement;
+        Assert.Equal(archive.LongLength, named.GetProperty("bytes").GetInt64());
+        Assert.EndsWith(".pmtiles", named.GetProperty("fileName").GetString(), StringComparison.Ordinal);
+
         TilePackageReaders.PmHeader header = TilePackageReaders.PmTilesHeader(archive);
         Assert.Equal(1, header.TileType);
         // The header states the levels that have tiles, which lie inside the ones asked for; the centre lies in them.

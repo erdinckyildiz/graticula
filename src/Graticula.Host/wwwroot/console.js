@@ -6595,7 +6595,16 @@ async function loadServiceData() {
 let exportDataRunning = null;
 
 async function exportServiceData(format, button, chosen = null) {
-  const says = text => { const s = $("exportDataSays") || $("dataSays"); if (s) s.textContent = text; };
+  // A refusal is said as one (`bad-inline`), and the next message clears it — D-289's review.
+  const says = (text, refusal = false) => {
+    const s = $("exportDataSays") || $("dataSays");
+    if (!s) return;
+    s.textContent = text;
+    s.classList.toggle("bad-inline", refusal);
+  };
+  // aria-disabled rather than disabled: a disabled button gives its focus to <body>, and a keyboard or screen-reader
+  // reader was left there, inside the open dialog, for the whole job (D-289's review).
+  if (button.getAttribute("aria-disabled") === "true") return;
   const layers = Array.isArray(chosen) ? chosen : [chosen ?? $("dataLayer")?.value];
   if (!serviceOpen || !layers.length || layers.some(one => one === undefined || one === "")) {
     says("Choose at least one layer.");
@@ -6607,7 +6616,7 @@ async function exportServiceData(format, button, chosen = null) {
   const headers = { "Content-Type": "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
 
-  button.disabled = true;
+  button.setAttribute("aria-disabled", "true");
   says("Starting the export…");
 
   try {
@@ -6620,7 +6629,7 @@ async function exportServiceData(format, button, chosen = null) {
     const started = await response.json().catch(() => null);
 
     if (response.status !== 202) {
-      says(`Not exported: ${started?.error?.message || response.status}`);
+      says(`Not exported: ${lowerFirst(started?.error?.message || response.status)}`, true);
       return;
     }
 
@@ -6635,7 +6644,7 @@ async function exportServiceData(format, button, chosen = null) {
       if (job.status === "done") break;
 
       if (job.status === "failed" || job.status === "cancelled") {
-        says(job.status === "failed" ? `Not exported: ${job.failure || "the job failed."}` : "Cancelled.");
+        says(job.status === "failed" ? `Not exported: ${lowerFirst(job.failure || "the job failed.")}` : "Cancelled.", job.status === "failed");
         return;
       }
 
@@ -6645,34 +6654,23 @@ async function exportServiceData(format, button, chosen = null) {
     }
 
     const done = await api(watch);
-    says("Downloading…");
 
-    const auth = {};
-    if (token) auth.Authorization = "Bearer " + token;
-    const file = await fetch(done.download, { headers: auth });
-
-    if (!file.ok) {
-      let why = `${file.status}`;
-      try { why = (await file.json())?.error?.message || why; } catch { /* not json */ }
-      says(`Not downloaded: ${why}`);
+    // <b>Asked, then handed to the browser</b> (D-289, ADR-143's shape). This read the whole file into the page and
+    // saved it at the end: no progress in the browser's own bar, no Cancel, the file in the tab's memory, and a save
+    // that fired wherever the reader had gone by then.
+    const file = await browserDownload(done.download);
+    if (file.refused) {
+      says(`Not downloaded: ${lowerFirst(file.refused)}`, true);
       return;
     }
-
-    const disposition = file.headers.get("Content-Disposition") || "";
-    const saved = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)?.[1] || done.fileName || `export.${format}`;
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(await file.blob());
-    link.download = decodeURIComponent(saved);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
-    says(`Written to ${link.download} — ${num(done.rowsWritten || 0)} rows.`);
+    says(`${file.fileName || done.fileName || `export.${format}`} (${fileSize(file.bytes)}, ${num(done.rowsWritten || 0)} rows) `
+      + "is downloading — your browser shows its progress.");
   } catch (e) {
-    says(`Not exported: ${e.message || e}`);
+    says(`Not exported: ${lowerFirst(e.message || e)}`, true);
   } finally {
     exportDataRunning = null;
-    button.disabled = false;
+    button.removeAttribute("aria-disabled");
+    if (document.activeElement === document.body && button.isConnected) button.focus();
   }
 }
 
@@ -14928,27 +14926,26 @@ function drawExport(name, where, r) {
   }));
 
   box.querySelectorAll("[data-export-download]").forEach(button => button.addEventListener("click", async event => {
-    const id = event.currentTarget.dataset.exportDownload;
-    const format = event.currentTarget.dataset.exportFormat;
-    says("Downloading…");
+    const pressed = event.currentTarget;
+    // aria-disabled rather than disabled, so the button keeps keyboard focus — and a second press is not a second transfer.
+    if (pressed.getAttribute("aria-disabled") === "true") return;
+    const id = pressed.dataset.exportDownload;
+    const format = pressed.dataset.exportFormat;
+    const label = pressed.textContent;
+    pressed.setAttribute("aria-disabled", "true");
+    pressed.textContent = "Downloading…";
     try {
-      const headers = token ? { Authorization: "Bearer " + token } : {};
-      const response = await fetch(`${where.base}/${encodeURIComponent(id)}/download${where.folder}`, { headers });
-      if (!response.ok) {
-        let message = `${response.status}`;
-        try { message = (await response.json()).error.message; } catch { /* not json */ }
-        throw new Error(message);
-      }
-      const url = URL.createObjectURL(await response.blob());
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${where.at.bare}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      says("");
-    } catch (e) { says(e.message); }
+      // Asked, then handed to the browser — D-289, as the image service's file is (ADR-143). Said in the toast, as
+      // the row's Delete is: the panel's own line is above the table and out of view from most rows.
+      const file = await browserDownload(`${where.base}/${encodeURIComponent(id)}/download${where.folder}`);
+      if (file.refused) toast(`Not downloaded: ${lowerFirst(file.refused)}`);
+      else toast(`${file.fileName || `${where.at.bare}.${format}`} (${fileSize(file.bytes)}) is downloading — your browser shows its progress.`, true);
+    } catch {
+      toast("Not downloaded: the connection to the server was lost. Try again.");
+    } finally {
+      pressed.textContent = label;
+      pressed.removeAttribute("aria-disabled");
+    }
   }));
 }
 
@@ -29301,7 +29298,7 @@ async function downloadImage(button) {
     const said = await answer.json().catch(() => null);
     if (!answer.ok || said?.error) {
       say(said?.error?.message
-        ? `Not downloaded: ${said.error.message}`
+        ? `Not downloaded: ${lowerFirst(said.error.message)}`
         : `Not downloaded: the server could not send the file (error ${answer.status}). Try again, or ask an administrator.`, true);
       return;
     }
@@ -29318,6 +29315,31 @@ async function downloadImage(button) {
     button.removeAttribute("aria-disabled");
     button.focus();
   }
+}
+
+/**
+ * Asks a download address whether it has a file to give (`check=1`: its name and size, nothing sent), then lets the
+ * browser take it from the same address with the session cookie — its own progress, its own Cancel, written to disk
+ * as it comes. Answers `{ fileName, bytes }`, or `{ refused }` with the server's sentence.
+ */
+async function browserDownload(address) {
+  const answer = await fetch(`${address}${address.includes("?") ? "&" : "?"}check=1`,
+    { headers: token ? { Authorization: "Bearer " + token } : {} });
+  const said = await answer.json().catch(() => null);
+  if (!answer.ok || said?.error) {
+    return { refused: said?.error?.message || `the server could not send the file (error ${answer.status}).` };
+  }
+  const link = Object.assign(document.createElement("a"), { href: address, download: said.fileName || "" });
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return { fileName: said.fileName, bytes: said.bytes };
+}
+
+/** A server's sentence continuing ours after a colon: its first letter lowered, as "Not changed:" does. */
+function lowerFirst(text) {
+  const s = String(text || "");
+  return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
 /** A size in bytes, as a person reads it. */

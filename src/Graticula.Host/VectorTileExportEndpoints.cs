@@ -328,7 +328,7 @@ internal static class VectorTileExportEndpoints
     /// 404 that says which.
     /// </remarks>
     internal static async Task ServePackageAsync(
-        HttpContext context, TileExportState export, PublishedService service, HostSettings settings)
+        HttpContext context, TileExportState export, PublishedService service, HostSettings settings, bool check = false)
     {
         if (export.Job.Status != JobStatus.Done || export.RemovedAt is not null
             || TileExporter.FileOf(settings.TileExportDirectory, export.Token, export.Format) is not { } path
@@ -348,6 +348,15 @@ internal static class VectorTileExportEndpoints
         System.IO.FileInfo file = new(path);
 
         context.Response.Headers.CacheControl = "private, no-store";
+
+        // <b>`check` names the file and its size without sending it</b> (D-289, ADR-143's shape): Studio says a refusal
+        // in place, then hands the transfer to the browser, which shows its progress and writes to disk as it comes.
+        if (check)
+        {
+            await Results.Ok(new { fileName = TileExportPackage.DownloadName(service, export.Format), bytes = file.Length })
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
 
         await TypedResults.PhysicalFile(
                 path,

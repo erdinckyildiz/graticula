@@ -467,7 +467,34 @@ public sealed class FeatureExportConformanceTests : ArcGisClient
         (int signed, JsonElement started) = await StartAsync(token, new { format = "csv" });
 
         Assert.True(signed == 202, $"A token-signed export answered {signed}: {started}");
-        await SendAsync(HttpMethod.Delete, started.GetProperty("watch").GetString()!, token);
+
+        try
+        {
+            // <b>And the cookie downloads it — D-289.</b> Studio asks with `check=1` and then hands the address to the
+            // browser, whose request carries the session cookie and nothing else; a download that needed the bearer
+            // header could only be fetched into the page, whole, which is what the row was about.
+            JsonElement done = await WaitAsync(started.GetProperty("watch").GetString()!, token, TimeSpan.FromMinutes(5));
+            string download = done.GetProperty("download").GetString()!;
+
+            (int checkedStatus, string checkedBody, HttpResponseMessage checkedResponse) =
+                await SendAsync(HttpMethod.Get, download + (download.Contains('?', StringComparison.Ordinal) ? "&" : "?") + "check=1", token);
+
+            Assert.True(checkedStatus == 200, $"check=1 answered {checkedStatus}: {checkedBody}");
+            Assert.Equal("application/json", checkedResponse.Content.Headers.ContentType?.MediaType);
+            JsonElement said = JsonDocument.Parse(checkedBody).RootElement;
+            Assert.Equal(done.GetProperty("bytes").GetInt64(), said.GetProperty("bytes").GetInt64());
+            Assert.Equal(done.GetProperty("fileName").GetString(), said.GetProperty("fileName").GetString());
+
+            using HttpResponseMessage taken = await browser.GetAsync(new Uri(root + download));
+            byte[] file = await taken.Content.ReadAsByteArrayAsync();
+
+            Assert.True(taken.StatusCode == HttpStatusCode.OK, $"The session cookie alone could not download the export: {(int)taken.StatusCode}");
+            Assert.Equal(done.GetProperty("bytes").GetInt64(), file.LongLength);
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, started.GetProperty("watch").GetString()!, token);
+        }
     }
 
     [Fact]

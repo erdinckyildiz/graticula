@@ -449,6 +449,7 @@ internal static class FeatureExportEndpoints
         string name,
         Guid id,
         string? file,
+        string? check,
         CatalogFallback catalog,
         IFeatureExportStore exports,
         IAuditLog audit,
@@ -506,12 +507,21 @@ internal static class FeatureExportEndpoints
             return;
         }
 
+        System.IO.FileInfo info = new(path);
+
+        // <b>`check` names the file and its size without sending it, and is not audited as a download</b> (D-289,
+        // ADR-143's shape): Studio says a refusal in place and hands the transfer to the browser, which shows its
+        // progress, offers its own Cancel and writes to disk as it comes.
+        if (check is { Length: > 0 })
+        {
+            await Results.Ok(new { fileName = export.FileName, bytes = info.Length }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         await AdminEndpoints.AuditAsync(
             context, audit, "service.data.export.download", service.QualifiedName,
             AdminEndpoints.Detail(new { job = id, range = context.Request.Headers.Range.ToString() }),
             succeeded: true, cancellation).ConfigureAwait(false);
-
-        System.IO.FileInfo info = new(path);
 
         context.Response.Headers.CacheControl = "private, no-store";
 

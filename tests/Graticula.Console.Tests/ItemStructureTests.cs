@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -642,6 +644,66 @@ public sealed class ItemStructureTests : ConsoleTest
             "Export data did not start an export on the server.");
 
         NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// A tile package's Download asks the server first and hands the file to the browser — D-289.
+    /// </summary>
+    /// <remarks>
+    /// <b>It used to fetch the whole package into the page</b> and save it at the end: no progress in the browser's own
+    /// bar, no Cancel, the package in the tab's memory, and a save that fired wherever the reader had gone by then. Now it
+    /// asks with <c>check=1</c> and gives the browser the address, as the image service's file does (ADR-143), and says
+    /// the name and size of what is coming. The package is made through the API, since this harness keeps writes from
+    /// the server.
+    /// </remarks>
+    [Fact]
+    public async Task A_tile_packages_Download_hands_the_file_to_the_browser_and_says_what_is_coming()
+    {
+        (string token, _) = await SignInAsync();
+        string service = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE") ?? "hosted/ci_parcels";
+        string[] parts = service.Split('/');
+        string exports = $"/admin/services/{Uri.EscapeDataString(parts[^1])}/exports"
+            + (parts.Length > 1 ? $"?folder={Uri.EscapeDataString(parts[0])}" : "?folder=");
+
+        (int read, string about) = await AdminAsync(HttpMethod.Get, exports);
+        Assert.True(read == 200, $"Reading the tile exports answered {read}: {about}");
+        int level = JsonDocument.Parse(about).RootElement.GetProperty("defaults").GetProperty("minZoom").GetInt32();
+
+        (int started, string body) = await AdminAsync(HttpMethod.Post, exports,
+            JsonSerializer.Serialize(new { format = "vtpk", minZoom = level, maxZoom = level }));
+        Assert.True(started == 202, $"Starting a package answered {started}: {body}");
+        string watch = JsonDocument.Parse(body).RootElement.GetProperty("watch").GetString()!;
+
+        try
+        {
+            DateTimeOffset until = DateTimeOffset.UtcNow.AddMinutes(3);
+            while (true)
+            {
+                (_, string job) = await AdminAsync(HttpMethod.Get, watch);
+                string? status = JsonDocument.Parse(job).RootElement.GetProperty("status").GetString();
+                if (status == "done") break;
+                Assert.True(status is "queued" or "running" && DateTimeOffset.UtcNow < until, $"The package did not finish: {job}");
+                await Task.Delay(500);
+            }
+
+            await OpenAsync($"/studio/#/service/{service}?tab=settings&section=tiles", token);
+            await WaitForAsync("!!document.querySelector('#exportBox [data-export-download]')",
+                "Manage tiles lists no finished package to download.");
+            // Focused first, as a pointer or a keyboard leaves it: the harness's click is element.click(), which does not.
+            await Browser.EvaluateAsync<bool>("(document.querySelector('#exportBox [data-export-download]').focus(), true)");
+            await ClickAsync("#exportBox [data-export-download]");
+            // Said in the toast, which is in view from every row, and the button keeps the focus (the review's findings).
+            await WaitForAsync("/\\.vtpk \\(.+\\) is downloading/.test(document.getElementById('toast').textContent)"
+                + " && document.activeElement && document.activeElement.matches('#exportBox [data-export-download]')"
+                + " && !document.activeElement.hasAttribute('aria-disabled')",
+                "Download did not hand the package to the browser, say what is coming where it can be seen, or keep focus.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, watch);
+        }
     }
 
     /// <summary>An administrator gives an item to another member from its Overview — Portal's Change owner.</summary>

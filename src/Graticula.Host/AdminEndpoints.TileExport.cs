@@ -437,6 +437,7 @@ internal static partial class AdminEndpoints
         string name,
         Guid id,
         string? folder,
+        string? check,
         PostgresLayerCatalog owners,
         ITileExportStore exports,
         IAuditLog audit,
@@ -455,12 +456,18 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        await AuditAsync(
-            context, audit, "service.tiles.export.download", service.QualifiedName,
-            Detail(new { job = id, origin = "admin", range = context.Request.Headers.Range.ToString() }),
-            succeeded: true, cancellation).ConfigureAwait(false);
+        // A check sends nothing, so it is not a download and is not audited as one.
+        bool checking = check is { Length: > 0 };
 
-        await VectorTileExportEndpoints.ServePackageAsync(context, export, service, settings).ConfigureAwait(false);
+        if (!checking)
+        {
+            await AuditAsync(
+                context, audit, "service.tiles.export.download", service.QualifiedName,
+                Detail(new { job = id, origin = "admin", range = context.Request.Headers.Range.ToString() }),
+                succeeded: true, cancellation).ConfigureAwait(false);
+        }
+
+        await VectorTileExportEndpoints.ServePackageAsync(context, export, service, settings, checking).ConfigureAwait(false);
     }
 
     private static Task RefuseExport(HttpContext context, VectorTileExportEndpoints.Refusal refusal) =>

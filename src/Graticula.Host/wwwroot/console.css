@@ -4499,6 +4499,12 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 #exportData .formats .check > span { display: flex; flex-direction: column; }
 #exportData .formats .hint { margin: 0; }
 #exportData .dialogfoot .fill { flex: 1; margin: 0; }
+/* At a phone's width the footer's message has its own line above the buttons, rather than a column 90px wide that cut
+   the end of a refusal off (D-289's review). */
+@media (max-width: 480px) {
+  #exportData .dialogfoot { flex-wrap: wrap; }
+  #exportData .dialogfoot .fill { flex-basis: 100%; }
+}
 #changeOwner select[size] { min-height: 8em; }
 .linkbtn { min-height: 24px; }
 @media (max-width: 600px) { .linkbtn { min-height: 44px; } }
