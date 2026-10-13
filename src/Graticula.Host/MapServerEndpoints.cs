@@ -349,6 +349,7 @@ internal static class MapServerEndpoints
         ServiceContexts contexts,
         IMapCanvasFactory canvases,
         HostSettings settings,
+        IProjector projector,
         CancellationToken cancellation)
     {
         PublishedService? service = await ServiceLookup
@@ -372,6 +373,26 @@ internal static class MapServerEndpoints
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
+        }
+
+        // A bbox in one reference and an image in another: the box is carried across along its edges, as ImageServer's
+        // is, and drawn there.
+        if (asked!.NeedsReframing)
+        {
+            if (!await projector.KnowsAsync(asked.BoxSrid, cancellation).ConfigureAwait(false)
+                || !await projector.KnowsAsync(asked.ImageSrid, cancellation).ConfigureAwait(false)
+                || await ImageServerEndpoints.ProjectEnvelopeAsync(asked.Extent, asked.BoxSrid, asked.ImageSrid, projector, cancellation)
+                    .ConfigureAwait(false) is not { } carried)
+            {
+                await RefuseAsync(context, 400,
+                    $"The bbox could not be carried from EPSG:{asked.BoxSrid.ToString(CultureInfo.InvariantCulture)} into "
+                    + $"EPSG:{asked.ImageSrid.ToString(CultureInfo.InvariantCulture)}: one of them is not a reference this "
+                    + "server's projection database has, or the box lies outside where the projection is defined.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            asked = asked.Reframed(carried);
         }
 
         if (!TryTime(exportParameters("time"), out Graticula.Api.Wms.TimeWindow? window, out string? timeError))

@@ -35,6 +35,32 @@ internal sealed class MapServerExportParameters
     /// <summary>The CRS the image is drawn in.</summary>
     public int ImageSrid { get; private init; }
 
+    /// <summary>
+    /// The CRS <c>bbox</c> was written in. Where it is another projection than <see cref="ImageSrid"/>, the handler
+    /// carries <see cref="Extent"/> across with <see cref="Reframed"/> before anything is drawn.
+    /// </summary>
+    public int BoxSrid { get; private init; }
+
+    /// <summary>Whether the box must be carried into the image's reference: two codes for one projection are not.</summary>
+    public bool NeedsReframing =>
+        Graticula.Api.ArcGis.ArcGisGeometryReader.Canonical(BoxSrid) != Graticula.Api.ArcGis.ArcGisGeometryReader.Canonical(ImageSrid);
+
+    /// <summary>The same request over an extent written in <see cref="ImageSrid"/>.</summary>
+    /// <param name="extent">The extent, in <see cref="ImageSrid"/>.</param>
+    /// <returns>The request.</returns>
+    public MapServerExportParameters Reframed(Envelope extent) => new()
+    {
+        Extent = extent,
+        BoxSrid = ImageSrid,
+        ImageSrid = ImageSrid,
+        Width = Width,
+        Height = Height,
+        Format = Format,
+        Transparent = Transparent,
+        Layers = Layers,
+        Definitions = Definitions,
+    };
+
     /// <summary>Image width in pixels.</summary>
     public int Width { get; private init; }
 
@@ -105,16 +131,9 @@ internal sealed class MapServerExportParameters
         int bboxSrid = Srid(parameter("bboxSR")) ?? mapSrid;
         int imageSrid = Srid(parameter("imageSR")) ?? bboxSrid;
 
-        if (bboxSrid != imageSrid)
-        {
-            error = $"bboxSR is EPSG:{bboxSrid.ToString(CultureInfo.InvariantCulture)} and imageSR "
-                + $"is EPSG:{imageSrid.ToString(CultureInfo.InvariantCulture)}. This server draws "
-                + "in the reference the extent is given in; ask with both the same, or give only "
-                + "one. It is refused rather than reprojected because an extent transformed "
-                + "without saying so produces an image of somewhere near where it was asked for.";
-
-            return false;
-        }
+        // <b>They may differ since 2026-10-13</b>, as ImageServer's may: Esri's Export Map example sends a bbox in one
+        // and an image in another, and this was refused — even bboxSR=3857 with imageSR=102100, one projection under two
+        // codes. The extent is carried into imageSR by the handler, which has the projector.
 
         if (!TrySize(parameter("size"), bounds, out int width, out int height, out error))
         {
@@ -134,6 +153,7 @@ internal sealed class MapServerExportParameters
         parsed = new MapServerExportParameters
         {
             Extent = extent,
+            BoxSrid = bboxSrid,
             ImageSrid = imageSrid,
             Width = width,
             Height = height,

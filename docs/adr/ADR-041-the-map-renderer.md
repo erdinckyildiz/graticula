@@ -274,9 +274,13 @@ contents otherwise makes one request per layer for a few hundred bytes each.
 **Three refusals are deliberate.** `layers=hide:`, `include:` and `exclude:` are
 refused rather than read for their ids: each means something different about which
 features are drawn, and a server that took the numbers and dropped the verb would
-draw the exact opposite of what `hide` asked for. `bboxSR` differing from `imageSR`
+draw the exact opposite of what `hide` asked for. ~~`bboxSR` differing from `imageSR`
 is refused rather than reprojected, because an extent transformed without saying so
-produces an image of somewhere near where it was asked for. And `geometryType` other
+produces an image of somewhere near where it was asked for.~~ **Reprojected since
+2026-10-13**, as ImageServer's `exportImage` is: Esri's own Export Map example gives the
+two differently, and this refused even `bboxSR=3857&imageSR=102100`. The box is carried
+along its edges and the answer's `extent` states where it now is, so nothing is
+transformed without saying so. And `geometryType` other
 than a point is refused rather than reduced to its centre.
 
 **This does not reopen [Q-17](../open-questions.md)'s exclusion of ImageServer.**

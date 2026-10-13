@@ -196,6 +196,32 @@ public sealed class MapServerConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task Export_draws_a_box_given_in_one_reference_in_another()
+    {
+        // Esri's Export Map example: a bbox in degrees, an image in Web Mercator. Refused until 2026-10-13 — and so was
+        // bboxSR=3857 with imageSR=102100, one projection under two codes. The answer says where it is, in the image's.
+        (string Service, string Bbox, int Srid)? drawable = await DrawableAsync();
+        Assert.NotNull(drawable);
+
+        string service = drawable!.Value.Service;
+
+        JsonElement document = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/export?bbox=28.9,41.0,29.1,41.1&bboxSR=4326&imageSR=3857"
+            + "&size=256,256&format=png&f=json");
+
+        JsonElement extent = document.GetProperty("extent");
+        Assert.Equal(3857, extent.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+        Assert.Equal(28.9 * 20037508.342789244 / 180, extent.GetProperty("xmin").GetDouble(), 0);
+        Assert.Equal(29.1 * 20037508.342789244 / 180, extent.GetProperty("xmax").GetDouble(), 0);
+
+        JsonElement same = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/export?bbox=3217000,5012000,3239000,5027000&bboxSR=3857&imageSR=102100"
+            + "&size=64,64&format=png&f=json");
+        Assert.False(same.TryGetProperty("error", out _), same.ToString());
+        Assert.Equal(3217000, same.GetProperty("extent").GetProperty("xmin").GetDouble(), 0);
+    }
+
+    [Fact]
     public async Task Export_as_json_points_at_an_address_that_returns_the_image()
     {
         // <b>The JavaScript API places an image element from this document.</b> If
