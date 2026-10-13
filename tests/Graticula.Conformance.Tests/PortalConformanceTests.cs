@@ -312,6 +312,7 @@ public sealed class PortalConformanceTests : ArcGisClient
             $"/sharing/rest/portals/{org}/subscriptionInfo?f=json&token={token}",
             $"/sharing/rest/portals/{org}/categorySchema?f=json&token={token}",
             $"/sharing/rest/portals/self/servers?f=json&token={token}",
+            "/sharing/rest/portals/regions?f=json&culture=en",
             $"/sharing/rest/community/self?f=json&token={token}",
             $"/sharing/rest/community/users/{user}?f=json&token={token}",
             $"/sharing/rest/community/groups?f=json&token={token}",

@@ -63,7 +63,8 @@ public sealed class ABoundTokenIsRefusedElsewhereTests : ArcGisClient
 
         Assert.Equal(200, await UseAsync(bound, "https://maps.example.com/other"));
         Assert.Equal(498, await UseAsync(bound, "https://elsewhere.example.com/"));
-        Assert.Equal(498, await UseAsync(bound, null));
+        // No Referer and no Origin is admitted: Pro sends portals/self that way with a referer-bound token.
+        Assert.Equal(200, await UseAsync(bound, null));
 
         // An address this runner is not.
         (HttpStatusCode ipStatus, string ipBody) = await TokenAsync(("client", "ip"), ("ip", "203.0.113.254"));

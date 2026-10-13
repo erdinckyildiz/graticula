@@ -170,6 +170,12 @@ internal static class PortalEndpoints
         Discoverable(app, $"{Path}/portals/{{id}}/servers", ServersAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>The regions a portal may be set to, of which this one names the world — 2026-10-14.</b> Pro asks
+        // for portals/regions when it signs in, and was answered 400 by the {id} route mistaking it for an
+        // organisation.
+        Discoverable(app, $"{Path}/portals/regions", RegionsAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
         // POST as well as GET, because a portal search is a search: Pro sends `q`
         // in a form body when it is long enough to be worth one.
         app.MapMethods($"{Path}/community/groups", ["GET", "HEAD", "POST"], GroupsAsync)
@@ -765,6 +771,11 @@ internal static class PortalEndpoints
                 maxUsersPerLevel = new { },
             })
             : Unknown("Organization");
+
+    /// <summary>The regions this portal can be set to: the world, which is the only one it has.</summary>
+    /// <remarks>An array rather than an object, as Portal answers it.</remarks>
+    private static IResult RegionsAsync() =>
+        Results.Ok(new[] { new { region = "WO", localizedName = "World" } });
 
     /// <summary>The servers federated with this portal: this one, which hosts what it publishes.</summary>
     /// <remarks>

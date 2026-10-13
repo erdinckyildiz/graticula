@@ -27,8 +27,18 @@ namespace Graticula.Platform.Identity;
 /// <c>https://maps.example.com/app/</c> is used from requests whose <c>Referer</c> is
 /// <c>https://maps.example.com/</c>; comparing whole URLs would refuse the application the token was
 /// made for. A referer that is not a URL — the ArcGIS API for Python sends <c>http</c> — must match
-/// the header exactly. With no <c>Referer</c>, the <c>Origin</c> header stands in; with neither, a
-/// referer-bound token is refused.
+/// the header exactly. With no <c>Referer</c>, the <c>Origin</c> header stands in.
+/// </para>
+/// <para>
+/// <b>With neither header the token is admitted — owner decision 2026-10-14.</b> It was refused until
+/// then, and that refusal is what broke ArcGIS Pro: Pro binds its portal token to a referer, then sends
+/// the same token to <c>portals/self</c> from a part of itself that sends no <c>Referer</c>. Four requests
+/// with the token answered 200 and that one 498, so Pro read the portal anonymously, had no user and no
+/// organisation, and its portal browser failed with <i>Object reference not set</i>. What the binding
+/// guards against is a token lifted into another web page, and a browser sends <c>Origin</c> or
+/// <c>Referer</c> with the cross-site requests that could carry it; a caller outside a browser could
+/// always write whichever <c>Referer</c> it liked, so refusing the one that sends none protected nothing
+/// against it. A header that names somewhere else is still refused.
 /// </para>
 /// </remarks>
 public static class TokenBinding
@@ -126,7 +136,7 @@ public static class TokenBinding
 
             if (string.IsNullOrWhiteSpace(presented))
             {
-                return false;
+                return true;
             }
 
             if (OriginOf(expected) is { } origin)

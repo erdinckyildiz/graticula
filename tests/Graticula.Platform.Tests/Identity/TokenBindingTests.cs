@@ -51,7 +51,8 @@ public sealed class TokenBindingTests
         Assert.True(TokenBinding.Admits(bound, null, null, "https://MAPS.example.com"));
         Assert.False(TokenBinding.Admits(bound, null, "https://evil.example.com/", null));
         Assert.False(TokenBinding.Admits(bound, null, "http://maps.example.com/", null));
-        Assert.False(TokenBinding.Admits(bound, Here, null, null));
+        // Neither header: a client outside a browser, as Pro's portal sign-in is — 2026-10-14.
+        Assert.True(TokenBinding.Admits(bound, Here, null, null));
     }
 
     [Fact]
