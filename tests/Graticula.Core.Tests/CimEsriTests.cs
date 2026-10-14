@@ -63,6 +63,37 @@ public sealed class CimEsriTests
         Assert.Equal(56, (int)((JsonArray)symbol["color"]!)[2]!);
     }
 
+    /// <summary>
+    /// <b>ADR-052 condition 1's other half: a renderer ArcGIS Pro wrote, not one written here.</b>
+    /// </summary>
+    /// <remarks>
+    /// Saved by Pro 3.7 as a <c>.lyrx</c> on 2026-10-14 (<c>tools/arcpy-probe/pro-written-cim.py</c>), from a fill
+    /// set to red at 50 % opacity and an outline set to opaque black, and copied here as Pro wrote it. The
+    /// round trip above uses the specification's examples, and this test reads the product's output.
+    /// </remarks>
+    [Fact]
+    public void A_renderer_ArcGIS_Pro_wrote_reads_its_opaque_as_255_and_its_half_as_128()
+    {
+        JsonObject written = (JsonObject)JsonNode.Parse(
+            """
+            {"type": "CIMSimpleRenderer", "sampleSize": 10000, "patch": "Default", "symbol": {"type": "CIMSymbolReference",
+             "symbol": {"type": "CIMPolygonSymbol", "symbolLayers": [{"type": "CIMSolidStroke", "enable": true,
+             "capStyle": "Round", "joinStyle": "Round", "lineStyle3D": "Strip", "miterLimit": 10, "width": 0.7,
+             "height3D": 1, "anchor3D": "Center", "color": {"type": "CIMRGBColor", "values": [0, 0, 0, 100]}},
+             {"type": "CIMSolidFill", "enable": true, "color": {"type": "CIMRGBColor", "values": [200, 30, 30, 50]}}],
+             "angleAlignment": "Map"}}}
+            """)!;
+
+        DerivedDrawingInfo read = CimEsri.ToDrawingInfo(written, "squares");
+
+        JsonObject symbol = (JsonObject)read.DrawingInfo["renderer"]!["symbol"]!;
+
+        Assert.Equal(255, (int)((JsonArray)symbol["outline"]!["color"]!)[3]!);
+        Assert.InRange((int)((JsonArray)symbol["color"]!)[3]!, 127, 129);
+        Assert.Equal(200, (int)((JsonArray)symbol["color"]!)[0]!);
+        Assert.Empty(read.Losses);
+    }
+
     [Fact]
     public void A_fill_with_an_outline_comes_back_as_a_fill_with_an_outline()
     {

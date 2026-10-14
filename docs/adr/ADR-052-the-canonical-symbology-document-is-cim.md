@@ -978,6 +978,7 @@ what does not vary.
    names**: no document written by ArcGIS Pro has been read. Until one is, the
    evidence is a published example rather than a product's behaviour, and the two
    have been different before.
+   **DISCHARGED 2026-10-14** — the half it names. ArcGIS Pro 3.7 saved a `.lyrx` with a fill set to 50 % opacity and an opaque outline (`tools/arcpy-probe/pro-written-cim.py`). It wrote alpha as `50` and `100` on CIM's 0–100 scale. Stored through `PUT /admin/layers/{name}/symbology` on the local fixture, the served `drawingInfo` says `128` and `255` with no losses, and `CimEsriTests.A_renderer_ArcGIS_Pro_wrote_reads_its_opaque_as_255_and_its_half_as_128` holds Pro's document as written. The published example and the product agree here.
 2. **Every property in §3.2's table is checked against the published schema by a
    test that reads the schema**, so that a rename in a later CIM version fails
    here rather than in a map. Where that is not practical, the table is re-read
