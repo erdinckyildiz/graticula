@@ -27,13 +27,11 @@ public sealed class HtmlIsEscapedByTypeTests
 {
     private static readonly Dictionary<string, string> Permitted = new(StringComparer.Ordinal)
     {
-        ["src/Graticula.Host/Html.cs"] = "The type itself: the one place WebUtility.HtmlEncode is called for a page.",
+        ["src/Graticula.Core/Markup/Html.cs"] = "The type itself: the one place WebUtility.HtmlEncode is called for a page.",
         ["src/Graticula.Host/OAuthEndpoints.cs"] =
             "The OAuth sign-in pages, their own renderer with System.Text.Encodings.Web's encoder. Not moved on "
             + "2026-10-12 because that encoder writes non-ASCII as numeric references and WebUtility does not, and "
             + "ArcGIS clients read these pages' title — a byte change nothing local can check.",
-        ["src/Graticula.Api.Wms/FeatureInfoWriter.cs"] =
-            "WMS GetFeatureInfo's text/html answer, in a project the host's type is not visible from.",
     };
 
     private static readonly string[] Encoders = ["WebUtility.HtmlEncode", "HttpUtility.HtmlEncode", "HtmlEncoder."];

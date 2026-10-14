@@ -5,7 +5,7 @@ using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace Graticula.Host;
+namespace Graticula.Core.Markup;
 
 /// <summary>
 /// Markup that is safe to write into a page: text that has been escaped, or markup this server wrote.
@@ -25,6 +25,11 @@ namespace Graticula.Host;
 /// going through one of the two named doors — <see cref="Text"/>, which escapes, and <see cref="Markup"/>, which
 /// does not and is meant for this server's own literals. Both are greppable, which is the point: an unescaped
 /// value now has a name at the line that wrote it.
+/// </para>
+/// <para>
+/// <b>In Core since 2026-10-14</b>, moved from the host so that a protocol project can write HTML on the type too:
+/// WMS GetFeatureInfo's <c>text/html</c> was the one renderer left outside it because the host's type was not
+/// visible from <c>Graticula.Api.Wms</c>.
 /// </para>
 /// <para>
 /// <b>Escaped exactly as before</b>: <see cref="WebUtility.HtmlEncode(string)"/>, and numbers formatted with the
