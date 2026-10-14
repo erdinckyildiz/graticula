@@ -201,7 +201,7 @@ public static class Q68
                     ? $" AND (ST_Dimension(t.{GeomCol}) < 2 OR ST_XMax(t.{GeomCol}) - ST_XMin(t.{GeomCol}) >= (ST_XMax(bounds.geom) - ST_XMin(bounds.geom)) / {Pixels} OR ST_YMax(t.{GeomCol}) - ST_YMin(t.{GeomCol}) >= (ST_XMax(bounds.geom) - ST_XMin(bounds.geom)) / {Pixels})"
                     : "")}
             )
-            SELECT ST_AsMVT(mvtgeom.*, 'polygons', {TileMath.Extent}, 'geom') FROM mvtgeom
+            SELECT ST_AsMVT(mvtgeom.*, 'polygons', {TileMath.Extent}, 'geom', 'osm_id') FROM mvtgeom
             """;
 
         List<TileResult> tiles = [];
@@ -223,6 +223,7 @@ public static class Q68
                 cmd.Parameters.AddWithValue("y", tile.Y);
 
                 byte[] bytes = (byte[]?)await cmd.ExecuteScalarAsync(token) ?? [];
+                Dump("a", tile.Z, tile.X, tile.Y, bytes);
 
                 // Feature count is read back out of the tile rather than
                 // counted on the way in, so both paths are counted the same way.
@@ -433,6 +434,7 @@ public static class Q68
         }
 
         byte[] bytes = encoder.Finish();
+        Dump("b", z, x, y, bytes);
         return new TileResult(z, x, y, bytes.Length, emitted);
     }
 
@@ -602,6 +604,15 @@ public static class Q68
         }
 
         return outp;
+    }
+
+    /// <summary>With Q68_DUMP set to a folder, each path's tile is written there, to compare them feature by feature.</summary>
+    private static void Dump(string path, int z, int x, int y, byte[] bytes)
+    {
+        if (Environment.GetEnvironmentVariable("Q68_DUMP") is { Length: > 0 } folder)
+        {
+            File.WriteAllBytes(Path.Combine(folder, $"{path}-{z}-{x}-{y}.pbf"), bytes);
+        }
     }
 
     private static string? Text(string[] args, string name)

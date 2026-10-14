@@ -275,11 +275,26 @@ mean two caches rather than a coherence problem.
    tag dictionary**: 25 attributes make `ST_AsMVT`'s tile 5.8 times the one-attribute tile's bytes (848 KB against
    147 KB). **Left, by name**: a throughput figure needs path A to be production's statement and path B to match it
    before the timing means anything; and the lines are building outlines and boundaries, not a road network, on one
-   machine. *(Tried the same night: `--production` makes both paths generalise as `PostGisTileSource` does —
-   half a pixel of a 512-pixel tile through z14, no polygon under a pixel. The polygons then read 11.1 against
-   51.0 tiles/s with the same allocation gap, and the outputs still diverge, 83.7 % of the bytes against the
-   harness's 85 % floor, with read-once writing 5 % more features in fewer bytes. What is left is the two encoders'
-   own difference, which is a correctness question to settle before a throughput claim, not a tolerance to relax.)*
+   machine. *(The same night, and it changes the paragraph above. **The divergence was the harness's**:
+   path A called `ST_AsMVT` without a feature-id column, so `osm_id` went into every feature's tags. In one z12
+   parent's tiles that made a value dictionary of 521 KB against 43 KB, and two different questions were being
+   compared. Given `'osm_id'` as the id, the paths agree (`mvtdiff.py` beside the harness: 79,919 features in common
+   with 938,778 against 938,328 geometry integers). **Corrected, and with both paths generalising as
+   `PostGisTileSource` does (`--production`):**
+
+   | | concurrency | ST_AsMVT | read once | bytes, read once / ST_AsMVT | GC pause, read once |
+   |---|---|---|---|---|---|
+   | polygons | 1 | 11.2 tiles/s | 51.0 | 104.8 % | 23.8 % |
+   | lines | 1 | 19.8 | 56.9 | 98.6 % | 24.4 % |
+   | polygons | 4 | 30.9 | 102.2 | 104.8 % | 35.1 % |
+   | lines | 4 | 68.1 | 123.1 | 98.6 % | 30.9 % |
+   | 25 attributes | 1 | 10.1 | 20.6 | 84.3 %, still diverging (value types) | 18.6 % |
+
+   **So on this data and this machine, read-once is 1.8 to 4.6 times the throughput, and §2's *it buys nothing
+   measurable* does not hold here**, while the allocation (17 to 38 MB a tile against 0.1 to 0.8 MB) and the GC
+   pause climbing to a third at concurrency 4 hold exactly as Run 4 found them. **Run 4's own harness carried the same
+   omission**, so its tile bytes and times for path A included a unique value per feature. Whether this reopens the
+   decision is the owner's: [Q-173](../open-questions.md).)*
 3. ~~**Nobody has looked at a rendered tile.**~~ **DISCHARGED 2026-08-14**, the
    same day, by [tools/render-tile.py](../../tools/render-tile.py). z16/38030/24562
    in Istanbul, 1,258 features: the decoded `ST_AsMVT` output and the same extent
