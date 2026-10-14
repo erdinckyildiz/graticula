@@ -421,6 +421,7 @@ internal static partial class ImageServerEndpoints
         string serviceName,
         ICoverageCatalog coverages,
         ICoverageReaderFactory readers,
+        IProjector projector,
         CancellationToken cancellation)
     {
         if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
@@ -466,10 +467,29 @@ internal static partial class ImageServerEndpoints
         // An extent, in the service's reference: the images whose footprints touch it.
         if (parameter("geometry") is { Length: > 0 } geometry)
         {
-            if (!TryCatalogExtent(geometry, coverage.Info.Srid, parameter("inSR"), out Envelope? box, out error))
+            // ADR-182: an elevation surface is described in its scheme's reference, so a box sent without one — or in
+            // that one — is read there and carried into the file's, where the footprints are.
+            int asked = ServiceSrid(coverage);
+            string? inSR = parameter("inSR");
+            bool carried = asked != coverage.Info.Srid
+                && (inSR is not { Length: > 0 } || SameReference(inSR, asked));
+
+            if (!TryCatalogExtent(geometry, carried ? asked : coverage.Info.Srid, inSR, out Envelope? box, out error))
             {
                 await RefuseAsync(context, 400, error!).ConfigureAwait(false);
                 return;
+            }
+
+            if (carried)
+            {
+                box = await ProjectEnvelopeAsync(box!.Value, asked, coverage.Info.Srid, projector, cancellation).ConfigureAwait(false);
+
+                if (box is null)
+                {
+                    await RefuseAsync(context, 400, $"The geometry could not be carried from EPSG:{asked.ToString(CultureInfo.InvariantCulture)} "
+                        + $"into this image's EPSG:{coverage.Info.Srid.ToString(CultureInfo.InvariantCulture)}.").ConfigureAwait(false);
+                    return;
+                }
             }
 
             Envelope touching = box!.Value;
@@ -546,13 +566,46 @@ internal static partial class ImageServerEndpoints
     }
 
     /// <summary>An extent or point a catalog query names, in the service's own reference.</summary>
+    private static readonly string[] ReferenceKeys = ["latestWkid", "wkid"];
+
+    /// <summary>Whether <paramref name="inSR"/> — a code, or Esri's object — names <paramref name="srid"/>.</summary>
+    /// <remarks>102100 is 3857, as every ArcGIS client sends it; the object's <c>latestWkid</c> or <c>wkid</c> either.</remarks>
+    private static bool SameReference(string inSR, int srid)
+    {
+        string text = inSR.Trim();
+
+        // `EPSG:4326` and its URN spellings name the code after the last colon.
+        if (!text.StartsWith('{') && text.LastIndexOf(':') is int colon and >= 0)
+        {
+            text = text[(colon + 1)..];
+        }
+
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int code))
+        {
+            return Graticula.Api.ArcGis.ArcGisGeometryReader.Canonical(code) == srid;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(text);
+            JsonElement root = document.RootElement;
+
+            return root.ValueKind == JsonValueKind.Object
+                && ReferenceKeys.Any(name => root.TryGetProperty(name, out JsonElement v)
+                    && v.TryGetInt32(out int given) && Graticula.Api.ArcGis.ArcGisGeometryReader.Canonical(given) == srid);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     private static bool TryCatalogExtent(string text, int srid, string? inSR, out Envelope? box, out string? error)
     {
         box = null;
         error = null;
 
-        if (inSR is { Length: > 0 } && !inSR.Trim().Equals(srid.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
-            && !inSR.Contains($":{srid.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal))
+        if (inSR is { Length: > 0 } && !SameReference(inSR, srid))
         {
             error = $"The catalog is queried in the service's own reference, EPSG:{srid.ToString(CultureInfo.InvariantCulture)}.";
             return false;

@@ -338,14 +338,37 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 / doc.GetProperty("pixelSizeX").GetDouble();
             Assert.InRange(doc.GetProperty("pixelSizeX").GetDouble(), 1, 100_000);
             Assert.InRange(columns, 1, 100_000);
-            Assert.Equal(4326, doc.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+            // Described wholly in Web Mercator, as Terrain3D is: in the file's degrees beside these metres Pro hung (2026-10-14).
+            Assert.Equal(3857, doc.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
             // Published through the first level finer than its own pixels, not all 24: this model's are 0.01° — about
             // 1,470 Mercator metres at its latitude — so level 7 (1,223 m) is the last, nine levels.
             int levels = tileInfo.GetProperty("lods").GetArrayLength();
             Assert.Equal(9, levels);
 
-            Assert.Contains("\"DataType\":\"Elevation\"", Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get, $"{service}/keyProperties?f=json")).Body),
-                StringComparison.Ordinal);
+            JsonElement keys = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}/keyProperties?f=json")).Body).RootElement;
+            Assert.Equal("Elevation", keys.GetProperty("DataType").GetString());
+            // Cell sizes in the same metres, as Terrain3D states them.
+            Assert.Equal(doc.GetProperty("meanPixelSize").GetDouble(), keys.GetProperty("LowCellSize").GetDouble(), 6);
+
+            // A point or a box sent without a reference is read in the one the service names — metres, not the file's degrees.
+            double mx = 30.32 * 20037508.342789244 / 180;
+            double my = Math.Log(Math.Tan((90 + 40.68) * Math.PI / 360)) * 20037508.342789244 / Math.PI;
+            string point = FormattableString.Invariant($"{mx},{my}");
+            JsonElement identified = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry={point}&geometryType=esriGeometryPoint&f=json")).Body).RootElement;
+            Assert.True(identified.TryGetProperty("value", out JsonElement value) && value.GetString() is { } v && v != "NoData",
+                $"A Mercator point with no reference was not read in Mercator: {identified}");
+            string box = FormattableString.Invariant($"{mx - 1000},{my - 1000},{mx + 1000},{my + 1000}");
+            JsonElement found = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/query?geometry={box}&geometryType=esriGeometryEnvelope&returnCountOnly=true&f=json")).Body).RootElement;
+            Assert.Equal(1, found.GetProperty("count").GetInt32());
+            found = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/query?geometry={box}&geometryType=esriGeometryEnvelope&inSR=102100&returnCountOnly=true&f=json")).Body).RootElement;
+            Assert.Equal(1, found.GetProperty("count").GetInt32());
+            (HttpStatusCode drawn, byte[] picture) = await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/exportImage?bbox={box}&size=64,64&format=png&f=image");
+            Assert.True(drawn == HttpStatusCode.OK && picture.Length > 8 && picture[1] == (byte)'P',
+                $"exportImage with a Mercator box and no bboxSR answered {(int)drawn}: {Encoding.UTF8.GetString(picture[..Math.Min(300, picture.Length)])}");
 
             // Its portal item says so too, as Esri's Terrain3D item does.
             JsonElement item = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&f=json")).Body)

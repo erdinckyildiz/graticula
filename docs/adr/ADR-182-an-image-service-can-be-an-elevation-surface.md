@@ -77,8 +77,12 @@ reading that one document.
 An image service whose owner makes it an elevation surface (`PUT /admin/coverages/{name}/elevation`, one band only;
 the console's Settings › General) is served as Esri serves Terrain3D: `serviceDataType`
 `esriImageServiceDataTypeElevation`, `cacheType` `Elevation`, `keyProperties` `DataType: Elevation`, and `tile` and
-`tilemap` in ArcGIS Online's Web Mercator scheme whatever the coverage is stored in, its extents written in that
-scheme's reference. A tile is the coverage's heights — never its drawing or its raster function — as LERC 1, 257 × 257
+`tilemap` in ArcGIS Online's Web Mercator scheme whatever the coverage is stored in, **and the service described
+wholly in that scheme's reference** — `spatialReference`, extents, pixel size, `blockWidth`/`blockHeight` (a tile),
+`keyProperties` `LowCellSize`/`HighCellSize`/`MaxCellSize`, `tileInfo.lercError` — so that a box or point sent without a
+reference is read in it (`exportImage`, `identify`, the catalog `query`, area statistics, mensuration) and `identify`
+answers its location in it. Amended 2026-10-14: until then the extents moved and `spatialReference` and the pixel did
+not, and ArcGIS Pro hung on the mixture (condition 1). A tile is the coverage's heights — never its drawing or its raster function — as LERC 1, 257 × 257
 samples on the tile's corner lattice, to 0.1 m. The scheme publishes its levels through the first finer than the
 coverage's own pixels. `tilemap` answers a block that starts on a level's grid and reaches past its edge, the cells
 past it zero. `exportImage` and every other operation are unchanged, so a 2D client still draws it as an image. The
@@ -89,7 +93,9 @@ services directory offers it in a SceneView (`/studio/map.html?face=imageserver&
 1. That it is the owner's choice per service, not inferred from the data (§2 A).
 2. That the tiles are Web Mercator only, not also WGS 84 for scenes in that reference.
 3. That 0.1 m, Esri's own figure, is the error a surface tile may carry.
-4. That the extents move to Web Mercator for a surface and `spatialReference` does not (§3).
+4. ~~That the extents move to Web Mercator for a surface and `spatialReference` does not (§3).~~ **No longer an
+   inference — measured 2026-10-14.** ArcGIS Pro hung adding a surface described in degrees beside Web Mercator
+   extents and drew it once everything was Web Mercator, as Terrain3D is; the JavaScript SDK draws it either way.
 
 ## 6. Consequences
 
@@ -108,7 +114,7 @@ dropped the inner — now refused (`RasterFunction.TryParseRule`).
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | Pro, Scene Viewer and the Runtime SDKs read an elevation image service as the JavaScript SDK does | **Unverified** — conditions 1 and 2 |
+| — | Pro, Scene Viewer and the Runtime SDKs read an elevation image service as the JavaScript SDK does | **Pro verified 2026-10-14** (condition 1), and only once the service was described wholly in Web Mercator; Scene Viewer and the Runtime SDKs unverified — condition 2 |
 
 ## 8. Dependencies
 
@@ -132,7 +138,12 @@ dropped the inner — now refused (`RasterFunction.TryParseRule`).
    `portals/self` (ADR-015 §4, narrowed); then adding the surface as ground spun every core and Pro stopped
    answering, because `pixelSizeX/Y` stayed in the file's degrees beside extents written in Web Mercator metres —
    `arcpy.Raster` read the 7200-column tile as 801,500,334 × 1,062,133,792 cells, and 7200 × 7200 once the pixel
-   was written in the extents' reference. Relief itself is still unconfirmed.
+   was written in the extents' reference. **DISCHARGED 2026-10-14** — the pixel alone did not stop the hang (Pro kept
+   one core spinning in `Map.AddItemInfosImpl` with no request on the wire); describing the service's
+   `spatialReference` in Web Mercator too did, tried on `dev.graticula.com` before release. Pro 3.7 then asked
+   `tilemap` and LERC tiles from level 0 down over Bursa, whose bytes match Terrain3D's (same LERC 1 header, 257 × 257,
+   0.1 m; one tile's maximum 322.0 m against Terrain3D's 319.5 m), drew Uludağ's relief in a tilted global scene, and
+   read 63.7 m on the Bursa plain and 919.6 m on the mountain's western slope in its status bar.
 2. **A portal item for an elevation surface opens in Scene Viewer as ground.** The SDK refuses a portal item of type
    *Image Service* where it expects *Image Service Elevation 3D Layer*; what this server's portal says for a surface
    has not been changed.

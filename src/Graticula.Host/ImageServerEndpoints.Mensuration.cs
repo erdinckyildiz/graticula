@@ -93,7 +93,7 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        (Geometry? from, string? error) = await AreaGeometryAsync(Rename(parameter, "fromGeometry"), coverage.Info, projector, cancellation)
+        (Geometry? from, string? error) = await AreaGeometryAsync(Rename(parameter, "fromGeometry"), coverage.Info, projector, cancellation, ServiceSrid(coverage))
             .ConfigureAwait(false);
 
         if (from is null)
@@ -196,7 +196,7 @@ internal static partial class ImageServerEndpoints
 
             case "esriMensurationDistanceAndAngle" or "esriMensurationDistanceAndAngle3D" when from is Point start:
             {
-                (Geometry? to, string? toError) = await AreaGeometryAsync(Rename(parameter, "toGeometry"), coverage.Info, projector, cancellation)
+                (Geometry? to, string? toError) = await AreaGeometryAsync(Rename(parameter, "toGeometry"), coverage.Info, projector, cancellation, ServiceSrid(coverage))
                     .ConfigureAwait(false);
 
                 if (to is not Point end)

@@ -60,7 +60,7 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        (Geometry? area, string? error) = await AreaGeometryAsync(parameter, coverage.Info, projector, cancellation).ConfigureAwait(false);
+        (Geometry? area, string? error) = await AreaGeometryAsync(parameter, coverage.Info, projector, cancellation, ServiceSrid(coverage)).ConfigureAwait(false);
 
         if (area is null)
         {
@@ -180,7 +180,7 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
-        (Geometry? geometry, string? error) = await AreaGeometryAsync(parameter, coverage.Info, projector, cancellation).ConfigureAwait(false);
+        (Geometry? geometry, string? error) = await AreaGeometryAsync(parameter, coverage.Info, projector, cancellation, ServiceSrid(coverage)).ConfigureAwait(false);
 
         if (geometry is null)
         {
@@ -247,7 +247,8 @@ internal static partial class ImageServerEndpoints
     /// The request's <c>geometry</c> — a point, multipoint, polyline, polygon or envelope — in the image's reference.
     /// </summary>
     private static async Task<(Geometry? Geometry, string? Error)> AreaGeometryAsync(
-        Func<string, string?> parameter, CoverageInfo info, IProjector projector, CancellationToken cancellation)
+        Func<string, string?> parameter, CoverageInfo info, IProjector projector, CancellationToken cancellation,
+        int? serviceSrid = null)
     {
         if (parameter("geometry") is not { Length: > 0 } text)
         {
@@ -281,7 +282,8 @@ internal static partial class ImageServerEndpoints
             return (null, "`geometry` is an Esri JSON object.");
         }
 
-        int srid = info.Srid;
+        // ADR-182: without one, the service's reference — an elevation surface's scheme, not its file's.
+        int srid = serviceSrid ?? info.Srid;
 
         if (json.TryGetProperty("spatialReference", out JsonElement reference) && reference.ValueKind == JsonValueKind.Object)
         {

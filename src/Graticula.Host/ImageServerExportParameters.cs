@@ -166,13 +166,18 @@ internal sealed class ImageServerExportParameters
     /// <param name="ceiling">The largest image this server will make.</param>
     /// <param name="asked">What was asked for.</param>
     /// <param name="error">Why it was refused.</param>
+    /// <param name="serviceSrid">The reference the service describes itself in, when it is not the file's — an elevation
+    /// surface's tiling scheme (ADR-182). A box or image without a reference is read in it.</param>
+    /// <param name="serviceExtent">The coverage's extent in <paramref name="serviceSrid"/>, drawn when no box is given.</param>
     /// <returns>Whether it parsed.</returns>
     public static bool TryParse(
         Func<string, string?> parameter,
         CoverageInfo info,
         WidthHeight ceiling,
         out ImageServerExportParameters? asked,
-        out string? error)
+        out string? error,
+        int? serviceSrid = null,
+        Envelope? serviceExtent = null)
     {
         ArgumentNullException.ThrowIfNull(parameter);
         ArgumentNullException.ThrowIfNull(info);
@@ -227,8 +232,8 @@ internal sealed class ImageServerExportParameters
         // may differ, as Esri's own exportImage example has them (bboxSR=4326, imageSR=3857). They were refused until
         // then — and so was bboxSR=3857 with imageSR=102100, one projection under two codes. The box is carried into
         // the image's reference by the caller, which has the projector (see BoxSrid); one given alone is both, as before.
-        if (!TryReference(parameter("bboxSR"), info, out int boxSrid, out error)
-            || !TryReference(parameter("imageSR"), info, out int imageSrid, out error))
+        if (!TryReference(parameter("bboxSR"), info, out int boxSrid, out error, serviceSrid)
+            || !TryReference(parameter("imageSR"), info, out int imageSrid, out error, serviceSrid))
         {
             return false;
         }
@@ -238,7 +243,7 @@ internal sealed class ImageServerExportParameters
         int srid = imageGiven ? imageSrid : boxSrid;
         int written = boxGiven ? boxSrid : srid;
 
-        if (!TryExtent(parameter("bbox"), info, written, out Envelope extent, out error))
+        if (!TryExtent(parameter("bbox"), info, written, out Envelope extent, out error, serviceSrid, serviceExtent))
         {
             return false;
         }
@@ -442,6 +447,7 @@ internal sealed class ImageServerExportParameters
     /// <param name="y">Its northing or latitude.</param>
     /// <param name="srid">The reference it is written in; the caller projects it into the coverage's.</param>
     /// <param name="error">Why it was refused.</param>
+    /// <param name="serviceSrid">The service's reference when it is not the file's (ADR-182); a point without one is in it.</param>
     /// <returns>Whether it parsed.</returns>
     /// <remarks>
     /// <b>Esri's <c>geometry</c> parameter in both its spellings, since ADR-123.</b> The comma form <c>x,y</c> was the
@@ -456,7 +462,8 @@ internal sealed class ImageServerExportParameters
         out double x,
         out double y,
         out int srid,
-        out string? error)
+        out string? error,
+        int? serviceSrid = null)
     {
         ArgumentNullException.ThrowIfNull(parameter);
         ArgumentNullException.ThrowIfNull(info);
@@ -464,7 +471,7 @@ internal sealed class ImageServerExportParameters
         x = 0;
         y = 0;
 
-        if (!TryReference(parameter("sr"), info, out srid, out error))
+        if (!TryReference(parameter("sr"), info, out srid, out error, serviceSrid))
         {
             return false;
         }
@@ -497,7 +504,7 @@ internal sealed class ImageServerExportParameters
                 }
 
                 if (point.TryGetProperty("spatialReference", out JsonElement reference)
-                    && !TryReference(reference.GetRawText(), info, out srid, out error))
+                    && !TryReference(reference.GetRawText(), info, out srid, out error, serviceSrid))
                 {
                     return false;
                 }
@@ -692,10 +699,13 @@ internal sealed class ImageServerExportParameters
         }
     }
 
-    private static bool TryReference(string? text, CoverageInfo info, out int srid, out string? error)
+    private static bool TryReference(string? text, CoverageInfo info, out int srid, out string? error, int? serviceSrid = null)
     {
         error = null;
-        srid = info.Srid;
+
+        // ADR-182: a reference not given is the service's, which for an elevation surface is its scheme's and not the file's.
+        int fallback = serviceSrid ?? info.Srid;
+        srid = fallback;
 
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -718,7 +728,7 @@ internal sealed class ImageServerExportParameters
         {
             if (!TryReferenceObject(value, out srid))
             {
-                srid = info.Srid;
+                srid = fallback;
 
                 error = $"'{text}' is a spatial reference object with no `wkid` or "
                     + "`latestWkid` in it. This server reads references by EPSG code.";
@@ -733,7 +743,7 @@ internal sealed class ImageServerExportParameters
         if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out srid)
             || srid <= 0)
         {
-            srid = info.Srid;
+            srid = fallback;
 
             error = $"'{text}' is not a coordinate reference this server recognises. Write an "
                 + "EPSG code.";
@@ -748,7 +758,8 @@ internal sealed class ImageServerExportParameters
     }
 
     private static bool TryExtent(
-        string? text, CoverageInfo info, int srid, out Envelope extent, out string? error)
+        string? text, CoverageInfo info, int srid, out Envelope extent, out string? error,
+        int? serviceSrid = null, Envelope? serviceExtent = null)
     {
         error = null;
 
@@ -758,6 +769,13 @@ internal sealed class ImageServerExportParameters
         if (string.IsNullOrWhiteSpace(text))
         {
             extent = info.Extent;
+
+            // ADR-182: the whole surface in the reference it describes itself in.
+            if (serviceExtent is { } described && srid == serviceSrid)
+            {
+                extent = described;
+                return true;
+            }
 
             if (srid != info.Srid)
             {

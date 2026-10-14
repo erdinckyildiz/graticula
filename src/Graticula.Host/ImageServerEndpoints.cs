@@ -363,9 +363,9 @@ internal static partial class ImageServerEndpoints
         // them. The JavaScript SDK carries a queried point into the scheme's reference and compares it with `fullExtent`
         // as numbers: in degrees beside metres every point was outside, and every height was zero. Each extent names its
         // reference, and `spatialReference` stays the coverage's, which is what a request without one is read in.
-        (Envelope stated, int statedSrid) = coverage.Elevation
-            && await ProjectEnvelopeAsync(info.Extent, info.Srid, scheme.Srid, projector, cancellation).ConfigureAwait(false) is { } carried
-            ? (carried, scheme.Srid)
+        (Envelope stated, int statedSrid) = await SurfaceFrameAsync(coverage, projector, cancellation).ConfigureAwait(false)
+            is { } frame
+            ? (frame.Extent, frame.Srid)
             : (info.Extent, info.Srid);
 
         BandStatistics[] statistics =
@@ -409,7 +409,8 @@ internal static partial class ImageServerEndpoints
             // client to discard real pixels.
             noDataValue = info.Bands[0].NoData,
 
-            spatialReference = new { wkid = info.Srid, latestWkid = info.Srid },
+            // ADR-182: the reference it describes itself in, which a request without one is read in (SurfaceFrameAsync).
+            spatialReference = new { wkid = statedSrid, latestWkid = statedSrid },
             // ADR-148: Download when its owner offers the file to everyone it is shared with.
             // ADR-152: Edit when its images can be added and removed — an upload's, not files registered in place.
             capabilities = Capabilities + (coverage.Download ? ",Download" : "")
@@ -456,8 +457,10 @@ internal static partial class ImageServerEndpoints
 
             // The stored tile, which is what a range read fetches. Zero when the file
             // is striped rather than tiled, and zero is the honest answer there.
-            blockWidth = info.TileWidth,
-            blockHeight = info.TileHeight,
+            // ADR-182: a surface is read a tile at a time, so its block is the tile. Zero, the striped file's honest
+            // answer, is what Esri's elevation services never say, and Pro is the client that hung on this surface.
+            blockWidth = coverage.Elevation ? scheme.TileSize : info.TileWidth,
+            blockHeight = coverage.Elevation ? scheme.TileSize : info.TileHeight,
 
             // <b>What this server does to the pixels, not what the file does.</b> The
             // source may be DEFLATE or LZW inside; by the time anything leaves here it
@@ -647,13 +650,16 @@ internal static partial class ImageServerEndpoints
         }
 
         Func<string, string?> parameter = await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
+        (int Srid, Envelope Extent)? frame = await SurfaceFrameAsync(coverage, projector, cancellation).ConfigureAwait(false);
 
         if (!ImageServerExportParameters.TryParse(
                 parameter,
                 coverage.Info,
                 new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
                 out ImageServerExportParameters? asked,
-                out string? error))
+                out string? error,
+                frame?.Srid,
+                frame?.Extent))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
@@ -1860,6 +1866,36 @@ internal static partial class ImageServerEndpoints
     /// own pixels, and no further. With all 24 a scene asked for heights at 2 cm from a 30 m model, reading a tile per
     /// query for nothing; Esri's Terrain3D publishes 17 for the same reason.
     /// </summary>
+    /// <summary>
+    /// The reference an image service describes itself in, and its extent there: an elevation surface's tiling scheme
+    /// (ADR-182), anything else's own file. Null when they are the file's, which every parser already defaults to.
+    /// </summary>
+    /// <remarks>
+    /// <b>One answer for the document and for every request that names no reference.</b> A surface written in degrees
+    /// beside Web Mercator extents, tiles and pixels hung ArcGIS Pro adding it as ground (2026-10-14); described wholly in
+    /// Web Mercator, as Terrain3D is, Pro drew its relief. A box or point sent without a reference is then read in the
+    /// reference the service says it is in, which is what an ArcGIS client assumes.
+    /// </remarks>
+    private static async Task<(int Srid, Envelope Extent)?> SurfaceFrameAsync(
+        PublishedCoverage coverage, IProjector projector, CancellationToken cancellation)
+    {
+        if (!coverage.Elevation)
+        {
+            return null;
+        }
+
+        TilingScheme scheme = SchemeOf(coverage);
+
+        return await ProjectEnvelopeAsync(coverage.Info.Extent, coverage.Info.Srid, scheme.Srid, projector, cancellation)
+            .ConfigureAwait(false) is { } carried
+            ? (scheme.Srid, carried)
+            : null;
+    }
+
+    /// <summary>The reference a geometry sent without one is read in: the one <see cref="SurfaceFrameAsync"/> describes.</summary>
+    private static int ServiceSrid(PublishedCoverage coverage) =>
+        coverage.Elevation ? SchemeOf(coverage).Srid : coverage.Info.Srid;
+
     /// <summary>A pixel's width in the reference <paramref name="stated"/> is written in.</summary>
     /// <remarks>The file's own size when the extent is the file's; an elevation surface's extent is carried into its
     /// tiling scheme (ADR-182), and its pixel goes with it.</remarks>
@@ -1904,6 +1940,8 @@ internal static partial class ImageServerEndpoints
         compressionQuality = 0,
         origin = new { x = scheme.OriginX, y = scheme.OriginY },
         spatialReference = new { wkid = scheme.Srid, latestWkid = scheme.Srid },
+        // ADR-182: the tolerance a LERC tile is encoded with, as Terrain3D's scheme states it; absent for PNG.
+        lercError = format == "LERC" ? (double?)ImageServerExportParameters.SurfaceTolerance : null,
         lods = scheme.Levels
             .Take(levels)
             .Select(l => new { level = l.Level, resolution = l.Resolution, scale = l.Scale })
@@ -1943,14 +1981,17 @@ internal static partial class ImageServerEndpoints
             return;
         }
 
+        (int Srid, Envelope Extent)? frame = await SurfaceFrameAsync(coverage, projector, cancellation).ConfigureAwait(false);
+
         if (!ImageServerExportParameters.TryPoint(
-                parameter, coverage.Info, out double x, out double y, out int pointSrid, out string? error))
+                parameter, coverage.Info, out double x, out double y, out int pointSrid, out string? error, frame?.Srid))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
         }
 
         CoverageInfo info = coverage.Info;
+        (double askedX, double askedY) = (x, y);
 
         // ADR-123: a point written in another reference — Web Mercator, from a map — is projected into the coverage's.
         if (pointSrid != info.Srid)
@@ -1972,7 +2013,30 @@ internal static partial class ImageServerEndpoints
 
         // <b>`NoData`, as ArcGIS spells it, and the point beside it</b> — a null value with no location read as a fault
         // rather than as *nothing measured here* (reviewer, 2026-10-01).
-        object location = new { x, y, spatialReference = new { wkid = info.Srid, latestWkid = info.Srid } };
+        // ADR-182: in the service's reference, as ArcGIS answers it — the file's for imagery, an elevation surface's scheme's.
+        int serviceSrid = frame?.Srid ?? info.Srid;
+        (double lx, double ly) = (x, y);
+
+        if (serviceSrid == pointSrid)
+        {
+            (lx, ly) = (askedX, askedY);
+        }
+        else if (serviceSrid != info.Srid)
+        {
+            (IReadOnlyList<Geometry> back, _) = await projector
+                .ProjectAsync([new Point(x, y)], info.Srid, serviceSrid, cancellation).ConfigureAwait(false);
+
+            if (back.Count == 1 && back[0] is Point carried && double.IsFinite(carried.X) && double.IsFinite(carried.Y))
+            {
+                (lx, ly) = (carried.X, carried.Y);
+            }
+            else
+            {
+                serviceSrid = info.Srid;
+            }
+        }
+
+        object location = new { x = lx, y = ly, spatialReference = new { wkid = serviceSrid, latestWkid = serviceSrid } };
 
         if (x < info.Extent.MinX || x > info.Extent.MaxX
             || y < info.Extent.MinY || y > info.Extent.MaxY)
@@ -2417,18 +2481,37 @@ internal static partial class ImageServerEndpoints
     /// that ask before drawing.
     /// </summary>
     private static async Task KeyPropertiesAsync(
-        HttpContext context, string serviceName, ICoverageCatalog coverages, CancellationToken cancellation)
+        HttpContext context, string serviceName, ICoverageCatalog coverages, IProjector projector, CancellationToken cancellation)
     {
         if (await FindAsync(context, serviceName, coverages, cancellation).ConfigureAwait(false) is not { } coverage)
         {
             return;
         }
 
-        // ADR-182: ArcGIS's raster key property for what the values are; said only when this server knows it.
-        await (coverage.Elevation
-                ? Results.Text("{\"DataType\":\"Elevation\"}", "application/json")
-                : (IResult)Results.Ok(new { }))
-            .ExecuteAsync(context).ConfigureAwait(false);
+        if (!coverage.Elevation)
+        {
+            await Results.Ok(new { }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-182: ArcGIS's raster key property for what the values are, and — as Terrain3D states them — the cell sizes
+        // in the reference the surface is tiled and described in.
+        CoverageInfo info = coverage.Info;
+        TilingScheme scheme = SchemeOf(coverage);
+        Envelope stated = await ProjectEnvelopeAsync(info.Extent, info.Srid, scheme.Srid, projector, cancellation)
+            .ConfigureAwait(false) ?? info.Extent;
+        double cell = (PixelX(stated, info) + PixelY(stated, info)) / 2;
+
+        // A dictionary, because its keys are written as given: ArcGIS's are PascalCase, and an object's would be camelCased.
+        Dictionary<string, object> properties = new(StringComparer.Ordinal)
+        {
+            ["DataType"] = "Elevation",
+            ["LowCellSize"] = cell,
+            ["HighCellSize"] = cell,
+            ["MaxCellSize"] = scheme.Levels[0].Resolution,
+        };
+
+        await Results.Json(properties).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>
