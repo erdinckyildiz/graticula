@@ -27,7 +27,15 @@ namespace Graticula.Conformance.Tests;
 /// latency and reported coalescing that did not exist. This test opens its
 /// connections first and releases every request from a gate.
 /// </para>
+/// <para>
+/// <b>In the catalogue walk since 2026-10-14</b>, because the services it reads are cleared by other classes:
+/// <c>ClearServiceCacheConformanceTests</c> empties the same tile service's cache, and the seed and stale-tile classes
+/// purge it. Run beside them, a purge between this test's warming request and its herd turns a cached tile into a
+/// miss, and the assertion fails without anything being wrong. It did so in two local runs of six on that day and
+/// passed every time on its own.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class TileHerdConformanceTests : ArcGisClient
 {
     private const string ServiceVariable = "GRATICULA_TEST_TILE_SERVICE";

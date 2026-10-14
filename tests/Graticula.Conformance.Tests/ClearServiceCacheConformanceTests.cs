@@ -13,7 +13,12 @@ namespace Graticula.Conformance.Tests;
 /// <b>2026-09-30.</b> A publisher had no way to clear their own service's tiles; the only control that did
 /// was Server's <i>Forget remembered shape</i>, admin-only and named for something else. ArcGIS offers
 /// <i>Rebuild cache</i> on the item.
+/// <para>
+/// <b>In the catalogue walk since 2026-10-14</b>: it empties the shared tile service's cache, which made
+/// <c>TileHerdConformanceTests</c> fail at random when the two ran side by side.
+/// </para>
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class ClearServiceCacheConformanceTests : ArcGisClient
 {
     [Fact]
