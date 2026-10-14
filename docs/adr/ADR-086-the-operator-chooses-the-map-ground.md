@@ -139,7 +139,15 @@ None recorded.
    drawable for everybody. Read back anonymously, `portals/self`'s `defaultBasemap` is *Ground*: five
    `VectorTileLayer`s at `hosted/tr_kara` … `hosted/tr_yer`, where it was `OpenStreetMap` before.
 2. **An ArcGIS client is seen drawing it** — Map Viewer, or the Maps SDK with the portal set, opening a new map
-   on this server's ground.
+   on this server's ground. **DISCHARGED 2026-10-14**, with the Maps SDK for JavaScript 4.30 in headless Brave, from a
+   page on another origin with `esriConfig.portalUrl` set to the server: `new Portal().load()`, then a new `Map` on
+   `portal.defaultBasemap`, then a `MapView` gone to the ground's extent. The basemap came back titled *Ground*, both
+   ground services loaded as `VectorTileLayer`s with their layer views, ten tile requests answered 200 or 204, and the
+   screenshot shows the two layers drawn in their own styles. **It could not be done before
+   [Q-169](../open-questions.md)**: against the showcase the same page failed at `portals/self` with
+   `WildcardOriginNotAllowed`, because the SDK asks its portal with credentials. It was run on the local fixture,
+   built from the branch that carries Q-169, with the ground set to `hosted/ci_parcels` and `hosted/ci_buildings` and
+   cleared afterwards; the showcase gets the same answer once that branch is released.
 3. **The web map editor starts a new map on it.** `webmap.js` draws OpenStreetMap under every web map, and a new
    web map in ArcGIS starts from the portal's default basemap; it does not yet. **DISCHARGED 2026-10-12** — and
    it had been met since 2026-09-30, when [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md)'s
