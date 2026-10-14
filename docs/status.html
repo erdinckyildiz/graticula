@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d129e6c3</code> · 2026-10-15 01:28</p>
+<p class="stamp">Generated from commit <code>15f1a82e</code> · 2026-10-15 01:29</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">182</div><div class="kpi-l">ADRs</div><div class="kpi-n">71 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">354/416</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">58 live · 4 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">7</div><div class="kpi-l">open questions</div><div class="kpi-n">161 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">275 repaid · 5 waiting on a trigger · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">276 repaid · 5 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4870</div><div class="kpi-l">tests</div><div class="kpi-n">484 source files, 219,741 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4871</div><div class="kpi-l">tests</div><div class="kpi-n">484 source files, 219,763 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -409,7 +409,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">275 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">276 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -508,7 +508,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1359</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.6%"></div></div><div class="bar-n">891</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">755</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.2%"></div></div><div class="bar-n">546</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.3%"></div></div><div class="bar-n">547</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">291</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.2%"></div></div><div class="bar-n">206</div></div>
@@ -520,6 +520,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>15f1a82e</code><time>2026-10-15</time><span>ADR-021 condition 2: the wide table&#x27;s remaining difference is numeric written as text by ST_AsMVT</span></li>
 <li><code>d129e6c3</code><time>2026-10-15</time><span>The tile benchmark&#x27;s divergence was its own; corrected, read-once is faster here (ADR-021, Q-173)</span></li>
 <li><code>80dda61c</code><time>2026-10-15</time><span>Q-68 harness can generalise as production does (--production); the outputs still diverge, recorded in ADR-021 condition 2</span></li>
 <li><code>a43507e6</code><time>2026-10-15</time><span>ADR-021 condition 2 is partly discharged: the tile benchmark widened to lines and a wide table</span></li>
@@ -533,7 +534,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>8372c446</code><time>2026-10-14</time><span>Q-171: which references WFS and WMS advertise is put to the owner (ADR-060 condition 4)</span></li>
 <li><code>80e52e84</code><time>2026-10-14</time><span>A map service lists its group layers, and a group&#x27;s id draws and identifies its layers (D-296)</span></li>
 <li><code>4a334442</code><time>2026-10-14</time><span>ADR-178 condition 1 tried through arcpy: Pro sends no Basic from a URL, so it needs the Add WFS Server dialog</span></li>
-<li><code>5fd1a3b6</code><time>2026-10-14</time><span>ADR-057 condition 5 is discharged: ArcGIS Pro opens a grouped service; a count of * is answered</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
