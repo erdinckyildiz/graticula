@@ -321,6 +321,8 @@ have had a cache, and a cache is state.
    `AdvertisedReferencesAreTheServedOnesTests` was re-measured rather than deleted, and
    `TheMapFacesPublishWhatTheServiceChoseTests` is where the new behaviour is asserted.
 
+   *(2026-10-14: the scope decision this paragraph names is put to the owner as [Q-171](../open-questions.md), with a recommendation, so it waits on an answer rather than on nobody.)*
+
 ## 7. Revisit triggers
 
 - **A deployment needs a code PROJ's register does not carry** — a custom or a very new EPSG
