@@ -288,7 +288,7 @@ mean two caches rather than a coherence problem.
    | lines | 1 | 19.8 | 56.9 | 98.6 % | 24.4 % |
    | polygons | 4 | 30.9 | 102.2 | 104.8 % | 35.1 % |
    | lines | 4 | 68.1 | 123.1 | 98.6 % | 30.9 % |
-   | 25 attributes | 1 | 10.1 | 20.6 | 84.3 %, still diverging (value types) | 18.6 % |
+   | 25 attributes | 1 | 10.1 | 20.6 | 84.3 %: the same 23 tags a feature, but `ST_AsMVT` writes PostgreSQL `numeric` as text and the harness as a double | 18.6 % |
 
    **So on this data and this machine, read-once is 1.8 to 4.6 times the throughput, and §2's *it buys nothing
    measurable* does not hold here**, while the allocation (17 to 38 MB a tile against 0.1 to 0.8 MB) and the GC
