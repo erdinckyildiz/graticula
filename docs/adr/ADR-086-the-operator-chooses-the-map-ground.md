@@ -133,7 +133,11 @@ None recorded.
 ## 11. Conditions
 
 1. **The showcase's ground is set to its Turkish layers** — `tr_kara`, `tr_il`, `tr_ilce`, `tr_yol`, `tr_yer`,
-   the owner's *"Evet, seçilsin"*. Needs the showcase's administrator, which this session does not have.
+   the owner's *"Evet, seçilsin"*. Needs the showcase's administrator, which this session does not have. **DISCHARGED 2026-10-14**, with the
+   showcase administrator's credential the owner provided on 2026-10-13 for exactly this kind of act:
+   `PUT /admin/settings/ground` with the five, bottom first, answered each as existing, public, running and
+   drawable for everybody. Read back anonymously, `portals/self`'s `defaultBasemap` is *Ground*: five
+   `VectorTileLayer`s at `hosted/tr_kara` … `hosted/tr_yer`, where it was `OpenStreetMap` before.
 2. **An ArcGIS client is seen drawing it** — Map Viewer, or the Maps SDK with the portal set, opening a new map
    on this server's ground.
 3. **The web map editor starts a new map on it.** `webmap.js` draws OpenStreetMap under every web map, and a new
