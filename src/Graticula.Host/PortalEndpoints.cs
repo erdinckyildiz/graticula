@@ -716,6 +716,13 @@ internal static class PortalEndpoints
 
         return new
         {
+            // <b>A portal user has an id beside the name, and the ArcGIS API for Python
+            // stops without it.</b> Its <c>User</c> asks <c>hasattr(self, "id")</c>, which
+            // hydrates the record and raises <c>KeyError: 'id'</c> rather than answering
+            // false — so <c>GIS(url, token=…)</c> failed in its own constructor, before a
+            // single call reached a service (2026-10-14, arcgis 2.4.3). The same Guid that
+            // owns this account's services, in the same form as an item id.
+            id = current.Principal.Id.ToString("N"),
             username = current.Principal.Name,
             fullName = current.Principal.Name,
             firstName = current.Principal.Name,

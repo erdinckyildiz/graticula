@@ -171,6 +171,14 @@ internal static class FeatureServerQueryParameters
         ["timeReferenceUnknownClient"] = "every date is written in UTC already; no layer here has a time reference of its own",
         ["multipatchOption"] = "no layer here has multipatch geometry",
         ["sqlFormat"] = "no SQL is exposed",
+
+        // <b>Not a REST parameter at all, and the ArcGIS API for Python sends it on every query.</b>
+        // It is the API's own switch — page through on the client until the server stops reporting
+        // exceededTransferLimit — and it travels with the request only because the API's query model
+        // serialises it. Refusing it meant `FeatureLayer.query()` failed on its defaults (measured
+        // 2026-10-14, arcgis 2.4.3). Either value is answered with the same page, and the paging is
+        // the client's.
+        ["returnAllRecords"] = "the client's own paging switch; the page and exceededTransferLimit are the same either way",
     };
 
     /// <summary>
