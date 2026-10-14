@@ -475,6 +475,10 @@ function wmShowBaseMap(doc) {
 }
 
 function wmLayers() {
+  // <b>Before the page has read its map, it has no layers — 2026-10-15.</b> The document is set after the sign-in
+  // and the portal answer, and Add layer pressed in that moment read `null.operationalLayers`, rejected, and left the
+  // panel saying nothing: CI's console run failed on it where a faster machine never pressed early enough.
+  if (!wmState.doc) return [];
   if (!Array.isArray(wmState.doc.operationalLayers)) wmState.doc.operationalLayers = [];
   return wmState.doc.operationalLayers;
 }
