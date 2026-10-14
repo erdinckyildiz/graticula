@@ -959,4 +959,4 @@ the same file already had one.
    layer with `outStatistics` `count` of `*`, which this server refused as an unknown field; Pro fell back to
    `returnCountOnly`. It is answered now (`A_count_of_star_is_the_row_count`), and the rerun has no refused request.
    And this server's MapServer leaves the group out while its FeatureServer lists it, the reverse of ArcGIS, so
-   Pro shows the group from neither: [D-296](../architecture-debt.md).
+   Pro shows the group from neither: [D-296](../architecture-debt.md). *(Resolved the same night: the MapServer carries the group, and Pro lists it as it lists the groups of an ArcGIS Server map service.)*

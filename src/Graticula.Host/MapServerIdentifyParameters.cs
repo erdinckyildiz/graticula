@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using Graticula.Geometries;
 using Graticula.Platform.Catalog;
@@ -51,12 +52,14 @@ internal sealed class MapServerIdentifyParameters
     /// <param name="available">The service's layers.</param>
     /// <param name="parsed">The parameters.</param>
     /// <param name="error">Why not, when they did not parse.</param>
+    /// <param name="groupLayers">The layers beneath a group id, at any depth; empty when the id is not a group's (D-296).</param>
     /// <returns>Whether they parsed.</returns>
     public static bool TryParse(
         Func<string, string?> parameter,
         IReadOnlyList<PublishedLayer> available,
         out MapServerIdentifyParameters? parsed,
-        out string? error)
+        out string? error,
+        Func<int, IReadOnlyList<int>>? groupLayers = null)
     {
         ArgumentNullException.ThrowIfNull(parameter);
         ArgumentNullException.ThrowIfNull(available);
@@ -109,7 +112,7 @@ internal sealed class MapServerIdentifyParameters
 
         List<PublishedLayer> layers = [];
 
-        if (!TryLayers(parameter("layers"), available, layers, out error))
+        if (!TryLayers(parameter("layers"), available, layers, out error, groupLayers))
         {
             return false;
         }
@@ -286,7 +289,8 @@ internal sealed class MapServerIdentifyParameters
         string? value,
         IReadOnlyList<PublishedLayer> available,
         List<PublishedLayer> layers,
-        out string? error)
+        out string? error,
+        Func<int, IReadOnlyList<int>>? groupLayers = null)
     {
         error = null;
 
@@ -321,12 +325,14 @@ internal sealed class MapServerIdentifyParameters
                 return true;
             }
 
+            // D-296: a group's id names the layers beneath it, as it does for export.
+            IReadOnlyList<int> named = groupLayers?.Invoke(id) is { Count: > 0 } beneath ? beneath : [id];
+
             foreach (PublishedLayer layer in drawable)
             {
-                if (layer.LayerIndex == id)
+                if (named.Contains(layer.LayerIndex) && !layers.Contains(layer))
                 {
                     layers.Add(layer);
-                    break;
                 }
             }
         }

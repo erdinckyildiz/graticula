@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Graticula.Cartography;
 using Graticula.Geometries;
 using Graticula.Platform.Catalog;
@@ -85,13 +86,15 @@ internal sealed class MapServerExportParameters
     /// <param name="bounds">The largest image this server will draw.</param>
     /// <param name="parsed">The parameters.</param>
     /// <param name="error">Why not, when they did not parse.</param>
+    /// <param name="groupLayers">The layers beneath a group id, at any depth; empty when the id is not a group's (D-296).</param>
     /// <returns>Whether they parsed.</returns>
     public static bool TryParse(
         Func<string, string?> parameter,
         IReadOnlyList<PublishedLayer> available,
         WidthHeight bounds,
         out MapServerExportParameters? parsed,
-        out string? error)
+        out string? error,
+        Func<int, IReadOnlyList<int>>? groupLayers = null)
     {
         ArgumentNullException.ThrowIfNull(parameter);
         ArgumentNullException.ThrowIfNull(available);
@@ -146,7 +149,7 @@ internal sealed class MapServerExportParameters
             return false;
         }
 
-        if (!TryLayers(parameter("layers"), available, out List<PublishedLayer> layers, out error))
+        if (!TryLayers(parameter("layers"), available, out List<PublishedLayer> layers, out error, groupLayers))
         {
             return false;
         }
@@ -405,7 +408,8 @@ internal sealed class MapServerExportParameters
         string? value,
         IReadOnlyList<PublishedLayer> available,
         out List<PublishedLayer> layers,
-        out string? error)
+        out string? error,
+        Func<int, IReadOnlyList<int>>? groupLayers = null)
     {
         layers = [];
         error = null;
@@ -466,13 +470,31 @@ internal sealed class MapServerExportParameters
                 }
             }
 
+            // <b>A group shown is its layers shown — D-296.</b> The service document lists groups now, and a client
+            // that ticks one in its table of contents asks `show:` with the group's id.
+            if (found is null && groupLayers?.Invoke(id) is { Count: > 0 } beneath)
+            {
+                foreach (PublishedLayer layer in drawable)
+                {
+                    if (beneath.Contains(layer.LayerIndex) && !layers.Contains(layer))
+                    {
+                        layers.Add(layer);
+                    }
+                }
+
+                continue;
+            }
+
             if (found is null)
             {
                 error = $"This service has no drawable layer {id.ToString(CultureInfo.InvariantCulture)}.";
                 return false;
             }
 
-            layers.Add(found);
+            if (!layers.Contains(found))
+            {
+                layers.Add(found);
+            }
         }
 
         return true;

@@ -50,6 +50,65 @@ public sealed class MapServerConformanceTests : ArcGisClient
             await response.Content.ReadAsByteArrayAsync());
     }
 
+    private static readonly string[] Corners = ["xmin", "ymin", "xmax", "ymax"];
+
+    /// <summary>
+    /// A service's group layer is in its MapServer as it is in its FeatureServer — D-296.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found 2026-10-14 by ArcGIS Pro.</b> The FeatureServer listed the group and the MapServer left it out, the
+    /// reverse of ArcGIS, so Pro showed the group from neither. Now the MapServer's document, its <c>layers</c>, the
+    /// group's own address and a child's <c>parentLayerId</c> say the same tree the FeatureServer says, and
+    /// <c>export</c>'s <c>show:</c> and <c>identify</c>'s <c>layers</c> take the group's id as its layers.
+    /// </remarks>
+    [Fact]
+    public async Task A_group_layer_is_in_the_map_service_as_it_is_in_the_feature_service()
+    {
+        string named = Environment.GetEnvironmentVariable("GRATICULA_TEST_MULTILAYER") ?? "hosted/ci_EarlyAlert";
+        string features = $"/rest/services/{named}/FeatureServer";
+        string map = $"/rest/services/{named}/MapServer";
+
+        JsonElement featureDocument = await GetJsonAsync(features);
+        JsonElement? found = featureDocument.GetProperty("layers").EnumerateArray()
+            .Where(l => l.GetProperty("type").GetString() == "Group Layer")
+            .Select(l => (JsonElement?)l)
+            .FirstOrDefault();
+
+        Assert.True(found is not null, $"{named} has no group layer; the fixture's seed makes one.");
+
+        int group = found!.Value.GetProperty("id").GetInt32();
+        int[] children = [.. found.Value.GetProperty("subLayerIds").EnumerateArray().Select(c => c.GetInt32())];
+
+        JsonElement mapDocument = await GetJsonAsync(map);
+        JsonElement mapGroup = mapDocument.GetProperty("layers").EnumerateArray().Single(l => l.GetProperty("id").GetInt32() == group);
+
+        Assert.Equal("Group Layer", mapGroup.GetProperty("type").GetString());
+        Assert.Equal(children, mapGroup.GetProperty("subLayerIds").EnumerateArray().Select(c => c.GetInt32()));
+
+        foreach (int child in children)
+        {
+            Assert.Equal(group, mapDocument.GetProperty("layers").EnumerateArray()
+                .Single(l => l.GetProperty("id").GetInt32() == child).GetProperty("parentLayerId").GetInt32());
+            Assert.Equal(group, (await GetJsonAsync($"{map}/{child}")).GetProperty("parentLayerId").GetInt32());
+        }
+
+        Assert.Equal("Group Layer", (await GetJsonAsync($"{map}/{group}")).GetProperty("type").GetString());
+        Assert.Contains((await GetJsonAsync($"{map}/layers")).GetProperty("layers").EnumerateArray(),
+            l => l.GetProperty("id").GetInt32() == group && l.GetProperty("type").GetString() == "Group Layer");
+
+        // export: the group's id draws its layers, exactly as naming them does.
+        JsonElement extent = mapDocument.GetProperty("fullExtent");
+        string bbox = string.Join(',', Corners
+            .Select(k => extent.GetProperty(k).GetDouble().ToString("R", CultureInfo.InvariantCulture)));
+        string draw = $"{map}/export?bbox={bbox}&size=200,150&format=png&transparent=true&f=image&layers=show:";
+
+        (string asGroupType, byte[] asGroup) = await RawAsync(draw + group.ToString(CultureInfo.InvariantCulture));
+        (_, byte[] asChildren) = await RawAsync(draw + string.Join(',', children));
+
+        Assert.Equal("image/png", asGroupType);
+        Assert.Equal(asChildren, asGroup);
+    }
+
     /// <summary>A service that has a MapServer, and its full extent.</summary>
     private async Task<(string Service, string Bbox, int Srid)?> DrawableAsync()
     {
