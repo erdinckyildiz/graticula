@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>383be2c7</code> · 2026-10-15 01:10</p>
+<p class="stamp">Şu commit’ten üretildi: <code>2c4f64f2</code> · 2026-10-15 01:17</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">182</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">275 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4869</div><div class="kpi-l">test</div><div class="kpi-n">484 kaynak dosya, 219,741 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4870</div><div class="kpi-l">test</div><div class="kpi-n">484 kaynak dosya, 219,741 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -509,7 +509,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">755</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.2%"></div></div><div class="bar-n">546</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">409</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">290</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">291</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.2%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.2%"></div></div><div class="bar-n">125</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">122</div></div>
@@ -519,6 +519,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>2c4f64f2</code><time>2026-10-15</time><span>Add layer pressed before the map is read answers instead of rejecting</span></li>
+<li><code>d5d1574b</code><time>2026-10-15</time><span>ADR-052 condition 2 is discharged: the CIM table is checked against the published specification</span></li>
 <li><code>383be2c7</code><time>2026-10-15</time><span>ADR-077 condition 4 is discharged: the in-process operations keep, interpolate or report Z and M</span></li>
 <li><code>282b612d</code><time>2026-10-15</time><span>ADR-010 condition 4 is discharged: A-029 checked against a month of the showcase&#x27;s traffic</span></li>
 <li><code>320d07bb</code><time>2026-10-15</time><span>The catalogue manifest: export and apply, by name, with no credential (ADR-183, ADR-002 condition 3)</span></li>
@@ -531,8 +533,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2872743d</code><time>2026-10-14</time><span>ADR-127 condition 1 is run: ArcGIS Pro&#x27;s export never asks for TIFF, it asks for raw values</span></li>
 <li><code>b7644e92</code><time>2026-10-14</time><span>ADR-107 condition 3 and ADR-106 condition 2 are discharged; the layer export route writes domains</span></li>
 <li><code>89d78e50</code><time>2026-10-14</time><span>ADR-052 condition 1 is discharged: a renderer ArcGIS Pro wrote reads 100 as 255 and 50 as 128</span></li>
-<li><code>d830e70a</code><time>2026-10-14</time><span>ADR-065 condition 3 and ADR-087 condition 1 are discharged: an archive ArcGIS wrote</span></li>
-<li><code>0abec341</code><time>2026-10-14</time><span>ADR-105 condition 2 is discharged: the ArcGIS API for Python appends to a hosted layer</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

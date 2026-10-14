@@ -37,8 +37,15 @@ namespace GisBench;
 /// </remarks>
 public static class Q68
 {
-    private const string Table = "planet_osm_polygon";
-    private const string GeomCol = "way";
+    // <b>Widened 2026-10-15 for ADR-021 condition 2</b>: the table, its geometry column and the attributes carried are
+    // arguments now (--table, --geom, --attrs a,b,c), so the same two paths run over lines and over a wide table.
+    // The defaults are the original run's.
+    private static string Table = "planet_osm_polygon";
+    private static string GeomCol = "way";
+    private static string[] Attrs = ["name"];
+
+    private static string Selected(string prefix) =>
+        string.Join(", ", Attrs.Select(a => $"{prefix}\"{a}\""));
 
     private sealed record TileResult(int Z, int X, int Y, int Bytes, int Features);
 
@@ -62,6 +69,11 @@ public static class Q68
         int parents = Arg(args, "--parents", 4);
         int rounds = Arg(args, "--rounds", 3);
         int conc = Arg(args, "--conc", 1);
+
+        if (Text(args, "--table") is { } table) Table = table;
+        if (Text(args, "--geom") is { } geom) GeomCol = geom;
+        if (Text(args, "--attrs") is { } attrs) Attrs = attrs.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        Console.WriteLine($"  table {Table}({GeomCol}), {Attrs.Length} attribute(s): {string.Join(",", Attrs)}");
 
         string conn = Environment.GetEnvironmentVariable("GISBENCH_CONN")
             ?? "Host=localhost;Port=55432;Database=gis;Username=gis;Password=gis;"
@@ -173,7 +185,7 @@ public static class Q68
             mvtgeom AS (
                 SELECT ST_AsMVTGeom(t.{GeomCol}, bounds.geom,
                                     {TileMath.Extent}, {TileMath.Buffer}, true) AS geom,
-                       t.osm_id, COALESCE(t.name,'') AS name
+                       t.osm_id, {Selected("t.")}
                 FROM {Table} t, bounds
                 WHERE t.{GeomCol} && bounds.geom
             )
@@ -267,7 +279,7 @@ public static class Q68
             // optional: without it a tile reads two orders of magnitude more
             // geometry than it emits.
             string sql = $"""
-                SELECT osm_id, COALESCE(name,'') AS name,
+                SELECT osm_id, {Selected("")},
                        ST_AsBinary(ST_ClipByBox2D(
                            ST_Simplify({GeomCol}, @tol, true),
                            ST_MakeEnvelope(@minx,@miny,@maxx,@maxy,3857))) AS g
@@ -282,7 +294,7 @@ public static class Q68
             cmd.Parameters.AddWithValue("maxx", read.MaxX);
             cmd.Parameters.AddWithValue("maxy", read.MaxY);
 
-            List<(long Id, string Name, Geometry Geom)> features = new(4096);
+            List<(long Id, KeyValuePair<string, object?>[] Props, Geometry Geom)> features = new(4096);
 
             await using (NpgsqlDataReader rdr = await cmd.ExecuteReaderAsync())
             {
@@ -290,7 +302,9 @@ public static class Q68
 
                 while (await rdr.ReadAsync())
                 {
-                    if (rdr.IsDBNull(2))
+                    int g = 1 + Attrs.Length;
+
+                    if (rdr.IsDBNull(g))
                     {
                         continue;
                     }
@@ -300,7 +314,23 @@ public static class Q68
                         // Parsed once and reused by every child. This is the
                         // whole of the argument being tested: ST_AsMVT reparses
                         // and re-reads for each of the N tiles.
-                        features.Add((rdr.GetInt64(0), rdr.GetString(1), reader.Read((byte[])rdr[2])));
+                        KeyValuePair<string, object?>[] props = new KeyValuePair<string, object?>[Attrs.Length];
+
+                        for (int a = 0; a < Attrs.Length; a++)
+                        {
+                            // The value types ST_AsMVT writes: text as a string, an integer as an integer, a real
+                            // as a double, a boolean as a boolean (here a 0/1 integer, which the byte check allows).
+                            object? value = rdr.IsDBNull(a + 1) ? null : rdr.GetValue(a + 1) switch
+                            {
+                                string text => text,
+                                bool flag => flag ? 1L : 0L,
+                                short or int or long => Convert.ToInt64(rdr.GetValue(a + 1), System.Globalization.CultureInfo.InvariantCulture),
+                                object other => Convert.ToDouble(other, System.Globalization.CultureInfo.InvariantCulture),
+                            };
+                            props[a] = new KeyValuePair<string, object?>(Attrs[a], value);
+                        }
+
+                        features.Add((rdr.GetInt64(0), props, reader.Read((byte[])rdr[g])));
                     }
                     catch
                     {
@@ -326,7 +356,7 @@ public static class Q68
 
     /// <summary>Clips, transforms, simplifies and encodes one child tile.</summary>
     private static TileResult EncodeChild(
-        List<(long Id, string Name, Geometry Geom)> features,
+        List<(long Id, KeyValuePair<string, object?>[] Props, Geometry Geom)> features,
         int z, int x, int y, GeometryFactory factory)
     {
         TileMath.Bounds env = TileMath.TileEnvelope(z, x, y);
@@ -337,7 +367,7 @@ public static class Q68
         TileSimplify.Stats stats = default;
         int emitted = 0;
 
-        foreach ((long id, string name, Geometry geom) in features)
+        foreach ((long id, KeyValuePair<string, object?>[] props, Geometry geom) in features)
         {
             // Cheapest possible rejection first. Most features in a parent's
             // extent are outside any given child, and at 256 children that
@@ -368,7 +398,7 @@ public static class Q68
                     continue;
                 }
 
-                if (encoder.Add(id, simplified, [new KeyValuePair<string, object?>("name", name)]))
+                if (encoder.Add(id, simplified, props))
                 {
                     emitted++;
                 }
@@ -549,6 +579,12 @@ public static class Q68
         }
 
         return outp;
+    }
+
+    private static string? Text(string[] args, string name)
+    {
+        int i = Array.IndexOf(args, name);
+        return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
     }
 
     private static int Arg(string[] args, string name, int fallback)
