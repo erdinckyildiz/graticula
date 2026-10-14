@@ -522,6 +522,12 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    `GeodatabaseReaderTests.A_layer_of_single_and_multipart_polygons_is_written_as_a_file_geodatabase` failed before it
    and passes. The child's peak in the failed run was 78 MB, which measures a reader that stopped at the layer and not
    a write; the measurement this condition asks for waits for the repaired reader on the showcase.)*
+   **DISCHARGED 2026-10-14, on the showcase, v1.0.378.** The largest layer, `cities/new_york_buildings_parquet`, exported
+   as a File Geodatabase: 1,658,511 rows in 106 s, a 155 MB zip, and GDAL 3.14 opens it as one `MULTIPOLYGON` layer of
+   1,658,511 features. **The reader child's peak working set was 202 MB** (VmHWM sampled every half second inside the
+   server's container; the development container that shares the store was sampled too and took no part). As a workbook
+   the same layer is refused at the request, correctly, for being more than one sheet — the largest layer that a
+   workbook can hold was measured at 300,000 rows on the fixture (283 MB). The export was deleted afterwards.
 6. **Every source**: a hosted layer, a registered PostGIS layer and a GeoParquet layer each export, and a hidden field
    (ADR-063) is in none of them. **DISCHARGED 2026-10-07.** A hosted layer with `n` hidden (GeoJSON, CSV and GeoPackage
    without it), a registered layer over the same table with `sehir` hidden (GeoJSON, 1,000 rows, without it), and a
