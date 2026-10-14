@@ -4482,7 +4482,9 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #mapAbout .stacked, #mapShare .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #mapAbout textarea, #mapAbout input { font: inherit; max-width: 100%; }
 #mapShare .check > span { display: inline-flex; flex-direction: column; }
-@media (max-width: 900px) { .mapitem { grid-template-columns: 1fr; } }
+/* One column on a narrow screen, with the actions first: stacked after the description and the layers, Open in Map
+   Viewer was below the fold at 390 px (ADR-079 condition 2's review, 2026-10-14). */
+@media (max-width: 900px) { .mapitem { grid-template-columns: 1fr; } .mapitem #mapSide { order: -1; } }
 #mapAbout, #mapLayers { padding: var(--gap-3) var(--gap-4); }
 
 /* A button that reads as a link, beside a fact it changes (Change owner…). */

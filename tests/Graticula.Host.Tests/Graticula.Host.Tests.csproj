@@ -9,6 +9,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Html moved to Graticula.Core.Markup on 2026-10-14 (ADR-023 condition 3); every page builder here uses it. -->
+    <Using Include="Graticula.Core.Markup" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />

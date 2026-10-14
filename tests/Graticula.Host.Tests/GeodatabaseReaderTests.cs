@@ -199,6 +199,50 @@ public sealed class GeodatabaseReaderTests
     }
 
     /// <summary>
+    /// A layer whose polygons are partly single and partly multipart is written as a File Geodatabase.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found on the showcase on 2026-10-14</b>, exporting its largest layer for ADR-106 condition 5: 1,658,511 New York
+    /// buildings, 31 of them multipart, failed after every row was staged with GDAL's <i>Unsupported geometry type</i>.
+    /// The staged GeoJSON mixes <c>Polygon</c> and <c>MultiPolygon</c>, so GDAL reports its layer as of no one type, and
+    /// the File Geodatabase driver cannot create a layer of no type. Every polygon layer with a single multipart feature
+    /// was refused; the fixture's had none. The file a reader asks for has the family's multipart type, as ArcGIS's own
+    /// polygons are.
+    /// </remarks>
+    [Fact]
+    public async Task A_layer_of_single_and_multipart_polygons_is_written_as_a_file_geodatabase()
+    {
+        string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gdb-mixed-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(folder);
+        string input = System.IO.Path.Combine(folder, "in.geojson");
+        string output = System.IO.Path.Combine(folder, "out", "export.gdb");
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(output)!);
+
+        await System.IO.File.WriteAllTextAsync(input, """
+            {"type":"FeatureCollection","features":[
+             {"type":"Feature","properties":{"n":1},"geometry":{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}},
+             {"type":"Feature","properties":{"n":2},"geometry":{"type":"MultiPolygon","coordinates":[
+               [[[2,2],[3,2],[3,3],[2,3],[2,2]]],[[[4,4],[5,4],[5,5],[4,5],[4,4]]]]}}]}
+            """);
+
+        try
+        {
+            using JsonDocument answer = await Reader().AskAsync(
+                new { op = "export", @in = input, @out = output, format = "fgdb", layer = "mixed" },
+                TimeSpan.FromSeconds(60));
+
+            Assert.True(
+                answer.RootElement.GetProperty("ok").GetBoolean(),
+                "A layer of single and multipart polygons was refused as a File Geodatabase: " + answer.RootElement);
+            Assert.True(System.IO.Directory.Exists(output), "The reader said it wrote the geodatabase and there is none.");
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(folder, recursive: true); } catch (System.IO.IOException) { }
+        }
+    }
+
+    /// <summary>
     /// An archive that is not there is a refusal with a reason in it.
     /// </summary>
     [Fact]

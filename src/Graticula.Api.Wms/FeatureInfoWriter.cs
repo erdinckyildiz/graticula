@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Net;
 using System.Text;
 using System.Text.Json;
+using Graticula.Core.Markup;
 using Graticula.Features;
 using Graticula.Geometries;
 
@@ -81,7 +81,7 @@ public static class FeatureInfoWriter
         return mediaType switch
         {
             "application/json" => Json(hits, at, srid),
-            "text/html" => Html(hits),
+            "text/html" => HtmlOf(hits),
             "text/xml" => Xml(hits),
             _ => Plain(hits),
         };
@@ -246,9 +246,15 @@ public static class FeatureInfoWriter
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + root;
     }
 
-    private static string Html(IReadOnlyList<Hits> hits)
+    /// <summary>The <c>text/html</c> answer, written on the <see cref="Html"/> type (ADR-023 condition 3).</summary>
+    /// <remarks>
+    /// Every hole that is a string — a layer's name, a field's name, a value — is escaped by the type; this
+    /// project wrote its own <c>Escape</c> until 2026-10-14, because the type lived in the host. The bytes are the
+    /// same: the type escapes with the same encoder this file called.
+    /// </remarks>
+    private static string HtmlOf(IReadOnlyList<Hits> hits)
     {
-        StringBuilder text = new();
+        HtmlBuilder text = new();
         int found = 0;
 
         foreach (Hits layer in hits)
@@ -258,21 +264,19 @@ public static class FeatureInfoWriter
                 continue;
             }
 
-            text.Append(CultureInfo.InvariantCulture, $"<h4>{Escape(layer.Layer)}</h4>");
+            text.Append($"<h4>{layer.Layer}</h4>");
 
             foreach (Feature feature in layer.Features)
             {
                 found++;
-                text.Append("<table class=\"featureInfo\">");
+                text.Append(Html.Markup("<table class=\"featureInfo\">"));
 
                 foreach (string name in feature.Schema.Names)
                 {
-                    text.Append(
-                        CultureInfo.InvariantCulture,
-                        $"<tr><th>{Escape(name)}</th><td>{Escape(Text(feature[name]))}</td></tr>");
+                    text.Append($"<tr><th>{name}</th><td>{Text(feature[name])}</td></tr>");
                 }
 
-                text.Append("</table>");
+                text.Append(Html.Markup("</table>"));
             }
         }
 
@@ -280,8 +284,6 @@ public static class FeatureInfoWriter
             ? "<p>Nothing at that point.</p>"
             : text.ToString();
     }
-
-    private static string Escape(string? value) => WebUtility.HtmlEncode(value ?? string.Empty);
 
     private static string Text(object? value) => value switch
     {

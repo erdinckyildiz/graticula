@@ -885,6 +885,59 @@ internal static class Program
     /// </para>
     /// </remarks>
     /// <summary>
+    /// The geometry type a File Geodatabase layer is made with, when the staged layer has none: its family's multipart
+    /// type, from its first geometry — or null, when GDAL already knows the type.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found on the showcase on 2026-10-14.</b> The staged GeoJSON is one table's geometry column, so its geometries
+    /// are of one family, but a layer mixing <c>Polygon</c> and <c>MultiPolygon</c> is reported by GDAL as of no type,
+    /// and the File Geodatabase driver cannot make a layer of no type: 1,658,511 buildings, 31 of them multipart, were
+    /// refused with <i>Unsupported geometry type</i> after every row was staged. Multipart is what ArcGIS's own
+    /// polygons and lines are, and <c>PROMOTE_TO_MULTI</c> does not help — measured, it leaves a layer of no type as it
+    /// is — so the type is named.
+    /// </remarks>
+    private static string? FileGeodatabaseType(Dataset source)
+    {
+        if (source.GetLayerCount() == 0) return null;
+
+        Layer layer = source.GetLayer(0);
+
+        if (Ogr.GT_Flatten(layer.GetGeomType()) != wkbGeometryType.wkbUnknown) return null;
+
+        layer.ResetReading();
+
+        try
+        {
+            for (Feature? feature = layer.GetNextFeature(); feature is not null; feature = layer.GetNextFeature())
+            {
+                using (feature)
+                {
+                    Geometry? geometry = feature.GetGeometryRef();
+
+                    if (geometry is null || geometry.IsEmpty()) continue;
+
+                    wkbGeometryType type = geometry.GetGeometryType();
+                    string z = Ogr.GT_HasZ(type) != 0 ? "Z" : string.Empty;
+
+                    return Ogr.GT_Flatten(type) switch
+                    {
+                        wkbGeometryType.wkbPoint or wkbGeometryType.wkbMultiPoint => "MULTIPOINT" + z,
+                        wkbGeometryType.wkbLineString or wkbGeometryType.wkbMultiLineString => "MULTILINESTRING" + z,
+                        wkbGeometryType.wkbPolygon or wkbGeometryType.wkbMultiPolygon => "MULTIPOLYGON" + z,
+                        _ => null,
+                    };
+                }
+            }
+
+            return null;
+        }
+        finally
+        {
+            layer.ResetReading();
+        }
+    }
+
+    /// <summary>
     /// Translates a GeoJSON file into a GeoPackage, a shapefile folder, a workbook, a File Geodatabase folder, KML, CSV
     /// or GeoJSON — ADR-107, and ADR-106's formats on the same road.
     /// </summary>
@@ -944,6 +997,8 @@ internal static class Program
             if (format is "kml" or "csv" or "geojson") options.AddRange(["-t_srs", "EPSG:4326"]);
 
             if (format == "geojson") options.AddRange(["-lco", "RFC7946=YES"]);
+
+            if (format == "fgdb" && FileGeodatabaseType(source) is { } declared) options.AddRange(["-nlt", declared]);
 
             if (format == "csv")
             {

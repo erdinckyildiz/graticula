@@ -526,7 +526,7 @@ which job needs stating before both grow.
    before this surface grows beyond the four document kinds it has. Convention
    held here because there is one helper and one file; neither will stay true.
    **PARTLY DISCHARGED 2026-10-12 — both of the forms it names, for the directory and every page
-   built on it; two renderers of their own are left and named.** `Html` (`src/Graticula.Host/Html.cs`)
+   built on it; two renderers of their own are left and named.** `Html` (`src/Graticula.Host/Html.cs`, in `src/Graticula.Core/Markup/Html.cs` since 2026-10-14)
    carries "already escaped": its interpolation escapes every hole that is not already `Html`, formats
    numbers with the invariant culture as every page's `Append(CultureInfo.InvariantCulture, …)` did, and
    `RestDirectory.Wrap` and `OpenPage` take nothing else — the renderer that cannot be handed a raw string.
@@ -543,7 +543,7 @@ which job needs stating before both grow.
    new file encodes HTML by hand. **Left, by name, in that test's list**: the OAuth sign-in pages, their
    own renderer with `System.Text.Encodings.Web`'s encoder, which writes non-ASCII as numeric references
    where `WebUtility` does not, on pages whose title ArcGIS clients read — a byte change nothing local
-   can check, **postponed by owner decision 2026-10-13 until a sign-in through ArcGIS Pro can be tried**; and WMS GetFeatureInfo's `text/html`, in a project the host's type is not visible from.
+   can check, **postponed by owner decision 2026-10-13 until a sign-in through ArcGIS Pro can be tried**; ~~and WMS GetFeatureInfo's `text/html`, in a project the host's type is not visible from.~~ **WMS GetFeatureInfo's `text/html` is on the type since 2026-10-14**: `Html` moved to `Graticula.Core.Markup`, which every protocol project already references, and `FeatureInfoWriter` writes its answer with `HtmlBuilder` and its own escaping helper is gone. Nothing tested that answer before; `FeatureInfoHtmlTests` pins its exact bytes — a value carrying markup, a Latin-1 letter the encoder writes as a numeric reference and a Turkish one it does not — and passes against the hand-written version and the typed one alike, so the move changed no byte. **The OAuth pages are now the only renderer left**, and they wait on the owner's decision rather than on this condition.
 4. **The relationship with [ADR-020](ADR-020-admin-console-and-service-status.md)
    is stated** before the console ships anything that overlaps this directory.
    Two browsable surfaces with no boundary is how both end up half-built.

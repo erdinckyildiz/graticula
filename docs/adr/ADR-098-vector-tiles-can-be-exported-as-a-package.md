@@ -107,9 +107,12 @@ address still carries a 128-bit random token, so it is unguessable as well as go
   and both formats store them gzip-compressed; a VTPK's bundle overhead is counted for every block the area touches.
   A package that would fit can be refused. The owner's rule for seeds — refuse what does not fit, say the numbers — is
   kept, and the numbers say they are an upper bound.
-- **The console's download holds the whole file in the browser's memory**, because the console signs its requests
+- ~~**The console's download holds the whole file in the browser's memory**, because the console signs its requests
   with a bearer header a plain link cannot carry. A package of gigabytes is better fetched with `curl` and the same
-  header. [D-282](../architecture-debt.md).
+  header. [D-282](../architecture-debt.md).~~ **No longer, since 2026-10-14** ([D-289](../architecture-debt.md)): the
+  console asks the download route with `check=1` for the package's name and size, then gives the browser the route
+  itself, which the session cookie signs — so the browser shows the progress, offers Cancel and writes the package to
+  disk as it comes. What D-282 still records is the other half: a package lives on the server that wrote it.
 - **The service document now differs by caller.** `exportTilesAllowed` is true only for a caller the service lets
   export (§5.5); an anonymous caller of a service that exports only to signed-in callers is told `false`. A shared
   proxy cache that stored one caller's document for another would be wrong; the document is not sent with a public

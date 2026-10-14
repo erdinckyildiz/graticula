@@ -1382,7 +1382,9 @@ internal static partial class AdminEndpoints
             usageSince = (context.RequestServices.GetService(typeof(ServiceUsageCounter)) as ServiceUsageCounter)?.Since?
                 .ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
 
-            note = counts["mine"] == 0
+            // Only when there is something else to see: on a first run, with nothing at all, *everything here belongs to
+            // somebody else* describes a list that does not exist (ADR-079 condition 2's review, 2026-10-14).
+            note = counts["mine"] == 0 && counts.Values.Sum() > 0
                 ? "You have published nothing yet. Everything here belongs to somebody else and is "
                   + "listed under why you can see it."
                 : null,

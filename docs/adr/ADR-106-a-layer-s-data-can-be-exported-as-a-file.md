@@ -510,7 +510,18 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    stopped for the budget — each format is now estimated at its measured width (`OutputWidth`); and GDAL's KML writer
    holds the whole document in memory at about nine times the file (1.56 GB and climbing at 300,000 rows, against the
    child's 2 GB ceiling), so a KML estimated above 150 MB is refused at the request (`kmlTooLarge`) — 200,000 points
-   wrote 127 MB at a 1.06 GB peak. **Still open:** the showcase's largest layer, which needs its administrator.
+   wrote 127 MB at a 1.06 GB peak. **Still open:** the showcase's largest layer, which needs its administrator. *(2026-10-14, with the administrator's credential: the largest layer is `cities/new_york_buildings_parquet`,
+   1,658,511 buildings. **As a workbook it is refused at the request, correctly** — *more than 1,048,575 rows, which is
+   more than one sheet of a workbook holds*, `tooManyRows`. **As a File Geodatabase it failed, and that was a defect:**
+   every row was staged and GDAL then refused to make the layer — *Unsupported geometry type*. 31 of the buildings are
+   multipart, the staged GeoJSON mixes `Polygon` and `MultiPolygon`, GDAL reports such a layer as of no type, and the
+   File Geodatabase driver cannot make a layer of no type; so **every polygon layer with one multipart feature was
+   refused** in this format, and the fixture's layers had none. Reproduced on the showcase's own data with GDAL 3.14:
+   `-nlt PROMOTE_TO_MULTI` leaves the type unknown and fails the same way, `-nlt MULTIPOLYGON` writes all 1,658,511.
+   The reader now names the family's multipart type when the staged layer has none, and
+   `GeodatabaseReaderTests.A_layer_of_single_and_multipart_polygons_is_written_as_a_file_geodatabase` failed before it
+   and passes. The child's peak in the failed run was 78 MB, which measures a reader that stopped at the layer and not
+   a write; the measurement this condition asks for waits for the repaired reader on the showcase.)*
 6. **Every source**: a hosted layer, a registered PostGIS layer and a GeoParquet layer each export, and a hidden field
    (ADR-063) is in none of them. **DISCHARGED 2026-10-07.** A hosted layer with `n` hidden (GeoJSON, CSV and GeoPackage
    without it), a registered layer over the same table with `sehir` hidden (GeoJSON, 1,000 rows, without it), and a
