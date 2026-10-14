@@ -210,6 +210,20 @@ column out), ADR-058 (the drop guard), ADR-038 (the geodatabase import).
    headless Chrome on a page of the fixture and the layer's `load()` did not return in 45 seconds;
    the renderer had crashed on the map page before that. Neither says anything about this server,
    and neither is counted.
+   **DISCHARGED 2026-10-14**, with the Maps SDK for JavaScript 4.30 in headless Brave, from another origin
+   (`tools/sdk-probe/domains.html`), against a layer made for it on the local fixture with §4's shapes — a coded-value
+   domain on `material` (CU, PVC, DI), a range on `diameter` (50–1,200), and subtypes on `kind`, *Main* with its own
+   `material` list (CU, DI) and default values, and *Lateral*. **It shows the list:** the field's domain and, for a
+   *Main* feature, `getFieldDomain` gives the subtype's narrower list. **It respects the range:** a `FeatureForm` on that
+   feature is invalid with `diameter` at 5,000 and valid at 600. **It offers one template per subtype:** the
+   `FeatureTemplates` widget lists *Main* and *Lateral* under the layer
+   ([sdk-reads-domains-and-subtypes-2026-10-14.png](../reviews/sdk-reads-domains-and-subtypes-2026-10-14.png)). The
+   layer was removed afterwards with its three domains. **One thing measured on the way, recorded rather than
+   concluded:** templates and validation are offered only on an editable layer, and the SDK took the editor's token
+   only as the layer's `apiKey` — `IdentityManager.registerToken` with the server's `/rest/services` and
+   `customParameters.token` both left it off every request, so the layer read as `Query` only. Whether that is the
+   SDK's rule for a server it has not been told the token service of, or something this server's `/rest/info` should
+   say, is not settled here; an ArcGIS client signing in through the portal is Q-169's and ADR-076's path.
 3. **An Esri-written archive's subtypes are carried.** The coded values and ranges of an Esri-written
    archive are measured (§4); its subtypes are not, because no archive with subtypes was available to
    read, and the parser follows the published schema's element names rather than a document seen.

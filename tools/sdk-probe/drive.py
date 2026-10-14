@@ -73,7 +73,7 @@ try:
         p = e["params"]
         if e["method"] == "Network.requestWillBeSent" and any(
                 part in p["request"]["url"] for part in ("/rest/services", "/sharing/rest")):
-            reqs[p["requestId"]] = p["request"]["url"][:140]
+            reqs[p["requestId"]] = p["request"]["url"][:220]
         if e["method"] == "Network.loadingFailed" and p["requestId"] in reqs:
             print("FAILED", reqs[p["requestId"]], p.get("errorText"), p.get("corsErrorStatus"), p.get("blockedReason"))
         if e["method"] == "Network.responseReceived" and p["requestId"] in reqs:

@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>49f83022</code> · 2026-10-14 22:36</p>
+<p class="stamp">Generated from commit <code>7f877b07</code> · 2026-10-14 22:38</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADRs</div><div class="kpi-n">71 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">339/414</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">72 live · 3 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">340/414</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">71 live · 3 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">open questions</div><div class="kpi-n">161 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">274 repaid · 5 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">3 open</span></div><p><b>Q-168</b> — May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">87 items</span></div><p><b>72 ADR conditions</b> outstanding across 54 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">86 items</span></div><p><b>71 ADR conditions</b> outstanding across 54 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -138,7 +138,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-029 · Affinity routing is not the defaul</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-052 · The canonical symbology document i</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-065 · Domains and subtypes</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
@@ -164,6 +163,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-057 · Composing and publishing a service</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-059 · Quiescing a data source</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-060 · The axis order comes from the auth</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-065 · Domains and subtypes</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-066 · GeoParquet layers, read in place b</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-067 · DuckDB sources beyond a local fold</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-074 · Z and M are read, said out loud, a</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -267,7 +267,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">062</td><td>The query face streams, like every other face</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — the choice is between two behaviours that were both measured on the same route…</td><td class="num"></td></tr>
 <tr><td class="id">063</td><td>A field list may differ from the table, in two ways and no more</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">~~MEDIUM — the decision is the owner&#x27;s and the shape is forced by what already exists,…</td><td class="num">3/3</td></tr>
 <tr><td class="id">064</td><td>Editor tracking, and what `features:edit` means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
-<tr><td class="id">065</td><td>Domains and subtypes</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
+<tr><td class="id">065</td><td>Domains and subtypes</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
 <tr><td class="id">066</td><td>GeoParquet layers, read in place by DuckDB</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
 <tr><td class="id">067</td><td>DuckDB sources beyond a local folder: remote GeoParquet, a DuckDB database file, MotherDuck</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
 <tr><td class="id">068</td><td>Responses are compressed, on an allowlist rather than everywhere</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
@@ -523,6 +523,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7f877b07</code><time>2026-10-14</time><span>ADR-066 condition 2 is discharged: the Maps SDK adds two GeoParquet layers on the showcase, draws and queries them</span></li>
 <li><code>49f83022</code><time>2026-10-14</time><span>The Maps SDK opens a map saved here with its style and its pop-up (ADR-104 condition 3, ADR-110 condition 2)</span></li>
 <li><code>754f84e4</code><time>2026-10-14</time><span>ADR-086 condition 2 is discharged: the Maps SDK opens a new map on this server&#x27;s ground</span></li>
 <li><code>8198d46c</code><time>2026-10-14</time><span>ADR-106 condition 5 is discharged on the showcase: 1,658,511 buildings as a File Geodatabase, the reader at 202 MB</span></li>
@@ -536,7 +537,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f5adfb37</code><time>2026-10-13</time><span>The portal lists its servers: this one, hosting</span></li>
 <li><code>778167da</code><time>2026-10-13</time><span>The portal says what every Enterprise portal says about itself</span></li>
 <li><code>b5274f40</code><time>2026-10-13</time><span>The conformance harness keeps no cookies, so an anonymous request is anonymous (D-293)</span></li>
-<li><code>a7aaa251</code><time>2026-10-13</time><span>What a reader typed in a layer&#x27;s panel survives the redraws they did not ask for</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
