@@ -101,7 +101,7 @@ it runs in the request.
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | GDAL reads a GeoJSON file's legacy `crs` member as the layer's reference, in traditional GIS axis order | measured for EPSG:3857 and EPSG:5254; `INFERRED` for other geographic references |
+| — | GDAL reads a GeoJSON file's legacy `crs` member as the layer's reference, in traditional GIS axis order | measured for EPSG:3857 and EPSG:5254, and for the geographic EPSG:4230 on 2026-10-14 (condition 3) |
 
 ## 8. Dependencies
 
@@ -121,4 +121,4 @@ it runs in the request.
 2. **Studio's *Export data* writes a GeoPackage** through the server. **DISCHARGED 2026-10-01** —
    `ItemStructureTests.Export_data_writes_a_GeoPackage_made_by_the_server`.
 3. **A layer in a geographic reference other than WGS 84 is exported and opened in QGIS or ArcGIS Pro with its
-   points where they belong** — not yet.
+   points where they belong**. **DISCHARGED 2026-10-14** — a table in ED50 (EPSG:4230) on the local fixture, Istanbul at 28.9784, 41.0082 and Ankara at 32.8597, 39.9334, published and exported. ArcGIS Pro 3.7 (`tools/arcpy-probe/read-exports.py`) reads the shapefile, the GeoPackage and the File Geodatabase as factory code 4230 *GCS_European_1950*, with x the longitude and y the latitude, equal to the stored values to the sixth decimal. The axis order a latitude-first reference invites is not swapped anywhere. The GeoJSON is converted to WGS 84 as RFC 7946 requires: Istanbul is 28.9779557, 41.0072302, which is the datum shift and not a swap.
