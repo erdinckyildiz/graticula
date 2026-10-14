@@ -196,9 +196,14 @@ services directory), ADR-034 (Server and Studio).
    to add hides its filter, links to My content and keeps the focus on that sentence; and among the minor ones a
    paragraph hint cut at the panel's edge, a save announced in two live regions, *Zoom to all* enabled on an empty
    map, small targets at 390 px and the item page's actions below the fold. Five console tests in
-   `WebMapViewerTests` failed against the old scripts and pass. **Left, named:** My content's table at 390 px hides
-   each row's actions (a card layout is a change of the shared list, not of maps); the keyboard cannot identify what
-   is at the map's centre; and one wording per sharing scope. **Still open** for the owner's first use, which the
+   `WebMapViewerTests` failed against the old scripts and pass. *(Later the same day, two of the three left are
+   repaired too: Enter on the focused map asks what is at its centre, as a click asks at a point; and a scope is said
+   one way everywhere — the Share dialog's, Portal's words, *Owner*, *Groups*, *Organization*, *Everyone (public)* —
+   in the pills, the viewer's choice and the bulk dialog alike, with the visible *organisation* spellings made
+   *organization*. Two more tests failed before and pass. **The third finding's premise was wrong**: at 390 px a row's
+   own actions are hidden, but its tick is not, and the selection bar's* Move to folder… *moves maps as well as
+   services, so a map can be moved at that width; the review tried the row and not the bar. *Colour* and
+   *Customised* are left: they run through the style controls and their tests, a change of its own.)* **Still open** for the owner's first use, which the
    dissent below waits on.)*
 3. **The next item kind builds ADR-056's table** and moves web maps into it, rather than becoming a third
    source for the portal listing.

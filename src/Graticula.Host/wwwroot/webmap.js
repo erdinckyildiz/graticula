@@ -2608,14 +2608,26 @@ document.addEventListener("keydown", event => {
   wmCloseIdentify();
 });
 
-wmMap.on("singleclick", event => {
+/** Asks what is at a point, as a click does — unless the map is measuring, drawing or holding an unsaved edit. */
+function wmIdentifyAt(coordinate) {
   if (wmMeasuring || wmAdding.draw) return;
   // The click that placed a new point arrives here too, a moment after the form it opened (design review 2026-10-01).
   if (wmEditing.key && (wmIdentified.get(wmEditing.key) || {}).isNew) return;
   if (!wmMayLeaveEdit()) return;
   wmEditing.key = null;
   wmEditing.dirty = false;
-  wmIdentify(event.coordinate);
+  wmIdentify(coordinate);
+}
+
+wmMap.on("singleclick", event => wmIdentifyAt(event.coordinate));
+
+// <b>And from the keyboard, at the map's centre</b> (ADR-079 condition 2's review, 2026-10-14): the map could be focused
+// and panned with the arrows, and nothing let a keyboard ask what was under it — the Table gives attributes, but not an
+// image's pixel values. Enter or Space on the map itself asks at the centre, where the arrows have brought it.
+wm$("map").addEventListener("keydown", event => {
+  if (event.target !== wm$("map") || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  wmIdentifyAt(wmMap.getView().getCenter());
 });
 
 // ----------------------------------------------------------------------------- search
@@ -2961,7 +2973,7 @@ function wmSharingWarning() {
   const { narrow, unknown } = wmNarrower;
   if (!narrow.length && !unknown.length) return "";
 
-  const reach = wmState.meta.sharing === "public" ? "people you share it with" : "others in your organisation";
+  const reach = wmState.meta.sharing === "public" ? "people you share it with" : "others in your organization";
   const parts = [];
 
   if (narrow.length === 1) {
@@ -3303,7 +3315,7 @@ async function wmStart() {
       gone.innerHTML = e.status === 404
         ? `<p>No map <code>${wmEscape(id)}</code> that you can open.</p><p>${wmMe.authenticated
           ? "It may have been deleted, or its owner has not shared it with you."
-          : `If it is shared with your organisation, <a href="/studio/">sign in to Studio</a>, then open this link again.`}</p>
+          : `If it is shared with your organization, <a href="/studio/">sign in to Studio</a>, then open this link again.`}</p>
           <p><a href="/studio/#/content">Your maps</a></p>`
         : `<p>${wmEscape(e.message)}</p>`;
       return;

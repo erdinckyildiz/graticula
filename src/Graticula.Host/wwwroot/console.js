@@ -220,8 +220,14 @@ const pill = value => {
   const key = String(value).toLowerCase();
   const glyph = icon(key);
 
-  return `<span class="pill p-${h(key)}${glyph ? " withicon" : ""}">${glyph}${h(value)}</span>`;
+  return `<span class="pill p-${h(key)}${glyph ? " withicon" : ""}">${glyph}${h(SCOPE_WORDS[key] || value)}</span>`;
 };
+
+/**
+ * A sharing scope, said the one way the Share dialog says it — Portal's words (ADR-079 condition 2's review, 2026-10-14).
+ * The same scope was *Only you (private)* in the map viewer, *Owner* in Share and *private* in this pill.
+ */
+const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization", public: "Everyone (public)" };
 
 /**
  * Which of the three tones a probe outcome wears.
@@ -1363,7 +1369,7 @@ function drawSignin() {
 
   $("idpRows").innerHTML = idpList.length === 0
     ? `<tr><td colspan="5" class="empty">No provider is set, so people sign in with a password on this server only.
-        Add one to let them use their organisation's sign-in.</td></tr>`
+        Add one to let them use their organization's sign-in.</td></tr>`
     : idpList.map((p, i) => `
       <tr>
         <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}${samlExpiring(p)}</td>
@@ -1420,11 +1426,11 @@ function drawIdpForm() {
     <h4 id="idpFormTitle">${p ? `Edit ${h(p.name)}` : kind === "ldap" ? "A new directory"
       : kind === "saml" ? "A new SAML provider" : "A new sign-in provider"}</h4>
     ${p ? "" : `<fieldset class="valueskind"><legend>What people sign in with</legend>
-      <label><input type="radio" name="idpKind" value="oidc" ${kind === "oidc" ? "checked" : ""}> Their organisation's
+      <label><input type="radio" name="idpKind" value="oidc" ${kind === "oidc" ? "checked" : ""}> Their organization's
         sign-in page — OpenID Connect: Entra ID, Keycloak, Okta, Google</label>
-      <label><input type="radio" name="idpKind" value="saml" ${kind === "saml" ? "checked" : ""}> Their organisation's
+      <label><input type="radio" name="idpKind" value="saml" ${kind === "saml" ? "checked" : ""}> Their organization's
         sign-in page — SAML 2.0: AD FS, an Entra ID enterprise application, Okta, Shibboleth</label>
-      <label><input type="radio" name="idpKind" value="ldap" ${kind === "ldap" ? "checked" : ""}> Their organisation's
+      <label><input type="radio" name="idpKind" value="ldap" ${kind === "ldap" ? "checked" : ""}> Their organization's
         name and password, typed here — an LDAP directory or Active Directory</label>
     </fieldset>`}
 
@@ -21397,7 +21403,7 @@ function groundCaution(row) {
   if (!row.exists) return "No longer on this server: untick it to save.";
   if (!row.running) return "Stopped: nobody sees it until it is started.";
   if (!row.everybody) {
-    return `Shared with ${row.sharing === "group" ? "a group" : row.sharing === "organization" ? "the organisation" : "its owner"} only: people who cannot see it get the ground without it.`;
+    return `Shared with ${row.sharing === "group" ? "a group" : row.sharing === "organization" ? "the organization" : "its owner"} only: people who cannot see it get the ground without it.`;
   }
   return "";
 }
@@ -23081,7 +23087,7 @@ function canPublish(layer) {
  */
 const SHARE_WORDS = {
   private: "private to you",
-  organization: "visible to everyone in your organisation",
+  organization: "visible to everyone in your organization",
   public: "public — visible to anybody on the internet, signed in or not",
 };
 

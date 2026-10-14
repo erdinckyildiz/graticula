@@ -1240,6 +1240,11 @@ public sealed class WebMapViewerTests : ConsoleTest
             await WaitForAsync(Shown("#mapLink") + " && " + Shown("#mapCopyLink"), "The map's item page gives no link to copy.");
             Assert.EndsWith($"/studio/webmap.html?id={id}", await Browser.EvaluateAsync<string>("document.getElementById('mapLink').value") ?? "",
                 StringComparison.Ordinal);
+
+            // One word per scope, the Share dialog's (ADR-079's review): the pill said *public*, the viewer *Anyone with
+            // the link (public)* and Share *Everyone (public)*.
+            Assert.Equal("Everyone (public)", (await Browser.EvaluateAsync<string>(
+                "document.querySelector('#mapSide .pill.p-public').textContent") ?? "").Trim());
         }
         finally
         {
@@ -1271,6 +1276,42 @@ public sealed class WebMapViewerTests : ConsoleTest
         Assert.False(await Browser.EvaluateAsync<bool>(Shown("#addFilter")), "With nothing to add, the filter is still offered.");
         Assert.Equal("addStatus", await Browser.EvaluateAsync<string>("document.activeElement && document.activeElement.id"));
         Assert.Equal(string.Empty, (await Browser.EvaluateAsync<string>("document.getElementById('layerList').textContent") ?? "").Trim());
+    }
+
+    /// <summary>Enter on the focused map asks what is at its centre, as a click asks at a point.</summary>
+    /// <remarks>
+    /// ADR-079 condition 2's review (2026-10-14): the map could be focused and panned with the arrows, and nothing let a
+    /// keyboard ask what was under it.
+    /// </remarks>
+    [Fact]
+    public async Task Enter_on_the_map_asks_what_is_at_its_centre()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string id = await SaveMapAsync(token, "zz keyboard identify", "private", withLayer: true);
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+            await WaitForAsync("!!document.querySelector('#layerList li[data-layer=one]')", "The map did not open with its layer.");
+
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const map = document.getElementById('map');
+                  map.focus();
+                  map.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+                  return true;
+                })()
+                """);
+
+            await WaitForAsync(
+                "/Asking \\d+ layer|No feature or imagery layer/.test(document.getElementById('status').textContent)"
+                + " || !document.getElementById('identify').hidden",
+                "Enter on the focused map asked nothing.");
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
     }
 
     /// <summary>The address of some feature layer this server publishes.</summary>

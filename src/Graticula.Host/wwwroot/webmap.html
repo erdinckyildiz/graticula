@@ -462,9 +462,9 @@
           <div id="sharingField">
             <label class="field" for="mapSharing">Who can open it</label>
             <select id="mapSharing" aria-describedby="sharingNote">
-              <option value="private">Only you (private)</option>
-              <option value="organization">Everyone signed in (organization)</option>
-              <option value="public">Anyone with the link (public)</option>
+              <option value="private">Owner — only you</option>
+              <option value="organization">Organization — everyone signed in</option>
+              <option value="public">Everyone (public) — anyone with the link</option>
             </select>
             <!-- Which layers the people it is shared with will not see: their services are narrower. -->
             <p class="warnnote" id="sharingNote" hidden></p>
@@ -490,7 +490,7 @@
     </aside>
 
     <div id="mapWrap">
-      <div id="map" tabindex="0" aria-label="Map. Click it to see the features or pixel values at that point."></div>
+      <div id="map" tabindex="0" aria-label="Map. Click it to see the features or pixel values at that point, or press Enter to see what is at the centre."></div>
       <div id="identify" role="region" aria-label="What is here" hidden></div>
       <div id="strip"><span id="stripScale"></span><span id="stripWhere"></span></div>
       <!-- ADR-134: drawing a new feature without a mouse — place at the centre, undo, finish, cancel. -->
