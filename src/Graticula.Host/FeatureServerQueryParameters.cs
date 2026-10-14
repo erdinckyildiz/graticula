@@ -1886,7 +1886,7 @@ internal static class FeatureServerQueryParameters
 
         foreach (JsonElement definition in definitions.EnumerateArray())
         {
-            if (!TryStatistic(definition, known, out StatisticRequest statistic, out error))
+            if (!TryStatistic(definition, known, allFields, out StatisticRequest statistic, out error))
             {
                 return false;
             }
@@ -1906,6 +1906,7 @@ internal static class FeatureServerQueryParameters
     private static bool TryStatistic(
         JsonElement definition,
         HashSet<string> known,
+        IReadOnlyList<FieldDescription> allFields,
         out StatisticRequest statistic,
         out string? error)
     {
@@ -1987,6 +1988,23 @@ internal static class FeatureServerQueryParameters
                     return false;
                 }
             }
+        }
+
+        // <b>`count` of `*` is every row, and ArcGIS Pro asks for it first — 2026-10-14.</b> Pro counts a layer it
+        // adds with `[{"statisticType":"count","onStatisticField":"*"}]`. It was refused as a field that does not
+        // exist, and Pro fell back to `returnCountOnly`, one refused request per layer. A count over a column that
+        // cannot be null is a count of rows, and the object id is such a column. A layer with no such column is
+        // still refused, with the way round it.
+        if (field == "*" && kind == StatisticKind.Count)
+        {
+            if (allFields.FirstOrDefault(f => !f.Nullable) is not { Name.Length: > 0 } every)
+            {
+                error = "'onStatisticField' of '*' counts rows, and this layer has no column that cannot be null to "
+                    + "count them by. Ask with 'returnCountOnly=true' instead.";
+                return false;
+            }
+
+            field = every.Name;
         }
 
         if (!known.TryGetValue(field, out string? actual))

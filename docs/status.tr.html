@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b7644e92</code> · 2026-10-14 23:22</p>
+<p class="stamp">Şu commit’ten üretildi: <code>2872743d</code> · 2026-10-14 23:28</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">346/414</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">65 canlı · 3 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">347/414</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">64 canlı · 3 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">274 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">12</div><div class="kpi-l">açık borç</div><div class="kpi-n">274 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4858</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 218,045 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4859</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 218,063 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-170</b> — May this portal&#x27;s sign-in page also be the one the ArcGIS API for Python reads, as Portal&#x27;s is, so that GIS(url, username, password) signs in?</p><p><b>Q-168</b> — May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">80 madde</span></div><p><b>65 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">80 madde</span></div><p><b>64 ADR conditions</b> outstanding across 50 decisions — the largest commitment on this page.</p><p><b>12 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -158,7 +158,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-052 · The canonical symbology document i</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-056 · An item is its own thing, and a se</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-057 · Composing and publishing a service</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-059 · Quiescing a data source</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-060 · The axis order comes from the auth</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-066 · GeoParquet layers, read in place b</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -256,7 +255,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">054</td><td>The symbology document is not bounded</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — MEDIUM on what replaces the bound until 2026-09-05, when condition 1 was measured</td><td class="num">2/2</td></tr>
 <tr><td class="id">055</td><td>A connection is fields, and this server assembles it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
 <tr><td class="id">056</td><td>An item is its own thing, and a service is one kind of it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — MEDIUM on the field layout until 2026-09-05, when condition 1 was answered</td><td class="num">1/2</td></tr>
-<tr><td class="id">057</td><td>Composing and publishing a service</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the composition and the publish rules · MEDIUM for the faces</td><td class="num">6/7</td></tr>
+<tr><td class="id">057</td><td>Composing and publishing a service</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the composition and the publish rules · MEDIUM for the faces</td><td class="num">7/7</td></tr>
 <tr><td class="id">058</td><td>The datastore&#x27;s schema is edited from the screen</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the rule and the refusals · HIGH for the dependency list — MEDIUM until…</td><td class="num">4/4</td></tr>
 <tr><td class="id">059</td><td>Quiescing a data source</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the refusal and the deadline · MEDIUM for the window&#x27;s length · LOW for the…</td><td class="num">4/5</td></tr>
 <tr><td class="id">060</td><td>The axis order comes from the authority&#x27;s register, carried as data</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the answer, which is the authority&#x27;s own · HIGH for the defect, measured on a…</td><td class="num">3/4</td></tr>
@@ -409,6 +408,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-287</td><td>The generated sprite sheet has no ceiling on its size.</td><td class="muted-t">A service whose sprite@2x.png is taller than 4,096 pixels, or a report of a map whose icons vanish on one machine and…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-296</td><td>A MapServer leaves its group layers out, while the FeatureServer beside it lists them, which is the reverse of ArcGIS.</td><td class="muted-t">The next MapServer work, or the first operator who groups layers and opens them in Pro.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">274 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -508,7 +508,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1359</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.2%"></div></div><div class="bar-n">886</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.4%"></div></div><div class="bar-n">753</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">754</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">290</div></div>
@@ -521,6 +521,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>2872743d</code><time>2026-10-14</time><span>ADR-127 condition 1 is run: ArcGIS Pro&#x27;s export never asks for TIFF, it asks for raw values</span></li>
 <li><code>b7644e92</code><time>2026-10-14</time><span>ADR-107 condition 3 and ADR-106 condition 2 are discharged; the layer export route writes domains</span></li>
 <li><code>89d78e50</code><time>2026-10-14</time><span>ADR-052 condition 1 is discharged: a renderer ArcGIS Pro wrote reads 100 as 255 and 50 as 128</span></li>
 <li><code>d830e70a</code><time>2026-10-14</time><span>ADR-065 condition 3 and ADR-087 condition 1 are discharged: an archive ArcGIS wrote</span></li>
@@ -534,7 +535,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>ccbed33f</code><time>2026-10-14</time><span>An ArcGIS SDK page on another origin can use this server as its portal; the session cookie never counts across origins (Q-169)</span></li>
 <li><code>46db4de3</code><time>2026-10-14</time><span>Open items of 2026-10-14: a mixed polygon layer exports as a File Geodatabase, the web map screens after their first-run review, and the showcase&#x27;s ground</span></li>
 <li><code>b83627e4</code><time>2026-10-14</time><span>An elevation surface is described wholly in Web Mercator: ArcGIS Pro draws Uludag</span></li>
-<li><code>3ce816ac</code><time>2026-10-14</time><span>An elevation surface&#x27;s pixel is in its extents&#x27; metres: Pro hung adding it</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
