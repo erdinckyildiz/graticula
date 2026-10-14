@@ -105,6 +105,16 @@ the binding constraint (A-037). Times overlap the baseline's.
    interpolates, `ConvexHull` returns 2D and reports it. *(Open — step 3. Still not fed one: a filter and
    every GeometryServer operation refuse a geometry that declares Z or M, and an edit's only operations —
    projection and repair — run in PostGIS, §10.)*
+   **DISCHARGED 2026-10-15 for the in-process operations, with what is left named.** `GeometryOperations` follows
+   §5 now. **Densify** keeps every vertex's Z and M and gives each vertex it adds the Z and M of its edge at the same
+   fraction (§5.2). **Generalize** keeps the Z and M of the vertices it keeps (§5.1). **A ring is closed** on its first
+   vertex with that vertex's Z and M. **ConvexHull** returns x and y only, as it always did, and now says which
+   ordinates of its input it left (`ConvexHull(geometries, out dropped)`, §5.3). A flat input gives the bytes it
+   gave before: `OperationsKeepZAndMTests` holds the rules and a flat line staying flat, and
+   `GeometryOperationsAgainstPostgisTests` still agrees with PostGIS 10 of 10. **Not done here, because nothing feeds
+   it yet:** passing `dropped` on to a client, and the overlay worker's buffer, union, intersection and difference,
+   which build new shapes and are §5.3's by construction. Both belong to the step that first lets a GeometryServer
+   operation take a geometry with Z.
 5. **A Z layer is edited from a real ArcGIS client and the elevation it sent is what the table holds.**
    *(Open — the writer is tested against PostGIS and the reader against JSON written by hand; what Pro and
    Field Maps actually send, `hasZ` on every geometry or `z` on a point without it, is the claim that matters.)*
