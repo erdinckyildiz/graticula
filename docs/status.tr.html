@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b83627e4</code> · 2026-10-14 09:42</p>
+<p class="stamp">Şu commit’ten üretildi: <code>46db4de3</code> · 2026-10-14 20:32</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">334/414</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 3 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">274 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4855</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 217,973 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4856</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 218,006 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-169</b> — May a page on another origin read this portal with credentials, as ArcGIS Online and Portal allow, if the session cookie never counts on such a request?</p><p><b>Q-168</b> — May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">3 açık</span></div><p><b>Q-168</b> — May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">92 madde</span></div><p><b>77 ADR conditions</b> outstanding across 57 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -277,7 +277,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">069</td><td>Query responses carry the layer&#x27;s cache lifetime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">070</td><td>A layer has a visible scale range, and publishing measures one from the data</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">071</td><td>A layer&#x27;s thumbnail is drawn once and kept until somebody redraws it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
-<tr><td class="id">072</td><td>Pages on other origins may read service responses, never with credentials</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
+<tr><td class="id">072</td><td>Pages on other origins may read service responses, never with credentials</td><td><span class="pill good">ACCEPTED</span><div class="muted-t">§5 amended 2026-10-14 by owner decision on Q-169: credentials are now allowed, and the session cookie never counts across origins (§5a)</div></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">073</td><td>A FeatureServer query answers in PBF, on the grid the caller names</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">074</td><td>Z and M are read, said out loud, and not served</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/3</td></tr>
 <tr><td class="id">075</td><td>A layer is edited by its owner, an administrator, and the group its owner shares it with</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
@@ -394,7 +394,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-165</span><span class="owner">[OWNER]</span></div><p>May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-167</span><span class="owner">[OWNER]</span></div><p>An elevation surface — four inferences, for the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-168</span><span class="owner">[OWNER]</span></div><p>May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-169</span><span class="owner">[OWNER]</span></div><p>May a page on another origin read this portal with credentials, as ArcGIS Online and Portal allow, if the session cookie never counts on such a request?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -514,7 +513,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1359</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.1%"></div></div><div class="bar-n">885</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.3%"></div></div><div class="bar-n">751</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.3%"></div></div><div class="bar-n">752</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">542</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">290</div></div>
@@ -527,6 +526,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>46db4de3</code><time>2026-10-14</time><span>Open items of 2026-10-14: a mixed polygon layer exports as a File Geodatabase, the web map screens after their first-run review, and the showcase&#x27;s ground</span></li>
 <li><code>b83627e4</code><time>2026-10-14</time><span>An elevation surface is described wholly in Web Mercator: ArcGIS Pro draws Uludag</span></li>
 <li><code>3ce816ac</code><time>2026-10-14</time><span>An elevation surface&#x27;s pixel is in its extents&#x27; metres: Pro hung adding it</span></li>
 <li><code>1cd2f478</code><time>2026-10-14</time><span>A referer-bound token with no Referer and no Origin is admitted: Pro&#x27;s sign-in</span></li>
@@ -540,7 +540,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>2041f4ff</code><time>2026-10-13</time><span>Every user document names the organisation: Pro asked for portals//categorySchema</span></li>
 <li><code>4d82b7f9</code><time>2026-10-13</time><span>A face turned off leaves the services directory and the portal, not only its door (D-291)</span></li>
 <li><code>26c81037</code><time>2026-10-13</time><span>WMS 1.3 passes OGC&#x27;s suite: 219 passed, 0 failed, from one dataset named for it and titled for WMS 1.1</span></li>
-<li><code>ccbf5eb7</code><time>2026-10-13</time><span>An elevation surface&#x27;s portal item says Elevation 3D Layer, as Terrain3D&#x27;s does</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

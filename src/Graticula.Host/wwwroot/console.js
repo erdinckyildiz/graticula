@@ -21770,7 +21770,7 @@ async function loadOperations() {
           ? "Every origin may read this server's services"
           : crossOrigin.on
             ? `Only ${crossOrigin.allows} may read this server's services`
-            : "No other origin may read this server's services"}, never with credentials. `
+            : "No other origin may read this server's services"}; this console's sign-in never counts across origins (Q-169). `
         + crossOrigin.note
       : "";
   }

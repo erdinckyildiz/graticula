@@ -20,13 +20,13 @@ namespace Graticula.Host;
 /// setting, and a web developer meets this on the first request.
 /// </para>
 /// <para>
-/// <b>Never with credentials.</b> The header is <c>*</c> or a named origin and
-/// <c>Access-Control-Allow-Credentials</c> is never sent, so a browser does not attach the console's
-/// session cookie to a cross-origin request and will not hand a page the response to one that did.
-/// The cookie is also <c>SameSite=Strict</c> and honoured on GET and HEAD only
-/// (<c>Authentication.CookieToken</c>). What a page on another origin can read is therefore what an
-/// anonymous caller can read, or what a token the page itself holds can read — which it could have
-/// asked for from its own server anyway.
+/// <b>With credentials since 2026-10-14, and the cookie never counts across origins (Q-169).</b> It was never with
+/// credentials — the header was <c>*</c> and <c>Access-Control-Allow-Credentials</c> was never sent — and the Maps SDK
+/// sends every request to its portal with credentials, which a browser refuses against <c>*</c>: an SDK page on another
+/// origin could not load this server's portal. Now the allowed origin is reflected with credentials, as ArcGIS Online
+/// answers, and <c>Authentication.CrossOrigin</c> makes a request whose <c>Origin</c> is not this server's read as if it
+/// carried no cookie. What a page on another origin can read is therefore still what an anonymous caller can read, or
+/// what a token the page itself holds can read — which it could have asked for from its own server anyway.
 /// </para>
 /// <para>
 /// <b>Not on the administrative surfaces.</b> <c>/admin</c> and the console answer nothing across
@@ -90,13 +90,13 @@ internal sealed class CrossOriginReads
         on = IsOn,
         allows = _any ? "every origin" : _origins.Count == 0 ? "no origin" : string.Join(", ", _origins.Order(StringComparer.OrdinalIgnoreCase)),
         anyOrigin = _any,
-        credentials = false,
+        credentials = true,
         exposes = Exposed,
         closed = Closed,
         setting = "Graticula:CorsOrigins",
         note = "A page on another origin reads what an anonymous caller reads, or what a token it "
-             + "holds reads: Access-Control-Allow-Credentials is never sent, so a browser does not "
-             + "attach this console's session cookie to a cross-origin request. The administrative "
+             + "holds reads: credentialed requests are allowed, as ArcGIS's own portal allows them, but this "
+             + "console's session cookie never counts on a request from another origin. The administrative "
              + "surfaces answer no origin at all. Set Graticula__CorsOrigins to 'none' or to a "
              + "comma-separated list of origins to narrow this — ADR-072.",
     };
@@ -195,11 +195,12 @@ internal sealed class CrossOriginReads
                 // cannot preflight never sends the request it wanted, which for the SDK is any
                 // request carrying an `Authorization` header.
                 IHeaderDictionary headers = context.Response.Headers;
-                headers.AccessControlAllowOrigin = allowed;
+                headers.AccessControlAllowOrigin = origin;
+                headers.AccessControlAllowCredentials = "true";
                 headers.AccessControlAllowMethods = "GET, POST, HEAD";
                 headers.AccessControlAllowHeaders = context.Request.Headers.AccessControlRequestHeaders;
                 headers.AccessControlMaxAge = "86400";
-                AddVary(context, allowed);
+                headers.Append("Vary", "Origin");
                 context.Response.StatusCode = StatusCodes.Status204NoContent;
                 return;
             }
@@ -209,25 +210,21 @@ internal sealed class CrossOriginReads
             // its user what went wrong.
             context.Response.OnStarting(() =>
             {
-                context.Response.Headers.AccessControlAllowOrigin = allowed;
+                // <b>The origin reflected, with credentials — Q-169, owner decision 2026-10-14.</b> The Maps SDK sends
+                // every request to the portal it is pointed at with credentials, whatever it is told, and a browser
+                // refuses `*` for such a request: an SDK page on another origin could not load this server's portal at
+                // all (WildcardOriginNotAllowed, measured). ArcGIS Online answers with the origin and credentials.
+                // It is safe here only because the session cookie never counts on a request from another origin
+                // (`Authentication.CrossOrigin`): what a page elsewhere reads, credentials or not, is what an anonymous
+                // caller or the page's own token reads.
+                context.Response.Headers.AccessControlAllowOrigin = origin;
+                context.Response.Headers.AccessControlAllowCredentials = "true";
                 context.Response.Headers.AccessControlExposeHeaders = Exposed;
-                AddVary(context, allowed);
+                context.Response.Headers.Append("Vary", "Origin");
                 return Task.CompletedTask;
             });
 
             await next(context).ConfigureAwait(false);
         });
-    }
-
-    /// <summary>
-    /// A named origin varies the response by <c>Origin</c>, so a shared cache does not hand one
-    /// origin's allowance to another.
-    /// </summary>
-    private static void AddVary(HttpContext context, string allowed)
-    {
-        if (allowed != "*")
-        {
-            context.Response.Headers.Append("Vary", "Origin");
-        }
     }
 }

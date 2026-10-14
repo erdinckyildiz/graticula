@@ -577,10 +577,45 @@ internal sealed class Authentication
         return CookieToken(context) is not null;
     }
 
+    /// <summary>Whether a request says it comes from a page on an origin other than this server's.</summary>
+    /// <param name="request">The request.</param>
+    /// <returns>True when it carries an <c>Origin</c> that is not this server's scheme, host and port.</returns>
+    internal static bool CrossOrigin(HttpRequest request)
+    {
+        string? origin = request.Headers.Origin;
+
+        if (string.IsNullOrEmpty(origin))
+        {
+            return false;
+        }
+
+        if (!Uri.TryCreate(origin, UriKind.Absolute, out Uri? from))
+        {
+            return true;
+        }
+
+        int own = request.Host.Port
+            ?? (string.Equals(request.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? 443 : 80);
+
+        return !string.Equals(from.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(from.Host, request.Host.Host, StringComparison.OrdinalIgnoreCase)
+            || from.Port != own;
+    }
+
     private static string? CookieToken(HttpContext context)
     {
         if (!HttpMethods.IsGet(context.Request.Method)
             && !HttpMethods.IsHead(context.Request.Method))
+        {
+            return null;
+        }
+
+        // <b>And never for another origin — Q-169, owner decision 2026-10-14.</b> Cross-origin reads are answered
+        // with credentials allowed, so that the Maps SDK, which always sends them to its portal, can use this one.
+        // This line is what makes that safe: a request whose `Origin` is not this server's own is read as if it
+        // carried no cookie, so a page elsewhere reads what an anonymous caller reads, or what its own token reads.
+        // `SameSite=Strict` keeps the cookie off cross-site requests already, but not off a sibling host's.
+        if (CrossOrigin(context.Request))
         {
             return null;
         }

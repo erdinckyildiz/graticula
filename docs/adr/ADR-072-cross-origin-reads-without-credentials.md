@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | `ACCEPTED` |
+| **Status** | `ACCEPTED` — **§5 amended 2026-10-14 by owner decision on [Q-169](../open-questions.md): credentials are now allowed, and the session cookie never counts across origins** (§5a) |
 | **Confidence** | `MEDIUM` |
 | **Decided** | 2026-09-15. The owner asked for the gaps an experienced ArcGIS user would see to be worked through (*"kalandan devam et"*), and this was on that list as *CORS yok*. **That cross-origin reads should work is the owner's, through that instruction. The default of every origin, the refusal of credentials and the closed administrative paths were `INFERRED`** and were confirmed by the owner the same day on [Q-151](../open-questions.md) |
 | **Supersedes** | — |
@@ -111,6 +111,29 @@ response headers — an administrator could not answer a question about their ow
 **One reader of the setting.** `CrossOriginReads.Of(HostSettings)` is where *unset means every
 origin* lives, and the pipeline and the audit both call it. A second copy of that default would be
 a console confidently reporting `none` for a server that allows everything.
+
+## 5a. Amended 2026-10-14 — credentials, and the cookie that never counts across origins
+
+**Owner decision on [Q-169](../open-questions.md)**, asked directly with the recommendation, answered *"Evet, önerdiğin
+gibi"*. Alternative C was refused above *outright*, for the console's session; what it did not consider is the Maps SDK,
+which sends every request to the portal it is pointed at with `credentials: include` whatever it is told
+(`esriConfig.request.useIdentity = false` changes nothing — measured). A browser refuses `Access-Control-Allow-Origin: *`
+for such a request, so **no SDK application hosted elsewhere could use this server as its portal**: the probe page
+against the showcase failed at `portals/self` with `WildcardOriginNotAllowed`, and the same page against ArcGIS Online,
+which answers with the origin reflected, `Access-Control-Allow-Credentials: true` and `Vary: Origin`, loaded and drew its
+basemap.
+
+**What changed.** An allowed origin is reflected with `Access-Control-Allow-Credentials: true` and `Vary: Origin`, on
+the preflight and on the answer. **And the session cookie never counts on a request whose `Origin` is not this
+server's own** (`Authentication.CrossOrigin`): such a request is read as if it carried no cookie. That second half is
+what keeps Alternative C's objection answered — a page elsewhere reads what an anonymous caller reads, or what a token
+the page itself holds reads, exactly as before; the cookie is `SameSite=Strict` too, which keeps it off cross-site
+requests but not off a sibling host's, and the origin check covers that. The administrative paths still answer no
+origin at all, and `Graticula:CorsOrigins` still narrows or turns it off.
+
+**Evidence.** `CrossOriginCookieConformanceTests` signs in with the cookie and asks `/rest/whoami` three times: no
+`Origin` and this server's own origin are signed in, another origin is anonymous while carrying the credentialed
+headers. `CrossOriginReadsTests` holds the headers.
 
 ## 6. Consequences
 
