@@ -151,7 +151,7 @@ None recorded.
 
 1. **An Esri-written archive whose classes share a domain lands it once** — measured on a real archive, the
    way ADR-065 §4 measured coded values and ranges; the path is the one the conformance test drives through
-   the admin surface, not yet through an import.
+   the admin surface, not yet through an import. **DISCHARGED 2026-10-14** — the same arcpy-written archive as ADR-065 condition 3: `Material` is used by `pipes` (subtype *Main*) and by `valves`. After the import and publish, `/admin/domains` holds one `Material`, used by `pipes.material` subtype 1 and `valves.material`. There is no `Material (2)`, and `ServiceMaterial` and `Diameter` are one each, with their uses (local fixture, 2026-10-14).
 2. **The showcase is migrated** — 55 is a contract, so the showcase's backup-and-copy rehearsal before it is
    the evidence that the conversion is right on real data. **PARTLY DISCHARGED 2026-09-24**: v1.0.164 migrated a
    copy and then the showcase to 55 without error, and it serves. But the showcase had no layer with a domain, so

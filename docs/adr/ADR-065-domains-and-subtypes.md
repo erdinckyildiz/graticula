@@ -227,7 +227,7 @@ column out), ADR-058 (the drop guard), ADR-038 (the geodatabase import).
 3. **An Esri-written archive's subtypes are carried.** The coded values and ranges of an Esri-written
    archive are measured (§4); its subtypes are not, because no archive with subtypes was available to
    read, and the parser follows the published schema's element names rather than a document seen.
-   Discharged by importing one and finding its subtypes on the served layer.
+   Discharged by importing one and finding its subtypes on the served layer. **DISCHARGED 2026-10-14** — an archive written by ArcGIS Pro 3.7's own arcpy (`tools/arcpy-probe/esri-written-gdb.py`; not committed, Q-138): `pipes` with the subtype field `kind`, 1 *Main* and 2 *Service*, `material` taking `Material` on Main and `ServiceMaterial` on Service, `diameter` the range `Diameter` on both. Imported through `/admin/hosted/import` and published, the served layer says `typeIdField` and `subtypeField` `kind`, and `types` 1 *Main* with `Material` CI/DI/PE and 2 *Service* with `ServiceMaterial` PE/CU, each with `Diameter` 50–2000 and one template; the publish job reports `subtypes: kind` (local fixture, `tools/arcpy-probe/import-and-read.py`). The element names the parser follows are the ones Esri writes.
 4. **The Fields page sets them.** An operator can give a column a list or a range and a layer its
    subtypes, starting values and per-subtype values from the screen, through the design review every
    screen here goes through, with the first-run state tested. **DISCHARGED 2026-09-12.** The design
