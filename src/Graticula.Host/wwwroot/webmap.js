@@ -108,6 +108,9 @@ const wmState = {
 /** What the page knows about each operational layer, keyed by the layer's own JSON object. */
 const wmRuntime = new WeakMap();
 
+/** How many times an action has put its own sentence in the header — see wmOpen. */
+let wmSpoken = 0;
+
 function wmSay(text, bad = false) {
   const line = wm$("status");
   line.textContent = text;
@@ -3236,6 +3239,7 @@ async function wmOpen(doc) {
   wmDrawBookmarks();
   wmTime.span = null;
   wmDrawLayerList();
+  const spoken = wmSpoken;
   await Promise.all(wmLayers().map(wmLoadLayer));
   wmApplyAll();
   wmDrawLayerList();
@@ -3247,12 +3251,16 @@ async function wmOpen(doc) {
     if (boxes.length) wmFit(boxes.reduce((all, box) => ol.extent.extend(all, box), ol.extent.createEmpty()));
   }
 
-  wmSaySummary();
+  // <b>Not over what an action said meanwhile — 2026-10-15.</b> The list is drawn before the layers load, so a layer
+  // can be removed while they do; its "was removed." line was then replaced by this summary when the loads finished.
+  // CI's console run caught it once in two. The action's own line already describes the map as it now is.
+  if (wmSpoken === spoken) wmSaySummary();
   wmCheckSharing();
 }
 
 /** The header's line about the map as it now is, so it is never left describing an earlier state. */
 function wmSaySummary(lead = "") {
+  if (lead) wmSpoken++;
   const layers = wmLayers();
   const unavailable = layers.filter(l => (wmRuntime.get(l) || {}).status === "unavailable").length;
   wmSay((lead ? `${lead} ` : "") + (layers.length === 0

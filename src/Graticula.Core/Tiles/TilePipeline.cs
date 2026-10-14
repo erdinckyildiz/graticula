@@ -55,6 +55,9 @@ public static class TilePipeline
     /// <b>3 on 2026-09-29, ADR-085 §5.1 amended</b>: a line is no longer left out for being smaller than a
     /// pixel, because a boundary stored as short pieces drew dashed at low zoom, so a low-zoom tile of a line
     /// layer holds pieces a version-2 tile left out.
+    /// <b>4 on 2026-10-15, D-297</b>: a registered table's <c>numeric</c> column is written into a tile as a double,
+    /// where a version-3 tile held its text, and a style classifying on it drew nothing. Raising this is what makes
+    /// those cached tiles unreachable rather than leaving them to expire.
     /// </remarks>
-    public const int Version = 3;
+    public const int Version = 4;
 }
