@@ -1,0 +1,39 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>ground probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body,#v{margin:0;height:100%;width:100%}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div>
+<script>
+// ADR-086 condition 2: the Maps SDK, with the portal set to this server, opens a new map on the portal's default
+// basemap and draws it. ?portal=<url> picks the portal; the control run is ArcGIS Online.
+var portalUrl = new URLSearchParams(location.search).get("portal");
+window.__log = [];
+require(["esri/config", "esri/portal/Portal", "esri/Map", "esri/views/MapView"], function (esriConfig, Portal, Map, MapView) {
+  esriConfig.portalUrl = portalUrl;
+  var portal = new Portal({ url: portalUrl });
+  portal.load().then(function () {
+    var basemap = portal.useVectorBasemaps && portal.defaultVectorBasemap ? portal.defaultVectorBasemap : portal.defaultBasemap;
+    var map = new Map({ basemap: basemap });
+    var view = new MapView({ container: "v", map: map, center: [35, 39], zoom: 6 });
+    view.when(function () {
+      return basemap.load();
+    }).then(function () {
+      var layers = basemap.baseLayers.toArray();
+      return Promise.all(layers.map(function (l) {
+        return l.load().then(function () { return view.whenLayerView(l); })
+          .then(function (lv) { return { url: l.url || l.styleUrl || null, type: l.type, status: l.loadStatus, view: true }; },
+                function (e) { return { url: l.url || null, type: l.type, status: l.loadStatus, error: String(e && e.message || e) }; });
+      }));
+    }).then(function (rows) {
+      // Go where the ground is, so its tiles are asked for and drawn (ADR-086 condition 2).
+      var first = basemap.baseLayers.getItemAt(0);
+      return view.goTo(first.fullExtent).then(function () { return rows; });
+    }).then(function (rows) {
+      setTimeout(function () {
+        window.__result = JSON.stringify({ title: basemap.title, layers: rows, updating: view.updating, zoom: view.zoom, center: [view.center.longitude, view.center.latitude] });
+      }, 6000);
+    }).catch(function (e) { window.__result = JSON.stringify({ error: String(e && e.message || e) }); });
+  }, function (e) { window.__result = JSON.stringify({ error: "portal: " + String(e && e.message || e) }); });
+});
+</script></body></html>

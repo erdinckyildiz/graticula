@@ -182,7 +182,9 @@ services directory), ADR-034 (Server and Studio).
 ## 9. Conditions
 
 1. **A map saved here is opened by the Maps SDK and by Pro** against a running server, and one saved by Pro
-   is opened here — both directions, recorded in §4.
+   is opened here — both directions, recorded in §4. *(2026-10-14, the Maps SDK's half of the first direction: a map saved here opens in
+   the SDK as a portal item, its styled layer drawn in its own style and its pop-up as saved — ADR-104 condition 3 and
+   ADR-110 condition 2 record the measurement. Pro opening it, and a map saved by Pro opened here, are still owed.)*
 2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services). *(2026-10-14: the review was
    run on both states — a server with no service and no map, and the fixture — and it did not pass: no blocker, six
    major and nine minor findings. **Repaired the same day:** My content's first run said *everything here belongs to

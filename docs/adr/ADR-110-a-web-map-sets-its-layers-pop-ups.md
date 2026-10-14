@@ -81,4 +81,4 @@ under their labels — and every attribute as before where it has none. A layer 
 
 1. **The panel stores the pop-up and a click draws from it** — **DISCHARGED 2026-10-01**,
    `WebMapViewerTests.A_layers_pop_up_is_set_in_the_map_and_drawn_from_it`.
-2. **An ArcGIS client opens a map saved here and shows the same pop-up** — not yet.
+2. **An ArcGIS client opens a map saved here and shows the same pop-up** — ~~not yet.~~ **DISCHARGED 2026-10-14.** The Maps SDK for JavaScript 4.30, in headless Brave, from a page on another origin with the portal set to the server (`tools/sdk-probe/webmap.html`), opened a web map saved here as a portal item — `new WebMap({ portalItem })` — on the local fixture, built from the branch that carries [Q-169](../open-questions.md), since before Q-169 the SDK could not load this portal from another origin at all. The pop-up saved as *Parcel {parcel}* with *Parcel number* and *Area (m²)* shown and `globalid` hidden came back as that template, and opened on a feature it read *Parcel P-1000* over those two labels and their values, with `globalid` absent ([sdk-opens-a-saved-map-2026-10-14.png](../reviews/sdk-opens-a-saved-map-2026-10-14.png)).

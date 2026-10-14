@@ -143,7 +143,7 @@ None recorded.
    page on another origin with `esriConfig.portalUrl` set to the server: `new Portal().load()`, then a new `Map` on
    `portal.defaultBasemap`, then a `MapView` gone to the ground's extent. The basemap came back titled *Ground*, both
    ground services loaded as `VectorTileLayer`s with their layer views, ten tile requests answered 200 or 204, and the
-   screenshot shows the two layers drawn in their own styles. **It could not be done before
+   screenshot shows the two layers drawn in their own styles ([sdk-draws-the-ground-2026-10-14.png](../reviews/sdk-draws-the-ground-2026-10-14.png); `tools/sdk-probe/ground.html`). **It could not be done before
    [Q-169](../open-questions.md)**: against the showcase the same page failed at `portals/self` with
    `WildcardOriginNotAllowed`, because the SDK asks its portal with credentials. It was run on the local fixture,
    built from the branch that carries Q-169, with the ground set to `hosted/ci_parcels` and `hosted/ci_buildings` and

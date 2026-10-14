@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>web map probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body,#v{margin:0;height:100%;width:100%}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div>
+<script>
+// ADR-104 condition 3 and ADR-110 condition 2: the Maps SDK opens a web map saved on this server, as a portal item,
+// and draws its layer with the map's own style and shows the map's own pop-up. ?portal=<url>&id=<item id>.
+var q = new URLSearchParams(location.search);
+var portalUrl = q.get("portal"), id = q.get("id");
+require(["esri/config", "esri/WebMap", "esri/views/MapView"], function (esriConfig, WebMap, MapView) {
+  esriConfig.portalUrl = portalUrl;
+  var map = new WebMap({ portalItem: { id: id, portal: { url: portalUrl } } });
+  var view = new MapView({ container: "v", map: map });
+  var out = {};
+  map.load().then(function () {
+    out.title = map.portalItem && map.portalItem.title;
+    var layer = map.layers.getItemAt(0);
+    return layer.load().then(function () { return layer; });
+  }).then(function (layer) {
+    var symbol = layer.renderer && layer.renderer.symbol;
+    out.layer = layer.title;
+    out.renderer = layer.renderer && layer.renderer.type;
+    out.fill = symbol && symbol.color && symbol.color.toRgba();
+    out.outline = symbol && symbol.outline && [symbol.outline.color.toRgba(), symbol.outline.width];
+    var pt = layer.popupTemplate;
+    out.popupTitle = pt && pt.title;
+    out.popupFields = pt && pt.fieldInfos && pt.fieldInfos.map(function (f) { return [f.fieldName, f.label, f.visible]; });
+    return view.goTo(layer.fullExtent).then(function () {
+      return layer.queryFeatures({ where: "1=1", outFields: ["*"], returnGeometry: true, num: 1 });
+    }).then(function (result) {
+      var feature = result.features[0];
+      feature.layer = layer;
+      feature.popupTemplate = layer.popupTemplate;
+      return view.openPopup({ features: [feature], location: feature.geometry.centroid || feature.geometry.extent.center });
+    });
+  }).then(function () {
+    setTimeout(function () {
+      var heading = document.querySelector(".esri-features__heading, .esri-popup__header-title, h2");
+      out.popupShown = heading ? heading.textContent.trim() : null;
+      var cells = Array.prototype.slice.call(document.querySelectorAll(".esri-feature-fields__field-header"));
+      out.popupLabels = cells.map(function (c) { return c.textContent.trim(); });
+      window.__result = JSON.stringify(out);
+    }, 6000);
+  }).catch(function (e) { out.error = String(e && e.message || e); window.__result = JSON.stringify(out); });
+});
+</script></body></html>
