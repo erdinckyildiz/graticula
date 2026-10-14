@@ -107,7 +107,7 @@ ordinary rows in the session store.
 
 ## Conditions
 
-1. ArcGIS Pro, added to `/wfs` with a name and password, reads a private layer.
+1. ArcGIS Pro, added to `/wfs` with a name and password, reads a private layer. *(2026-10-14: tried through arcpy and it cannot be done that way. Pro 3.7's *WFS To Feature Class*, given `http://user:password@…/wfs`, sends no `Authorization` header (read through a recording relay), reads the anonymous capabilities, which leave the private type out, and stops with ERROR 000228. arcpy has no tool that makes a WFS connection with stored credentials. So this needs Pro's own *Add WFS Server* dialog with a user name, which is a person at the screen. Two things this server can see from here: anonymous GetCapabilities answers 200 rather than challenging, so a client that sends Basic only after a 401 would never send it; and Pro asks `/wfs/rest/info?f=json` first, which is a harmless 404.)*
 
 ## 9. Revisit triggers
 
