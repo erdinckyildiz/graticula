@@ -45,8 +45,16 @@
   /* A signed-out reader of a shared map: nothing that changes the map (2026-09-30). */
   body.reader #addLayer, body.reader #addBox, body.reader .lfilter,
   body.reader [data-act="remove"], body.reader [data-act="up"], body.reader [data-act="down"] { display: none; }
+  /* And nothing of the editor's (ADR-079 condition 2's review, 2026-10-14): Style, Pop-up and Labels opened panels whose
+     Apply a reader cannot keep, "Saved" said something a reader cannot do, and the Map tab was a form with Save
+     greyed out — read as broken rather than as not theirs. The tab reads as About instead. */
+  body.reader [data-act="style"], body.reader [data-act="popup"], body.reader [data-act="labels"],
+  body.reader .lstyle, body.reader #saved,
+  body.reader #mapForm > :not(#mapReadOnly):not(#mapOwner):not(#mapStatus) { display: none; }
+  #mapReadOnly h3 { margin: 0 0 6px; font-size: 16px; }
   #headSave[aria-disabled="true"] { opacity: .45; cursor: default; }
   #headSave[aria-disabled="true"]:hover { filter: none; }
+  #frameAll[aria-disabled="true"] { opacity: .45; cursor: default; }
   a { color: var(--accent); }
   #status { font-size: 12.5px; color: var(--muted); flex: 1 1 0; min-width: 0; overflow: hidden;
             text-overflow: ellipsis; white-space: nowrap; }
@@ -134,6 +142,9 @@
   .lhead { display: flex; align-items: flex-start; gap: 7px; }
   .lhead label { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: pointer; }
   .lkind { font-size: 11px; color: var(--faint); white-space: nowrap; }
+  /* A hint written as a paragraph wraps; nowrap is for the short labels beside a control (ADR-079's review: the pop-up
+     panel's "…starts with http:// or https://" was cut at the panel's edge). */
+  p.lkind { white-space: normal; }
   .lstate { font-size: 12px; color: var(--muted); margin: 3px 0 0 22px; }
   .lstate.bad { color: var(--alert); }
   .lstate.warn { color: var(--warn); }
@@ -211,6 +222,8 @@
   #tablePanel { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; z-index: 35; display: flex;
     flex-direction: column; background: var(--surface); border-top: 1px solid var(--rule); }
   #tablePanel[hidden] { display: none; }
+  /* `#tabs` has its own display, so `hidden` alone left the strip under a not-found page (ADR-079's review). */
+  #tabs[hidden] { display: none; }
   #tablePanel .tablehead { display: flex; align-items: center; gap: 8px; padding: 6px 10px; flex-wrap: wrap;
     border-bottom: 1px solid var(--rule); }
   #tablePanel .tablehead h2 { font-size: 14px; margin: 0; }
@@ -284,6 +297,7 @@
   @media (max-width: 760px) {
     #identify .editform input, #identify .editform select, #identify .editform textarea,
     #identify .editform button, #identify .featacts button, #sketchBar button { min-height: 44px; }
+    #mapSave, #mapSaveAs, #mapDelete, #addLayer, #frameAll, #mapCopyLink { min-height: 44px; }
   }
   .lrange { border: 0; padding: 0; margin: 6px 0 0; }
   .lrange legend { padding: 0; }
@@ -439,6 +453,8 @@
 
       <section class="tabpanel" id="pane-map" role="tabpanel" aria-labelledby="tab-map" hidden>
         <form id="mapForm">
+          <!-- What a signed-out reader is shown in place of the form: the map's title and summary, as text. -->
+          <div id="mapReadOnly" hidden></div>
           <label class="field" for="mapTitle" style="margin-top:0">Title</label>
           <input type="text" id="mapTitle" maxlength="250" required>
           <label class="field" for="mapSnippet">Summary</label>

@@ -1216,9 +1216,13 @@ function wmDrawLayerList() {
   const list = wm$("layerList");
   const layers = wmLayers();
 
+  // Nothing to zoom to on an empty map (ADR-079's review); aria-disabled, so the button keeps its place in the tab order.
+  wm$("frameAll")?.setAttribute("aria-disabled", String(layers.length === 0));
+
   if (layers.length === 0) {
-    wmRedraw(list, `<li class="hint" style="border:0;padding:0">This map has no layers yet.
-      <b>Add layer</b> lists the services you can read.</li>`);
+    // Said once: while Add layer is open its own line says what there is to add.
+    wmRedraw(list, wm$("addBox").hidden ? `<li class="hint" style="border:0;padding:0">This map has no layers yet.
+      <b>Add layer</b> lists the services you can read.</li>` : "");
     return;
   }
 
@@ -1604,7 +1608,7 @@ function wmApplyPopup(layer, reset = false) {
 
   const said = reset
     ? `${layer.title} shows every field again. Save the map to keep it.`
-    : `${layer.title}'s pop-up is set in this map. Save the map to keep it.`;
+    : `The pop-up of ${layer.title} is set in this map. Save the map to keep it.`;
   if (run) run.popupSaid = said;
   wmMarkDirty();
   wmDrawLayerList();
@@ -1753,7 +1757,7 @@ async function wmSaveStyleAsDefault(layer) {
   } catch (e) {
     run.styleError = `Not saved as the default: ${e.message || e}`;
     wmDrawLayerList();
-    wmSayIn("layersStatus", `${name}'s default style was not changed.`, true);
+    wmSayIn("layersStatus", `The default style of ${name} was not changed.`, true);
     return;
   }
 
@@ -1765,7 +1769,7 @@ async function wmSaveStyleAsDefault(layer) {
   wmRestyle(layer);
   wmMarkDirty();
   wmDrawLayerList();
-  wmSayIn("layersStatus", `${name}'s default style is now this one.`);
+  wmSayIn("layersStatus", `The default style of ${name} is now this one.`);
 }
 
 function wmLayerById(id) {
@@ -2046,7 +2050,9 @@ wm$("layerList").addEventListener("click", event => {
       if (wmTable.layer === layer) wmCloseTable();
       wmDrawTime();
       wmDrawLayerList();
-      wmSayIn("layersStatus", `${layer.title} was removed from the map.`);
+      // Said in the header, with what is left: it went on counting the removed layers (ADR-079's review, 2026-10-14),
+      // and saying it in the list's own line as well announced it twice.
+      wmSaySummary(`${layer.title} was removed.`);
       // Focus the neighbour the reader was next to, or the Add button when nothing is left.
       const next = layers[Math.min(at, layers.length - 1)];
       const target = next ? wm$(`vis-${next.id}`) : wm$("addLayer");
@@ -2058,6 +2064,7 @@ wm$("layerList").addEventListener("click", event => {
 });
 
 wm$("frameAll").addEventListener("click", () => {
+  if (wm$("frameAll").getAttribute("aria-disabled") === "true") return;
   const boxes = wmLayers().map(wmExtentOf).filter(Boolean);
   if (!boxes.length) {
     wmSayIn("layersStatus", "No layer on this map says where it is.");
@@ -2150,10 +2157,20 @@ function wmDrawAddList() {
   const needle = wm$("addFilter").value.trim().toLowerCase();
   const shown = needle ? names.filter(n => n.toLowerCase().includes(needle)) : names;
 
-  if (names.length === 0) {
+  // <b>Nothing to filter, and the way out is a link</b> (ADR-079 condition 2's review, 2026-10-14): a first run put the
+  // keyboard in a filter with nothing under it and named *My content* without a way to reach it.
+  const none = names.length === 0;
+  wm$("addFilter").hidden = none;
+
+  if (none) {
     wmRedraw(list, "");
-    wmSayIn("addStatus", "There are no services you can read yet. Publish one from Studio's "
-      + "My content, or ask for one to be shared with you.");
+    const said = wm$("addStatus");
+    said.classList.remove("bad");
+    said.innerHTML = `There are no services you can read yet. Publish one from
+      <a href="/studio/#/content">My content</a> in Studio, or ask for one to be shared with you; then press
+      <b>Add layer</b> again.`;
+    said.tabIndex = -1;
+    if (document.activeElement === wm$("addFilter") || document.activeElement === document.body) said.focus();
     return;
   }
 
@@ -2190,6 +2207,7 @@ wm$("addLayer").addEventListener("click", async () => {
   const open = box.hidden;
   box.hidden = !open;
   wm$("addLayer").setAttribute("aria-expanded", String(open));
+  if (wmLayers().length === 0) wmDrawLayerList();
 
   if (!open) return;
 
@@ -2833,6 +2851,14 @@ function wmDrawMapForm() {
 
   wm$("mapTitle").value = meta.title || "";
   wm$("mapSnippet").value = meta.snippet || "";
+
+  // A signed-out reader reads the map's title and summary rather than a form they cannot save (ADR-079's review).
+  const reading = document.body.classList.contains("reader");
+  wm$("mapReadOnly").hidden = !reading;
+  wm$("mapReadOnly").innerHTML = reading
+    ? `<h3>${wmEscape(meta.title || "Untitled map")}</h3>${meta.snippet ? `<p>${wmEscape(meta.snippet)}</p>` : ""}`
+    : "";
+  wm$("tab-map").textContent = reading ? "About" : "Map";
   wm$("mapSharing").value = meta.sharing || "private";
   const groundOption = wm$("mapBasemap").querySelector('option[value="ground"]');
   if (groundOption) {
@@ -3097,18 +3123,28 @@ async function wmSave(asNew, invoker = null) {
     const done = (creating ? `Saved as “${saved.title}”${asNew ? ", private" : ""}.` : "Saved.")
       + (picture === "taken" ? " Its picture is the view you saved."
         : picture === "empty" ? " The view was empty, so it has no new picture." : " Its picture could not be taken.");
-    wmSayIn("mapStatus", done);
-    wmSay(done);
+    wmSaySaving(done);
   } catch (e) {
     wmDrawMapForm();
-    wmSayIn("mapStatus", `Not saved: ${e.message}`, true);
-    wmSay(`Not saved: ${e.message}`, true);
+    wmSaySaving(`Not saved: ${e.message}`, true);
   } finally {
     wmSaving = false;
     for (const b of buttons) b.removeAttribute("aria-busy");
     const lost = !document.activeElement || document.activeElement === document.body;
     if (invoker && lost && !invoker.hidden && !invoker.disabled) invoker.focus();
   }
+}
+
+/**
+ * Says how a save went in one live region: the Map tab's own line while it is open, the header otherwise. Both were
+ * written, and a screen reader read the sentence twice (ADR-079 condition 2's review, 2026-10-14). The other is cleared
+ * so it does not go on describing an earlier save.
+ */
+function wmSaySaving(text, bad = false) {
+  const onTab = !wm$("pane-map").hidden;
+  wmSayIn("mapStatus", onTab ? text : "", bad);
+  if (onTab) wm$("status").textContent = "";
+  else wmSay(text, bad);
 }
 
 /** Takes the server's answer about a saved map as the page's own. */
@@ -3200,13 +3236,13 @@ async function wmOpen(doc) {
 }
 
 /** The header's line about the map as it now is, so it is never left describing an earlier state. */
-function wmSaySummary() {
+function wmSaySummary(lead = "") {
   const layers = wmLayers();
   const unavailable = layers.filter(l => (wmRuntime.get(l) || {}).status === "unavailable").length;
-  wmSay(layers.length === 0
+  wmSay((lead ? `${lead} ` : "") + (layers.length === 0
     ? "This map has no layers yet."
     : `${layers.length} layer${layers.length === 1 ? "" : "s"}`
-      + (unavailable ? `, ${unavailable} not available to you.` : "."));
+      + (unavailable ? `, ${unavailable} not available to you.` : ".")));
 }
 
 async function wmStart() {
@@ -3234,6 +3270,8 @@ async function wmStart() {
   // a *My content* link that led to a sign-in. Moving the view and switching layers stay: those are
   // reading. The Studio link becomes the way to sign in.
   document.body.classList.toggle("reader", !wmMe.authenticated);
+  // The tab is named for what a reader finds in it before they open it (ADR-079 condition 2's review).
+  wm$("tab-map").textContent = wmMe.authenticated ? "Map" : "About";
   if (!wmMe.authenticated && wm$("studio")) wm$("studio").textContent = "Sign in";
 
   const id = WM_QUERY.get("id");

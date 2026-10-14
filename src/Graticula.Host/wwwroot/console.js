@@ -3917,8 +3917,16 @@ function drawMyContent() {
   };
 
   usageSince = answer.usageSince || usageSince;
+
+  // Nothing to order, filter or select on a list with nothing in it.
+  for (const id of ["contentSort", "contentIdle", "contentPickAll"]) {
+    const control = $(id);
+    const holder = control?.closest("label") || control;
+    if (holder) holder.hidden = total === 0;
+  }
+
   $("contentNote").innerHTML = (SCOPE_NOTES[contentScope]
-    ?? (contentScope === "all" && total === 0 ? h(answer.note || "Nothing to see yet.") : ""))
+    ?? (contentScope === "all" && total === 0 ? (answer.note ? h(answer.note) : "") : ""))
     // ADR-135: what the order and the filter mean, said once when chosen.
     + (contentSort === "leastUsed" ? ` <span class="hint">Least used first. Maps count no requests and are listed last.</span>` : "")
     + (contentIdle ? ` <span class="hint">${usageCountsAMonth()
@@ -3930,9 +3938,14 @@ function drawMyContent() {
   // <b>*New item*, which is what the button says.</b> It said *New layer* until 2026-08-19, when
   // ADR-034 §5j renamed the page action — so the one instruction this screen gave named a control that
   // is not on it. D-83's exact shape: the page's own instruction unfollowable.
+  //
+  // <b>A first run names both ways in, as buttons</b> (ADR-079 condition 2's review, 2026-10-14): it named only
+  // *New item*, as text, and the server's note above it said everything here belonged to somebody else.
   $("contentRows").innerHTML = total === 0
-    ? `<tr><td colspan="6" class="empty">${h(answer.note || "Nothing here yet.")}
-         <b>New item</b> publishes one.</td></tr>`
+    ? `<tr><td colspan="6" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
+         <button type="button" class="linkbtn" data-empty-new="newLayer">New item</button> publishes a layer from a
+         file or a database; <button type="button" class="linkbtn" data-empty-new="newMap">New map</button> starts a
+         map from the layers you can read.</td></tr>`
     : inScope.length === 0 && contentFolderPick
       ? `<tr><td colspan="6" class="empty">${contentFolderPick === "root"
           ? "Everything of yours is in a folder."
@@ -4513,6 +4526,15 @@ async function showWebMapItem(id) {
     </div>
     ${map.manages ? `<label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
       Protect from deletion</label>` : ""}
+    <h4>Link</h4>
+    <div class="row"><input type="text" id="mapLink" readonly value="${h(location.origin + open)}"
+      aria-label="The map's address" aria-describedby="mapLinkSays">
+      <button type="button" id="mapCopyLink">Copy link</button></div>
+    <p class="hint" id="mapLinkSays">${map.sharing === "private"
+      ? "Only you can open it until you share it."
+      : map.sharing === "public"
+        ? "Anyone with this link can open the map, signed in or not."
+        : "Whoever it is shared with opens it with this link."}</p>
     <h4>Details</h4>
     <dl class="facts2">
       <dt>Type</dt><dd>Web map</dd>
@@ -4819,6 +4841,12 @@ function mapRow(i) {
 document.addEventListener("click", async event => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+
+  // The empty list's own buttons press the page's (ADR-079 condition 2's review).
+  if (target.closest("[data-empty-new]")) {
+    $(target.closest("[data-empty-new]").dataset.emptyNew)?.click();
+    return;
+  }
 
   if (target.closest("#newMap")) {
     location.href = "/studio/webmap.html";
@@ -25210,6 +25238,17 @@ async function handleClick(event) {
 
   if (t.id === "idpSave") {
     await saveIdp();
+    return;
+  }
+
+  // A saved map's address, to give somebody (ADR-079 condition 2's review: Share made a map public and nothing
+  // said where it was).
+  if (t.id === "mapCopyLink") {
+    const field = $("mapLink");
+    if (!field) return;
+    field.select();
+    try { await navigator.clipboard.writeText(field.value); toast("The map's link is on the clipboard.", true); copiedHere(t); }
+    catch { toast("This browser would not let the page write to the clipboard. The link is selected — copy it with the keyboard."); }
     return;
   }
 

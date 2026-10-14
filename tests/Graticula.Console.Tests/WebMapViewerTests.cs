@@ -1125,6 +1125,154 @@ public sealed class WebMapViewerTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>Saves a map through the API, with one layer or none, and answers its id.</summary>
+    private async Task<string> SaveMapAsync(string token, string title, string sharing, bool withLayer)
+    {
+        object[] layers = withLayer
+            ? [new { id = "one", layerType = "ArcGISFeatureLayer", url = await AnyFeatureLayerUrlAsync(token), title = "One", visibility = true, opacity = 1 }]
+            : [];
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", JsonSerializer.Serialize(new
+        {
+            title,
+            sharing,
+            document = new { operationalLayers = layers, baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" }, version = "2.31" },
+        }));
+
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+        return JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+    }
+
+    /// <summary>
+    /// Removing the last layer says so in the header, with what is left, and Zoom to all has nothing to zoom to.
+    /// </summary>
+    /// <remarks>
+    /// ADR-079 condition 2's review (2026-10-14): after both layers were removed the header still said <i>2 layers.</i>
+    /// while the list said the map had none — the page's own summary line contradicting the map.
+    /// </remarks>
+    [Fact]
+    public async Task Removing_the_last_layer_leaves_a_header_that_says_so()
+    {
+        (string token, string cookie) = await SignInAsync();
+        string id = await SaveMapAsync(token, "zz header after remove", "private", withLayer: true);
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}", token, cookie);
+            await WaitForAsync("!!document.querySelector('#layerList button[data-act=remove][data-layer=one]')",
+                "The map's layer offers no Remove.");
+            Assert.Equal("false", await Browser.EvaluateAsync<string>("document.getElementById('frameAll').getAttribute('aria-disabled')"));
+
+            await ClickAsync("#layerList button[data-act=remove][data-layer=one]");
+
+            await WaitForAsync("/was removed\\. This map has no layers yet\\./.test(document.getElementById('status').textContent)",
+                "The header did not say the layer was removed and that the map now has none.");
+            Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('frameAll').getAttribute('aria-disabled')"));
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
+    /// <summary>
+    /// A signed-out reader of a public map is shown the map and what it is, not the editor's controls.
+    /// </summary>
+    /// <remarks>
+    /// ADR-079 condition 2's review: Style, Pop-up and Labels opened panels a reader cannot keep, <i>Saved</i> said
+    /// something a reader cannot do, and the Map tab was a form whose Save was greyed out.
+    /// </remarks>
+    [Fact]
+    public async Task A_signed_out_reader_reads_the_map_rather_than_an_editor_they_cannot_use()
+    {
+        (string token, _) = await SignInAsync();
+        string id = await SaveMapAsync(token, "zz reader about", "public", withLayer: true);
+
+        try
+        {
+            await OpenAsync($"/studio/webmap.html?id={id}");
+            await WaitForAsync("document.body.classList.contains('reader') && !!document.querySelector('#layerList li[data-layer=one]')",
+                "The public map did not open for a signed-out reader.");
+
+            foreach (string selector in new[]
+                     {
+                         "#layerList [data-act=style]", "#layerList [data-act=popup]", "#layerList [data-act=labels]",
+                         "#mapTitle", "#mapSave",
+                     })
+            {
+                Assert.False(await Browser.EvaluateAsync<bool>(Shown(selector)), $"A signed-out reader is shown {selector}.");
+            }
+
+            Assert.Equal("About", (await Browser.EvaluateAsync<string>("document.getElementById('tab-map').textContent") ?? "").Trim());
+            await ClickAsync("#tab-map");
+            await WaitForAsync(Shown("#mapReadOnly"), "The About tab shows the reader nothing about the map.");
+            Assert.Contains("zz reader about", await Browser.EvaluateAsync<string>("document.getElementById('mapReadOnly').textContent") ?? "",
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
+    /// <summary>A map that is not there hides the tab strip, as its own code says it should.</summary>
+    /// <remarks>ADR-079's review: <c>#tabs</c> has its own <c>display</c>, so <c>hidden</c> alone left it standing under
+    /// the not-found page.</remarks>
+    [Fact]
+    public async Task A_map_that_is_not_there_shows_no_tabs()
+    {
+        await OpenAsync($"/studio/webmap.html?id={Guid.NewGuid():N}");
+        await WaitForAsync("document.getElementById('tabs').hidden", "A map that is not there did not hide its tabs.");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#tabs")), "The tab strip is hidden and still drawn.");
+    }
+
+    /// <summary>A saved map's item page gives its link and a way to copy it.</summary>
+    /// <remarks>ADR-079's review: Share could make a map public and nothing on the page said where it was.</remarks>
+    [Fact]
+    public async Task A_saved_maps_item_page_gives_its_link()
+    {
+        (string token, _) = await SignInAsync();
+        string id = await SaveMapAsync(token, "zz map link", "public", withLayer: false);
+
+        try
+        {
+            await OpenAsync($"/studio/#/map/{id}", token);
+            await WaitForAsync(Shown("#mapLink") + " && " + Shown("#mapCopyLink"), "The map's item page gives no link to copy.");
+            Assert.EndsWith($"/studio/webmap.html?id={id}", await Browser.EvaluateAsync<string>("document.getElementById('mapLink').value") ?? "",
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
+    }
+
+    /// <summary>
+    /// With no service to add, Add layer offers no filter, says where to publish one with a link, and keeps the focus
+    /// on that sentence.
+    /// </summary>
+    /// <remarks>
+    /// ADR-079's review, on a first-run server: the keyboard landed in a filter with nothing to filter, and <i>My
+    /// content</i> was named without a way to reach it. The fixture has services, so the page is told it has none.
+    /// </remarks>
+    [Fact]
+    public async Task Add_layer_with_nothing_to_add_says_where_to_publish_one()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        await OpenAsync("/studio/webmap.html", token, cookie);
+        await WaitForAsync(Shown("#addLayer"), "A new map offers no Add layer.");
+        await Browser.EvaluateAsync<bool>("(wmServices = [], true)");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('addLayer').focus(), true)");
+        await ClickAsync("#addLayer");
+
+        await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/#/content\"]')",
+            "With nothing to add, Add layer did not link to where a service is published.");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#addFilter")), "With nothing to add, the filter is still offered.");
+        Assert.Equal("addStatus", await Browser.EvaluateAsync<string>("document.activeElement && document.activeElement.id"));
+        Assert.Equal(string.Empty, (await Browser.EvaluateAsync<string>("document.getElementById('layerList').textContent") ?? "").Trim());
+    }
+
     /// <summary>The address of some feature layer this server publishes.</summary>
     private async Task<string> AnyFeatureLayerUrlAsync(string token)
     {

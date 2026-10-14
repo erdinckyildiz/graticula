@@ -183,7 +183,23 @@ services directory), ADR-034 (Server and Studio).
 
 1. **A map saved here is opened by the Maps SDK and by Pro** against a running server, and one saved by Pro
    is opened here — both directions, recorded in §4.
-2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services).
+2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services). *(2026-10-14: the review was
+   run on both states — a server with no service and no map, and the fixture — and it did not pass: no blocker, six
+   major and nine minor findings. **Repaired the same day:** My content's first run said *everything here belongs to
+   somebody else* of a list with nothing in it and named only *New item*, as text — the note is now sent only when
+   something else is listed, and the empty list offers *New item* and *New map* as buttons, without the sort, the idle
+   filter and select-all; a map that is not there left its tab strip drawn, since `#tabs` set its own `display`; a
+   signed-out reader was given Style, Pop-up, Labels, *Saved* and a Map tab that was a form with Save greyed out — the
+   tab is *About* now, the map's title and summary as text, and the editor's controls are not drawn; a saved map's
+   item page gives its link with *Copy link*, which Share had made public with nowhere to find it; removing the last
+   layer left the header counting the removed ones, and now says what went and what is left; Add layer with nothing
+   to add hides its filter, links to My content and keeps the focus on that sentence; and among the minor ones a
+   paragraph hint cut at the panel's edge, a save announced in two live regions, *Zoom to all* enabled on an empty
+   map, small targets at 390 px and the item page's actions below the fold. Five console tests in
+   `WebMapViewerTests` failed against the old scripts and pass. **Left, named:** My content's table at 390 px hides
+   each row's actions (a card layout is a change of the shared list, not of maps); the keyboard cannot identify what
+   is at the map's centre; and one wording per sharing scope. **Still open** for the owner's first use, which the
+   dissent below waits on.)*
 3. **The next item kind builds ADR-056's table** and moves web maps into it, rather than becoming a third
    source for the portal listing.
 4. **Group sharing for maps** — built, or recorded as not wanted. **DISCHARGED 2026-10-01 — built**, after the ArcGIS review's second pass ranked it second (*Field Maps crews get their maps through groups*): migration 67 adds the `group` scope and `sharing_group_map`; `PUT|DELETE /admin/groups/{name}/maps/{id}` by the service's rule (the group's owner or a manager, and the map's owner); the map's Share dialog offers *Groups*; a group's Content lists its maps. `WebMapGroupSharingTests` reads the map as a member and as a stranger.
