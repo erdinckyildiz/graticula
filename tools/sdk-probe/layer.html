@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>feature layer probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body,#v{margin:0;height:100%;width:100%}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div>
+<script>
+// ADR-066 condition 2: the Maps SDK adds a feature layer by its address, draws it and queries it — an attribute
+// query, a count, and a spatial one over the view. ?url=<…/FeatureServer/0>.
+var url = new URLSearchParams(location.search).get("url");
+require(["esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer"], function (Map, MapView, FeatureLayer) {
+  var layer = new FeatureLayer({ url: url, outFields: ["*"] });
+  var view = new MapView({ container: "v", map: new Map({ layers: [layer] }) });
+  var out = {};
+  layer.load().then(function () {
+    out.title = layer.title;
+    out.geometryType = layer.geometryType;
+    out.fields = layer.fields.length;
+    out.capabilities = layer.capabilities && layer.capabilities.query && {
+      statistics: layer.capabilities.query.supportsStatistics,
+      pagination: layer.capabilities.query.supportsPagination,
+    };
+    return view.goTo(layer.fullExtent);
+  }).then(function () {
+    return view.whenLayerView(layer);
+  }).then(function (lv) {
+    return new Promise(function (done) {
+      var watch = setInterval(function () { if (!lv.updating) { clearInterval(watch); done(lv); } }, 300);
+      setTimeout(function () { clearInterval(watch); done(lv); }, 30000);
+    });
+  }).then(function (lv) {
+    out.drawn = !lv.updating;
+    return Promise.all([
+      layer.queryFeatureCount({ where: "1=1" }),
+      layer.queryFeatures({ where: "1=1", outFields: ["*"], returnGeometry: true, num: 1 }),
+      layer.queryFeatureCount({ geometry: view.extent, spatialRelationship: "intersects" }),
+      lv.queryFeatureCount(),
+    ]);
+  }).then(function (r) {
+    out.count = r[0];
+    out.first = r[1].features.length ? Object.keys(r[1].features[0].attributes).slice(0, 6) : [];
+    out.firstHasGeometry = !!(r[1].features[0] && r[1].features[0].geometry);
+    out.inView = r[2];
+    out.drawnFeatures = r[3];
+    window.__result = JSON.stringify(out);
+  }).catch(function (e) { out.error = String(e && e.message || e); window.__result = JSON.stringify(out); });
+});
+</script></body></html>
