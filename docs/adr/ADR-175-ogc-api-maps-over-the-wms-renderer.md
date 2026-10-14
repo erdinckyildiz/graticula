@@ -117,7 +117,12 @@ the image size ceiling. A fourth ETS-run suite must be maintained, and this one 
    `gdal_translate` writes a 600 × 202 PNG of the provinces' outlines. GDAL sizes the raster from a resolution it
    assumes, as a collection here states no `scaleDenominator`.
 2. The suite's remaining failures are reported upstream where they are the suite's (classes run without being
-   declared, `conf/core` recognised only in https), or the baseline is lowered when the suite changes.
+   declared, `conf/core` recognised only in https), or the baseline is lowered when the suite changes. *(2026-10-15: both are drafted as issues in
+   [ets-ogcapi-maps10-upstream-reports-draft.md](../reviews/ets-ogcapi-maps10-upstream-reports-draft.md), from the
+   suite's source at the pinned commit, which is still its head. The source makes the first one worse than recorded:
+   the core check compares the https spelling exactly, and the requirement-class enum writes `ogcapi-Maps-1` with a
+   capital M, so no lowercase URI could ever match it. **Not sent**: filing on another project's repository is the
+   owner's to approve.)*
 
 ## 9. Revisit triggers
 
