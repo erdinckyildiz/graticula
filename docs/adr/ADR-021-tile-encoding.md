@@ -275,7 +275,11 @@ mean two caches rather than a coherence problem.
    tag dictionary**: 25 attributes make `ST_AsMVT`'s tile 5.8 times the one-attribute tile's bytes (848 KB against
    147 KB). **Left, by name**: a throughput figure needs path A to be production's statement and path B to match it
    before the timing means anything; and the lines are building outlines and boundaries, not a road network, on one
-   machine.
+   machine. *(Tried the same night: `--production` makes both paths generalise as `PostGisTileSource` does —
+   half a pixel of a 512-pixel tile through z14, no polygon under a pixel. The polygons then read 11.1 against
+   51.0 tiles/s with the same allocation gap, and the outputs still diverge, 83.7 % of the bytes against the
+   harness's 85 % floor, with read-once writing 5 % more features in fewer bytes. What is left is the two encoders'
+   own difference, which is a correctness question to settle before a throughput claim, not a tolerance to relax.)*
 3. ~~**Nobody has looked at a rendered tile.**~~ **DISCHARGED 2026-08-14**, the
    same day, by [tools/render-tile.py](../../tools/render-tile.py). z16/38030/24562
    in Istanbul, 1,258 features: the decoded `ST_AsMVT` output and the same extent

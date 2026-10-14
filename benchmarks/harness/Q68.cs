@@ -44,6 +44,12 @@ public static class Q68
     private static string GeomCol = "way";
     private static string[] Attrs = ["name"];
 
+    // <b>--production, 2026-10-15</b>: both paths generalise as PostGisTileSource does since ADR-085 — simplify at
+    // half a pixel of a 512-pixel tile through z14, leave out a polygon whose box is under a pixel both ways. Without
+    // it the two paths are the original run's, which this server no longer runs.
+    private static bool Production;
+    private const int Pixels = 512;
+
     private static string Selected(string prefix) =>
         string.Join(", ", Attrs.Select(a => $"{prefix}\"{a}\""));
 
@@ -73,6 +79,8 @@ public static class Q68
         if (Text(args, "--table") is { } table) Table = table;
         if (Text(args, "--geom") is { } geom) GeomCol = geom;
         if (Text(args, "--attrs") is { } attrs) Attrs = attrs.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        Production = Array.IndexOf(args, "--production") >= 0;
+        Console.WriteLine(Production ? "  generalising as production does (ADR-085)" : "  generalising as the original run did");
         Console.WriteLine($"  table {Table}({GeomCol}), {Attrs.Length} attribute(s): {string.Join(",", Attrs)}");
 
         string conn = Environment.GetEnvironmentVariable("GISBENCH_CONN")
@@ -183,11 +191,15 @@ public static class Q68
         string sql = $"""
             WITH bounds AS (SELECT ST_TileEnvelope(@z,@x,@y) AS geom),
             mvtgeom AS (
-                SELECT ST_AsMVTGeom(t.{GeomCol}, bounds.geom,
+                SELECT ST_AsMVTGeom({(Production
+                                        ? $"case when @z <= 14 then ST_Simplify(t.{GeomCol}, (ST_XMax(bounds.geom) - ST_XMin(bounds.geom)) / {Pixels * 2}, true) else t.{GeomCol} end"
+                                        : $"t.{GeomCol}")}, bounds.geom,
                                     {TileMath.Extent}, {TileMath.Buffer}, true) AS geom,
                        t.osm_id, {Selected("t.")}
                 FROM {Table} t, bounds
-                WHERE t.{GeomCol} && bounds.geom
+                WHERE t.{GeomCol} && bounds.geom{(Production
+                    ? $" AND (ST_Dimension(t.{GeomCol}) < 2 OR ST_XMax(t.{GeomCol}) - ST_XMin(t.{GeomCol}) >= (ST_XMax(bounds.geom) - ST_XMin(bounds.geom)) / {Pixels} OR ST_YMax(t.{GeomCol}) - ST_YMin(t.{GeomCol}) >= (ST_XMax(bounds.geom) - ST_XMin(bounds.geom)) / {Pixels})"
+                    : "")}
             )
             SELECT ST_AsMVT(mvtgeom.*, 'polygons', {TileMath.Extent}, 'geom') FROM mvtgeom
             """;
@@ -378,6 +390,14 @@ public static class Q68
                 continue;
             }
 
+            // Production's rule: a polygon whose box is under a pixel both ways is not in the tile.
+            if (Production && geom.Dimension == Dimension.Surface
+                && geom.EnvelopeInternal.Width < (env.MaxX - env.MinX) / Pixels
+                && geom.EnvelopeInternal.Height < (env.MaxX - env.MinX) / Pixels)
+            {
+                continue;
+            }
+
             try
             {
                 RectClip.Result result = RectClip.Clip(geom, clipEnv, factory, out Geometry? clipped);
@@ -391,7 +411,10 @@ public static class Q68
                 // own, so simplifying first spends the walk on points the next
                 // stage was going to merge anyway.
                 Geometry tiled = ToTileSpace(clipped, env, factory);
-                Geometry? simplified = TileSimplify.Simplify(tiled, 1.0, factory, ref stats);
+                // Half a pixel of a 512-pixel tile is four of the 4,096 grid units, through z14, as production; the
+                // original run's one unit otherwise.
+                double tolerance = Production ? (z <= 14 ? TileMath.Extent / (Pixels * 2.0) : 0.0) : 1.0;
+                Geometry? simplified = tolerance > 0 ? TileSimplify.Simplify(tiled, tolerance, factory, ref stats) : tiled;
 
                 if (simplified is null || simplified.IsEmpty)
                 {
