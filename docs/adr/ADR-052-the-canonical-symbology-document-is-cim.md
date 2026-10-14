@@ -93,6 +93,11 @@ before, so a reader checking *what does this product read* was told less than th
 The three rows below are taken from the projections themselves (`Cim.ProjectHeatMap`,
 `ProjectDots`, `ProjectChart`), which is the only honest source for a table about this reader.
 
+**Checked against the specification by a reader of it, 2026-10-15** — `tools/cim-spec-check.py` reads this table
+and the published specification at a pinned commit (`740cc791`) and finds every type and all 59 properties,
+the three rows above included, which until then had come from the code alone. Nightly, `spec-drift.yml` runs it
+against the specification's `main`.
+
 | Type | Properties read |
 |---|---|
 | `CIMSimpleRenderer` | `symbol`, `label`, `description` |
@@ -1007,6 +1012,17 @@ what does not vary.
    is still unstartable because no CIM schema file exists in this repository. What has changed is
    that the table no longer says less than the code, and the next type added has a dated
    precedent to fall behind.
+   **DISCHARGED 2026-10-15 — the schema-reading half, which was *"not startable"* because no schema file was in the
+   repository.** None is needed: `tools/cim-spec-check.py` fetches Esri's published specification
+   (github.com/Esri/cim-spec, `docs/v3`) where it is published, reads every `## CIM…` type with its own and its base
+   types' properties, and checks §3.2's table against it, failing on any type or property the specification does not
+   have. **Against the pinned commit `740cc791` every type and all 59 properties are found**, the three renderer rows
+   added on 2026-09-04 included, which had been taken from the projections and never compared with anything
+   published. **Falsified**: a property `bogusProp` on `CIMSimpleRenderer` and a type `CIMSolidFil` each fail it,
+   naming themselves. **A rename in a later CIM version fails here, not in a map**: `.github/workflows/spec-drift.yml`
+   runs the check nightly against the specification's `main`. **Fetched rather than copied, deliberately**: the
+   specification is CC BY-ND 4.0, so implementing it is free and a copy in this repository would be a licensing
+   decision for the owner (DEPENDENCY-LICENSES.md) that reading it does not need.
 3. **A document stored under ADR-033 still serves after this lands**, asserted by
    a test that writes a MapLibre style directly into the column and then asks for
    a rendered tile, a `drawingInfo` and a style.
