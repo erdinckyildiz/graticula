@@ -127,7 +127,12 @@ dropped the inner — now refused (`RasterFunction.TryParseRule`).
    2026-10-13 through arcpy (Pro 3.7): a scene whose ground is this server's surface, built from a 2.x `.mapx` that Pro
    imports and upgrades, lists it as its elevation source — but a layout export draws a scene with this ground, with
    Terrain3D's and with none identically to the byte, so a headless export does not show whether Pro reads the
-   heights. Still owed, in Pro's own window.
+   heights. Still owed, in Pro's own window. **2026-10-14, in Pro's window, three faults before relief:** the portal
+   browser failed with *Object reference not set* because a referer-bound token was refused on Pro's header-less
+   `portals/self` (ADR-015 §4, narrowed); then adding the surface as ground spun every core and Pro stopped
+   answering, because `pixelSizeX/Y` stayed in the file's degrees beside extents written in Web Mercator metres —
+   `arcpy.Raster` read the 7200-column tile as 801,500,334 × 1,062,133,792 cells, and 7200 × 7200 once the pixel
+   was written in the extents' reference. Relief itself is still unconfirmed.
 2. **A portal item for an elevation surface opens in Scene Viewer as ground.** The SDK refuses a portal item of type
    *Image Service* where it expects *Image Service Elevation 3D Layer*; what this server's portal says for a surface
    has not been changed.

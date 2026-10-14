@@ -330,6 +330,14 @@ public sealed class ImageryDisplayTests : ArcGisClient
             Assert.Equal(3857, tileInfo.GetProperty("spatialReference").GetProperty("latestWkid").GetInt32());
             Assert.Equal(3857, doc.GetProperty("fullExtent").GetProperty("spatialReference").GetProperty("wkid").GetInt32());
             Assert.Equal(30 * 20037508.342789244 / 180, doc.GetProperty("fullExtent").GetProperty("xmin").GetDouble(), 0);
+
+            // And its pixel in the same metres: Pro reads the raster's size as the extent over the pixel, and degrees
+            // beside a Web Mercator extent made a 7200-column tile 801 million cells wide and hung Pro (2026-10-14).
+            JsonElement full = doc.GetProperty("fullExtent");
+            double columns = (full.GetProperty("xmax").GetDouble() - full.GetProperty("xmin").GetDouble())
+                / doc.GetProperty("pixelSizeX").GetDouble();
+            Assert.InRange(doc.GetProperty("pixelSizeX").GetDouble(), 1, 100_000);
+            Assert.InRange(columns, 1, 100_000);
             Assert.Equal(4326, doc.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
             // Published through the first level finer than its own pixels, not all 24: this model's are 0.01° — about
             // 1,470 Mercator metres at its latitude — so level 7 (1,223 m) is the last, nine levels.

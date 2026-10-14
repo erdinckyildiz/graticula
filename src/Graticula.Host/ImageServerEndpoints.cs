@@ -383,8 +383,12 @@ internal static partial class ImageServerEndpoints
             extent = Box(stated, statedSrid),
             initialExtent = Box(stated, statedSrid),
             fullExtent = Box(stated, statedSrid),
-            pixelSizeX = info.PixelWidth,
-            pixelSizeY = info.PixelHeight,
+            // ADR-182: in the extents' reference, so a surface's pixel is metres beside metres. ArcGIS Pro reads the
+            // raster's size as the extent over this: with degrees beside a Web Mercator extent it made the 7200-column
+            // Copernicus tile 801,500,334 × 1,062,133,792 cells (arcpy.Raster, measured 2026-10-14), and adding the
+            // surface as ground spun every core until Pro stopped answering.
+            pixelSizeX = PixelX(stated, info),
+            pixelSizeY = PixelY(stated, info),
             bandCount = info.Bands.Count,
             pixelType = PixelType(info.Bands[0].Kind),
             minPixelSize = 0,
@@ -517,7 +521,7 @@ internal static partial class ImageServerEndpoints
 
             minScale = 0,
             maxScale = 0,
-            meanPixelSize = (info.PixelWidth + info.PixelHeight) / 2,
+            meanPixelSize = (PixelX(stated, info) + PixelY(stated, info)) / 2,
 
             // <b>Not offered, and each of these is a capability this face does not
             // answer</b> — correctness gate 2's fifth finding, applied to the flags
@@ -1856,6 +1860,16 @@ internal static partial class ImageServerEndpoints
     /// own pixels, and no further. With all 24 a scene asked for heights at 2 cm from a 30 m model, reading a tile per
     /// query for nothing; Esri's Terrain3D publishes 17 for the same reason.
     /// </summary>
+    /// <summary>A pixel's width in the reference <paramref name="stated"/> is written in.</summary>
+    /// <remarks>The file's own size when the extent is the file's; an elevation surface's extent is carried into its
+    /// tiling scheme (ADR-182), and its pixel goes with it.</remarks>
+    private static double PixelX(Envelope stated, CoverageInfo info) =>
+        stated.Equals(info.Extent) || info.Width <= 0 ? info.PixelWidth : stated.Width / info.Width;
+
+    /// <summary>A pixel's height in the reference <paramref name="stated"/> is written in.</summary>
+    private static double PixelY(Envelope stated, CoverageInfo info) =>
+        stated.Equals(info.Extent) || info.Height <= 0 ? info.PixelHeight : stated.Height / info.Height;
+
     private static int SurfaceLevels(TilingScheme scheme, Envelope stated, CoverageInfo info)
     {
         double native = stated.Width / info.Width;
