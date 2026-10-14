@@ -508,6 +508,20 @@ This ADR is `ACCEPTED WITH CONDITIONS`. The conditions:
    proves it: export, edit one value, import, and the catalogue differs in exactly
    that value.
 
+   **DISCHARGED 2026-10-15, by owner decision to build it whole** (*"Şartname + export + apply"*) —
+   [ADR-183](ADR-183-the-catalogue-manifest.md). The format is written down in
+   [catalogue-manifest.md](../catalogue-manifest.md), and the verbs are `graticula tools manifest export` and
+   `apply`. The amendment's three points hold as measured, not as intended. **By name:** an export carries no
+   `uuid` at all, and a store's manifest applied to an empty store comes back byte for byte. **Credentials named,
+   not carried:** a source is its name and `host:port/database`, and `apply` refuses until a credential is
+   supplied from a file. **The round trip this paragraph asked for:**
+   `CatalogManifestTests.A_value_edited_in_the_file_is_the_only_thing_an_apply_changes` exports, edits a service's
+   description, applies, and the plan has one `update` and the next export differs in that one line. **The deadline
+   stays breached in the record**, because it was: the format came after the schema, and what was protected is
+   identity, not the keys' names, which are the columns' (ADR-183 §2, Alternative A). **Found on the way, and it is
+   what made the file honest:** the datastore is every server's own platform database, registered at each start, so
+   the manifest does not carry where it points and a second server reads its own (ADR-183 §4).
+
 ## 10. Revisit triggers
 
 - Q-22 answers that PostgreSQL-free is a goal.

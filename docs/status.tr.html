@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>bcd19f7c</code> · 2026-10-14 23:54</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d065ced3</code> · 2026-10-14 23:54</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">181</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">348/414</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">62 canlı · 4 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">182</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">351/416</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">61 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">275 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4860</div><div class="kpi-l">test</div><div class="kpi-n">482 kaynak dosya, 218,199 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4864</div><div class="kpi-l">test</div><div class="kpi-n">484 kaynak dosya, 219,687 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">6 açık</span></div><p><b>Q-172</b> — Should an export job wait out a full connection budget, as a geodatabase import now does?</p><p><b>Q-171</b> — Which coordinate references do WFS and WMS advertise, and is a reference outside that set refused or still answered?</p><p><b>Q-170</b> — May this portal&#x27;s sign-in page also be the one the ArcGIS API for Python reads, as Portal&#x27;s is, so that GIS(url, username, password) signs in?</p><p><b>Q-168</b> — May the ImageServer answer ArcGIS Pro&#x27;s raw request in the layout Esri&#x27;s servers answer it, learned by measuring their public output?</p><p><b>Q-167</b> — An elevation surface — four inferences, for the owner.</p><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">77 madde</span></div><p><b>62 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">76 madde</span></div><p><b>61 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -141,7 +141,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-002 · Primary Data Architecture</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-010 · Caching</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -199,7 +198,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Her mimari karar bir ADR. Durum ve güven seviyesi her dosyanın kendi başlığından okunuyor — yani bir karar orada değişmeden burada sessizce not değiştiremez.</p>
 <div class="scroll"><table><thead><tr><th>ADR</th><th>Karar</th><th>Durum</th><th>Güven</th><th class="num">Koşul</th></tr></thead><tbody>
 <tr><td class="id">001</td><td>Core Language</td><td><span class="pill cond">ACCEPTED</span><div class="muted-t">2026-08-25, by owner decision: &quot;ben Q-01&#x27;i kabul ettim .NET olarak&quot;.</div></td><td class="muted-t">MEDIUM — 2026-08-25.</td><td class="num"></td></tr>
-<tr><td class="id">002</td><td>Primary Data Architecture</td><td><span class="pill warn">REOPENED → re-decided, ACCEPTED WITH…</span><div class="muted-t">REOPENED → re-decided, ACCEPTED WITH CONDITIONS</div></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
+<tr><td class="id">002</td><td>Primary Data Architecture</td><td><span class="pill warn">REOPENED → re-decided, ACCEPTED WITH…</span><div class="muted-t">REOPENED → re-decided, ACCEPTED WITH CONDITIONS</div></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">003</td><td>Geometry Engine</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span><div class="muted-t">single-provider scope.</div></td><td class="muted-t">HIGH for the split, which is measured.</td><td class="num"></td></tr>
 <tr><td class="id">004</td><td>Rendering Engine</td><td><span class="pill muted">ACCEPTED</span><div class="muted-t">un-deferred 2026-08-20 by ADR-041, which is where the decision now lives.</div></td><td class="muted-t">—</td><td class="num"></td></tr>
 <tr><td class="id">005</td><td>API Architecture</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS</span><div class="muted-t">re-closed 2026-08-20.</div></td><td class="muted-t">MEDIUM-HIGH</td><td class="num">4/4</td></tr>
@@ -379,6 +378,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">180</td><td>The outbound licence is the Graticula Community License</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision, which is the owner&#x27;s · MEDIUM for the licence text, which no…</td><td class="num">3/3</td></tr>
 <tr><td class="id">181</td><td>The ArcGIS REST API version this server reports is 12.1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM</td><td class="num">0/1</td></tr>
 <tr><td class="id">182</td><td>An image service can be an elevation surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
+<tr><td class="id">183</td><td>The catalogue manifest</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is the one ADR-002 condition 3 was amended to on 2026-09-09; what is…</td><td class="num">2/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -509,7 +509,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1359</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.2%"></div></div><div class="bar-n">886</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">755</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">542</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.2%"></div></div><div class="bar-n">546</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">290</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.2%"></div></div><div class="bar-n">206</div></div>
@@ -521,6 +521,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d065ced3</code><time>2026-10-14</time><span>ADR-017 condition 3 is deferred with D-18&#x27;s decision not to build the break-glass path (INFERRED, for confirmation)</span></li>
 <li><code>bcd19f7c</code><time>2026-10-14</time><span>ADR-011 condition 1 is discharged: a job reads a registered source through its budget</span></li>
 <li><code>8372c446</code><time>2026-10-14</time><span>Q-171: which references WFS and WMS advertise is put to the owner (ADR-060 condition 4)</span></li>
 <li><code>80e52e84</code><time>2026-10-14</time><span>A map service lists its group layers, and a group&#x27;s id draws and identifies its layers (D-296)</span></li>
@@ -534,7 +535,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>201e8ff5</code><time>2026-10-14</time><span>ADR-077 condition 5, the Maps SDK&#x27;s half: a point added with z and m is what the table holds</span></li>
 <li><code>13c3094c</code><time>2026-10-14</time><span>ADR-065 condition 2 is discharged: the Maps SDK shows a field&#x27;s list, refuses outside its range and offers a template per subtype</span></li>
 <li><code>7f877b07</code><time>2026-10-14</time><span>ADR-066 condition 2 is discharged: the Maps SDK adds two GeoParquet layers on the showcase, draws and queries them</span></li>
-<li><code>49f83022</code><time>2026-10-14</time><span>The Maps SDK opens a map saved here with its style and its pop-up (ADR-104 condition 3, ADR-110 condition 2)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

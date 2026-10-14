@@ -96,6 +96,17 @@ public static class Program
                                           GRATICULA_ADMIN_PASSWORD: an argument lands in
                                           your shell history and in the process table.
 
+          graticula tools manifest export [--out <file>]
+          graticula tools manifest apply <file> [--credentials <file>] [--apply]
+                                          The catalogue as a file to review and apply
+                                          (ADR-183): data sources, folders, shared domains,
+                                          services with their layers, groups, styles and
+                                          sharing, and relationships, all by name. Never a
+                                          credential: apply takes those from a JSON file,
+                                          name to connection string. apply prints its plan
+                                          and writes it, in one transaction, only with
+                                          --apply. It never deletes.
+
         Configuration is environment variables under Graticula__ — the store is
         Graticula__PlatformStore and the key is Graticula__SecretKey, and the server
         refuses to start without either. README.md is the quickstart.
@@ -849,6 +860,15 @@ public static class Program
         if (args is ["tools", "symbology-migrate", ..])
         {
             return await Tools.SymbologyMigrator
+                .RunAsync(app.Services, args, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
+        // <b>ADR-183, ADR-002 condition 3</b>: the catalogue as a file, and back. A command like `migrate`: it plans,
+        // and it writes only with --apply.
+        if (args is ["tools", "manifest", ..])
+        {
+            return await Tools.CatalogManifestTool
                 .RunAsync(app.Services, args, CancellationToken.None)
                 .ConfigureAwait(false);
         }
