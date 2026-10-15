@@ -227,6 +227,12 @@ way they expect, and the caching page says the thing that is true about this eng
    `no-cache` and revalidated with an ETag on every view, by the owner's decision of 2026-09-23. The
    alternative the reviews raised is a data version in the tile URL with long-lived, immutable
    responses. Not changed here; put to the owner.
+   **DISCHARGED 2026-10-15 by owner decision:** *"Arcgis'in istediği gibi davranalım."* Measured, ArcGIS puts no version in a tile's address —
+   Esri's own vector tiles are `tile/{z}/{y}/{x}.pbf` sent `max-age=43200` with an ETag, and a hosted layer's `query`
+   is sent the layer's `cacheMaxAge` (3600 on the one read) with an ETag and `Last-Modified`. So there is no versioned
+   tile URL: an editable layer keeps revalidation, which is ArcGIS's not caching an editable layer, and the layer
+   document now publishes `cacheMaxAge` — the lifetime `query` is sent with, zero for a layer somebody can edit
+   (`ALayerSaysHowLongItsAnswersKeepTests`).
 4. **The structural decisions** — the item model (ADR-056), one map engine with Styles, Pop-ups and
    Labels panels (the design review proposed MapLibre drawing the served style), one service page across
    Server and Studio (reverses ADR-034 §5c), tile-level invalidation instead of whole-layer purge, CSV and

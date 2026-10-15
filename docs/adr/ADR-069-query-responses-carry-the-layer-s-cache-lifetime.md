@@ -211,6 +211,10 @@ ADR-066 (GeoParquet layers), whose `GeoParquetFolder`/`GeoParquetTable.Version` 
 None recorded — this is the implementing agent's design against the owner's stated instruction,
 not a debated decision with a recorded second voice.
 
+> **2026-10-15 (ADR-101 condition 3, owner decision *"Arcgis'in istediği gibi davranalım"*):** no versioned tile
+> address, as ArcGIS has none; the layer document publishes `cacheMaxAge`, the lifetime its `query` is sent with, as
+> ArcGIS's layer documents do.
+
 ## 11. INFERRED — for the owner to confirm
 
 1. **That FeatureServer `query` should share a layer's tile `CacheLifetime` rather than get its

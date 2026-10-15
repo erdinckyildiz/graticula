@@ -732,6 +732,7 @@ public static class FeatureServerMetadataWriter
     /// <param name="time">The layer's time field and its measured extent, or null when it has none.</param>
     /// <param name="editOwnOnly">Whether editors may change only the features they added — ADR-115.</param>
     /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
+    /// <param name="cacheMaxAge">The seconds a client may keep this layer's answers, as ArcGIS publishes it; zero, the default, for none.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -776,7 +777,12 @@ public static class FeatureServerMetadataWriter
         bool editOwnOnly = false,
 
         // Its service's credits, which an ArcGIS client takes from the layer's own document. On the end, like the rest.
-        string? copyrightText = null)
+        string? copyrightText = null,
+
+        // <b>How long a client may keep this layer's answers — ArcGIS's `cacheMaxAge`, 2026-10-15 (ADR-101 #3).</b>
+        // The seconds `Cache-Control` already carries on `query`; zero for a layer somebody can edit, which nobody
+        // keeps. On the end and optional, as the rule above says.
+        int? cacheMaxAge = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -1047,6 +1053,7 @@ public static class FeatureServerMetadataWriter
             // client with *Append is not supported on this layer* while `uploads/upload` and `append` both
             // worked. A hosted layer is the one the route accepts (`HostedLayerAtAsync`), and these are the
             // two formats it reads; a registered table is appended to by nobody.
+            cacheMaxAge = cacheMaxAge ?? 0,
             supportsAppend = layer.IsHosted,
             supportedAppendFormats = layer.IsHosted ? "geojson,shapefile" : string.Empty,
 

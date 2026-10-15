@@ -3606,7 +3606,10 @@ public static class Program
             maxScale: layer.VisibleRange.MaxScale,
             time: time is null ? null : (time.Field, time.From, time.Until),
             editOwnOnly: layer.EditOwnOnly && description.Tracking.Creator is not null,
-            copyrightText: layer.ServiceCopyrightText);
+            copyrightText: layer.ServiceCopyrightText,
+
+            // ADR-101 #3: the lifetime `query` is sent with, in the field ArcGIS publishes it in.
+            cacheMaxAge: (int)QueryResponseCaching.LifetimeOf(layer, settings.TileCacheLifetime, description.Writable).TotalSeconds);
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);
