@@ -151,8 +151,18 @@ public sealed class GeoParquetFeatureSource
         SpatialRelation.Overlaps, SpatialRelation.Touches, SpatialRelation.Relate,
     ];
 
-    /// <summary>Whether this layer answers a distance: with an engine, and in a projected reference.</summary>
-    private bool AnswersDistance => _engine is not null && !AxisOrder.IsGeographic(_layer.Srid);
+    /// <summary>Whether this layer answers a distance: with an engine — in degrees too since 2026-10-15 (ADR-066 #3).</summary>
+    private bool AnswersDistance => _engine is not null;
+
+    /// <summary>
+    /// How far from its centre a distance on a layer in degrees is measured: the filter's reach plus the distance.
+    /// </summary>
+    /// <remarks>
+    /// The azimuthal equidistant projection the test is made in is exact along every line through its centre and
+    /// stretches the rest by <c>(r/R) / sin(r/R)</c>: 0.1 % at 500 km and 0.4 % at 1,000 km. Past that a distance is
+    /// refused rather than answered differently from the datastore, which measures on the ellipsoid.
+    /// </remarks>
+    internal const double MostGeographicReachMetres = 1_000_000;
 
     /// <summary>The relations a GeoParquet layer answers.</summary>
     public static IReadOnlyList<SpatialRelation> Relations { get; } =
@@ -685,15 +695,10 @@ public sealed class GeoParquetFeatureSource
         if (spatial.Distance > 0 && !AnswersDistance)
         {
             throw new QueryNotSupportedException(
-                _engine is null
-                    ? "This layer is served from a GeoParquet file, which answers a spatial filter by "
-                      + "intersection and not within a distance. Buffer the geometry first "
-                      + "(GeometryServer/buffer) and filter by the result, or publish the data into the "
-                      + "datastore, where distance is answered."
-                    : "This layer is served from a GeoParquet file in degrees, and a distance in degrees is "
-                      + "not a distance: the datastore measures it on the spheroid, and this server does not "
-                      + "for a file. Buffer the geometry first (GeometryServer/buffer, which measures in "
-                      + "metres) and filter by the result, or publish the data into the datastore.");
+                "This layer is served from a GeoParquet file, which answers a spatial filter by "
+                + "intersection and not within a distance. Buffer the geometry first "
+                + "(GeometryServer/buffer) and filter by the result, or publish the data into the "
+                + "datastore, where distance is answered.");
         }
 
         if (spatial.Distance > 0 && spatial.Relation != SpatialRelation.Intersects)
@@ -873,7 +878,11 @@ public sealed class GeoParquetFeatureSource
             }
 
             // A distance widens the box it is looked for in; the exact test is the engine's.
-            boxes.Add(spatial.Distance > 0 ? Widened(filter.Envelope, spatial.Distance) : filter.Envelope);
+            boxes.Add(spatial.Distance > 0
+                ? AxisOrder.IsGeographic(_layer.Srid)
+                    ? GeographicWidened(filter.Envelope, spatial.Distance)
+                    : Widened(filter.Envelope, spatial.Distance)
+                : filter.Envelope);
 
             if (spatial.Distance > 0 || EngineRelations.Contains(spatial.Relation))
             {
@@ -1059,13 +1068,59 @@ public sealed class GeoParquetFeatureSource
     {
         List<long> satisfied = [];
 
+        // <b>A distance on a layer in degrees is measured in metres — ADR-066 condition 3, 2026-10-15.</b> The
+        // datastore casts to `geography` and measures on the ellipsoid; a file has no such column, so the features
+        // and the filter are moved into an azimuthal equidistant projection centred on the filter, where the engine's
+        // planar distance is metres and exact along every line through the centre, and refused past
+        // MostGeographicReachMetres, where it would stop agreeing with the datastore.
+        string? metric = null;
+        Geometry right = spatial.Geometry;
+
+        if (spatial.Distance > 0 && AxisOrder.IsGeographic(_layer.Srid))
+        {
+            Envelope box = spatial.Geometry.Envelope;
+            double lon = (box.MinX + box.MaxX) / 2, lat = (box.MinY + box.MaxY) / 2;
+            double reach = Math.Max(
+                    Math.Max(Haversine(lon, lat, box.MinX, box.MinY), Haversine(lon, lat, box.MaxX, box.MaxY)),
+                    Math.Max(Haversine(lon, lat, box.MinX, box.MaxY), Haversine(lon, lat, box.MaxX, box.MinY)))
+                + spatial.Distance;
+
+            if (reach > MostGeographicReachMetres)
+            {
+                throw new QueryNotSupportedException(
+                    $"This layer is served from a GeoParquet file in degrees, and a distance on it is measured in "
+                    + $"metres around the filter, within {MostGeographicReachMetres / 1000:N0} km of its centre; this "
+                    + $"filter and distance reach {reach / 1000:N0} km. Use a smaller filter or distance, or publish the "
+                    + "data into the datastore, which measures on the ellipsoid at any distance.");
+            }
+
+            metric = string.Create(
+                CultureInfo.InvariantCulture,
+                $"+proj=aeqd +lat_0={lat:R} +lon_0={lon:R} +datum=WGS84 +units=m +no_defs");
+
+            right = (await _projector.ProjectToDefinitionAsync([spatial.Geometry], _layer.Srid, metric, cancellationToken)
+                .ConfigureAwait(false) is [var moved] ? moved : null)
+                ?? throw new QueryNotSupportedException(
+                    "This layer is served from a GeoParquet file in degrees, and the filter could not be moved into "
+                    + "metres to measure a distance around it.");
+        }
+
         for (int start = 0; start < candidates.Count; start += EngineBatch)
         {
             int count = Math.Min(EngineBatch, candidates.Count - start);
             List<Geometry> left = geometries.GetRange(start, count);
 
+            if (metric is not null)
+            {
+                left = [.. await _projector.ProjectToDefinitionAsync(left, _layer.Srid, metric, cancellationToken)
+                        .ConfigureAwait(false)
+                    ?? throw new QueryNotSupportedException(
+                        "This layer is served from a GeoParquet file in degrees, and its features could not be moved "
+                        + "into metres to measure a distance.")];
+            }
+
             EngineRequest request = spatial.Distance > 0
-                ? new EngineRequest(EngineOperation.WithinDistance, left, [spatial.Geometry], _layer.Srid)
+                ? new EngineRequest(EngineOperation.WithinDistance, left, [right], metric is null ? _layer.Srid : 3857)
                 {
                     Distance = spatial.Distance,
                 }
@@ -1108,6 +1163,43 @@ public sealed class GeoParquetFeatureSource
     /// <summary>A box grown by a distance on every side.</summary>
     private static Envelope Widened(Envelope box, double distance) =>
         new(box.MinX - distance, box.MinY - distance, box.MaxX + distance, box.MaxY + distance);
+
+    /// <summary>
+    /// A box in degrees grown by a distance in metres, never narrower than the circle it has to hold — as the
+    /// datastore widens it (<c>PostGisFeatureSource.GeographicWidening</c>).
+    /// </summary>
+    /// <remarks>
+    /// Latitude by the fewest metres a degree of it ever is; longitude by that divided by the cosine of the furthest
+    /// latitude the box reaches. Near a pole, or across the antimeridian, every longitude.
+    /// </remarks>
+    internal static Envelope GeographicWidened(Envelope box, double metres)
+    {
+        double dLat = metres / 110_574.0;
+        double south = Math.Max(-90, box.MinY - dLat), north = Math.Min(90, box.MaxY + dLat);
+        double furthest = Math.Max(Math.Abs(south), Math.Abs(north));
+
+        if (furthest >= 89.9)
+        {
+            return new Envelope(-180, south, 180, north);
+        }
+
+        double dLon = metres / (111_320.0 * Math.Cos(furthest * Math.PI / 180));
+        double west = box.MinX - dLon, east = box.MaxX + dLon;
+
+        return west < -180 || east > 180
+            ? new Envelope(-180, south, 180, north)
+            : new Envelope(west, south, east, north);
+    }
+
+    /// <summary>The great-circle distance in metres between two points in degrees, on the mean radius.</summary>
+    private static double Haversine(double lon1, double lat1, double lon2, double lat2)
+    {
+        const double R = 6_371_008.8;
+        double p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
+        double dp = p2 - p1, dl = (lon2 - lon1) * Math.PI / 180;
+        double h = (Math.Sin(dp / 2) * Math.Sin(dp / 2)) + (Math.Cos(p1) * Math.Cos(p2) * Math.Sin(dl / 2) * Math.Sin(dl / 2));
+        return 2 * R * Math.Asin(Math.Min(1, Math.Sqrt(h)));
+    }
 
     /// <summary>
     /// A box test on the covering column, widened past single-precision rounding — the prefilter.

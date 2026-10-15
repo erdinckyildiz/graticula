@@ -325,9 +325,19 @@ internal static class PortalQuery
 
             if (Field is null)
             {
-                // A bare word matches the title, which is what a person typing into
-                // a search box means. A trailing wildcard adds nothing to *contains*.
-                return Contains(PortalQuery.Field(item, "title"), Value.TrimEnd('*'));
+                // <b>A bare word matches the fields a portal searches when none is named — 2026-10-15.</b> It was the
+                // title alone, and ArcGIS Pro's basemap gallery asks `type:Web Map` unquoted, whose `Map` is a bare
+                // word that only an item's type carries: the gallery listed nothing (ADR-184 condition 2). The
+                // search reference's default fields are the title, tags, summary, description, type and type
+                // keywords. A trailing wildcard adds nothing to *contains*.
+                string bare = Value.TrimEnd('*');
+
+                return Contains(PortalQuery.Field(item, "title"), bare)
+                    || Contains(PortalQuery.Field(item, "snippet"), bare)
+                    || Contains(PortalQuery.Field(item, "description"), bare)
+                    || Contains(PortalQuery.Field(item, "type"), bare)
+                    || ContainsAny(PortalQuery.Field(item, "tags"), bare, prefix: true)
+                    || ContainsAny(PortalQuery.Field(item, "typeKeywords"), bare, prefix: true);
             }
 
             // <b>The member's content folder — ADR-114.</b> Pro's My Content asks `ownerfolder:root` for what is in no
@@ -352,9 +362,17 @@ internal static class PortalQuery
             bool prefix = Value.Length > 1 && Value[^1] == '*';
             string wanted = prefix ? Value[..^1] : Value;
 
-            return field.ToLowerInvariant() is "tags" or "typekeywords"
-                ? ContainsAny(PortalQuery.Field(item, field), wanted, prefix)
-                : Same(PortalQuery.Field(item, field), wanted, prefix);
+            return field.ToLowerInvariant() switch
+            {
+                "tags" or "typekeywords" => ContainsAny(PortalQuery.Field(item, field), wanted, prefix),
+
+                // <b>A type is matched by its words, as a portal's is — 2026-10-15.</b> `type:Web` finds a Web Map,
+                // and `type:"Web Map"` finds a Web Mapping Application too, which is why every ArcGIS client adds
+                // `-type:"Web Mapping Application"` to it. Exact matching found nothing for Pro's unquoted
+                // `type:Web Map`, so its basemap gallery was empty.
+                "type" => WordsOf(PortalQuery.Field(item, field), wanted),
+                _ => Same(PortalQuery.Field(item, field), wanted, prefix),
+            };
         }
     }
 
@@ -393,6 +411,39 @@ internal static class PortalQuery
         && (prefix
             ? text.StartsWith(wanted, StringComparison.OrdinalIgnoreCase)
             : string.Equals(text, wanted, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Whether the wanted words are a run of the value's words, each the start of its word: <c>Web Map</c> is in
+    /// <c>Web Mapping Application</c> and <c>Service</c> in <c>Feature Service</c>; <c>Map Service</c> is not in
+    /// <c>Feature Service</c>.
+    /// </summary>
+    private static bool WordsOf(object? actual, string wanted)
+    {
+        string[] have = (actual?.ToString() ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        string[] want = wanted.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+        if (want.Length == 0)
+        {
+            return false;
+        }
+
+        for (int start = 0; start + want.Length <= have.Length; start++)
+        {
+            bool all = true;
+
+            for (int i = 0; i < want.Length && all; i++)
+            {
+                all = have[start + i].StartsWith(want[i], StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (all)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool Contains(object? actual, string wanted) =>
         actual is not null

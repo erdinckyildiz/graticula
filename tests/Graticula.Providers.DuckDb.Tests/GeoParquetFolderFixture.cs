@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Geometries;
@@ -63,9 +64,43 @@ internal sealed class ShiftingProjector : IProjector
         return Task.FromResult<(IReadOnlyList<Geometry>, ProjectionProvenance)>((moved, new ProjectionProvenance("test", null)));
     }
 
+    /// <summary>Every definition asked for — an azimuthal equidistant one for a distance in degrees (ADR-066 #3).</summary>
+    public List<string> Definitions { get; } = [];
+
+    /// <summary>
+    /// Null for any definition but an azimuthal equidistant one, which it answers as metres east and north of its
+    /// centre on a sphere — exact enough for the small grid near the equator the tests use.
+    /// </summary>
     public Task<IReadOnlyList<Geometry>?> ProjectToDefinitionAsync(
-        IReadOnlyList<Geometry> geometries, int fromSrid, string definition, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<Geometry>?>(null);
+        IReadOnlyList<Geometry> geometries, int fromSrid, string definition, CancellationToken cancellationToken)
+    {
+        lock (Definitions)
+        {
+            Definitions.Add(definition);
+        }
+
+        if (!definition.StartsWith("+proj=aeqd", StringComparison.Ordinal))
+        {
+            return Task.FromResult<IReadOnlyList<Geometry>?>(null);
+        }
+
+        double Read(string key) => double.Parse(
+            definition.Split(' ').First(part => part.StartsWith(key, StringComparison.Ordinal))[key.Length..],
+            System.Globalization.CultureInfo.InvariantCulture);
+
+        double lat0 = Read("+lat_0="), lon0 = Read("+lon_0=");
+        const double Metres = 6_371_008.8 * Math.PI / 180;
+        double k = Math.Cos(lat0 * Math.PI / 180);
+
+        List<Geometry> moved = [];
+
+        foreach (Geometry geometry in geometries)
+        {
+            moved.Add(Map(geometry, (x, y) => ((x - lon0) * Metres * k, (y - lat0) * Metres)));
+        }
+
+        return Task.FromResult<IReadOnlyList<Geometry>?>(moved);
+    }
 
     /// <summary>Every simplification asked for: the references, the batch size and the tolerance.</summary>
     public List<(int From, int To, int Count, double Tolerance)> Generalized { get; } = [];
@@ -99,6 +134,32 @@ internal sealed class ShiftingProjector : IProjector
 
     public Task<ProjectionProvenance> DescribeAsync(int fromSrid, int toSrid, CancellationToken cancellationToken) =>
         Task.FromResult(new ProjectionProvenance("test", null));
+
+    private static Geometry Map(Geometry geometry, Func<double, double, (double X, double Y)> to)
+    {
+        XySequence Move(XySequence s)
+        {
+            double[] values = s.ToInterleavedArray();
+
+            for (int i = 0; i < values.Length; i += 2)
+            {
+                (values[i], values[i + 1]) = to(values[i], values[i + 1]);
+            }
+
+            return XySequence.Wrap(values);
+        }
+
+        Polygon Area(Polygon p) => new(new LinearRing(Move(p.Shell.Coordinates)), [.. System.Linq.Enumerable.Select(p.Holes, h => new LinearRing(Move(h.Coordinates)))]);
+
+        return geometry switch
+        {
+            Point p => to(p.X, p.Y) is var (x, y) ? new Point(x, y) : p,
+            Polygon p => Area(p),
+            LineString l => new LineString(Move(l.Coordinates)),
+            MultiPolygon m => new MultiPolygon([.. System.Linq.Enumerable.Select(m.Parts, Area)]),
+            _ => throw new NotSupportedException(geometry.GetType().Name),
+        };
+    }
 
     private static Geometry Shift(Geometry geometry, double dx)
     {

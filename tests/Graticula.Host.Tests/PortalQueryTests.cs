@@ -194,4 +194,32 @@ public sealed class PortalQueryTests
         Assert.True(PortalQuery.Matches(Item(), "url:https://example/rest/services/hosted/tr_il/FeatureServer"));
         Assert.False(PortalQuery.Matches(Item(), "url:https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer"));
     }
+
+    /// <summary>
+    /// ArcGIS Pro's basemap gallery query finds a Web Map, and a type is matched by its words — ADR-184 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// Pro asked <c>group:… type:Web Map -type:"Web Mapping Application"</c> unquoted, so <c>Map</c> is a bare word;
+    /// with types matched exactly and bare words in the title only, the gallery Pro drew was empty.
+    /// </remarks>
+    [Fact]
+    public void Pros_gallery_query_finds_a_web_map_and_types_match_by_their_words()
+    {
+        object map = Item(title: "Türkiye", type: "Web Map");
+        const string Pro = "type:Web Map -type:\"Web Mapping Application\"";
+
+        Assert.True(PortalQuery.Matches(map, Pro));
+        Assert.False(PortalQuery.Matches(Item(), Pro));
+        Assert.False(PortalQuery.Matches(Item(title: "app", type: "Web Mapping Application"), Pro));
+
+        // Words, each the start of its word, in a run.
+        Assert.True(PortalQuery.Matches(Item(), "type:Service"));
+        Assert.True(PortalQuery.Matches(Item(), "type:\"Feature Service\""));
+        Assert.False(PortalQuery.Matches(Item(), "type:\"Map Service\""));
+        Assert.False(PortalQuery.Matches(Item(type: "Vector Tile Service"), "type:\"Vector Tile Package\""));
+
+        // A bare word reaches the type and the tags as well as the title.
+        Assert.True(PortalQuery.Matches(map, "Map"));
+        Assert.True(PortalQuery.Matches(Item(), "hosted"));
+    }
 }

@@ -399,6 +399,18 @@ spatial extension* — the half of item 3 that was a choice — and is no longer
    are answered and the WFS list is true of them. **What is left is `DWithin` on a layer in degrees**,
    which is still refused, because the datastore measures that distance on the spheroid and this server
    does not for a file; WFS 2.0 still has no per-layer list to say so in.
+   **DISCHARGED 2026-10-15 — by making the layer answer, as the rest was.** A distance on a GeoParquet layer in degrees
+   is now metres: the candidates and the filter are moved into an azimuthal equidistant projection centred on the
+   filter (`+proj=aeqd`, through the datastore's PROJ), where the engine's planar distance is exact along every line
+   through the centre, and the box the candidates are looked for in is widened as the datastore widens it. **Measured
+   against the datastore itself**, not against a reconstruction: on the showcase's 1.6-million-building Istanbul
+   GeoParquet layer, around Sultanahmet, the features this server returns within 150 m and 1,000 m are exactly the
+   ones PostGIS's `st_dwithin(…::geography)` picks from the same geometries — 75 of 225 candidates and 3,796 of
+   5,359, none more and none fewer (`tools/duckdb-probe/dwithin-against-geography.py`). **One bound is new and
+   named**: the projection stretches what is off its centre lines by `(r/R)/sin(r/R)`, 0.4 % at 1,000 km, so a
+   filter and distance reaching further than that are refused with a sentence rather than answered differently
+   from the datastore. So every operator WFS lists is answered on every layer, and the per-layer list WFS 2.0 cannot
+   carry is not needed.
 4. **The spatial cost is measured at a size where row groups matter** — a million features or more,
    written by GDAL with its covering column — so §6's *twice as slow* is a number with a size attached
    rather than a sample of one. **DISCHARGED 2026-09-13**, and it corrected the sentence it was written

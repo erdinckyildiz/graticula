@@ -152,7 +152,15 @@ None recorded.
    was the gallery's default. That run was signed out, while §5.4 still answered the group to everybody; signed in,
    the SDK makes the same three requests, which `TheBasemapGalleryIsAGroupTests` walks with a token. Not yet run
    against the showcase, which has no gallery group.
-2. **ArcGIS Pro's basemap gallery lists it** when signed in to this portal.
+2. **ArcGIS Pro's basemap gallery lists it** when signed in to this portal. **DISCHARGED 2026-10-15**, ArcGIS Pro 3.7
+   through arcpy (`tools/arcpy-probe/basemap-gallery.py`) against dev.graticula.com, which serves the showcase's
+   database with this branch's code: `ArcGISProject.listBasemaps()` answers `['Türkiye']`, the showcase's gallery, and
+   `addBasemap('Türkiye')` gives a map `tr_kara`, `tr_il`, `tr_ilce`, `tr_yol` and `tr_yer`. **The first run listed
+   nothing**, and the request log said why: Pro finds the group by `id:`, then asks `/sharing/rest/search` for
+   `group:<id> type:Web Map -type:"Web Mapping Application"`, unquoted — so `Map` is a bare word, which this portal
+   matched against the title only, and `type:Web` was matched exactly. A portal matches a type by its words and a bare
+   word over the title, tags, summary, description, type and type keywords; `PortalQuery` does both now
+   (`PortalQueryTests.Pros_gallery_query_finds_a_web_map_and_types_match_by_their_words`).
 3. ~~**`INFERRED`: the gallery group is visible to a signed-out caller (§5.4)**~~ **DISCHARGED 2026-10-15 by owner
    decision, the other way:** asked whether a signed-out caller still gets the default without the group, and told
    yes, the owner answered *"giriş yapmamış kullanıcı basemap seçemesin"*. The group is answered to signed-in callers

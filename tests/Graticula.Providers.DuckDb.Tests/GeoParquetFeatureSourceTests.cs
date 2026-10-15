@@ -332,14 +332,46 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
         Assert.True(described.AnswersRelations);
     }
 
+    /// <summary>
+    /// A distance on a layer in degrees is metres, measured around the filter in an azimuthal equidistant projection —
+    /// ADR-066 condition 3, 2026-10-15; and a reach past a thousand kilometres is refused rather than answered
+    /// differently from the datastore.
+    /// </summary>
     [Fact]
-    public void With_the_engine_a_distance_in_degrees_is_still_refused_and_says_why()
+    public async Task With_the_engine_a_distance_in_degrees_is_metres_around_the_filter()
     {
-        FeatureQuery query = new(10, spatial: new SpatialFilter(new Point(0, 0), Distance: 5));
+        // The grid's squares are a degree wide; between squares 1 and 2 a point is half a degree, about 55.6 km,
+        // from each. 60 km reaches them and not square 11.
+        RectangleEngine engine = new();
+        GeoParquetFixture.Write(_temporary.File("degrees.parquet"), Shapes.GridColumns, Shapes.Grid(10), srid: 4326);
+        GeoParquetFeatureSource source = new(
+            _folder, new LayerDefinition("degrees", "main", "degrees", "geom", 4326, "objectid", "objectid", isHosted: false),
+            _projector, engine: engine);
 
-        QueryNotSupportedException refused =
-            Assert.Throws<QueryNotSupportedException>(() => Source(new RectangleEngine(), srid: 4326).SchemaFor(query));
-        Assert.Contains("degrees", refused.Message, StringComparison.Ordinal);
+        long[] near = await IdsAsync(source, new FeatureQuery(1000, spatial: new SpatialFilter(new Point(1.5, 0.5), Distance: 60_000)));
+        Assert.Equal([1L, 2L], near);
+        Assert.Equal(60_000, engine.Asked[0].Distance);
+        Assert.Contains(_projector.Definitions, d => d.StartsWith("+proj=aeqd +lat_0=0.5 +lon_0=1.5", StringComparison.Ordinal));
+
+        // 50 km falls short of both.
+        Assert.Empty(await IdsAsync(source, new FeatureQuery(1000, spatial: new SpatialFilter(new Point(1.5, 0.5), Distance: 50_000))));
+
+        QueryNotSupportedException refused = await Assert.ThrowsAsync<QueryNotSupportedException>(() => IdsAsync(
+            source, new FeatureQuery(1000, spatial: new SpatialFilter(new Point(1.5, 0.5), Distance: 1_200_000))));
+        Assert.Contains("1,000 km", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>The box a distance in degrees is looked for in holds the whole circle, and every longitude at a pole.</summary>
+    [Fact]
+    public void A_box_in_degrees_widened_by_metres_holds_the_circle()
+    {
+        Envelope near = GeoParquetFeatureSource.GeographicWidened(new Envelope(29, 41, 29, 41), 10_000);
+        Assert.True(near.MaxY - 41 >= 10_000 / 111_694.0, "a degree of latitude is at most 111,694 m");
+        Assert.True(near.MaxX - 29 >= 10_000 / (111_320 * Math.Cos(41.1 * Math.PI / 180)) * 0.999);
+
+        Envelope polar = GeoParquetFeatureSource.GeographicWidened(new Envelope(0, 89.95, 1, 89.95), 10_000);
+        Assert.Equal(-180, polar.MinX);
+        Assert.Equal(180, polar.MaxX);
     }
 
     [Fact]
