@@ -21280,7 +21280,143 @@ async function loadSettings() {
   // that answer took (SettingsScreenTests caught it over a slow link, 2026-09-29).
   await loadStyleOrigins();
   await loadGeometryService();
+  await loadBasemaps();
 }
+
+/**
+ * Settings' Basemap gallery — ADR-184: a group whose vector tile services and web maps are the basemaps every map
+ * offers, and the default a new map starts on.
+ *
+ * <b>Choosing a group shows what it would offer before it is saved</b>, read with `?gallery=`, because the
+ * default can only be one of those and an administrator should not have to save to find out. *No gallery* is a
+ * choice to preview too, not a return to what is saved — the design review found it jumping back (2026-10-15).
+ */
+let basemapsSaved = null;
+
+/** `preview` undefined: what is saved. A group id: that group. "": no gallery. */
+async function loadBasemaps(preview = undefined) {
+  basemapSay("");
+  // The gallery list stays usable while a preview loads: arrowing through it fires a change per key.
+  $("basemapDefault").disabled = true;
+  $("basemapSave").disabled = true;
+
+  if (preview === "" && basemapsSaved) {
+    drawBasemaps({ ...basemapsSaved, gallery: null, entries: [], galleryMissing: false, defaultMissing: false }, "");
+    return;
+  }
+
+  try {
+    const r = await api(`/admin/settings/basemaps${preview ? `?gallery=${encodeURIComponent(preview)}` : ""}`) || {};
+    // An older answer arriving after a newer choice is not drawn over it.
+    if (preview !== undefined && $("basemapGallery").value !== preview) return;
+    drawBasemaps(r, preview);
+  } catch (e) {
+    basemapSay(e.message, true);
+  }
+}
+
+function drawBasemaps(r, preview = undefined) {
+  if (preview === undefined) basemapsSaved = r;
+  const saved = basemapsSaved || r;
+  const groups = r.groups || [];
+  const entries = r.entries || [];
+  const savedGallery = (saved.gallery && saved.gallery.id) || "";
+  const galleryId = preview !== undefined ? preview : savedGallery;
+
+  $("basemapGallery").innerHTML = [`<option value="">No gallery</option>`,
+    ...groups.map(g => `<option value="${h(g.id)}">${h(g.title)}</option>`)].join("");
+  $("basemapGallery").value = galleryId;
+  $("basemapGallery").disabled = false;
+
+  const maps = entries.filter(e => e.kind === "map").length;
+  const unshared = entries.filter(e => e.sharing && e.sharing !== "public").map(e => e.title);
+
+  $("basemapEntries").innerHTML = !galleryId
+    ? (groups.length === 0
+      ? `No groups yet. <a href="#/groups">Create a group</a>, share vector tile services with it, then choose it here.`
+      : h(r.galleryMissing
+        ? "The gallery group was deleted, so maps offer OpenStreetMap and the map ground only."
+        : "No gallery: maps offer OpenStreetMap and the map ground only."))
+    : h(entries.length === 0
+      ? "Nothing is shared with this group that can be a basemap yet. Share a vector tile service with it from the service's Sharing page."
+      : `${entries.length} basemap${entries.length === 1 ? "" : "s"}: ${entries.map(e => e.title).join(", ")}.`
+        + (maps ? ` ${maps === 1 ? "One is a web map" : `${maps} are web maps`}.` : "")
+        + (unshared.length ? ` People who are not signed in do not see ${unshared.join(", ")}.` : ""));
+
+  // The default: one of the entries, OpenStreetMap, or what this server did before a gallery — its ground.
+  const chosen = galleryId !== savedGallery ? "" : (saved.default || "");
+  $("basemapDefault").innerHTML = [
+    `<option value="">Map ground (set below)</option>`,
+    `<option value="osm">OpenStreetMap</option>`,
+    ...entries.map(e => `<option value="${h(e.id)}">${h(e.title)}</option>`),
+  ].join("");
+  $("basemapDefault").value = [...$("basemapDefault").options].some(o => o.value === chosen) ? chosen : "";
+  drawBasemapDefaultSays(saved.defaultMissing && galleryId === savedGallery);
+
+  $("basemapDefault").disabled = false;
+  $("basemapSave").disabled = false;
+  drawGroundInUse();
+}
+
+/** What a new map starts on with the default as it stands in the list, said as a result. */
+function drawBasemapDefaultSays(missing = false) {
+  const value = $("basemapDefault").value;
+  const ground = typeof groundSaved !== "undefined" && Array.isArray(groundSaved) ? groundSaved : [];
+  $("basemapDefaultSays").textContent = missing
+    ? "The default that was saved is no longer in the gallery, so new maps start on the map ground or OpenStreetMap."
+    : value === "osm" ? "New maps start on OpenStreetMap."
+      : value ? `New maps start on ${$("basemapDefault").selectedOptions[0]?.textContent || "this basemap"}.`
+        : ground.length ? `New maps start on the map ground: ${ground.join(", ")}.`
+          : "New maps start on OpenStreetMap: no map ground is chosen.";
+}
+
+/** Whether the Map ground card below is what new maps start on, said on that card. */
+function drawGroundInUse() {
+  const saved = basemapsSaved || {};
+  const note = $("groundInUse");
+  if (!note) return;
+  const title = saved.default === "osm" ? "OpenStreetMap"
+    : saved.default ? (saved.entries || []).find(e => e.id === saved.default)?.title : null;
+  note.hidden = !title;
+  note.textContent = title
+    ? `Not in use: new maps start on ${title}, the basemap gallery's default. Choose "Map ground (set below)" as the default basemap above to use this.`
+    : "";
+}
+
+function basemapSay(text, refusal = false) {
+  const says = $("basemapSays");
+  // Emptied first, so saving the same thing twice is announced twice.
+  says.textContent = "";
+  if (text) setTimeout(() => { says.textContent = text; }, 30);
+  says.classList.toggle("bad-inline", refusal);
+}
+
+$("basemapGallery").addEventListener("change", () => loadBasemaps($("basemapGallery").value));
+
+$("basemapDefault").addEventListener("change", () => { basemapSay(""); drawBasemapDefaultSays(); });
+
+$("basemapSave").addEventListener("click", async () => {
+  const gallery = $("basemapGallery").value || null;
+  const chosen = $("basemapDefault").value || null;
+  $("basemapSave").disabled = true;
+
+  try {
+    const r = await api("/admin/settings/basemaps", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ gallery, default: chosen }),
+    }) || {};
+    drawBasemaps(r);
+    const offered = gallery
+      ? `Maps offer the ${r.entries?.length || 0} basemap${r.entries?.length === 1 ? "" : "s"} in ${r.gallery?.title || "the group"}.`
+      : "No gallery: maps offer OpenStreetMap and the map ground.";
+    basemapSay(`Saved. ${offered} ${$("basemapDefaultSays").textContent} Maps already open keep their basemap.`);
+  } catch (e) {
+    basemapSay(e.message, true);
+    $("basemapSave").disabled = false;
+  }
+  $("basemapSave").focus();
+});
 
 /** Settings' Geometry service — ADR-149: this server's own, or another the portal names to its clients. */
 async function loadGeometryService() {

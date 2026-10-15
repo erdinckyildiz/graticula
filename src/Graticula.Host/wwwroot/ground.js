@@ -85,6 +85,12 @@ function hasOwnGround() {
 /** The server's ground as last read, bottom first; empty until {@link SERVER_GROUND_READY}. */
 let SERVER_GROUND = [];
 
+/** The portal's default basemap as it published it, or null until {@link SERVER_GROUND_READY} — ADR-184. */
+let SERVER_BASEMAP = null;
+
+/** The query the portal finds its basemap gallery group by, or "" for none — ADR-184. */
+let SERVER_GALLERY_QUERY = "";
+
 /**
  * The ground the operator chose for the whole server — Q-110, ADR-086.
  *
@@ -104,6 +110,8 @@ const SERVER_GROUND_READY = fetch(`${location.origin}/sharing/rest/portals/self?
 })
   .then(response => (response.ok ? response.json() : {}))
   .then(portal => {
+    SERVER_BASEMAP = portal?.defaultBasemap || null;
+    SERVER_GALLERY_QUERY = typeof portal?.basemapGalleryGroupQuery === "string" ? portal.basemapGalleryGroupQuery : "";
     SERVER_GROUND = (portal?.defaultBasemap?.baseMapLayers || [])
       .filter(layer => layer.layerType === "VectorTileLayer" && layer.id)
       .map(layer => layer.id);

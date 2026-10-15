@@ -50,7 +50,7 @@ namespace Graticula.Host;
 /// nothing about the rest.
 /// </para>
 /// </remarks>
-internal static class PortalEndpoints
+internal static partial class PortalEndpoints
 {
     /// <summary>Where the surface lives.</summary>
     public const string Path = "/sharing/rest";
@@ -134,6 +134,11 @@ internal static class PortalEndpoints
         // a body, and a GET-only route answers 405 to the one request that lists
         // anybody's content.
         app.MapMethods($"{Path}/search", ["GET", "HEAD", "POST"], SearchAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>A group's own content search — ADR-184, 2026-10-15.</b> The Maps SDK's basemap gallery lists a group's
+        // Web Maps here rather than through `search?q=group:`, and found nothing but a 404 until this existed.
+        app.MapMethods($"{Path}/content/groups/{{groupId}}/search", ["GET", "HEAD", "POST"], GroupSearchAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         // The signed-in user's own content, which is the first thing Pro opens.
@@ -372,6 +377,13 @@ internal static class PortalEndpoints
     private static async Task<object> DefaultBasemapAsync(
         HttpContext context, RequestPrincipal current, CancellationToken cancellation)
     {
+        // ADR-184: the gallery's chosen default first, when this caller may draw it; then ADR-086's order.
+        if (await ChosenBasemapAsync(context, await GalleryAsync(context, cancellation).ConfigureAwait(false), cancellation)
+                .ConfigureAwait(false) is { } chosen)
+        {
+            return chosen;
+        }
+
         ServerGround.Reading ground = await context.RequestServices
             .GetRequiredService<ServerGround>()
             .ReadAsync(cancellation)
@@ -485,6 +497,10 @@ internal static class PortalEndpoints
             // The store unreachable: this server's own, as before the setting existed.
         }
 
+        // ADR-184: the basemap gallery, named where a portal client looks for it.
+        BasemapGallery.Reading gallery = await GalleryAsync(context, cancellation).ConfigureAwait(false);
+        object defaultBasemap = await DefaultBasemapAsync(context, current, cancellation).ConfigureAwait(false);
+
         return Results.Ok(new
         {
             // <b>Sixteen characters, because that is what a portal's id is.</b>
@@ -546,8 +562,9 @@ internal static class PortalEndpoints
             homePageFeaturedContentCount = 0,
             rotatorPanels = Array.Empty<object>(),
             livingAtlasGroupQuery = string.Empty,
-            basemapGalleryGroupQuery = string.Empty,
-            vectorBasemapGalleryGroupQuery = string.Empty,
+            basemapGalleryGroupQuery = gallery.Query,
+            vectorBasemapGalleryGroupQuery = gallery.Query,
+            useVectorBasemaps = gallery.Group is not null,
             stylesGroupQuery = string.Empty,
             symbolSetsGroupQuery = string.Empty,
             colorSetsGroupQuery = string.Empty,
@@ -566,7 +583,11 @@ internal static class PortalEndpoints
             // <b>The ground the operator chose, where ArcGIS keeps it — Q-110, ADR-086.</b> Map Viewer and
             // the Maps SDK read a portal's default basemap from here, and so do this server's own map
             // pages, so one Save changes the ground everywhere a map is drawn from this portal.
-            defaultBasemap = await DefaultBasemapAsync(context, current, cancellation).ConfigureAwait(false),
+            defaultBasemap,
+
+            // The Maps SDK and Map Viewer open on this one when `useVectorBasemaps` is true, which a gallery makes it;
+            // the same basemap either way, so the two never disagree.
+            defaultVectorBasemap = defaultBasemap,
 
             helperServices = elsewhere is { Length: > 0 }
                 ? (object)new { geometry = new { url = elsewhere } }
@@ -877,6 +898,12 @@ internal static class PortalEndpoints
         // by the fields a group publishes — and a clause it cannot evaluate returns
         // nothing rather than everything, which is the rule that keeps `type:Feature
         // Service` from matching every group on the server.
+        // ADR-184 §5.4: the gallery group to whoever the portal names it to, signed out included.
+        if (await GalleryGroupAsync(context, directory, mine, cancellation).ConfigureAwait(false) is { } gallery)
+        {
+            mine = [.. mine, gallery];
+        }
+
         List<object> results = [.. mine.Where(group => PortalQuery.Matches(group, query))];
 
         return Results.Ok(new
@@ -1373,6 +1400,9 @@ internal static class PortalEndpoints
             }
         }
 
+        // ADR-184: the gallery's vector tile services as its Web Maps, to a search that looks in the gallery.
+        results.AddRange(await BasemapsListedAsync(context, visible, query, cancellation).ConfigureAwait(false));
+
         // Saved web maps, under the same query and the same sharing rule (ADR-079 §5.3).
         //
         // <b>With the groups they are shared into, since 2026-10-13</b> (D-292). A map and an image service
@@ -1443,6 +1473,57 @@ internal static class PortalEndpoints
         });
     }
 
+    /// <summary>
+    /// One group's items: the portal's search, narrowed to what is shared with the group — ADR-184.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same listing and the same sharing rule as <see cref="SearchAsync"/></b>, with the group as one more
+    /// clause, so an item is in a group's search exactly when <c>search?q=group:</c> would find it.
+    /// </remarks>
+    private static async Task<IResult> GroupSearchAsync(
+        HttpContext context,
+        CatalogFallback catalog,
+        IWebMapStore maps,
+        ICoverageCatalog coverages,
+        string groupId,
+        CancellationToken cancellation)
+    {
+        string asked = context.Request.Query["q"].ToString();
+
+        if (asked.Length == 0 && context.Request.HasFormContentType)
+        {
+            IFormCollection form = await context.Request.ReadFormAsync(cancellation)
+                .ConfigureAwait(false);
+
+            asked = form["q"].ToString();
+        }
+
+        if (!Guid.TryParse(groupId, out Guid group))
+        {
+            return Unknown("Group");
+        }
+
+        string query = string.IsNullOrWhiteSpace(asked) ? $"group:{group:N}" : $"group:{group:N} AND ({asked})";
+
+        if (await ListAsync(context, catalog, maps, coverages, query, cancellation).ConfigureAwait(false)
+            is not { } listed)
+        {
+            return Unavailable();
+        }
+
+        List<object> results = [.. listed.Select(entry => entry.Item)];
+
+        return Results.Ok(new
+        {
+            query = asked,
+            total = results.Count,
+            start = 1,
+            num = results.Count,
+            nextStart = -1,
+            results,
+        });
+    }
+
     private static async Task<IResult> ItemAsync(
         HttpContext context,
         CatalogFallback catalog,
@@ -1482,6 +1563,12 @@ internal static class PortalEndpoints
                         .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item);
                 }
             }
+        }
+
+        // ADR-184: a gallery entry, which is a Web Map of one of these services.
+        if (await BasemapServiceAsync(context, visible, id, cancellation).ConfigureAwait(false) is { } basemap)
+        {
+            return Results.Ok(BasemapItem(context, basemap));
         }
 
         IReadOnlyList<PublishedCoverage>? images =
@@ -1585,9 +1672,12 @@ internal static class PortalEndpoints
             return;
         }
 
+        PublishedService? basemap = await BasemapServiceAsync(context, visible, id, cancellation).ConfigureAwait(false);
+
         foreach (PublishedService service in visible)
         {
-            if (!ItemsOf(context, service).Any(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase))
+            if ((service != basemap
+                    && !ItemsOf(context, service).Any(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)))
                 || Pictured(service) is not { } layer)
             {
                 continue;
@@ -1656,6 +1746,11 @@ internal static class PortalEndpoints
             {
                 return Results.Ok(new { });
             }
+        }
+
+        if (await BasemapServiceAsync(context, visible, id, cancellation).ConfigureAwait(false) is { } basemap)
+        {
+            return Results.Ok(BasemapData(context, basemap));
         }
 
         IReadOnlyList<PublishedCoverage>? images =

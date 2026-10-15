@@ -1,0 +1,37 @@
+<!doctype html><html><head><meta charset="utf-8"><title>basemap gallery probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css">
+<script src="https://js.arcgis.com/4.29/"></script>
+<style>html,body,#v{margin:0;height:100%;width:100%}</style></head><body><div id="v"></div>
+<script>
+// ADR-184 condition 1: the Maps SDK's own BasemapGallery, with the portal set to this server and signed out, lists
+// the gallery group's basemaps and opens on the default. ?portal=<url> picks the portal. Run with drive.py.
+const P = new URLSearchParams(location.search).get("portal");
+require(["esri/portal/Portal", "esri/config", "esri/Map", "esri/views/MapView", "esri/widgets/BasemapGallery"],
+function (Portal, config, Map, MapView, BasemapGallery) {
+  config.portalUrl = P;
+  const portal = new Portal({ url: P });
+  portal.load()
+    .then(function () { return portal.fetchBasemaps(); })
+    .then(function (basemaps) {
+      return Promise.all(basemaps.map(function (b) { return b.load().then(function () {
+        return { title: b.title, layers: b.baseLayers.toArray().map(function (l) { return l.type + " " + (l.url || ""); }) }; }); }))
+        .then(function (gallery) {
+          return portal.fetchDefaultBasemap ? portal.fetchDefaultBasemap() : portal.defaultBasemap;
+        }).then(function (def) { return { def: def }; })
+        .then(function (o) {
+          const def = o.def || portal.defaultBasemap;
+          const map = new Map({ basemap: def });
+          const view = new MapView({ container: "v", map: map, center: [29, 41], zoom: 6 });
+          view.ui.add(new BasemapGallery({ view: view, source: { portal: portal } }), "top-right");
+          return view.when().then(function () { return map.basemap.load(); }).then(function () {
+            return Promise.all(basemaps.map(function (b) { return b.load().then(function () { return { title: b.title, layers: b.baseLayers.toArray().map(function (l) { return l.type + " " + (l.url || ""); }) }; }); }))
+              .then(function (gallery) {
+                window.__result = JSON.stringify({ query: portal.basemapGalleryGroupQuery, gallery: gallery,
+                  defaultLayers: map.basemap.baseLayers.toArray().map(function (l) { return l.type + " " + (l.url || ""); }) });
+              });
+          });
+        });
+    })
+    .catch(function (e) { window.__result = "ERROR " + (e && e.message) + " " + JSON.stringify(e && e.details || {}); });
+});
+</script></body></html>

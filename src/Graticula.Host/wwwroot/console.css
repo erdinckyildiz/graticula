@@ -4293,6 +4293,8 @@ td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hi
 /* <b>The Settings screen's card — V-70.</b> A setting row stops at its own width, so a card as wide as
    the page left 424 pixels between a label and its box (design review 2026-09-24). */
 .settingcard { max-width: 760px; }
+/* ADR-184 review: the gallery card's two lists one width, and never past the card on a phone. */
+#basemapGallery, #basemapDefault { width: min(100%, 28rem); box-sizing: border-box; }
 
 /* A label over its box at phone width, rather than a label broken over two lines beside it. */
 @media (max-width: 560px) {

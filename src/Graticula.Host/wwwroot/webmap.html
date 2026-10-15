@@ -50,7 +50,8 @@
      greyed out — read as broken rather than as not theirs. The tab reads as About instead. */
   body.reader [data-act="style"], body.reader [data-act="popup"], body.reader [data-act="labels"],
   body.reader .lstyle, body.reader #saved,
-  body.reader #mapForm > :not(#mapReadOnly):not(#mapOwner):not(#mapStatus) { display: none; }
+  /* ADR-184's review: a reader may switch the basemap, as in ArcGIS's Map Viewer; nothing they change is saved. */
+  body.reader #mapForm > :not(#mapReadOnly):not(#mapOwner):not(#mapStatus):not([for="mapBasemap"]):not(#mapBasemap) { display: none; }
   #mapReadOnly h3 { margin: 0 0 6px; font-size: 16px; }
   #headSave[aria-disabled="true"] { opacity: .45; cursor: default; }
   #headSave[aria-disabled="true"]:hover { filter: none; }
@@ -470,9 +471,8 @@
             <p class="warnnote" id="sharingNote" hidden></p>
           </div>
           <label class="field" for="mapBasemap">Basemap</label>
-          <!-- The server's map ground is offered once the portal says it has one (ADR-086). -->
+          <!-- Filled by wmDrawBaseMapChoices: the portal's basemap gallery (ADR-184), the server's ground (ADR-086). -->
           <select id="mapBasemap">
-            <option value="ground" hidden>This server's map ground</option>
             <option value="osm">OpenStreetMap</option>
             <option value="none">None</option>
           </select>

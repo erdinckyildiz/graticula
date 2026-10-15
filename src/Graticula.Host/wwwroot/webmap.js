@@ -441,11 +441,82 @@ function wmBaseMapJson(which) {
     };
 }
 
-/** Which basemap the document asks for, in the two words this page can draw. */
+/**
+ * The basemap gallery the portal names, as `{ id, title, baseMap }` — ADR-184, 2026-10-15.
+ *
+ * <b>Read the way the Maps SDK reads it</b>: the portal's `basemapGalleryGroupQuery` finds the group, the group's
+ * Web Maps are the basemaps, and each one's `baseMap` is its data. A vector tile service shared with the gallery
+ * group is answered as one of those Web Maps, so this page and Map Viewer offer the same list.
+ */
+let wmGallery = [];
+
+async function wmLoadGallery() {
+  const query = typeof SERVER_GALLERY_QUERY === "string" ? SERVER_GALLERY_QUERY : "";
+  wmGallery = [];
+  if (!query) return wmGallery;
+
+  try {
+    const groups = await wmFetch(`/sharing/rest/community/groups?q=${encodeURIComponent(query)}&num=1&f=json`);
+    const group = groups && Array.isArray(groups.results) ? groups.results[0] : null;
+    if (!group) return wmGallery;
+
+    const found = await wmFetch(`/sharing/rest/search?q=${
+      encodeURIComponent(`group:${group.id} AND type:"Web Map"`)}&num=100&f=json`);
+    const items = ((found && found.results) || []).filter(item => item.type === "Web Map");
+    const read = await Promise.all(items.map(item =>
+      wmFetch(`/sharing/rest/content/items/${encodeURIComponent(item.id)}/data?f=json`)
+        .then(data => data && data.baseMap && Array.isArray(data.baseMap.baseMapLayers) && data.baseMap.baseMapLayers.length
+          ? { id: item.id, title: item.title || data.baseMap.title || "Basemap", baseMap: data.baseMap }
+          : null)
+        .catch(() => null)));
+
+    wmGallery = read.filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
+  } catch {
+    // No gallery rather than no map: the list keeps OpenStreetMap and None.
+  }
+
+  return wmGallery;
+}
+
+/** What a basemap draws, as one string, so two basemaps naming the same layers are the same basemap. */
+function wmBaseMapKey(baseMap) {
+  return wmJson(((baseMap && baseMap.baseMapLayers) || []).map(l =>
+    l.layerType === "VectorTileLayer" ? `vt:${l.styleUrl || l.url || l.id}` : l.layerType));
+}
+
+/**
+ * Which basemap the document asks for: a gallery entry as `gallery:<id>`, the server's ground, OpenStreetMap,
+ * none, or `own` for a basemap of its own that is none of those.
+ */
 function wmBaseMapOf(doc) {
   const layers = (doc.baseMap && doc.baseMap.baseMapLayers) || [];
   if (layers.length === 0) return "none";
-  return layers.some(l => l.layerType === "VectorTileLayer") ? "ground" : "osm";
+
+  const key = wmBaseMapKey(doc.baseMap);
+  const entry = wmGallery.find(e => wmBaseMapKey(e.baseMap) === key);
+  if (entry) return `gallery:${entry.id}`;
+  if (!layers.some(l => l.layerType === "VectorTileLayer")) return "osm";
+  return wmGroundBaseMapLayers().length && key === wmBaseMapKey({ baseMapLayers: wmGroundBaseMapLayers() })
+    ? "ground"
+    : "own";
+}
+
+/** Fills the basemap list: the gallery, the server's ground when it is not one of them, OpenStreetMap and None. */
+function wmDrawBaseMapChoices() {
+  const select = wm$("mapBasemap");
+  const which = wmState.doc ? wmBaseMapOf(wmState.doc) : "osm";
+  const groundKey = wmBaseMapKey({ baseMapLayers: wmGroundBaseMapLayers() });
+  const groundOffered = wmGroundBaseMapLayers().length > 0
+    && !wmGallery.some(e => wmBaseMapKey(e.baseMap) === groundKey);
+
+  select.innerHTML = [
+    ...wmGallery.map(e => `<option value="gallery:${wmEscape(e.id)}">${wmEscape(e.title)}</option>`),
+    groundOffered || which === "ground" ? `<option value="ground">This server's map ground</option>` : "",
+    `<option value="osm">OpenStreetMap</option>`,
+    `<option value="none">None</option>`,
+    which === "own" ? `<option value="own">This map's own basemap</option>` : "",
+  ].join("");
+  select.value = which;
 }
 
 /** Builds the ground layers named by a basemap once, from each service's own style. */
@@ -472,12 +543,13 @@ function wmDrawGround(baseMapLayers) {
   }
 }
 
-/** Shows the basemap a document asks for: the ground, OpenStreetMap, or nothing. */
+/** Shows the basemap a document asks for: its vector tile layers, OpenStreetMap, both, or nothing. */
 function wmShowBaseMap(doc) {
-  const which = wmBaseMapOf(doc);
-  wmBase.setVisible(which === "osm");
-  wmGround.setVisible(which === "ground");
-  if (which === "ground") wmDrawGround((doc.baseMap && doc.baseMap.baseMapLayers) || []);
+  const layers = (doc.baseMap && doc.baseMap.baseMapLayers) || [];
+  const tiles = layers.some(l => l.layerType === "VectorTileLayer");
+  wmBase.setVisible(layers.some(l => l.layerType === "OpenStreetMap"));
+  wmGround.setVisible(tiles);
+  if (tiles) wmDrawGround(layers);
 }
 
 function wmLayers() {
@@ -2983,11 +3055,7 @@ function wmDrawMapForm() {
     : "";
   wm$("tab-map").textContent = reading ? "About" : "Map";
   wm$("mapSharing").value = meta.sharing || "private";
-  const groundOption = wm$("mapBasemap").querySelector('option[value="ground"]');
-  if (groundOption) {
-    groundOption.hidden = wmGroundBaseMapLayers().length === 0 && wmBaseMapOf(wmState.doc) !== "ground";
-  }
-  wm$("mapBasemap").value = wmBaseMapOf(wmState.doc);
+  wmDrawBaseMapChoices();
 
   // <b>Not changed while saving</b> — see wmSave — so these only say whether saving is possible.
   wm$("mapSave").disabled = !!blocked || !ownsIt;
@@ -3129,7 +3197,9 @@ wm$("mapSharing").addEventListener("change", () => {
 });
 wm$("mapBasemap").addEventListener("change", () => {
   const which = wm$("mapBasemap").value;
-  wmState.doc.baseMap = wmBaseMapJson(which);
+  if (which === "own") return;
+  const entry = which.startsWith("gallery:") ? wmGallery.find(e => `gallery:${e.id}` === which) : null;
+  wmState.doc.baseMap = entry ? JSON.parse(wmJson(entry.baseMap)) : wmBaseMapJson(which);
   wmShowBaseMap(wmState.doc);
   wmMarkDirty();
 });
@@ -3392,6 +3462,9 @@ async function wmStart() {
     // Anonymous, or the server is not answering; the map will say which when it loads.
   }
 
+  // ADR-184: the gallery, read as the signed-in reader may see it, without holding up the map.
+  wmLoadGallery().then(() => { if (wmState.doc) wmDrawBaseMapChoices(); });
+
   // <b>A reader who is not signed in reads the map; nothing about it is theirs to change — 2026-09-30.</b>
   // The design review opened a public map signed out and was offered Add layer, Remove, a filter box and
   // a *My content* link that led to a sign-in. Moving the view and switching layers stay: those are
@@ -3440,9 +3513,14 @@ async function wmStart() {
 
   wmState.doc = wmEmptyDocument();
 
-  // <b>A new map starts on the server's ground when the operator chose one</b> — the portal's default
-  // basemap, as a new map in Map Viewer starts on the organisation's (ADR-086 §5.3).
-  if (wmGroundBaseMapLayers().length > 0) wmState.doc.baseMap = wmBaseMapJson("ground");
+  // <b>A new map starts on the portal's default basemap</b>, as a new map in Map Viewer starts on the
+  // organisation's: the gallery's chosen one (ADR-184), else the server's ground (ADR-086 §5.3), else OpenStreetMap.
+  const startOn = typeof SERVER_BASEMAP !== "undefined" ? SERVER_BASEMAP : null;
+  if (startOn && Array.isArray(startOn.baseMapLayers) && startOn.baseMapLayers.length) {
+    wmState.doc.baseMap = JSON.parse(wmJson(startOn));
+  } else if (wmGroundBaseMapLayers().length > 0) {
+    wmState.doc.baseMap = wmBaseMapJson("ground");
+  }
 
   if (service) {
     wmState.meta.title = service.split("/").pop();

@@ -686,6 +686,7 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Host.Saml.SamlMetadata>();
         builder.Services.AddSingleton<ServerPageSize>();
         builder.Services.AddSingleton<ServerGround>();
+        builder.Services.AddSingleton<BasemapGallery>();
 
         // ADR-094: the external origins a style may fetch from, in the same store.
         builder.Services.AddSingleton<StyleOriginList>();

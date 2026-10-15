@@ -75,6 +75,11 @@ at most eight. Set by `PUT /admin/settings/ground` with `admin:manageServer`; re
 5.2 **Each name must be a service that serves vector tiles when it is saved**; a name with no folder is looked
 for in `hosted` too. Sharing is not required: a ground for a group is a legitimate choice.
 
+> **Amended 2026-10-15 by [ADR-184](ADR-184-the-basemap-gallery-is-a-group.md), owner decision.** A basemap
+> gallery — a group whose vector tile services and web maps are basemaps — now sits beside the ground, and the
+> default an administrator chooses from it is what `defaultBasemap` carries. The ground below is used only when no
+> default is chosen; `osm` chosen is OpenStreetMap even with a ground set.
+
 5.3 **`portals/self.defaultBasemap` carries it**, as `VectorTileLayer` entries naming only what the caller may
 draw — sharing, running, tiles on. With nothing left it is OpenStreetMap, as `layerType: "OpenStreetMap"`.
 
@@ -138,6 +143,9 @@ None recorded.
    `PUT /admin/settings/ground` with the five, bottom first, answered each as existing, public, running and
    drawable for everybody. Read back anonymously, `portals/self`'s `defaultBasemap` is *Ground*: five
    `VectorTileLayer`s at `hosted/tr_kara` … `hosted/tr_yer`, where it was `OpenStreetMap` before.
+   **Reversed 2026-10-15 at the owner's request** (*"zemini boşaltıp osm kullanalım"*): the showcase's ground was
+   cleared with `PUT /admin/settings/ground` and `portals/self` reads `OpenStreetMap` again. The condition stays
+   discharged — it was met, and then a later decision undid it.
 2. **An ArcGIS client is seen drawing it** — Map Viewer, or the Maps SDK with the portal set, opening a new map
    on this server's ground. **DISCHARGED 2026-10-14**, with the Maps SDK for JavaScript 4.30 in headless Brave, from a
    page on another origin with `esriConfig.portalUrl` set to the server: `new Portal().load()`, then a new `Map` on

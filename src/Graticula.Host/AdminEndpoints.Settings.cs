@@ -47,6 +47,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/settings/style-origins", SetStyleOriginsAsync);
         app.MapGet("/admin/settings/geometry-service", GeometryServiceAsync);
         app.MapPut("/admin/settings/geometry-service", SetGeometryServiceAsync);
+        MapBasemapGallery(app);
     }
 
     /// <summary>The setting's name in the store — ADR-149.</summary>

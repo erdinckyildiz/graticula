@@ -811,6 +811,31 @@
     </div>
 
     <!--
+      <b>ADR-184, the owner's decision of 2026-10-15:</b> the basemap gallery is a group, as ArcGIS Enterprise's
+      is, and every vector tile service shared with it is a basemap; the default is one of them, or OpenStreetMap.
+    -->
+    <div class="panel pad settingcard">
+      <h4>Basemap gallery</h4>
+      <p class="hint">The group whose vector tile services (in Web Mercator) and web maps appear as basemaps in Map
+        Viewer, ArcGIS Pro and Maps SDK apps, as an ArcGIS Enterprise basemap gallery does. Anybody who can share into the
+        group can add one.</p>
+
+      <label class="q" for="basemapGallery">Gallery group</label>
+      <select id="basemapGallery" disabled aria-describedby="basemapEntries"></select>
+      <p class="hint" id="basemapEntries" role="status" aria-live="polite"></p>
+
+      <label class="q" for="basemapDefault">Default basemap</label>
+      <select id="basemapDefault" disabled aria-describedby="basemapDefaultSays"></select>
+      <p class="hint" id="basemapDefaultSays">What a new map starts on.</p>
+
+      <div class="row">
+        <button class="primary" id="basemapSave" disabled>Save basemaps</button>
+      </div>
+
+      <p class="hint" id="basemapSays" role="status" aria-live="polite"></p>
+    </div>
+
+    <!--
       <b>Q-110, the owner's answer of 2026-09-24 (ADR-086):</b> "Yönetici seçer, yoksa OSM karoları
       kalır." The operator picks this server's own tile services as the ground under every map; with none
       picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.
@@ -819,8 +844,10 @@
       <h4>Map ground</h4>
       <p class="hint">The basemap under the data on every map this server shows: the console, the viewer,
         and ArcGIS clients that use the portal's default basemap. Choose your own vector tile services, such
-        as an OpenStreetMap extract you imported. With none chosen, maps use OpenStreetMap's public tiles.</p>
+        as an OpenStreetMap extract you imported. With none chosen, maps use OpenStreetMap's public tiles. A default
+        chosen in the basemap gallery above is used instead of this.</p>
       <p class="hint">People who chose their own ground in the viewer keep it.</p>
+      <p class="warnnote" id="groundInUse" hidden></p>
 
       <!--
         <b>Two lists, because the design review of 2026-09-24 found one list doing two jobs.</b> The first
