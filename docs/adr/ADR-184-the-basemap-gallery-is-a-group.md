@@ -56,10 +56,9 @@ them — where the owner asked for one. And not the owner's words.
 
 ## 3. Counterarguments to the preferred option
 
-- **Q-119 says no group is visible to an anonymous caller**, and a showcase visitor's Map Viewer is anonymous. A
-  gallery nobody signed out can find offers them only the default. §5.4 answers the gallery group — that group
-  alone, and only its public face — to anybody whose portal names it, because `portals/self` already names it to
-  them. This is a narrowing of Q-119, not a reversal, and it is `INFERRED` (condition 3).
+- **Q-119 says no group is visible to an anonymous caller**, and a showcase visitor's Map Viewer is anonymous, so
+  a signed-out visitor has the default basemap and no gallery to choose from. That was first built the other way —
+  the gallery group answered to everybody, `INFERRED` — and the owner decided against it the same day (§5.4).
 - **A synthesised Web Map is not editable**: `content/items/{id}/update` has nothing to write to. A client that
   offers *Save as* on a gallery entry saves a new map, which is the right outcome.
 
@@ -90,10 +89,12 @@ qualified name — the spelling ADR-086's ground already uses, so `ground.js` re
 choice, or the caller may not read it, the order is ADR-086's: the ground, then OpenStreetMap. `osm` chosen is
 OpenStreetMap even when a ground is set.
 
-5.4 **The gallery group is found by anybody whose portal names it.** `community/groups` answers it to a caller who
-is outside it — signed out included — with the fields every outsider is already shown (ADR-036 §4g). The item
-search answers `group:<gallery>` with the entries §5.2 gives *that* caller, so a signed-out caller sees the public
-ones. A group's own content search, `content/groups/{id}/search`, answers the same listing narrowed to the group,
+5.4 **The gallery group is found by every signed-in caller, and by nobody signed out.** `community/groups` answers
+it to a signed-in caller outside it with the fields every outsider is already shown (ADR-036 §4g). **A signed-out
+caller is not given it — owner decision 2026-10-15, Q-174: *"giriş yapmamış kullanıcı basemap seçemesin"*** — so
+Q-119's rule stands whole, and a signed-out caller is given the default basemap (§5.3, which depends on the
+default's own sharing, not on the group) and nothing to choose from. The item search answers `group:<gallery>` with
+the entries §5.2 gives *that* caller. A group's own content search, `content/groups/{id}/search`, answers the same listing narrowed to the group,
 because that is where the SDK asks.
 
 5.5 **The pages offer the gallery.** Map Viewer's basemap list holds the gallery's entries, OpenStreetMap and
@@ -104,8 +105,9 @@ the default from its entries.
 gallery could not be turned off; the Map ground card still saying *nothing chosen: OpenStreetMap* while a gallery
 default was in force; the basemap list hidden from a signed-out reader, whom ArcGIS's Map Viewer lets switch; the
 group preview unannounced and the list disabled between arrow keys; and no next step when the server has no group.
-Each is repaired: *No gallery* previews as a choice, the ground card says when it is not in use, a reader switches
-the basemap without saving, the preview is a live region and a late answer is not drawn over a newer choice.
+Each is repaired except the reader's: *No gallery* previews as a choice, the ground card says when it is not in use,
+the preview is a live region and a late answer is not drawn over a newer choice. **A signed-out reader does not
+switch the basemap** — briefly built, and then decided against by the owner (§5.4).
 **Not repaired:** a new map opens at world scale on a default that covers a city, and shows little there; opening
 on the default's extent is a change to how every new map opens, and is left for when it is asked for.
 
@@ -144,11 +146,14 @@ None recorded.
 
 ## 11. Conditions
 
-1. **The Maps SDK's own BasemapGallery lists the gallery against this server**, signed out, and its default draws.
+1. **The Maps SDK's own BasemapGallery lists the gallery against this server**, and its default draws.
    **DISCHARGED 2026-10-15** against the local fixture with Maps SDK 4.29 (§4): the first run found the missing
    `content/groups/{id}/search`; after it, the widget listed `ci_parcels` with its thumbnail and the map's basemap
-   was the gallery's default. Not yet run against the showcase, which has no gallery group.
+   was the gallery's default. That run was signed out, while §5.4 still answered the group to everybody; signed in,
+   the SDK makes the same three requests, which `TheBasemapGalleryIsAGroupTests` walks with a token. Not yet run
+   against the showcase, which has no gallery group.
 2. **ArcGIS Pro's basemap gallery lists it** when signed in to this portal.
-3. **`INFERRED`: the gallery group is visible to a signed-out caller (§5.4)** — derived from *"insanlar … kendi
-   basemaplerini tanımlayabilir olmalı"* and from the showcase being visited signed out; Q-119 removed public
-   groups, and this answers one group to everybody. For the owner to confirm.
+3. ~~**`INFERRED`: the gallery group is visible to a signed-out caller (§5.4)**~~ **DISCHARGED 2026-10-15 by owner
+   decision, the other way:** asked whether a signed-out caller still gets the default without the group, and told
+   yes, the owner answered *"giriş yapmamış kullanıcı basemap seçemesin"*. The group is answered to signed-in callers
+   only, and a signed-out reader's Map Viewer offers no basemap list (Q-174).

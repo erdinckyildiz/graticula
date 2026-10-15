@@ -16,8 +16,8 @@ namespace Graticula.Conformance.Tests;
 /// <para>
 /// <b>The SDK's own path is what is walked</b>: <c>portals/self</c>'s <c>basemapGalleryGroupQuery</c> to
 /// <c>community/groups</c>, its first group to <c>content/groups/{id}/search?q=type:"Web Map"</c>, and each result's
-/// <c>data</c> for its <c>baseMap</c> — read from <c>esri/portal/Portal.js</c>, 4.31. Signed out, because a
-/// showcase's visitors are.
+/// <c>data</c> for its <c>baseMap</c> — read from <c>esri/portal/Portal.js</c>, 4.31. Signed in, because a signed-out
+/// caller finds no group (Q-174) and is given the default alone, which is asserted too.
 /// </para>
 /// <para>
 /// <b>In the catalogue-walk collection, because it publishes</b> (D-185), and the gallery is put back in
@@ -34,7 +34,7 @@ public sealed class TheBasemapGalleryIsAGroupTests : ArcGisClient
     private static JsonElement Root(string body) => JsonDocument.Parse(body).RootElement;
 
     [Fact]
-    public async Task A_vector_tile_service_shared_with_the_gallery_is_a_basemap_the_SDK_finds_and_can_be_the_default()
+    public async Task A_vector_tile_service_shared_with_the_gallery_is_a_basemap_the_SDK_finds_and_can_be_the_default_for_everybody()
     {
         await RequireServerAsync();
 
@@ -79,27 +79,33 @@ public sealed class TheBasemapGalleryIsAGroupTests : ArcGisClient
             Assert.Contains(Open, titles);
             Assert.Contains(Closed, titles);
 
-            // ---- the SDK's path, signed out ----
+            // ---- the SDK's path, signed in ----
             (HttpStatusCode selfStatus, string self) = await AnonymousAsync("/sharing/rest/portals/self");
             Assert.Equal(HttpStatusCode.OK, selfStatus);
             string query = Root(self).GetProperty("basemapGalleryGroupQuery").GetString()!;
             Assert.False(string.IsNullOrEmpty(query), "portals/self names no basemap gallery.");
 
-            (_, string groups) = await AnonymousAsync($"/sharing/rest/community/groups?q={Uri.EscapeDataString(query)}&num=1");
+            (_, string groups) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/community/groups?q={Uri.EscapeDataString(query)}&num=1&f=json");
             JsonElement found = Root(groups).GetProperty("results");
-            Assert.True(found.GetArrayLength() == 1, $"A signed-out caller cannot find the gallery group by '{query}': {groups}");
+            Assert.True(found.GetArrayLength() == 1, $"A signed-in caller cannot find the gallery group by '{query}': {groups}");
             string groupId = found[0].GetProperty("id").GetString()!;
+
+            // <b>Not signed out — owner decision, Q-174:</b> a signed-out caller finds no group, the gallery included, so it
+            // has the default basemap and nothing to choose from.
+            (_, string theirGroups) = await AnonymousAsync($"/sharing/rest/community/groups?q={Uri.EscapeDataString(query)}&num=1");
+            Assert.True(Root(theirGroups).GetProperty("results").GetArrayLength() == 0,
+                $"A signed-out caller found the gallery group: {theirGroups}");
 
             // The group's own content search, which is where the SDK asks — a 404 there was the first thing the real
             // gallery widget found.
-            (_, string items) = await AnonymousAsync(
-                $"/sharing/rest/content/groups/{groupId}/search?q={Uri.EscapeDataString("type:\"Web Map\" -type:\"Web Application\"")}&num=100&sortField=name&sortOrder=desc");
+            (_, string items) = await AdminAsync(HttpMethod.Get,
+                $"/sharing/rest/content/groups/{groupId}/search?q={Uri.EscapeDataString("type:\"Web Map\" -type:\"Web Application\"")}&num=100&sortField=name&sortOrder=desc&f=json");
             JsonElement[] entries = [.. Root(items).GetProperty("results").EnumerateArray()];
 
-            // The public one, as a Web Map; the private one not to a stranger.
+            // Each service as a Web Map.
             JsonElement entry = Assert.Single(entries, e => e.GetProperty("title").GetString() == Open);
             Assert.Equal("Web Map", entry.GetProperty("type").GetString());
-            Assert.DoesNotContain(entries, e => e.GetProperty("title").GetString() == Closed);
+            Assert.Contains(entries, e => e.GetProperty("title").GetString() == Closed);
             string entryId = entry.GetProperty("id").GetString()!;
 
             (_, string data) = await AnonymousAsync($"/sharing/rest/content/items/{entryId}/data");

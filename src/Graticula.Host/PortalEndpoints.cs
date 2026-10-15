@@ -898,7 +898,7 @@ internal static partial class PortalEndpoints
         // by the fields a group publishes — and a clause it cannot evaluate returns
         // nothing rather than everything, which is the rule that keeps `type:Feature
         // Service` from matching every group on the server.
-        // ADR-184 §5.4: the gallery group to whoever the portal names it to, signed out included.
+        // ADR-184 §5.4: the gallery group to every signed-in caller the portal names it to; never signed out (Q-174).
         if (await GalleryGroupAsync(context, directory, mine, cancellation).ConfigureAwait(false) is { } gallery)
         {
             mine = [.. mine, gallery];

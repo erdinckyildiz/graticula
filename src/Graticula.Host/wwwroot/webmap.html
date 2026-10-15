@@ -50,8 +50,8 @@
      greyed out — read as broken rather than as not theirs. The tab reads as About instead. */
   body.reader [data-act="style"], body.reader [data-act="popup"], body.reader [data-act="labels"],
   body.reader .lstyle, body.reader #saved,
-  /* ADR-184's review: a reader may switch the basemap, as in ArcGIS's Map Viewer; nothing they change is saved. */
-  body.reader #mapForm > :not(#mapReadOnly):not(#mapOwner):not(#mapStatus):not([for="mapBasemap"]):not(#mapBasemap) { display: none; }
+  /* A reader does not choose the basemap: owner decision 2026-10-15, Q-174 (ADR-184 §5.4). */
+  body.reader #mapForm > :not(#mapReadOnly):not(#mapOwner):not(#mapStatus) { display: none; }
   #mapReadOnly h3 { margin: 0 0 6px; font-size: 16px; }
   #headSave[aria-disabled="true"] { opacity: .45; cursor: default; }
   #headSave[aria-disabled="true"]:hover { filter: none; }

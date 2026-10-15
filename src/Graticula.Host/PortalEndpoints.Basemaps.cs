@@ -253,8 +253,13 @@ internal static partial class PortalEndpoints
     };
 
     /// <summary>
-    /// The gallery group, for a caller outside it, so that a portal naming it can be followed — ADR-184 §5.4.
+    /// The gallery group, for a signed-in caller outside it, so that a portal naming it can be followed — ADR-184 §5.4.
     /// </summary>
+    /// <remarks>
+    /// <b>Never to a signed-out caller — owner decision, 2026-10-15, Q-174:</b> *"giriş yapmamış kullanıcı basemap
+    /// seçemesin"*. Q-119's rule that no group is found by anybody stands; a signed-out caller is given the default
+    /// basemap and no gallery to choose from.
+    /// </remarks>
     /// <param name="context">The request.</param>
     /// <param name="directory">Where groups live.</param>
     /// <param name="already">The groups the caller is already given.</param>
@@ -263,7 +268,8 @@ internal static partial class PortalEndpoints
     private static async Task<object?> GalleryGroupAsync(
         HttpContext context, IGroupDirectory directory, IReadOnlyList<object> already, CancellationToken cancellation)
     {
-        if ((await GalleryAsync(context, cancellation).ConfigureAwait(false)).Group is not { } gallery)
+        if (context.Features.Get<RequestPrincipal>()?.Principal.IsAnonymous != false
+            || (await GalleryAsync(context, cancellation).ConfigureAwait(false)).Group is not { } gallery)
         {
             return null;
         }
