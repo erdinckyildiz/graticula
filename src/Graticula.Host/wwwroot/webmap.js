@@ -586,8 +586,8 @@ function wmSymbolStyle(symbol, fallback) {
  *
  * <b>The part of the style language this server writes, and nothing more.</b> `VectorTileServerMetadataWriter`
  * emits fill, line and circle layers, each with a `source-layer`, legacy filters (`==`, `!=`, `in`,
- * `!in`, `all`, `any`, comparisons) and constant paint values; a zoom-dependent value is read as its
- * `stops`. Symbol layers — labels and icons — are not drawn here, and a filter this does not understand
+ * `!in`, `all`, `any`, comparisons) and paint values that are constants, `stops`, or the expressions
+ * `wmGlEval` reads. Symbol layers — labels and icons — are not drawn here, and a filter this does not understand
  * lets the feature through rather than hiding it, so the failure is *drawn without its class* rather
  * than *missing*. A full interpreter is ADR territory (the design review proposed MapLibre); this is
  * the repair that makes today's viewer honest.
@@ -621,12 +621,106 @@ function wmGlFilter(filter, feature) {
   }
 }
 
-/** A paint value at a zoom: a constant, or the last `stops` entry at or below the zoom. */
-function wmGlValue(value, zoom, fallback) {
-  if (value === undefined || value === null) return fallback;
-  if (typeof value !== "object" || Array.isArray(value)) {
-    return Array.isArray(value) ? fallback : value;
+/**
+ * A style expression's value for one feature at a zoom.
+ *
+ * <b>2026-10-15, from the owner's screenshot of the showcase.</b> A renderer of many classes is written
+ * as one `match` — over a field, or over two or three joined with `concat` and `to-string` (ADR-052
+ * §3.17) — and a graduated one as `step` or `interpolate`. This viewer read only constants and `stops`,
+ * so every such value fell to its default, black: the ground's districts and places were drawn black
+ * where the Maps SDK drew them in their classes. The operators are the ones this server writes, read
+ * as the style specification defines them: `match` compares strictly, and `to-string` of nothing is "".
+ */
+function wmGlEval(expr, feature, zoom) {
+  // A constant array — a dash pattern — is a value, not an expression.
+  if (!Array.isArray(expr) || typeof expr[0] !== "string") return expr;
+
+  const [op, ...args] = expr;
+  const ev = e => wmGlEval(e, feature, zoom);
+  const text = v => v === null || v === undefined ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+
+  switch (op) {
+    case "literal": return args[0];
+    case "zoom": return zoom;
+    case "get": { const v = feature ? feature.get(ev(args[0])) : undefined; return v === undefined ? null : v; }
+    case "has": return feature ? feature.get(ev(args[0])) !== undefined : false;
+    case "to-string": return text(ev(args[0]));
+    case "to-number": {
+      for (const a of args) { const n = Number(ev(a)); if (Number.isFinite(n)) return n; }
+      return 0;
+    }
+    case "concat": return args.map(a => text(ev(a))).join("");
+    case "coalesce": {
+      for (const a of args) { const v = ev(a); if (v !== null && v !== undefined) return v; }
+      return null;
+    }
+    case "case": {
+      for (let i = 0; i + 1 < args.length; i += 2) if (ev(args[i])) return ev(args[i + 1]);
+      return ev(args[args.length - 1]);
+    }
+    case "match": {
+      const input = ev(args[0]);
+      for (let i = 1; i + 1 < args.length; i += 2) {
+        const labels = Array.isArray(args[i]) ? args[i] : [args[i]];
+        if (labels.some(l => l === input)) return ev(args[i + 1]);
+      }
+      return ev(args[args.length - 1]);
+    }
+    case "step": {
+      const input = ev(args[0]);
+      let chosen = ev(args[1]);
+      for (let i = 2; i + 1 < args.length; i += 2) {
+        if (typeof input === "number" && input >= args[i]) chosen = ev(args[i + 1]);
+        else break;
+      }
+      return chosen;
+    }
+    case "interpolate": {
+      const [how, inputExpr, ...stops] = args;
+      const input = ev(inputExpr);
+      if (stops.length < 2) return null;
+      if (typeof input !== "number" || input <= stops[0]) return ev(stops[1]);
+      for (let i = 2; i + 1 < stops.length; i += 2) {
+        if (input > stops[i]) continue;
+        const [x0, x1] = [stops[i - 2], stops[i]];
+        const base = Array.isArray(how) && how[0] === "exponential" ? Number(how[1]) || 1 : 1;
+        const t = base === 1 ? (input - x0) / (x1 - x0) : (base ** (input - x0) - 1) / (base ** (x1 - x0) - 1);
+        return wmGlBetween(ev(stops[i - 1]), ev(stops[i + 1]), t);
+      }
+      return ev(stops[stops.length - 1]);
+    }
+    case "==": return ev(args[0]) === ev(args[1]);
+    case "!=": return ev(args[0]) !== ev(args[1]);
+    case "<": return ev(args[0]) < ev(args[1]);
+    case "<=": return ev(args[0]) <= ev(args[1]);
+    case ">": return ev(args[0]) > ev(args[1]);
+    case ">=": return ev(args[0]) >= ev(args[1]);
+    case "!": return !ev(args[0]);
+    case "all": return args.every(a => ev(a));
+    case "any": return args.some(a => ev(a));
+    default: return null;
   }
+}
+
+/** A number or a colour a fraction of the way from one to another. */
+function wmGlBetween(from, to, t) {
+  if (typeof from === "number" && typeof to === "number") return from + (to - from) * t;
+  try {
+    const [a, b] = [ol.color.asArray(from), ol.color.asArray(to)];
+    return a.map((v, i) => i < 3 ? Math.round(v + (b[i] - v) * t) : v + (b[i] - v) * t);
+  } catch {
+    return t < 0.5 ? from : to;
+  }
+}
+
+/** A paint value for a feature at a zoom: a constant, an expression, or the last `stops` entry at or below the zoom. */
+function wmGlValue(value, zoom, fallback, feature) {
+  if (value === undefined || value === null) return fallback;
+  if (Array.isArray(value)) {
+    const v = wmGlEval(value, feature, zoom);
+    return v === null || v === undefined ? fallback : v;
+  }
+  if (typeof value !== "object") return value;
   const stops = Array.isArray(value.stops) ? value.stops : [];
   let chosen = stops.length ? stops[0][1] : fallback;
   for (const [z, v] of stops) if (zoom >= z) chosen = v;
@@ -659,43 +753,48 @@ function wmGlStyle(style) {
       if (Number.isFinite(l.maxzoom) && zoom >= l.maxzoom) continue;
       if (!wmGlFilter(l.filter, feature)) continue;
 
-      const key = `${l.id}@${Math.floor(zoom)}`;
+      // <b>Read for this feature, and cached by what was read</b>: a `match` gives each class its own
+      // colour, so a style per layer and zoom drew every feature in the first one's.
+      const paint = l.paint || {};
+      const read = (name, fallback) => wmGlValue(paint[name], zoom, fallback, feature);
+      const v = l.type === "fill"
+        ? [read("fill-color", "#000"), read("fill-opacity", 1), read("fill-outline-color", null)]
+        : l.type === "line"
+          ? [read("line-color", "#000"), read("line-opacity", 1), read("line-width", 1), read("line-dasharray", null)]
+          : [read("circle-color", "#000"), read("circle-opacity", 1), read("circle-radius", 5),
+            read("circle-stroke-width", 0), read("circle-stroke-color", "#fff")];
+      const key = `${l.id}|${JSON.stringify(v)}`;
       let drawn = cache.get(key);
 
       if (!drawn) {
-        const paint = l.paint || {};
-
         if (l.type === "fill") {
-          const opacity = wmGlValue(paint["fill-opacity"], zoom, 1);
-          const outline = wmGlValue(paint["fill-outline-color"], zoom, null);
+          const [colour, opacity, outline] = v;
           drawn = new ol.style.Style({
-            fill: new ol.style.Fill({ color: wmGlColour(wmGlValue(paint["fill-color"], zoom, "#000"), opacity) }),
+            fill: new ol.style.Fill({ color: wmGlColour(colour, opacity) }),
             stroke: outline ? new ol.style.Stroke({ color: wmGlColour(outline, opacity), width: 1 }) : undefined,
           });
         } else if (l.type === "line") {
-          const width = wmGlValue(paint["line-width"], zoom, 1);
-          const dash = wmGlValue(paint["line-dasharray"], zoom, null);
+          const [colour, opacity, width, dash] = v;
           drawn = new ol.style.Style({
             stroke: new ol.style.Stroke({
-              color: wmGlColour(wmGlValue(paint["line-color"], zoom, "#000"), wmGlValue(paint["line-opacity"], zoom, 1)),
+              color: wmGlColour(colour, opacity),
               width,
               lineDash: Array.isArray(dash) ? dash.map(d => d * width) : undefined,
             }),
           });
         } else {
-          const opacity = wmGlValue(paint["circle-opacity"], zoom, 1);
-          const edge = wmGlValue(paint["circle-stroke-width"], zoom, 0);
+          const [colour, opacity, radius, edge, edgeColour] = v;
           drawn = new ol.style.Style({
             image: new ol.style.Circle({
-              radius: wmGlValue(paint["circle-radius"], zoom, 5),
-              fill: new ol.style.Fill({ color: wmGlColour(wmGlValue(paint["circle-color"], zoom, "#000"), opacity) }),
-              stroke: edge > 0
-                ? new ol.style.Stroke({ color: wmGlColour(wmGlValue(paint["circle-stroke-color"], zoom, "#fff"), opacity), width: edge })
-                : undefined,
+              radius,
+              fill: new ol.style.Fill({ color: wmGlColour(colour, opacity) }),
+              stroke: edge > 0 ? new ol.style.Stroke({ color: wmGlColour(edgeColour, opacity), width: edge }) : undefined,
             }),
           });
         }
 
+        // A zoom-driven width is a new key at every frame of a zoom; the cache is a cache, not a record.
+        if (cache.size > 4096) cache.clear();
         cache.set(key, drawn);
       }
 
@@ -1012,9 +1111,11 @@ function wmBuildLayer(layer, run, index) {
           drawn.setStyle(wmGlStyle(style));
           run.ownStyle = true;
           // The legend swatches from the same style, so the line in the list matches the map.
-          run.swatches = [...new Set(style.layers.map(l => (l.paint || {})["fill-color"]
-            || (l.paint || {})["line-color"] || (l.paint || {})["circle-color"])
-            .filter(c => typeof c === "string"))].slice(0, 4);
+          // A class's colour may be an output of a `match` rather than the layer's constant.
+          const colours = c => typeof c === "string" ? [c] : Array.isArray(c) ? c.flatMap(colours) : [];
+          run.swatches = [...new Set(style.layers.flatMap(l => colours((l.paint || {})["fill-color"]
+            || (l.paint || {})["line-color"] || (l.paint || {})["circle-color"]))
+            .filter(c => /^(#|rgb|hsl)/i.test(c)))].slice(0, 4);
           wmDrawLayerList();
         }
       })
