@@ -81,6 +81,19 @@ As §2, Alternative A.
    Class: View Service - WMS" and "Download Service - Pre-defined WFS". It must reach the service over the internet,
    so the run is against the showcase, and enabling INSPIRE on a showcase service needs its administrator — asked of
    the owner. Open.)*
+   **DISCHARGED 2026-10-15**, after the owner answered [Q-165](../open-questions.md) *"Evet, tr_il ile yap"*: INSPIRE was turned on for
+   the showcase's `hosted/tr_il`, both suites were run through the LifeWatch ERIC validator's v2 API
+   (`tools/inspire-validator/run.py`, failures listed by `failures.py`), what they found was fixed in v1.0.388, the
+   suites run again, and the settings taken off. **First run:** View (WMS) 260 passed, 11 failed; Download (WFS) 149
+   passed, 25 failed. **Fixed:** the WFS document named no `xsi:schemaLocation` and so could not be validated or name
+   the INSPIRE Download schema; WMS answered GetCapabilities without `SERVICE` although 1.3.0 §6.9 and the code's own
+   comment required it; WMS drew a map for a `TRANSPARENT` that was neither TRUE nor FALSE; and `tur` was offered as
+   a language though INSPIRE's common schema does not have it (and does have `ice` and `nor`), so the list is now the
+   schema's. **Second run:** View (WMS) *passed* — every automatic test, 34 left to manual checking as the suite
+   leaves them; Download (WFS) 252 passed and 11 failed, **all on the metadata record**: the address given was a
+   placeholder (404), so it is not an ISO 19139 `gmd:MD_Metadata` and has no schema to validate against. That is the
+   operator's record, which INSPIRE expects in a discovery service, not something this server serves; recorded, not
+   repaired.
 
 ## 6. Consequences
 

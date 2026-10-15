@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>84cc6776</code> · 2026-10-15 16:57</p>
+<p class="stamp">Şu commit’ten üretildi: <code>f5745ec9</code> · 2026-10-15 18:00</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">183</div><div class="kpi-l">ADR</div><div class="kpi-n">71 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">360/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">55 canlı · 4 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
+<div class="kpi good"><div class="kpi-v">361/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">54 canlı · 4 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4886</div><div class="kpi-l">test</div><div class="kpi-n">488 kaynak dosya, 221,052 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4889</div><div class="kpi-l">test</div><div class="kpi-n">488 kaynak dosya, 221,101 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-165</b> — May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">69 madde</span></div><p><b>55 ADR conditions</b> outstanding across 43 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">68 madde</span></div><p><b>54 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -168,7 +168,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-162 · WMS and WFS at a service&#x27;s own add</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-172 · A service may be an INSPIRE View a</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">1</div></div>
@@ -362,7 +361,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">169</td><td>WFS-T through the one write path</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each action is checked end to end in both versions; OGC&#x27;s Transactional test…</td><td class="num">2/2</td></tr>
 <tr><td class="id">170</td><td>Image services are WCS 2.0.1 coverages</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each operation, trimming, scaling, reprojection and the switch are checked end…</td><td class="num">2/2</td></tr>
 <tr><td class="id">171</td><td>SLD at the WMS boundary</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a style sent with GetMap is drawn and forgotten, GetStyles&#x27; document draws the…</td><td class="num">2/2</td></tr>
-<tr><td class="id">172</td><td>A service may be an INSPIRE View and Download service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents validate against INSPIRE&#x27;s published schemas with and without the…</td><td class="num">0/1</td></tr>
+<tr><td class="id">172</td><td>A service may be an INSPIRE View and Download service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the documents validate against INSPIRE&#x27;s published schemas with and without the…</td><td class="num">1/1</td></tr>
 <tr><td class="id">173</td><td>WCS 1.0.0 is spoken too, so that QGIS opens an image service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — QGIS 3.28&#x27;s own WCS provider opens a coverage through it, its documents validate…</td><td class="num">1/1</td></tr>
 <tr><td class="id">174</td><td>OGC API Processes, over the geometry service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — each process is one geometry-engine operation under the geometry service&#x27;s own…</td><td class="num">2/2</td></tr>
 <tr><td class="id">175</td><td>OGC API Maps, over the WMS renderer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — a map drawn here is byte-identical to the WMS GetMap for the same box, size and…</td><td class="num">1/2</td></tr>
@@ -379,7 +378,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
-<article class="card"><div class="card-h"><span class="id">Q-165</span><span class="owner">[OWNER]</span></div><p>May INSPIRE be turned on for one showcase service, so the INSPIRE validator can be run against it?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -498,19 +496,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1367</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.2%"></div></div><div class="bar-n">891</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.4%"></div></div><div class="bar-n">758</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">760</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.0%"></div></div><div class="bar-n">547</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.9%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">293</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.1%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.2%"></div></div><div class="bar-n">126</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">123</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.1%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.7%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">49</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>f5745ec9</code><time>2026-10-15</time><span>What the INSPIRE validator found: WFS names its schemas, WMS refuses a missing SERVICE and a bad TRANSPARENT, and INSPIRE&#x27;s languages are its schema&#x27;s (Q-165)</span></li>
+<li><code>a2466059</code><time>2026-10-15</time><span>ArcGIS Pro draws and exports an image service: format=None&amp;bsq=true is answered with the values (Q-168)</span></li>
 <li><code>84cc6776</code><time>2026-10-15</time><span>WFS and WMS advertise WGS 84, Web Mercator and each layer&#x27;s own reference on every deployment (Q-171)</span></li>
 <li><code>b634954f</code><time>2026-10-15</time><span>ArcGIS Pro&#x27;s basemap gallery lists this portal&#x27;s, and a GeoParquet layer in degrees answers a distance in metres</span></li>
 <li><code>ba754a56</code><time>2026-10-15</time><span>Owner decisions of 2026-10-15: the Python API signs in with a password, references a deployment chooses are advertised, every job waits out a full budget</span></li>
@@ -523,8 +523,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b83627e4</code><time>2026-10-14</time><span>An elevation surface is described wholly in Web Mercator: ArcGIS Pro draws Uludag</span></li>
 <li><code>3ce816ac</code><time>2026-10-14</time><span>An elevation surface&#x27;s pixel is in its extents&#x27; metres: Pro hung adding it</span></li>
 <li><code>1cd2f478</code><time>2026-10-14</time><span>A referer-bound token with no Referer and no Origin is admitted: Pro&#x27;s sign-in</span></li>
-<li><code>245cd373</code><time>2026-10-14</time><span>System.Security.Cryptography.Xml and .Pkcs move to 9.0.21 for four .NET security advisories</span></li>
-<li><code>fb326796</code><time>2026-10-14</time><span>A tile package and a data export download in the browser, not into the page (D-289)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
