@@ -29094,13 +29094,13 @@ function imageOffersDownload() {
  * Settings › General's Download, for an image service — ADR-148, ArcGIS's Download capability: off, only whoever manages
  * it may take the file; on, everyone it is shared with may. A file registered from the server's disk is not offered.
  */
-/** ADR-172: the languages an INSPIRE service names, ISO 639-2/B — the EU's official languages, and Turkish. */
+/** ADR-172: the languages INSPIRE's common schema allows, ISO 639-2/B — the EU's official languages, Icelandic and Norwegian. */
 const INSPIRE_LANGUAGES = [
   ["bul", "Bulgarian"], ["hrv", "Croatian"], ["cze", "Czech"], ["dan", "Danish"], ["dut", "Dutch"], ["eng", "English"],
   ["est", "Estonian"], ["fin", "Finnish"], ["fre", "French"], ["ger", "German"], ["gre", "Greek"], ["hun", "Hungarian"],
   ["gle", "Irish"], ["ita", "Italian"], ["lav", "Latvian"], ["lit", "Lithuanian"], ["mlt", "Maltese"], ["pol", "Polish"],
   ["por", "Portuguese"], ["rum", "Romanian"], ["slo", "Slovak"], ["slv", "Slovenian"], ["spa", "Spanish"], ["swe", "Swedish"],
-  ["tur", "Turkish"],
+  ["ice", "Icelandic"], ["nor", "Norwegian"],
 ];
 
 function inspireLanguages(chosen) {

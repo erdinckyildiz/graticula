@@ -627,6 +627,9 @@ public sealed class WmsConformanceTests : ArcGisClient
     [InlineData("format=image/gif", "InvalidFormat")]
     [InlineData("styles=something", "StyleNotDefined")]
     [InlineData("width=99999", "InvalidParameterValue")]
+
+    // Found by the INSPIRE validator, 2026-10-15: a TRANSPARENT that is neither TRUE nor FALSE drew a map.
+    [InlineData("transparent=XYZ", "InvalidParameterValue")]
     [InlineData("crs=NOTACRS", "InvalidCRS")]
 
     // <b>A well-formed code the projection database does not know, which is a different
@@ -681,6 +684,15 @@ public sealed class WmsConformanceTests : ArcGisClient
         }
 
         Assert.Equal(expected, await RefusalOfAsync(amended));
+    }
+
+    /// <summary>
+    /// GetCapabilities without SERVICE is refused, as 1.3.0 §6.9 requires — found by the INSPIRE validator, 2026-10-15.
+    /// </summary>
+    [Fact]
+    public async Task Capabilities_without_service_is_refused_as_missing()
+    {
+        Assert.Equal("MissingParameterValue", await RefusalOfAsync("/wms?version=1.3.0&request=GetCapabilities"));
     }
 
     [Fact]

@@ -602,4 +602,15 @@ public sealed class WriterTests
             ["urn:ogc:def:crs:EPSG::5254", "urn:ogc:def:crs:EPSG::5255"],
             listed.Descendants(Wfs + "OtherCRS").Select(e => e.Value).ToArray());
     }
+
+    /// <summary>The document names where its schema is, so a validator can check it — ADR-172, 2026-10-15.</summary>
+    [Fact]
+    public async Task Capabilities_name_their_schema_location()
+    {
+        XElement root = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
+            stream, "https://example/wfs", "Graticula", [Type()], CancellationToken.None));
+
+        string? location = (string?)root.Attribute(XName.Get("schemaLocation", "http://www.w3.org/2001/XMLSchema-instance"));
+        Assert.Equal("http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd", location);
+    }
 }

@@ -280,13 +280,13 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
         try
         {
             Assert.Equal(HttpStatusCode.OK, await SetAsync(
-                $$"""{"metadataUrl":"{{Record}}","language":"tur","datasetCode":"TR.ROADS.1","datasetNamespace":"https://data.example/id"}"""));
+                $$"""{"metadataUrl":"{{Record}}","language":"ger","datasetCode":"TR.ROADS.1","datasetNamespace":"https://data.example/id"}"""));
 
             // Its own WMS is a View service, scenario 1: the record and the language.
             (_, _, byte[] view) = await GetAsync(root, token!, wms);
             XElement vs = XDocument.Parse(System.Text.Encoding.UTF8.GetString(view)).Descendants(XName.Get("ExtendedCapabilities", Vs)).Single();
             Assert.Equal(Record, vs.Descendants(XName.Get("URL", Common)).Single().Value);
-            Assert.All(vs.Descendants(XName.Get("Language", Common)), l => Assert.Equal("tur", l.Value));
+            Assert.All(vs.Descendants(XName.Get("Language", Common)), l => Assert.Equal("ger", l.Value));
 
             // Its own WFS is a Download service naming its data set.
             (_, _, byte[] download) = await GetAsync(root, token!, wfs);

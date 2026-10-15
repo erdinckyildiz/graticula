@@ -111,6 +111,17 @@ public static class CapabilitiesDocument
 
             await Namespaces(xml).ConfigureAwait(false);
 
+            // <b>Where the document's schemas are — ADR-172, found by the INSPIRE validator 2026-10-15.</b> It could not
+            // validate a document that named none, and failed the INSPIRE Download schema it carries with it.
+            await xml.WriteAttributeStringAsync("xmlns", "xsi", null, WfsNames.Xsi).ConfigureAwait(false);
+            await xml.WriteAttributeStringAsync(
+                    "xsi", "schemaLocation", WfsNames.Xsi,
+                    "http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd"
+                    + (metadata?.Inspire is { Downloads: true }
+                        ? $" {InspireDownload} {InspireDownload}/inspire_dls.xsd"
+                        : string.Empty))
+                .ConfigureAwait(false);
+
             await xml.WriteAttributeStringAsync(null, "version", null, WfsNames.Version)
                 .ConfigureAwait(false);
 

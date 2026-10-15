@@ -194,6 +194,14 @@ public sealed class WmsRequest
         // specification's own inconsistency.</b> 1.3.0 §6.9 requires it on
         // GetCapabilities; older clients omit it on GetMap because 1.1.1's examples
         // did. Demanding it on GetMap refuses requests that every other WMS answers.
+        // <b>And missing is refused too, as the comment above always said and the code did not — found by the INSPIRE
+        // validator on 2026-10-15</b>, which asks GetCapabilities without SERVICE and expects an exception report.
+        if (asked == WmsOperation.GetCapabilities && string.IsNullOrWhiteSpace(service))
+        {
+            fault = WmsFault.Missing("SERVICE");
+            return false;
+        }
+
         if (asked == WmsOperation.GetCapabilities
             && !string.IsNullOrWhiteSpace(service)
             && !string.Equals(service, WmsNames.Service, StringComparison.OrdinalIgnoreCase))
@@ -372,6 +380,11 @@ public sealed class WmsRequest
             return false;
         }
 
+        if (!TryFlag(parameter("TRANSPARENT"), "TRANSPARENT", out bool legendTransparent, out fault))
+        {
+            return false;
+        }
+
         request = new WmsRequest(version, WmsOperation.GetLegendGraphic)
         {
             Layers = [layer.Trim()],
@@ -379,7 +392,7 @@ public sealed class WmsRequest
             Format = format,
             Width = Size(parameter("WIDTH"), 20, 1024),
             Height = Size(parameter("HEIGHT"), 20, 1024),
-            Transparent = Flag(parameter("TRANSPARENT")),
+            Transparent = legendTransparent,
         };
 
         return true;
@@ -494,7 +507,10 @@ public sealed class WmsRequest
             return false;
         }
 
-        bool transparent = Flag(parameter("TRANSPARENT"));
+        if (!TryFlag(parameter("TRANSPARENT"), "TRANSPARENT", out bool transparent, out fault))
+        {
+            return false;
+        }
 
         if (!TryBackground(parameter("BGCOLOR"), out Rgba background, out fault))
         {
@@ -945,6 +961,26 @@ public sealed class WmsRequest
 
     private static bool Flag(string? value) =>
         string.Equals(value?.Trim(), "TRUE", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A TRUE or FALSE parameter, absent meaning false; anything else is refused — found by the INSPIRE validator on
+    /// 2026-10-15, which sends `TRANSPARENT` a value that is neither and expects an exception report rather than a map.
+    /// </summary>
+    private static bool TryFlag(string? value, string name, out bool flag, out WmsFault? fault)
+    {
+        fault = null;
+        flag = Flag(value);
+
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Trim().Equals("TRUE", StringComparison.OrdinalIgnoreCase)
+            || value.Trim().Equals("FALSE", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        fault = WmsFault.Invalid(name, $"`{name}` is TRUE or FALSE; it was `{value}`.");
+        return false;
+    }
 
     private static int Size(string? value, int fallback, int maximum) =>
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int size)

@@ -15,13 +15,14 @@ namespace Graticula.Catalog;
 public sealed record InspireSettings(string MetadataUrl, string Language, string? DatasetCode, string? DatasetNamespace)
 {
     /// <summary>
-    /// The languages an INSPIRE service names — the EU's official languages and Turkish, as ISO 639-2/B, which INSPIRE
-    /// uses rather than 639-2/T.
+    /// The languages an INSPIRE service names — the 26 INSPIRE's common schema (1.0) enumerates: the EU's
+    /// official languages, Icelandic and Norwegian, as ISO 639-2/B. Turkish was listed until 2026-10-15, when the INSPIRE
+    /// validator refused a document naming it — the schema does not have it.
     /// </summary>
     public static readonly System.Collections.Generic.IReadOnlySet<string> Languages = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
     {
         "bul", "hrv", "cze", "dan", "dut", "eng", "est", "fin", "fre", "ger", "gre", "hun", "gle", "ita", "lav", "lit", "mlt",
-        "pol", "por", "rum", "slo", "slv", "spa", "swe", "tur",
+        "pol", "por", "rum", "slo", "slv", "spa", "swe", "ice", "nor",
     };
 
     /// <summary>A language as INSPIRE spells it: lower case, and the 639-2/T codes that differ turned into their /B ones.</summary>
@@ -91,7 +92,8 @@ public sealed record InspireSettings(string MetadataUrl, string Language, string
 
         if (!Languages.Contains(Language))
         {
-            return $"The language is a three-letter ISO 639-2/B code, such as eng, ger, fre or tur; `{Language}` is not one INSPIRE uses.";
+            return $"The language is one of the 26 three-letter codes INSPIRE's schema allows, such as eng, ger or fre; `{Language}` is "
+                + "not one of them, and a document naming it fails the schema.";
         }
 
         if (MetadataUrl.Length > MaximumLength || (DatasetCode?.Length ?? 0) > MaximumLength || (DatasetNamespace?.Length ?? 0) > MaximumLength)
