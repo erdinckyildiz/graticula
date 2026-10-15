@@ -108,10 +108,13 @@ const wmState = {
 /** What the page knows about each operational layer, keyed by the layer's own JSON object. */
 const wmRuntime = new WeakMap();
 
-/** How many times an action has put its own sentence in the header — see wmOpen. */
+/** How many times something has been said in the header — see wmOpen. */
 let wmSpoken = 0;
 
 function wmSay(text, bad = false) {
+  // Every sentence counts, not only an action's summary: identify's "Asking 1 layer…" was written over by the
+  // summary at the end of opening as surely as a removal's line was (CI on main, 2026-10-15).
+  wmSpoken++;
   const line = wm$("status");
   line.textContent = text;
   line.style.color = bad ? "var(--alert)" : "";
@@ -3251,16 +3254,15 @@ async function wmOpen(doc) {
     if (boxes.length) wmFit(boxes.reduce((all, box) => ol.extent.extend(all, box), ol.extent.createEmpty()));
   }
 
-  // <b>Not over what an action said meanwhile — 2026-10-15.</b> The list is drawn before the layers load, so a layer
-  // can be removed while they do; its "was removed." line was then replaced by this summary when the loads finished.
-  // CI's console run caught it once in two. The action's own line already describes the map as it now is.
+  // <b>Not over what was said meanwhile — 2026-10-15.</b> The list is drawn before the layers load, so a reader can
+  // act while they do: a removal's "was removed." and identify's "Asking 1 layer…" were both replaced by this summary
+  // when the loads finished, each caught once by CI. What was said since the loads began is newer than this.
   if (wmSpoken === spoken) wmSaySummary();
   wmCheckSharing();
 }
 
 /** The header's line about the map as it now is, so it is never left describing an earlier state. */
 function wmSaySummary(lead = "") {
-  if (lead) wmSpoken++;
   const layers = wmLayers();
   const unavailable = layers.filter(l => (wmRuntime.get(l) || {}).status === "unavailable").length;
   wmSay((lead ? `${lead} ` : "") + (layers.length === 0
