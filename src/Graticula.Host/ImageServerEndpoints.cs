@@ -907,7 +907,7 @@ internal static partial class ImageServerEndpoints
                 return;
             }
 
-            await AnswerAsync(context, asked, file!, asked.Lerc ? "application/octet-stream" : "image/tiff", cancellation)
+            await AnswerAsync(context, asked, file!, asked.Lerc || asked.Bsq ? "application/octet-stream" : "image/tiff", cancellation)
                 .ConfigureAwait(false);
             return;
         }
@@ -1013,6 +1013,27 @@ internal static partial class ImageServerEndpoints
 
         int width = asked.Width;
         int height = asked.Height;
+
+        // Q-168: band after band and a mask, as ArcGIS Pro asks to draw and to export — BsqWriter. A pixel is valid as
+        // LERC's is below: taken from the image, and not the image's own no-data.
+        if (asked.Bsq)
+        {
+            if (!BsqWriter.TryPixelType(asked.PixelType, values.Kind, out string type))
+            {
+                return (null, $"`pixelType={asked.PixelType}` is not one this server writes values in. It writes U8, S8, "
+                    + "U16, S16, U32, S32, F32 and F64, or the image's own when none is named.");
+            }
+
+            bool[] held = new bool[width * height];
+
+            for (int i = 0; values.Taken is not null && i < held.Length; i++)
+            {
+                held[i] = values.Taken[i] >= 0
+                    && (function.Derives || values.NoData is not { } none || values.Samples[i * values.Bands] != none);
+            }
+
+            return (BsqWriter.Write(values.Samples, values.Bands, width, height, held, type, asked.NoDataText), null);
+        }
 
         // ADR-137: as LERC, a pixel with nothing in it is left out by the mask rather than given a value that could be
         // mistaken for one — ground outside the image, and the image's own no-data.

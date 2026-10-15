@@ -91,3 +91,12 @@ names `TIFF`. `f=json` answers where it is, as for a picture.
 
 1. **ArcGIS Pro's Export Raster is run against an image service on this server and the file it writes holds the
    values.** ~~Not run: this machine has no Pro.~~ *(2026-10-14: it has one now, Pro 3.7 with arcpy, and the run was made: `tools/arcpy-probe/export-raster.py`, Copy Raster, which is the tool behind Export Raster, against `hosted/ci_imagery` (U8, one band, 256 × 192) on the local fixture, through a plain-HTTP relay that records every request, because Pro refuses the fixture's self-signed certificate. **It fails, and not on TIFF: Pro never asks for TIFF.** Its one `exportImage` is `format=None&pixelType=U8&bsq=true&size=256,192&f=image`, the raw values band after band, which is what it asks when it draws a float service (ADR-181 condition 1). This server answers that with a drawn PNG, and Copy Raster stops with ERROR 999999. So §1's *Pro's Export Raster … read an image service's values as TIFF* was an inference, and the measurement says otherwise. The TIFF this ADR added serves the JS SDK and GDAL, and Pro waits on [Q-168](../open-questions.md), whether to answer `format=None` in the layout Esri's servers use. Seen on the way, harmless: 17 SOAP `GetMessageVersion` posts to `/services`, which Pro tries before REST.)*
+   **DISCHARGED 2026-10-15**, after the owner answered [Q-168](../open-questions.md) *"Evet, ölçerek uyumlu yap"*: `format=None&bsq=true`
+   is answered as Esri's public Terrain3D answers it, measured — the values in the asked `pixelType`, little-endian,
+   band after band, then one bit a pixel, most significant first, set where there is a value, padded to the byte;
+   empty pixels written as the asked `noData` (`BsqWriter`, `BsqWriterTests`). Copy Raster in Pro 3.7, through the
+   recording relay against the local fixture, then wrote **three services cell for cell as their sources**:
+   `ci_imagery` (U8, one band, 49,152 cells), a three-band U8 RGB and a one-band float32, every cell identical. Pro
+   asked `pixelType=U8&noData=255, 255, 255&bsq=true` for the RGB and was answered 153,600 bytes — three bands of
+   256 × 192 and a 6,144-byte mask — so the multiband layout no public service would show was checked against the
+   client that reads it.

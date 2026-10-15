@@ -128,6 +128,11 @@ build sets `InvariantGlobalization`, so no culture but the invariant one can be 
    server's map services; both are answered since v1.0.362. **Open:** the ImageServer is added and draws nothing,
    because Pro asks `format=None&pixelType=F32&bsq=true` for the values themselves and is answered with a drawn PNG
    (Q-168), and `/services/rest/info` is a 404 Pro asks on the way in.
+   *(2026-10-15: **the ImageServer draws.** Q-168 answered and built; through arcpy, Pro adds a float32 image service
+   and `MapView.exportToPNG` draws its values in Pro's own stretch, 256 grey levels across the view, where it drew
+   nothing. **Still refused on the way, and named:** `/services/rest/info` (404), and the ImageServer's `/metadata`,
+   answered with an error because nothing documents what it should hold — Pro goes on past both. The condition stays
+   partly discharged for those two.)*
 
 ## 10. Dissent
 

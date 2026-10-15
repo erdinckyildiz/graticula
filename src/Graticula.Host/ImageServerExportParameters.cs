@@ -143,6 +143,18 @@ internal sealed class ImageServerExportParameters
     public bool Lerc { get; private init; }
 
     /// <summary>
+    /// Whether the values are asked for band after band with a validity mask — <c>format=None&amp;bsq=true</c>, what
+    /// ArcGIS Pro asks to draw an image service in its own colours and to export it (Q-168, <see cref="BsqWriter"/>).
+    /// </summary>
+    public bool Bsq { get; private init; }
+
+    /// <summary>The <c>pixelType</c> a <see cref="Bsq"/> answer is written in, or null for the image's own.</summary>
+    public string? PixelType { get; private init; }
+
+    /// <summary>The <c>noData</c> a <see cref="Bsq"/> answer writes an empty pixel as, one value or one a band.</summary>
+    public string? NoDataText { get; private init; }
+
+    /// <summary>
     /// The largest error a client allows in a floating-point value it asked for as LERC — <c>compressionTolerance</c>;
     /// zero, exact, when it names none.
     /// </summary>
@@ -256,7 +268,11 @@ internal sealed class ImageServerExportParameters
         // ADR-127: `tiff` asks for the values themselves; ADR-137: so does `lerc`, compressed.
         string named = parameter("format")?.Trim() ?? string.Empty;
         bool lerc = named.Equals("lerc", StringComparison.OrdinalIgnoreCase);
-        bool raw = lerc || named.Equals("tiff", StringComparison.OrdinalIgnoreCase);
+
+        // Q-168: Pro's `format=None&bsq=true` — no format named, and the values band after band.
+        bool bsq = (named.Length == 0 || named.Equals("none", StringComparison.OrdinalIgnoreCase))
+            && string.Equals(parameter("bsq")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        bool raw = lerc || bsq || named.Equals("tiff", StringComparison.OrdinalIgnoreCase);
 
         MapImageFormat format = MapImageFormat.Png;
 
@@ -268,7 +284,7 @@ internal sealed class ImageServerExportParameters
         // A GeoTIFF names its reference in a 16-bit key, and the writer clamped every larger code to 65535 — which
         // GeoTIFF reads as user-defined, a file with no reference at all. 102100 now arrives as 3857; an Esri code
         // with no EPSG twin is refused rather than written into a file that cannot say what it is.
-        if (raw && !lerc && srid > ushort.MaxValue)
+        if (raw && !lerc && !bsq && srid > ushort.MaxValue)
         {
             error = $"A GeoTIFF names its reference by an EPSG code, and {srid.ToString(CultureInfo.InvariantCulture)} "
                 + "is not one it can carry. Ask in the EPSG code for the same reference, or for `format=lerc`.";
@@ -301,6 +317,9 @@ internal sealed class ImageServerExportParameters
             Display = display,
             Interpolation = resampling,
             Lerc = lerc,
+            Bsq = bsq,
+            PixelType = bsq ? parameter("pixelType") : null,
+            NoDataText = bsq ? parameter("noData") : null,
             Tolerance = tolerance,
             BoxSrid = written,
         };
@@ -321,6 +340,9 @@ internal sealed class ImageServerExportParameters
             Display = Display,
             Interpolation = Interpolation,
             Lerc = Lerc,
+            Bsq = Bsq,
+            PixelType = PixelType,
+            NoDataText = NoDataText,
             Surface = Surface,
             Tolerance = Tolerance,
             BoxSrid = Srid,
