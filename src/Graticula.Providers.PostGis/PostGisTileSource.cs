@@ -243,11 +243,16 @@ public sealed class PostGisTileSource : ITileSource
     /// as a parameter, so the whitelist is the safety (ADR-008 §4.6).
     /// </param>
     /// <param name="scheme">The grid the service is cut on, or null for Web Mercator — ADR-096.</param>
+    /// <param name="numbers">
+    /// The attributes the layer describes as numbers with a fraction (<c>FieldType.Double</c>), which are written as
+    /// doubles. <b>On the end and optional</b>, because every caller predates it; null writes each as PostgreSQL gives it.
+    /// </param>
     public PostGisTileSource(
         NpgsqlDataSource dataSource,
         LayerDefinition layer,
         IReadOnlyList<string> attributes,
-        VectorTileScheme? scheme = null)
+        VectorTileScheme? scheme = null,
+        IReadOnlyCollection<string>? numbers = null)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(layer);
@@ -257,7 +262,11 @@ public sealed class PostGisTileSource : ITileSource
         _layer = layer;
         _attributes = attributes;
         _scheme = scheme ?? VectorTileScheme.WebMercator;
+        _numbers = numbers is null ? [] : new HashSet<string>(numbers, StringComparer.Ordinal);
     }
+
+    /// <summary>The attributes written as doubles — see the constructor.</summary>
+    private readonly HashSet<string> _numbers;
 
     /// <inheritdoc/>
     public async Task<byte[]> BuildAsync(
@@ -310,7 +319,19 @@ public sealed class PostGisTileSource : ITileSource
 
         foreach (string attribute in _attributes)
         {
-            columns.Append(", t.").Append(LayerDefinition.Quote(attribute));
+            // <b>A `numeric` column is written as a number — 2026-10-15.</b> `ST_AsMVT` writes the types it knows
+            // (integers, `float4`, `float8`, `bool`, text) as themselves and everything else through its text
+            // output, so a registered table's `numeric(10,2)` reached a tile as the string "12.50" while the
+            // FeatureServer called it a double. A style that classifies on it — `step` or `interpolate` over
+            // `["get", field]`, as CimStyle writes them — reads a string and draws nothing. Measured on the local
+            // fixture, found by the widened Q-68 (ADR-021 condition 2). A `float8` column cast to itself is unchanged.
+            string quoted = LayerDefinition.Quote(attribute);
+            columns.Append(", t.").Append(quoted);
+
+            if (_numbers.Contains(attribute))
+            {
+                columns.Append("::double precision as ").Append(quoted);
+            }
         }
 
         // The layer name inside the tile is a string literal in an argument

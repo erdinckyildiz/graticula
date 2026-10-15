@@ -253,6 +253,48 @@ mean two caches rather than a coherence problem.
 2. **Measured on one machine, one dataset, one city, one polygon table.** No line
    layers, no mixed geometry, no attribute-heavy table where the tag dictionary
    dominates the tile. Widen before treating the numbers as general.
+   **PARTLY DISCHARGED 2026-10-15 — widened, and half of the numbers generalise.** Q-68 re-run on 927,350
+   OpenStreetMap polygons over Türkiye, as the polygons, as their boundaries as lines, and with 24 more attributes
+   including one unique to each feature (`benchmarks/harness/q68-widened-2026-10-15.md`, tables by
+   `q68-tables.sql`; z12 → z14, four parents, three rounds; the harness takes `--table`, `--geom` and `--attrs` now):
+
+   | | ST_AsMVT | read once | allocated per tile | GC pause |
+   |---|---|---|---|---|
+   | polygons, `name` | 11.3 tiles/s | 56.5 | 0.14 MB vs **19.37 MB** | 0 % vs **24.6 %** |
+   | lines, `name` | 24.5 | 63.5 | 0.15 MB vs **17.77 MB** | 0 % vs **20.4 %** |
+   | polygons, 25 attributes | 10.1 | 20.6 | 0.81 MB vs **38.31 MB** | 0.1 % vs **19.3 %** |
+
+   **What generalises is what the decision rests on**: on lines and on a wide table as on the first city's polygons,
+   the in-process path allocates 50 to 140 times more per tile and spends a fifth of its time paused for the
+   collector, while `ST_AsMVT` allocates almost nothing (A-037). **What does not generalise is the throughput, and
+   it is not a result here either**: read-once is two to five times faster on this data, where it was slower on the
+   first, but in all three runs the two paths' outputs diverge (read-once writes 77 to 82 % of the bytes) and the
+   harness says so itself: *a correctness result, not a speed result*. The harness's `ST_AsMVT` statement is the one
+   from before [ADR-085](ADR-085-a-tile-leaves-out-what-it-cannot-draw.md), which since 2026-09-24 simplifies at half
+   a pixel and leaves out sub-pixel polygons in SQL, so **it no longer measures the path this server runs**. **The
+   tag dictionary**: 25 attributes make `ST_AsMVT`'s tile 5.8 times the one-attribute tile's bytes (848 KB against
+   147 KB). **Left, by name**: a throughput figure needs path A to be production's statement and path B to match it
+   before the timing means anything; and the lines are building outlines and boundaries, not a road network, on one
+   machine. *(The same night, and it changes the paragraph above. **The divergence was the harness's**:
+   path A called `ST_AsMVT` without a feature-id column, so `osm_id` went into every feature's tags. In one z12
+   parent's tiles that made a value dictionary of 521 KB against 43 KB, and two different questions were being
+   compared. Given `'osm_id'` as the id, the paths agree (`mvtdiff.py` beside the harness: 79,919 features in common
+   with 938,778 against 938,328 geometry integers). **Corrected, and with both paths generalising as
+   `PostGisTileSource` does (`--production`):**
+
+   | | concurrency | ST_AsMVT | read once | bytes, read once / ST_AsMVT | GC pause, read once |
+   |---|---|---|---|---|---|
+   | polygons | 1 | 11.2 tiles/s | 51.0 | 104.8 % | 23.8 % |
+   | lines | 1 | 19.8 | 56.9 | 98.6 % | 24.4 % |
+   | polygons | 4 | 30.9 | 102.2 | 104.8 % | 35.1 % |
+   | lines | 4 | 68.1 | 123.1 | 98.6 % | 30.9 % |
+   | 25 attributes | 1 | 10.1 | 20.6 | 84.3 %: the same 23 tags a feature, but `ST_AsMVT` writes PostgreSQL `numeric` as text and the harness as a double | 18.6 % |
+
+   **So on this data and this machine, read-once is 1.8 to 4.6 times the throughput, and §2's *it buys nothing
+   measurable* does not hold here**, while the allocation (17 to 38 MB a tile against 0.1 to 0.8 MB) and the GC
+   pause climbing to a third at concurrency 4 hold exactly as Run 4 found them. **Run 4's own harness carried the same
+   omission**, so its tile bytes and times for path A included a unique value per feature. Whether this reopens the
+   decision is the owner's: [Q-173](../open-questions.md).)*
 3. ~~**Nobody has looked at a rendered tile.**~~ **DISCHARGED 2026-08-14**, the
    same day, by [tools/render-tile.py](../../tools/render-tile.py). z16/38030/24562
    in Istanbul, 1,258 features: the decoded `ST_AsMVT` output and the same extent

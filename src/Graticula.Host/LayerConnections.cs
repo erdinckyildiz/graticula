@@ -653,7 +653,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         return new PostGisTileSource(
             PoolFor(layer.ConnectionString), layer.Definition,
-            [.. attributes.Select(a => a.Name)], scheme);
+            [.. attributes.Select(a => a.Name)], scheme,
+            [.. attributes.Where(a => a.Type == FieldType.Double).Select(a => a.Name)]);
     }
 
     /// <summary>

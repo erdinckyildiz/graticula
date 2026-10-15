@@ -297,6 +297,14 @@ defects are the reason an independent security review is condition 1 rather than
    proxy for the file, and a proxy that refused it stopped the read.
 3. **The owner decides whether to report the `CREATE SECRET` defect to DuckDB** (§4); it is a
    security report about somebody else's product, and not this server's to file unasked.
+   *(2026-10-15, before any report is drafted: **not reproduced.** `tools/duckdb-probe/create-secret-repro.py` locks a
+   connection the way `GeoParquetFolder` does, with and without an HTTP or S3 secret created first, against a local
+   HTTP server outside the allow-list, both with an unrelated allowed prefix and with an allowed path on the same host,
+   and with the server's `http_proxy` setting. Python's `duckdb` 1.5.5, the version §4 measured, and 1.5.6 refused
+   all twelve reads with *file system operations are disabled by configuration*. §4's scripts were not kept, so what
+   differed is not known: a step the probe does not take, or the original reading. **A security report has to
+   reproduce, so none is drafted**, and the owner's decision waits on a reproduction. The rule in §5.1.3 stands either
+   way, because never creating a secret costs nothing.)*
 4. **MotherDuck is tested against a real account** before it is described as working. This build
    has only ever seen it refuse a bad token. **DISCHARGED 2026-09-13** — the owner opened one and put a
    token on the VPS; registered, published and queried through every step in §4.

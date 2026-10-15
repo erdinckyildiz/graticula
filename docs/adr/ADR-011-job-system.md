@@ -352,6 +352,18 @@ run as jobs), admin API (§39), geoprocessing (§36).
    `ConnectionBudgetTests` holds both: a patient flow waits for a held permit and takes it when it is
    given back, a plain one is refused at once, and patience that runs out ends in the refusal. The
    condition stays partly discharged on its own terms: no job yet reads a registered source.)*
+   **DISCHARGED 2026-10-14 — the last sentence above had stopped being true two weeks before it was written.**
+   ADR-106's export job reads a service's layers, and a registered layer is one of them. `FeatureExporter`, a
+   `BackgroundService` claiming `JobKind.FeatureExport`, reads each layer through `ServiceContexts.GetAsync`, which is
+   `LayerConnections.SourceFor`. That returns a `BudgetedFeatureSource` keyed on the layer's own connection string,
+   so a job reading a registered database draws from that database's budget, as a request does, which is §3.6's
+   *same budget rather than a separate one*. Run on the local fixture: an export job of `hosted/ci_on_second`, a
+   registered layer on a second data source, finished with its 8 rows and a 2,525-byte file. With the import's write
+   path (2026-10-12) and the tile seed (2026-09-29), every job that touches a database now holds a permit.
+   **`INFERRED`, listed for confirmation: an export job is not patient.** The owner's 2026-10-13 decision made a
+   *geodatabase import* wait out a full budget for up to ten minutes. The export job does not run inside
+   `ConnectionBudget.Patiently`, so a full budget fails it with the budget's sentence, as it fails a request. That is
+   how it was built, not a decision anybody took about it. Put to the owner as [Q-172](../open-questions.md).
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
    *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps

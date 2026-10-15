@@ -56,6 +56,7 @@ public static class MapServerMetadataWriter
     /// <param name="time">The union of the layers' time extents, or null when none has time.</param>
     /// <param name="description">The service's description, or null for none.</param>
     /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
+    /// <param name="groups">Its group layers, listed with the feature layers by index as the FeatureServer lists them (D-296).</param>
     /// <returns>The document.</returns>
     public static object Service(
         IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers,
@@ -65,7 +66,8 @@ public static class MapServerMetadataWriter
         int maxRecordCount,
         (DateTimeOffset? From, DateTimeOffset? Until)? time = null,
         string? description = null,
-        string? copyrightText = null)
+        string? copyrightText = null,
+        IReadOnlyList<FeatureServerMetadataWriter.ServiceGroup>? groups = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -88,7 +90,7 @@ public static class MapServerMetadataWriter
             copyrightText = copyrightText ?? string.Empty,
             supportsDynamicLayers = false,
 
-            layers = Entries(layers),
+            layers = Entries(layers, groups ?? []),
             tables = Array.Empty<object>(),
 
             spatialReference = Reference(srid),
@@ -176,6 +178,9 @@ public static class MapServerMetadataWriter
             id = layer.Id,
             name = layer.Name,
             type = "Feature Layer",
+
+            // D-296: the group it sits in, as the service document says — a client reading one layer learns it here.
+            parentLayerId = layer.ParentId ?? -1,
             description = string.Empty,
             geometryType = GeometryName(layer.GeometryType),
             copyrightText = copyrightText ?? string.Empty,
@@ -326,14 +331,37 @@ public static class MapServerMetadataWriter
             geometry,
         };
 
+    /// <remarks>
+    /// <b>Groups and layers as one list, ordered by index — D-296, 2026-10-14.</b> This listed the feature layers
+    /// only, so a group the operator made, which the FeatureServer beside it lists, was nowhere in the map service:
+    /// the reverse of ArcGIS, whose MapServer carries the groups and whose FeatureServer leaves them out. ArcGIS Pro
+    /// builds its table of contents from this document and showed the group from neither face.
+    /// </remarks>
     private static object[] Entries(
-        IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers)
+        IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers,
+        IReadOnlyList<FeatureServerMetadataWriter.ServiceGroup> groups)
     {
-        object[] entries = new object[layers.Count];
+        List<(int Id, object Entry)> entries = [];
+
+        foreach (FeatureServerMetadataWriter.ServiceGroup group in groups)
+        {
+            entries.Add((group.Id, new
+            {
+                id = group.Id,
+                name = group.Name,
+                parentLayerId = group.ParentId ?? -1,
+                defaultVisibility = true,
+                subLayerIds = (object?)group.ChildIds.ToArray(),
+                minScale = 0d,
+                maxScale = 0d,
+                type = "Group Layer",
+                geometryType = (string?)null,
+            }));
+        }
 
         for (int i = 0; i < layers.Count; i++)
         {
-            entries[i] = new
+            entries.Add((layers[i].Id, new
             {
                 id = layers[i].Id,
                 name = layers[i].Name,
@@ -343,11 +371,13 @@ public static class MapServerMetadataWriter
                 minScale = layers[i].MinScale,
                 maxScale = layers[i].MaxScale,
                 type = "Feature Layer",
-                geometryType = GeometryName(layers[i].GeometryType),
-            };
+                geometryType = (string?)GeometryName(layers[i].GeometryType),
+            }));
         }
 
-        return entries;
+        entries.Sort((a, b) => a.Id.CompareTo(b.Id));
+
+        return [.. entries.Select(e => e.Entry)];
     }
 
     private static Envelope? Union(IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers)

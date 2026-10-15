@@ -275,6 +275,13 @@ public sealed class PortalConformanceTests : ArcGisClient
 
             Assert.Equal(org, orgId.GetString());
 
+            // <b>And an id beside the name — 2026-10-14.</b> The ArcGIS API for Python's `User` raised
+            // `KeyError: 'id'` in `GIS(url, token=…)`'s own constructor without it.
+            Assert.True(
+                document.TryGetProperty("id", out JsonElement id)
+                    && id.GetString() is { Length: 32 } text && text.All(Uri.IsHexDigit),
+                $"{name} carries no 32-character id: {document}");
+
             using HttpResponseMessage categories = await Http.GetAsync(
                 new Uri($"{root}/sharing/rest/portals/{orgId.GetString()}/categorySchema?f=json&token={token}"));
 

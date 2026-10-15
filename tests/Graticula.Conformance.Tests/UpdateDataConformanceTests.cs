@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -269,6 +270,27 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
 
         try
         {
+            // <b>What the ArcGIS API for Python reads before it appends — 2026-10-14.</b> It asks for the
+            // service and layer documents by POST, and stops in the client unless the layer says
+            // supportsAppend; both were missing while the operations below worked.
+            foreach (string document in (string[])[service, $"{service}/layers", $"{service}/0"])
+            {
+                (HttpStatusCode got, string gotBody) = await DocumentAsync(HttpMethod.Get, document, token!);
+                (HttpStatusCode posted, string postedBody) = await DocumentAsync(HttpMethod.Post, document, token!);
+
+                Assert.True(got == HttpStatusCode.OK, $"GET {document} answered {(int)got}: {gotBody}");
+                Assert.True(posted == HttpStatusCode.OK, $"POST {document} answered {(int)posted}: {postedBody}");
+                Assert.Equal(
+                    JsonDocument.Parse(gotBody).RootElement.EnumerateObject().Select(p => p.Name),
+                    JsonDocument.Parse(postedBody).RootElement.EnumerateObject().Select(p => p.Name));
+            }
+
+            (_, string layerBody) = await DocumentAsync(HttpMethod.Get, $"{service}/0", token!);
+            JsonElement layer = JsonDocument.Parse(layerBody).RootElement;
+
+            Assert.True(layer.GetProperty("supportsAppend").GetBoolean(), "A hosted layer does not say supportsAppend.");
+            Assert.Equal("geojson,shapefile", layer.GetProperty("supportedAppendFormats").GetString());
+
             // A file whose column is called something else, mapped onto the layer's `name`.
             string renamed = Polygons("mapped").Replace("\"name\"", "\"label\"", StringComparison.Ordinal);
 
@@ -335,6 +357,20 @@ public sealed class UpdateDataConformanceTests : ArcGisClient
 
             using HttpResponseMessage gone = await Http.SendAsync(delete);
         }
+    }
+
+    /// <summary>A service or layer document, with <c>f=json</c> in the query for GET and in the form for POST.</summary>
+    private async Task<(HttpStatusCode Status, string Body)> DocumentAsync(HttpMethod method, string url, string token)
+    {
+        using HttpRequestMessage request = method == HttpMethod.Get
+            ? new(method, $"{url}?f=json")
+            : new(method, url) { Content = new FormUrlEncodedContent([new("f", "json")]) };
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+
+        return (response.StatusCode, await response.Content.ReadAsStringAsync());
     }
 
     private async Task<string> UploadAsync(string service, string token, string json)

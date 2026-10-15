@@ -40,9 +40,10 @@ public sealed class CrossOriginPolicyIsVisibleTests : ConsoleTest
 
         Assert.Contains("may read this server's services", says, StringComparison.Ordinal);
 
-        // What is never allowed is half of the answer: a reader who sees *every origin* and not
-        // *never with credentials* reads it as *anybody can act as me*.
-        Assert.Contains("never with credentials", says, StringComparison.Ordinal);
+        // What is never allowed is half of the answer: a reader who sees *every origin* and not that the sign-in
+        // never counts across origins reads it as *anybody can act as me*. It said *never with credentials* until
+        // Q-169 (2026-10-14) allowed credentialed reads and made the cookie count for this origin only.
+        Assert.Contains("sign-in never counts across origins", says, StringComparison.Ordinal);
         Assert.Contains("Graticula", says, StringComparison.Ordinal);
 
         // The metric beside the audit carries the policy itself.

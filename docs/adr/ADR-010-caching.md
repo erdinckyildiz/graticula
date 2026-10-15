@@ -630,7 +630,7 @@ limiting. The multi-node invalidation window exists.
 | A-020 | Seeding absorbs the provider performance gap | `UNVALIDATED` — `benchmarks/tile-seeding/` |
 | A-023 | Schema fingerprint polling is cheap enough | `UNVALIDATED` |
 | A-028 | Administrators can and will declare layer volatility usefully | `UNVALIDATED` |
-| A-029 | Tiles, not feature responses, are where cache reuse actually is | `UNVALIDATED` — the restraint in §2 rests on it |
+| A-029 | Tiles, not feature responses, are where cache reuse actually is | `PARTLY VALIDATED` 2026-10-15 — per request on the showcase's month of traffic (condition 4); not in absolute count there |
 
 ## 11. Dependencies
 
@@ -747,7 +747,24 @@ grant fingerprint is the fix — not a purge.
    many wait on it, and a refusal is a 503 with `Retry-After`. D-277.)*
 4. **A-029 must be checked against real traffic** before the §2 restraint is
    treated as settled.
+   **DISCHARGED 2026-10-15 — checked, and the restraint stands, with one caveat measured beside it.** The
+   showcase's request log, 2026-09-14 to 2026-10-14, 396,322 requests, read for aggregates only
+   (`tools/cache-reuse.sql`). Of the successful ones, 68,721 are feature queries and 3,924 tiles. For each,
+   the share that repeats an identical earlier request within a window, which is what a shared cache of
+   that lifetime would have answered:
 
+   | | 5 minutes | 1 hour | 1 day | 1 day, another client | ever |
+   |---|---|---|---|---|---|
+   | feature query | 2.4 % | 4.3 % | 11.0 % | 8.7 % | 46.9 % |
+   | tile | 7.1 % | 12.8 % | 38.7 % | 19.9 % | 44.8 % |
+
+   **Per request, tiles reuse three times as often at every window**, which is A-029. A feature response
+   cache held for minutes, the lifetime an edit allows, would have answered about one request in forty,
+   and the revisit trigger, *repeated identical feature queries dominate real traffic*, is not met. **The
+   caveat:** on this deployment feature queries outnumber tiles seventeen to one, because its clients ask
+   for features, and a day's window would have answered 7,559 feature queries against 1,518 tiles. So the
+   reuse is where A-029 says per request, and not in absolute count. That difference is what a deployment
+   whose clients draw from vector tiles would not show, and it is one deployment's month.
 ## 13. Revisit triggers
 
 - Repeated identical feature queries dominate real traffic (invalidates A-029).

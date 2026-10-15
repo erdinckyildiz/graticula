@@ -89,6 +89,9 @@ public sealed class IgnoredParameterTests : ArcGisClient
         ["multipatchOption"] = "xyFootprint",
         ["featureEncoding"] = "esriDefault",
 
+        // The ArcGIS API for Python's own paging switch, sent on every query (2026-10-14).
+        ["returnAllRecords"] = "true",
+
         // <b>`token` is deliberately absent, and the absence is asserted below.</b> Its
         // recorded reason is that the token authenticates and the header form is
         // preferred, so the honest probe is a *valid* token compared against the header —

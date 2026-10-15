@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>domains probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body{margin:0;height:100%}#v{height:60%}#t,#f{height:20%;overflow:auto}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div><div id="t"></div><div id="f"></div>
+<script>
+// ADR-065 condition 2: what the Maps SDK does with a layer's coded values, range and subtypes as this server reports
+// them — the list it offers, whether a value outside the range is refused, and one template per subtype.
+// ?url=<…/FeatureServer/0>[&token=<a token>] — with a token the layer is opened as its editor, which is when the SDK
+// offers templates and validates a form.
+var q = new URLSearchParams(location.search);
+var url = q.get("url"), token = q.get("token");
+require(["esri/Map", "esri/views/MapView", "esri/layers/FeatureLayer", "esri/widgets/FeatureTemplates",
+         "esri/widgets/FeatureForm", "esri/identity/IdentityManager"],
+        function (Map, MapView, FeatureLayer, FeatureTemplates, FeatureForm, IdentityManager) {
+  // The token rides as the layer's apiKey: registerToken and customParameters both left it off every request (measured).
+  var layer = new FeatureLayer(token ? { url: url, outFields: ["*"], apiKey: token } : { url: url, outFields: ["*"] });
+  var view = new MapView({ container: "v", map: new Map({ layers: [layer] }) });
+  var out = {};
+  var codes = function (d) { return d && d.codedValues ? d.codedValues.map(function (c) { return c.code; }) : null; };
+  layer.load().then(function () {
+    out.editable = layer.editingEnabled && !!(layer.capabilities && layer.capabilities.operations.supportsAdd);
+    out.typeIdField = layer.typeIdField;
+    out.subtypeField = layer.subtypeField;
+    out.types = (layer.types || []).map(function (t) {
+      return { id: t.id, name: t.name, templates: (t.templates || []).length,
+               materialCodes: codes(t.domains && t.domains.material) };
+    });
+    out.material = codes(layer.getField("material").domain);
+    var range = layer.getField("diameter").domain;
+    out.diameter = range && [range.type, range.minValue, range.maxValue];
+    return layer.queryFeatures({ where: "label = 'A'", outFields: ["*"], returnGeometry: true });
+  }).then(function (result) {
+    var feature = result.features[0];
+    out.materialForMain = codes(layer.getFieldDomain("material", { feature: feature }));
+
+    var templates = new FeatureTemplates({ container: "t", layers: [layer] });
+    var form = new FeatureForm({ container: "f", layer: layer, feature: feature });
+
+    return new Promise(function (done) { setTimeout(function () { done({ templates: templates, form: form }); }, 4000); });
+  }).then(function (w) {
+    var items = w.templates.viewModel.items;
+    // The widget's items are groups (one per layer) holding the templates.
+    out.templateItems = items ? items.map(function (g) {
+      return g.items ? { group: g.label, templates: g.items.map(function (i) { return i.label; }) } : g.label;
+    }) : null;
+    var vm = w.form.viewModel;
+    vm.setValue("diameter", 5000);
+    out.formValidOutOfRange = vm.valid;
+    vm.setValue("diameter", 600);
+    out.formValidInRange = vm.valid;
+    window.__result = JSON.stringify(out);
+  }).catch(function (e) { out.error = String(e && e.message || e); window.__result = JSON.stringify(out); });
+});
+</script></body></html>

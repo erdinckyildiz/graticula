@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Graticula.Geometries;
 
@@ -81,9 +82,30 @@ public static class GeometryOperations
     /// </remarks>
     /// <param name="geometries">Any geometries; only their coordinates matter.</param>
     /// <returns>A point, a line or a polygon.</returns>
-    public static Geometry ConvexHull(IReadOnlyList<Geometry> geometries)
+    public static Geometry ConvexHull(IReadOnlyList<Geometry> geometries) => ConvexHull(geometries, out _);
+
+    /// <summary>
+    /// The convex hull, two-dimensional, and the ordinates of the input it leaves behind — ADR-077 §5.3.
+    /// </summary>
+    /// <remarks>
+    /// <b>A new shape, so x and y only, and said rather than done quietly.</b> A hull vertex is an input vertex, but
+    /// which of several coincident inputs' elevations it should carry is not a question with an answer, and ADR-077
+    /// §5.3 puts every operation that builds a new shape on the same footing: two dimensions, and the caller told.
+    /// </remarks>
+    /// <param name="geometries">Any geometries; only their coordinates matter.</param>
+    /// <param name="dropped">The Z and M the input carried and the hull does not; <see cref="GeometryOrdinates.None"/>
+    /// for a flat input.</param>
+    /// <returns>A point, a line or a polygon, with x and y only.</returns>
+    public static Geometry ConvexHull(IReadOnlyList<Geometry> geometries, out GeometryOrdinates dropped)
     {
         ArgumentNullException.ThrowIfNull(geometries);
+
+        dropped = GeometryOrdinates.None;
+
+        foreach (Geometry each in geometries)
+        {
+            dropped |= Ordinates.Of(each);
+        }
 
         double[] points = DistinctCoordinates(geometries);
         int n = points.Length / 2;
@@ -154,7 +176,8 @@ public static class GeometryOperations
     /// </summary>
     /// <remarks>
     /// <b>Interpolated, never moved.</b> Every original coordinate survives at
-    /// its original value; densifying is additive. A version that resampled at a
+    /// its original value, its Z and M included; a vertex it adds takes Z and M
+    /// interpolated along the edge it lies on (ADR-077 §5.1 and §5.2). Densifying is additive. A version that resampled at a
     /// fixed interval would be cheaper and would move survey coordinates, which
     /// is the one thing a GIS server must not do quietly.
     /// </remarks>
@@ -454,12 +477,8 @@ public static class GeometryOperations
             return ring;
         }
 
-        double[] closed = new double[2 * (n + 1)];
-        ring.AsSpan().CopyTo(closed);
-        closed[2 * n] = ring.X(0);
-        closed[2 * n + 1] = ring.Y(0);
-
-        return XySequence.Wrap(closed);
+        // The closing vertex is the first one again, its Z and M included.
+        return Pick(run: ring, [.. Enumerable.Range(0, n), 0]);
     }
 
     // ---------- the two runs ----------
@@ -473,6 +492,10 @@ public static class GeometryOperations
 
         List<double> outp = new(run.Count * 2);
 
+        // ADR-077 §5.2: a vertex this adds lies on an edge, so its Z and M are the edge's, at the same fraction.
+        List<double>? zs = run.HasZ ? new(run.Count) : null;
+        List<double>? ms = run.HasM ? new(run.Count) : null;
+
         for (int i = 0; i < run.Count - 1; i++)
         {
             double x0 = run.X(i), y0 = run.Y(i);
@@ -480,6 +503,8 @@ public static class GeometryOperations
 
             outp.Add(x0);
             outp.Add(y0);
+            zs?.Add(run.Z(i));
+            ms?.Add(run.M(i));
 
             double length = Math.Sqrt(((x1 - x0) * (x1 - x0)) + ((y1 - y0) * (y1 - y0)));
 
@@ -498,13 +523,45 @@ public static class GeometryOperations
                 double fraction = (double)step / pieces;
                 outp.Add(x0 + ((x1 - x0) * fraction));
                 outp.Add(y0 + ((y1 - y0) * fraction));
+                zs?.Add(run.Z(i) + ((run.Z(i + 1) - run.Z(i)) * fraction));
+                ms?.Add(run.M(i) + ((run.M(i + 1) - run.M(i)) * fraction));
             }
         }
 
-        outp.Add(run.X(run.Count - 1));
-        outp.Add(run.Y(run.Count - 1));
+        int last = run.Count - 1;
+        outp.Add(run.X(last));
+        outp.Add(run.Y(last));
+        zs?.Add(run.Z(last));
+        ms?.Add(run.M(last));
 
-        return XySequence.Wrap([.. outp]);
+        return XySequence.Wrap([.. outp], zs?.ToArray(), ms?.ToArray());
+    }
+
+    /// <summary>The vertices at <paramref name="indices"/>, each with its own Z and M — ADR-077 §5.1.</summary>
+    private static XySequence Pick(XySequence run, List<int> indices)
+    {
+        double[] xy = new double[2 * indices.Count];
+        double[]? z = run.HasZ ? new double[indices.Count] : null;
+        double[]? m = run.HasM ? new double[indices.Count] : null;
+
+        for (int at = 0; at < indices.Count; at++)
+        {
+            int i = indices[at];
+            xy[2 * at] = run.X(i);
+            xy[(2 * at) + 1] = run.Y(i);
+
+            if (z is not null)
+            {
+                z[at] = run.Z(i);
+            }
+
+            if (m is not null)
+            {
+                m[at] = run.M(i);
+            }
+        }
+
+        return XySequence.Wrap(xy, z, m);
     }
 
     private static XySequence GeneralizeRun(XySequence run, double maxDeviation)
@@ -607,21 +664,18 @@ public static class GeometryOperations
             return run;
         }
 
-        double[] outp = new double[2 * kept];
-        int at = 0;
+        // ADR-077 §5.1: a vertex the generalization keeps keeps its Z and M.
+        List<int> chosen = new(kept);
 
         for (int i = 0; i < n; i++)
         {
-            if (!keep[i])
+            if (keep[i])
             {
-                continue;
+                chosen.Add(i);
             }
-
-            outp[at++] = run.X(i);
-            outp[at++] = run.Y(i);
         }
 
-        return XySequence.Wrap(outp);
+        return Pick(run, chosen);
     }
 
     /// <summary>Douglas–Peucker, iterative so a long run cannot overflow the stack.</summary>

@@ -483,6 +483,7 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    domains shown as domains** in the GeoPackage and the File Geodatabase, which the first build does not write.
    *(2026-10-07: written now (condition 1), and QGIS 3.28 shows them as domains — a value map on `şehir`, a range on
    `nüfus` — from both files. ArcGIS Pro has not been shown them; that is what is still open.)*
+   **DISCHARGED 2026-10-14, with one difference written back.** ArcGIS Pro 3.7 on this machine (`tools/arcpy-probe/read-turkish-exports.py`), reading a registered layer's exports from the local fixture: in the File Geodatabase `şehir` carries the coded domain `Şehirler` and `nüfus` the range `Nüfus aralığı` 0–20,000,000, and `ListDomains` names both. **This took a fix first:** ADR-107's route, `POST /admin/services/…/layers/{id}/export`, never passed the domains to the reader, so its GeoPackage had no `gpkg_data_column_constraints` and Pro found no domain in its File Geodatabase. The job's files always had them. The route now uses the same `DomainsOf`, and `LayerExportConformanceTests.A_fields_domain_leaves_this_routes_GeoPackage_and_File_Geodatabase_as_a_domain` fails without it (measured). **The difference: Pro shows no domain from any GeoPackage.** The file holds them in the standard `gpkg_schema` tables, which QGIS shows. Pro 3.7 lists none, and `CreateDomain` in a GeoPackage Pro made itself fails with ERROR 999999, so this is Pro's limit and not the file's. **And Pro's KML To Layer reads no `ExtendedData`.** It brought in no attribute from this KML or from three other layouts tried (a Schema in the same Document, untyped `<Data>`). Only `<name>` and `<description>` came through, so in Pro a KML's attributes are Google Earth's to show.
 3. **Turkish text survives every format.** A layer with `ğ`, `ş`, `İ`, `ı` in attribute values and in field names is
    exported in all eight formats and read back by condition 2's readers with every letter intact. **PARTLY DISCHARGED
    2026-09-30:** `tr_il`'s `il` values (Nevşehir, Kırşehir, Muş …) read back intact in Pro from the GeoPackage and the
@@ -493,6 +494,7 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    60,000 rows of `ğüşİıöç` in values intact in every format. A hosted layer's designed fields fold Turkish letters to
    ASCII when they are made (`şehir` became `sehir`), so it is a registered layer that carries them. Still open: those
    names read by condition 2's readers rather than by GDAL.)*
+   *(2026-10-14: read by them now, except one. ArcGIS Pro reads `şehir`, `ilçe_adı` and `nüfus` with İstanbul, Kırşehir, Muğla, Üsküdar and Çiçekdağı from the GeoPackage, the File Geodatabase (domain names `Şehirler` and `Nüfus aralığı` too), the Shapefile and *JSON To Features* on the Feature Collection. Excel, driven over COM (`tools/arcpy-probe/excel-reads.ps1`), reads the same header and rows from the CSV and the workbook. **Still open: the KML's names in Google Earth.** Pro's KML To Layer reads no `ExtendedData` at all (condition 2), and Google Earth is not installed on this machine.)*
 4. **A Shapefile name collision** — three fields whose first ten bytes agree, one of them Turkish — gets §5.6's names and
    the `fieldnames.csv` says so. **DISCHARGED 2026-10-07.** `mahalle_adi_1`, `mahalle_adi_2` and `mahalle_adı_3` leave as
    `mahalle_ad`, `mahalle__1` and `mahalle__2`, and `aççççç` (eleven bytes) as `açççç` — cut before the fifth `ç`, where
@@ -522,6 +524,12 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    `GeodatabaseReaderTests.A_layer_of_single_and_multipart_polygons_is_written_as_a_file_geodatabase` failed before it
    and passes. The child's peak in the failed run was 78 MB, which measures a reader that stopped at the layer and not
    a write; the measurement this condition asks for waits for the repaired reader on the showcase.)*
+   **DISCHARGED 2026-10-14, on the showcase, v1.0.378.** The largest layer, `cities/new_york_buildings_parquet`, exported
+   as a File Geodatabase: 1,658,511 rows in 106 s, a 155 MB zip, and GDAL 3.14 opens it as one `MULTIPOLYGON` layer of
+   1,658,511 features. **The reader child's peak working set was 202 MB** (VmHWM sampled every half second inside the
+   server's container; the development container that shares the store was sampled too and took no part). As a workbook
+   the same layer is refused at the request, correctly, for being more than one sheet — the largest layer that a
+   workbook can hold was measured at 300,000 rows on the fixture (283 MB). The export was deleted afterwards.
 6. **Every source**: a hosted layer, a registered PostGIS layer and a GeoParquet layer each export, and a hidden field
    (ADR-063) is in none of them. **DISCHARGED 2026-10-07.** A hosted layer with `n` hidden (GeoJSON, CSV and GeoPackage
    without it), a registered layer over the same table with `sehir` hidden (GeoJSON, 1,000 rows, without it), and a

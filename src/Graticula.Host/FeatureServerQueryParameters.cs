@@ -171,6 +171,14 @@ internal static class FeatureServerQueryParameters
         ["timeReferenceUnknownClient"] = "every date is written in UTC already; no layer here has a time reference of its own",
         ["multipatchOption"] = "no layer here has multipatch geometry",
         ["sqlFormat"] = "no SQL is exposed",
+
+        // <b>Not a REST parameter at all, and the ArcGIS API for Python sends it on every query.</b>
+        // It is the API's own switch — page through on the client until the server stops reporting
+        // exceededTransferLimit — and it travels with the request only because the API's query model
+        // serialises it. Refusing it meant `FeatureLayer.query()` failed on its defaults (measured
+        // 2026-10-14, arcgis 2.4.3). Either value is answered with the same page, and the paging is
+        // the client's.
+        ["returnAllRecords"] = "the client's own paging switch; the page and exceededTransferLimit are the same either way",
     };
 
     /// <summary>
@@ -1878,7 +1886,7 @@ internal static class FeatureServerQueryParameters
 
         foreach (JsonElement definition in definitions.EnumerateArray())
         {
-            if (!TryStatistic(definition, known, out StatisticRequest statistic, out error))
+            if (!TryStatistic(definition, known, allFields, out StatisticRequest statistic, out error))
             {
                 return false;
             }
@@ -1898,6 +1906,7 @@ internal static class FeatureServerQueryParameters
     private static bool TryStatistic(
         JsonElement definition,
         HashSet<string> known,
+        IReadOnlyList<FieldDescription> allFields,
         out StatisticRequest statistic,
         out string? error)
     {
@@ -1979,6 +1988,23 @@ internal static class FeatureServerQueryParameters
                     return false;
                 }
             }
+        }
+
+        // <b>`count` of `*` is every row, and ArcGIS Pro asks for it first — 2026-10-14.</b> Pro counts a layer it
+        // adds with `[{"statisticType":"count","onStatisticField":"*"}]`. It was refused as a field that does not
+        // exist, and Pro fell back to `returnCountOnly`, one refused request per layer. A count over a column that
+        // cannot be null is a count of rows, and the object id is such a column. A layer with no such column is
+        // still refused, with the way round it.
+        if (field == "*" && kind == StatisticKind.Count)
+        {
+            if (allFields.FirstOrDefault(f => !f.Nullable) is not { Name.Length: > 0 } every)
+            {
+                error = "'onStatisticField' of '*' counts rows, and this layer has no column that cannot be null to "
+                    + "count them by. Ask with 'returnCountOnly=true' instead.";
+                return false;
+            }
+
+            field = every.Name;
         }
 
         if (!known.TryGetValue(field, out string? actual))

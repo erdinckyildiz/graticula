@@ -1278,6 +1278,29 @@ public sealed class WebMapViewerTests : ConsoleTest
         Assert.Equal(string.Empty, (await Browser.EvaluateAsync<string>("document.getElementById('layerList').textContent") ?? "").Trim());
     }
 
+    /// <summary>
+    /// Add layer pressed before the page has read its map still answers.
+    /// </summary>
+    /// <remarks>
+    /// CI's console run, 2026-10-15: the test above pressed Add layer while the page was still waiting for the portal,
+    /// the click handler read <c>null.operationalLayers</c> and rejected, and the panel said nothing. A faster machine
+    /// never pressed early enough. The moment is made here rather than waited for: the map document is taken away,
+    /// as it is before start-up sets it.
+    /// </remarks>
+    [Fact]
+    public async Task Add_layer_pressed_before_the_map_is_read_still_answers()
+    {
+        (string token, string cookie) = await SignInAsync();
+
+        await OpenAsync("/studio/webmap.html", token, cookie);
+        await WaitForAsync(Shown("#addLayer"), "A new map offers no Add layer.");
+        await Browser.EvaluateAsync<bool>("(wmState.doc = null, wmServices = [], true)");
+        await ClickAsync("#addLayer");
+
+        await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/#/content\"]')",
+            "Add layer pressed before the map was read did not answer.");
+    }
+
     /// <summary>Enter on the focused map asks what is at its centre, as a click asks at a point.</summary>
     /// <remarks>
     /// ADR-079 condition 2's review (2026-10-14): the map could be focused and panned with the arrows, and nothing let a

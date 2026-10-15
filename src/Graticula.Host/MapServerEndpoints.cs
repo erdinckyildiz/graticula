@@ -163,7 +163,8 @@ internal static class MapServerEndpoints
                 settings.MaximumRecordCount),
             await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false),
             service.Description,
-            service.CopyrightText);
+            service.CopyrightText,
+            GroupsOf(service));
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
@@ -244,6 +245,7 @@ internal static class MapServerEndpoints
             servedSrid,
             servedExtent)
         {
+            ParentId = layer.ParentIndex,
             MinScale = layer.VisibleRange.MinScale,
             MaxScale = layer.VisibleRange.MaxScale,
         };
@@ -312,17 +314,65 @@ internal static class MapServerEndpoints
             return;
         }
 
-        List<object> layers = [];
+        List<(int Id, object Document)> layers = [];
 
-        foreach (PublishedLayer layer in service.Layers.OrderBy(l => l.LayerIndex))
+        foreach (PublishedLayer layer in service.Layers)
         {
             (object document, _) = await LayerDocumentAsync(context, layer, contexts, projector, settings, cancellation)
                 .ConfigureAwait(false);
-            layers.Add(document);
+            layers.Add((layer.LayerIndex, document));
         }
 
-        await Results.Ok(new { layers, tables = Array.Empty<object>() }).ExecuteAsync(context).ConfigureAwait(false);
+        // D-296: the groups the service document lists, at their own indices, as the FeatureServer's `layers` has them.
+        foreach (FeatureServerMetadataWriter.ServiceGroup group in GroupsOf(service))
+        {
+            layers.Add((group.Id, FeatureServerMetadataWriter.GroupLayerDocument(group, CapabilitiesOf(service))));
+        }
+
+        await Results.Ok(new
+        {
+            layers = layers.OrderBy(l => l.Id).Select(l => l.Document).ToArray(),
+            tables = Array.Empty<object>(),
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>The layers beneath a group, at any depth, or none when the id is not a group's — D-296.</summary>
+    private static List<int> LayersBeneath(PublishedService service, int id)
+    {
+        if (service.Group(id) is null)
+        {
+            return [];
+        }
+
+        List<int> beneath = [];
+        Queue<int> open = new([id]);
+
+        while (open.TryDequeue(out int at))
+        {
+            foreach (int child in service.ChildrenOf(at))
+            {
+                if (service.Group(child) is not null)
+                {
+                    open.Enqueue(child);
+                }
+                else
+                {
+                    beneath.Add(child);
+                }
+            }
+        }
+
+        return beneath;
+    }
+
+    /// <summary>The service's group layers, as the FeatureServer face lists them — D-296.</summary>
+    private static List<FeatureServerMetadataWriter.ServiceGroup> GroupsOf(PublishedService service) =>
+    [
+        .. service.Groups
+            .Select(g => new FeatureServerMetadataWriter.ServiceGroup(
+                g.Index, g.Name, g.ParentIndex, service.ChildrenOf(g.Index)))
+            .OrderBy(g => g.Id),
+    ];
 
     private static async Task LayerAsync(
         HttpContext context,
@@ -334,6 +384,31 @@ internal static class MapServerEndpoints
         HostSettings settings,
         CancellationToken cancellation)
     {
+        // <b>A group answers at its own index — D-296.</b> The service document lists it now, so a client following
+        // `subLayerIds`, or ArcGIS Pro building its table of contents, asks for it here; a 404 for an id the service
+        // advertised is the inconsistency that makes a client give up on the service.
+        PublishedService? owning = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (owning is null)
+        {
+            return;
+        }
+
+        if (owning.Group(layerId) is not null)
+        {
+            if (!await DrawableAsync(context, owning).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            await Results.Ok(FeatureServerMetadataWriter.GroupLayerDocument(
+                    GroupsOf(owning).First(g => g.Id == layerId), CapabilitiesOf(owning)))
+                .ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         PublishedLayer? layer = await ServiceLookup
             .LayerAsync(context, catalog, serviceName, layerId, cancellation)
             .ConfigureAwait(false);
@@ -429,7 +504,8 @@ internal static class MapServerEndpoints
                 service.Layers,
                 new WidthHeight(settings.MaximumImageWidth, settings.MaximumImageHeight),
                 out MapServerExportParameters? asked,
-                out string? error))
+                out string? error,
+                id => LayersBeneath(service, id)))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
@@ -566,7 +642,8 @@ internal static class MapServerEndpoints
                 await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false),
                 service.Layers,
                 out MapServerIdentifyParameters? asked,
-                out string? error))
+                out string? error,
+                id => LayersBeneath(service, id)))
         {
             await RefuseAsync(context, 400, error!).ConfigureAwait(false);
             return;
@@ -982,6 +1059,7 @@ internal static class MapServerEndpoints
                 extent)
             {
                 // ADR-070: the export draws the layer only inside these, so the document says so.
+                ParentId = layer.ParentIndex,
                 MinScale = layer.VisibleRange.MinScale,
                 MaxScale = layer.VisibleRange.MaxScale,
 

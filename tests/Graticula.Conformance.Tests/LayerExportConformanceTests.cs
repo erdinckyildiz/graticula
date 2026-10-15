@@ -42,6 +42,86 @@ public sealed class LayerExportConformanceTests : ArcGisClient
         return (response.StatusCode, response.Content.Headers.ContentType?.MediaType, await response.Content.ReadAsByteArrayAsync());
     }
 
+    /// <summary>
+    /// A field's domain leaves this route's GeoPackage and File Geodatabase as a domain, as it leaves ADR-106's job's.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found 2026-10-14 by ArcGIS Pro.</b> This route never passed the layer's domains to the reader, so its files
+    /// carried plain columns while the job's carried the lists. Pro listed no domain in this route's File Geodatabase,
+    /// and the GeoPackage had no <c>gpkg_data_column_constraints</c> at all. Both files are searched by their bytes,
+    /// as the job's test searches its own; the File Geodatabase's are inside the zip.
+    /// </remarks>
+    [Fact]
+    public async Task A_fields_domain_leaves_this_routes_GeoPackage_and_File_Geodatabase_as_a_domain()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string named = Environment.GetEnvironmentVariable(MultilayerVariable) ?? "hosted/ci_EarlyAlert";
+
+        using HttpRequestMessage ask = new(HttpMethod.Get, $"{root}/rest/services/{named}/FeatureServer/0?f=json");
+        ask.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage described = await Http.SendAsync(ask);
+        string layer = JsonDocument.Parse(await described.Content.ReadAsStringAsync()).RootElement.GetProperty("name").GetString()!;
+
+        async Task<HttpStatusCode> FieldsAsync(string body)
+        {
+            using HttpRequestMessage put = new(HttpMethod.Put, $"{root}/admin/layers/{layer}/fields")
+            {
+                Content = new StringContent(body, Encoding.UTF8, "application/json"),
+            };
+            put.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage answered = await Http.SendAsync(put);
+            return answered.StatusCode;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, await FieldsAsync("""
+            {"overrides":[{"column":"severity","domain":{"type":"codedValue","name":"RouteSeverity",
+             "codedValues":[{"code":0,"name":"Sakin ğ"},{"code":1,"name":"Dikkat ş"},{"code":2,"name":"Uyarı İ"},{"code":3,"name":"Alarm ı"}]}}]}
+            """));
+
+        try
+        {
+            (HttpStatusCode gpkg, _, byte[] package) = await ExportAsync(root, token, "gpkg");
+
+            Assert.Equal(HttpStatusCode.OK, gpkg);
+
+            string pages = Encoding.UTF8.GetString(package);
+
+            Assert.Contains("gpkg_data_column_constraints", pages, StringComparison.Ordinal);
+            Assert.Contains("RouteSeverity", pages, StringComparison.Ordinal);
+            Assert.Contains("Uyarı İ", pages, StringComparison.Ordinal);
+
+            (HttpStatusCode fgdb, _, byte[] gdb) = await ExportAsync(root, token, "fgdb");
+
+            Assert.Equal(HttpStatusCode.OK, fgdb);
+
+            StringBuilder tables = new();
+
+            using (ZipArchive archive = new(new MemoryStream(gdb)))
+            {
+                foreach (ZipArchiveEntry entry in archive.Entries)
+                {
+                    using MemoryStream copy = new();
+                    using (Stream opened = entry.Open()) await opened.CopyToAsync(copy);
+                    // A File Geodatabase keeps text as UTF-16, from an even or an odd byte; read it all three ways.
+                    byte[] bytes = copy.ToArray();
+                    tables.Append(Encoding.Unicode.GetString(bytes))
+                        .Append(bytes.Length > 1 ? Encoding.Unicode.GetString(bytes, 1, bytes.Length - 1) : string.Empty)
+                        .Append(Encoding.UTF8.GetString(bytes));
+                }
+            }
+
+            Assert.Contains("RouteSeverity", tables.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await FieldsAsync("""{"overrides":[]}""");
+        }
+    }
+
     [Fact]
     public async Task A_layer_leaves_as_a_GeoPackage_a_zipped_shapefile_and_a_workbook()
     {

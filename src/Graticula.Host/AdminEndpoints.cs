@@ -12186,7 +12186,7 @@ internal static partial class AdminEndpoints
         || !string.IsNullOrEmpty(request.SecretAccessKey) || !string.IsNullOrWhiteSpace(request.UrlStyle)
         || request.UseSsl is not null;
 
-    private static string Summarise(string connectionString)
+    internal static string Summarise(string connectionString)
     {
         if (GeoParquetLocator.Is(connectionString))
         {

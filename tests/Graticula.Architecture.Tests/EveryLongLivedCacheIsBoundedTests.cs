@@ -141,6 +141,12 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["LegendGraphic.Nothing"] = "fixed: the empty attribute set, shared and never written",
         ["CommonPasswords.Unleet"] = "fixed: the substitution table",
         ["FeatureServerQueryParameters.IgnoredParameters"] = "fixed: the parameters ArcGIS sends and we ignore",
+        // ADR-183: one apply's lookups, built and dropped by a command that runs once, never by a request.
+        ["CatalogManifest._contentFolders"] = "one apply: the content folders it creates, at most one per service",
+        ["CatalogManifest._domains"] = "one apply: the catalogue's shared domains",
+        ["CatalogManifest._layers"] = "one apply: the catalogue's layers",
+        ["CatalogManifest._services"] = "one apply: the catalogue's services",
+        ["CatalogManifest._sources"] = "one apply: the manifest's data sources",
         ["FeatureServerQueryParameters.AcceptedWhenFalse"] = "fixed: three parameter names, built once",
         ["FeatureServerQueryParameters.AcceptedAtDefault"] = "fixed: the parameters accepted at their default, built once",
         ["GeometryServerEndpoints.Blocked"] = "fixed: the operations this surface refuses",

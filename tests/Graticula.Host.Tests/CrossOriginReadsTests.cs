@@ -70,8 +70,12 @@ public sealed class CrossOriginReadsTests
 
         using HttpResponseMessage response = await server.CreateClient().SendAsync(request);
 
-        Assert.Equal("*", Header(response, "Access-Control-Allow-Origin"));
-        Assert.Null(Header(response, "Access-Control-Allow-Credentials"));
+        // Q-169 (2026-10-14): the origin reflected, with credentials, and varied by — the Maps SDK sends its portal
+        // requests with credentials, which a browser refuses against `*`. The cookie never counts across origins
+        // (`Authentication.CrossOrigin`), which is what makes this safe.
+        Assert.Equal(Page, Header(response, "Access-Control-Allow-Origin"));
+        Assert.Equal("true", Header(response, "Access-Control-Allow-Credentials"));
+        Assert.Contains("Origin", Header(response, "Vary"), StringComparison.Ordinal);
         Assert.Contains("ETag", Header(response, "Access-Control-Expose-Headers"), StringComparison.Ordinal);
     }
 
@@ -87,7 +91,8 @@ public sealed class CrossOriginReadsTests
         using HttpResponseMessage response = await server.CreateClient().SendAsync(request);
 
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-        Assert.Equal("*", Header(response, "Access-Control-Allow-Origin"));
+        Assert.Equal(Page, Header(response, "Access-Control-Allow-Origin"));
+        Assert.Equal("true", Header(response, "Access-Control-Allow-Credentials"));
         Assert.Contains("POST", Header(response, "Access-Control-Allow-Methods"), StringComparison.Ordinal);
         Assert.Contains("authorization", Header(response, "Access-Control-Allow-Headers"), StringComparison.Ordinal);
     }
@@ -102,7 +107,7 @@ public sealed class CrossOriginReadsTests
         using HttpResponseMessage response = await server.CreateClient().SendAsync(request);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.Equal("*", Header(response, "Access-Control-Allow-Origin"));
+        Assert.Equal(Page, Header(response, "Access-Control-Allow-Origin"));
     }
 
     [Fact]

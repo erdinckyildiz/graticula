@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>z edit probe</title>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body>
+<script>
+// ADR-077 condition 5: the Maps SDK adds a point with an elevation and a measure to a Z layer through applyEdits, as
+// it sends one, and reads it back. ?url=<…/FeatureServer/0>&token=<an editor's token>&z=<elevation>&m=<measure>.
+// The token rides as apiKey, the one way the SDK sent it to this server (ADR-065 condition 2's note).
+var q = new URLSearchParams(location.search);
+var url = q.get("url"), token = q.get("token"), z = Number(q.get("z")), m = Number(q.get("m"));
+require(["esri/layers/FeatureLayer", "esri/Graphic", "esri/geometry/Point"], function (FeatureLayer, Graphic, Point) {
+  var layer = new FeatureLayer({ url: url, outFields: ["*"], apiKey: token });
+  var out = {};
+  layer.load().then(function () {
+    out.hasZ = layer.hasZ;
+    out.hasM = layer.hasM;
+    out.editable = layer.editingEnabled && layer.capabilities.operations.supportsAdd;
+    var point = new Point({ x: 29.5, y: 41.5, z: z, m: m, hasZ: true, hasM: true, spatialReference: { wkid: 4326 } });
+    return layer.applyEdits({ addFeatures: [new Graphic({ geometry: point, attributes: {} })] });
+  }).then(function (result) {
+    var added = result.addFeatureResults[0];
+    out.added = added && !added.error ? added.objectId : null;
+    out.error = added && added.error ? String(added.error.message || added.error) : undefined;
+    return layer.queryFeatures({ objectIds: [out.added], outFields: ["*"], returnGeometry: true, returnZ: true, returnM: true });
+  }).then(function (r) {
+    var g = r.features[0] && r.features[0].geometry;
+    out.readBack = g ? { x: g.x, y: g.y, z: g.z, m: g.m, hasZ: g.hasZ, hasM: g.hasM } : null;
+    window.__result = JSON.stringify(out);
+  }).catch(function (e) { out.error = String(e && e.message || e); window.__result = JSON.stringify(out); });
+});
+</script></body></html>

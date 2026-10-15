@@ -1042,6 +1042,14 @@ public static class FeatureServerMetadataWriter
             // integer grid a pbf geometry is written on; a json answer stays at full precision.
             supportsCoordinatesQuantization = true,
 
+            // <b>Said since 2026-10-14, a fortnight after the route answered — ADR-105.</b> The ArcGIS API
+            // for Python reads these before it sends anything, and `FeatureLayer.append` stopped in the
+            // client with *Append is not supported on this layer* while `uploads/upload` and `append` both
+            // worked. A hosted layer is the one the route accepts (`HostedLayerAtAsync`), and these are the
+            // two formats it reads; a registered table is appended to by nobody.
+            supportsAppend = layer.IsHosted,
+            supportedAppendFormats = layer.IsHosted ? "geojson,shapefile" : string.Empty,
+
             // <b>What the query answers, which was nine relations while this said one.</b> A client
             // that reads the list offers only what is in it, so the Maps SDK's spatial filter
             // widgets offered *intersects* against a layer that computed contains, within and a

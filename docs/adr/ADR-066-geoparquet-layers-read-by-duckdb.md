@@ -381,8 +381,15 @@ spatial extension* — the half of item 3 that was a choice — and is no longer
    2026-09-13** by CI run 34729938403 on the branch: the platform and providers job passed 392 of 392
    with the class in it, on `postgis/postgis:16-3.4`, and the provider's own 71 tests passed on the
    runner's linux-x64 library.
-2. **An ArcGIS client adds a GeoParquet layer and draws and queries it.** Not measured — the same gap
-   ADR-065 condition 2 records, for the same reason.
+2. **An ArcGIS client adds a GeoParquet layer and draws and queries it.** ~~Not measured — the same gap
+   ADR-065 condition 2 records, for the same reason.~~ **DISCHARGED 2026-10-14, on the showcase (v1.0.378).** The
+   Maps SDK for JavaScript 4.30, in headless Brave, added `geoparquet/istanbul_roads` and `geoparquet/istanbul_places`
+   by their addresses (`tools/sdk-probe/layer.html`), drew them, and queried each three ways: a count of 16,480 roads
+   and 3,405 places, a first feature with its attributes and geometry, and a spatial count over the view (16,480, and
+   3,404 — one place lies outside the view the SDK fitted). The layer views settled with every feature drawn, and the
+   roads are the whole network ([sdk-draws-a-geoparquet-layer-2026-10-14.png](../reviews/sdk-draws-a-geoparquet-layer-2026-10-14.png)).
+   The earlier attempt on 2026-09-12 that never loaded is not this server's: the same SDK loads these layers from
+   another origin today, without the portal and so without Q-169.
 3. **WFS and OGC API Features advertise, per layer, only the spatial operators the layer answers.**
    Today the WFS capabilities list operators service-wide, and a filter a GeoParquet layer cannot
    answer is refused at query time with a sentence rather than not offered. [D-263](../architecture-debt.md).

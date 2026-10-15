@@ -191,7 +191,8 @@ internal sealed record HostSettings(
     bool MotherDuck = false,
 
     // <b>Which web pages on other origins may read service responses — ADR-072.</b> `*` by default,
-    // which is ArcGIS Server's own default; never with credentials. `none` turns it off, and a list
+    // which is ArcGIS Server's own default; with credentials since Q-169, and the session cookie never counts across
+    // origins (ADR-072 §5a). `none` turns it off, and a list
     // names origins. Parsed at startup so a mistyped origin refuses to start.
     CrossOriginReads? CorsOrigins = null,
 

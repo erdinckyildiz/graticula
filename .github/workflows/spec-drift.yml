@@ -1,0 +1,35 @@
+# A published specification this server reads, checked against where it is published, nightly.
+#
+# ADR-052 condition 2: every property in §3.2's table is checked against the published CIM
+# specification by something that reads it, so that a rename in a later CIM version fails here
+# rather than in somebody's map. tools/cim-spec-check.py pins a commit for a local run; this runs it
+# against the specification's main branch, which is what notices the specification moving.
+#
+# Scheduled and dispatched only: it reads github.com/Esri/cim-spec, and a pull request should not
+# fail because somebody else's repository changed overnight.
+
+name: spec drift
+
+on:
+  schedule:
+    # 05:41 UTC, after cite.yml's 04:23 and off the hour for the same reason as the others.
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cim:
+    name: CIM specification (ADR-052 §3.2)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: check §3.2 against the specification's main branch
+        run: python tools/cim-spec-check.py main

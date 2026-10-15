@@ -255,6 +255,20 @@ public sealed class QueryCapabilityConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task A_count_of_star_is_the_row_count()
+    {
+        // The statistic ArcGIS Pro 3.7 counts a layer with when it adds it (2026-10-14); refused, it cost a fallback
+        // request per layer.
+        JsonElement counted = await QueryAsync("where=1%3D1&outStatistics=" + Uri.EscapeDataString(
+            """[{"statisticType":"count","onStatisticField":"*","outStatisticFieldName":"ROW_COUNT"}]""") + "&f=json");
+        JsonElement count = await QueryAsync("where=1%3D1&returnCountOnly=true");
+
+        JsonElement attributes = counted.GetProperty("features")[0].GetProperty("attributes");
+
+        Assert.Equal(count.GetProperty("count").GetInt64(), attributes.GetProperty("ROW_COUNT").GetInt64());
+    }
+
+    [Fact]
     public async Task Two_response_shapes_the_specification_does_not_rank_are_refused()
     {
         (string path, _) = await LayerAsync();

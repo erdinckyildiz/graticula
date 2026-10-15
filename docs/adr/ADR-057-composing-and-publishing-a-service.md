@@ -947,3 +947,16 @@ the same file already had one.
 
    **What is left is Pro**, which is the client the owner's users actually have and which cannot
    be run from here. The condition stays open for it.
+
+   **DISCHARGED 2026-10-14 — Pro is run here now.** ArcGIS Pro 3.7, through arcpy on the owner's machine
+   (`tools/arcpy-probe/group-service.py`), added `hosted/ci_EarlyAlert`'s FeatureServer by its address, as Add Data
+   does, through a plain-HTTP relay that recorded every request. **Every layer opens and counts:** sites 6, routes
+   4, reports 5, none broken. Pro reads the group's own document (`FeatureServer/2`), and then **flattens, as the
+   JavaScript API did.** It builds one group named after the service, with the three feature layers directly under
+   it and no *Reports*. That is also what a Pro user sees of ArcGIS Server's own FeatureServer, which lists no group
+   layer at all: on the public sample server, Water_Network's MapServer has 24 layers with three groups and its
+   FeatureServer has 21 with none (10.9.1, measured the same day). **Two findings on the way.** Pro counts each
+   layer with `outStatistics` `count` of `*`, which this server refused as an unknown field; Pro fell back to
+   `returnCountOnly`. It is answered now (`A_count_of_star_is_the_row_count`), and the rerun has no refused request.
+   And this server's MapServer leaves the group out while its FeatureServer lists it, the reverse of ArcGIS, so
+   Pro shows the group from neither: [D-296](../architecture-debt.md). *(Resolved the same night: the MapServer carries the group, and Pro lists it as it lists the groups of an ArcGIS Server map service.)*

@@ -96,6 +96,17 @@ public static class Program
                                           GRATICULA_ADMIN_PASSWORD: an argument lands in
                                           your shell history and in the process table.
 
+          graticula tools manifest export [--out <file>]
+          graticula tools manifest apply <file> [--credentials <file>] [--apply]
+                                          The catalogue as a file to review and apply
+                                          (ADR-183): data sources, folders, shared domains,
+                                          services with their layers, groups, styles and
+                                          sharing, and relationships, all by name. Never a
+                                          credential: apply takes those from a JSON file,
+                                          name to connection string. apply prints its plan
+                                          and writes it, in one transaction, only with
+                                          --apply. It never deletes.
+
         Configuration is environment variables under Graticula__ — the store is
         Graticula__PlatformStore and the key is Graticula__SecretKey, and the server
         refuses to start without either. README.md is the quickstart.
@@ -849,6 +860,15 @@ public static class Program
         if (args is ["tools", "symbology-migrate", ..])
         {
             return await Tools.SymbologyMigrator
+                .RunAsync(app.Services, args, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
+        // <b>ADR-183, ADR-002 condition 3</b>: the catalogue as a file, and back. A command like `migrate`: it plans,
+        // and it writes only with --apply.
+        if (args is ["tools", "manifest", ..])
+        {
+            return await Tools.CatalogManifestTool
                 .RunAsync(app.Services, args, CancellationToken.None)
                 .ConfigureAwait(false);
         }
@@ -2032,7 +2052,13 @@ public static class Program
             // literal zero until 2026-08-15, because one published layer was one
             // service and there could never be a layer 1. A service is a
             // container of layers, so the number is now real.
-            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer", ServiceMetadataAsync)
+            // <b>GET or POST, as the ImageServer and MapServer documents already were — D-139's
+            // missed third face.</b> The ArcGIS API for Python reads every service and layer document
+            // by POST and falls back to GET only when the refusal says "Method Not Allowed"; V-53's
+            // envelope says it in other words, so `FeatureLayerCollection(url)` stopped dead on a 405
+            // (measured 2026-10-14, arcgis 2.4.3). These read nothing from a body but `f`, which falls
+            // back to the Accept header and answers JSON.
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer", ["GET", "POST"], ServiceMetadataAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
             // <b>All Layers and Tables, and a real client asks for it before the individual
@@ -2040,10 +2066,10 @@ public static class Program
             // `layers` is not an integer, so the two cannot collide. ADR-057 condition 5 found
             // this by pointing Esri's own JavaScript API at a grouped service: it read the
             // service document, asked for this, got a 404 and abandoned the service.
-            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/layers", AllLayersAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/layers", ["GET", "POST"], AllLayersAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
-            app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}", LayerMetadataAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}", ["GET", "POST"], LayerMetadataAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
             app.MapGet($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)

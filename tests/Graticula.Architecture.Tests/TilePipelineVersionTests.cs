@@ -79,6 +79,9 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-10-15 for D-297, and the version moved with it, to 4.</b> `PostGisTileSource` selects the
+        // attributes a layer describes as doubles `::double precision`, so a `numeric` column's value in a tile is a
+        // double where it was text: the bytes of every tile of such a layer change.
         // <b>Moved 2026-10-13 for credits, and the version deliberately did not move.</b> The VectorTileServer document
         // states its service's copyrightText, which every client's attribution reads; the route passes it to the writer.
         // No tile route, key, encoder or byte of a tile moved.
@@ -213,10 +216,10 @@ public sealed class TilePipelineVersionTests
         // stored style is checked against the generated icons' names as well as the uploaded ones. A picture marker is
         // drawn by the style from the sprite, beside the tiles; the tile route, the key, the encoder and every byte of
         // a tile are what they were.
-        "2c9051cc9cefc701cf3408f79f302ff80d6df49bf894d87ba0ece07749f2e3e5";
+        "cb23fdaab5a26952d728b2fa90c7e3ff6e2d5623d461a11bfe4e41c4f47c244c";
 
     /// <summary>The generation that hash belongs to.</summary>
-    private const int RecordedVersion = 3;
+    private const int RecordedVersion = 4;
 
     private static string Root
     {

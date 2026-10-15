@@ -192,8 +192,18 @@ internal static class LayerExportEndpoints
             // GDAL makes the .gdb folder but not the one it sits in.
             if (format == "fgdb") Directory.CreateDirectory(Path.GetDirectoryName(output)!);
 
+            // <b>The layer's domains, as ADR-106's job writes them — 2026-10-14.</b> This route passed none, so its
+            // GeoPackage and File Geodatabase came out with plain columns while the job's carried the lists and
+            // ranges; ArcGIS Pro, reading this route's file, listed no domain at all. One reading of a layer's
+            // domains (`FeatureExporter.DomainsOf`), as there is one reading of its rows.
             using JsonDocument answer = await reader.AskAsync(
-                new { op = "export", @in = input, @out = output, format, layer = name },
+                new
+                {
+                    op = "export", @in = input, @out = output, format, layer = name,
+                    domains = format is "gpkg" or "fgdb"
+                        ? FeatureExporter.DomainsOf(layer, [.. described.Fields.Select(f => f.Name)])
+                        : null,
+                },
                 TimeSpan.FromMinutes(5), cancellation).ConfigureAwait(false);
 
             if (!answer.RootElement.TryGetProperty("ok", out JsonElement ok) || !ok.GetBoolean())
