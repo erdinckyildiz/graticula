@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>bf44e393</code> · 2026-10-15 19:13</p>
+<p class="stamp">Şu commit’ten üretildi: <code>241bb906</code> · 2026-10-15 19:41</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">184</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">364/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">51 canlı · 4 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">368/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">65 madde</span></div><p><b>51 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">61 madde</span></div><p><b>47 ADR conditions</b> outstanding across 38 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -145,15 +145,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-021 · Tiles are encoded by PostGIS, and </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-025 · Governance: what a gift owes, and </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-046 · Admission control bounds the queue</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-047 · The outbound licence is Elastic Li</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-056 · An item is its own thing, and a se</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-059 · Quiescing a data source</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-067 · DuckDB sources beyond a local fold</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-074 · Z and M are read, said out loud, a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -164,7 +161,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-108 · An item&#x27;s owner is changed by an a</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-162 · WMS and WFS at a service&#x27;s own add</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">1</div></div>
@@ -215,7 +211,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">022</td><td>GeometryServer ships in halves, and the projection engine is the datastore&#x27;s</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by…</span><div class="muted-t">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by §2b, 2026-08-15</div></td><td class="muted-t">HIGH for the split · HIGH for the engine · MEDIUM for the vertex cap</td><td class="num">4/4</td></tr>
 <tr><td class="id">023</td><td>The REST Services Directory: an HTML face for the API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">6/7</td></tr>
 <tr><td class="id">024</td><td>Shapefile import, and the exception it costs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/5</td></tr>
-<tr><td class="id">025</td><td>Governance: what a gift owes, and what it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/4</td></tr>
+<tr><td class="id">025</td><td>Governance: what a gift owes, and what it does not</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/4</td></tr>
 <tr><td class="id">026</td><td>Serving through a platform-store outage: public-only, while blind</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the policy · MEDIUM for the window</td><td class="num">4/5</td></tr>
 <tr><td class="id">027</td><td>Glyphs and sprites: the tile service could not draw a label</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the coverage</td><td class="num">5/5</td></tr>
 <tr><td class="id">028</td><td>Style documents: the one thing about a map a server cannot guess</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">5/5</td></tr>
@@ -237,7 +233,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">044</td><td>Tiles are served, because the claim had to be true</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">6/6</td></tr>
 <tr><td class="id">045</td><td>The server keeps a log you can ask questions of</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">046</td><td>Admission control bounds the queue, not the wait</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/5</td></tr>
-<tr><td class="id">047</td><td>The outbound licence is Elastic License 2.0</td><td><span class="pill muted">ACCEPTED · SUPERSEDED by…</span><div class="muted-t">ACCEPTED · SUPERSEDED by ADR-180, 2026-10-13</div></td><td class="muted-t">HIGH for the decision · MEDIUM for what it will cost in adoption</td><td class="num">2/3</td></tr>
+<tr><td class="id">047</td><td>The outbound licence is Elastic License 2.0</td><td><span class="pill muted">ACCEPTED · SUPERSEDED by…</span><div class="muted-t">ACCEPTED · SUPERSEDED by ADR-180, 2026-10-13</div></td><td class="muted-t">HIGH for the decision · MEDIUM for what it will cost in adoption</td><td class="num">3/3</td></tr>
 <tr><td class="id">048</td><td>CI does not run the real-data suites, and says so on every run</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the exclusion · MEDIUM for whether announcing it is enough</td><td class="num">1/2</td></tr>
 <tr><td class="id">049</td><td>A face refuses in its own vocabulary, even when that vocabulary has no word for it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for refusing at all · MEDIUM for which exception code</td><td class="num"></td></tr>
 <tr><td class="id">050</td><td>A release is a tag, and what it publishes is two images</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the registry and the trigger · MEDIUM for the tag scheme</td><td class="num"></td></tr>
@@ -257,7 +253,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">064</td><td>Editor tracking, and what `features:edit` means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">065</td><td>Domains and subtypes</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">066</td><td>GeoParquet layers, read in place by DuckDB</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
-<tr><td class="id">067</td><td>DuckDB sources beyond a local folder: remote GeoParquet, a DuckDB database file, MotherDuck</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/6</td></tr>
+<tr><td class="id">067</td><td>DuckDB sources beyond a local folder: remote GeoParquet, a DuckDB database file, MotherDuck</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">068</td><td>Responses are compressed, on an allowlist rather than everywhere</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">069</td><td>Query responses carry the layer&#x27;s cache lifetime</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num"></td></tr>
 <tr><td class="id">070</td><td>A layer has a visible scale range, and publishing measures one from the data</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
@@ -298,7 +294,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">105</td><td>ArcGIS clients append to a hosted layer through `uploads/upload` and `append`</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the two operations are shaped as the public ArcGIS REST reference documents them…</td><td class="num">2/2</td></tr>
 <tr><td class="id">106</td><td>A layer&#x27;s data can be exported as a file</td><td><span class="pill warn">DRAFT</span></td><td class="muted-t">MEDIUM — every format rests on a GDAL driver measured present and able to create on both…</td><td class="num">8/9</td></tr>
 <tr><td class="id">107</td><td>A layer is exported as a GeoPackage, a zipped shapefile or a workbook</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — GDAL writes the files and is the same GDAL the import reads with; what is…</td><td class="num">3/3</td></tr>
-<tr><td class="id">108</td><td>An item&#x27;s owner is changed by an administrator; *Move* waits for content folders</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for Change owner — one row, the member transfer&#x27;s rule for one item; MEDIUM for…</td><td class="num">2/3</td></tr>
+<tr><td class="id">108</td><td>An item&#x27;s owner is changed by an administrator; *Move* waits for content folders</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for Change owner — one row, the member transfer&#x27;s rule for one item; MEDIUM for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">110</td><td>A web map sets its layers&#x27; pop-ups</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — stored where the ArcGIS Web Map specification keeps it and drawn by the viewer…</td><td class="num">2/2</td></tr>
 <tr><td class="id">111</td><td>An item carries tags</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — a list of words per item, searched as text; nothing measurable is at stake</td><td class="num">2/2</td></tr>
 <tr><td class="id">112</td><td>A CSV or Excel table with coordinates is published and added to a layer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — GDAL&#x27;s CSV driver does the reading, and the path after it is the shapefile&#x27;s</td><td class="num">2/2</td></tr>
@@ -510,6 +506,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>241bb906</code><time>2026-10-15</time><span>A layer&#x27;s document publishes cacheMaxAge, the lifetime its query answers are sent with, as ArcGIS&#x27;s do (ADR-101 condition 3)</span></li>
 <li><code>bf44e393</code><time>2026-10-15</time><span>Sharing is additive, as Portal&#x27;s is (ADR-185), and the declared schema version is 86 again</span></li>
 <li><code>b3f4bd46</code><time>2026-10-15</time><span>ADR-172 condition 1 discharged: the INSPIRE validator&#x27;s View suite passes, and the Download suite fails only on the placeholder metadata record (Q-165)</span></li>
 <li><code>f5745ec9</code><time>2026-10-15</time><span>What the INSPIRE validator found: WFS names its schemas, WMS refuses a missing SERVICE and a bad TRANSPARENT, and INSPIRE&#x27;s languages are its schema&#x27;s (Q-165)</span></li>
@@ -523,7 +520,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>ed2445b2</code><time>2026-10-15</time><span>The map viewer&#x27;s opening summary does not write over anything said while the layers loaded</span></li>
 <li><code>fbf4db43</code><time>2026-10-15</time><span>Open items of 2026-10-14/15: credentialed CORS, the catalogue manifest, ArcGIS Pro and the Python API measured, numeric tiles</span></li>
 <li><code>46db4de3</code><time>2026-10-14</time><span>Open items of 2026-10-14: a mixed polygon layer exports as a File Geodatabase, the web map screens after their first-run review, and the showcase&#x27;s ground</span></li>
-<li><code>b83627e4</code><time>2026-10-14</time><span>An elevation surface is described wholly in Web Mercator: ArcGIS Pro draws Uludag</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

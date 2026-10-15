@@ -89,3 +89,7 @@ choosing from the members.
 2. **Studio's Change owner is tested.** **DISCHARGED 2026-10-01** —
    `ItemStructureTests.An_administrator_changes_an_items_owner_from_Overview`.
 3. **Whether Portal's Move — content folders apart from service folders — is wanted is put to the owner.**
+   **DISCHARGED — answered 2026-10-01 and recorded 2026-10-15.** The owner wanted it (*"Tamamı"*), and
+   [ADR-114](ADR-114-content-folders-and-move.md) built it: content folders apart from service folders, *Move*, and
+   Portal's `createFolder` and `items/{id}/move`. This condition stayed open because nothing said here that the
+   question had been answered; asked again on 2026-10-15, the owner said to close it if it was built.

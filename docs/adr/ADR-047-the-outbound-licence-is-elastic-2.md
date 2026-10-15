@@ -223,6 +223,8 @@ server; nothing stores it and nothing reads it at runtime.
 3. **ADR-025's contributor question is answered before the first outside contribution is
    merged**, not before the repository is public. Reading and forking need no agreement;
    merging somebody else's code does.
+   **DISCHARGED 2026-10-15 by the owner, asked DCO, CLA or none:** *"Dışarıdan katkı kabul edilmesin"*. No outside
+   pull request is merged; `CONTRIBUTING.md` says so, and no longer describes a DCO or names Apache-2.0.
 
 ## 8. Revisit triggers
 

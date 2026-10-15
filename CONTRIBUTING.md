@@ -1,125 +1,39 @@
 # Contributing
 
-## Before anything else: what this project promises you
+## Changes are not accepted from outside
 
-**Nothing, and that is deliberate.** Graticula is given away under Apache-2.0.
-It is not a product with a support contract, it has never been released, and it
-is maintained by one person. A contribution policy that implied otherwise would
-be the first inaccurate document in a repository whose whole method is not
-writing those.
+**Pull requests are not merged here** — owner decision, 2026-10-15
+([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md) condition 3). Graticula is maintained by one person
+under the [Graticula Community License 1.1](LICENSE)
+([ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md)), and accepting outside code would mean
+either a contributor agreement or giving up the ability to change that licence. Neither is wanted, so the simpler
+answer is taken: the code here is written here.
 
-So: pull requests are welcome, and they may sit. Issues are welcome, and there
-is no triage commitment. If either of those is a problem for your use, fork it —
-the licence exists so that you can, and a fork is not a failure of this project.
+What that leaves open:
 
-**What is promised is security reports.** [SECURITY.md](SECURITY.md) has dates
-in it, and those are real.
+- **Issues are welcome.** A defect, a measurement, a client that does not open something — say what you did and what
+  happened. There is no triage commitment, and an issue may sit.
+- **Reading, running and forking are what the licence is for.** Read [LICENSE](LICENSE) for what it allows and the one
+  thing it does not: offering Graticula to others as a hosted or managed service.
+- **Security reports are promised.** [SECURITY.md](SECURITY.md) has the routes and the dates, and those are real.
+- **An argument against a decision is a contribution.** Several ADRs carry a **Dissent** section where the argument
+  against the chosen option was never defeated, only outweighed. If you think a decision here is wrong, open an issue
+  with the argument; it may end up in that section.
 
-## Sign your work — DCO, not a CLA
-
-Every commit must carry a `Signed-off-by` line:
-
-```
-Signed-off-by: Your Name <your.email@example.com>
-```
-
-`git commit -s` adds it. It means you agree to the
-[Developer Certificate of Origin](https://developercertificate.org/) — in plain
-terms, that you wrote the change or have the right to submit it, and that you
-are contributing it under the project's licence.
-
-**Why the DCO and not a Contributor Licence Agreement — and the reason has
-changed.** A CLA asks you to sign paperwork assigning rights to a project that
-promises you nothing in return, and its usual purpose is to keep open the option
-of relicensing your work.
-
-~~This project has no such option to keep open: the licensing decision is open
-source, permanently, and there is no commercial closed-source distribution
-planned (`CLAUDE.md` §7).~~ **That sentence was written on 2026-08-15 and is no
-longer true. On 2026-08-25 the project relicensed from Apache-2.0 to the Elastic
-License 2.0** ([ADR-047](docs/adr/ADR-047-the-outbound-licence-is-elastic-2.md)),
-so the option a CLA preserves is one this project has now used once. It is left
-struck rather than deleted, because a promise about permanence that did not hold
-is exactly the thing a contributor is entitled to see.
-
-**Nobody relied on it.** The relicensing happened before this repository was
-public and before a single outside contribution existed, so no contributor's work
-was moved under terms they did not choose. That is luck about timing, not a
-property of the process.
-
-**And it has changed again, which makes this whole section conditional.** On
-2026-10-13 the licence became the Community License 1.0
-([ADR-180](docs/adr/ADR-180-the-outbound-licence-is-the-community-licence.md)), and that
-licence forbids modifying the software without the copyright holder's prior written
-permission. **Writing a pull request is modifying it.** ~~So: **ask first** — open an
-issue describing the change and wait for a yes before you write it.~~ **Contributions
-are not accepted for now** — the owner's answer to [Q-166](docs/open-questions.md), and
-§9 of the licence since 1.1. Issues reporting a bug or asking a question are welcome; a
-pull request will be closed unread. Nobody had contributed when this changed, so again
-no one's work moved under terms they did not choose.
-
-**There is still no CLA, and the reason is now narrower.** Asking for a signature
-assigning rights to a project that promises you nothing in return is a bad trade
-in a gift, and it is measurably a deterrent to the drive-by contributions this
-project can expect. What you are giving up by there being no CLA is stated rather
-than hidden: your contribution is under the project's licence at the time you
-make it, and if the licence changes again your work cannot be moved without your
-agreement. **Whether that stays the right trade is reopened**, not settled —
-[ADR-025](docs/adr/ADR-025-governance-and-maintenance.md) chose the DCO on the
-strength of a premise that has since failed.
+This file used to describe a DCO and how a change would be reviewed, and to say the project was given away under
+Apache-2.0. The licence moved to the Elastic License 2.0 on 2026-08-25 and to the Community License on 2026-10-13, and
+the question of outside contributions was answered on 2026-10-15; the old text is in this file's history.
 
 ## How this repository works, and why it will look strange
 
-This is not a normal codebase and reading a few files at random will not explain
-it. Two things to know before you write anything:
+This is not a normal codebase and reading a few files at random will not explain it. Two things to know before reading:
 
-**Every architectural decision is an ADR.** They live in [`docs/adr/`](docs/adr/)
-and carry a status and a confidence level. If your change makes or reverses a
-decision, it needs one — see [`docs/adr/_template.md`](docs/adr/_template.md).
-Informal decisions are the thing this project is specifically built to prevent,
-because the point of it is the reasoning and not the code.
+**Every architectural decision is an ADR.** They live in [`docs/adr/`](docs/adr/) and carry a status and a confidence
+level. Informal decisions are the thing this project is specifically built to prevent, because the point of it is the
+reasoning and not the code.
 
-**A performance claim needs a benchmark.** The standing challenge is *where is
-the benchmark proving this?* — see `CLAUDE.md` §3. "This will be faster" is not
-an argument here, and several beliefs in this repository have been overturned by
-measuring them, which is why the rule is enforced rather than encouraged.
+**A performance claim needs a benchmark.** The standing challenge is *where is the benchmark proving this?* — see
+[`CLAUDE.md`](CLAUDE.md) §3. Several beliefs in this repository have been overturned by measuring them, which is why
+the rule is enforced rather than encouraged.
 
-Read [`CLAUDE.md`](CLAUDE.md) first. It is the actual contributor guide; this
-file is the paperwork.
-
-## What a change needs
-
-- **A test that fails without it.** For a bug fix, write the test first and watch
-  it fail — this project has caught three of its own instruments lying, each time
-  by trying to make a green test go red.
-- **Comments that say why, not what.** The code explains itself; the comment
-  explains the decision, the alternative rejected, or the defect that made the
-  line necessary. Look at any existing file for the register.
-- **The whole suite green.** `dotnet test`. The integration and conformance
-  suites need a database and a running server and **fail rather than skip**
-  without one; the README says which variables to set.
-- **No new dependency without an argument.** [`docs/build-vs-adopt-policy.md`](docs/build-vs-adopt-policy.md)
-  governs it, and Tier 1 has no package references at all — a build failure, not
-  a convention.
-
-## What will be turned down
-
-- **Anything copied from MapServer, GeoServer or QGIS Server.** This project is
-  clean-room (`CLAUDE.md` §5): existing products are studied for publicly
-  documented behaviour and architectural reasoning only. Do not send code, and
-  do not send an algorithm you read in their source.
-- **A GPL or AGPL dependency.** Apache-2.0 outbound cannot carry it.
-- **Technology with no stated problem.** Kubernetes, Kafka, Redis, service mesh,
-  event sourcing, CQRS and microservice decomposition are all on the challenge
-  list by name (`CLAUDE.md` §6). The baseline deployment is `graticula →
-  PostgreSQL/PostGIS`, and everything beyond it must be justified and optional.
-- **Scope.** v1 is [`docs/v1-scope.md`](docs/v1-scope.md) and it is
-  authoritative. Things left out were left out on purpose, with the reasoning
-  written down, and §3 says what each removal bought.
-
-## Disagreement
-
-Record it, do not smooth it over. Several ADRs carry a **Dissent** section where
-the argument against the chosen option was never actually defeated — only
-outweighed. That is the standard: if you think a decision here is wrong, the
-useful contribution is the argument, in the ADR, under your name.
+Read [`CLAUDE.md`](CLAUDE.md) first; it is how the work here is done.

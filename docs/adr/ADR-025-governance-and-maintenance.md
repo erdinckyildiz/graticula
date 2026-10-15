@@ -288,6 +288,8 @@ release must fill in the supported-versions table these documents leave empty.
    **Found by `registers-check`**, which since today fails a live condition whose only cited
    debt row has closed — written because this ADR supplied two examples of the failure in one
    morning.)*
+   **DISCHARGED 2026-10-15 by the owner, asked which inbox is watched:** *"Evet, bu adres kalsın"* — the address in
+   `SECURITY.md`, `erdincyildiz@gmail.com`, is the fallback behind GitHub private vulnerability reporting.
 4. **The claims SECURITY.md makes about scope stay true.** It names four
    deliberate trade-offs by ADR — the archive bounds, the read-only cookie,
    credentials in URLs, the overlay deadline. If any is changed or removed, that

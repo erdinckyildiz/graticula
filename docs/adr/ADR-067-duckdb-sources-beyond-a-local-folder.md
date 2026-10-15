@@ -305,6 +305,8 @@ defects are the reason an independent security review is condition 1 rather than
    differed is not known: a step the probe does not take, or the original reading. **A security report has to
    reproduce, so none is drafted**, and the owner's decision waits on a reproduction. The rule in §5.1.3 stands either
    way, because never creating a secret costs nothing.)*
+   **DISCHARGED 2026-10-15 by the owner:** *"Bildirme, kapat"* — not reported, because it could not be reproduced on
+   DuckDB 1.5.5 or 1.5.6 (`tools/duckdb-probe/create-secret-repro.py`).
 4. **MotherDuck is tested against a real account** before it is described as working. This build
    has only ever seen it refuse a bad token. **DISCHARGED 2026-09-13** — the owner opened one and put a
    token on the VPS; registered, published and queried through every step in §4.
