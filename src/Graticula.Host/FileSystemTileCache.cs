@@ -100,7 +100,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// <summary>When each layer was last purged, for a layer whose directory could not be taken away at once.</summary>
     /// <remarks>
     /// <b>The read path trusts the disk, so a purge that leaves a file behind leaves a tile a read will serve</b> —
-    /// the index says nothing to <see cref="ReadAsync"/> (N2). <see cref="Purge"/> therefore moves the layer's
+    /// the index says nothing to <see cref="ReadAsync"/> (N2). <see cref="Purge(Guid)"/> therefore moves the layer's
     /// directory aside, which is one rename; only when even that fails does it fall back to this stamp, and every read
     /// then refuses a file written at or before it. Removed once a later purge of the layer succeeds.
     /// </remarks>
@@ -215,7 +215,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// <see cref="ReadAsync"/> calls it a miss and leaves it; it goes when it is rebuilt over, when eviction
     /// reaches it — in the budget's order, where its age earns it nothing — or when its layer is purged. So
     /// <em>expired</em> is a state an entry passes through on the way to being replaced, and <em>purged</em>
-    /// is its absence: <see cref="Purge"/> deletes the layer's directory, and a key with no file behind it
+    /// is its absence: <see cref="Purge(Guid)"/> deletes the layer's directory, and a key with no file behind it
     /// answers <see cref="CachedTile.Miss"/> here as it does everywhere.
     /// </para>
     /// <para>
@@ -742,6 +742,56 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         {
             _evicting.Release();
         }
+    }
+
+    /// <inheritdoc/>
+    public int Purge(Guid layerId, Func<TileAddress, bool> affected)
+    {
+        ArgumentNullException.ThrowIfNull(affected);
+
+        string prefix = layerId.ToString("N", CultureInfo.InvariantCulture) + "/";
+        int removed = 0;
+
+        // <b>The index's own keys are the cache keys' paths</b> — `{layer}/v{n}/{fingerprint}/{z}/{x}/{y}.mvt` — so an
+        // entry's address is read off its last three segments, for every fingerprint the layer has.
+        foreach (string relative in _index.Keys)
+        {
+            if (!relative.StartsWith(prefix, StringComparison.Ordinal) || AddressOf(relative) is not { } address
+                || !affected(address))
+            {
+                continue;
+            }
+
+            if (Evict(relative) is not null)
+            {
+                removed++;
+            }
+
+            // <b>A file a failed delete left is one a read serves</b> (N2, and the remarks on the whole-layer purge),
+            // so the first one turns this into that purge, whose rename and stamp are what hold.
+            if (File.Exists(System.IO.Path.Combine(_root, relative)))
+            {
+                return removed + Purge(layerId);
+            }
+        }
+
+        return removed;
+    }
+
+    /// <summary>The address a cache path names, or null when it is not a tile's.</summary>
+    private static TileAddress? AddressOf(string relative)
+    {
+        string[] parts = relative.Replace('\\', '/').Split('/');
+
+        if (parts.Length < 3
+            || !int.TryParse(parts[^3], NumberStyles.None, CultureInfo.InvariantCulture, out int z)
+            || !int.TryParse(parts[^2], NumberStyles.None, CultureInfo.InvariantCulture, out int x)
+            || !int.TryParse(System.IO.Path.GetFileNameWithoutExtension(parts[^1]), NumberStyles.None, CultureInfo.InvariantCulture, out int y))
+        {
+            return null;
+        }
+
+        return new TileAddress(z, x, y);
     }
 
     /// <summary>Removes one entry from the index and its file from the disk.</summary>

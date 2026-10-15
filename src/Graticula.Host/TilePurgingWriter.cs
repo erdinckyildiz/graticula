@@ -31,23 +31,78 @@ namespace Graticula.Host;
 /// the datastore does not have for a hosted table.
 /// </para>
 /// </remarks>
-internal sealed class TilePurgingWriter(IFeatureWriter inner, ITileCache tiles, Guid[] layerIds) : IFeatureWriter
+internal sealed class TilePurgingWriter(
+    IFeatureWriter inner,
+    ITileCache tiles,
+    Guid[] layerIds,
+    Func<CancellationToken, Task<Graticula.Tiles.VectorTileScheme?>>? schemeOf = null) : IFeatureWriter
 {
     /// <inheritdoc/>
     public async Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken)
     {
+        VectorTileScheme? scheme = schemeOf is null ? null : await schemeOf(cancellationToken).ConfigureAwait(false);
+        IEditedExtent? store = inner as IEditedExtent;
+        Graticula.Geometries.Envelope? before = await BeforeAsync(store, scheme, batch, cancellationToken).ConfigureAwait(false);
+
         EditOutcome outcome = await inner.ApplyAsync(batch, cancellationToken).ConfigureAwait(false);
 
-        if (!outcome.RolledBack
-            && outcome.Adds.Concat(outcome.Updates).Concat(outcome.Deletes).Any(result => result.Succeeded))
+        await PurgeAfterAsync(tiles, store, scheme, layerIds, before, outcome, cancellationToken).ConfigureAwait(false);
+        return outcome;
+    }
+
+    /// <summary>
+    /// Where the features an edit will touch were, before it moves or removes them — ADR-101 condition 4; null when
+    /// the layer's scheme or the store cannot say, and the whole layer is then emptied as every edit did before.
+    /// </summary>
+    internal static async Task<Graticula.Geometries.Envelope?> BeforeAsync(
+        IEditedExtent? store, VectorTileScheme? scheme, EditBatch batch, CancellationToken cancellationToken) =>
+        scheme is null || store is null
+            ? null
+            : await store.ExtentAsync([.. batch.Updates.Select(u => u.Identity), .. batch.Deletes], scheme.Srid, cancellationToken)
+                .ConfigureAwait(false);
+
+    /// <summary>
+    /// Empties what an edit that kept something reached: the layer's own tiles by address when the extent is known on
+    /// both sides of the edit, and otherwise — and for every layer showing its rows under another service (ADR-113),
+    /// which may be cut on another scheme — the whole layer.
+    /// </summary>
+    internal static async Task PurgeAfterAsync(
+        ITileCache tiles,
+        IEditedExtent? store,
+        VectorTileScheme? scheme,
+        Guid[] layerIds,
+        Graticula.Geometries.Envelope? before,
+        EditOutcome outcome,
+        CancellationToken cancellationToken)
+    {
+        if (outcome.RolledBack
+            || !outcome.Adds.Concat(outcome.Updates).Concat(outcome.Deletes).Any(result => result.Succeeded))
         {
-            // The layer and every layer showing its rows under another service (ADR-113).
-            foreach (Guid layerId in layerIds)
-            {
-                tiles.Purge(layerId);
-            }
+            return;
         }
 
-        return outcome;
+        Graticula.Geometries.Envelope? after = before is null || store is null || scheme is null
+            ? null
+            : await store.ExtentAsync(
+                    [.. outcome.Adds.Concat(outcome.Updates).Where(r => r.Succeeded).Select(r => r.Identity)],
+                    scheme.Srid, cancellationToken)
+                .ConfigureAwait(false);
+
+        for (int i = 0; i < layerIds.Length; i++)
+        {
+            if (i == 0 && before is { } was && after is { } now)
+            {
+                Graticula.Geometries.Envelope reached = was.IsEmpty ? now : now.IsEmpty ? was : was.Union(now);
+
+                if (!reached.IsEmpty)
+                {
+                    tiles.Purge(layerIds[i], EditedTiles.Reached(scheme!, reached));
+                }
+
+                continue;
+            }
+
+            tiles.Purge(layerIds[i]);
+        }
     }
 }

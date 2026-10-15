@@ -24,6 +24,11 @@ namespace Graticula.Conformance.Tests;
 /// <b>The header is what is asserted, not the bytes.</b> Whether the rebuilt tile differs depends
 /// on what else is in it; whether this server went back to the datastore for it does not.
 /// </para>
+/// <para>
+/// <b>And only what the edit reached — ADR-186, 2026-10-15.</b> A tile on the far side of the world
+/// from the probe, warmed with it, is still a HIT after the delete: an edit no longer empties the
+/// whole layer.
+/// </para>
 /// </remarks>
 [Collection("catalogue walk")]
 public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
@@ -84,6 +89,9 @@ public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
         Uri tile = new(string.Create(
             CultureInfo.InvariantCulture,
             $"{root}/rest/services/{service}/VectorTileServer/tile/{Zoom}/{row}/{column}.pbf"));
+        Uri far = new(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{root}/rest/services/{service}/VectorTileServer/tile/{Zoom}/{row}/{(column + n / 2) % n}.pbf"));
 
         bool deleted = false;
 
@@ -91,6 +99,8 @@ public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
         {
             await CacheStateAsync(root, tile);
             (string warm, string caching) = await CacheStateAndControlAsync(root, tile);
+            await CacheStateAsync(root, far);
+            string farWarm = await CacheStateAsync(root, far);
 
             // <b>V-56's tile half, the owner's decision of 2026-09-23.</b> The server's own copy is
             // kept — the HIT below is the proof — and emptied on an edit; a browser's copy is kept too,
@@ -116,6 +126,11 @@ public sealed class AnEditEmptiesTheTileCacheTests : ArcGisClient
                 after != "HIT",
                 "A tile cached before a feature in it was deleted was served from the cache after the "
                 + "delete (X-Tile-Cache: HIT). The deleted feature is drawn until the cache lifetime runs out.");
+
+            Assert.True(
+                farWarm == "HIT" && await CacheStateAsync(root, far) == "HIT",
+                $"A tile on the far side of the world from the deleted feature (warm: {farWarm}) was not a HIT after the delete. "
+                + "ADR-186 says an edit empties only the tiles it reached.");
         }
         finally
         {

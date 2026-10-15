@@ -238,6 +238,13 @@ way they expect, and the caching page says the thing that is true about this eng
    Server and Studio (reverses ADR-034 §5c), tile-level invalidation instead of whole-layer purge, CSV and
    XLSX upload, *Update data / Overwrite / Append*, and editing in the Data table — are each
    the subject of their own decision and are listed here so that none of them is mistaken for done.
+   **PARTLY DISCHARGED 2026-10-15** — the owner answered *"Vaktimiz var. Hepsini."*, all of them. Five of the seven
+   now have their decision: one service page ([ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md)), tile-level
+   invalidation ([ADR-186](ADR-186-an-edit-empties-the-tiles-it-reached.md)), CSV and XLSX upload
+   ([ADR-112](ADR-112-a-table-with-coordinates-is-published.md)), *Update data / Overwrite / Append*
+   ([ADR-103](ADR-103-a-hosted-layer-is-updated-from-a-file.md), [ADR-105](ADR-105-arcgis-clients-append-through-uploads.md))
+   and editing in the Data table ([ADR-134](ADR-134-features-are-edited-in-the-browser.md)). Open: the item model
+   (ADR-056) and one map engine.
 
 ## 11. Dissent
 

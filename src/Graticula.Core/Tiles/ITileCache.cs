@@ -129,7 +129,7 @@ public interface ITileCache
     /// 503 rather than a rebuild. Owner decision 2026-09-29, D-278.
     /// </para>
     /// <para>
-    /// <b>Only the exact key, so only what <see cref="Purge"/> left.</b> An entry an edit, a refresh or an
+    /// <b>Only the exact key, so only what <see cref="Purge(Guid)"/> left.</b> An entry an edit, a refresh or an
     /// unpublish purged is gone from the disk and cannot be found here; an entry a changed shape, grid,
     /// source or pipeline made unreachable is under another key and cannot be asked for. So §5.1's
     /// <em>wrong</em> class never comes back through this door, and only its <em>stale</em> class does.
@@ -172,6 +172,20 @@ public interface ITileCache
     /// outage.
     /// </remarks>
     int Purge(Guid layerId);
+
+    /// <summary>
+    /// Drops a layer's cached tiles at the addresses an edit reached, and keeps the rest — ADR-101 condition 4,
+    /// owner decision 2026-10-15: tile-level invalidation instead of whole-layer purge.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only for an edit.</b> Every other reason to purge — unpublishing, a sharing or schema change, a new tiling
+    /// scheme — changes every tile, and goes on calling <see cref="Purge(Guid)"/>. No default body: an implementer that
+    /// could not tell addresses apart would answer by purging nothing, which is the failure this exists to avoid.
+    /// </remarks>
+    /// <param name="layerId">The layer.</param>
+    /// <param name="affected">Whether an address is one the edit reached.</param>
+    /// <returns>How many entries were removed.</returns>
+    int Purge(Guid layerId, Func<TileAddress, bool> affected);
 
     /// <summary>What the cache is holding, for one layer or all of them.</summary>
     /// <param name="layerId">The layer, or null for the whole cache.</param>

@@ -117,6 +117,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     private readonly ITileCache? _tiles;
 
+    /// <summary>
+    /// The tiling scheme of a service, by its id, or null when it cannot be found — ADR-101 condition 4: an edit empties
+    /// only the tiles it reached, in that scheme. Set once at start; unset, every edit empties its layers whole.
+    /// </summary>
+    public Func<Guid, CancellationToken, Task<Graticula.Tiles.VectorTileScheme?>>? SchemeOfService { get; set; }
+
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
     private readonly Graticula.Tiles.IMvtEncoder? _mvtEncoder;
@@ -466,7 +472,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         // the layer's whole lifetime — an hour by default, measured on the showcase as the same
         // ETag and the same bytes after the delete. The writer is the one object both editing
         // faces (ArcGIS and OGC API Features) already get from here.
-        return _tiles is null ? writer : new TilePurgingWriter(writer, _tiles, [layer.Id, .. layer.ViewLayers]);
+        // ADR-101 condition 4: by address, when the layer's service's scheme can be found.
+        return _tiles is null
+            ? writer
+            : new TilePurgingWriter(
+                writer, _tiles, [layer.Id, .. layer.ViewLayers],
+                SchemeOfService is null ? null : cancellation => SchemeOfService(layer.ServiceId, cancellation));
     }
 
     /// <summary>The object ids of the features carrying these GlobalIDs — <c>useGlobalIds=true</c>.</summary>
@@ -544,6 +555,22 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         List<EditOutcome> outcomes = [];
         bool rollBack = false;
 
+        // ADR-101 condition 4: where each layer's touched features were, read before the transaction changes them.
+        List<(PostGisFeatureWriter Store, Graticula.Tiles.VectorTileScheme? Scheme, Graticula.Geometries.Envelope? Before)> extents = [];
+
+        foreach (LayerEdit edit in edits)
+        {
+            PostGisFeatureWriter store = new(
+                pool, edit.Layer.Definition, edit.Description.Fields,
+                edit.Description.Tracking, edit.Description.Subtypes);
+            Graticula.Tiles.VectorTileScheme? scheme = SchemeOfService is null || _tiles is null
+                ? null
+                : await SchemeOfService(edit.Layer.ServiceId, cancellation).ConfigureAwait(false);
+
+            extents.Add((store, scheme,
+                await TilePurgingWriter.BeforeAsync(store, scheme, edit.Batch, cancellation).ConfigureAwait(false)));
+        }
+
         foreach (LayerEdit edit in edits)
         {
             PostGisFeatureWriter writer = new(
@@ -570,16 +597,11 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         {
             for (int i = 0; i < edits.Count; i++)
             {
-                if (outcomes[i].Adds.Concat(outcomes[i].Updates).Concat(outcomes[i].Deletes).Any(r => r.Succeeded))
-                {
-                    _tiles.Purge(edits[i].Layer.Id);
-
-                    // The same rows under a view or its source (ADR-113).
-                    foreach (Guid shown in edits[i].Layer.ViewLayers)
-                    {
-                        _tiles.Purge(shown);
-                    }
-                }
+                // By address for the layer, whole for the same rows under a view or its source (ADR-113).
+                await TilePurgingWriter.PurgeAfterAsync(
+                        _tiles, extents[i].Store, extents[i].Scheme, [edits[i].Layer.Id, .. edits[i].Layer.ViewLayers],
+                        extents[i].Before, outcomes[i], cancellation)
+                    .ConfigureAwait(false);
             }
         }
 

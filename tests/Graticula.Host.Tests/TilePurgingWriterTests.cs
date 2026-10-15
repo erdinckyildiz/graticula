@@ -58,6 +58,68 @@ public sealed class TilePurgingWriterTests
         Assert.Empty(cache.Purged);
     }
 
+    /// <remarks>
+    /// <b>ADR-186: an edit empties the tiles it reached, where its feature was and where it is now.</b> A feature
+    /// moved from near the origin to the far corner of the world reaches both places and nothing between.
+    /// </remarks>
+    [Fact]
+    public async Task A_located_edit_empties_the_tiles_it_reached_and_keeps_the_rest()
+    {
+        RecordingCache cache = new();
+        VectorTileScheme scheme = VectorTileScheme.WebMercator;
+        TilePurgingWriter writer = new(
+            new LocatingWriter(
+                new([], [EditResult.Ok(1)], [], RolledBack: false),
+                new Graticula.Geometries.Envelope(10, 10, 20, 20),
+                new Graticula.Geometries.Envelope(20_000_000, 20_000_000, 20_000_010, 20_000_010)),
+            cache, [LayerId], _ => Task.FromResult<VectorTileScheme?>(scheme));
+
+        await writer.ApplyAsync(new([], [new FeatureUpdate(1, new Dictionary<string, object?>(), null)], []), CancellationToken.None);
+
+        Assert.Empty(cache.Purged);
+        (Guid layer, Func<TileAddress, bool> affected) = Assert.Single(cache.PurgedByAddress);
+        Assert.Equal(LayerId, layer);
+
+        Assert.True(affected(new TileAddress(10, 512, 511)));     // touches the origin
+        Assert.True(affected(new TileAddress(10, 1023, 0)));      // the far corner
+        Assert.True(affected(new TileAddress(0, 0, 0)));          // the whole world
+        Assert.False(affected(new TileAddress(10, 200, 700)));    // neither
+        Assert.False(affected(new TileAddress(10, 1023, 1023)));  // the other corner
+    }
+
+    [Fact]
+    public async Task An_edit_whose_extent_cannot_be_read_empties_the_whole_layer()
+    {
+        RecordingCache cache = new();
+        TilePurgingWriter writer = new(
+            new LocatingWriter(new([], [], [EditResult.Ok(1)], RolledBack: false), null, null),
+            cache, [LayerId], _ => Task.FromResult<VectorTileScheme?>(VectorTileScheme.WebMercator));
+
+        await writer.ApplyAsync(Batch(), CancellationToken.None);
+
+        Assert.Equal([LayerId], cache.Purged);
+        Assert.Empty(cache.PurgedByAddress);
+    }
+
+    /// <remarks>A layer showing the same rows under another service (ADR-113) may be cut on another scheme.</remarks>
+    [Fact]
+    public async Task A_view_of_the_edited_rows_is_emptied_whole()
+    {
+        Guid view = Guid.NewGuid();
+        RecordingCache cache = new();
+        TilePurgingWriter writer = new(
+            new LocatingWriter(
+                new([], [], [EditResult.Ok(1)], RolledBack: false),
+                new Graticula.Geometries.Envelope(0, 0, 1, 1),
+                Graticula.Geometries.Envelope.Empty),
+            cache, [LayerId, view], _ => Task.FromResult<VectorTileScheme?>(VectorTileScheme.WebMercator));
+
+        await writer.ApplyAsync(Batch(), CancellationToken.None);
+
+        Assert.Equal([view], cache.Purged);
+        Assert.Equal(LayerId, Assert.Single(cache.PurgedByAddress).Layer);
+    }
+
     [Fact]
     public void The_writer_both_editing_faces_get_empties_the_cache()
     {
@@ -78,6 +140,20 @@ public sealed class TilePurgingWriterTests
             ServiceStatus.Started);
 
         Assert.IsType<TilePurgingWriter>(connections.WriterFor(layer, []));
+    }
+
+    /// <summary>A store that answers where features are: <paramref name="before"/> first, <paramref name="after"/> next.</summary>
+    private sealed class LocatingWriter(EditOutcome outcome, Graticula.Geometries.Envelope? before, Graticula.Geometries.Envelope? after)
+        : IFeatureWriter, IEditedExtent
+    {
+        private int _asked;
+
+        public Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken) =>
+            Task.FromResult(outcome);
+
+        public Task<Graticula.Geometries.Envelope?> ExtentAsync(
+            IReadOnlyCollection<long> identities, int srid, CancellationToken cancellationToken) =>
+            Task.FromResult(_asked++ == 0 ? before : after);
     }
 
     private sealed class FixedWriter(EditOutcome outcome) : IFeatureWriter
@@ -103,9 +179,17 @@ public sealed class TilePurgingWriterTests
         public Task WriteAsync(TileCacheKey key, byte[] tile, TileCacheQuota? quota, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
+        public List<(Guid Layer, Func<TileAddress, bool> Affected)> PurgedByAddress { get; } = [];
+
         public int Purge(Guid layerId)
         {
             Purged.Add(layerId);
+            return 0;
+        }
+
+        public int Purge(Guid layerId, Func<TileAddress, bool> affected)
+        {
+            PurgedByAddress.Add((layerId, affected));
             return 0;
         }
 

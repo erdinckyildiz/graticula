@@ -839,6 +839,15 @@ public static class Program
         builder.Logging.AddProvider(serverLog);
 
         WebApplication app = builder.Build();
+
+        // ADR-101 condition 4: an edit empties only the tiles it reached, in its service's scheme, which the catalogue
+        // the services are already listed from knows.
+        {
+            CatalogFallback services = app.Services.GetRequiredService<CatalogFallback>();
+            app.Services.GetRequiredService<LayerConnections>().SchemeOfService = async (id, cancellation) =>
+                (await services.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
+                    .FirstOrDefault(service => service.Id == id)?.TileScheme;
+        }
         ILogger logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("startup");
 
         // ADR-016 §4b: migration is an explicit operation, never something

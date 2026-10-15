@@ -43,9 +43,54 @@ namespace Graticula.Providers.PostGis;
 /// of where it stopped.
 /// </para>
 /// </remarks>
-public sealed class PostGisFeatureWriter : IFeatureWriter
+public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEditedExtent
 {
     private readonly NpgsqlDataSource _dataSource;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Asked of the store, in the scheme's reference</b> — ADR-101 condition 4. `st_transform` puts the extent where
+    /// the tiles are cut, so nothing here projects a client's geometry, and a feature whose geometry the store holds in
+    /// another reference is measured as stored. A refusal from the store — a point outside the scheme's domain — is an
+    /// unknown extent, which the caller answers by emptying the whole layer, as an edit always did.
+    /// </remarks>
+    public async Task<Graticula.Geometries.Envelope?> ExtentAsync(
+        IReadOnlyCollection<long> identities, int srid, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(identities);
+
+        if (identities.Count == 0)
+        {
+            return Graticula.Geometries.Envelope.Empty;
+        }
+
+        string geometry = LayerDefinition.Quote(_layer.GeometryColumn);
+        string sql =
+            "select st_xmin(e), st_ymin(e), st_xmax(e), st_ymax(e) from (select st_extent(st_transform("
+            + $"{geometry}, @srid)) as e from {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)} "
+            + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = any(@ids) and {geometry} is not null) as extent";
+
+        try
+        {
+            await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+            command.Parameters.AddWithValue("srid", srid);
+            command.Parameters.AddWithValue("ids", identities.ToArray());
+
+            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false) || reader.IsDBNull(0))
+            {
+                return Graticula.Geometries.Envelope.Empty;
+            }
+
+            return new Graticula.Geometries.Envelope(
+                reader.GetDouble(0), reader.GetDouble(1), reader.GetDouble(2), reader.GetDouble(3));
+        }
+        catch (PostgresException)
+        {
+            return null;
+        }
+    }
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<FieldDescription> _fields;
     private readonly EditorTracking _tracking;

@@ -238,6 +238,37 @@ public sealed class FileSystemTileCacheTests : IDisposable
             (await cache.ReadAsync(Key(layer: Other), Lifetime, CancellationToken.None)).Outcome);
     }
 
+    /// <remarks>
+    /// <b>ADR-186: a purge by address drops what the test says and keeps the rest</b> — of every fingerprint the layer
+    /// has, and of no other layer.
+    /// </remarks>
+    [Fact]
+    public async Task Purging_by_address_drops_only_the_addresses_it_names()
+    {
+        using FileSystemTileCache cache = Build();
+        TileCacheKey otherFingerprint = new(Layer, "ffff0000", new TileAddress(5, 1, 2));
+        await cache.WriteAsync(Key(x: 1), Tile(), CancellationToken.None);
+        await cache.WriteAsync(Key(x: 2), Tile(), CancellationToken.None);
+        await cache.WriteAsync(otherFingerprint, Tile(), CancellationToken.None);
+        await cache.WriteAsync(Key(x: 1, layer: Other), Tile(), CancellationToken.None);
+
+        Assert.Equal(2, cache.Purge(Layer, address => address.X == 1));
+
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadAsync(Key(x: 1), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(
+            TileCacheOutcome.Miss,
+            (await cache.ReadAsync(otherFingerprint, Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(
+            TileCacheOutcome.Hit,
+            (await cache.ReadAsync(Key(x: 2), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(
+            TileCacheOutcome.Hit,
+            (await cache.ReadAsync(Key(x: 1, layer: Other), Lifetime, CancellationToken.None)).Outcome);
+        Assert.Equal(64, cache.Report(Layer).Bytes);
+    }
+
     [Fact]
     public async Task Purging_frees_the_budget_it_was_using()
     {

@@ -253,6 +253,8 @@ public sealed class TileBuildAdmissionTests
 
         public int Purge(Guid layerId) => 0;
 
+        public int Purge(Guid layerId, Func<TileAddress, bool> affected) => 0;
+
         public (int Entries, long Bytes) Report(Guid? layerId) => (_held.Count, _held.Values.Sum(b => (long)b.Length));
     }
 }

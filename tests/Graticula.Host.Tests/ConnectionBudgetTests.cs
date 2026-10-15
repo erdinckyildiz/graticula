@@ -395,7 +395,7 @@ public sealed class ConnectionBudgetTests
 
         Task<ConnectionBudget.Lease> waiting;
 
-        using (ConnectionBudget.Patiently(TimeSpan.FromSeconds(20)))
+        using (ConnectionBudget.Patiently(TimeSpan.FromSeconds(60)))
         {
             waiting = budget.EnterOrWaitAsync("db", CancellationToken.None).AsTask();
         }
@@ -406,7 +406,10 @@ public sealed class ConnectionBudgetTests
 
         held.Dispose();
 
-        using ConnectionBudget.Lease got = await waiting.WaitAsync(TimeSpan.FromSeconds(10));
+        // <b>Past the retry's longest pause, not a guess at how fast it is.</b> The retry backs off 1, 2, 4, 8 s, so
+        // the attempt after the permit is returned can be one whole pause away; ten seconds was, on a loaded CI
+        // runner, too few once (v1.0.391's datastore job).
+        using ConnectionBudget.Lease got = await waiting.WaitAsync(TimeSpan.FromSeconds(40));
 
         // And the scope is gone afterwards: the next refusal is immediate again.
         await Assert.ThrowsAsync<ConnectionBudgetFullException>(

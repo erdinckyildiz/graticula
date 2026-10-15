@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>241bb906</code> · 2026-10-15 19:41</p>
+<p class="stamp">Şu commit’ten üretildi: <code>3e7cee60</code> · 2026-10-15 19:47</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">184</div><div class="kpi-l">ADR</div><div class="kpi-n">72 koşulsuz kabul</div></div>
+<div class="kpi "><div class="kpi-v">185</div><div class="kpi-l">ADR</div><div class="kpi-n">73 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">368/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">47 canlı · 4 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4891</div><div class="kpi-l">test</div><div class="kpi-n">488 kaynak dosya, 221,119 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4895</div><div class="kpi-l">test</div><div class="kpi-n">489 kaynak dosya, 221,371 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -371,6 +371,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">183</td><td>The catalogue manifest</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the shape is the one ADR-002 condition 3 was amended to on 2026-09-09; what is…</td><td class="num">2/2</td></tr>
 <tr><td class="id">184</td><td>The basemap gallery is a group, and its vector tile services are basemaps</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">185</td><td>Sharing is additive: an item&#x27;s level and its groups both count</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
+<tr><td class="id">186</td><td>An edit empties the tiles it reached, not the whole layer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -491,21 +492,22 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1367</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.2%"></div></div><div class="bar-n">891</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.7%"></div></div><div class="bar-n">762</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.0%"></div></div><div class="bar-n">547</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.9%"></div></div><div class="bar-n">409</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1371</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.0%"></div></div><div class="bar-n">891</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">762</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">547</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.8%"></div></div><div class="bar-n">409</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">293</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.1%"></div></div><div class="bar-n">206</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.0%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.2%"></div></div><div class="bar-n">126</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.1%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.7%"></div></div><div class="bar-n">50</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">49</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>3e7cee60</code><time>2026-10-15</time><span>Owner decisions of 2026-10-15: the security contact stands, no outside contributions, the DuckDB defect is not reported, Move was built (ADR-025, 047, 067, 108)</span></li>
 <li><code>241bb906</code><time>2026-10-15</time><span>A layer&#x27;s document publishes cacheMaxAge, the lifetime its query answers are sent with, as ArcGIS&#x27;s do (ADR-101 condition 3)</span></li>
 <li><code>bf44e393</code><time>2026-10-15</time><span>Sharing is additive, as Portal&#x27;s is (ADR-185), and the declared schema version is 86 again</span></li>
 <li><code>b3f4bd46</code><time>2026-10-15</time><span>ADR-172 condition 1 discharged: the INSPIRE validator&#x27;s View suite passes, and the Download suite fails only on the placeholder metadata record (Q-165)</span></li>
@@ -519,7 +521,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f03ac678</code><time>2026-10-15</time><span>The map viewer draws a style&#x27;s match, step and interpolate in their colours, not black</span></li>
 <li><code>ed2445b2</code><time>2026-10-15</time><span>The map viewer&#x27;s opening summary does not write over anything said while the layers loaded</span></li>
 <li><code>fbf4db43</code><time>2026-10-15</time><span>Open items of 2026-10-14/15: credentialed CORS, the catalogue manifest, ArcGIS Pro and the Python API measured, numeric tiles</span></li>
-<li><code>46db4de3</code><time>2026-10-14</time><span>Open items of 2026-10-14: a mixed polygon layer exports as a File Geodatabase, the web map screens after their first-run review, and the showcase&#x27;s ground</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
