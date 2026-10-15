@@ -263,14 +263,20 @@ internal sealed record HostSettings(
     long RasterMaximumPixels = CoverageBounds.DefaultMaximumPixels,
 
     // <b>The references WFS and WMS advertise beside each layer's own — Q-171, ADR-060 condition 4.</b> EPSG codes,
-    // comma separated: a Turkish deployment names the TUREF zones. <b>Empty by default, and no fixed set is added</b>,
-    // because the owner said of the fixed WGS 84 and Web Mercator the documents used to carry *"listelensin
-    // istemiyorum"* (2026-09-09, ADR-057 §5c); a list is advertised when a deployment chooses one. A code outside it
-    // is still answered: this is what a client is told, not what it may ask.
+    // comma separated: a Turkish deployment names the TUREF zones. Advertised after WGS 84 and Web Mercator, which every
+    // deployment advertises since the owner's answer to Q-171 (2026-10-15), reversing ADR-057 §5c's *"listelensin
+    // istemiyorum"* for those two. A code outside the list is still answered: this is what a client is told, not what
+    // it may ask.
     IReadOnlyList<int>? AdvertisedReferences = null)
 {
-    /// <summary>What the OGC faces advertise beyond each layer's own reference: the deployment's list, or nothing.</summary>
-    public IReadOnlyList<int> Advertised => AdvertisedReferences ?? [];
+    /// <summary>
+    /// What the OGC faces advertise beside each layer's own reference: WGS 84, Web Mercator, then the deployment's list —
+    /// owner decision 2026-10-15, Q-171: *"Bu ikisi hep olsun. Map'in kendi projeksiyonu da yanlarında olsun."*
+    /// </summary>
+    public IReadOnlyList<int> Advertised => [.. AlwaysAdvertised.Concat(AdvertisedReferences ?? []).Distinct()];
+
+    /// <summary>WGS 84 and Web Mercator, advertised by every deployment (Q-171).</summary>
+    private static readonly int[] AlwaysAdvertised = [4326, 3857];
 
     /// <summary>How long past its lifetime a tile may be served while its source cannot build it.</summary>
     public TimeSpan TileStaleIfError => TimeSpan.FromHours(TileStaleIfErrorHours);

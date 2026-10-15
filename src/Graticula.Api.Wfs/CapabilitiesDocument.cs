@@ -445,9 +445,9 @@ public static class CapabilitiesDocument
                 .ConfigureAwait(false);
 
             // <b>`OtherCRS`: the deployment's chosen set, not the register — Q-171.</b> The served set is PROJ's whole
-            // register, and 8,500 references a type is not a document, so what is advertised is the list a deployment
-            // names, and nothing when it names none (the owner's *"listelensin istemiyorum"*, ADR-057 §5c). A reference
-            // outside it is still answered. Without one, CITE's suite skips `getFeatureInOtherCRS`.
+            // register, and 8,500 references a type is not a document, so what is advertised is WGS 84, Web Mercator
+            // and the deployment's list beside the type's own (the owner, 2026-10-15: *"Bu ikisi hep olsun. Map'in kendi
+            // projeksiyonu da yanlarında olsun."*). A reference outside it is still answered.
             foreach (int other in WfsNames.OtherReferences(type, advertised))
             {
                 await xml.WriteElementStringAsync("wfs", "OtherCRS", WfsNames.Wfs, WfsNames.CrsUrn(other))

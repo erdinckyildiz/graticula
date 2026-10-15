@@ -32,6 +32,8 @@ public static class CapabilitiesDocument
     /// </summary>
     /// <remarks>
     /// <para>
+    /// <b>Revised 2026-10-15 (Q-171): <c>EPSG:4326</c> and <c>EPSG:3857</c> are on the root again, by the owner's
+    /// answer, with a deployment's own list — <see cref="WriteAdvertised"/>. This one stays first.</b>
     /// <b>It was a fixed three — <c>EPSG:4326</c>, <c>EPSG:3857</c>, <c>CRS:84</c> — written
     /// on the root for every deployment, and that stopped being true on 2026-09-09.</b> The
     /// owner: *"wms ve wfs map'in projeksiyonunda yayınlanacak"*, and separately, of a longer
@@ -66,8 +68,9 @@ public static class CapabilitiesDocument
     /// condition 4: its list, each once, beside the one reference the root always states.
     /// </summary>
     /// <remarks>
-    /// <b>Nothing unless a deployment names a list</b>, for the owner's *"listelensin istemiyorum"* above. GetMap
-    /// answers every code in PROJ's register; a code outside the list is still answered.
+    /// <b>WGS 84 and Web Mercator on every deployment, then its own list</b> — the owner's answer to Q-171, 2026-10-15,
+    /// which brings back for those two what *"listelensin istemiyorum"* above took off. GetMap answers every code in
+    /// PROJ's register; a code outside the list is still answered.
     /// </remarks>
     private static void WriteAdvertised(XmlWriter writer, WmsVersion version, IReadOnlyList<int>? advertised)
     {

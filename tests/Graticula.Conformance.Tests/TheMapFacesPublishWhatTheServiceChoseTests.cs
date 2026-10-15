@@ -120,7 +120,7 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
     }
 
     /// <summary>
-    /// The root layer states one reference and the deployment's own list, not a fixed list nobody chose.
+    /// The root layer states its one reference, WGS 84, Web Mercator and the deployment's own list (Q-171).
     /// </summary>
     /// <remarks>
     /// <b>The owner, of a longer list: *"listelensin istemiyorum"*.</b> This element carried
@@ -138,7 +138,7 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
     [Theory]
     [InlineData("1.3.0", "CRS:84")]
     [InlineData("1.1.1", "EPSG:4326")]
-    public async Task The_root_layer_offers_one_reference(string version, string expected)
+    public async Task The_root_layer_offers_wgs84_web_mercator_and_the_deployments_list(string version, string expected)
     {
         XDocument document = await CapabilitiesAsync(
             $"/wms?service=WMS&version={version}&request=GetCapabilities");
@@ -154,24 +154,24 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
                 .Select(e => e.Value.Trim()),
         ];
 
-        // <b>Beside it, only what the deployment chose — Q-171, 2026-10-15.</b> `Graticula:AdvertisedReferences` is
-        // a list somebody named, which is not the fixed one ADR-057 §5c removed; it is the same list WFS advertises as
-        // `OtherCRS`, so that document says what may stand here.
+        // <b>Beside it, WGS 84, Web Mercator and the deployment's own list — the owner's answer to Q-171,
+        // 2026-10-15</b>, which brought those two back. WFS advertises the same set with each type's own, so its
+        // document says what may stand here; nothing else may.
         XDocument wfs = await CapabilitiesAsync("/wfs?service=WFS&version=2.0.0&request=GetCapabilities");
-        HashSet<string> chosen =
+        HashSet<string> allowed =
         [
             .. wfs.Descendants().Where(e => Is(e, "FeatureType")).Take(1)
-                .SelectMany(t => t.Elements().Where(e => Is(e, "OtherCRS")))
+                .SelectMany(t => t.Elements().Where(e => Is(e, "DefaultCRS") || Is(e, "OtherCRS")))
                 .Select(e => "EPSG:" + e.Value.Trim()[(e.Value.Trim().LastIndexOf(':') + 1)..]),
         ];
 
         Assert.True(
-            stated.Length >= 1 && stated[0] == expected && stated.Skip(1).All(chosen.Contains),
-            $"The root layer of the {version} document states "
-            + $"{string.Join(", ", stated)} and should state {expected} and the deployment's own list "
-            + $"[{string.Join(", ", chosen)}], nothing else. Every named layer inherits this element, so anything "
-            + "else here is a reference offered for every layer on the server that nobody chose — the fixed list "
-            + "ADR-057 §5c replaced.");
+            stated.Length >= 1 && stated[0] == expected
+                && stated.Contains("EPSG:4326") && stated.Contains("EPSG:3857")
+                && stated.Skip(1).All(allowed.Contains),
+            $"The root layer of the {version} document states {string.Join(", ", stated)}; it should state "
+            + $"{expected} first, EPSG:4326 and EPSG:3857, and otherwise only the references WFS advertises "
+            + $"[{string.Join(", ", allowed)}].");
     }
 
     /// <summary>

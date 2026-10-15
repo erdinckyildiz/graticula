@@ -141,6 +141,11 @@ somebody wants real nesting it is a screen change and not a migration.
 
 ### 5c. The coordinate system belongs to the service
 
+> **Amended 2026-10-15 by owner decision (Q-171, [ADR-060](ADR-060-the-axis-order-comes-from-the-register.md)
+> condition 4):** *"Bu ikisi hep olsun. Map'in kendi projeksiyonu da yanlarında olsun."* WGS 84 and Web Mercator are advertised on every WMS and WFS document again, beside each
+> layer's own reference, which this section's *"listelensin istemiyorum"* had removed. Publishing in the service's
+> reference is unchanged.
+
 One reference is chosen at compose time and everything is served in it. A layer stored in
 another is reprojected per feature by PostGIS on the way out, which is what the drawing path
 already does for every request in another reference.

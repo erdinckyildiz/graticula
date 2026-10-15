@@ -309,8 +309,12 @@ public sealed class AdvertisedReferencesAreTheServedOnesTests : ArcGisClient
                 .Select(c => int.Parse(c[5..], CultureInfo.InvariantCulture)),
         ];
 
-        // One list, two documents.
-        Assert.Equal(others.Order(), rootCodes.Order());
+        // One set, two documents: what the root offers every layer, WFS offers its type, with the type's own beside it.
+        int[] wfsAll = [.. others, .. first.Elements().Where(e => e.Name.LocalName == "DefaultCRS")
+            .Select(e => UrnCode(e.Value)).Where(c => c is not null).Select(c => c!.Value)];
+        Assert.All(rootCodes, code => Assert.Contains(code, wfsAll));
+        Assert.Contains(4326, wfsAll);
+        Assert.Contains(3857, wfsAll);
 
         foreach (int code in others)
         {
