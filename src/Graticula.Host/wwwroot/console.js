@@ -539,32 +539,23 @@ async function refreshGroup() {
 }
 
 /**
- * Overview: what the group is, and whether its shares reach anybody.
+ * Overview: what the group is, and what is shared with it.
  *
- * <b>The tally is the tab's reason to exist.</b> A share reaches a group's members only when the
- * group share and the service's own scope agree, and either alone is a state that reads as done and
- * is not. Nowhere else counts how many currently do.
+ * <b>Since ADR-185 every share reaches the members</b>, whatever the item's own level, so this is no longer a
+ * repair desk for shares that reached nobody.
  */
 function drawGroupOverview(one) {
   const items = one.items || [];
-  const inert = items.filter(i => i.sharing !== "group");
-  const reaching = items.length - inert.length;
   const people = (one.members || []).length;
 
-  // <b>Leads with the number nowhere else says.</b> The total is already in the tab strip and in the
-  // facts below; *how many reach nobody* is this tab's own fact, and a design review found the first
-  // version restating the tab count in three of its four states. `inert` is also gone as a word — it
-  // was a coinage the sentence had to define in the same breath.
+  // <b>Every share reaches the members — ADR-185, 2026-10-15.</b> Sharing is additive, as Portal's is: an item
+  // shared with this group is read by its members whatever the item's own level. Until then a share reached them
+  // only when the item's scope was `group` too, and this tab was the repair desk for the shares that did not.
   $("groupReach").innerHTML = items.length === 0
     ? `Nothing is shared with this group yet, so its ${num(people)}
        member${people === 1 ? "" : "s"} can read nothing through it.`
-    : inert.length === 0
-      ? `All <b>${num(items.length)}</b> service${items.length === 1 ? "" : "s"} shared here
-         reach${items.length === 1 ? "es" : ""} the ${num(people)}
-         ${people === 1 ? "person" : "people"} in this group.`
-      : `<b>${num(inert.length)} of the ${num(items.length)} services shared here reach nobody.</b>
-         Sharing into a group and setting a service's own scope to <b>group</b> are two acts, and
-         these have only the first.`;
+    : `<b>${num(items.length)}</b> item${items.length === 1 ? "" : "s"} shared here, read by the ${num(people)}
+       ${people === 1 ? "person" : "people"} in this group.`;
 
   $("groupAbout").innerHTML = one.description
     ? `<p class="lede">${h(one.description)}</p>`
@@ -573,33 +564,10 @@ function drawGroupOverview(one) {
            whether to share into it reads. <b>Settings</b> takes one.</p>`
       : "";
 
-  // <b>The faults, and the verb that clears them — not a second copy of Content.</b> This block was
-  // *Recently shared*: the same rows, the same order and the same columns as Content's first page
-  // minus its verb, which is a worse Content tab and becomes a worse gallery when maps arrive. A
-  // design review put the choice as *make Overview the repair desk or delete it*, and the repair desk
-  // is the version that earns being landed on: it holds the one thing no other tab does, which is
-  // what is wrong with this group and how to fix it.
-  //
-  // <b>The verb writes the service's own scope</b>, which is the act the sentence above names. It is
-  // the service's setting and not the group's, so it is stated as such rather than hidden behind
-  // *"fix"* — an operator who does not know these are two acts has to learn it here, once.
   $("groupRecent").innerHTML = items.length === 0
     ? `<p class="hint">Nothing yet. <b>Add item</b>, on Content, offers what you have published.</p>`
-    : inert.length === 0
-      ? `<p class="hint">Every service shared here reaches its members.</p>`
-      : `<table><tbody>${inert.map(i => `
-          <tr>
-            <td class="name"><a href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
-              >${h(i.name)}</a></td>
-            <td class="val">its scope is ${pill(i.sharing)}</td>
-            <td style="text-align:right">${one.mayManage
-              ? `<button class="tiny" data-group-reach="${h(i.name)}">Set scope to group</button>`
-              : ""}</td>
-          </tr>`).join("")}</tbody></table>
-         <p class="hint">Each of these is shared with the group and readable by nobody through it.
-           ${one.mayManage
-             ? `Setting the scope makes it readable by this group's members and by nobody else.`
-             : `Their owner or an administrator sets the scope.`}</p>`;
+    : `<p class="hint">Every item shared here reaches its members, whatever its own sharing level — a private item
+         is read by this group and its owner, an organization or public one by them as well.</p>`;
 
   $("groupFacts").innerHTML = `
     <dt>You are</dt><dd>${one.standing === "owner"
@@ -678,8 +646,6 @@ function drawGroupContent(one) {
     shown.sort((a, b) => String(b.shared || "").localeCompare(String(a.shared || "")));
   }
 
-  const reaching = all.filter(i => i.sharing === "group").length;
-
   // <b>Both sides named, on the tab where the shares are.</b> This is what §4f's argument was
   // really about: services against *people*, not services against a row count. `showing` when
   // filtering, because `2 of 11` meant two different things in two places three inches apart.
@@ -689,13 +655,12 @@ function drawGroupContent(one) {
     ? ""
     : needle
       ? `showing ${shown.length} of ${all.length}`
-      : `${reaching} of ${all.length} reach the ${people} ${people === 1 ? "person" : "people"} `
-        + `in this group`;
+      : `${all.length} item${all.length === 1 ? "" : "s"}, read by the ${people} `
+        + `${people === 1 ? "person" : "people"} in this group`;
 
   $("groupItems").innerHTML = all.length === 0
     ? `<tr><td colspan="6" class="empty">Nothing in it yet. <b>Add item</b> offers what you have
-         published — and an item reaches these members only once its own sharing scope is
-         <b>group</b> as well. Overview lists the ones that do not and sets it.</td></tr>`
+         published; whatever its own sharing, these members then read it.</td></tr>`
     : shown.length === 0
       ? `<tr><td colspan="6" class="empty">Nothing matches <b>${h(needle)}</b>. The search reads a
            service's name, its kind and who shared it.</td></tr>`
@@ -709,12 +674,9 @@ function drawGroupContent(one) {
             : `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`}"
             title="${h(i.name)}">${h(i.name.split("/").pop())}</a>
             <div class="rowmeta">${h(i.kind ? itemTypeName(i.kind) : "Service")}${i.name.includes("/")
-              ? ` · service folder ${h(i.name.split("/")[0])}` : ""}<span class="narrowonly"> · ${
-              i.sharing === "group" ? "reaches members" : "does not reach members"}</span></div></td>
+              ? ` · service folder ${h(i.name.split("/")[0])}` : ""}<span class="narrowonly"> · ${h(i.sharing)}</span></div></td>
           <td class="val widecol">${h(i.kind ? itemTypeName(i.kind) : "service")}</td>
-          <td class="widecol">${i.sharing === "group"
-            ? `yes`
-            : `<b>no</b> <span class="val">— its own scope is ${h(i.sharing)}</span>`}</td>
+          <td class="widecol">${pill(i.sharing)}</td>
           <td class="val">${day(i.shared)}${i.sharedBy
             ? ` <span class="faint">by ${h(i.sharedBy)}</span>` : ""}</td>
           <td style="text-align:right">${one.mayManage
@@ -1073,9 +1035,7 @@ async function drawGroupAdd(one) {
             <div class="rowmeta">${h(i.kind)}${i.description
               ? ` · ${h(i.description)}` : ""} · ${num(i.layers)} layer${i.layers === 1 ? "" : "s"}
               ${here ? `· <b>already in ${h(one.name)}</b>` : ""}</div></td>
-          <td>${i.sharing === "group"
-            ? `yes`
-            : `<b>no</b> <span class="val">— its own scope is ${h(i.sharing)}</span>`}</td>
+          <td>${pill(i.sharing)}</td>
           <td class="val">${day(i.updated)}</td>
         </tr>`;
       }).join("");
@@ -1107,8 +1067,7 @@ async function drawGroupAdd(one) {
       ? `${num(empties)} empty service${empties === 1 ? " is" : "s are"} not listed — they hold
          nothing to share.`
       : "",
-    `A service reaches this group's members only once its own scope is <b>group</b> as well. Overview
-     lists the ones that do not, and sets it.`,
+    `Whatever an item's own sharing, this group's members read it once it is added.`,
   ].filter(Boolean).join(" ");
 }
 
@@ -6960,10 +6919,10 @@ async function saveShare() {
 
   const level = sharing.chosen || sharing.scope;
 
-  // <b>*Owner* with groups ticked is the group scope.</b> The server reads group membership only for an
-  // item whose scope is `group` (LayerAccess.Evaluate), so saving *Owner* plus a group as `private` — what
-  // this did until 2026-09-30 — stored a share that gave its members nothing, and the group's own Content
-  // tab said so. *Organization* and *Everyone* already include every group member.
+  // <b>*Owner* with groups ticked is stored as the group scope.</b> Since ADR-185 (2026-10-15) sharing is additive and
+  // a group reaches its members whatever the level, so `group` is the same as `private` with groups; it is kept as
+  // the stored word because the server refuses it with no group, which is the check this dialog relies on. Under
+  // *Organization* and *Everyone* the groups still matter: a shared-update group edits at any level.
   const scope = level === "private" && sharing.wanted?.size > 0 ? "group" : level;
 
   const { folder, name } = splitService(sharing.qualified);
@@ -24800,14 +24759,10 @@ async function handleClick(event) {
     // <b>The refused stay ticked, so retry is one press.</b> And the confirmation counts what will
     // reach nobody, because a share that reports success and reaches no member is the two-step trap
     // this screen exists not to hide.
-    const inert = added.filter(name =>
-      (addOffered.find(i => i.name === name) || {}).sharing !== "group").length;
-
     toast(
       [
         added.length > 0
-          ? `${num(added.length)} added${inert > 0
-              ? `, ${num(inert)} of them reaching nobody yet — Overview sets the scope` : ""}.`
+          ? `${num(added.length)} added, and this group's members read ${added.length === 1 ? "it" : "them"}.`
           : "",
         refused.length > 0 ? `Refused: ${refused.join(", ")}` : "",
       ].filter(Boolean).join(" "),

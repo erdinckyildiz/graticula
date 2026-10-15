@@ -486,13 +486,12 @@ public sealed class GroupsPageTests : ConsoleTest
                 "!document.getElementById('tab-content').hidden",
                 "The Content tab did not open.");
 
-            // The sentence that stops the step people miss: sharing here is not enough. It moved from
-            // the screen's prose onto the tab that is about the shares, which is the one place a
-            // reader is looking at an inert one.
+            // <b>Since ADR-185 a share reaches the members whatever the item's own sharing</b>, and the empty tab says
+            // so — it used to warn that sharing here was not enough, which was the two-step trap the change removed.
             string content = Flat(await Browser.EvaluateAsync<string>(
                 "document.getElementById('groupItems')?.textContent || ''"));
 
-            Assert.Contains("its own sharing scope", content, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("whatever its own sharing, these members then read it", content, StringComparison.OrdinalIgnoreCase);
 
             string[] errors = await PageErrorsAsync();
             NothingWentWrong(errors);

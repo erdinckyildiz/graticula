@@ -215,10 +215,14 @@ way they expect, and the caching page says the thing that is true about this eng
 
 1. **The owner confirms or reverses each `INFERRED` choice** — §5.1 (Studio as the landing), §5.3 (maps in
    the content list), §5.5 (identity prefill), §5.9 (what sits under *Advanced*).
+   **DISCHARGED 2026-10-15 by the owner**, asked with each of the four described: *"Dördü de kalsın"*. Studio as the
+   landing, maps in the content list, the identity column prefilled and the rarer caching settings under *Advanced*
+   are decisions, as built.
 2. **Group sharing: additive on the server, or the `group` scope as now.** Portal's is additive — sharing
    with a group adds those members to whatever level is set, including editing through a shared-update
    group under *Organization*. This server reads groups only under the `group` scope. §5.7 makes the
    dialog honest about the current rule; it does not choose between them.
+   **DISCHARGED 2026-10-15 by owner decision:** *"Portal gibi eklemeli olsun"* — additive, [ADR-185](ADR-185-sharing-is-additive.md).
 3. **Tile freshness in browsers (V-56, [ADR-069](ADR-069-query-responses-carry-the-layer-s-cache-lifetime.md)).** A layer anybody can edit is served
    `no-cache` and revalidated with an ETag on every view, by the owner's decision of 2026-09-23. The
    alternative the reviews raised is a data version in the tile URL with long-lived, immutable

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(85);
+    public static SchemaVersion ComponentSchemaVersion => new(86);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(

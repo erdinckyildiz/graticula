@@ -215,4 +215,62 @@ public sealed class ImageryGroupSharingTests : ArcGisClient
             await SendAsync(root, admin, HttpMethod.Delete, $"/admin/members/{stranger}");
         }
     }
+
+    /// <summary>
+    /// Sharing is additive: a private service shared with a group is read by the group's members, with no second act
+    /// on its own scope — owner decision 2026-10-15, ADR-185 (ADR-101 condition 2).
+    /// </summary>
+    [Fact]
+    public async Task A_private_service_shared_with_a_group_answers_its_members_without_its_scope_changing()
+    {
+        string root = await RequireServerAsync();
+        string? admin = await TokenAsync(root);
+        Assert.False(admin is null, "No administrator credential; set the suite's user and password.");
+
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string name = $"zz_additive_{tag}";
+        string group = $"zz_additivegroup_{tag}";
+        string member = $"zz_addin_{tag}";
+        string stranger = $"zz_addout_{tag}";
+
+        DirectoryInfo? at = new(AppContext.BaseDirectory);
+        while (at is not null && at.GetFiles("*.sln").Length == 0) at = at.Parent;
+        byte[] tiff = File.ReadAllBytes(Path.Combine(at!.FullName, "tests", "Graticula.Raster.Tiff.Tests", "corpus", "rgb-byte-deflate.tif"));
+
+        try
+        {
+            using (MultipartFormDataContent form = new())
+            {
+                form.Add(new ByteArrayContent(tiff), "file", "g.tif");
+                form.Add(new StringContent(name), "name");
+                (HttpStatusCode made, string madeBody) = await SendAsync(root, admin, HttpMethod.Post, "/admin/coverages/upload", form);
+                Assert.True(made == HttpStatusCode.Created, $"Uploading answered {(int)made}: {madeBody}");
+            }
+
+            string memberToken = await MemberTokenAsync(root, admin!, member);
+            string strangerToken = await MemberTokenAsync(root, admin!, stranger);
+
+            (HttpStatusCode grouped, string groupBody) = await SendAsync(root, admin, HttpMethod.Post, "/admin/groups", Json(new { name = group }));
+            Assert.True(grouped is HttpStatusCode.OK or HttpStatusCode.Created, $"Making the group answered {(int)grouped}: {groupBody}");
+            (HttpStatusCode joined, _) = await SendAsync(root, admin, HttpMethod.Put, $"/admin/groups/{group}/members/{member}", Json(new { manager = false }));
+            Assert.True(joined is HttpStatusCode.OK or HttpStatusCode.Created);
+
+            // Shared into the group, and nothing else: the service stays private.
+            (HttpStatusCode shared, string shareBody) = await SendAsync(root, admin, HttpMethod.Put, $"/admin/groups/{group}/items/{name}?folder=hosted");
+            Assert.True(shared == HttpStatusCode.OK, $"Sharing into the group answered {(int)shared}: {shareBody}");
+
+            string document = $"/rest/services/hosted/{name}/ImageServer?f=json";
+            (_, string inside) = await SendAsync(root, memberToken, HttpMethod.Get, document);
+            Assert.DoesNotContain("\"error\"", inside, StringComparison.Ordinal);
+            (_, string outside) = await SendAsync(root, strangerToken, HttpMethod.Get, document);
+            Assert.Contains("\"error\"", outside, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/groups/{group}");
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/members/{member}");
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/members/{stranger}");
+        }
+    }
 }

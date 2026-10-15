@@ -106,8 +106,12 @@ public static class LayerAccess
         // somebody who has not signed in is in no group, so the intersection is empty and the check
         // is a formality — stated anyway, because *"the empty set intersects nothing"* is the kind of
         // reasoning that stops being true when somebody adds a default group.
-        if (scope == SharingScope.Group
-            && !caller.IsAnonymous
+        //
+        // <b>Whatever the scope, since 2026-10-15 — owner decision, ADR-101 condition 2, ADR-185.</b> Sharing is
+        // additive, as Portal's is: an item's level and its groups both count, so a private item shared with a
+        // group is read by the group's members. It was read through a group only when its scope was `group`, and
+        // sharing into a group and setting that scope were two acts either of which alone read as done.
+        if (!caller.IsAnonymous
             && itemGroups is { Count: > 0 })
         {
             foreach (Guid group in itemGroups)
@@ -301,7 +305,11 @@ public static class LayerAccess
     {
         ArgumentNullException.ThrowIfNull(authorization);
 
-        if (scope != SharingScope.Group || itemGroups is not { Count: > 0 })
+        // <b>Whatever the scope — ADR-185.</b> A shared-update group edits what is shared with it at any level, as
+        // Portal's does: an item the whole organisation reads can still be one only its group edits.
+        _ = scope;
+
+        if (itemGroups is not { Count: > 0 })
         {
             return false;
         }

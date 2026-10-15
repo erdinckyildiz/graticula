@@ -65,14 +65,18 @@ public sealed class SharedUpdateTests
     [InlineData(SharingScope.Private)]
     [InlineData(SharingScope.Organization)]
     [InlineData(SharingScope.Public)]
-    public void Only_a_group_share_can_be_widened_by_a_group(SharingScope scope)
+    public void A_shared_update_group_edits_what_is_shared_with_it_at_every_level(SharingScope scope)
     {
-        // <b>The dangerous one, so it is stated for each scope rather than argued once.</b> A
-        // caller who belongs to a sharing-update group must not thereby edit an item that is
-        // not shared with it — including a *public* item, where the temptation to treat the
+        // <b>Additive, as Portal's is — owner decision 2026-10-15, ADR-185.</b> An item the organisation or everybody
+        // reads can still be one a shared-update group edits; until then only a `group`-scoped item could be.
+        Assert.True(LayerAccess.GroupConfersEditing(
+            scope, In([Sharing], editable: [Sharing]), [Sharing]));
+
+        // <b>The dangerous half, stated for each scope.</b> A caller in a sharing-update group does not thereby edit
+        // an item that is not shared with that group — a *public* item included, where the temptation to treat the
         // wide scope as the permissive one is greatest.
         Assert.False(LayerAccess.GroupConfersEditing(
-            scope, In([Sharing], editable: [Sharing]), [Sharing]));
+            scope, In([Sharing], editable: [Sharing]), [Other]));
     }
 
     [Fact]
@@ -112,11 +116,11 @@ public sealed class SharedUpdateTests
     }
 
     [Fact]
-    public void Reading_answers_exactly_what_it_did_before()
+    public void Reading_is_the_level_or_the_groups_and_editing_does_not_widen_it()
     {
-        // <b>ADR-018 §3b's invariant, held still.</b> The same three cases with and without the
-        // editing set: a reader who remembers *sharing governs reading* should find that their
-        // memory is still correct.
+        // <b>ADR-018 §3b's invariant, held still: sharing governs reading</b>, and the editing set changes nothing in
+        // it. What changed on 2026-10-15 (ADR-185) is what sharing is: the level and the groups both count, so a
+        // private item shared with a group is read by its members.
         foreach (IReadOnlyList<Guid> editable in new[] { (IReadOnlyList<Guid>)[], [Sharing] })
         {
             Authorization caller = In([Sharing], editable);
@@ -132,9 +136,14 @@ public sealed class SharedUpdateTests
                     SharingScope.Group, owner: null, Member(), caller, [Other]));
 
             Assert.Equal(
-                LayerAccess.Reason.Denied,
+                LayerAccess.Reason.Group,
                 LayerAccess.Evaluate(
                     SharingScope.Private, owner: null, Member(), caller, [Sharing]));
+
+            Assert.Equal(
+                LayerAccess.Reason.Denied,
+                LayerAccess.Evaluate(
+                    SharingScope.Private, owner: null, Member(), caller, [Other]));
         }
     }
 

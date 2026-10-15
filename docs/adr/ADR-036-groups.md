@@ -13,6 +13,11 @@
 
 > **Amended 2026-09-16 — [ADR-075](ADR-075-a-layer-is-edited-by-its-owner.md).** Shared update (§4a) is kept by owner decision and is now one of three grounds for writing to a layer, beside its owner and an administrator; editing by privilege alone is gone. **Sharing an item into a group now requires owning the item** (`GroupChange.ItemNotYours`): running a group was the only question, so a group's owner could put somebody else's service into it and, with shared update, give themselves the right to edit it. A group still does not change what an item *is* — its sharing, fields, style or contents stay with the owner.
 
+
+> **Amended 2026-10-15 by [ADR-185](ADR-185-sharing-is-additive.md), owner decision:** sharing is additive. A group reaches
+> its members at every level — a private item shared with a group is read by its members, and a shared-update group
+> edits what is shared with it at any level — where §4a and §4b had groups count under the `group` scope alone.
+
 ## 1. What the owner decided, and what they left to us
 
 Verbatim, 2026-08-18:
