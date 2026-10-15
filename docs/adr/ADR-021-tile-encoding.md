@@ -295,6 +295,10 @@ mean two caches rather than a coherence problem.
    pause climbing to a third at concurrency 4 hold exactly as Run 4 found them. **Run 4's own harness carried the same
    omission**, so its tile bytes and times for path A included a unique value per feature. Whether this reopens the
    decision is the owner's: [Q-173](../open-questions.md).)*
+   **DECIDED 2026-10-15 by the owner, with the recommendation: it does not reopen the decision** (*"önerilerini onaylıyorum. bana sormadan hepsini tamamla"*).
+   Encoding stays in PostGIS. The widened run stands as the evidence that a read-once *seeder* could roughly double
+   or triple seeding throughput, to revisit if seeding time is ever the complaint; the allocation and the collector's
+   share at concurrency 4 land on the process that also answers requests, which is the reason §5 gave.
 3. ~~**Nobody has looked at a rendered tile.**~~ **DISCHARGED 2026-08-14**, the
    same day, by [tools/render-tile.py](../../tools/render-tile.py). z16/38030/24562
    in Istanbul, 1,258 features: the decoded `ST_AsMVT` output and the same extent

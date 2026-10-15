@@ -90,6 +90,9 @@ services directory offers it in a SceneView (`/studio/map.html?face=imageserver&
 
 ### 5a. Inferred, for the owner to confirm
 
+**Confirmed 2026-10-15 by the owner** (*"önerilerini onaylıyorum. bana sormadan hepsini tamamla"*, over Q-167's recommendation to take them as built): the three
+below are decisions now, not inferences.
+
 1. That it is the owner's choice per service, not inferred from the data (§2 A).
 2. That the tiles are Web Mercator only, not also WGS 84 for scenes in that reference.
 3. That 0.1 m, Esri's own figure, is the error a surface tile may carry.

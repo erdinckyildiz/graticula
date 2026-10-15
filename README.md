@@ -35,7 +35,7 @@ with room to breathe. A *graticule* is the net of meridians and parallels drawn 
 
 ## What runs
 
-Five ArcGIS service types, plus the portal surface Pro connects through.
+Five ArcGIS service types, plus the portal surface Pro, the Maps SDK and the API for Python connect through.
 
 | | | |
 |---|---|---|
@@ -46,9 +46,16 @@ Five ArcGIS service types, plus the portal surface Pro connects through.
 | **Geometry service** | complete | All 22 operations, including `buffer`, `intersect`, `union`, `difference`, `cut`, `project`, `autoComplete`, `reshape`, `trimExtend` and `findTransformations`, whose datum transformations come from a register generated from PROJ's and are applied by `project` as named ([ADR-160](docs/adr/ADR-160-datum-transformations-come-from-the-register.md)) |
 | **ArcGIS Pro** | complete | Add a **portal** connection, sign in, browse My Content, add a layer, edit it. Measured against Pro over seven rounds, each read out of the request log ([ADR-040](docs/adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md)). Vector tile services draw in Pro 3.x, classified styles included |
 
+| **ArcGIS API for Python** | complete | `GIS(url, username, password)` signs in through the portal's OAuth page as it does against Portal ([ADR-076](docs/adr/ADR-076-oauth-for-registered-apps.md)); content search and `FeatureLayer.append` to a hosted layer ([ADR-105](docs/adr/ADR-105-arcgis-clients-append-through-uploads.md)) |
+| **ArcGIS Maps SDK for JavaScript** | complete | An app whose portal is this server, on this origin or another ([ADR-072](docs/adr/ADR-072-cross-origin-reads-without-credentials.md) §5a), signs people in, opens saved web maps, and offers the basemap gallery and its default ([ADR-184](docs/adr/ADR-184-the-basemap-gallery-is-a-group.md)) |
+
 Around them: members, roles with editable privileges, groups and item sharing, with every
 mutation audited and the log queryable; import from GeoJSON, a zipped shapefile or a File
-Geodatabase, or define an empty schema and fill it through `applyEdits`.
+Geodatabase, or define an empty schema and fill it through `applyEdits`. **A basemap gallery** is a group whose
+vector tile services and web maps every map offers as basemaps, one of them the default
+([ADR-184](docs/adr/ADR-184-the-basemap-gallery-is-a-group.md)). **`graticula tools manifest`** writes a server's
+data sources, services, groups, styles and sharing to one JSON file, by name and without credentials, and applies it
+to another server ([ADR-183](docs/adr/ADR-183-the-catalogue-manifest.md), [docs/catalogue-manifest.md](docs/catalogue-manifest.md)).
 
 OGC API Features (with Part 3's `filter` in Basic CQL2 text, [ADR-165](docs/adr/ADR-165-ogc-api-features-filters-in-basic-cql2.md)), WFS 2.0 and 1.1 ([ADR-168](docs/adr/ADR-168-wfs-1-1-0-is-spoken-too.md)), editable through WFS-T ([ADR-169](docs/adr/ADR-169-wfs-t-through-the-one-write-path.md)), and WMS 1.3.0 (taking an SLD with a request and answering GetStyles, [ADR-171](docs/adr/ADR-171-sld-at-the-wms-boundary.md)) are served as well — at `/wfs` and `/wms`, and at each service's own
 address as ArcGIS gives it (`…/MapServer/WMSServer`, `…/ImageServer/WMSServer`, `…/FeatureServer/WFSServer`), with

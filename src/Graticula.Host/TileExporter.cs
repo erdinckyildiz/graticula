@@ -336,7 +336,13 @@ internal sealed class TileExporter : BackgroundService
 
             _waiting = Idle;
 
-            await RunAsync(job, stopping).ConfigureAwait(false);
+            // <b>A full datastore budget is waited out for up to ten minutes, as an import's is — owner decision
+            // 2026-10-15, Q-172.</b> A request is refused at once; a job that has been reading for minutes is not
+            // failed for a burst that passes in a second.
+            using (ConnectionBudget.Patiently(TimeSpan.FromMinutes(10)))
+            {
+                await RunAsync(job, stopping).ConfigureAwait(false);
+            }
         }
     }
 

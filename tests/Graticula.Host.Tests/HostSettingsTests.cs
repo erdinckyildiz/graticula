@@ -227,4 +227,19 @@ public sealed class HostSettingsTests
         Assert.Equal(1500, settings.MaximumRecordCount);
         Assert.Contains("MaximumRecordCount", string.Join(",", settings.LegacyKeys ?? []));
     }
+
+    /// <summary>
+    /// The deployment's advertised references read as EPSG codes, with or without their prefix, and anything else
+    /// refuses to start — Q-171, D-171.
+    /// </summary>
+    [Fact]
+    public void Advertised_references_are_epsg_codes_and_anything_else_refuses_to_start()
+    {
+        Assert.Equal([5254, 5255, 5256], HostSettings.ParseReferences("5254, EPSG:5255 epsg:5256;5254"));
+        Assert.Empty(HostSettings.ParseReferences(null));
+
+        InvalidOperationException refused =
+            Assert.Throws<InvalidOperationException>(() => HostSettings.ParseReferences("5254, TUREF"));
+        Assert.Contains("TUREF", refused.Message, StringComparison.Ordinal);
+    }
 }

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Graticula.Api.Wfs;
 
@@ -78,6 +80,32 @@ public static class WfsNames
     /// DescribeFeatureType, which is where a client goes to resolve it.
     /// </remarks>
     public const string Namespace = "urn:graticula:ns";
+
+    /// <summary>
+    /// The references a feature type is advertised in beside its default — Q-171: the deployment's chosen set, each once
+    /// and not the default.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not the table's own reference.</b> The owner: *"wms ve wfs map'in projeksiyonunda yayınlanacak"* — a type is
+    /// published in its service's reference, and a stored one beside it is a reference nobody chose to publish.
+    /// </remarks>
+    /// <param name="type">The feature type.</param>
+    /// <param name="advertised">The server's set, or null for none.</param>
+    /// <returns>EPSG codes.</returns>
+    public static IEnumerable<int> OtherReferences(WfsFeatureType type, IReadOnlyList<int>? advertised)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+
+        HashSet<int> said = [type.PublishedSrid];
+
+        foreach (int code in advertised ?? [])
+        {
+            if (code > 0 && said.Add(code))
+            {
+                yield return code;
+            }
+        }
+    }
 
     /// <summary>A CRS as WFS 2.0 identifies one.</summary>
     /// <param name="srid">The EPSG code.</param>

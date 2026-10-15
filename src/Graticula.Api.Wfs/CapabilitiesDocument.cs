@@ -86,6 +86,7 @@ public static class CapabilitiesDocument
     /// <param name="metadata">At a service's own address, what the service says of itself (ADR-167), or null.</param>
     /// <param name="transactions">Whether this caller may edit any type listed — ADR-169: Transaction is offered, and
     /// <c>ImplementsTransactionalWFS</c> is TRUE, only then.</param>
+    /// <param name="advertised">References offered for every type beside its own — Q-171, ADR-060 condition 4.</param>
     /// <returns>A task.</returns>
     public static async Task WriteAsync(
         Stream stream,
@@ -94,7 +95,8 @@ public static class CapabilitiesDocument
         IReadOnlyList<WfsFeatureType> types,
         CancellationToken cancellation,
         Graticula.Catalog.OgcServiceMetadata? metadata = null,
-        bool transactions = true)
+        bool transactions = true,
+        IReadOnlyList<int>? advertised = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(types);
@@ -115,7 +117,7 @@ public static class CapabilitiesDocument
             await IdentificationAsync(xml, title, metadata).ConfigureAwait(false);
             await ProviderAsync(xml).ConfigureAwait(false);
             await OperationsAsync(xml, endpoint, transactions, metadata?.Inspire).ConfigureAwait(false);
-            await TypesAsync(xml, types).ConfigureAwait(false);
+            await TypesAsync(xml, types, advertised).ConfigureAwait(false);
             await FilterCapabilitiesAsync(xml).ConfigureAwait(false);
 
             await xml.WriteEndElementAsync().ConfigureAwait(false);
@@ -398,7 +400,7 @@ public static class CapabilitiesDocument
         await xml.WriteEndElementAsync().ConfigureAwait(false);
     }
 
-    private static async Task TypesAsync(XmlWriter xml, IReadOnlyList<WfsFeatureType> types)
+    private static async Task TypesAsync(XmlWriter xml, IReadOnlyList<WfsFeatureType> types, IReadOnlyList<int>? advertised)
     {
         // <b>Omitted entirely when it would be empty, because an empty one is not
         // valid.</b> wfs:FeatureTypeList requires at least one wfs:FeatureType, and
@@ -438,12 +440,19 @@ public static class CapabilitiesDocument
             // `layer.Definition.Srid`, so a service that had chosen a reference advertised
             // the table's and answered in the table's.
             //
-            // <b>No `OtherCRS` beside it, still.</b> The served set is PROJ's whole register
-            // and a document carrying 8,500 of them per type is not a document — ADR-060
-            // condition 4, which this does not close and does not pretend to.
             await xml.WriteElementStringAsync(
                 "wfs", "DefaultCRS", WfsNames.Wfs, WfsNames.CrsUrn(type.PublishedSrid))
                 .ConfigureAwait(false);
+
+            // <b>`OtherCRS`: the deployment's chosen set, not the register — Q-171.</b> The served set is PROJ's whole
+            // register, and 8,500 references a type is not a document, so what is advertised is the list a deployment
+            // names, and nothing when it names none (the owner's *"listelensin istemiyorum"*, ADR-057 §5c). A reference
+            // outside it is still answered. Without one, CITE's suite skips `getFeatureInOtherCRS`.
+            foreach (int other in WfsNames.OtherReferences(type, advertised))
+            {
+                await xml.WriteElementStringAsync("wfs", "OtherCRS", WfsNames.Wfs, WfsNames.CrsUrn(other))
+                    .ConfigureAwait(false);
+            }
 
             // <b>Written for every layer that has a geographic extent — Q-125,
             // 2026-08-25.</b> This element is longitude/latitude in WGS 84 by

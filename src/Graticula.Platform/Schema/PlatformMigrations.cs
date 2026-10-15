@@ -120,7 +120,25 @@ public static class PlatformMigrations
         ALayerMayCarryATitleV83,
         AnImageMayBeAnElevationSurfaceV84,
         AServiceStatesItsCreditsV85,
+        ThePythonApiIsABuiltInAppV86,
     ]);
+
+    /// <summary>
+    /// The ArcGIS API for Python is a built-in OAuth app, as ArcGIS Field Maps is — owner decision 2026-10-15, Q-170.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> One row. <c>GIS(url, username, password)</c> signs in through OAuth under the client id
+    /// <c>pythonapi</c>, which it carries rather than registers, with the out-of-band redirect; an Enterprise portal
+    /// knows it already. A build before this one has the row and never offers it anything it did not offer Field Maps.
+    /// </remarks>
+    private static Migration ThePythonApiIsABuiltInAppV86 => Migration.Expand(
+        new SchemaVersion(86),
+        "The ArcGIS API for Python is a built-in OAuth app (Q-170).",
+        """
+        insert into oauth_app (client_id, title, redirect_uris, builtin)
+        values ('pythonapi', 'ArcGIS API for Python', array['urn:ietf:wg:oauth:2.0:oob'], true)
+        on conflict (client_id) do nothing
+        """);
 
     /// <summary>
     /// A service states its credits — the copyright and attribution its data asks for, ArcGIS's <c>copyrightText</c>

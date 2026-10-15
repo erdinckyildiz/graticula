@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Graticula.Api.Wms;
 using Graticula.Platform.Postgres;
 using System.IO;
+using System.Linq;
 using System.Net;
 using Microsoft.Extensions.Configuration;
 
@@ -259,8 +260,18 @@ internal sealed record HostSettings(
     // a few kilobytes is refused at the door rather than catalogued and refused per request. A mosaic is not held to
     // it, since a mosaic is a virtual join of files that each were.
     int RasterMaximumSide = CoverageBounds.DefaultMaximumSide,
-    long RasterMaximumPixels = CoverageBounds.DefaultMaximumPixels)
+    long RasterMaximumPixels = CoverageBounds.DefaultMaximumPixels,
+
+    // <b>The references WFS and WMS advertise beside each layer's own — Q-171, ADR-060 condition 4.</b> EPSG codes,
+    // comma separated: a Turkish deployment names the TUREF zones. <b>Empty by default, and no fixed set is added</b>,
+    // because the owner said of the fixed WGS 84 and Web Mercator the documents used to carry *"listelensin
+    // istemiyorum"* (2026-09-09, ADR-057 §5c); a list is advertised when a deployment chooses one. A code outside it
+    // is still answered: this is what a client is told, not what it may ask.
+    IReadOnlyList<int>? AdvertisedReferences = null)
 {
+    /// <summary>What the OGC faces advertise beyond each layer's own reference: the deployment's list, or nothing.</summary>
+    public IReadOnlyList<int> Advertised => AdvertisedReferences ?? [];
+
     /// <summary>How long past its lifetime a tile may be served while its source cannot build it.</summary>
     public TimeSpan TileStaleIfError => TimeSpan.FromHours(TileStaleIfErrorHours);
 
@@ -696,7 +707,39 @@ internal sealed record HostSettings(
             Math.Max(0L, keys.Value("AttachmentBufferTotalMB", AttachmentBuffer.DefaultTotalBytes / 1048576)) * 1048576,
 
             Math.Max(1, keys.Value("RasterMaximumSide", CoverageBounds.DefaultMaximumSide)),
-            Math.Max(1L, keys.Value("RasterMaximumPixels", CoverageBounds.DefaultMaximumPixels)));
+            Math.Max(1L, keys.Value("RasterMaximumPixels", CoverageBounds.DefaultMaximumPixels)),
+            ParseReferences(keys.Text("AdvertisedReferences")));
+    }
+
+    /// <summary>
+    /// EPSG codes, comma or space separated, each with or without its <c>EPSG:</c>; a value that is not one refuses to
+    /// start, as every list setting here does (D-171).
+    /// </summary>
+    /// <param name="text">The setting.</param>
+    /// <returns>The codes, or empty.</returns>
+    internal static IReadOnlyList<int> ParseReferences(string? text)
+    {
+        List<int> codes = [];
+
+        foreach (string part in (text ?? string.Empty).Split([',', ' ', ';'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            string bare = part.StartsWith("EPSG:", StringComparison.OrdinalIgnoreCase) ? part[5..] : part;
+
+            if (!int.TryParse(bare, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int code)
+                || code <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Graticula:AdvertisedReferences names '{part}', which is not an EPSG code. Write codes such as "
+                    + "5254, 5255 or EPSG:5256, separated by commas.");
+            }
+
+            if (!codes.Contains(code))
+            {
+                codes.Add(code);
+            }
+        }
+
+        return codes;
     }
 
     /// <summary>

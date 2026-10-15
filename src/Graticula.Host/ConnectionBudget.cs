@@ -184,7 +184,17 @@ internal sealed class ConnectionBudget : IDisposable
     /// <exception cref="ConnectionBudgetFullException">
     /// The wait expired, which means this worker is at its bound.
     /// </exception>
-    public async ValueTask<Lease> EnterAsync(string source, CancellationToken cancellationToken)
+    public ValueTask<Lease> EnterAsync(string source, CancellationToken cancellationToken) =>
+
+        // <b>Patient inside a job's <see cref="Patiently"/> scope, here rather than at each caller — Q-172,
+        // 2026-10-15.</b> Only the importer's seam asked for <see cref="EnterOrWaitAsync"/>; an export reads through
+        // <c>BudgetedFeatureSource</c>, which asks for this, so wrapping the export job in the scope would have
+        // changed nothing. No request runs inside one, so a request is answered exactly as before.
+        PatientUntil.Value is null
+            ? EnterOnceAsync(source, cancellationToken)
+            : EnterOrWaitAsync(source, cancellationToken);
+
+    private async ValueTask<Lease> EnterOnceAsync(string source, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrEmpty(source);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -350,7 +360,7 @@ internal sealed class ConnectionBudget : IDisposable
         {
             try
             {
-                return await EnterAsync(source, cancellationToken).ConfigureAwait(false);
+                return await EnterOnceAsync(source, cancellationToken).ConfigureAwait(false);
             }
             catch (ConnectionBudgetFullException)
                 when (PatientUntil.Value is { } until && DateTimeOffset.UtcNow + delay < until)

@@ -288,6 +288,20 @@ have had a cache, and a cache is state.
    types here, is not a document. What is left is **a chosen set, advertised and enforced on
    every face** — and *which* set is a scope decision, not a defect fix.
 
+   **DISCHARGED 2026-10-15 by owner decision, as amended: everything advertised is served** ([Q-171](../open-questions.md),
+   *"önerilerini onaylıyorum. bana sormadan hepsini tamamla"*, with the recommendation). The condition read *the same
+   set*; the owner took *advertise a chosen set and keep answering the rest*, so it now reads **everything advertised
+   is served**, which holds because the served set is PROJ's whole register.
+   **What the chosen set is, reconciled with an earlier decision the recommendation had not named.** Q-171 proposed
+   WGS 84 and Web Mercator on every deployment; the owner had said of exactly that fixed list, on 2026-09-09,
+   *"listelensin istemiyorum"*, beside *"wms ve wfs map'in projeksiyonunda yayınlanacak"* (ADR-057 §5c), and
+   `TheMapFacesPublishWhatTheServiceChoseTests` held it. So no fixed set is advertised: **a deployment names its own
+   list in `Graticula:AdvertisedReferences`**, empty by default — the TUREF zones on the showcase — and WFS 2.0 writes
+   it as `OtherCRS`, WFS 1.1.0 as `OtherSRS` and WMS on the root layer beside the one reference it always stated. That
+   satisfies both decisions; it is `INFERRED`, and is reported to the owner. `AdvertisedReferencesAreTheServedOnesTests`
+   holds that the two documents advertise one list and that every code in it is served, and the test beside it that an
+   unadvertised code is still answered.
+
    **Pinned meanwhile.** `AdvertisedReferencesAreTheServedOnesTests` asserts the two faces that
    hold and asserts the gap on the two that do not, so the day either starts refusing an
    unadvertised reference the build fails naming that face and this condition. **Falsified**:

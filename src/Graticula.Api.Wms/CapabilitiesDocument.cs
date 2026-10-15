@@ -61,6 +61,30 @@ public static class CapabilitiesDocument
     public static string Universal(WmsVersion version) =>
         version == WmsVersion.V130 ? "CRS:84" : "EPSG:4326";
 
+    /// <summary>
+    /// The deployment's advertised references on the root layer, which every layer inherits — Q-171, ADR-060
+    /// condition 4: its list, each once, beside the one reference the root always states.
+    /// </summary>
+    /// <remarks>
+    /// <b>Nothing unless a deployment names a list</b>, for the owner's *"listelensin istemiyorum"* above. GetMap
+    /// answers every code in PROJ's register; a code outside the list is still answered.
+    /// </remarks>
+    private static void WriteAdvertised(XmlWriter writer, WmsVersion version, IReadOnlyList<int>? advertised)
+    {
+        string element = version == WmsVersion.V130 ? "CRS" : "SRS";
+        HashSet<string> said = [Universal(version)];
+
+        foreach (int code in advertised ?? [])
+        {
+            string name = $"EPSG:{code.ToString(CultureInfo.InvariantCulture)}";
+
+            if (code > 0 && said.Add(name))
+            {
+                writer.WriteElementString(element, name);
+            }
+        }
+    }
+
     /// <summary>The formats <c>GetFeatureInfo</c> will answer in.</summary>
     public static readonly string[] InfoFormats =
         ["text/plain", "application/json", "text/html", "text/xml"];
@@ -73,6 +97,7 @@ public static class CapabilitiesDocument
     /// <param name="limits">The bounds to publish.</param>
     /// <param name="contact">Who to ask about this server, or nobody.</param>
     /// <param name="metadata">At a service's own address, what the service says of itself (ADR-167), or null.</param>
+    /// <param name="advertised">References every layer is offered in, on the root layer — Q-171.</param>
     /// <returns>The XML.</returns>
     public static string Write(
         WmsVersion version,
@@ -81,7 +106,8 @@ public static class CapabilitiesDocument
         IReadOnlyList<WmsLayer> layers,
         WmsLimits limits,
         WmsContact contact = default,
-        Graticula.Catalog.OgcServiceMetadata? metadata = null)
+        Graticula.Catalog.OgcServiceMetadata? metadata = null,
+        IReadOnlyList<int>? advertised = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(endpoint);
         ArgumentNullException.ThrowIfNull(layers);
@@ -99,11 +125,11 @@ public static class CapabilitiesDocument
         {
             if (version == WmsVersion.V130)
             {
-                Write130(writer, endpoint, title, layers, limits, contact, metadata);
+                Write130(writer, endpoint, title, layers, limits, contact, metadata, advertised);
             }
             else
             {
-                Write111(writer, endpoint, title, layers, limits, contact, metadata);
+                Write111(writer, endpoint, title, layers, limits, contact, metadata, advertised);
             }
         }
 
@@ -117,7 +143,8 @@ public static class CapabilitiesDocument
         IReadOnlyList<WmsLayer> layers,
         WmsLimits limits,
         WmsContact contact,
-        Graticula.Catalog.OgcServiceMetadata? metadata)
+        Graticula.Catalog.OgcServiceMetadata? metadata,
+        IReadOnlyList<int>? advertised)
     {
         writer.WriteStartElement("WMS_Capabilities", WmsNames.Wms);
         writer.WriteAttributeString("version", "1.3.0");
@@ -169,6 +196,7 @@ public static class CapabilitiesDocument
         writer.WriteElementString("Title", title);
 
         writer.WriteElementString("CRS", Universal(WmsVersion.V130));
+        WriteAdvertised(writer, WmsVersion.V130, advertised);
 
         WriteGeographicBox(writer, Whole(layers), WmsVersion.V130);
 
@@ -189,7 +217,8 @@ public static class CapabilitiesDocument
         IReadOnlyList<WmsLayer> layers,
         WmsLimits limits,
         WmsContact contact,
-        Graticula.Catalog.OgcServiceMetadata? metadata)
+        Graticula.Catalog.OgcServiceMetadata? metadata,
+        IReadOnlyList<int>? advertised)
     {
         // <b>The DOCTYPE is not decoration.</b> 1.1.1 is DTD-validated, and clients
         // of that era check. A 1.1.1 document without it is refused by some of the
@@ -220,6 +249,7 @@ public static class CapabilitiesDocument
         writer.WriteElementString("Title", title);
 
         writer.WriteElementString("SRS", Universal(WmsVersion.V111));
+        WriteAdvertised(writer, WmsVersion.V111, advertised);
 
         WriteGeographicBox(writer, Whole(layers), WmsVersion.V111);
 

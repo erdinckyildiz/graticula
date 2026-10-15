@@ -364,6 +364,12 @@ run as jobs), admin API (§39), geoprocessing (§36).
    *geodatabase import* wait out a full budget for up to ten minutes. The export job does not run inside
    `ConnectionBudget.Patiently`, so a full budget fails it with the budget's sentence, as it fails a request. That is
    how it was built, not a decision anybody took about it. Put to the owner as [Q-172](../open-questions.md).
+   **DECIDED 2026-10-15 by the owner, with the recommendation:** *"önerilerini onaylıyorum. bana sormadan hepsini tamamla"*. Every job that reads a database — the
+   feature export, the tile export and the seed, as well as the import — runs inside `Patiently(10 min)`. **And the
+   scope was made to reach the call an export makes:** only the importer's seam asked `EnterOrWaitAsync`, while an
+   export reads through `BudgetedFeatureSource`, which asks `EnterAsync`, so the scope alone would have changed
+   nothing. `EnterAsync` now waits inside a patient scope and is unchanged outside one, where every request is
+   (`ConnectionBudgetTests.The_ordinary_permit_waits_inside_a_patient_scope_and_not_outside_one`).
 2. **Every job type declares its re-run behaviour** before it is registered.
    There is no default, because a wrong default here corrupts data.
    *(Discharged 2026-08-27, as a function rather than as prose.* `JobKinds.RerunOf` maps

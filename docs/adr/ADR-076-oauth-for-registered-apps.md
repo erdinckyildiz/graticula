@@ -86,6 +86,17 @@ refused with a sentence rather than half-served.
    `/sharing/rest/oauth2/approval?code=…`, whose page title and text carry the code. **That this is
    what a native SDK reads is `INFERRED`** — the title is where the out-of-band convention has
    historically put it, and condition 4 is a device.
+> **Amended 2026-10-15 by owner decision ([Q-170](../open-questions.md), *"önerilerini onaylıyorum. bana sormadan hepsini tamamla"*):** the sign-in page also carries
+> `oAuthInfo` — `var oAuthInfo = {"oauth_state": …}` in a `<script type="application/json">` no browser runs — and
+> `/sharing/oauth2/signin` takes the sealed `oauth_state` alone, as a Portal's own page does, because that is what the
+> ArcGIS API for Python reads and posts for `GIS(url, username, password)`. The state is the request and the form token
+> sealed with the server's key, so nothing in it is the client's to change, and the form token inside it is held to
+> the cookie, whose path is now `/sharing` so both addresses receive it. `pythonapi` is a built-in app (migration 86),
+> out of band only, as `fieldmaps` is. **Learned from a client's source**, arcgis 2.4.3's `_init_token_auth_handshake`,
+> rather than from the REST reference, which the owner accepted in answering Q-170; nothing of the page's markup is
+> taken, only the names the client reads. `OAuthConformanceTests.The_python_api_signs_in_with_a_password_through_the_page_state`
+> walks it, and the API itself signed in to the local fixture and searched its content.
+
 3. **`POST /sharing/rest/oauth2/token`**:
    - `grant_type=authorization_code` with `client_id`, `code`, `redirect_uri` (must equal the one
      the code was issued for) and `code_verifier` when a challenge was sent — **required then, and

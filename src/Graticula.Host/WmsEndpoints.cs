@@ -507,7 +507,8 @@ internal static partial class WmsEndpoints
             published,
             limits,
             settings.WmsContact,
-            await ScopeMetadataAsync(context, catalog, coverages, cancellation).ConfigureAwait(false));
+            await ScopeMetadataAsync(context, catalog, coverages, cancellation).ConfigureAwait(false),
+            settings.Advertised);
 
         context.Response.ContentType = request.Version == WmsVersion.V130
             ? WmsNames.CapabilitiesMediaType130

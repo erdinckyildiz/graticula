@@ -44,6 +44,9 @@ internal static class OAuthEndpoints
 
     private const string FormCookie = "graticula_oauth_form";
 
+    /// <summary>Where the form cookie is sent: both sign-in addresses (Q-170).</summary>
+    private const string CookiePath = "/sharing";
+
     /// <summary>
     /// What ties a sign-in through a provider to the browser that left this page for it — ADR-088 condition 2.
     /// </summary>
@@ -57,6 +60,14 @@ internal static class OAuthEndpoints
     private const string HandoffPath = "/rest/auth";
 
     private static readonly TimeSpan HandoffLifetime = TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// The OAuth request and its form token, sealed into the page's <c>oauth_state</c> — Q-170: a client that posts only
+    /// that, its name and its password, as the ArcGIS API for Python does, is signed in to the app the page was for.
+    /// </summary>
+    private sealed record SealedState(
+        string ClientId, string ResponseType, string RedirectUri, string? State, string? Challenge, string? ChallengeMethod,
+        string FormToken, long At);
 
     /// <summary>The OAuth request a provider sign-in carries through, sealed — ADR-088 condition 2.</summary>
     private sealed record Handoff(string ClientId, string RedirectUri, string? State, string? Challenge, string? ChallengeMethod, string Nonce, long At);
@@ -80,6 +91,11 @@ internal static class OAuthEndpoints
         }
 
         app.MapPost($"{Root}/signin", SignInAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
+
+        // <b>And without `rest`, which is where the ArcGIS API for Python posts — Q-170, 2026-10-15.</b> Its
+        // `GIS(url, username, password)` reads the sign-in page's `oAuthInfo` and posts its `oauth_state` here, as a
+        // Portal's own page is posted.
+        app.MapPost($"{LegacyRoot}/signin", SignInAsync).Governed(SharingGovernedExtensions.Public).DisableAntiforgery();
 
         // ADR-088 condition 2: the way from this page to an organisation's own sign-in.
         app.MapGet($"{Root}/external", ExternalAsync).Governed(SharingGovernedExtensions.Public);
@@ -150,11 +166,24 @@ internal static class OAuthEndpoints
 
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         Request request = Read(name => form[name].FirstOrDefault());
+        string? posted = form["form_token"].FirstOrDefault();
+
+        // <b>Or the sealed `oauth_state` alone, as the ArcGIS API for Python posts it — Q-170.</b> The request it
+        // carries is the server's own, sealed with its key, so nothing in it is the client's to change; the form token
+        // inside it is held to the cookie exactly as the field is.
+        if (string.IsNullOrEmpty(posted)
+            && form["oauth_state"].FirstOrDefault() is { Length: > 0 } carriedState
+            && UnsealState(carriedState, context.RequestServices.GetRequiredService<SecretProtector>()) is { } unsealed)
+        {
+            request = new Request(
+                unsealed.ClientId, unsealed.ResponseType, unsealed.RedirectUri, unsealed.State, unsealed.Challenge,
+                unsealed.ChallengeMethod);
+            posted = unsealed.FormToken;
+        }
 
         // <b>The form token against its cookie, before anything else is believed.</b> A page elsewhere
         // can post this form but cannot read or send the cookie, so it cannot sign a visitor in as
         // somebody of its choosing (ADR-076 §4).
-        string? posted = form["form_token"].FirstOrDefault();
         string? kept = context.Request.Cookies[FormCookie];
 
         if (string.IsNullOrEmpty(posted) || string.IsNullOrEmpty(kept)
@@ -185,13 +214,16 @@ internal static class OAuthEndpoints
                 .ConfigureAwait(false);
 
             // The same two sentences the generateToken doors give, so this door tells nobody more.
+            bool throttled = failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled;
             await SignInPageAsync(
                     context, app, request,
-                    failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled
-                        ? "Too many failed sign-in attempts. Wait and try again."
-                        : "The name or password is incorrect.",
-                    failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled ? 429 : 401,
-                    typedName: name)
+                    throttled ? "Too many failed sign-in attempts. Wait and try again." : "The name or password is incorrect.",
+                    throttled ? 429 : 401,
+                    typedName: name,
+
+                    // In the words the ArcGIS API for Python looks for in `oAuthInfo.messages`, so it raises its own
+                    // error rather than failing to find a code (Q-170).
+                    said: throttled ? "Too many invalid attempts. Please try again later." : "Invalid username or password.")
                 .ConfigureAwait(false);
             return;
         }
@@ -214,7 +246,7 @@ internal static class OAuthEndpoints
         await RecordAsync(context, audit, principal.Id, principal.Name, "oauth.signin", app.ClientId, succeeded: true, cancellation)
             .ConfigureAwait(false);
 
-        context.Response.Cookies.Delete(FormCookie, new CookieOptions { Path = Root });
+        context.Response.Cookies.Delete(FormCookie, new CookieOptions { Path = CookiePath });
 
         if (string.Equals(request.RedirectUri, OAuthRules.OutOfBand, StringComparison.Ordinal))
         {
@@ -240,7 +272,8 @@ internal static class OAuthEndpoints
         context.Response.Headers.CacheControl = "no-store";
 
         await HtmlAsync(context, 200, $"SUCCESS code={safe}",
-            $"<h1>Signed in</h1><p>Return to the app. If it asks for a code, it is:</p><p class=\"code\">{safe}</p>",
+            $"<h1>Signed in</h1><p>Return to the app. If it asks for a code, it is:</p><p class=\"code\">{safe}</p>"
+            + OAuthInfo(new Dictionary<string, object?>()),
             formTarget: null).ConfigureAwait(false);
     }
 
@@ -667,9 +700,14 @@ internal static class OAuthEndpoints
     // ---------------------------------------------------------------- pages
 
     private static async Task SignInPageAsync(
-        HttpContext context, OAuthApp app, Request request, string? message, int status, string? typedName = null)
+        HttpContext context, OAuthApp app, Request request, string? message, int status, string? typedName = null,
+        string? said = null)
     {
         string formToken = SessionToken.Generate();
+        SecretProtector protector = context.RequestServices.GetRequiredService<SecretProtector>();
+        string oauthState = WebEncoders.Base64UrlEncode(protector.Protect(JsonSerializer.Serialize(new SealedState(
+            request.ClientId, request.ResponseType, request.RedirectUri, request.State, request.Challenge,
+            request.ChallengeMethod, formToken, DateTimeOffset.UtcNow.ToUnixTimeSeconds()))));
         IReadOnlyList<IdentityProvider> offered = await context.RequestServices.GetRequiredService<IIdentityProviderStore>()
             .ListAsync(context.RequestAborted).ConfigureAwait(false);
 
@@ -678,7 +716,9 @@ internal static class OAuthEndpoints
             HttpOnly = true,
             Secure = context.Request.IsHttps,
             SameSite = SameSiteMode.Strict,
-            Path = Root,
+
+            // Both sign-in addresses — `/sharing/rest/oauth2/signin` and the Python API's `/sharing/oauth2/signin` (Q-170).
+            Path = CookiePath,
             MaxAge = TimeSpan.FromMinutes(15),
         });
 
@@ -730,7 +770,13 @@ internal static class OAuthEndpoints
             + $"{(typedName is { Length: > 0 } typed ? $" value=\"{e.Encode(typed)}\"" : string.Empty)}{invalid}{(focus ? " autofocus" : string.Empty)}>"
             + $"<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required{invalid}>"
             + $"<button type=\"submit\"{(providers ? " class=\"second\"" : string.Empty)}>{(providers ? "Sign in with password" : "Sign in")}</button></form>"
-            + $"<p class=\"where small\">You will be returned to <code>{e.Encode(where)}</code>.</p>";
+            + $"<p class=\"where small\">You will be returned to <code>{e.Encode(where)}</code>.</p>"
+            + OAuthInfo(new Dictionary<string, object?>
+            {
+                ["oauth_state"] = oauthState,
+                ["appTitle"] = app.Title,
+                ["messages"] = said is null ? Array.Empty<string>() : new[] { said },
+            });
 
         await HtmlAsync(
                 context, status, $"{(message is null ? string.Empty : "Error: ")}Sign in to {app.Title} – {server}", body,
@@ -952,4 +998,33 @@ internal static class OAuthEndpoints
     }
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrEmpty(value) ? null : value;
+
+    /// <summary>
+    /// <c>var oAuthInfo = {…};</c> in a script element the browser does not run — Q-170.
+    /// </summary>
+    /// <remarks>
+    /// <b>The shape of a Portal's own sign-in page, which the ArcGIS API for Python reads</b>: it looks through the
+    /// page's script elements for that assignment, takes <c>oauth_state</c> from it, and on the page that answers the
+    /// sign-in reads <c>messages</c> for a refusal. Typed <c>application/json</c> so it is data rather than code, and
+    /// the page's <c>default-src 'none'</c> holds. Serialised with the default encoder, which escapes <c>&lt;</c>, so
+    /// nothing in it closes the element.
+    /// </remarks>
+    private static string OAuthInfo(Dictionary<string, object?> info) =>
+        $"<script type=\"application/json\" id=\"oAuthInfo\">var oAuthInfo = {JsonSerializer.Serialize(info)};</script>";
+
+    private static SealedState? UnsealState(string carried, SecretProtector protector)
+    {
+        try
+        {
+            SealedState? state = JsonSerializer.Deserialize<SealedState>(
+                protector.Unprotect(WebEncoders.Base64UrlDecode(carried), protector.KeyVersion));
+
+            // As long as the form cookie lives, and no longer.
+            return state is not null && DateTimeOffset.UtcNow.ToUnixTimeSeconds() - state.At <= 15 * 60 ? state : null;
+        }
+        catch (Exception e) when (e is FormatException or CryptographicException or JsonException or ArgumentException)
+        {
+            return null;
+        }
+    }
 }

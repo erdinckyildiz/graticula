@@ -278,6 +278,50 @@ public sealed class AdvertisedReferencesAreTheServedOnesTests : ArcGisClient
     /// rather than the gap having moved.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// WFS and WMS advertise the same chosen set, and every reference either names is served — Q-171, ADR-060
+    /// condition 4 as amended: <i>everything advertised is served</i>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Whatever the deployment's list is</b> — empty on the fixture, the TUREF zones on the showcase — so the test
+    /// reads the set from the documents rather than assuming one.
+    /// </remarks>
+    [Fact]
+    public async Task Every_reference_wfs_and_wms_advertise_is_served()
+    {
+        XDocument capabilities = await XmlAsync("/wfs?service=WFS&version=2.0.0&request=GetCapabilities");
+        XElement? first = capabilities.Descendants(XName.Get("FeatureType", Wfs)).FirstOrDefault();
+        Assert.NotNull(first);
+
+        string type = first!.Element(XName.Get("Name", Wfs))!.Value;
+        int[] others =
+        [
+            .. first.Elements().Where(e => e.Name.LocalName == "OtherCRS")
+                .Select(e => UrnCode(e.Value)).Where(c => c is not null).Select(c => c!.Value),
+        ];
+
+        XDocument map = await XmlAsync("/wms?service=WMS&version=1.3.0&request=GetCapabilities");
+        XElement root = map.Descendants().First(e => e.Name.LocalName == "Layer");
+        int[] rootCodes =
+        [
+            .. root.Elements().Where(e => e.Name.LocalName == "CRS").Select(e => e.Value.Trim())
+                .Where(c => c.StartsWith("EPSG:", StringComparison.Ordinal))
+                .Select(c => int.Parse(c[5..], CultureInfo.InvariantCulture)),
+        ];
+
+        // One list, two documents.
+        Assert.Equal(others.Order(), rootCodes.Order());
+
+        foreach (int code in others)
+        {
+            string urn = $"urn:ogc:def:crs:EPSG::{code.ToString(CultureInfo.InvariantCulture)}";
+            (HttpStatusCode status, string body) = await FetchAsync(
+                "/wfs?service=WFS&version=2.0.0&request=GetFeature" + $"&typeNames={Escape(type)}&count=1&srsName={Escape(urn)}");
+            Assert.True(status == HttpStatusCode.OK && body.Contains(urn, StringComparison.Ordinal),
+                $"WFS advertises {urn} and answered {(int)status} for it.");
+        }
+    }
+
     [Fact]
     public async Task Wfs_and_wms_still_serve_references_they_do_not_advertise()
     {

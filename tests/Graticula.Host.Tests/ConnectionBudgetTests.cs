@@ -413,6 +413,38 @@ public sealed class ConnectionBudgetTests
             async () => await budget.EnterOrWaitAsync("db", CancellationToken.None));
     }
 
+    /// <summary>
+    /// <see cref="ConnectionBudget.EnterAsync"/> is patient inside the scope too — Q-172, 2026-10-15.
+    /// </summary>
+    /// <remarks>
+    /// <b>The call an export makes</b>, through <c>BudgetedFeatureSource</c>. Only <c>EnterOrWaitAsync</c> read the
+    /// scope, so an export job put inside one would have failed on a full budget all the same.
+    /// </remarks>
+    [Fact]
+    public async Task The_ordinary_permit_waits_inside_a_patient_scope_and_not_outside_one()
+    {
+        using ConnectionBudget budget = new(worker: 0, perSource: 1, wait: Brief, waitersPerPermit: 1);
+
+        ConnectionBudget.Lease held = await budget.EnterAsync("db", CancellationToken.None);
+
+        await Assert.ThrowsAsync<ConnectionBudgetFullException>(
+            async () => await budget.EnterAsync("db", CancellationToken.None));
+
+        Task<ConnectionBudget.Lease> waiting;
+
+        using (ConnectionBudget.Patiently(TimeSpan.FromSeconds(20)))
+        {
+            waiting = budget.EnterAsync("db", CancellationToken.None).AsTask();
+        }
+
+        await Task.Delay(TimeSpan.FromMilliseconds(1500));
+        Assert.False(waiting.IsCompleted, "The ordinary permit gave up on a full source inside a patient scope.");
+
+        held.Dispose();
+
+        using ConnectionBudget.Lease got = await waiting.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
     /// <summary>A patient flow still stops when its patience runs out, with the budget's own refusal.</summary>
     [Fact]
     public async Task A_patient_flow_gives_up_when_its_patience_is_spent()

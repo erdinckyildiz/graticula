@@ -120,7 +120,7 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
     }
 
     /// <summary>
-    /// The root layer states one reference, not a fixed list nobody chose.
+    /// The root layer states one reference and the deployment's own list, not a fixed list nobody chose.
     /// </summary>
     /// <remarks>
     /// <b>The owner, of a longer list: *"listelensin istemiyorum"*.</b> This element carried
@@ -154,12 +154,23 @@ public sealed class TheMapFacesPublishWhatTheServiceChoseTests : ArcGisClient
                 .Select(e => e.Value.Trim()),
         ];
 
+        // <b>Beside it, only what the deployment chose — Q-171, 2026-10-15.</b> `Graticula:AdvertisedReferences` is
+        // a list somebody named, which is not the fixed one ADR-057 §5c removed; it is the same list WFS advertises as
+        // `OtherCRS`, so that document says what may stand here.
+        XDocument wfs = await CapabilitiesAsync("/wfs?service=WFS&version=2.0.0&request=GetCapabilities");
+        HashSet<string> chosen =
+        [
+            .. wfs.Descendants().Where(e => Is(e, "FeatureType")).Take(1)
+                .SelectMany(t => t.Elements().Where(e => Is(e, "OtherCRS")))
+                .Select(e => "EPSG:" + e.Value.Trim()[(e.Value.Trim().LastIndexOf(':') + 1)..]),
+        ];
+
         Assert.True(
-            stated.Length == 1 && stated[0] == expected,
+            stated.Length >= 1 && stated[0] == expected && stated.Skip(1).All(chosen.Contains),
             $"The root layer of the {version} document states "
-            + $"{string.Join(", ", stated)} and should state {expected} and nothing else. Every "
-            + "named layer inherits this element, so anything extra here is a reference offered "
-            + "for every layer on the server that no service was published in — the fixed list "
+            + $"{string.Join(", ", stated)} and should state {expected} and the deployment's own list "
+            + $"[{string.Join(", ", chosen)}], nothing else. Every named layer inherits this element, so anything "
+            + "else here is a reference offered for every layer on the server that nobody chose — the fixed list "
             + "ADR-057 §5c replaced.");
     }
 

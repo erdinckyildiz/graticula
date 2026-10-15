@@ -25,6 +25,7 @@ public static class CapabilitiesDocument11
     /// <param name="cancellation">Cancellation.</param>
     /// <param name="metadata">At a service's own address, what it says of itself (ADR-167), or null.</param>
     /// <param name="transactions">Whether this caller may edit any type listed (ADR-169).</param>
+    /// <param name="advertised">References offered for every type beside its own — Q-171, ADR-060 condition 4.</param>
     /// <returns>A task.</returns>
     public static async Task WriteAsync(
         Stream stream,
@@ -33,7 +34,8 @@ public static class CapabilitiesDocument11
         IReadOnlyList<WfsFeatureType> types,
         CancellationToken cancellation,
         Graticula.Catalog.OgcServiceMetadata? metadata = null,
-        bool transactions = true)
+        bool transactions = true,
+        IReadOnlyList<int>? advertised = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
         ArgumentNullException.ThrowIfNull(types);
@@ -150,6 +152,13 @@ public static class CapabilitiesDocument11
 
                     await xml.WriteElementStringAsync("wfs", "DefaultSRS", d.Wfs, WfsNames.CrsUrn(type.PublishedSrid))
                         .ConfigureAwait(false);
+
+                    // Q-171: the same chosen set WFS 2.0 advertises as OtherCRS.
+                    foreach (int other in WfsNames.OtherReferences(type, advertised))
+                    {
+                        await xml.WriteElementStringAsync("wfs", "OtherSRS", d.Wfs, WfsNames.CrsUrn(other))
+                            .ConfigureAwait(false);
+                    }
                     await xml.WriteStartElementAsync("wfs", "OutputFormats", d.Wfs).ConfigureAwait(false);
                     await xml.WriteElementStringAsync("wfs", "Format", d.Wfs, d.GmlMediaType).ConfigureAwait(false);
                     await xml.WriteEndElementAsync().ConfigureAwait(false);

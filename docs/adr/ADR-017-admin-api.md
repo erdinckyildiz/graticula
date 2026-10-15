@@ -416,7 +416,8 @@ administrator has left.
    APPLICABLE for the reason it always was: there is still nothing to bypass.)*
    *(Deferred with its decision, 2026-10-14: D-18's owner decision of 2026-09-11 not to build the break-glass
    path is the decision this condition is deferred with, and it comes back the day that path is built. The
-   classification is `INFERRED` from D-18, listed for the owner's confirmation. It was counted as live work for a
+   classification was `INFERRED` from D-18 and listed for the owner's confirmation; **confirmed 2026-10-15** —
+   *"önerilerini onaylıyorum. bana sormadan hepsini tamamla"*. It was counted as live work for a
    month while nothing could be done about it, which CLAUDE.md §2 says makes the pile look larger than it is.)*
 
 ## 10. Assumptions

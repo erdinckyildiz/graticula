@@ -547,7 +547,8 @@ internal static partial class WfsEndpoints
                     Ordered(types),
                     cancellation,
                     await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false),
-                    MayEditAny(context, visible))
+                    MayEditAny(context, visible),
+                    Advertised(context))
                 .ConfigureAwait(false);
             return;
         }
@@ -563,9 +564,14 @@ internal static partial class WfsEndpoints
                 Ordered(types),
                 cancellation,
                 await ScopeMetadataAsync(context, cancellation).ConfigureAwait(false),
-                MayEditAny(context, visible))
+                MayEditAny(context, visible),
+                Advertised(context))
             .ConfigureAwait(false);
     }
+
+    /// <summary>The references every feature type is offered in beside its own — Q-171.</summary>
+    private static IReadOnlyList<int> Advertised(HttpContext context) =>
+        context.RequestServices.GetService(typeof(HostSettings)) is HostSettings settings ? settings.Advertised : [4326, 3857];
 
     /// <summary>
     /// Whether the caller may change any layer listed — ADR-169: Transaction is offered only then, so an anonymous

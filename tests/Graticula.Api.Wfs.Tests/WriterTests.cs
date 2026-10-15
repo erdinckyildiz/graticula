@@ -583,4 +583,23 @@ public sealed class WriterTests
         Assert.True(DateTime.TryParse(
             text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _));
     }
+
+    /// <summary>
+    /// <c>OtherCRS</c> is the deployment's list, once each and never the default — and nothing without one (Q-171).
+    /// </summary>
+    [Fact]
+    public async Task Other_references_are_the_deployments_list_and_nothing_else()
+    {
+        XElement none = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
+            stream, "https://example/wfs", "Graticula", [Type()], CancellationToken.None));
+        Assert.Empty(none.Descendants(Wfs + "OtherCRS"));
+
+        XElement listed = await WriteAsync(stream => CapabilitiesDocument.WriteAsync(
+            stream, "https://example/wfs", "Graticula", [Type()], CancellationToken.None,
+            advertised: [5254, 3857, 5254, 5255]));
+
+        Assert.Equal(
+            ["urn:ogc:def:crs:EPSG::5254", "urn:ogc:def:crs:EPSG::5255"],
+            listed.Descendants(Wfs + "OtherCRS").Select(e => e.Value).ToArray());
+    }
 }

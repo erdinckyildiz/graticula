@@ -189,6 +189,92 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// The ArcGIS API for Python's own sign-in: <c>pythonapi</c>, out of band, the page's <c>oAuthInfo</c> and its
+    /// <c>oauth_state</c> posted alone to <c>/sharing/oauth2/signin</c> — owner decision 2026-10-15, Q-170.
+    /// </summary>
+    /// <remarks>
+    /// <b>Walked as arcgis 2.4.3's <c>_init_token_auth_handshake</c> walks it</b>: no hidden field of the form is sent
+    /// back, only the state, the name and the password; the code is read from the out-of-band page's title; a refusal
+    /// is read from <c>oAuthInfo.messages</c>.
+    /// </remarks>
+    [Fact]
+    public async Task The_python_api_signs_in_with_a_password_through_the_page_state()
+    {
+        string root = await RequireServerAsync();
+        string? user = Environment.GetEnvironmentVariable(UserVariable);
+        string? password = Environment.GetEnvironmentVariable(PasswordVariable);
+        Assert.False(user is null || password is null, "No administrator credential.");
+
+        using HttpClient browser = new(new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        });
+
+        string authorize = $"{root}/sharing/rest/oauth2/authorize?response_type=code&client_id=pythonapi"
+            + "&redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob&state=py&expiration=20160&allow_verification=false";
+
+        async Task<(string State, string Cookie)> PageAsync()
+        {
+            using HttpResponseMessage response = await browser.GetAsync(authorize);
+            string page = await response.Content.ReadAsStringAsync();
+            Assert.True(response.StatusCode == HttpStatusCode.OK, $"pythonapi's authorize page answered {(int)response.StatusCode}: {page}");
+            string cookie = response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("graticula_oauth_form=", StringComparison.Ordinal));
+            Assert.Contains("path=/sharing;", cookie + ";", StringComparison.OrdinalIgnoreCase);
+            return (Info(page).GetProperty("oauth_state").GetString()!, cookie.Split(';')[0]);
+        }
+
+        (string Key, string Value)[] Fields(string state, string secret) =>
+            [("oauth_state", state), ("authorize", "true"), ("username", user!), ("password", secret)];
+
+        // ---- without the cookie the state is not enough ----
+        (string state, string cookie) = await PageAsync();
+        using (HttpResponseMessage forged = await PostFormAsync(browser, $"{root}/sharing/oauth2/signin", null, Fields(state, password!)))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, forged.StatusCode);
+        }
+
+        // ---- a wrong password is said in oAuthInfo.messages ----
+        (state, cookie) = await PageAsync();
+        using (HttpResponseMessage wrong = await PostFormAsync(browser, $"{root}/sharing/oauth2/signin", cookie, Fields(state, password + "-not")))
+        {
+            string said = await wrong.Content.ReadAsStringAsync();
+            Assert.Contains("Invalid username or password.",
+                string.Join("|", Info(said).GetProperty("messages").EnumerateArray().Select(m => m.GetString())), StringComparison.Ordinal);
+        }
+
+        // ---- the right one: to the out-of-band page, whose title carries the code ----
+        (state, cookie) = await PageAsync();
+        string code;
+
+        using (HttpResponseMessage signedIn = await PostFormAsync(browser, $"{root}/sharing/oauth2/signin", cookie, Fields(state, password!)))
+        {
+            Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
+            using HttpResponseMessage approval = await browser.GetAsync(new Uri(new Uri(root), signedIn.Headers.Location!));
+            string page = await approval.Content.ReadAsStringAsync();
+            code = Regex.Match(page, "<title>SUCCESS code=(.*?)</title>").Groups[1].Value;
+            Assert.False(string.IsNullOrEmpty(code), $"The out-of-band page carries no code: {page}");
+
+            // The API reads oAuthInfo from the answer to its sign-in as well, and fails on a page without one.
+            Assert.Equal(JsonValueKind.Object, Info(page).ValueKind);
+        }
+
+        JsonElement token = await TokenAsync(browser, root, ("grant_type", "authorization_code"), ("code", code),
+            ("redirect_uri", "urn:ietf:wg:oauth:2.0:oob"), ("client_id", "pythonapi"), ("expiration", "20160"));
+        Assert.True(token.TryGetProperty("access_token", out JsonElement access) && access.GetString() is { Length: > 0 },
+            $"Exchanging pythonapi's code answered {token}");
+    }
+
+    /// <summary>The <c>oAuthInfo</c> a page carries, as the Python API finds it.</summary>
+    private static JsonElement Info(string page)
+    {
+        Match found = Regex.Match(page, "var oAuthInfo = ({.*?});", RegexOptions.Singleline);
+        Assert.True(found.Success, $"The page carries no oAuthInfo: {page}");
+        return JsonDocument.Parse(found.Groups[1].Value).RootElement.Clone();
+    }
+
     private static string Authorize(string root, string clientId, string redirect, string challenge) =>
         $"{root}/sharing/rest/oauth2/authorize?client_id={Uri.EscapeDataString(clientId)}&response_type=code"
         + $"&redirect_uri={Uri.EscapeDataString(redirect)}&state=state-76"
@@ -212,7 +298,8 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
         string policy = response.Headers.GetValues("Content-Security-Policy").Single();
         Assert.Contains("form-action 'self' https://app.example", policy, StringComparison.Ordinal);
         Assert.DoesNotContain("script-src", policy, StringComparison.Ordinal);
-        Assert.DoesNotContain("<script", page, StringComparison.OrdinalIgnoreCase);
+        // The one script element is data — `oAuthInfo`, for the ArcGIS API for Python (Q-170) — typed so no browser runs it.
+        Assert.DoesNotMatch("<script(?![^>]*type=\"application/json\")", page);
 
         string token = FormToken().Match(page).Groups[1].Value;
         string cookie = response.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("graticula_oauth_form=", StringComparison.Ordinal));
