@@ -149,6 +149,17 @@ public interface IClientEventLog
     Task RecordAsync(ClientEntry entry, CancellationToken cancellationToken);
 }
 
+/// <summary>How one service answered over a window, from the request log.</summary>
+/// <param name="Service">The name the log files it under: <c>folder/name</c> on the ArcGIS face, the layer on the others.</param>
+/// <param name="Requests">How many requests.</param>
+/// <param name="ServerErrors">How many answered 5xx.</param>
+/// <param name="ClientErrors">How many answered 4xx.</param>
+/// <param name="Median">The median duration, in milliseconds.</param>
+/// <param name="P95">The 95th percentile, in milliseconds.</param>
+/// <param name="Slowest">The longest, in milliseconds.</param>
+public sealed record ServiceRequests(
+    string Service, long Requests, long ServerErrors, long ClientErrors, double Median, double P95, long Slowest);
+
 /// <summary>
 /// Reads the three logs, and only reads them.
 /// </summary>
@@ -171,6 +182,18 @@ public interface IClientEventLog
 /// </remarks>
 public interface ILogReader
 {
+    /// <summary>
+    /// Each service's requests over a window — count, errors and latency — slowest first: <i>this service is slow</i>,
+    /// answered without SQL (ADR-017 §3.2 step 1; ADR-061 condition 2's remainder, D-255).
+    /// </summary>
+    /// <param name="since">The window's start.</param>
+    /// <param name="service">One name to read, or null for every service.</param>
+    /// <param name="limit">How many services at most.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>By the 95th percentile, slowest first.</returns>
+    Task<IReadOnlyList<ServiceRequests>> ServicesAsync(
+        DateTimeOffset since, string? service, int limit, CancellationToken cancellationToken);
+
     /// <summary>Reads the administrative audit trail.</summary>
     /// <param name="query">What to select.</param>
     /// <param name="cancellationToken">Cancellation.</param>

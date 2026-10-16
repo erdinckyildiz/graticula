@@ -119,6 +119,8 @@ step 3.1 4 POST "$CLEAR"                                  "  ^ answered here ins
 echo
 echo '3.2 "This service is slow"'
 step 3.2 1 GET  "/admin/layers/$LAYER/health"             "latency, error rate, request rate"
+# Per service since 2026-10-16, which is how the request log files a request (D-255).
+step 3.2 1 GET  "/admin/health/services?service=$SERVICE"  "  ^ answered here instead, per service"
 step 3.2 2 GET  "/admin/layers/$LAYER/capability"         "is a filter being refused"
 
 # And where that half is answered, which needs the folder: without it a service inside one
@@ -129,6 +131,16 @@ step 3.2 3 GET  "/admin/workers"                          "which worker holds th
 step 3.2 4 GET  "/admin/workers/1"                        "allocation and GC pause share"
 step 3.2 5 GET  "/admin/datasources/$SOURCE/pool"         "pool saturation and wait"
 step 3.2 6 POST "/admin/layers/$LAYER/pin"                "pin the context"
+# <b>Said, not left to be inferred from a 404</b> — 2026-10-16. These four are not missing: three left with affinity
+# routing (ADR-029) and two are answered by /admin/health, whose keys are listed at the end.
+printf '%-5s %s  %-9s %s
+' 3.2 3 dissolved "which worker holds a context has no answer since ADR-029 removed affinity"
+printf '%-5s %s  %-9s %s
+' 3.2 4 elsewhere "GC pause and allocation: /admin/health runtime"
+printf '%-5s %s  %-9s %s
+' 3.2 5 elsewhere "pool saturation and wait: /admin/health admissionControl"
+printf '%-5s %s  %-9s %s
+' 3.2 6 dissolved "pinning left with affinity (ADR-029)"
 
 echo
 echo '3.3 "Registration failed"'
@@ -165,6 +177,10 @@ else:
 "
 step 3.4 2 GET  "/admin/certificates"                     "every certificate, with expiry"
 step 3.4 3 PUT  "/admin/certificates/serving"             "install the replacement, no restart"
+printf '%-5s %s  %-9s %s
+' 3.4 2 elsewhere "this server holds one certificate, and step 1 names it"
+printf '%-5s %s  %-9s %s
+' 3.4 3 by-design "a file watch, not an upload (ADR-014 2b): replace the PFX and it is served, no restart"
 
 echo
 echo 'and what /admin/health already carries, which decides how much of 3.2 and 3.4 is missing:'

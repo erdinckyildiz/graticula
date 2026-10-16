@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
@@ -30,6 +31,61 @@ namespace Graticula.Platform.Postgres.Tests;
 /// </remarks>
 public sealed class PostgresLogReaderTests : PostgresFixture
 {
+    /// <remarks>
+    /// <b>ADR-017 §3.2 step 1, ADR-061 condition 2's remainder (D-255): which service is slow, without SQL.</b> Two
+    /// services in the window, one slow and failing; a third outside the window; the slow one comes first, with its
+    /// errors split by who caused them and its percentiles PostgreSQL's own.
+    /// </remarks>
+    [Fact]
+    public async Task Services_are_ranked_slowest_first_with_their_errors_inside_the_window()
+    {
+        await MigrateAsync();
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+
+        for (int i = 1; i <= 10; i++)
+        {
+            await NamedAsync("zz_slow/one", now.AddMinutes(-5), i * 100, i == 10 ? 503 : i == 9 ? 404 : 200);
+            await NamedAsync("zz_fast/two", now.AddMinutes(-5), i, 200);
+        }
+
+        await NamedAsync("zz_old/three", now.AddHours(-3), 99_999, 500);
+
+        PostgresLogReader reader = new(DataSource);
+
+        IReadOnlyList<ServiceRequests> found = await reader.ServicesAsync(now.AddHours(-1), null, 50, CancellationToken.None);
+
+        ServiceRequests slow = Assert.Single(found, s => s.Service == "zz_slow/one");
+        Assert.Equal(10, slow.Requests);
+        Assert.Equal(1, slow.ServerErrors);
+        Assert.Equal(1, slow.ClientErrors);
+        Assert.Equal(550, slow.Median, 3);
+        Assert.Equal(955, slow.P95, 3);
+        Assert.Equal(1000, slow.Slowest);
+
+        Assert.True(
+            found.ToList().FindIndex(s => s.Service == "zz_slow/one") < found.ToList().FindIndex(s => s.Service == "zz_fast/two"),
+            "The slower service is not listed first.");
+        Assert.DoesNotContain(found, s => s.Service == "zz_old/three");
+
+        Assert.Equal(
+            "zz_fast/two",
+            Assert.Single(await reader.ServicesAsync(now.AddHours(-1), "ZZ_FAST/TWO", 50, CancellationToken.None)).Service);
+    }
+
+    private async Task NamedAsync(string service, DateTimeOffset at, int milliseconds, int status)
+    {
+        await using NpgsqlCommand command = DataSource.CreateCommand("""
+            insert into request_log (occurred_at, method, path, status, duration_ms, face, service)
+            values (@at, 'GET', '/rest/services/x/FeatureServer/0/query', @status, @ms, 'ArcGIS', @service)
+            """);
+        command.Parameters.Add(new NpgsqlParameter("at", NpgsqlDbType.TimestampTz) { Value = at });
+        command.Parameters.AddWithValue("status", status);
+        command.Parameters.AddWithValue("ms", milliseconds);
+        command.Parameters.AddWithValue("service", service);
+        await command.ExecuteNonQueryAsync();
+    }
+
     [Fact]
     public async Task The_sweep_takes_what_is_older_than_the_window_and_leaves_the_rest()
     {

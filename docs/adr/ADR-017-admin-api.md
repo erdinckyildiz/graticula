@@ -342,7 +342,18 @@ administrator has left.
    every layer on the source, its table read once now beside the shape this server remembers, with the columns
    added, removed and retyped named; measured on the fixture against a table given one column, relieved of one and
    narrowed in a third. Asked rather than polled, which is A-023's fallback kept and an operator's question answered.
-   **Still absent**: §3.4's certificate list and upload (rotation without a restart exists, by replacing the file).
+   **And §3.2 step 1** — *latency, error rate, request rate* — answers at `GET /admin/health/services?service=…`,
+   per service rather than per layer because that is how the request log files a request (D-255); steps 3, 4 and 6
+   (*which worker holds the context*, its GC share, *pin it*) dissolved with affinity (ADR-029), and the runtime's GC
+   and the pool's saturation are `/admin/health`'s `runtime` and `admissionControl`.
+   **DISCHARGED 2026-10-16 — every step of the four scenarios is walkable, and the walk says which way.** Re-walked
+   whole against the fixture with `tools/walk-adr017.sh`: §3.1's four steps answer (two at the addresses above rather
+   than the ones §3 wished for); §3.2's first two answer, its third and sixth dissolved with affinity (ADR-029) and
+   its fourth and fifth are `/admin/health`'s `runtime` and `admissionControl`; §3.3 walked end to end already; and
+   §3.4's step 1 names the certificate, step 2 is answered by it because this server holds one, and step 3 is the file
+   watch [ADR-014](ADR-014-tls-and-certificates.md) §2b chose over an upload surface. No step needs a log file. The
+   walk now prints *dissolved*, *elsewhere* or *by-design* under each route that is not where §3 put it, so a reader
+   does not take a decision for a gap.
    **This discharges when those exist.** It is not discharged by the walk being written
    down; what the walk bought is that the gap is now sixteen rows with a verdict each rather
    than a sentence nobody had checked.

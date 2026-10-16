@@ -127,7 +127,57 @@ internal static class LogEndpoints
 
         app.MapGet("/admin/logs/{source}", ReadAsync);
         app.MapGet("/admin/logs", ReadIndexAsync);
+        app.MapGet("/admin/health/services", ServicesHealthAsync);
         app.MapPost("/rest/studio/events", ReportAsync);
+    }
+
+    /// <summary>
+    /// Which service is slow, and how slow — ADR-017 §3.2 step 1, and the step ADR-061's walk found missing after the
+    /// log learned to name the service (D-255): <i>nothing sorts or filters the log by duration, so the operator's own
+    /// path is a group-by in SQL rather than a screen</i>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Aggregate per service, not a metric</b> — ADR-061 keeps per-entity numbers in the admin API, and this is one
+    /// read of the request log already kept. <c>minutes</c> is the window (60 unless said, a week at most);
+    /// <c>service</c> narrows to one name as the log files it (<c>folder/name</c> on the ArcGIS face, the layer on the
+    /// OGC ones). The privilege is the logs': the answer names services an operator may not otherwise see listed.
+    /// </remarks>
+    private static async Task ServicesHealthAsync(
+        HttpContext context, ILogReader logs, string? service, int? minutes, CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        int window = Math.Clamp(minutes ?? 60, 1, 7 * 24 * 60);
+        DateTimeOffset since = DateTimeOffset.UtcNow.AddMinutes(-window);
+
+        IReadOnlyList<ServiceRequests> found = await logs
+            .ServicesAsync(since, string.IsNullOrWhiteSpace(service) ? null : service.Trim(), 50, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(new
+        {
+            since,
+            minutes = window,
+            services = found.Select(s => new
+            {
+                service = s.Service,
+                requests = s.Requests,
+                perMinute = Math.Round(s.Requests / (double)window, 2),
+                serverErrors = s.ServerErrors,
+                clientErrors = s.ClientErrors,
+                errorRate = s.Requests == 0 ? 0 : Math.Round(s.ServerErrors / (double)s.Requests, 4),
+                medianMs = Math.Round(s.Median, 1),
+                p95Ms = Math.Round(s.P95, 1),
+                slowestMs = s.Slowest,
+            }),
+            note = found.Count == 0
+                ? $"No request named a service in the last {window} minutes."
+                : $"Slowest first by the 95th percentile, over the last {window} minutes. A 5xx is the server's or the source's "
+                  + "failure; a 4xx is the caller's.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>What the Logs screen needs before it can draw a filter.</summary>

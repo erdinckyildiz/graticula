@@ -323,4 +323,6 @@ fired.
    step after naming**: nothing sorts or filters the log by duration, so the operator's
    own path is a group-by in SQL rather than a screen. That is a smaller and more
    concrete want than Alternative D, and it is [D-255](../architecture-debt.md)'s
-   remainder rather than a reason to reopen §5.
+   remainder rather than a reason to reopen §5. *(2026-10-16: the group-by is
+   `GET /admin/health/services` now — per service, slowest first, aggregate rather than a metric, as §5 keeps
+   per-entity numbers in the admin API.)*

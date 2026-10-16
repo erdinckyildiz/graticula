@@ -191,6 +191,48 @@ public sealed class PostgresLogReader : ILogReader
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// <b>One group-by over the window, on the time index.</b> It is the query ADR-061's walk ran by hand to name the
+    /// slow service; the percentiles are PostgreSQL's own, continuous, over the rows of that window.
+    /// </remarks>
+    public async Task<IReadOnlyList<ServiceRequests>> ServicesAsync(
+        DateTimeOffset since, string? service, int limit, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand("""
+            select service, count(*),
+                   count(*) filter (where status >= 500),
+                   count(*) filter (where status between 400 and 499),
+                   percentile_cont(0.5) within group (order by duration_ms),
+                   percentile_cont(0.95) within group (order by duration_ms),
+                   max(duration_ms)
+              from request_log
+             where occurred_at >= @since
+               and service is not null
+               and (@service::text is null or lower(service) = lower(@service::text))
+             group by service
+             order by 6 desc, 2 desc
+             limit @limit
+            """);
+
+        command.Parameters.AddWithValue("since", since);
+        command.Parameters.Add(new NpgsqlParameter("service", NpgsqlDbType.Text) { Value = (object?)service ?? DBNull.Value });
+        command.Parameters.AddWithValue("limit", Math.Clamp(limit, 1, 1000));
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        List<ServiceRequests> found = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            found.Add(new ServiceRequests(
+                reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2), reader.GetInt64(3),
+                reader.GetDouble(4), reader.GetDouble(5), reader.GetInt32(6)));
+        }
+
+        return found;
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<(string Action, long Count)>> ActionsAsync(
         LogQuery query, CancellationToken cancellationToken)
     {
