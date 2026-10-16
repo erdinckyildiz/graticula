@@ -15,6 +15,11 @@
 
 ---
 
+> **Amended 2026-10-16 by [ADR-187](ADR-187-primary-navigation-is-a-top-bar.md).** Server's primary navigation is
+> ArcGIS Server Manager's four tabs in the header — Services; Site (Data sources, Status, General); Security
+> (Members, Roles, Sign-in, Apps); Logs — rather than these five sidebar rows. Every address and the one-table
+> rule for subpages are kept; the strips become rows of the page's left panel. Owner decision.
+
 ## 1. Context
 
 Server's sidebar had grown one row per screen, to ten: Services, Publish, Data sources, Members, Roles,

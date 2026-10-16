@@ -12,6 +12,12 @@
 > **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** Layer pages leave both surfaces: a layer opens inside its item, and the settings a publisher owns but Server showed — time field, visible range, thumbnail — move to the item. Server keeps the service's server settings and links to the item. Built in steps (ADR-102 §5.6). *As built, what Server's layer page still held — state, identity, addresses — is the service page's* Layers *section (owner decision 2026-10-01), and Server's layer addresses open it (ADR-102 §5.6, as-built note).*
 
 
+> **Amended 2026-10-16 by [ADR-187](ADR-187-primary-navigation-is-a-top-bar.md).** Neither surface has a left
+> rail of sections any more: both draw their sections as a horizontal bar in the shared header — Server's as
+> Server Manager's four tabs, Services, Site, Security, Logs — and the left column belongs to the page. Every
+> address and the gate on each surface are unchanged. Owner decision, taking ArcGIS Portal and Server Manager
+> as the shape.
+
 > **Amended 2026-09-30 by [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md).** Studio's sidebar has *Map*, a link to the web map viewer after *My content* — Portal has Map beside Content, and the viewer was reachable only from under the content table. The split this ADR decides is unchanged.
 
 > **Amended 2026-09-25 by [ADR-091](ADR-091-server-sidebar-five-rows.md).** Server's sidebar is five rows —
