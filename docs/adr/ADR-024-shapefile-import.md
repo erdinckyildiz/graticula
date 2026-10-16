@@ -184,6 +184,13 @@ Nothing in it outlives the job, which is why it is not under `StatePath`.
    them in place through `/vsizip/`, under ADR-037 §5b's job bounds.)*
 4. **The largest real shapefile anybody imports is measured against the 256 MB
    ceiling**, before the first deployment that matters. A-062 is a guess.
+   **PARTLY DISCHARGED 2026-10-16 — measured, and the ceiling is below national layers.** Geofabrik's Turkey package
+   (read by its zip directory, without downloading it): buildings **1,798 MiB**, roads **1,193 MiB**, land use
+   **554 MiB** uncompressed; every other layer from 122 MiB down. Land use alone, copied out at **328 MB zipped**, was
+   refused at the **64 MB** upload limit — `413`, *larger than this server accepts* — before the archive's 256 MB
+   was reached. The refusal now says how such a layer is served without an upload (a registered PostGIS table, or a
+   GeoParquet file). **What is not discharged** is the decision this measurement asks for, which is the owner's —
+   [Q-175](../open-questions.md) — and the other half of A-062, what troubles the machine.
 5. **Dropping Z and M is stated in the import response**, not only in this
    document. A loss the caller is not told about at the time is a loss they find
    later. *(Discharged — `HostedDataEndpoints` sets an import warning when `ShapefileReader.DropsZOrM` is true, and the import response carries it. The caller is told at the moment of the loss rather than finding it in an ADR later.)*

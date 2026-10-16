@@ -76,6 +76,18 @@ internal static class HostedDataEndpoints
     /// </remarks>
     public const long MaximumBytes = 64L * 1024 * 1024;
 
+    /// <summary>
+    /// What a refusal for size says about the layer that did not fit — 2026-10-16, ADR-024 condition 4.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured against real data, the limit is below national layers</b>: Geofabrik's Turkey package holds buildings
+    /// of 1.8 GB, roads of 1.2 GB and land use of 554 MB uncompressed (328 MB zipped), and the refusal said only the
+    /// number. The product has two ways to serve such a layer without an upload, so the refusal names them.
+    /// </remarks>
+    internal const string LargerLayer =
+        "A larger layer is served without uploading it: load it into a PostGIS database and register the table, "
+        + "or publish it as a GeoParquet file.";
+
     /// <summary>What a multipart body carries beside the file: its boundaries, headers and the form's other fields.</summary>
     private const long EnvelopeBytes = 1024 * 1024;
 
@@ -192,7 +204,7 @@ internal static class HostedDataEndpoints
             or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await Fail(context, 413,
-                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). "
+                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). {LargerLayer} "
                 + $"({e.Message})").ConfigureAwait(false);
             return;
         }
@@ -2242,7 +2254,7 @@ internal static class HostedDataEndpoints
             or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await Fail(context, 413,
-                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). ({e.Message})")
+                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). {LargerLayer} ({e.Message})")
                 .ConfigureAwait(false);
             return;
         }

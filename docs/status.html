@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>da0846ee</code> · 2026-10-16 17:14</p>
+<p class="stamp">Generated from commit <code>4ef0afc6</code> · 2026-10-16 17:36</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">185</div><div class="kpi-l">ADRs</div><div class="kpi-n">73 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">370/419</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">41 live · 8 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">161 answered</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">161 answered</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">open debts</div><div class="kpi-n">277 repaid · 5 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4910</div><div class="kpi-l">tests</div><div class="kpi-n">490 source files, 222,066 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4910</div><div class="kpi-l">tests</div><div class="kpi-n">490 source files, 222,078 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-175</b> — Should an upload take a national-scale layer, or should such a layer keep coming in without one?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">55 items</span></div><p><b>41 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -373,6 +373,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-175</span><span class="owner">[OWNER]</span></div><p>Should an upload take a national-scale layer, or should such a layer keep coming in without one?</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -472,7 +473,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">A-054</td><td>Catalogue load and serving load stay similar enough that separate scaling is never forced</td><td><span class="pill warn">UNVALIDATED,</span></td></tr>
 <tr><td class="id">A-055</td><td>A single-page console with no build step stays maintainable</td><td><span class="pill warn">UNVALIDATED.</span></td></tr>
 <tr><td class="id">A-056</td><td>Operators want start/stop rather than only sharing</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
-<tr><td class="id">A-062</td><td>256 MB uncompressed is above any shapefile a person uploads through a browser and below what troubles the machine</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
+<tr><td class="id">A-062</td><td>256 MB uncompressed is above any shapefile a person uploads through a browser and below what troubles the machine</td><td><span class="pill warn">CONTRADICTED</span></td></tr>
 <tr><td class="id">A-063</td><td>Refusing an undeclared encoding costs less than silently corrupting text</td><td><span class="pill warn">UNVALIDATED</span></td></tr>
 <tr><td class="id">A-078</td><td>An operator would rather write MapLibre than a format we invented, because tools exist for the first</td><td><span class="pill warn">UNVALIDATED,</span></td></tr>
 <tr><td class="id">A-079</td><td>The publisher and the operator are different people often enough for two surfaces to be worth their cost</td><td><span class="pill warn">UNVALIDATED,</span></td></tr>
@@ -504,6 +505,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>4ef0afc6</code><time>2026-10-16</time><span>Samba&#x27;s Active Directory DC signs somebody in, by each way an AD name is typed (ADR-089 condition 1, partly)</span></li>
 <li><code>da0846ee</code><time>2026-10-16</time><span>A real Keycloak signs somebody in over SAML too, after one real quirk (ADR-090 condition 1, partly)</span></li>
 <li><code>f1798fa7</code><time>2026-10-16</time><span>A real Keycloak signs somebody in, directly and from an ArcGIS app&#x27;s OAuth page (ADR-088 condition 1, partly)</span></li>
 <li><code>097e7010</code><time>2026-10-16</time><span>Which service is slow, without SQL: GET /admin/health/services; ADR-017&#x27;s four 2 AM scenarios are all walkable</span></li>
@@ -517,7 +519,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3e7cee60</code><time>2026-10-15</time><span>Owner decisions of 2026-10-15: the security contact stands, no outside contributions, the DuckDB defect is not reported, Move was built (ADR-025, 047, 067, 108)</span></li>
 <li><code>241bb906</code><time>2026-10-15</time><span>A layer&#x27;s document publishes cacheMaxAge, the lifetime its query answers are sent with, as ArcGIS&#x27;s do (ADR-101 condition 3)</span></li>
 <li><code>bf44e393</code><time>2026-10-15</time><span>Sharing is additive, as Portal&#x27;s is (ADR-185), and the declared schema version is 86 again</span></li>
-<li><code>b3f4bd46</code><time>2026-10-15</time><span>ADR-172 condition 1 discharged: the INSPIRE validator&#x27;s View suite passes, and the Download suite fails only on the placeholder metadata record (Q-165)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
