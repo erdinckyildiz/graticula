@@ -2115,6 +2115,32 @@ public static class Program
                         cancellation))
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // <b>One feature by its id — D-298, 2026-10-16.</b> ArcGIS's Feature resource, answered by the
+            // layer query above on a request of its own (FeatureResource), as the service's query is.
+            app.MapMethods(
+                $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/{{objectId:long}}",
+                ["GET", "POST"],
+                (HttpContext context,
+                 string serviceName,
+                 int layerId,
+                 long objectId,
+                 CatalogFallback catalog,
+                 ServiceContexts contexts,
+                 ILoggerFactory loggerFactory,
+                 HostSettings settings,
+                 IProjector projector,
+                 DatumShiftNotices datumShifts,
+                 CancellationToken cancellation) =>
+                    FeatureResource.RunAsync(
+                        context,
+                        layerId,
+                        objectId,
+                        (layer, id) => QueryAsync(
+                            layer, serviceName, id, catalog, contexts, loggerFactory, settings,
+                            projector, datumShifts, cancellation),
+                        cancellation))
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The same query under the map face's address — 2026-09-15.</b> The Maps SDK's
             // MapImageLayer sends a sublayer's pop-up and table queries to
             // `MapServer/{id}/query`, and that was a 404, so a map drawn by `export` could not be

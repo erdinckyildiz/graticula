@@ -275,6 +275,29 @@ internal static class ServiceQuery
             shared["outFields"] = definition.OutFields;
         }
 
+        string path = context.Request.Path.Value ?? string.Empty;
+        string layerPath = path.EndsWith("/query", StringComparison.OrdinalIgnoreCase)
+            ? $"{path[..^"/query".Length]}/{definition.LayerId}/query"
+            : path;
+
+        return await InnerQueryAsync(context, layerPath, shared, definition.LayerId, queryLayer).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs a layer's query at <paramref name="layerPath"/> with <paramref name="query"/> as its query string,
+    /// on a request of its own that is still the caller's — see <see cref="RunLayerAsync"/>. Also what the
+    /// single-feature resource (<see cref="FeatureResource"/>) is answered by.
+    /// </summary>
+    internal static async Task<(int Status, byte[] Body)> InnerQueryAsync(
+        HttpContext context,
+        string layerPath,
+        Dictionary<string, StringValues> query,
+        int layerId,
+        Func<HttpContext, int, Task> queryLayer)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(queryLayer);
+
         HeaderDictionary headers = [];
 
         foreach ((string name, StringValues value) in context.Request.Headers)
@@ -289,11 +312,6 @@ internal static class ServiceQuery
             }
         }
 
-        string path = context.Request.Path.Value ?? string.Empty;
-        string layerPath = path.EndsWith("/query", StringComparison.OrdinalIgnoreCase)
-            ? $"{path[..^"/query".Length]}/{definition.LayerId}/query"
-            : path;
-
         FeatureCollection features = new(context.Features);
 
         features.Set<IHttpRequestFeature>(new HttpRequestFeature
@@ -303,7 +321,7 @@ internal static class ServiceQuery
             Protocol = context.Request.Protocol,
             PathBase = context.Request.PathBase.Value ?? string.Empty,
             Path = layerPath,
-            QueryString = QueryString.Create(shared).Value ?? string.Empty,
+            QueryString = QueryString.Create(query).Value ?? string.Empty,
             Headers = headers,
             Body = Stream.Null,
         });
@@ -323,12 +341,12 @@ internal static class ServiceQuery
 
         RouteValueDictionary routes = new(context.Request.RouteValues)
         {
-            ["layerId"] = definition.LayerId,
+            ["layerId"] = layerId,
         };
 
         features.Set<IRouteValuesFeature>(new RouteValuesFeature { RouteValues = routes });
 
-        await queryLayer(layer, definition.LayerId).ConfigureAwait(false);
+        await queryLayer(layer, layerId).ConfigureAwait(false);
         await written.CompleteAsync().ConfigureAwait(false);
 
         return (layer.Response.StatusCode, body.ToArray());
