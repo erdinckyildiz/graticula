@@ -5163,3 +5163,34 @@ header:has(#utilbar) { box-sizing: border-box; height: var(--header-h); grid-tem
 }
 #utilbar .usermenu #themeToggle { display: flex; align-items: center; gap: 8px; }
 #utilbar .usermenu #themeToggle .ico { display: inline-flex; width: auto; color: var(--muted); }
+
+/*
+  <b>A long description wraps under the name, two lines at most</b> (owner, 2026-10-17, beside Server Manager's list:
+  *"allah aşkına hangisi daha estetik?"*). The caption was `nowrap`, so on the showcase — whose services carry a
+  paragraph each — one line pushed the table to several screens wide and every column but the name off the page.
+  The name column takes the width that is left (`width: 100%; max-width: 0` is the table idiom for it), and the
+  caption is clamped inside it, so no description can widen the table.
+*/
+#services td:nth-child(2) { width: 100%; max-width: 0; }
+#services .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#services .rowmeta {
+  white-space: normal; overflow: hidden; text-overflow: clip;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  line-height: 1.4; margin-top: 2px;
+}
+#services .rowmeta .count { font-family: var(--sans); }
+/* The name keeps room for its caption to be read; the short columns give way first, in this order. */
+#services td:nth-child(2) { min-width: 300px; }
+@container (max-width: 1100px) {
+  #services td:nth-child(7), #view-services .widetable th:nth-child(7) { display: none; }
+}
+@container (max-width: 980px) {
+  #services td:nth-child(5), #view-services .widetable th:nth-child(5) { display: none; }
+}
+@container (max-width: 940px) {
+  #services td:nth-child(3), #view-services .widetable th:nth-child(3) { display: none; }
+}
+@media (max-width: 600px) { #services td:nth-child(2) { min-width: 180px; } }
+@container (max-width: 800px) {
+  #services td:nth-child(6), #view-services .widetable th:nth-child(6) { display: none; }
+}

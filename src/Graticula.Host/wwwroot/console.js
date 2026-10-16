@@ -13242,8 +13242,8 @@ async function loadServices() {
           : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
 
         <td>
-          <span class="name">${h(r.name)}</span>
-          <span class="rowmeta">${[r.system ? ""
+          <span class="name" title="${h(r.name)}">${h(r.name)}</span>
+          <span class="rowmeta"${r.description ? ` title="${h(r.description)}"` : ""}>${[r.system ? ""
             : `<span class="count">${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
             r.description ? h(r.description) : ""].filter(Boolean).join(`<span class="sep">·</span>`)}</span>
         </td>
