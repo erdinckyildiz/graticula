@@ -2800,7 +2800,10 @@ function openScreen(surface, screen, folder) {
   if (screen === "signin") section("sign-in providers", loadSignin, "idpRows");
   if (screen === "groups") section("groups", loadGroups, "groupRows");
   if (screen === "domains") section("domains", loadDomains, "domainRows");
-  if (screen === "operations") section("operations", loadOperations);
+  if (screen === "operations") {
+    section("operations", loadOperations);
+    section("resources", drawStatusWidgets);
+  }
   if (screen === "settings") section("settings", loadSettings);
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
@@ -12850,6 +12853,31 @@ function drawHealthWidget(rows) {
   widget.hidden = false;
 }
 
+/** One line over the services list: how many, and how many of them are answering (owner, 2026-10-17). */
+function drawServiceSummary(rows) {
+  const line = $("serviceSummary");
+  if (!line) return;
+  const real = rows.filter(r => !r.system);
+  const stopped = real.filter(r => r.status === "stopped").length;
+  const refusing = real.filter(r => r.refusing).length;
+  line.innerHTML = real.length === 0 ? "" : [
+    `<b>${num(real.length)}</b> service${real.length === 1 ? "" : "s"} here`,
+    `<span class="dot ok" aria-hidden="true"></span>${num(real.length - stopped)} started`,
+    `<span class="dot ${stopped ? "degraded" : "unknown"}" aria-hidden="true"></span>${num(stopped)} stopped`,
+    ...(refusing ? [`<span class="dot degraded" aria-hidden="true"></span>${num(refusing)} refusing`] : []),
+  ].join(`<span class="sep" aria-hidden="true">·</span>`)
+    + ` <a href="#/operations">Server status</a>`;
+}
+
+/** Site › Status shows the service health and the process's resources, which lived beside the services list. */
+async function drawStatusWidgets() {
+  try {
+    const { services } = await api("/admin/featureservices");
+    drawHealthWidget((services || []).map(s => ({ status: s.status, refusing: s.refusing, system: false })));
+  } catch { $("healthWidget").hidden = true; }
+  await drawResourceWidget();
+}
+
 /**
  * What the process is spending, from `/admin/health`.
  *
@@ -13200,7 +13228,7 @@ async function loadServices() {
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
 
   $("services").innerHTML = shown_.length === 0
-    ? `<tr><td colspan="8" class="empty">${rows.length === 0
+    ? `<tr><td colspan="3" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : needle
           ? `No service in any folder matches <b>${h(serviceFilter)}</b>.`
@@ -13235,69 +13263,65 @@ async function loadServices() {
       // menu where appropriate."* Start/Stop is the thing an operator does here, so it stays; Delete
       // moves into the menu, where its refusal — a service that still holds layers cannot be
       // removed — has room to be a sentence instead of a tooltip.
-      return `<tr class="pick" data-service="${h(r.qualified)}">
-        <td>${r.cover
+      // <b>A media row, as Server Manager lists a service</b> (owner, 2026-10-17: *"estetik bir düzen istiyorum"*): the
+      // picture, the name with its kind, what it says about itself, and one quiet line of facts — the state, the
+      // folder, who can reach it, whose it is, what it holds. The verbs are icons on the right, with their words in
+      // the tooltip and the accessible name; Delete and the rest stay behind ⋯.
+      const label = r.name;
+      const stopVerb = stopped ? "Start" : "Stop";
+      const sharingFact = r.system
+        ? `<select data-service-share="${h(r.name)}" aria-label="Who can reach ${h(label)}">${SCOPES.map(v =>
+            `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
+        : `<a href="${surfaceHref("studio",
+               "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
+             title="Set on this service's Sharing page in Studio — a scope is its owner's decision">${pill(r.sharing)}</a>`;
+      const facts = [
+        `${pill(r.status)}${refusingSays(r.refusing)}`,
+        `<span title="Folder">${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
+        sharingFact,
+        r.owner ? `<span title="Owner">${h(r.owner)}</span>` : "",
+        r.system ? "" : `<span>${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
+      ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
+
+      return `<tr class="pick svcrow" data-service="${h(r.qualified)}">
+        <td class="thumbcell">${r.cover
           ? `<img class="thumb" alt="" loading="lazy"
                data-thumb="${h(thumbnailFor(r.cover.url))}">`
           : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
 
-        <td>
-          <span class="name" title="${h(r.name)}">${h(r.name)}</span>
-          <span class="rowmeta"${r.description ? ` title="${h(r.description)}"` : ""}>${[r.system ? ""
-            : `<span class="count">${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
-            r.description ? h(r.description) : ""].filter(Boolean).join(`<span class="sep">·</span>`)}</span>
+        <td class="svcbody">
+          <div class="svctitle"><a class="name" href="#/service/${encodeURIComponent(r.qualified)}"
+              title="${h(r.name)}">${h(r.name)}</a>
+            <span class="svctype">${h(typeOf(r))}</span></div>
+          ${r.description ? `<p class="svcdesc" title="${h(r.description)}">${h(r.description)}</p>` : ""}
+          <div class="svcmeta">${facts}</div>
         </td>
 
-        <td class="val type">${h(typeOf(r))}</td>
-        <td>${pill(r.status)}${refusingSays(r.refusing)}</td>
-        <td class="val">${r.folder ? h(r.folder) : "root"}</td>
-        <td>${r.system
-          ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
-              `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
-          // <b>A link to where it is set, not a dead label.</b> The owner: *"server tarafında
-          // sharing mekanizması çok işlemiyor"* — and on this screen it did nothing at all, while
-          // the row above it (a system service) carried a working select in the same column. A
-          // reader cannot tell a scope that is fixed from one that is set elsewhere unless the
-          // screen says which. Sharing stays Studio's (owner, 2026-08-17); what was missing is the
-          // route to it.
-          : `<a href="${surfaceHref("studio",
-                 "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
-               title="Set on this service's Sharing page in Studio — a scope is its owner's decision">${
-                 pill(r.sharing)}</a>`}</td>
-        <td class="val">${h(r.owner || "—")}</td>
-
         <td class="acts">${r.system ? `
-          <button class="tiny" data-system-status="${h(r.name)}"
+          <button class="iconbtn" data-system-status="${h(r.name)}"
             data-system-folder="${h(r.folder || "")}"
             data-to="${stopped ? "start" : "stop"}"
-            title="${stopped ? "Answer this service's operations again"
-              : "Answer 503 for every operation on this service, without changing who may call it"}"
-            ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span>${stopped ? "Start" : "Stop"}</button>` : `
-          <button class="tiny" data-service-status="${h(r.cover ? r.cover.name : "")}"
+            aria-label="${stopVerb} ${h(label)}"
+            title="${stopped ? "Start: answer this service's operations again"
+              : "Stop: answer 503 for every operation on this service, without changing who may call it"}"
+            >${glyph(stopped ? "play" : "stop")}</button>` : `
+          <button class="iconbtn" data-service-status="${h(r.cover ? r.cover.name : "")}"
             data-service-qualified="${h(r.qualified || "")}"
             data-to="${stopped ? "start" : "stop"}"
             ${r.cover ? "" : "disabled"}
-            title="${stopped ? "Serve this again"
-              : "Answer 503 for this service, without changing who may see it"}"
-            ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span>${stopped ? "Start" : "Stop"}</button>
+            aria-label="${stopVerb} ${h(label)}"
+            title="${!r.cover ? "Started and stopped from its own page: this kind has no layer to stop here"
+              : stopped ? "Start: serve this again"
+              : "Stop: answer 503 for this service, without changing who may see it"}"
+            >${glyph(stopped ? "play" : "stop")}</button>
 
-          <!--
-            <b>A way to the map, from the screen that lists the services.</b> Handoff 2026-09-04.
-            Studio content rows have had one since the map moved to the item page; Server had
-            none, so an operator checking whether a service draws anything had to open it, find
-            the Visualization tab and pick a layer. It crosses to Studio, which is where the map
-            is — the same crossing the Sharing column in this row already makes.
-
-            <b>Not offered for a stopped service.</b> It would answer 503, and a control that
-            fails on press is worse than one that is not there.
-          -->
           ${r.cover && !stopped
-            ? `<a class="tiny" href="${h(visHref(r.cover.name, "features") || "#/")}"
-                 title="Draw ${h(r.cover.name)} on the map, in Studio">Map</a>`
-            : ""}
+            ? `<a class="iconbtn" href="${h(visHref(r.cover.name, "features") || "#/")}"
+                 aria-label="Map of ${h(label)}" title="Draw ${h(r.cover.name)} on the map, in Studio">${glyph("map")}</a>`
+            : `<span class="iconbtn placeholder" aria-hidden="true"></span>`}
 
           <details class="menu">
-            <summary title="More" aria-label="More actions">⋯</summary>
+            <summary title="More" aria-label="More actions for ${h(label)}">⋯</summary>
             <div class="sheet">
               ${r.kind === "ImageServer"
                 ? `<a href="/studio/#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
@@ -13321,7 +13345,7 @@ async function loadServices() {
     : "";
 
   drawHealthWidget(rows);
-  section("resources", drawResourceWidget);
+  drawServiceSummary(rows);
 
   paintPreviews();
 }
@@ -16895,6 +16919,17 @@ function drawUserMenu(name) {
   if (!menu) return;
   $("userInitial").textContent = name ? name.trim().charAt(0).toUpperCase() : "?";
   $("userName").textContent = name || "anonymous";
+}
+
+/** A 16-pixel stroked icon for a row's verb, in the text's colour. */
+function glyph(name) {
+  const paths = {
+    stop: '<rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" stroke="none"/>',
+    play: '<path d="M5 3.5v9l7.5-4.5z" fill="currentColor" stroke="none"/>',
+    map: '<path d="M1.8 3.6l4-1.6 4.4 1.6 4-1.6v10.4l-4 1.6-4.4-1.6-4 1.6zM5.8 2v10.4M10.2 3.6V14"/>',
+  };
+  return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none"
+    stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">${paths[name] || ""}</svg>`;
 }
 
 /** Draws Server's General page again once the layers or the kind it reads have arrived. */

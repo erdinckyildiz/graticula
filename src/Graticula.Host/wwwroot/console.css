@@ -4960,7 +4960,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
   picture, the name, then short columns. The picture stays — it is how a reader finds a layer at a glance — at a
   size that sets the row's height to one line of text and its caption.
 */
-#services .thumb, #contentRows .thumb { width: 56px; height: 38px; border-radius: var(--round); }
+
 #services td, #contentRows td { padding-top: 8px; padding-bottom: 8px; vertical-align: middle; }
 #services td:first-child { padding-right: 4px; }
 #services .name { font-size: var(--t-body); font-weight: 600; }
@@ -4970,10 +4970,6 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 /* Server's page head sits over the list, beside the column, as Server Manager's does. */
 #serverMain > .pagehead { margin-top: 0; }
 
-@media (max-width: 760px) {
-  #services td.type, #services td:nth-child(5),
-  #view-services .widetable th:nth-child(3), #view-services .widetable th:nth-child(5) { display: none; }
-}
 
 /* ═══════════════════════════════════════════ Server's service page: head card and tabs (owner's reference, 2026-10-16) */
 
@@ -5057,14 +5053,6 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 input[type="checkbox"] { accent-color: var(--accent); }
 .facets input[type="checkbox"] { width: 16px; height: 16px; }
 
-/* Services: the columns give way to the panel's width, so the row's actions never scroll out of sight. */
-#view-services .widetable { container-type: inline-size; }
-@container (max-width: 1000px) {
-  #services td:nth-child(7), #view-services .widetable th:nth-child(7) { display: none; }
-}
-@container (max-width: 880px) {
-  #services td:nth-child(5), #view-services .widetable th:nth-child(5) { display: none; }
-}
 /* Narrow: the list comes before the health and resource cards, which stack after it. */
 @media (max-width: 1080px) {
   #serverGrid > div:first-child { display: contents; }
@@ -5164,33 +5152,103 @@ header:has(#utilbar) { box-sizing: border-box; height: var(--header-h); grid-tem
 #utilbar .usermenu #themeToggle { display: flex; align-items: center; gap: 8px; }
 #utilbar .usermenu #themeToggle .ico { display: inline-flex; width: auto; color: var(--muted); }
 
+
+#contentRows .thumb { width: 56px; height: 38px; border-radius: var(--round); }
+
+/* ═══════════════════════════════════════════ Services as media rows (owner, 2026-10-17: "estetik bir düzen") */
+
 /*
-  <b>A long description wraps under the name, two lines at most</b> (owner, 2026-10-17, beside Server Manager's list:
-  *"allah aşkına hangisi daha estetik?"*). The caption was `nowrap`, so on the showcase — whose services carry a
-  paragraph each — one line pushed the table to several screens wide and every column but the name off the page.
-  The name column takes the width that is left (`width: 100%; max-width: 0` is the table idiom for it), and the
-  caption is clamped inside it, so no description can widen the table.
+  <b>Server Manager's list, in this console's colours.</b> A picture, the name and its kind, two lines of what the
+  service says about itself, one quiet line of facts, and the verbs as icons at the right. No column headings:
+  every fact is labelled by what it looks like or by its tooltip, so nothing pushes the row wider than the panel.
 */
-#services td:nth-child(2) { width: 100%; max-width: 0; }
-#services .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#services .rowmeta {
-  white-space: normal; overflow: hidden; text-overflow: clip;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
-  line-height: 1.4; margin-top: 2px;
+#view-services .widetable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+#services tr.svcrow td { padding: 14px 16px; vertical-align: top; border-bottom: 1px solid var(--rule); }
+#services tr.svcrow:last-child td { border-bottom: 0; }
+#services tr.svcrow td.thumbcell { width: 1%; padding-right: 0; }
+#services tr.svcrow .thumb { width: 104px; height: 70px; border-radius: var(--round-lg); }
+#services td.svcbody { width: 100%; max-width: 0; }
+#services .svctitle { display: flex; align-items: baseline; gap: var(--gap-2); min-width: 0; }
+#services .svctitle .name {
+  font-size: 16px; font-weight: 600; color: var(--accent-ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
 }
-#services .rowmeta .count { font-family: var(--sans); }
-/* The name keeps room for its caption to be read; the short columns give way first, in this order. */
-#services td:nth-child(2) { min-width: 300px; }
-@container (max-width: 1100px) {
-  #services td:nth-child(7), #view-services .widetable th:nth-child(7) { display: none; }
+#services tr.svcrow:hover .svctitle .name { text-decoration: underline; }
+#services .svctype { color: var(--muted); font-size: var(--t-small); white-space: nowrap; flex: none; }
+#services .svcdesc {
+  margin: 4px 0 0; color: var(--ink); font-size: var(--t-small); line-height: 1.45;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
 }
-@container (max-width: 980px) {
-  #services td:nth-child(5), #view-services .widetable th:nth-child(5) { display: none; }
+#services .svcmeta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin-top: 8px;
+  color: var(--muted); font-size: 12.5px;
 }
-@container (max-width: 940px) {
-  #services td:nth-child(3), #view-services .widetable th:nth-child(3) { display: none; }
+#services .svcmeta .sep { margin: 0 8px; color: var(--faint); }
+#services .svcmeta > span, #services .svcmeta > a { display: inline-flex; align-items: center; gap: 5px; }
+#services .svcmeta svg { width: 13px; height: 13px; }
+/* The facts are words, not badges: the state keeps its dot, the scope its globe or padlock. */
+#services .svcmeta .pill {
+  background: none; border: 0; padding: 0; min-height: 0; font-size: 12.5px; color: var(--muted); font-weight: 500;
 }
-@media (max-width: 600px) { #services td:nth-child(2) { min-width: 180px; } }
-@container (max-width: 800px) {
-  #services td:nth-child(6), #view-services .widetable th:nth-child(6) { display: none; }
+#services .svcmeta .pill.p-started { color: var(--ok); }
+#services .svcmeta .pill.p-stopped { color: var(--warn); }
+#services .svcmeta a { color: inherit; }
+#services .svcmeta a:hover .pill { color: var(--accent-ink); text-decoration: underline; }
+#services .svcmeta select { font-size: 12.5px; padding: 1px 6px; }
+#services td.acts { width: 1%; white-space: nowrap; vertical-align: top; text-align: right; }
+#services td.acts > * { vertical-align: middle; }
+
+.iconbtn {
+  display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0;
+  border: 1px solid transparent; border-radius: var(--round); background: none; color: var(--muted);
+  cursor: pointer;
 }
+.iconbtn:hover:not([disabled]) { background: var(--surface-2); color: var(--ink); border-color: var(--rule); text-decoration: none; }
+.iconbtn[disabled] { opacity: .4; cursor: not-allowed; }
+.iconbtn.placeholder { cursor: default; }
+.iconbtn[data-to="stop"] { color: var(--muted); }
+.iconbtn[data-to="start"] { color: var(--ok); }
+#services td.acts .menu > summary { padding: 7px 9px; }
+
+/* The summary over the list, where the donut was. */
+.svcsummary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin: 0 0 var(--gap-3);
+  color: var(--muted); font-size: var(--t-small);
+}
+.svcsummary .sep { margin: 0 10px; color: var(--faint); }
+.svcsummary .dot { margin-right: 6px; }
+.svcsummary b { color: var(--ink); margin-right: 4px; }
+.svcsummary a { margin-left: auto; }
+
+/* Site › Status holds the health and the resources, side by side. */
+.widgetrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--gap-4); margin: 0 0 var(--gap-5); }
+.widgetrow > .widget { margin: 0; }
+
+@media (max-width: 600px) {
+  #services tr.svcrow td { padding: 12px 10px; }
+  #services tr.svcrow .thumb { width: 64px; height: 44px; }
+  #services .svcdesc { -webkit-line-clamp: 3; line-clamp: 3; }
+  #services td.acts .iconbtn.placeholder { display: none; }
+}
+/* A media row needs no minimum and no pinned actions column: nothing in it can push the row wider. */
+#view-services .widetable table { min-width: 0; }
+#view-services .widetable table td:last-child, #view-services .widetable table th:last-child {
+  position: static; box-shadow: none; background: transparent;
+}
+:root[data-theme="dark"] #view-services .widetable table td:last-child { background: transparent; }
+@media (max-width: 600px) {
+  #services tr.svcrow td.acts { padding-left: 0; }
+  #services td.acts .iconbtn { width: 28px; height: 28px; }
+  #services .svctitle { flex-wrap: wrap; row-gap: 0; }
+}
+@media (max-width: 600px) {
+  #services .svcmeta { gap: 4px 12px; }
+  #services .svcmeta .sep { display: none; }
+}
+/* <b>A click on an icon is a click on its button.</b> The row handlers read the target's own data attributes, and an
+   SVG inside a button was the target — so the icon Stop and Map did nothing under a mouse while Enter worked. */
+button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
+/* The selected row's tint runs to the right edge (design review: the actions cell cut it short). */
+#view-services .widetable table tr.pick.on td:last-child { background: var(--accent-soft); }
+#services .svctitle a.name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+@media (max-width: 600px) { #services .svcmeta { gap: 2px 10px; } }

@@ -319,31 +319,6 @@
           of those to be a share of — and there are no sparklines, because a sparkline claims a
           history nothing here keeps.
         -->
-        <div class="widget" id="healthWidget" hidden>
-          <div class="label">Service health</div>
-          <!--
-            <b>A ring and a count, then the breakdown.</b> The arc lengths are the real counts — one
-            custom property set from the listing, and `conic-gradient` does the geometry, so there is
-            no chart library and no second copy of the numbers.
-          -->
-          <div class="donutrow">
-            <div class="donut" id="hwDonut"></div>
-            <div class="tally"><b id="hwTotal">&mdash;</b><span>Total services</span></div>
-          </div>
-          <div id="hwRows"></div>
-        </div>
-
-        <div class="widget" id="resourceWidget" hidden>
-          <!--
-            <b>The caveats are one glyph now.</b> They were three sentences under the numbers, which
-            the owner read as a debug panel — right, and the text still earns its place: CPU is a
-            ratio since start and the lines are this page's own samples, so somebody reading the
-            widget for the first time needs both facts. One hover away rather than always on screen.
-          -->
-          <div class="label">Server resources<span class="why" id="rwWhy" role="img"
-            aria-label="About these numbers" title="">?</span></div>
-          <div id="rwRows"></div>
-        </div>
       </div>
 
       <div id="serverMain">
@@ -359,8 +334,9 @@
           -->
           <div class="right" id="pageAction"></div>
         </div>
+        <p class="svcsummary" id="serviceSummary"></p>
         <div class="toolbar">
-          <input type="search" id="serviceFilter" placeholder="Search services in every folder&hellip;"
+          <input type="search" id="serviceFilter" aria-label="Search services" placeholder="Search services in every folder&hellip;"
                  autocomplete="off">
           <select id="serviceTypePick" aria-label="Type"><option value="">All types</option></select>
           <select id="serviceStatusPick" aria-label="Status"><option value="">Any status</option></select>
@@ -394,9 +370,9 @@
         <div class="panel widetable">
           <table>
             <thead><tr>
-              <th style="width:1%"></th>
-              <th>Service</th><th>Type</th><th>Status</th><th>Folder</th><th>Sharing</th><th>Owner</th>
-              <th style="text-align:right">Actions</th>
+              <th><span class="sr-only">Picture</span></th>
+              <th>Service</th>
+              <th><span class="sr-only">Actions</span></th>
             </tr></thead>
             <tbody id="services"></tbody>
           </table>
@@ -839,6 +815,35 @@
     <div class="toolbar">
       <button id="opsRefresh">Read again</button>
       <span class="val" id="opsWhen"></span>
+    </div>
+
+    <!-- The services' health and the process's resources, moved here from beside the services list (2026-10-17). -->
+    <div class="widgetrow">
+        <div class="widget" id="healthWidget" hidden>
+          <div class="label">Service health</div>
+          <!--
+            <b>A ring and a count, then the breakdown.</b> The arc lengths are the real counts — one
+            custom property set from the listing, and `conic-gradient` does the geometry, so there is
+            no chart library and no second copy of the numbers.
+          -->
+          <div class="donutrow">
+            <div class="donut" id="hwDonut"></div>
+            <div class="tally"><b id="hwTotal">&mdash;</b><span>Total services</span></div>
+          </div>
+          <div id="hwRows"></div>
+        </div>
+
+        <div class="widget" id="resourceWidget" hidden>
+          <!--
+            <b>The caveats are one glyph now.</b> They were three sentences under the numbers, which
+            the owner read as a debug panel — right, and the text still earns its place: CPU is a
+            ratio since start and the lines are this page's own samples, so somebody reading the
+            widget for the first time needs both facts. One hover away rather than always on screen.
+          -->
+          <div class="label">Server resources<span class="why" id="rwWhy" role="img"
+            aria-label="About these numbers" title="">?</span></div>
+          <div id="rwRows"></div>
+        </div>
     </div>
 
     <!--

@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -61,6 +62,37 @@ public sealed class ServiceRowTests : ConsoleTest
     }
 
     /// <summary>
+    /// A click where the Stop icon is drawn reaches the button, as a mouse's would.
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-10-17: the icon swallowed the click.</b> Stop became an SVG inside a button, and a mouse click lands on
+    /// the deepest element under the pointer — the SVG — whose dataset is empty, so the handler did nothing while
+    /// keyboard Enter, and the test above, which calls <c>click()</c> on the button itself, both worked. This one asks
+    /// the page what is under the button's centre and clicks that, which is the mechanism a pointer uses.
+    /// </remarks>
+    [Fact]
+    public async Task A_click_on_the_stop_icon_reaches_its_button()
+    {
+        (string token, _) = await SignInAsync();
+
+        const string stop = "tr[data-service] button[data-service-status]:not([disabled])";
+
+        await OpenFolderHoldingAsync(stop, token);
+
+        bool clicked = await Browser.EvaluateAsync<bool>(
+            "(() => { const b = document.querySelector(" + JsonSerializer.Serialize(stop) + ");"
+            + " const r = b.getBoundingClientRect();"
+            + " const under = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);"
+            + " if (!under) return false; under.click(); return true; })()");
+
+        Assert.True(clicked, "Nothing is under the Stop button's centre.");
+
+        await WaitForAsync(
+            "window.__writes.length > 0",
+            "A click where the Stop icon is drawn sent no request: the icon, not the button, took the click.");
+    }
+
+    /// <summary>
     /// A click on the row itself still opens the service.
     /// </summary>
     /// <remarks>
@@ -74,12 +106,14 @@ public sealed class ServiceRowTests : ConsoleTest
     public async Task A_click_on_the_row_itself_opens_the_service()
     {
         (string token, _) = await SignInAsync();
-        await OpenFolderHoldingAsync("tr[data-service] span.name", token);
+        // The row's body, not its name: the name is a link of its own since 2026-10-17, and this test is about
+        // the row's handler, which a link would bypass.
+        await OpenFolderHoldingAsync("tr[data-service] td.svcbody", token);
 
-        await ClickAsync("tr[data-service] span.name");
+        await ClickAsync("tr[data-service] td.svcbody");
 
         await WaitForAsync(
             "location.hash.startsWith('#/service/')",
-            "Clicking a service row's name did not open the service.");
+            "Clicking a service row did not open the service.");
     }
 }

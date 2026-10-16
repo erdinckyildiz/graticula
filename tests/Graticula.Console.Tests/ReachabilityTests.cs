@@ -74,7 +74,7 @@ public sealed class ReachabilityTests : ConsoleTest
 
         foreach ((string service, string folder, string[] siblings) in work)
         {
-            string row = $"tr[data-service={JsonSerializer.Serialize(service)}] span.name";
+            string row = $"tr[data-service={JsonSerializer.Serialize(service)}] .name";
 
             // Back to the list every time, and opened by a click every time. The
             // point is which route a click chooses, so continuing from the page the
