@@ -14,6 +14,18 @@ The owner reviewed several concept images, preferred the **Hybrid** approach, sp
 
 **Important:** Concept screenshots were created in a ChatGPT conversation and are **not committed to this repository** by this document. Ask the owner to attach the approved Studio and Server mockups to the Codex task before pixel-level implementation. Text below is authoritative for intent; screenshots are visual references, not specifications for new features. Mockup labels, counts, datasets and controls may be fictional.
 
+## Whole-product scope — mandatory, not optional
+
+**The two approved reference images define TWO DESIGN SYSTEMS / SURFACE FAMILIES, NOT TWO SCREENS.** This is a **complete visual and UX redesign of EVERY existing page** in both workspaces, including nested pages, dialogs, drawers, empty/error/loading states, and responsive layouts. The example pages shown in the images are exemplars, not the scope limit.
+
+- **Studio reference image applies to ALL Studio pages and flows**: every existing top-level area, My Content, item details and its four tabs, map/viewer entry points, groups, organization/member-related views where present, sharing, publishing, editors, forms, dialogs, and any other existing Studio route. Keep a consistent horizontal top navigation, contextual left panel where appropriate, header, layout grid, component language and light/dark behavior across the entire Studio.
+- **Server reference image applies to ALL Server pages and flows**: Services (folder browsing, list, detail, creation/publish action, operational settings), Data sources, Members, Settings (General, Roles, Sign-in, Apps), Operations (Status, Logs), and every nested view, form, modal, drawer and existing route. Preserve Server's five primary sections and operational focus; do not copy Studio's Portal navigation into Server.
+- **Shared product design system applies everywhere**: tokens, typography, colors, spacing, cards, tables, inputs, selects, buttons, breadcrumbs, tabs, status indicators, confirmation dialogs, notifications, focus/hover/disabled states, responsive behavior, light/dark themes.
+- **Inventory every existing route/screen first.** Build a coverage matrix listing each current screen, its target Studio/Server pattern, components to update, and completion/test status. Do not declare the redesign complete while any existing screen retains the old styling without an explicit documented exception.
+- **Incremental implementation is a delivery strategy, NOT a reduction of scope.** Phase 1 builds the shell and foundation; subsequent phases must cover every page. A screenshot-level match on only My Content, Item Details or Services is insufficient.
+- **Images are visual references, not a license to invent features.** Maintain every supported function, role gate, deep link, API contract and ADR. Where a reference image contradicts the current capabilities or an accepted ADR, preserve the real product and adapt the visual treatment.
+- **Definition of final completion:** every existing Studio and Server route has been audited, migrated to the approved visual language, checked at desktop/tablet/mobile, and verified for accessibility and regressions; maintain a route-by-route checklist as evidence.
+
 ## Non-negotiable architecture constraints
 
 1. Respect [ADR-034](../adr/ADR-034-server-and-studio.md): one deployable, one API, shared shell/design system, two paths (`/studio/` and `/server/`), hash-addressed screens, privilege-aware navigation. Administrators can access both; publishers should not be exposed to Server-only controls.
