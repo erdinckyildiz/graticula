@@ -4762,9 +4762,9 @@ h4.spaced { margin-top: 24px; }
 /* Logs: which log is read is a column on the page's left, as Server Manager lists its log views (ADR-187 step 4). */
 #view-logs.on { display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: var(--gap-6); align-items: start; }
 #view-logs.on > * { grid-column: 2; min-width: 0; }
-#view-logs.on > .pagehead { grid-column: 1 / -1; }
+#view-logs.on > .pagehead { grid-column: 2; }
 #view-logs.on > #logSources {
-  grid-column: 1; grid-row: 2 / span 12; position: sticky; top: 96px;
+  grid-column: 1; grid-row: 1 / span 12; position: sticky; top: 96px;
   display: flex; flex-direction: column; gap: 2px;
 }
 #view-logs > #logSources button {
@@ -5314,3 +5314,9 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover { background: var(--surface-2); }
 #itemActions .itemmore .sheet { min-width: 200px; }
 #itemActions .itemmore .sheet button { display: block; width: 100%; text-align: left; }
+
+/* Logs: the head sits over the log, beside its sources, as on every other page with a left column (2026-10-17);
+   the count and refresh are a plain line under the explanation, not a card of their own. */
+#view-logs.on > .lede + .toolbar, #view-logs.on > #logSources + .toolbar {
+  background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-2); min-height: 0;
+}
