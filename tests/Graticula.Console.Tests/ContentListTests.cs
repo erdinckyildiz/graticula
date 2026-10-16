@@ -108,7 +108,7 @@ public sealed class ContentListTests : ConsoleTest
                 + " s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
 
             await WaitForAsync(
-                "[...document.querySelectorAll('#contentRows td.type')].every(m => m.textContent.trim() === 'Web map')",
+                "[...document.querySelectorAll('#contentRows .type')].every(m => m.textContent.trim() === 'Web map')",
                 "With the type set to Web map, rows of another type are still listed.");
 
             NothingWentWrong(await PageErrorsAsync());

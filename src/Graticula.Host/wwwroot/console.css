@@ -4886,9 +4886,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
   .facets label.check { padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; font-size: 13px; }
   .facets .linkbtn { margin: 0; }
 }
-@media (max-width: 760px) {
-  #contentRows td.type, #view-content .widetable th:nth-child(3) { display: none; }
-}
+
 
 /* ═══════════════════════════════════════════ The item's head card and Overview's three cards (owner's reference, 2026-10-16) */
 
@@ -5261,3 +5259,48 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
   face with tabular figures, so they still line up. Monospace is kept for what is typed or copied: code,
   addresses, identifiers, SQL.
 */
+
+/* ═══════════════════════════════════════════ My content as media rows (owner, 2026-10-17) */
+#contentRows tr.mediarow td { padding: 14px 16px; vertical-align: top; border-bottom: 1px solid var(--rule); }
+#contentRows tr.mediarow:last-child td { border-bottom: 0; }
+#contentRows tr.mediarow td.tick { padding-right: 0; padding-top: 18px; }
+#contentRows tr.mediarow td.thumbcell { width: 1%; padding-right: 0; }
+#contentRows tr.mediarow .thumb { width: 104px; height: 70px; border-radius: var(--round-lg); }
+#contentRows tr.mediarow td.name { width: 100%; max-width: 0; }
+#contentRows .svctitle { display: flex; align-items: baseline; gap: var(--gap-2); min-width: 0; }
+#contentRows .svctitle > a {
+  font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+#contentRows .svctype { color: var(--muted); font-size: var(--t-small); white-space: nowrap; flex: none; }
+#contentRows .svcdesc {
+  margin: 4px 0 0; color: var(--ink); font-size: var(--t-small); line-height: 1.45;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden;
+}
+#contentRows .svcmeta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin-top: 8px;
+  color: var(--muted); font-size: 12.5px;
+}
+#contentRows .svcmeta .sep { margin: 0 8px; color: var(--faint); }
+#contentRows .svcmeta .pill { background: none; border: 0; padding: 0; min-height: 0; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+#contentRows .svcmeta .pill.p-stopped { color: var(--warn); }
+#contentRows .svcmeta .pillbtn { padding: 0; border: 0; background: none; min-height: 0; }
+#contentRows .svcmeta .pillbtn:hover .pill { color: var(--accent-ink); text-decoration: underline; }
+#contentRows td.acts { width: 1%; white-space: nowrap; text-align: right; }
+#contentRows td.acts > * { vertical-align: middle; }
+#contentRows .iconbtn.on { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
+#view-content .widetable table { min-width: 0; }
+#view-content .widetable table td:last-child, #view-content .widetable table th:last-child {
+  position: static; box-shadow: none; background: transparent;
+}
+@media (max-width: 600px) {
+  #contentRows tr.mediarow td { padding: 12px 8px; }
+  #contentRows tr.mediarow .thumb { width: 64px; height: 44px; }
+  #contentRows .svcmeta { gap: 2px 10px; }
+  #contentRows .svcmeta .sep { display: none; }
+  #contentRows .svctitle { flex-wrap: wrap; row-gap: 0; }
+}
+#view-content .widetable table th:last-child { background: var(--surface-2); }
+/* An empty folder list is one line: the label, "none yet", and New folder at its end. */
+#contentSide > #contentFolders:not(:has(.chip)) { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+#contentSide > #contentFolders:not(:has(.chip)) .folderlabel { margin-bottom: 0; }
+#contentSide > #contentFolders:not(:has(.chip)) #folderNew { margin: 0 0 0 auto; padding: 2px 8px; }

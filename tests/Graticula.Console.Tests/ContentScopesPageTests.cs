@@ -92,7 +92,9 @@ public sealed class ContentScopesPageTests : ConsoleTest
             "(() => { const r = document.querySelector('#contentRows tr');"
             + " const cells = [...r.children];"
             + " const name = cells.findIndex(c => c.classList.contains('name'));"
-            + " const verb = cells.findIndex(c => c.querySelector('button, details'));"
+            // The sharing pill is a fact on the item's line that happens to be pressable (ADR-034 §5l); the verbs
+            // are the row's actions — its icon buttons and the ⋯ menu.
+            + " const verb = cells.findIndex(c => c.querySelector('.iconbtn, details, button.tiny'));"
             + " return verb === -1 || name < verb; })()");
 
         Assert.True(

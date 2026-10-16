@@ -3860,28 +3860,28 @@ function drawMyContent() {
   // <b>A first run names both ways in, as buttons</b> (ADR-079 condition 2's review, 2026-10-14): it named only
   // *New item*, as text, and the server's note above it said everything here belonged to somebody else.
   $("contentRows").innerHTML = total === 0
-    ? `<tr><td colspan="7" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
+    ? `<tr><td colspan="4" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
          <button type="button" class="linkbtn" data-empty-new="newLayer">New item</button> publishes a layer from a
          file or a database; <button type="button" class="linkbtn" data-empty-new="newMap">New map</button> starts a
          map from the layers you can read.</td></tr>`
     : inScope.length === 0 && contentFolderPick
-      ? `<tr><td colspan="7" class="empty">${contentFolderPick === "root"
+      ? `<tr><td colspan="4" class="empty">${contentFolderPick === "root"
           ? "Everything of yours is in a folder."
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="7" class="empty">Nothing arrived this way.
+      ? `<tr><td colspan="4" class="empty">Nothing arrived this way.
            ${contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0 && contentIdle && !contentFilter
-        ? `<tr><td colspan="7" class="empty">${usageCountsAMonth()
+        ? `<tr><td colspan="4" class="empty">${usageCountsAMonth()
              ? `No idle services${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}. Everything published over
                30 days ago has had a request since ${h(day(new Date(Date.now() - 30 * 86400000).toISOString()))}.`
              : `Nothing can be called idle yet: counting began ${usageSince ? h(day(usageSince)) : "with the first request"}, and
                thirty days of it are needed.`}</td></tr>`
       : visible.length === 0
-        ? `<tr><td colspan="7" class="empty">Nothing matches${contentFilter
+        ? `<tr><td colspan="4" class="empty">Nothing matches${contentFilter
              ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
@@ -3903,19 +3903,31 @@ function drawMyContent() {
           //
           // The route D-98 asked for is intact: the name goes to the service page, and Overview's own
           // rows go to each layer.
-          return `
-          <tr>
-            ${pickCell(i, `service:${i.name}`)}
-            <!--
-              <b>The picture is a target, and it looked like one already.</b> Handoff 2026-09-04.
-              A reader scanning this list is scanning the thumbnails; clicking one did nothing,
-              which is the worst state for something that reads as pressable. It opens the item
-              page's Visualization tab with that layer drawn — because what somebody wants from a
-              picture is a bigger picture, not a settings page.
+          // <b>A media row, as the Services list has been since the same day</b> (owner, 2026-10-17): the picture, the
+          // title and its type, what it says about itself, and one quiet line of facts. Sharing stays a control —
+          // the pill is the button, as ADR-034 §5l has it.
+          const sharing = i.manages === false
+            // ADR-075, D-271: somebody else's item. The pill still says who can reach it; it is not a control.
+            ? `<span title="Only its owner or an administrator changes who can reach this">${pill(i.sharing)}</span>`
+            : `<button class="pillbtn" data-share="${h(i.name)}" title="Set who can reach this">${pill(i.sharing)}</button>`;
+          const facts = [
+            stopped ? pill("stopped") : "",
+            `${sharing}${i.because === "administrativeoverride" ? ` <span class="val">by override</span>` : ""}`,
+            i.owner && i.scope !== "mine" ? `<span title="Owner">${h(i.owner)}</span>` : "",
+            i.kind === "ImageServer" ? "" : `<span>${num(i.layers)} layer${i.layers === 1 ? "" : "s"}</span>`,
+            `<span title="Service folder">${i.folder ? `service folder ${h(i.folder)}` : "service root"}</span>`,
+            folderNote(i).replace(/^ · /, ""),
+            (i.throughGroups || []).length > 0 ? `<span>via ${i.throughGroups.map(h).join(", ")}</span>` : "",
+            contentSort === "leastUsed" || contentIdle
+              ? `<span><span class="count">${Number((i.usage || {}).requests30 || 0).toLocaleString()}</span> request${
+                  ((i.usage || {}).requests30 || 0) === 1 ? "" : "s"} ${usageCountsAMonth() || !usageSince
+                    ? "in 30 days" : `since ${h(day(usageSince))}`}</span>` : "",
+            `<span title="Modified">${day(i.updated)}</span>`,
+          ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
 
-              <b>The name still goes to Overview.</b> Two targets in one row are only worth having
-              if they lead somewhere different.
-            -->
+          return `
+          <tr class="mediarow">
+            ${pickCell(i, `service:${i.name}`)}
             <td class="thumbcell">${i.kind === "ImageServer"
               ? `<a class="thumblink" href="#/service/${i.name.split("/").map(encodeURIComponent).join("/")}"
                    title="Open ${h(i.name)}"><img class="thumb" alt="" loading="lazy"
@@ -3927,33 +3939,14 @@ function drawMyContent() {
                    ><img class="thumb" alt="" loading="lazy"
                    data-thumb="${h(thumbnailFor(i.cover.url))}"></a>`
               : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
-            <td class="name"><a href="#/service/${
-              i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
-              <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${contentSort === "leastUsed" || contentIdle
-                ? `<span class="count">${Number((i.usage || {}).requests30 || 0).toLocaleString()}</span> request${
-                  ((i.usage || {}).requests30 || 0) === 1 ? "" : "s"} ${usageCountsAMonth() || !usageSince
-                    ? "in 30 days" : `since ${h(day(usageSince))}`} · ` : ""}${
-                i.kind === "ImageServer" ? "" : `${num(i.layers)} layer${i.layers === 1 ? "" : "s"} · `}${i.folder ? `service folder ${h(i.folder)}` : "service root"}${i.description
-                  ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
-                  ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
-                  ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}${folderNote(i)}</div></td>
-            <td class="val type">${h(itemTypeName(i.kind))}</td>
-            <td class="val">${day(i.updated)}</td>
-
-            <!-- ADR-034 5l: the pill is the control, because it is already the thing that says who
-                 can reach this and the reader is going to press it either way. -->
-            <td>${i.manages === false
-              // ADR-075, D-271: somebody else's item. The pill still says who can reach it; it is
-              // not a control, because only the item's owner or an administrator changes that.
-              ? `<span title="Only its owner or an administrator changes who can reach this"
-                  >${pill(i.sharing)}</span>`
-              : `<button class="pillbtn" data-share="${h(i.name)}"
-                  title="Set who can reach this">${pill(i.sharing)}</button>`}${
-              // `because` only where the scope pill does not already say it. On this server the two
-              // used to read `public` and `Public` three inches apart, which is one fact twice.
-              i.because === "administrativeoverride"
-                ? ` <span class="val">by override</span>` : ""}</td>
-            <td style="text-align:right">${i.kind === "ImageServer"
+            <td class="name">
+              <div class="svctitle"><a href="#/service/${
+                i.name.split("/").map(encodeURIComponent).join("/")}" title="${h(i.name)}">${h(bareOf(i))}</a>
+                <span class="svctype type">${h(itemTypeName(i.kind))}</span></div>
+              ${i.description ? `<p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>` : ""}
+              <div class="svcmeta">${facts}</div>
+            </td>
+            <td class="acts">${i.kind === "ImageServer"
               ? `<details class="menu">
                   <summary title="More" aria-label="More actions">⋯</summary>
                   <div class="sheet">
@@ -3966,9 +3959,10 @@ function drawMyContent() {
               ? ""
               : `${stopped
                   ? ""
-                  : `<button class="tiny ${isShown ? "on" : ""}" data-show="${h(key)}"
-                       title="A quick look at this layer on its own page — Open in Map Viewer is in ⋯"
-                       >${isShown ? "Hide" : "Preview"}</button>`}
+                  : `<button class="iconbtn ${isShown ? "on" : ""}" data-show="${h(key)}"
+                       aria-label="${isShown ? "Hide the preview of" : "Preview"} ${h(bareOf(i))}" aria-pressed="${isShown}"
+                       title="${isShown ? "Hide the preview" : "Preview: a quick look at this layer — Open in Map Viewer is in ⋯"}"
+                       >${glyph("eye")}</button>`}
                 <details class="menu">
                   <summary title="More" aria-label="More actions">⋯</summary>
                   <div class="sheet">
@@ -4730,19 +4724,26 @@ function mapRow(i) {
   const m = i.map;
   const open = `/studio/webmap.html?id=${encodeURIComponent(m.id)}`;
 
-  return `<tr>
+  const facts = [
+    pill(i.sharing),
+    i.scope !== "mine" && i.owner ? `<span title="Owner">${h(i.owner)}</span>` : "",
+    folderNote(i).replace(/^ · /, ""),
+    contentSort === "leastUsed" ? "<span>Not counted (map)</span>" : "",
+    `<span title="Modified">${day(i.updated)}</span>`,
+  ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
+
+  return `<tr class="mediarow">
     ${pickCell(i, `webmap:${m.id}`)}
     <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}"
       >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
         : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
-    <td class="name"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
-      <div class="rowmeta">${contentSort === "leastUsed" ? "Not counted (map) · " : ""}${
-        [folderNote(i).replace(/^ · /, ""), i.description ? h(i.description) : "", i.scope !== "mine" && i.owner ? h(i.owner) : ""]
-          .filter(Boolean).join(" · ")}</div></td>
-    <td class="val type">Web map</td>
-    <td class="val">${day(i.updated)}</td>
-    <td>${pill(i.sharing)}</td>
-    <td style="text-align:right;white-space:nowrap">
+    <td class="name">
+      <div class="svctitle"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
+        <span class="svctype type">Web map</span></div>
+      ${i.description ? `<p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>` : ""}
+      <div class="svcmeta">${facts}</div>
+    </td>
+    <td class="acts">
       <a class="tiny" href="${open}" aria-label="Open ${h(i.name)}">Open</a>
       ${i.scope === "mine"
         ? `<button class="tiny ghost" data-move-webmap="${h(m.id)}" data-move-folder="${h(i.contentFolder || "")}"
@@ -16927,6 +16928,7 @@ function glyph(name) {
     stop: '<rect x="4" y="4" width="8" height="8" rx="1.2" fill="currentColor" stroke="none"/>',
     play: '<path d="M5 3.5v9l7.5-4.5z" fill="currentColor" stroke="none"/>',
     map: '<path d="M1.8 3.6l4-1.6 4.4 1.6 4-1.6v10.4l-4 1.6-4.4-1.6-4 1.6zM5.8 2v10.4M10.2 3.6V14"/>',
+    eye: '<path d="M1.2 8s2.5-4.6 6.8-4.6S14.8 8 14.8 8s-2.5 4.6-6.8 4.6S1.2 8 1.2 8z"/><circle cx="8" cy="8" r="2"/>',
   };
   return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none"
     stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">${paths[name] || ""}</svg>`;
