@@ -189,9 +189,13 @@ None recorded.
    eight times on dev.graticula.com (the showcase's image and data, its own tile cache, cleared between rounds with the
    scoped clear): **3,721 to 4,251 ms** a round, median 4,012, a coefficient of variation of **4 %** and a spread of
    1.14×. One cold sample moves about ±7 %, so v1.0.161 → v1.0.162's **+24 %** is a real cost, and today's 4,012 ms is
-   that "after" again. **What is not separated** is whether the cost is §5.2's simplification on DuckDB's rows or
-   something else between those two releases — that needs the two statements side by side on one build, as §5.1's
-   amendment measured PostGIS. `istanbul_buildings` is still not on the showcase.
+   that "after" again. **And it is not §5.2's simplification**: the same twelve tiles, eight cold rounds each, on one
+   machine the same evening, with a measurement build whose `Generalised` returned the geometry unchanged (never
+   merged) against the release: **3,942 ms** median with simplification, **4,083 and 3,818 ms** in two runs without —
+   the difference is inside one run's spread (cv 2–6 %). So simplifying costs nothing measurable on these rows, and
+   v1.0.161 → v1.0.162's +24 % — two days apart, one sample each — was the machine between those days rather than
+   this decision. **Left**: `istanbul_buildings` is still not on the showcase, which is the case this ADR was
+   written for.
 3. **The dashed boundaries are gone in ArcGIS Pro** — `hosted/tr_il` at 1:10.7 million, on the release that
    ships §5.1's amendment — since the defect was seen there and the tests above prove only that the pieces are in
    the tile. Added 2026-09-29 with the amendment.
