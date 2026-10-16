@@ -194,8 +194,29 @@ None recorded.
    merged) against the release: **3,942 ms** median with simplification, **4,083 and 3,818 ms** in two runs without —
    the difference is inside one run's spread (cv 2–6 %). So simplifying costs nothing measurable on these rows, and
    v1.0.161 → v1.0.162's +24 % — two days apart, one sample each — was the machine between those days rather than
-   this decision. **Left**: `istanbul_buildings` is still not on the showcase, which is the case this ADR was
-   written for.
+   this decision.
+   **DISCHARGED 2026-10-17 — the buildings are on the showcase, and on them simplifying is worth little.** By owner
+   decision (*"konsun"*) the showcase's own `istanbul_buildings.parquet` — 1,270,971 Overture buildings, none
+   invalid — was loaded into its datastore with GDAL and published from PostGIS as
+   `cities/istanbul_buildings_postgis`, beside the GeoParquet, DuckDB and MotherDuck copies of the same rows, with
+   their visible range (1:72,224, so z13 is the first zoom drawn). Nine cold z13 tiles around Sultanahmet, eight
+   rounds each on dev.graticula.com (the showcase's data, its own tile cache, the scoped clear between rounds), the
+   release against a measurement build whose `Generalised` returned the geometry unchanged, never merged:
+
+   | Build | Bytes (nine tiles) | Median ms (min–max) | cv |
+   |---|---|---|---|
+   | Release, simplifying at half a pixel | 5,145,453 | 6,199 (6,055–6,872) | 4 % |
+   | No simplification | 5,288,486 | 6,319 (5,744–7,102) | 6 % |
+
+   **2.7 % fewer bytes, and the time is inside the noise.** That is the honest answer for this layer at the zoom it
+   is drawn from: a building at z13 is a few pixels across and already simple, so half a pixel removes little; the
+   22–62 % above came from boundaries and roads, whose vertices crowd a pixel. The 927,350-polygon local figure this
+   ADR was written on was taken without a visible range, at zooms the showcase never draws buildings at. The
+   decision stands on the boundaries' and roads' numbers, and costs the buildings nothing.
+   **An observation, not a defect of ours:** the nine tiles' bytes move by a few kilobytes from round to round in
+   both builds. One tile built cold three times holds 4,505 features and 21 keys every time and 9,358–9,360
+   values — PostGIS combines `ST_AsMVT`'s parallel partial tiles without de-duplicating every value across them,
+   so which values repeat depends on how the rows fell to the workers. No feature is lost.
 3. **The dashed boundaries are gone in ArcGIS Pro** — `hosted/tr_il` at 1:10.7 million, on the release that
    ships §5.1's amendment — since the defect was seen there and the tests above prove only that the pieces are in
    the tile. Added 2026-09-29 with the amendment.

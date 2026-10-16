@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>13d11aa4</code> · 2026-10-16 23:27</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7a6483a2</code> · 2026-10-17 00:25</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">187</div><div class="kpi-l">ADR</div><div class="kpi-n">74 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">375/423</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">40 canlı · 8 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">376/423</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">39 canlı · 8 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 3 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">55 madde</span></div><p><b>40 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">54 madde</span></div><p><b>39 ADR conditions</b> outstanding across 33 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -151,7 +151,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-085 · A tile leaves out what it cannot d</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
@@ -267,7 +266,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">082</td><td>Offline sync is not in v1</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">083</td><td>The where clause evaluates ArcGIS&#x27;s standardized functions</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
 <tr><td class="id">084</td><td>The page size is one number, and the server&#x27;s is set from the console</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
-<tr><td class="id">085</td><td>A tile leaves out what it cannot draw</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">2/3</td></tr>
+<tr><td class="id">085</td><td>A tile leaves out what it cannot draw</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">086</td><td>The operator chooses the map ground, and it is the portal&#x27;s default basemap</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">3/3</td></tr>
 <tr><td class="id">087</td><td>A domain is a named object that fields on many layers point at</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">088</td><td>Sign-in through an OpenID Connect provider</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
@@ -508,6 +507,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7a6483a2</code><time>2026-10-17</time><span>The Istanbul buildings are on the showcase from PostGIS, and on them simplifying is worth 2.7 % (ADR-085 condition 2)</span></li>
+<li><code>7ab52561</code><time>2026-10-17</time><span>A long service description wraps under its name instead of widening the Services list off the screen</span></li>
+<li><code>3cad59d9</code><time>2026-10-17</time><span>A document is an item: a file filed and shared like a web map, always served as a download (ADR-188, migration 89; ADR-056 condition 2)</span></li>
 <li><code>13d11aa4</code><time>2026-10-16</time><span>The console takes the owner&#x27;s reference: blue, a dark theme, a utility line, and four screens rebuilt (ADR-187)</span></li>
 <li><code>844edd79</code><time>2026-10-16</time><span>The owner confirms the four affinity conditions deferred with ADR-029 (ADR-007 conditions 1 and 4, ADR-029 conditions 2 and 4)</span></li>
 <li><code>b5690be9</code><time>2026-10-16</time><span>The upload limits stay and a deployment may change them (Q-175, owner decision; ADR-024 condition 4, A-062)</span></li>
@@ -519,9 +521,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b4194cd9</code><time>2026-10-16</time><span>ArcGIS Pro is a built-in OAuth app: the precondition for supportsOAuth, found before the flag was turned on (ADR-076 c3, partly)</span></li>
 <li><code>d3db0851</code><time>2026-10-16</time><span>Tile encoding measured on a road network, mixed geometry and a second machine (ADR-021 c2 discharged); one cold tile&#x27;s noise measured (ADR-085 c2)</span></li>
 <li><code>d0a51cb8</code><time>2026-10-16</time><span>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs (ADR-187); the Hybrid redesign is designed screen by screen</span></li>
-<li><code>a365061b</code><time>2026-10-16</time><span>The shapefile ceiling measured against real national layers: below them, and the refusal now names the way around (ADR-024 c4, Q-175)</span></li>
-<li><code>4ef0afc6</code><time>2026-10-16</time><span>Samba&#x27;s Active Directory DC signs somebody in, by each way an AD name is typed (ADR-089 condition 1, partly)</span></li>
-<li><code>da0846ee</code><time>2026-10-16</time><span>A real Keycloak signs somebody in over SAML too, after one real quirk (ADR-090 condition 1, partly)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
