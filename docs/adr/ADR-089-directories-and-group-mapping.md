@@ -128,6 +128,18 @@ None recorded.
 ## 11. Conditions
 
 1. **A real Active Directory signs somebody in** — the suite's directory is honest and is ours.
+   **PARTLY DISCHARGED 2026-10-16 — Samba 4's Active Directory domain controller, which is AD's schema and
+   protocol but not Windows** ([tools/ad-probe](../../tools/ad-probe/), a throwaway container on the VPS's loopback
+   through a tunnel, against the local fixture). Registered with the defaults the console offers — a service
+   account's DN, `CN=Users` as the base and the filter that tries `sAMAccountName`, `uid` and `userPrincipalName` —
+   the check answered *reachable, a directory*, and `jane.doe` signed in **as each way people type an AD name**:
+   `jane.doe`, `GRATICULA\jane.doe` and `jane.doe@graticula.test`, all to one account; a wrong password was
+   refused alike. The account came with AD's `displayName` (*Jane Doe*); `GIS-Publishers` by its short name gave
+   the publisher role, marked as the mapping's; `CN=Planners,CN=Users,…` by its DN put her in the group it maps to.
+   **The probe's limit, stated**: the DC refused a simple bind over plain LDAP — *Strong authentication is required
+   for this operation*, Samba's default and where Windows DCs are heading — so the probe allowed it for the run,
+   because the server under test was on Windows and would not trust the DC's self-signed certificate over
+   `ldaps://`. **Still owed**: a Windows DC, over `ldaps://` or StartTLS with a certificate the server trusts.
 2. **The design review of the screens here**, with its findings repaired. **DISCHARGED 2026-09-24.** The review
    found three blockers, each confirmed in the code before it was repaired: a role lock that outlived the mapping that
    set it, so removing the mapping left the account unchangeable for ever (now read, not remembered: locked only while
@@ -143,3 +155,7 @@ None recorded.
    `SignInProvidersScreenTests`, three of whose tests fail with the repair taken out of the page served.
 3. **Nested groups** — AD's `memberOf` lists direct groups only; whether an organisation's mapping needs the nested
    ones is not known until one is asked.
+   *(2026-10-16, observed rather than decided: against the same Samba DC, a person in `Planners`, which is itself in
+   `All-GIS`, did not join the group `All-GIS` maps to — `memberOf` lists direct groups only, as this condition says.
+   Following the chain would be one more filter (`LDAP_MATCHING_RULE_IN_CHAIN`, which Samba and Windows both answer);
+   whether an organisation needs it is still the question.)*
