@@ -141,6 +141,18 @@ None recorded.
 
 1. **A real provider signs somebody in** — Entra ID or Keycloak, against the showcase or a deployment. The suite's
    provider is honest but is ours; the first person to meet a real one's quirks should not be the owner.
+   **PARTLY DISCHARGED 2026-10-16 — a real Keycloak, against the local fixture rather than a deployment.** Keycloak
+   26.0.7, run in a container on the VPS's loopback and reached through an SSH tunnel, with its own realm, a
+   confidential client and one user ([tools/keycloak-probe](../../tools/keycloak-probe/)). Registered as an OpenID
+   Connect provider with nothing but its issuer, client id and secret, it signed `kc.alice` in **both ways**: from
+   this server's own sign-in start, through Keycloak's own login form, back to `/rest/auth/oidc/callback` and
+   `/rest/whoami` answering `kc.alice`, a viewer made at the first sign-in; and **from an ArcGIS app's OAuth page**
+   (`client_id=pythonapi`, condition 2's path) — the page offered Keycloak, Keycloak's form signed in, the approval
+   page carried a code, and `/sharing/rest/oauth2/token` exchanged it for a token in `kc.alice`'s name. **One quirk
+   met, and it was the probe's**: Keycloak sets its session cookies `Secure` on plain HTTP to localhost, which a
+   browser sends back and Python's cookie jar did not. **Still owed**: the showcase or a real deployment — not done
+   here because the dev server shares the showcase's database, so a provider registered for a trial would appear on
+   the showcase's sign-in page; and Entra ID, which is the owner's tenant.
 2. **ArcGIS clients' own sign-in pages offer it.** This server's OAuth authorize page (ADR-076) — where Field Maps
    and a web app send a person — offers only a password today. **DISCHARGED 2026-09-25.** The page offers every
    enabled OpenID Connect and SAML provider first, and names the directories whose passwords its form takes. **The
