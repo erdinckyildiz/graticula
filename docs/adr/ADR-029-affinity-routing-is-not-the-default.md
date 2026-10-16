@@ -270,7 +270,7 @@ informational.
 2. **`benchmarks/worker-model` is written before affinity is ever reconsidered.**
    Both this decision and the one it reverses rest on not knowing the context
    weight distribution, and whichever way it goes next, it should go there on a
-   number. *(Deferred 2026-10-16 with this ADR's decision of 2026-08-15, which took affinity routing out of the default and suspended auto-pinning: v1 has neither, so there is nothing for this to be met against, and counting it beside live work made the pile look larger than it is. **INFERRED** from that decision rather than said by the owner, and listed for confirmation. It is live again the day affinity or escalation is reconsidered.)*
+   number. *(Deferred 2026-10-16 with this ADR's decision of 2026-08-15, which took affinity routing out of the default and suspended auto-pinning: v1 has neither, so there is nothing for this to be met against, and counting it beside live work made the pile look larger than it is. **Confirmed by the owner 2026-10-16** — *"onaylıyorum"*, after affinity routing and why it left the default were explained to them; it was INFERRED until then. It is live again the day affinity or escalation is reconsidered.)*
 3. **The node-local tile cache is stated in deployment guidance** before anybody
    is told to run two nodes. Discovering that two servers means two caches, in
    production, is the worst way to learn it. *(Discharged 2026-08-15 —
@@ -278,7 +278,7 @@ informational.
    and states plainly that two nodes have never been run.)*
 4. **A-003 and A-014 are restored to load-bearing the moment affinity is
    reconsidered**, rather than being quietly carried as informational into a
-   design that needs them again. *(Deferred 2026-10-16 with this ADR's decision of 2026-08-15, which took affinity routing out of the default and suspended auto-pinning: v1 has neither, so there is nothing for this to be met against, and counting it beside live work made the pile look larger than it is. **INFERRED** from that decision rather than said by the owner, and listed for confirmation. It is live again the day affinity or escalation is reconsidered.)*
+   design that needs them again. *(Deferred 2026-10-16 with this ADR's decision of 2026-08-15, which took affinity routing out of the default and suspended auto-pinning: v1 has neither, so there is nothing for this to be met against, and counting it beside live work made the pile look larger than it is. **Confirmed by the owner 2026-10-16** — *"onaylıyorum"*, after affinity routing and why it left the default were explained to them; it was INFERRED until then. It is live again the day affinity or escalation is reconsidered.)*
 
 ## 11. Dissent
 
