@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>d0a51cb8</code> · 2026-10-16 18:55</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d3db0851</code> · 2026-10-16 19:14</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">186</div><div class="kpi-l">ADR</div><div class="kpi-n">74 koşulsuz kabul</div></div>
@@ -119,7 +119,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4910</div><div class="kpi-l">test</div><div class="kpi-n">490 kaynak dosya, 222,078 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4911</div><div class="kpi-l">test</div><div class="kpi-n">490 kaynak dosya, 222,098 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -492,7 +492,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1377</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.7%"></div></div><div class="bar-n">891</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.4%"></div></div><div class="bar-n">763</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">764</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">549</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">415</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">293</div></div>
@@ -505,6 +505,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d3db0851</code><time>2026-10-16</time><span>Tile encoding measured on a road network, mixed geometry and a second machine (ADR-021 c2 discharged); one cold tile&#x27;s noise measured (ADR-085 c2)</span></li>
 <li><code>d0a51cb8</code><time>2026-10-16</time><span>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs (ADR-187); the Hybrid redesign is designed screen by screen</span></li>
 <li><code>a365061b</code><time>2026-10-16</time><span>The shapefile ceiling measured against real national layers: below them, and the refusal now names the way around (ADR-024 c4, Q-175)</span></li>
 <li><code>4ef0afc6</code><time>2026-10-16</time><span>Samba&#x27;s Active Directory DC signs somebody in, by each way an AD name is typed (ADR-089 condition 1, partly)</span></li>
@@ -518,7 +519,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>4d967318</code><time>2026-10-16</time><span>docs: require full Studio and Server redesign across every existing screen</span></li>
 <li><code>782881cc</code><time>2026-10-16</time><span>docs: capture approved Graticula Hybrid UI direction for Codex</span></li>
 <li><code>a4f11043</code><time>2026-10-15</time><span>An edit empties the tiles it reached, not the whole layer (ADR-186, ADR-101 condition 4 partly)</span></li>
-<li><code>3e7cee60</code><time>2026-10-15</time><span>Owner decisions of 2026-10-15: the security contact stands, no outside contributions, the DuckDB defect is not reported, Move was built (ADR-025, 047, 067, 108)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

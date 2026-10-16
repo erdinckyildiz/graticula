@@ -181,6 +181,18 @@ signing Pro in afterwards.
    pins the wrong `code_verifier`, the unregistered redirect (and a registered one's other path), the code replayed
    with its refresh token then refused, and the access token refused by `/admin`. Both run in CI.
 3. **`supportsOAuth` is turned on only after ArcGIS Pro signs in to the showcase with it on.**
+   **PARTLY DISCHARGED 2026-10-16 — the precondition found and met; Pro's own sign-in through its window is still
+   owed.** What Pro sends was read from its embedded browser's history, where it had signed in to ArcGIS Online:
+   `/sharing/rest/oauth2/authorize?client_id=arcgisprodesktop&expiration=-1&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&sessionName=…&locale=…`
+   — a client id Pro carries rather than registers, out of band, and no PKCE. **This server knew no
+   `arcgisprodesktop`**, so a portal saying `supportsOAuth: true` would have answered Pro *no app is registered here*
+   — the failure this condition was written against, found before the flag was turned on rather than after. Migration
+   88 registers it as a built-in app, as Field Maps and the Python API are, and
+   `OAuthConformanceTests.ArcGIS_Pros_own_sign_in_ends_in_a_token` walks Pro's exact request: the page signs in, the
+   out-of-band title carries the code, and the code is exchanged without a secret for a token that opens the portal
+   as the person. **Control**: with the row removed the test fails on that sentence. The flag stays off on every
+   deployment; a trial branch on the dev server turns it on with a setting, and it stays a trial until Pro has been
+   seen to sign in through its own window — which an automated session was not allowed to drive on 2026-10-16.
 4. **Field Maps signs in on a device** against the showcase; and the owner supplies Survey123's
    client id, or confirms it, so it can ship registered too. *(Open — needs a device and the owner.)*
 5. **The console gets a screen for registered apps**, reviewed like every other screen. Until then

@@ -29,6 +29,64 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
 {
     private const string Redirect = "https://app.example/callback";
 
+    /// <summary>
+    /// ArcGIS Pro's own sign-in, as Pro sends it: <c>arcgisprodesktop</c>, out of band, no PKCE, <c>expiration=-1</c>.
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-10-16, ADR-076 condition 3.</b> The request is the one Pro's embedded browser recorded opening against
+    /// ArcGIS Online. The page signs the person in, the out-of-band page's title carries the code — which is where Pro
+    /// reads it — and the code is exchanged for a token without a secret, as Pro has none.
+    /// </remarks>
+    [Fact]
+    public async Task ArcGIS_Pros_own_sign_in_ends_in_a_token()
+    {
+        string root = await RequireServerAsync();
+        string? user = Environment.GetEnvironmentVariable(UserVariable);
+        string? password = Environment.GetEnvironmentVariable(PasswordVariable);
+        Assert.False(user is null || password is null, "No administrator credential.");
+
+        using HttpClient browser = new(new HttpClientHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        });
+
+        const string Oob = "urn:ietf:wg:oauth:2.0:oob";
+        string authorize = $"{root}/sharing/rest/oauth2/authorize?client_id=arcgisprodesktop&expiration=-1"
+            + "&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&sessionName=ArcGISPro_60&locale=en-US";
+
+        using HttpResponseMessage page = await browser.GetAsync(authorize);
+        string html = await page.Content.ReadAsStringAsync();
+        Assert.True(page.StatusCode == HttpStatusCode.OK, $"Pro's authorize page answered {(int)page.StatusCode}: {html}");
+
+        string formToken = FormToken().Match(html).Groups[1].Value;
+        string cookie = page.Headers.GetValues("Set-Cookie").Single(c => c.StartsWith("graticula_oauth_form=", StringComparison.Ordinal)).Split(';')[0];
+
+        string code;
+
+        using (HttpResponseMessage signedIn = await PostFormAsync(browser, $"{root}/sharing/rest/oauth2/signin", cookie,
+            [("form_token", formToken), ("client_id", "arcgisprodesktop"), ("response_type", "code"), ("redirect_uri", Oob),
+             ("username", user!), ("password", password!)]))
+        {
+            Assert.Equal(HttpStatusCode.Redirect, signedIn.StatusCode);
+
+            using HttpResponseMessage approval = await browser.GetAsync(new Uri(new Uri(root), signedIn.Headers.Location!));
+            string approved = await approval.Content.ReadAsStringAsync();
+            code = Regex.Match(approved, "<title>SUCCESS code=(.*?)</title>").Groups[1].Value;
+            Assert.False(string.IsNullOrEmpty(code), $"The out-of-band page carries no code in its title: {approved}");
+        }
+
+        JsonElement issued = await TokenAsync(browser, root, ("client_id", "arcgisprodesktop"), ("grant_type", "authorization_code"),
+            ("code", code), ("redirect_uri", Oob), ("f", "json"));
+
+        Assert.True(issued.TryGetProperty("access_token", out JsonElement access), $"Pro's code was not exchanged: {issued}");
+        Assert.True(issued.TryGetProperty("refresh_token", out _), $"Pro is given no refresh token: {issued}");
+
+        JsonElement self = await GetWithAsync(browser, $"{root}/sharing/rest/portals/self?f=json", access.GetString()!);
+        Assert.Equal(user, self.GetProperty("user").GetProperty("username").GetString());
+    }
+
     [Fact]
     public async Task A_registered_app_signs_a_person_in_and_every_misuse_is_refused()
     {

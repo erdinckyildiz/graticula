@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(87);
+    public static SchemaVersion ComponentSchemaVersion => new(88);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -122,7 +122,27 @@ public static class PlatformMigrations
         AServiceStatesItsCreditsV85,
         ThePythonApiIsABuiltInAppV86,
         AnItemIsItsOwnRecordV87,
+        ArcGisProIsABuiltInAppV88,
     ]);
+
+    /// <summary>
+    /// ArcGIS Pro is a built-in OAuth app, as Field Maps and the Python API are — ADR-076 condition 3's precondition.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> One row. Pro's own sign-in, read from its embedded browser's history on 2026-10-16, opens
+    /// <c>/sharing/rest/oauth2/authorize?client_id=arcgisprodesktop&amp;expiration=-1&amp;redirect_uri=urn:ietf:wg:oauth:2.0:oob&amp;response_type=code</c>
+    /// — a client id it carries rather than registers, out of band, with no PKCE. Without this row a portal that says
+    /// <c>supportsOAuth: true</c> answers Pro *no app is registered here as 'arcgisprodesktop'*, which is the failure
+    /// condition 3 was written to prevent. A build before this one has the row and offers it nothing.
+    /// </remarks>
+    private static Migration ArcGisProIsABuiltInAppV88 => Migration.Expand(
+        new SchemaVersion(88),
+        "ArcGIS Pro is a built-in OAuth app (ADR-076 condition 3).",
+        """
+        insert into oauth_app (client_id, title, redirect_uris, builtin)
+        values ('arcgisprodesktop', 'ArcGIS Pro', array['urn:ietf:wg:oauth:2.0:oob'], true)
+        on conflict (client_id) do nothing
+        """);
 
     /// <summary>
     /// An item is a record of its own, and a service and a web map are each one kind of it — ADR-056, owner decision
