@@ -185,6 +185,13 @@ None recorded.
    at all — and the GeoParquet layer's time **rose 24 %** in a single cold sample, which is either the
    simplification's cost on DuckDB's rows or one sample's noise; it needs repeated samples before it is
    either.
+   **2026-10-16 — repeated, and it is not noise.** The same twelve z12 tiles of `geoparquet/istanbul_roads` built cold
+   eight times on dev.graticula.com (the showcase's image and data, its own tile cache, cleared between rounds with the
+   scoped clear): **3,721 to 4,251 ms** a round, median 4,012, a coefficient of variation of **4 %** and a spread of
+   1.14×. One cold sample moves about ±7 %, so v1.0.161 → v1.0.162's **+24 %** is a real cost, and today's 4,012 ms is
+   that "after" again. **What is not separated** is whether the cost is §5.2's simplification on DuckDB's rows or
+   something else between those two releases — that needs the two statements side by side on one build, as §5.1's
+   amendment measured PostGIS. `istanbul_buildings` is still not on the showcase.
 3. **The dashed boundaries are gone in ArcGIS Pro** — `hosted/tr_il` at 1:10.7 million, on the release that
    ships §5.1's amendment — since the defect was seen there and the tests above prove only that the pieces are in
    the tile. Added 2026-09-29 with the amendment.

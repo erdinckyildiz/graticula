@@ -299,6 +299,15 @@ mean two caches rather than a coherence problem.
    Encoding stays in PostGIS. The widened run stands as the evidence that a read-once *seeder* could roughly double
    or triple seeding throughput, to revisit if seeding time is ever the complaint; the allocation and the collector's
    share at concurrency 4 land on the process that also answers requests, which is the reason §5 gave.
+   **DISCHARGED 2026-10-16 — the three gaps named above and a second machine, measured**
+   ([benchmarks/harness/q68-roads-mixed-2026-10-16.md](../../benchmarks/harness/q68-roads-mixed-2026-10-16.md)):
+   Geofabrik's Turkey road network (2,666,291 lines), a table of polygons, lines and points together, and the
+   showcase's arm64 host beside the owner's workstation, every run `--production` with outputs that agree. **On the
+   road network `ST_AsMVT` is the faster path on both machines** — reading once gives 0.23× to 0.53× its tiles a
+   second — and on the arm64 host the polygons' advantage shrinks from 4.6× to 1.25× and mixed geometry reaches
+   0.94×. **What generalises is the allocation**: 3.5 to 33 MB a tile read once against 0.03 to 0.19 MB, on every
+   table and machine. The decision rests on that, and the throughput that does not generalise does not argue for
+   reopening it; Q-173's read-once seeder stays a possibility for polygon-heavy seeding only.
 3. ~~**Nobody has looked at a rendered tile.**~~ **DISCHARGED 2026-08-14**, the
    same day, by [tools/render-tile.py](../../tools/render-tile.py). z16/38030/24562
    in Istanbul, 1,258 features: the decoded `ST_AsMVT` output and the same extent

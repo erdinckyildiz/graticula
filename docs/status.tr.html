@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>a365061b</code> · 2026-10-16 17:56</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d0a51cb8</code> · 2026-10-16 18:55</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">186</div><div class="kpi-l">ADR</div><div class="kpi-n">74 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">370/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">41 canlı · 8 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">371/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">40 canlı · 8 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-175</b> — Should an upload take a national-scale layer, or should such a layer keep coming in without one?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">55 madde</span></div><p><b>41 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">54 madde</span></div><p><b>40 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -139,7 +139,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-021 · Tiles are encoded by PostGIS, and </div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">1</div></div>
@@ -204,7 +203,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">018</td><td>Authorization: user types, roles and privileges</td><td><span class="pill warn">REOPENED 2026-08-14 by owner direction →…</span><div class="muted-t">REOPENED 2026-08-14 by owner direction → re-decided, ACCEPTED WITH CONDITIONS</div></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">019</td><td>One deployable, three fused tiers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the decision · LOW for the trigger conditions in §5</td><td class="num">3/3</td></tr>
 <tr><td class="id">020</td><td>An admin console, and what &quot;stop a service&quot; means</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM-HIGH for the console · MEDIUM for the status model</td><td class="num">3/3</td></tr>
-<tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">2/3</td></tr>
+<tr><td class="id">021</td><td>Tiles are encoded by PostGIS, and we do not write an encoder</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the decision · MEDIUM for the condition in §7</td><td class="num">3/3</td></tr>
 <tr><td class="id">022</td><td>GeometryServer ships in halves, and the projection engine is the datastore&#x27;s</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by…</span><div class="muted-t">ACCEPTED WITH CONDITIONS · §2 SUPERSEDED by §2b, 2026-08-15</div></td><td class="muted-t">HIGH for the split · HIGH for the engine · MEDIUM for the vertex cap</td><td class="num">4/4</td></tr>
 <tr><td class="id">023</td><td>The REST Services Directory: an HTML face for the API</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">6/7</td></tr>
 <tr><td class="id">024</td><td>Shapefile import, and the exception it costs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">4/5</td></tr>
@@ -506,6 +505,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>d0a51cb8</code><time>2026-10-16</time><span>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs (ADR-187); the Hybrid redesign is designed screen by screen</span></li>
 <li><code>a365061b</code><time>2026-10-16</time><span>The shapefile ceiling measured against real national layers: below them, and the refusal now names the way around (ADR-024 c4, Q-175)</span></li>
 <li><code>4ef0afc6</code><time>2026-10-16</time><span>Samba&#x27;s Active Directory DC signs somebody in, by each way an AD name is typed (ADR-089 condition 1, partly)</span></li>
 <li><code>da0846ee</code><time>2026-10-16</time><span>A real Keycloak signs somebody in over SAML too, after one real quirk (ADR-090 condition 1, partly)</span></li>
@@ -519,7 +519,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>782881cc</code><time>2026-10-16</time><span>docs: capture approved Graticula Hybrid UI direction for Codex</span></li>
 <li><code>a4f11043</code><time>2026-10-15</time><span>An edit empties the tiles it reached, not the whole layer (ADR-186, ADR-101 condition 4 partly)</span></li>
 <li><code>3e7cee60</code><time>2026-10-15</time><span>Owner decisions of 2026-10-15: the security contact stands, no outside contributions, the DuckDB defect is not reported, Move was built (ADR-025, 047, 067, 108)</span></li>
-<li><code>241bb906</code><time>2026-10-15</time><span>A layer&#x27;s document publishes cacheMaxAge, the lifetime its query answers are sent with, as ArcGIS&#x27;s do (ADR-101 condition 3)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
