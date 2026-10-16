@@ -416,7 +416,7 @@ public sealed class FeatureCollectionPbfWriter
                 break;
 
             case DateTime timestamp:
-                message.SInt(8, new DateTimeOffset(timestamp.ToUniversalTime()).ToUnixTimeMilliseconds());
+                message.SInt(8, new DateTimeOffset(Graticula.Features.StoredTime.Utc(timestamp)).ToUnixTimeMilliseconds());
                 break;
             case DateTimeOffset timestamp:
                 message.SInt(8, timestamp.ToUnixTimeMilliseconds());
@@ -524,10 +524,11 @@ public sealed class FeatureCollectionPbfWriter
 
         ProtoBuffer message = new();
 
-        if (geometry is not Point)
-        {
-            message.PackedUInt(2, [.. lengths]);
-        }
+        // <b>A point says it is one vertex long, as ArcGIS's own answers do — 2026-10-16.</b> This wrote no lengths
+        // for a point, which the Maps SDK reads and ArcGIS Pro does not: Pro's search cursor came back with every
+        // shape None on every point layer here and with the shapes from Esri's sample server, and Esri's answer to
+        // Pro's own query differed from this one first in `lengths: [1]` (ADR-077 condition 5).
+        message.PackedUInt(2, geometry is Point ? [1u] : [.. lengths]);
 
         message.PackedSInt(3, [.. coords]);
         return message;

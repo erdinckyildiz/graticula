@@ -285,7 +285,7 @@ public sealed class FeatureServerQueryWriter
                     ? "esriFieldTypeGlobalID"
                     : FeatureServerMetadataWriter.TypeName(field.Type);
 
-                WriteField(writer, name, type, field.Label, field.MaxLength);
+                WriteField(writer, name, type, field.Label, FeatureServerMetadataWriter.LengthOf(field));
             }
             else
             {
@@ -553,7 +553,7 @@ public sealed class FeatureServerQueryWriter
     /// <returns>The milliseconds, or null.</returns>
     public static long? EpochMilliseconds(object? value) => value switch
     {
-        DateTime timestamp => new DateTimeOffset(timestamp.ToUniversalTime()).ToUnixTimeMilliseconds(),
+        DateTime timestamp => new DateTimeOffset(Graticula.Features.StoredTime.Utc(timestamp)).ToUnixTimeMilliseconds(),
         DateTimeOffset timestamp => timestamp.ToUnixTimeMilliseconds(),
         _ => null,
     };

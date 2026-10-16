@@ -309,7 +309,7 @@ public sealed class GmlFeatureCollectionWriter
     public static string Text(object value) => value switch
     {
         bool flag => flag ? "true" : "false",
-        DateTime moment => moment.ToUniversalTime()
+        DateTime moment => Graticula.Features.StoredTime.Utc(moment)
             .ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture),
         DateTimeOffset moment => moment.UtcDateTime
             .ToString("yyyy-MM-ddTHH:mm:ss.fffffffZ", CultureInfo.InvariantCulture),

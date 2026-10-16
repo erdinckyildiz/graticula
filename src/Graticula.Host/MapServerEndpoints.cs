@@ -270,7 +270,7 @@ internal static class MapServerEndpoints
                 // faces over one layer disagreeing about a label is D-179's shape.
                 alias = f.Label,
                 nullable = f.Nullable,
-                length = f.MaxLength,
+                length = FeatureServerMetadataWriter.LengthOf(f),
             })],
             drawingInfo,
             // The FeatureServer face's own rule, so the two documents of one layer name one field.

@@ -75,6 +75,36 @@ public sealed class FeatureServerMetadataWriterTests
         Assert.Equal(since.ToUnixTimeMilliseconds(), map.GetProperty("archivingInfo").GetProperty("startArchivingMoment").GetInt64());
     }
 
+    /// <remarks>
+    /// <b>2026-10-16, found by ArcGIS Pro's editing engine</b> (ADR-077 condition 5): a <c>text</c> column has no declared
+    /// length and its field went out with none, which Pro read as zero and refused every value against. ArcGIS gives an
+    /// unbounded text column 1,073,741,822; a declared length stays what it is, and a field that is not a string has none.
+    /// </remarks>
+    [Fact]
+    public void A_string_with_no_declared_length_is_given_the_length_ArcGIS_gives_unbounded_text()
+    {
+        LayerDescription described = Description() with
+        {
+            Fields =
+            [
+                new FieldDescription("objectid", FieldType.Integer, false, null),
+                new FieldDescription("osm_id", FieldType.BigInteger, true, null),
+                new FieldDescription("name", FieldType.Text, true, 255),
+                new FieldDescription("note", FieldType.Text, true, null),
+            ],
+        };
+
+        JsonElement fields = Json(FeatureServerMetadataWriter.Layer(Layer(), GeometryKind.Point, described, "Query"))
+            .GetProperty("fields");
+
+        int? Length(string name) => fields.EnumerateArray().Single(f => f.GetProperty("name").GetString() == name)
+            .TryGetProperty("length", out JsonElement length) && length.ValueKind == JsonValueKind.Number ? length.GetInt32() : null;
+
+        Assert.Equal(1_073_741_822, Length("note"));
+        Assert.Equal(255, Length("name"));
+        Assert.Null(Length("objectid"));
+    }
+
     [Fact]
     public void The_service_document_reports_the_capabilities_it_is_given()
     {

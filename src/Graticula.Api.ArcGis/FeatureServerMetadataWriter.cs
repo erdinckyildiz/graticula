@@ -1239,6 +1239,26 @@ public static class FeatureServerMetadataWriter
                 : TypeName(field.Type);
     }
 
+    /// <summary>
+    /// The length an ArcGIS client is told for a field: its declared one, and for a string with none, the length ArcGIS
+    /// gives an unbounded text column.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found 2026-10-16 by ArcGIS Pro's own editing engine</b> (ADR-077 condition 5): a PostgreSQL <c>text</c> column
+    /// has no declared length, so its field went out with none, and Pro read that as zero — <c>arcpy.da.InsertCursor</c>
+    /// refused a five-letter name with <i>Field length exceeded</i> before sending anything. ArcGIS reports an unbounded
+    /// text column (SQL Server's <c>nvarchar(max)</c>, a geodatabase field widened past its limit) as 1,073,741,822
+    /// characters, and so does this now, on every face that writes <c>length</c>.
+    /// </remarks>
+    /// <param name="field">The field.</param>
+    /// <returns>Its length, or null for a field that is not a string.</returns>
+    public static int? LengthOf(FieldDescription field) =>
+        field.MaxLength
+        ?? (string.Equals(TypeName(field.Type), "esriFieldTypeString", StringComparison.Ordinal) ? UnboundedTextLength : null);
+
+    /// <summary>The length ArcGIS gives a text column with no limit.</summary>
+    public const int UnboundedTextLength = 1_073_741_822;
+
     private static object[] Fields(
         LayerDefinition layer, LayerDescription description, string capabilities) =>
         [.. description.Fields.Select(field => new
@@ -1250,7 +1270,7 @@ public static class FeatureServerMetadataWriter
             // wrong one: a client shows it, and a geodatabase import that read the operator's
             // own labels threw them away before they could get here.
             alias = field.Label,
-            length = field.MaxLength,
+            length = LengthOf(field),
             nullable = field.Nullable,
 
             // The object id is never editable even when the layer is: it is

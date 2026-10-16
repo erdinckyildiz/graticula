@@ -367,7 +367,12 @@ public static class ApplyEditsRequest
             {
                 FieldType.SmallInteger => (short)value.GetInt32(),
                 FieldType.Integer => value.GetInt32(),
-                FieldType.BigInteger => value.GetInt64(),
+                // <b>Text as well as a number — 2026-10-16.</b> The layer document declares a 64-bit integer a string
+                // (JavaScript cannot hold one past 2^53), so a client that believes it sends text: ArcGIS Pro sent
+                // "9007199254740993" for one and was refused for sending what it was told the field holds.
+                FieldType.BigInteger => value.ValueKind == JsonValueKind.String
+                    ? long.Parse(value.GetString()!, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture)
+                    : value.GetInt64(),
                 FieldType.Single => (float)value.GetDouble(),
                 FieldType.Double => value.GetDouble(),
                 FieldType.Boolean => ReadBoolean(value),

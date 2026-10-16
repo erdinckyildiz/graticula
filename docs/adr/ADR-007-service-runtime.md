@@ -732,7 +732,7 @@ ADR-006 (plugins are job workers if they exist at all), admin API (§39).
 1. **A-014 must be prototyped before affinity routing is implemented, and the
    prototype must demonstrate stability under adversarial load, not merely a
    better hit rate** (adversarial review F2). If it fails, §4.4 is replaced by
-   plain balancing and this ADR is amended, not quietly ignored.
+   plain balancing and this ADR is amended, not quietly ignored. *(Deferred 2026-10-16 with [ADR-029](ADR-029-affinity-routing-is-not-the-default.md)'s decision of 2026-08-15, which took affinity routing out of the default and suspended auto-pinning: v1 has neither, so there is nothing for this to be met against, and counting it beside live work made the pile look larger than it is. **INFERRED** from that decision rather than said by the owner, and listed for confirmation. It is live again the day affinity or escalation is reconsidered.)*
 1a. **The context budget is validated as a resource budget** (F6) before it is
    implemented as a count.
 2. **A-015 must be measured before §4.3's lazy binding is relied upon.**
@@ -766,7 +766,7 @@ ADR-006 (plugins are job workers if they exist at all), admin API (§39).
    is 8 rather than 0, held there by our own two-second job polling (D-110). Oracle and SQL Server are
    not in v1, so the per-provider shape is kept and only PostgreSQL is filled in.)***
 4. **Manual override must exist for every adaptive behaviour** in §4.5. An
-   administrator who disagrees with the system must be able to win.
+   administrator who disagrees with the system must be able to win. *(Deferred 2026-10-16 with [ADR-029](ADR-029-affinity-routing-is-not-the-default.md)'s decision of 2026-08-15, which took affinity routing out of the default and suspended auto-pinning: §4.5's only adaptive behaviour is escalation, and v1 has none; the source breaker (§4.8) is not one — it closes itself after ten seconds and is not a judgement an administrator could disagree with, so there is nothing for this to be met against, and counting it beside live work made the pile look larger than it is. **INFERRED** from that decision rather than said by the owner, and listed for confirmation. It is live again the day affinity or escalation is reconsidered.)*
 
 ## 11. Revisit triggers
 

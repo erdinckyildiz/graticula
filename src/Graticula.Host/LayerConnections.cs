@@ -434,7 +434,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     private static NpgsqlDataSource BuildPool(string connectionString) =>
         new NpgsqlDataSourceBuilder(
-            WithApplicationName(WithStatementTimeout(connectionString))).Build();
+            WithApplicationName(WithStatementTimeout(InUtc(connectionString)))).Build();
+
+    /// <summary>
+    /// A layer's session runs in UTC, whatever the database's own <c>TimeZone</c> is.
+    /// </summary>
+    /// <remarks>
+    /// <b>2026-10-16, with <see cref="Graticula.Features.StoredTime"/>.</b> A client sends an instant; written into a
+    /// <c>timestamp</c> column it is cast through the session's zone, so a database set to Europe/Istanbul stored a
+    /// three-hours-later wall clock than one set to UTC. The layer document says UTC, so the session does too — imposed,
+    /// as the statement timeout is, because it is what this server's answers mean rather than an operator's preference.
+    /// </remarks>
+    /// <param name="connectionString">The connection string.</param>
+    /// <returns>The connection string, in UTC.</returns>
+    internal static string InUtc(string connectionString) =>
+        new NpgsqlConnectionStringBuilder(connectionString) { Timezone = "UTC" }.ConnectionString;
 
     /// <summary>A writer for one layer, over the same shared pool.</summary>
     /// <param name="layer">The layer.</param>
@@ -836,6 +850,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         {
             MaxPoolSize = 8,
             MinPoolSize = 0,
+            Timezone = "UTC",
         };
 
         if (string.IsNullOrWhiteSpace(builder.ApplicationName))

@@ -105,6 +105,21 @@ public sealed class FeatureCollectionPbfTests
         Assert.Equal("Ad", fields[1].One(3).Text);
     }
 
+    /// <remarks>
+    /// <b>2026-10-16, ArcGIS Pro's search cursor.</b> A point went out with no <c>lengths</c>, which the Maps SDK reads
+    /// and Pro does not: every shape came back None, on every point layer here, while the same cursor read Esri's sample
+    /// server — whose answer to Pro's query differed from this one first in <c>lengths: [1]</c>.
+    /// </remarks>
+    [Fact]
+    public async Task A_point_says_it_is_one_vertex_long()
+    {
+        (IReadOnlyList<Field> result, _) = await WriteAsync([new Point(1, 2)], kind: GeometryKind.Point);
+
+        IReadOnlyList<Field> geometry = result.One(15).Message.One(2).Message;
+
+        Assert.Equal([1UL], PbfReader.Packed(geometry.One(2).Bytes));
+    }
+
     [Fact]
     public async Task Values_follow_the_json_writer_rules()
     {
@@ -131,7 +146,6 @@ public sealed class FeatureCollectionPbfTests
         IReadOnlyList<Field> geometry = result.One(15).Message.One(2).Message;
         (double x, double y) = PbfReader.Parts(geometry, result.One(12).Message)[0][0];
 
-        Assert.Null(geometry.Find(f => f.Number == 2));
         Assert.Equal(3123456.789012, x, 1e-4);
         Assert.Equal(-1234567.890123, y, 1e-4);
     }

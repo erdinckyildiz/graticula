@@ -199,7 +199,7 @@ public static class GeoJsonWriter
                 break;
 
             case DateTime moment:
-                json.WriteStringValue(moment.ToUniversalTime()
+                json.WriteStringValue(Graticula.Features.StoredTime.Utc(moment)
                     .ToString(Timestamp, CultureInfo.InvariantCulture));
                 break;
 

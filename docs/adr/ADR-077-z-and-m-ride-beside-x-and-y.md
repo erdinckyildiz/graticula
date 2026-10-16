@@ -124,6 +124,33 @@ the binding constraint (A-037). Times overlap the baseline's.
    and read it back with `returnZ` and `returnM` as sent. **The table holds what it sent**, read with `psql` rather
    than through this server: `ST_Z` 333.25, `ST_M` 4.5. The row was deleted and the layer unpublished, the table left
    as it was. **Pro and Field Maps are still owed** — the condition's own point is what *they* send.
+   **2026-10-16 — ArcGIS Pro's half, and it found two defects first.** ArcGIS Pro 3.7's own editing engine
+   (`arcpy.da.InsertCursor` and `UpdateCursor` on the layer's URL, signed in to the local fixture's plain-HTTP twin
+   through a recording relay) added a point at 29.6, 41.6 with z 444.5 and m 5.5 and then moved it to 29.7, 41.7 with
+   z 555.25 and m 6.5. **What Pro sends**: `z` and `m` on the point itself, with **no `hasZ` or `hasM`**, and the x
+   and y already snapped to its own grid (`29.60000000000008`). **The table holds what it sent**, read with `psql`:
+   `ST_Z` 444.5 then 555.25, `ST_M` 5.5 then 6.5; and Pro's search cursor reads both back. The rows were deleted and
+   the layer unpublished. Before that could run:
+   - **Every text field without a declared length went out with none**, which Pro reads as zero: the insert was
+     refused in Pro, before any request, with *Field length exceeded*. A string field with no declared length now
+     says 1,073,741,822, the length ArcGIS gives unbounded text, on the FeatureServer and MapServer documents and in
+     a query's fields (`FeatureServerMetadataWriter.LengthOf`).
+   - **Pro read no shape at all from an `f=pbf` point answer** — on every point layer here, Z or not, while the same
+     cursor read Esri's sample server. Esri's answer to Pro's own query differed first in `lengths: [1]` on a point,
+     which this writer left out; with it, Pro reads x, y, z and m, in that order, as written.
+   **The same harness then wrote every common type through Pro** — text in Turkish, a bounded string, small, 32- and
+   64-bit integers, single, double, numeric, `date`, `timestamp`, `timestamptz`, boolean, uuid, a polygon — inserted,
+   updated and deleted, read back through `psql` and through Pro's own cursor, and two more defects came out of it:
+   - **A 64-bit integer is declared `esriFieldTypeString`** (JavaScript cannot hold one past 2^53), Pro believed it and
+     sent `"9007199254740993"`, and `applyEdits` refused text for a BigInteger. It takes text or a number now.
+   - **A value with no zone was read as this machine's local time.** The faces called `ToUniversalTime` on a `timestamp`
+     or `date` value, and the layer sessions ran in the database's own zone: on a server at +03:00 Pro's
+     `2026-01-02 03:04:05` was stored as `06:04:05` and a `date` came back as the evening before. Every layer document
+     says `dateFieldsTimeReference: UTC`; layer sessions now run in UTC and an unzoned value is read as UTC
+     (`StoredTime.Utc`). A container in UTC never showed it.
+   A sweep of every layer the fixture serves through Pro's search cursor, each value against the server's own `f=json`
+   answer, found nothing else: nine layers, 72 rows, points, lines and polygons.
+   **Field Maps is still owed**, on a device.
 
 ## 7. Consequences
 
