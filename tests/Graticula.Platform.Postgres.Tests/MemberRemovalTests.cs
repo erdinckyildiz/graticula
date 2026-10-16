@@ -183,6 +183,54 @@ public sealed class MemberRemovalTests : PostgresFixture
     }
 
     /// <summary>
+    /// A transfer carries the giver's content folders, and an item filed in one stays filed — in the taker's folder of
+    /// the same title when the taker already has one.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found 2026-10-16 by reading, while surveying ADR-056's item table.</b> The transfer moved the items and left
+    /// their <c>content_folder_id</c> on the giver's folders, which the giver's removal then deletes: a folder row is
+    /// <c>on delete cascade</c> from its owner and an item's reference to it is <c>on delete restrict</c>, so removing
+    /// a member who had filed anything in a folder failed outright.
+    /// </remarks>
+    [Fact]
+    public async Task Transferring_carries_content_folders_and_merges_one_the_taker_already_has()
+    {
+        PostgresMemberDirectory members = await ReadyAsync();
+
+        Guid giver = await MakeAsync(members, "filer", "publisher");
+        Guid taker = await MakeAsync(members, "keeper", "publisher");
+
+        await OwnAsync(giver, service: "filed_alone", folder: null);
+        await OwnAsync(giver, service: "filed_shared", folder: null);
+
+        await ExecuteAsync(
+            $"insert into {SchemaName}.content_folder (id, owner_principal_id, title) values "
+            + $"('aaaaaaaa-0000-0000-0000-000000000001', '{giver}', 'Only mine'), "
+            + $"('aaaaaaaa-0000-0000-0000-000000000002', '{giver}', 'Projects'), "
+            + $"('bbbbbbbb-0000-0000-0000-000000000002', '{taker}', 'projects')");
+        await ExecuteAsync(
+            $"update {SchemaName}.service set content_folder_id = 'aaaaaaaa-0000-0000-0000-000000000001' where name = 'filed_alone'");
+        await ExecuteAsync(
+            $"update {SchemaName}.service set content_folder_id = 'aaaaaaaa-0000-0000-0000-000000000002' where name = 'filed_shared'");
+
+        Assert.Equal(
+            MemberRemoval.Removed,
+            await members.TransferAndRemoveAsync("filer", "keeper", CancellationToken.None));
+
+        // The folder the taker did not have is now theirs, with its item still in it.
+        Assert.Equal(1L, await ScalarAsync(
+            $"select count(*) from {SchemaName}.service s join {SchemaName}.content_folder f on f.id = s.content_folder_id "
+            + $"where s.name = 'filed_alone' and f.title = 'Only mine' and f.owner_principal_id = '{taker}'"));
+
+        // The one they had takes the other item, and the giver's copy is gone.
+        Assert.Equal(
+            "bbbbbbbb-0000-0000-0000-000000000002",
+            (await ScalarObjectAsync($"select content_folder_id::text from {SchemaName}.service where name = 'filed_shared'"))!.ToString());
+        Assert.Equal(2L, await ScalarAsync(
+            $"select count(*) from {SchemaName}.content_folder where owner_principal_id = '{taker}'"));
+    }
+
+    /// <summary>
     /// A transfer to somebody who is not there, or who cannot sign in, changes nothing.
     /// </summary>
     /// <remarks>

@@ -604,6 +604,51 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                  + (select count(*) from g) + (select count(*) from m)
             """;
 
+        // <b>The content folders first, so an item stays filed — 2026-10-16.</b> The items moved below and their
+        // folders stayed the giver's, and the giver's removal deletes those folders (`on delete cascade` from the owner)
+        // under items that refer to them (`on delete restrict`): removing a member who had filed anything failed. A
+        // folder the taker already has by title takes the giver's items and the giver's copy goes, since a title is
+        // unique per owner; every other folder changes hands as it is.
+        const string Folders = """
+            with giver as (select id from principal where lower(name) = lower(@from)),
+                 taker as (select id from principal where lower(name) = lower(@to)),
+                 pairs as (select g.id as was, t.id as now
+                             from content_folder g
+                             join content_folder t on lower(t.title) = lower(g.title)
+                              and t.owner_principal_id = (select id from taker)
+                            where g.owner_principal_id = (select id from giver)),
+                 s as (update service set content_folder_id = pairs.now from pairs
+                        where service.content_folder_id = pairs.was returning 1),
+                 m as (update web_map set content_folder_id = pairs.now from pairs
+                        where web_map.content_folder_id = pairs.was returning 1)
+            select (select count(*) from s) + (select count(*) from m)
+            """;
+
+        // Then the giver's copies of those, now empty, and the giver's other folders change hands. Two statements:
+        // a delete and an update of one table in one statement would see the same snapshot.
+        const string Merged = """
+            delete from content_folder g
+             where g.owner_principal_id = (select id from principal where lower(name) = lower(@from))
+               and exists (select 1 from content_folder t
+                            where t.owner_principal_id = (select id from principal where lower(name) = lower(@to))
+                              and lower(t.title) = lower(g.title))
+            """;
+
+        const string Remaining = """
+            update content_folder set owner_principal_id = (select id from principal where lower(name) = lower(@to))
+             where owner_principal_id = (select id from principal where lower(name) = lower(@from))
+            """;
+
+        foreach (string step in new[] { Folders, Merged, Remaining })
+        {
+            await using NpgsqlCommand folders = connection.CreateCommand();
+            folders.Transaction = transaction;
+            folders.CommandText = step;
+            folders.Parameters.AddWithValue("from", from);
+            folders.Parameters.AddWithValue("to", to);
+            await folders.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await using NpgsqlCommand command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = Sql;
