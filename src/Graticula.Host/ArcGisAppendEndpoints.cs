@@ -107,7 +107,7 @@ internal static class ArcGisAppendEndpoints
         catch (Exception e) when (e is InvalidDataException
             or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
-            await RefuseAsync(context, 413, $"The upload is larger than this server accepts. ({e.Message})").ConfigureAwait(false);
+            await RefuseAsync(context, 413, $"The upload is larger than this server accepts. {HostedDataEndpoints.LargerLayer} ({e.Message})").ConfigureAwait(false);
             return;
         }
 
@@ -117,10 +117,10 @@ internal static class ArcGisAppendEndpoints
             return;
         }
 
-        if (file.Length > HostedDataEndpoints.MaximumBytes)
+        if (file.Length > HostedDataEndpoints.MaximumBytes(context))
         {
             await RefuseAsync(context, 413,
-                $"The file is {file.Length / 1048576} MB and the limit is {HostedDataEndpoints.MaximumBytes / 1048576} MB.")
+                $"The file is {file.Length / 1048576} MB and the limit is {HostedDataEndpoints.MaximumBytes(context) / 1048576} MB. {HostedDataEndpoints.LargerLayer}")
                 .ConfigureAwait(false);
             return;
         }

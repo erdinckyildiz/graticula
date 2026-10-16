@@ -487,7 +487,7 @@ public static class Program
             // cap is stated in HostedDataEndpoints. This is the outer bound so a
             // body larger than that is refused by the framework before it is
             // buffered rather than after.
-            options.MultipartBodyLengthLimit = HostedDataEndpoints.MaximumBytes;
+            options.MultipartBodyLengthLimit = settings.UploadMaximumBytes;
         });
 
         /*

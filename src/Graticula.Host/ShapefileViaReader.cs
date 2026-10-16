@@ -145,7 +145,8 @@ internal static class ShapefileViaReader
                     refusal =
                         $"This shapefile holds more than {limits.Features.ToString("N0", CultureInfo.InvariantCulture)} "
                         + "features, which is the import limit. Split it, or load it into the "
-                        + "database directly and register the table.";
+                        + "database directly and register the table. A deployment raises the limit with "
+                        + "Graticula:ImportMaxFeatures.";
 
                     return;
                 }
@@ -208,7 +209,8 @@ internal static class ShapefileViaReader
                 {
                     refusal =
                         $"This shapefile holds more than {limits.Vertices.ToString("N0", CultureInfo.InvariantCulture)} "
-                        + "vertices, which is the import limit.";
+                        + "vertices, which is the import limit. A deployment raises it with "
+                        + "Graticula:ImportMaxVertices.";
 
                     return;
                 }

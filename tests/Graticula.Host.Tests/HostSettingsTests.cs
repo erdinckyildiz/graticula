@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Graticula.Host;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Graticula.Host.Tests;
@@ -241,5 +242,81 @@ public sealed class HostSettingsTests
         InvalidOperationException refused =
             Assert.Throws<InvalidOperationException>(() => HostSettings.ParseReferences("5254, TUREF"));
         Assert.Contains("TUREF", refused.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Q-175, owner decision 2026-10-16: the upload limits stay as they were and a deployment may change them.
+    /// </summary>
+    [Fact]
+    public void The_upload_limits_default_to_what_they_were_and_a_deployment_changes_them()
+    {
+        HostSettings silent = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+        }));
+
+        // The numbers before the decision, written out rather than read from the constants, so moving a default
+        // fails here and is a decision rather than a side effect.
+        Assert.Equal(64L * 1024 * 1024, silent.UploadMaximumBytes);
+        Assert.Equal(256L * 1024 * 1024, silent.Shapefile.TotalUncompressedBytes);
+        Assert.Equal(256L * 1024 * 1024, silent.Shapefile.MemberBytes);
+        Assert.Equal(1_000_000, silent.Import.Features);
+        Assert.Equal(50_000_000, silent.Import.Vertices);
+
+        HostSettings raised = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:UploadMaxMB"] = "2048",
+            ["Graticula:ShapefileMaxMB"] = "4096",
+            ["Graticula:ImportMaxFeatures"] = "20000000",
+            ["Graticula:ImportMaxVertices"] = "900000000",
+        }));
+
+        Assert.Equal(2048L * 1024 * 1024, raised.UploadMaximumBytes);
+        Assert.Equal(4096L * 1024 * 1024, raised.Shapefile.TotalUncompressedBytes);
+        Assert.Equal(20_000_000, raised.Import.Features);
+        Assert.Equal(900_000_000, raised.Import.Vertices);
+
+        // Only the size moves: the member count and the ratio are what stop a bomb, and a larger layer is not one.
+        Assert.Equal(Graticula.Formats.ArchiveLimits.ForShapefile.Members, raised.Shapefile.Members);
+        Assert.Equal(Graticula.Formats.ArchiveLimits.ForShapefile.Ratio, raised.Shapefile.Ratio);
+        Assert.Equal(Graticula.Formats.ImportLimits.Default.Attributes, raised.Import.Attributes);
+
+        // Zero or less is one, not a limit that refuses everything with a sentence about a number.
+        HostSettings floored = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:UploadMaxMB"] = "0",
+            ["Graticula:ImportMaxFeatures"] = "-5",
+        }));
+
+        Assert.Equal(1024L * 1024, floored.UploadMaximumBytes);
+        Assert.Equal(1, floored.Import.Features);
+    }
+
+    [Fact]
+    public void An_upload_check_reads_the_deployments_limit_from_the_request()
+    {
+        HostSettings raised = HostSettings.Read(Configuration(new()
+        {
+            ["Graticula:PlatformStore"] = "Host=localhost;Database=gis",
+            ["Graticula:SecretKey"] = Key,
+            ["Graticula:UploadMaxMB"] = "300",
+        }));
+
+        Microsoft.AspNetCore.Http.DefaultHttpContext withSettings = new()
+        {
+            RequestServices = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+                .AddSingleton(raised)
+                .BuildServiceProvider(),
+        };
+
+        Assert.Equal(300L * 1024 * 1024, HostedDataEndpoints.MaximumBytes(withSettings));
+
+        // A context with no settings registered — a test host, a tool — keeps the default rather than failing.
+        Assert.Equal(HostedDataEndpoints.DefaultMaximumBytes, HostedDataEndpoints.MaximumBytes(new Microsoft.AspNetCore.Http.DefaultHttpContext()));
     }
 }

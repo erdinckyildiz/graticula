@@ -15,7 +15,7 @@ namespace Graticula.Conformance.Tests;
 /// <remarks>
 /// <para>
 /// <b>Found 2026-10-13, measuring ADR-038 condition 1.</b> A geodatabase of 1.2 million points zipped to 31.2 MB, inside
-/// the 64 MB <c>HostedDataEndpoints.MaximumBytes</c> names, and the upload was answered <c>413</c> by Kestrel before
+/// the 64 MB <c>HostedDataEndpoints.DefaultMaximumBytes</c> names, and the upload was answered <c>413</c> by Kestrel before
 /// the handler ran: the routes that read a data file never raised the server's 30,000,000-byte default, which the
 /// image routes had. So the limit every refusal quoted was not the limit.
 /// </para>

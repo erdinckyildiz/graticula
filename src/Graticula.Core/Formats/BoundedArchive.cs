@@ -36,7 +36,21 @@ public readonly record struct ArchiveLimits(
     /// real and far below anything hostile.
     /// </para>
     /// </remarks>
-    public static ArchiveLimits ForShapefile => new(256L * 1024 * 1024, 256L * 1024 * 1024, 32, 100);
+    public static ArchiveLimits ForShapefile => ForShapefileOf(DefaultShapefileBytes);
+
+    /// <summary>256 MB uncompressed: the default a deployment may change — Q-175, owner decision 2026-10-16.</summary>
+    public const long DefaultShapefileBytes = 256L * 1024 * 1024;
+
+    /// <summary>
+    /// The shapefile limits with a deployment's own uncompressed size, for the archive and for any one member.
+    /// </summary>
+    /// <remarks>
+    /// <b>Only the size moves.</b> The member count and the ratio are what stop a bomb and a directory tree, and a
+    /// larger layer is neither; a deployment that raises the size gets the same guard on everything else.
+    /// </remarks>
+    /// <param name="bytes">The uncompressed size allowed.</param>
+    /// <returns>The limits.</returns>
+    public static ArchiveLimits ForShapefileOf(long bytes) => new(bytes, bytes, 32, 100);
 }
 
 /// <summary>One member, read into memory under the limits.</summary>

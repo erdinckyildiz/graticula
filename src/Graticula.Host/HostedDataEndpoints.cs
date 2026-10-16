@@ -73,8 +73,27 @@ internal static class HostedDataEndpoints
     /// GeoJSON is a few hundred thousand features, which is far past what
     /// anybody uploads through a browser and inside what this can parse without
     /// becoming the allocation problem A-037 measured.
+    /// <b>The default since 2026-10-16, Q-175</b>: a deployment changes it with <c>Graticula:UploadMaxMB</c>, and every
+    /// check reads <see cref="MaximumBytes(HttpContext)"/> so the four places it is enforced cannot disagree.
     /// </remarks>
-    public const long MaximumBytes = 64L * 1024 * 1024;
+    public const long DefaultMaximumBytes = 64L * 1024 * 1024;
+
+    /// <summary>This deployment's upload limit (<see cref="HostSettings.UploadMaximumBytes"/>), or the default.</summary>
+    /// <param name="context">The request.</param>
+    /// <returns>Bytes.</returns>
+    internal static long MaximumBytes(HttpContext context) =>
+        Settings(context)?.UploadMaximumBytes ?? DefaultMaximumBytes;
+
+    /// <summary>What a shapefile's archive may hold on this deployment.</summary>
+    private static ArchiveLimits ShapefileLimits(HttpContext context) =>
+        Settings(context)?.Shapefile ?? ArchiveLimits.ForShapefile;
+
+    /// <summary>What may be built from one file on this deployment.</summary>
+    private static ImportLimits Limits(HttpContext context) =>
+        Settings(context)?.Import ?? ImportLimits.Default;
+
+    private static HostSettings? Settings(HttpContext context) =>
+        context.RequestServices?.GetService(typeof(HostSettings)) as HostSettings;
 
     /// <summary>
     /// What a refusal for size says about the layer that did not fit — 2026-10-16, ADR-024 condition 4.
@@ -86,13 +105,13 @@ internal static class HostedDataEndpoints
     /// </remarks>
     internal const string LargerLayer =
         "A larger layer is served without uploading it: load it into a PostGIS database and register the table, "
-        + "or publish it as a GeoParquet file.";
+        + "or publish it as a GeoParquet file. A deployment raises the limit with Graticula:UploadMaxMB.";
 
     /// <summary>What a multipart body carries beside the file: its boundaries, headers and the form's other fields.</summary>
     private const long EnvelopeBytes = 1024 * 1024;
 
     /// <summary>
-    /// Raises this request's body limit to <see cref="MaximumBytes"/>, which Kestrel's own default is under.
+    /// Raises this request's body limit to <see cref="MaximumBytes(HttpContext)"/>, which Kestrel's own default is under.
     /// </summary>
     /// <remarks>
     /// <b>Until 2026-10-13 the 64 MB this class names was 30.</b> Kestrel refuses a body over 30,000,000 bytes before
@@ -105,7 +124,7 @@ internal static class HostedDataEndpoints
     {
         if (context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
         {
-            limit.MaxRequestBodySize = MaximumBytes + EnvelopeBytes;
+            limit.MaxRequestBodySize = MaximumBytes(context) + EnvelopeBytes;
         }
     }
 
@@ -204,7 +223,7 @@ internal static class HostedDataEndpoints
             or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await Fail(context, 413,
-                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). {LargerLayer} "
+                $"The upload is larger than this server accepts ({MaximumBytes(context) / 1048576} MB). {LargerLayer} "
                 + $"({e.Message})").ConfigureAwait(false);
             return;
         }
@@ -227,11 +246,11 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (file.Length > MaximumBytes)
+        if (file.Length > MaximumBytes(context))
         {
             await Fail(context, 413,
                 $"The file is {file.Length / 1048576} MB and the limit is "
-                + $"{MaximumBytes / 1048576} MB.").ConfigureAwait(false);
+                + $"{MaximumBytes(context) / 1048576} MB. {LargerLayer}").ConfigureAwait(false);
             return;
         }
 
@@ -310,7 +329,7 @@ internal static class HostedDataEndpoints
                 return;
             }
 
-            if (!GeoJsonFeatures.TryRead(json, ImportLimits.Default, out dataset, out error))
+            if (!GeoJsonFeatures.TryRead(json, Limits(context), out dataset, out error))
             {
                 await Fail(context, 400, error!).ConfigureAwait(false);
                 return;
@@ -609,7 +628,7 @@ internal static class HostedDataEndpoints
         if (!BoundedArchive.TryRead(
                 archive,
                 ShapefileBundle.Extensions,
-                ArchiveLimits.ForShapefile,
+                ShapefileLimits(context),
                 out IReadOnlyList<ArchiveMember> members,
                 out string? archiveError))
         {
@@ -713,7 +732,7 @@ internal static class HostedDataEndpoints
                     path,
                     srid,
                     encoding.WebName,
-                    ImportLimits.Default,
+                    Limits(context),
                     cancellation).ConfigureAwait(false);
 
             if (read is null)
@@ -919,7 +938,7 @@ internal static class HostedDataEndpoints
             }
 
             (ImportedDataset? read, string? readError) = await ShapefileViaReader.ReadAsync(
-                reader, json, srid, null, ImportLimits.Default, cancellation).ConfigureAwait(false);
+                reader, json, srid, null, Limits(context), cancellation).ConfigureAwait(false);
 
             if (read is null)
             {
@@ -2254,7 +2273,7 @@ internal static class HostedDataEndpoints
             or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
         {
             await Fail(context, 413,
-                $"The upload is larger than this server accepts ({MaximumBytes / 1048576} MB). {LargerLayer} ({e.Message})")
+                $"The upload is larger than this server accepts ({MaximumBytes(context) / 1048576} MB). {LargerLayer} ({e.Message})")
                 .ConfigureAwait(false);
             return;
         }
@@ -2267,10 +2286,10 @@ internal static class HostedDataEndpoints
             return;
         }
 
-        if (file.Length > MaximumBytes)
+        if (file.Length > MaximumBytes(context))
         {
             await Fail(context, 413,
-                $"The file is {file.Length / 1048576} MB and the limit is {MaximumBytes / 1048576} MB.")
+                $"The file is {file.Length / 1048576} MB and the limit is {MaximumBytes(context) / 1048576} MB. {LargerLayer}")
                 .ConfigureAwait(false);
             return;
         }
@@ -2471,7 +2490,7 @@ internal static class HostedDataEndpoints
                 return null;
             }
 
-            if (!GeoJsonFeatures.TryRead(json, ImportLimits.Default, out dataset, out string? error))
+            if (!GeoJsonFeatures.TryRead(json, Limits(context), out dataset, out string? error))
             {
                 await Fail(context, 400, error!).ConfigureAwait(false);
                 return null;

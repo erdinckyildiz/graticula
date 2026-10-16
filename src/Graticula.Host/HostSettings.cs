@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Graticula.Formats;
 using Graticula.Api.Wms;
 using Graticula.Platform.Postgres;
 using System.IO;
@@ -267,8 +268,29 @@ internal sealed record HostSettings(
     // deployment advertises since the owner's answer to Q-171 (2026-10-15), reversing ADR-057 §5c's *"listelensin
     // istemiyorum"* for those two. A code outside the list is still answered: this is what a client is told, not what
     // it may ask.
-    IReadOnlyList<int>? AdvertisedReferences = null)
+    IReadOnlyList<int>? AdvertisedReferences = null,
+
+    // <b>What an upload may be — Q-175, owner decision 2026-10-16: "Shapefile sınırları kalsın, değiştirilebilir
+    // olsun."</b> The defaults are the limits as they were: 64 MB on the wire, 256 MB uncompressed in a shapefile,
+    // a million features and fifty million vertices built from any one file. A national layer (Geofabrik's Turkey
+    // buildings are 1.8 GB) is over them on purpose, and the refusal names the two ways such a layer is served
+    // without an upload. A deployment that raises them accepts the cost the defaults were set against: the file is
+    // read into memory, so the machine needs the memory to hold it.
+    long UploadMaximumBytes = HostedDataEndpoints.DefaultMaximumBytes,
+    long ShapefileMaximumBytes = ArchiveLimits.DefaultShapefileBytes,
+    int ImportMaximumFeatures = 1_000_000,
+    long ImportMaximumVertices = 50_000_000)
 {
+    /// <summary>What may be built from one uploaded file: the defaults with this deployment's counts.</summary>
+    public ImportLimits Import => ImportLimits.Default with
+    {
+        Features = ImportMaximumFeatures,
+        Vertices = ImportMaximumVertices,
+    };
+
+    /// <summary>What a shapefile's archive may hold, with this deployment's size.</summary>
+    public ArchiveLimits Shapefile => ArchiveLimits.ForShapefileOf(ShapefileMaximumBytes);
+
     /// <summary>
     /// What the OGC faces advertise beside each layer's own reference: WGS 84, Web Mercator, then the deployment's list —
     /// owner decision 2026-10-15, Q-171: *"Bu ikisi hep olsun. Map'in kendi projeksiyonu da yanlarında olsun."*
@@ -714,7 +736,14 @@ internal sealed record HostSettings(
 
             Math.Max(1, keys.Value("RasterMaximumSide", CoverageBounds.DefaultMaximumSide)),
             Math.Max(1L, keys.Value("RasterMaximumPixels", CoverageBounds.DefaultMaximumPixels)),
-            ParseReferences(keys.Text("AdvertisedReferences")));
+            ParseReferences(keys.Text("AdvertisedReferences")),
+
+            // Megabytes, as the other byte budgets here are. At least one of each: a limit of zero would refuse every
+            // upload with a sentence about a number, which is not how anybody turns uploading off.
+            Math.Max(1L, keys.Value("UploadMaxMB", HostedDataEndpoints.DefaultMaximumBytes / 1048576)) * 1048576,
+            Math.Max(1L, keys.Value("ShapefileMaxMB", ArchiveLimits.DefaultShapefileBytes / 1048576)) * 1048576,
+            Math.Max(1, keys.Value("ImportMaxFeatures", ImportLimits.Default.Features)),
+            Math.Max(1L, keys.Value("ImportMaxVertices", ImportLimits.Default.Vertices)));
     }
 
     /// <summary>
