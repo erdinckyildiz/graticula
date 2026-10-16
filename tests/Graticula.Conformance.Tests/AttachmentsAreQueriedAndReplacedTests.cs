@@ -104,6 +104,83 @@ public sealed class AttachmentsAreQueriedAndReplacedTests : ArcGisClient
         }
     }
 
+    [Fact]
+    public async Task ArcGIS_Pro_reads_a_features_attachments_by_post()
+    {
+        // 2026-10-16: Export Features asks for each feature's attachment list with a POST whose body is
+        // `f=json`, and the list answered 405 — so an export carried no attachments and said nothing.
+        // Esri's server answers both the list and the file by POST. Asserted on the content, because a
+        // route that answers 200 without reading the request is the failure D-139 was.
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+
+        Assert.False(token is null, "No administrator credential.");
+
+        string layer = "zz_attach_post_" + Guid.NewGuid().ToString("N")[..8];
+
+        (HttpStatusCode defined, string design) = await RequestAsync(
+            HttpMethod.Post,
+            $"{root}/admin/hosted/define",
+            token!,
+            JsonSerializer.Serialize(new
+            {
+                name = layer,
+                geometryType = "Point",
+                fields = new[] { new { name = "label", type = "text", nullable = true } },
+            }));
+
+        Assert.True(defined == HttpStatusCode.Created, $"Defining a layer answered {(int)defined}: {design}");
+
+        string feature = JsonDocument.Parse(design).RootElement
+            .GetProperty("services").GetProperty("feature").GetString()!;
+        string[] parts = feature.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        using HttpClient http = new(new HttpClientHandler
+        {
+            ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator,
+        });
+
+        try
+        {
+            JsonElement added = await PostFormAsync(http, root, token!, $"{feature}/addFeatures",
+                "[{\"geometry\":{\"x\":1000,\"y\":2000,\"spatialReference\":{\"wkid\":3857}},\"attributes\":{\"label\":\"a\"}}]");
+            long objectId = added.GetProperty("addResults")[0].GetProperty("objectId").GetInt64();
+
+            JsonElement attached = await MultipartAsync(http, root, token!, $"{feature}/{objectId}/addAttachment", attachmentId: null);
+            int attachmentId = attached.GetProperty("addAttachmentResult").GetProperty("objectId").GetInt32();
+
+            using (FormUrlEncodedContent form = new([new("f", "json")]))
+            using (HttpRequestMessage request = new(HttpMethod.Post, new Uri($"{root}{feature}/{objectId}/attachments")) { Content = form })
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage response = await http.SendAsync(request);
+                string body = await response.Content.ReadAsStringAsync();
+
+                Assert.True(response.IsSuccessStatusCode, $"The posted list answered {(int)response.StatusCode}: {body}");
+                JsonElement info = JsonDocument.Parse(body).RootElement.GetProperty("attachmentInfos").EnumerateArray().Single();
+                Assert.Equal(attachmentId, info.GetProperty("id").GetInt32());
+            }
+
+            using (FormUrlEncodedContent form = new([new("f", "json")]))
+            using (HttpRequestMessage request = new(HttpMethod.Post, new Uri($"{root}{feature}/{objectId}/attachments/{attachmentId}")) { Content = form })
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage response = await http.SendAsync(request);
+
+                Assert.True(response.IsSuccessStatusCode, $"The posted download answered {(int)response.StatusCode}");
+                Assert.Equal(Png, await response.Content.ReadAsByteArrayAsync());
+            }
+        }
+        finally
+        {
+            await RequestAsync(
+                HttpMethod.Delete,
+                $"{root}/admin/featureservices/{parts[3]}?folder={parts[2]}&drop=true",
+                token!,
+                json: null);
+        }
+    }
+
     private static async Task<JsonElement> PostFormAsync(HttpClient http, string root, string token, string path, string features)
     {
         using FormUrlEncodedContent form = new([new("features", features), new("f", "json")]);

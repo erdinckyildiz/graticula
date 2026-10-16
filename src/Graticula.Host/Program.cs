@@ -1973,7 +1973,9 @@ public static class Program
         // client signed in to it exchanges its token at /rest/generateToken (AuthEndpoints.TryExchangeAsync)
         // rather than prompting again. Named only with the exchange in place: without it, an SDK that reads
         // the field asks for an exchange the server refuses, and sign-in that worked would stop working.
-        app.MapGet("/rest/info", (HttpContext context) => Results.Ok(
+        // GET or POST here and on the directory routes below, since 2026-10-16 (D-46 instance 19):
+        // Esri's server answers both, and a client that reads documents by POST stopped at a 405.
+        app.MapMethods("/rest/info", ["GET", "POST"], (HttpContext context) => Results.Ok(
             FeatureServerMetadataWriter.ServerInfo(
                 $"{context.Request.Scheme}://{context.Request.Host}/rest/generateToken",
                 $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}")));
@@ -1996,7 +1998,7 @@ public static class Program
         app.MapGet("/", () => Results.Redirect("/rest/services?f=html", permanent: false));
 
         // The root: registered services, the folders, and the system services.
-        app.MapGet("/rest/services", (
+        app.MapMethods("/rest/services", ["GET", "POST"], (
             HttpContext context,
             CatalogFallback catalog,
             PostgresSystemServices system,
@@ -2009,7 +2011,7 @@ public static class Program
         // than {layerName}, so routing prefers it — and it is matched
         // case-insensitively, which is why a client sending ArcGIS's own
         // capitalised "Hosted" reaches the same place.
-        app.MapGet($"/rest/services/{FeatureServerMetadataWriter.HostedFolder}", (
+        app.MapMethods($"/rest/services/{FeatureServerMetadataWriter.HostedFolder}", ["GET", "POST"], (
             HttpContext context,
             CatalogFallback catalog,
             PostgresSystemServices system,
@@ -2025,7 +2027,7 @@ public static class Program
         // /rest/services/turkiye answered nothing at all while the root advertised it — a
         // folder a client could see and not open. The literals stay because a literal segment
         // beats a parameter in routing and both carry their own comment.
-        app.MapGet("/rest/services/{folder}", (
+        app.MapMethods("/rest/services/{folder}", ["GET", "POST"], (
             HttpContext context,
             CatalogFallback catalog,
             PostgresSystemServices system,
@@ -2037,7 +2039,7 @@ public static class Program
 
         // Where the system services live. ArcGIS puts the geometry service in a
         // Utilities folder and every client that looks for one looks there.
-        app.MapGet("/rest/services/Utilities", (
+        app.MapMethods("/rest/services/Utilities", ["GET", "POST"], (
             HttpContext context,
             CatalogFallback catalog,
             PostgresSystemServices system,

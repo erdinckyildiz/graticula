@@ -216,7 +216,9 @@ public sealed class TilePipelineVersionTests
         // stored style is checked against the generated icons' names as well as the uploaded ones. A picture marker is
         // drawn by the style from the sprite, beside the tiles; the tile route, the key, the encoder and every byte of
         // a tile are what they were.
-        "cb23fdaab5a26952d728b2fa90c7e3ff6e2d5623d461a11bfe4e41c4f47c244c";
+        // <b>Moved again 2026-10-16 for D-46 instance 19, and the version did not move.</b> The service document, its
+        // styles and `resources/info` answer POST as well as GET; the tile, font and sprite routes are untouched.
+        "422f967704d8197003710bda706a2fa19fac27c8bbb350d48ec82e84aaf6af9a";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

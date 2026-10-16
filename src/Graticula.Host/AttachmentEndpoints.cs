@@ -66,9 +66,13 @@ internal static class AttachmentEndpoints
         {
             string layer = $"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}";
 
-            app.MapGet($"{layer}/{{objectId:long}}/attachments", ListAsync)
+            // <b>GET or POST, 2026-10-16.</b> ArcGIS Pro's Export Features asks for every feature's
+            // attachment list by POST, one request per feature, and a 405 here meant an export that
+            // carried no attachments and said nothing. Esri's own server answers both verbs on the list
+            // and on the file (measured against sampleserver6 the same day).
+            app.MapMethods($"{layer}/{{objectId:long}}/attachments", ["GET", "POST"], ListAsync)
                 .Governed(SharingGovernedExtensions.ByService);
-            app.MapGet($"{layer}/{{objectId:long}}/attachments/{{attachmentId:int}}", DownloadAsync)
+            app.MapMethods($"{layer}/{{objectId:long}}/attachments/{{attachmentId:int}}", ["GET", "POST"], DownloadAsync)
                 .Governed(SharingGovernedExtensions.ByService);
             app.MapPost($"{layer}/{{objectId:long}}/addAttachment", AddAsync).DisableAntiforgery()
                 .Governed(SharingGovernedExtensions.ByService);

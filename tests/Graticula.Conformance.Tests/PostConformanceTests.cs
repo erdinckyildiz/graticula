@@ -238,6 +238,39 @@ public sealed class PostConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task The_directory_the_server_info_and_the_tile_service_document_can_be_posted_for()
+    {
+        // 2026-10-16, the faces D-139's repair and the FeatureServer documents' did not reach: Esri's
+        // server answers each of these by POST, and a client that reads documents by POST stopped here.
+        (HttpStatusCode status, string body, _) = await PostAsync("/rest/info", "f=json");
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(JsonDocument.Parse(body).RootElement.TryGetProperty("currentVersion", out _), body);
+
+        (status, body, _) = await PostAsync("/rest/services", "f=json");
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(JsonDocument.Parse(body).RootElement.TryGetProperty("folders", out _), body);
+
+        (status, body, _) = await PostAsync("/rest/services/hosted", "f=json");
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(JsonDocument.Parse(body).RootElement.TryGetProperty("services", out _), body);
+
+        (status, body, _) = await PostAsync("/rest/services/Utilities/Geometry/GeometryServer", "f=json");
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(JsonDocument.Parse(body).RootElement.TryGetProperty("serviceDescription", out _), body);
+
+        string? tiles = Environment.GetEnvironmentVariable("GRATICULA_TEST_TILE_SERVICE");
+
+        if (string.IsNullOrWhiteSpace(tiles))
+        {
+            return;
+        }
+
+        (status, body, _) = await PostAsync($"/rest/services/{tiles.Trim('/')}/VectorTileServer", "f=json");
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.True(JsonDocument.Parse(body).RootElement.TryGetProperty("tiles", out _), body);
+    }
+
+    [Fact]
     public async Task A_parameter_in_the_url_wins_over_one_in_the_body()
     {
         // <b>Something has to win, and the URL is the half a reader can see.</b> A request

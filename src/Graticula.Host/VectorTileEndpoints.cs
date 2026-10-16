@@ -38,6 +38,8 @@ namespace Graticula.Host;
 /// </remarks>
 internal static class VectorTileEndpoints
 {
+    private static readonly string[] GetOrPost = ["GET", "POST"];
+
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
     public static void Map(WebApplication app)
@@ -51,18 +53,22 @@ internal static class VectorTileEndpoints
         // Root and any folder. `{folder}` is a parameter and a literal segment wins in
         // routing, so the hosted-prefixed registrations elsewhere still take precedence —
         // and a registered service in a named folder now has a route at all (2026-08-17).
+        // <b>The documents answer POST as well, 2026-10-16; the tiles, fonts and sprites do not.</b>
+        // That is Esri's own line, measured on a World_Basemap_v2 VectorTileServer the same day: the
+        // service document and its styles answer a POST, a tile answers 405. A client that reads every
+        // document by POST — the ArcGIS API for Python does — must not stop at this one.
         foreach (string prefix in (string[])["/rest/services", "/rest/services/{folder}"])
         {
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer", ServiceAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/VectorTileServer", GetOrPost, ServiceAsync)
                 .Governed(SharingGovernedExtensions.ByService);
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles", StyleAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles", GetOrPost, StyleAsync)
                 .Governed(SharingGovernedExtensions.ByService);
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/root.json", StyleAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/root.json", GetOrPost, StyleAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
             // ADR-094: a service's other named styles, beside the default. The literal route above wins for
             // root.json; this one answers every other name.
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/{{style}}.json", NamedStyleAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/VectorTileServer/resources/styles/{{style}}.json", GetOrPost, NamedStyleAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
             // <b>The resources a style needs to draw a label.</b> Without the
@@ -83,7 +89,7 @@ internal static class VectorTileEndpoints
             // <b>The list of those resources, which ArcGIS documents and this server did not serve until
             // 2026-09-29</b> (D-285). No client measured here asks for it; it is served because it is part of the
             // documented service and a client that does ask should not meet a 404.
-            app.MapGet($"{prefix}/{{serviceName}}/VectorTileServer/resources/info", ResourceInfoAsync)
+            app.MapMethods($"{prefix}/{{serviceName}}/VectorTileServer/resources/info", GetOrPost, ResourceInfoAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
             // {z}/{y}/{x} — row before column. This is the ArcGIS URL order and

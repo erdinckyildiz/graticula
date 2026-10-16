@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>b4194cd9</code> · 2026-10-16 19:32</p>
+<p class="stamp">Şu commit’ten üretildi: <code>64914f12</code> · 2026-10-16 20:48</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">186</div><div class="kpi-l">ADR</div><div class="kpi-n">74 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">371/419</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">40 canlı · 8 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">161 yanıtlandı</div></div>
-<div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">277 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/87</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4911</div><div class="kpi-l">test</div><div class="kpi-n">490 kaynak dosya, 222,098 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4915</div><div class="kpi-l">test</div><div class="kpi-n">490 kaynak dosya, 222,110 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-175</b> — Should an upload take a national-scale layer, or should such a layer keep coming in without one?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">54 madde</span></div><p><b>40 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">55 madde</span></div><p><b>40 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -393,6 +393,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-287</td><td>The generated sprite sheet has no ceiling on its size.</td><td class="muted-t">A service whose sprite@2x.png is taller than 4,096 pixels, or a report of a map whose icons vanish on one machine and…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-298</td><td>Two ArcGIS resources answer 404: a single feature, and MapServer find.</td><td class="muted-t">The first client observed asking for either, or a review from an ArcGIS user&#x27;s side naming it.</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">277 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -492,10 +493,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1377</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.7%"></div></div><div class="bar-n">891</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.5%"></div></div><div class="bar-n">764</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:55.6%"></div></div><div class="bar-n">766</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">549</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">415</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.3%"></div></div><div class="bar-n">293</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">295</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.0%"></div></div><div class="bar-n">206</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.2%"></div></div><div class="bar-n">126</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">124</div></div>
@@ -505,6 +506,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>64914f12</code><time>2026-10-16</time><span>Server and Studio navigate from a top bar: Server Manager&#x27;s four tabs, Portal&#x27;s five, and a page&#x27;s left column is its own (ADR-187 step 1)</span></li>
+<li><code>9dcdc403</code><time>2026-10-16</time><span>A tile&#x27;s simplification costs nothing measurable on GeoParquet rows: the +24 % was the machine between two days (ADR-085 c2)</span></li>
 <li><code>b4194cd9</code><time>2026-10-16</time><span>ArcGIS Pro is a built-in OAuth app: the precondition for supportsOAuth, found before the flag was turned on (ADR-076 c3, partly)</span></li>
 <li><code>d3db0851</code><time>2026-10-16</time><span>Tile encoding measured on a road network, mixed geometry and a second machine (ADR-021 c2 discharged); one cold tile&#x27;s noise measured (ADR-085 c2)</span></li>
 <li><code>d0a51cb8</code><time>2026-10-16</time><span>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs (ADR-187); the Hybrid redesign is designed screen by screen</span></li>
@@ -517,8 +520,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>677d502f</code><time>2026-10-16</time><span>ArcGIS Pro edits a Z layer, and four things it found on the way: text lengths, point shapes in pbf, big integers as text, times in UTC (ADR-077 c5)</span></li>
 <li><code>df54f6ec</code><time>2026-10-16</time><span>An item is its own record: owner, scope, folder, description, tags and protection move to it (ADR-056, migration 87)</span></li>
 <li><code>30e6f977</code><time>2026-10-16</time><span>Removing a member who filed items in a content folder no longer fails: the folders go with the items</span></li>
-<li><code>4d967318</code><time>2026-10-16</time><span>docs: require full Studio and Server redesign across every existing screen</span></li>
-<li><code>782881cc</code><time>2026-10-16</time><span>docs: capture approved Graticula Hybrid UI direction for Codex</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

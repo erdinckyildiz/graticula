@@ -209,7 +209,7 @@ internal static partial class GeometryServerEndpoints
             .AddEndpointFilter(FormFilter)
             .Governed(SharingGovernedExtensions.BySystemService);
 
-        geometry.MapGet("", Describe);
+        geometry.MapMethods("", GetOrPost, Describe);
 
         // <b>GET as well as POST, on every operation.</b> Two reasons, and both
         // are decisions rather than convenience. Each of these is a pure
