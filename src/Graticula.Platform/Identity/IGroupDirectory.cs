@@ -398,6 +398,17 @@ public interface IGroupDirectory
     Task<GroupChange> ShareMapAsync(
         Guid acting, bool administrator, string name, string mapId, bool wanted, CancellationToken cancellationToken);
 
+    /// <summary>Puts a document into a group, or takes it out — ADR-188, by the rule a map is shared by.</summary>
+    /// <param name="acting">Who is asking.</param>
+    /// <param name="administrator">Whether they may act on anybody's content.</param>
+    /// <param name="name">The group.</param>
+    /// <param name="documentId">The document.</param>
+    /// <param name="wanted">In, or out.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    Task<GroupChange> ShareDocumentAsync(
+        Guid acting, bool administrator, string name, string documentId, bool wanted, CancellationToken cancellationToken);
+
     /// <summary>Shares a service with a group, or stops.</summary>
     /// <param name="acting">Who is asking.</param>
     /// <param name="administrator">Whether they hold <c>admin:manageAllContent</c>.</param>

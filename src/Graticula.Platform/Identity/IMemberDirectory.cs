@@ -57,14 +57,16 @@ public readonly record struct Member(
 /// How many saved web maps they own — ADR-079. A fourth owned thing, and both dispositions cover it:
 /// a transfer moves the maps, a delete takes them with the account.
 /// </param>
+/// <param name="Documents">How many documents they own — ADR-188, held to the same two dispositions as a map.</param>
 public readonly record struct MemberHoldings(
     IReadOnlyList<string> Services,
     IReadOnlyList<string> Folders,
     int Groups,
-    int WebMaps = 0)
+    int WebMaps = 0,
+    int Documents = 0)
 {
     /// <summary>Whether a removal has to ask what to do.</summary>
-    public bool Any => Services.Count > 0 || Folders.Count > 0 || Groups > 0 || WebMaps > 0;
+    public bool Any => Services.Count > 0 || Folders.Count > 0 || Groups > 0 || WebMaps > 0 || Documents > 0;
 
     /// <summary>A sentence naming what is attached, for the refusal.</summary>
     public string Explanation
@@ -91,6 +93,11 @@ public readonly record struct MemberHoldings(
             if (WebMaps > 0)
             {
                 parts.Add($"{WebMaps} web map(s)");
+            }
+
+            if (Documents > 0)
+            {
+                parts.Add($"{Documents} document(s)");
             }
 
             return parts.Count == 0 ? "nothing" : string.Join("; ", parts);

@@ -234,6 +234,8 @@ condition 4), as migration 87.
 2. **The first kind with no service behind it is built before the model is called proved.**
    An icon or a document, listed, owned, shared and opened. Coverages and services both have
    something behind them, so a table that only ever holds those two has not yet demonstrated
-   the sentence it was built for. *(Open. The table exists since 2026-10-16 — §5a — and holds services and web maps;
-   a document needs its own kind in `item_kind_known`, a store for its bytes and a screen to add it, which waits on
-   the Studio redesign of 2026-10-16.)*
+   the sentence it was built for. *(**Discharged 2026-10-16 by owner decision** — *"a) evet"*, asked whether the web map already answers this. It does:
+   since migration 87 a web map is an item of the same table with no service behind it — listed, owned, filed, shared
+   with groups and opened — which is the sentence this condition was written to see demonstrated. The note it replaces
+   said a document was still owed; the same answer's second half builds one anyway, as a feature rather than a proof
+   — [ADR-188](ADR-188-a-document-is-an-item.md).)*

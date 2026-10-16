@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Npgsql;
@@ -349,6 +350,53 @@ public sealed class MemberRemovalTests : PostgresFixture
             (await members.HoldingsOfAsync("someone", CancellationToken.None))!.Value;
 
         Assert.Equal(0, holdings.Groups);
+    }
+
+    /// <summary>
+    /// ADR-188 condition 3: a member's documents are named in what they hold, change hands with a transfer — filed in
+    /// their folder — and go with a removal, which a document filed in a folder used to be able to stop.
+    /// </summary>
+    [Fact]
+    public async Task A_members_documents_are_counted_transferred_with_their_folder_and_removed_with_them()
+    {
+        PostgresMemberDirectory members = await ReadyAsync();
+        PostgresDocumentStore documents = new(DataSource);
+        PostgresContentFolderStore folders = new(DataSource);
+        DocumentKind pdf = Documents.Named("pdf")!;
+
+        Guid giver = await MakeAsync(members, "author", "publisher");
+        Guid taker = await MakeAsync(members, "archivist", "publisher");
+        Guid leaver = await MakeAsync(members, "leaver", "publisher");
+
+        Document handed = await documents.CreateAsync(
+            "Specification", null, giver, SharingScope.Organization, "spec.pdf", pdf, "%PDF-1.7 handed"u8.ToArray(), CancellationToken.None);
+        Document gone = await documents.CreateAsync(
+            "Notes", null, leaver, SharingScope.Private, "notes.pdf", pdf, "%PDF-1.7 gone"u8.ToArray(), CancellationToken.None);
+
+        await ExecuteAsync(
+            $"insert into {SchemaName}.content_folder (id, owner_principal_id, title) values "
+            + $"('cccccccc-0000-0000-0000-000000000001', '{giver}', 'Papers'), "
+            + $"('cccccccc-0000-0000-0000-000000000002', '{leaver}', 'Drafts')");
+        Assert.True(await folders.MoveDocumentAsync(handed.Id, Guid.Parse("cccccccc-0000-0000-0000-000000000001"), CancellationToken.None));
+        Assert.True(await folders.MoveDocumentAsync(gone.Id, Guid.Parse("cccccccc-0000-0000-0000-000000000002"), CancellationToken.None));
+
+        MemberHoldings holdings = (await members.HoldingsOfAsync("author", CancellationToken.None))!.Value;
+        Assert.Equal(1, holdings.Documents);
+        Assert.True(holdings.Any);
+        Assert.Contains("1 document(s)", holdings.Explanation, StringComparison.Ordinal);
+
+        Assert.Equal(MemberRemoval.Removed, await members.TransferAndRemoveAsync("author", "archivist", CancellationToken.None));
+
+        Document? kept = await documents.FindAsync(handed.Id, CancellationToken.None);
+        Assert.NotNull(kept);
+        Assert.Equal(taker, kept.Owner);
+        Assert.Equal(Guid.Parse("cccccccc-0000-0000-0000-000000000001"), kept.ContentFolder);
+        Assert.Equal("%PDF-1.7 handed"u8.ToArray(), await documents.ContentAsync(handed.Id, CancellationToken.None));
+
+        // Removed with what they own: the filed document goes, and does not stop the removal.
+        Assert.Equal(MemberRemoval.Removed, await members.RemoveAsync("leaver", CancellationToken.None));
+        Assert.Null(await documents.FindAsync(gone.Id, CancellationToken.None));
+        Assert.Equal(0L, await ScalarAsync($"select count(*) from {SchemaName}.document where item_id = '{gone.Id}'::uuid"));
     }
 
     private async Task<PostgresMemberDirectory> ReadyAsync()

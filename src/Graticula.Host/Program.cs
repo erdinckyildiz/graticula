@@ -541,6 +541,10 @@ public static class Program
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IWebMapStore>(services =>
             new PostgresWebMapStore(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // ADR-188: documents, the first item whose content this server neither made nor understands.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IDocumentStore>(services =>
+            new PostgresDocumentStore(services.GetRequiredService<NpgsqlDataSource>()));
+
         // ADR-135: what each service answers, counted in memory and written once a minute.
         builder.Services.AddSingleton<Graticula.Platform.Catalog.IServiceUsageStore>(services =>
             new PostgresServiceUsageStore(services.GetRequiredService<NpgsqlDataSource>()));

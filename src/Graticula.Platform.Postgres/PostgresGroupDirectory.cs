@@ -481,11 +481,41 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
 
     /// <inheritdoc/>
     /// <remarks>The service's rule for a map (ADR-075): the group's owner or a manager, and the map's owner.</remarks>
-    public async Task<GroupChange> ShareMapAsync(
+    public Task<GroupChange> ShareMapAsync(
         Guid acting, bool administrator, string name, string mapId, bool wanted, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(mapId);
+        return ShareItemAsync(acting, administrator, name, "web_map_id = @m", mapId, wanted, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>A map's rule, the item found by its own id and kind (ADR-188).</remarks>
+    public Task<GroupChange> ShareDocumentAsync(
+        Guid acting, bool administrator, string name, string documentId, bool wanted, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(documentId);
+
+        return Catalog.WebMaps.IsId(documentId)
+            ? ShareItemAsync(acting, administrator, name, "id = @m::uuid and kind = 'document'", documentId, wanted, cancellationToken)
+            : Task.FromResult(GroupChange.NoSuchTarget);
+    }
+
+    /// <summary>
+    /// Shares one item that is not a service with a group, or takes it out: the group's owner or a manager may, and only
+    /// the item's owner may put it in.
+    /// </summary>
+    /// <param name="acting">Who is asking.</param>
+    /// <param name="administrator">Whether they may act on anybody's content.</param>
+    /// <param name="name">The group.</param>
+    /// <param name="which">The condition that finds the item, over <c>item</c>, with its key as <c>@m</c>.</param>
+    /// <param name="key">The item's key, bound as <c>@m</c>.</param>
+    /// <param name="wanted">In, or out.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    private async Task<GroupChange> ShareItemAsync(
+        Guid acting, bool administrator, string name, string which, string key, bool wanted, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
         (Guid id, GroupStanding standing) = await FindAsync(name, acting, cancellationToken).ConfigureAwait(false);
 
@@ -499,8 +529,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
             return GroupChange.NotYours;
         }
 
-        await using NpgsqlCommand find = _dataSource.CreateCommand("select owner_principal_id from item where web_map_id = @id");
-        find.Parameters.AddWithValue("id", mapId);
+        await using NpgsqlCommand find = _dataSource.CreateCommand($"select owner_principal_id from item where {which}");
+        find.Parameters.AddWithValue("m", key);
 
         if (await find.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not Guid owner)
         {
@@ -514,10 +544,10 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(wanted
             ? "insert into item_group (group_id, item_id, shared_by) "
-              + "select @g, id, @by from item where web_map_id = @m on conflict do nothing"
-            : "delete from item_group where group_id = @g and item_id = (select id from item where web_map_id = @m)");
+              + $"select @g, id, @by from item where {which} on conflict do nothing"
+            : $"delete from item_group where group_id = @g and item_id = (select id from item where {which})");
         command.Parameters.AddWithValue("g", id);
-        command.Parameters.AddWithValue("m", mapId);
+        command.Parameters.AddWithValue("m", key);
 
         if (wanted)
         {
@@ -727,7 +757,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
             -- map (ADR-079 condition 4) by its title, as before the two tables became one.
             select case when s.id is null then it.title
                         when s.folder is null then s.name else s.folder || '/' || s.name end,
-                   it.sharing, coalesce(s.kind, 'Web map'), gi.shared_at, sharedby.name,
+                   it.sharing, coalesce(s.kind, case it.kind when 'document' then 'Document' else 'Web map' end),
+                   gi.shared_at, sharedby.name,
                    (select l.name from layer l
                      where l.service_id = s.id order by l.layer_index limit 1),
                    (select l.layer_index from layer l

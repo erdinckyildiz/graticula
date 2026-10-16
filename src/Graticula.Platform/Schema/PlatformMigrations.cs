@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(88);
+    public static SchemaVersion ComponentSchemaVersion => new(89);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -123,7 +123,42 @@ public static class PlatformMigrations
         ThePythonApiIsABuiltInAppV86,
         AnItemIsItsOwnRecordV87,
         ArcGisProIsABuiltInAppV88,
+        ADocumentIsAnItemV89,
     ]);
+
+    /// <summary>
+    /// A document is an item — ADR-188: a file somebody brought, kept beside its item in the platform store.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A third kind with nothing behind it but its own bytes.</b> Migration 87 left room for it: an item whose
+    /// service and web map references are both null satisfies <c>item_kind_matches</c> already, so the item table
+    /// needs only the new name. The bytes are a row keyed by the item's id, deleted with it by cascade; the times are
+    /// on that row because the item carries none.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> A build before this one never reads a <c>document</c> item: every path it has names a service
+    /// or a web map by its reference column, so a document is invisible to it rather than misread.
+    /// </para>
+    /// </remarks>
+    private static Migration ADocumentIsAnItemV89 => Migration.Expand(
+        new SchemaVersion(89),
+        "A document is an item: a file kept beside it in the platform store (ADR-188).",
+        "alter table item drop constraint item_kind_known",
+        "alter table item add constraint item_kind_known check (kind in ('service', 'web map', 'document'))",
+        """
+        create table if not exists document (
+            item_id     uuid        not null primary key references item (id) on delete cascade,
+            file_name   text        not null,
+            kind        text        not null,
+            size        bigint      not null,
+            content     bytea       not null,
+            created_at  timestamptz not null default now(),
+            modified_at timestamptz not null default now(),
+            constraint document_size_matches check (size = octet_length(content)),
+            constraint document_name_present check (length(btrim(file_name)) > 0)
+        )
+        """);
 
     /// <summary>
     /// ArcGIS Pro is a built-in OAuth app, as Field Maps and the Python API are — ADR-076 condition 3's precondition.

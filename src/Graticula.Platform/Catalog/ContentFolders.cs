@@ -80,4 +80,11 @@ public interface IContentFolderStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether the map exists.</returns>
     Task<bool> MoveMapAsync(string mapId, Guid? folder, CancellationToken cancellationToken);
+
+    /// <summary>Files a document in a folder, or at the root — ADR-188, as a map is filed.</summary>
+    /// <param name="documentId">The document.</param>
+    /// <param name="folder">The folder, or null for the root.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the document exists.</returns>
+    Task<bool> MoveDocumentAsync(string documentId, Guid? folder, CancellationToken cancellationToken);
 }

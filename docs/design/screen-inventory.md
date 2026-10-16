@@ -84,6 +84,7 @@ and are not designed.
 | ST-28 | Map Viewer | `/studio/webmap.html?id=` | Layers · Search · Measure · Bookmarks · Print · Map; identify/edit · table · time bar · sketch · signed-out read-only · not found | `0c3cf40f6a1844688ae9956517561471` | draft |
 | ST-29 | Layer viewer | `/studio/view.html` | features · map image | | — |
 | ST-30 | SDK viewer | `/studio/map.html` | 2D · scene | | exception? (test page, Q4) |
+| ST-31 | Document item | `#/document/<id>` | owner · reader · protected · replace file · upload from ST-02 (refused 415/413) — [document-items.md](document-items.md), ADR-188 | | — |
 
 ## 3. Server
 

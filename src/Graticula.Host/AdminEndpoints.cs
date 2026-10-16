@@ -608,6 +608,7 @@ internal static partial class AdminEndpoints
         app.MapGet("/content/layers", ListMyContentAsync);
         app.MapGet("/content/items", ListContentItemsAsync);
         MapWebMaps(app);         // ADR-079 — AdminEndpoints.WebMaps.cs
+        MapDocuments(app);       // ADR-188 — AdminEndpoints.Documents.cs
 
         // <b>ADR-037's surface, and it is a read only.</b> A job is created by the act that needs one —
         // an upload, a seed — and never by asking for one, so there is no POST here. Cancelling is
@@ -10707,6 +10708,7 @@ internal static partial class AdminEndpoints
             folders = holdings.Folders,
             groups = holdings.Groups,
             webMaps = holdings.WebMaps,
+            documents = holdings.Documents,
             owns = holdings.Any,
             note = holdings.Any
                 ? $"This member owns {holdings.Explanation}. Removing them needs a decision: "
@@ -11003,6 +11005,7 @@ internal static partial class AdminEndpoints
                 services = holdings.Services.Count,
                 folders = holdings.Folders.Count,
                 webMaps = holdings.WebMaps,
+                documents = holdings.Documents,
                 unpublished,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
@@ -11018,7 +11021,7 @@ internal static partial class AdminEndpoints
                 : holdings.Any
                     ? $"'{name}' is gone, with {unpublished} layer(s) unpublished and "
                         + $"{holdings.Services.Count} service(s), {holdings.Folders.Count} "
-                        + $"folder(s) and {holdings.WebMaps} web map(s) removed."
+                        + $"folder(s), {holdings.WebMaps} web map(s) and {holdings.Documents} document(s) removed."
                     : $"'{name}' is gone. They owned nothing.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

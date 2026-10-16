@@ -77,7 +77,12 @@ internal static class RecordNames
     /// <c>/rec/record-core-query-parameters/param-type-definition</c> recommends.
     /// </remarks>
     public static readonly string[] Types =
-        ["Feature Service", "Map Service", "Vector Tile Service", "Image Service", "Web Map"];
+    [
+        "Feature Service", "Map Service", "Vector Tile Service", "Image Service", "Web Map",
+
+        // A document's types (ADR-188), each once.
+        .. Graticula.Platform.Catalog.Documents.Accepted.Select(kind => kind.ArcGisType).Distinct(),
+    ];
 }
 
 /// <summary>One link on a record or a document.</summary>

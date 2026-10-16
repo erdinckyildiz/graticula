@@ -279,7 +279,11 @@ internal sealed record HostSettings(
     long UploadMaximumBytes = HostedDataEndpoints.DefaultMaximumBytes,
     long ShapefileMaximumBytes = ArchiveLimits.DefaultShapefileBytes,
     int ImportMaximumFeatures = 1_000_000,
-    long ImportMaximumVertices = 50_000_000)
+    long ImportMaximumVertices = 50_000_000,
+
+    // <b>The largest document a member may file — ADR-188 §5.6.</b> 64 MB, the data upload's number, and a setting
+    // for the same reason: a document is read whole into memory on its way in and on its way out.
+    long DocumentMaximumBytes = Graticula.Platform.Catalog.Documents.DefaultMaximumBytes)
 {
     /// <summary>What may be built from one uploaded file: the defaults with this deployment's counts.</summary>
     public ImportLimits Import => ImportLimits.Default with
@@ -743,7 +747,8 @@ internal sealed record HostSettings(
             Math.Max(1L, keys.Value("UploadMaxMB", HostedDataEndpoints.DefaultMaximumBytes / 1048576)) * 1048576,
             Math.Max(1L, keys.Value("ShapefileMaxMB", ArchiveLimits.DefaultShapefileBytes / 1048576)) * 1048576,
             Math.Max(1, keys.Value("ImportMaxFeatures", ImportLimits.Default.Features)),
-            Math.Max(1L, keys.Value("ImportMaxVertices", ImportLimits.Default.Vertices)));
+            Math.Max(1L, keys.Value("ImportMaxVertices", ImportLimits.Default.Vertices)),
+            Math.Max(1L, keys.Value("DocumentMaxMB", Graticula.Platform.Catalog.Documents.DefaultMaximumBytes / 1048576)) * 1048576);
     }
 
     /// <summary>

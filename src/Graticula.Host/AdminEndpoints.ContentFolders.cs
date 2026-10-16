@@ -30,10 +30,11 @@ internal static partial class AdminEndpoints
     /// <param name="Title">The folder's title.</param>
     internal sealed record ContentFolderRequest(string? Title);
 
-    /// <summary>One item to move: a service by its qualified name, or a web map by its id.</summary>
+    /// <summary>One item to move: a service by its qualified name, or a web map or a document by its id.</summary>
     /// <param name="Service">The service, as <c>folder/name</c> or <c>name</c>.</param>
     /// <param name="Webmap">The web map's id.</param>
-    internal sealed record MoveItem(string? Service, string? Webmap);
+    /// <param name="Document">The document's id — ADR-188.</param>
+    internal sealed record MoveItem(string? Service, string? Webmap, string? Document = null);
 
     /// <summary>What <c>POST /content/move</c> reads.</summary>
     /// <param name="Items">The items.</param>
@@ -208,7 +209,8 @@ internal static partial class AdminEndpoints
         {
             (string label, Guid? owner, Func<Task<bool>>? move) = await ResolveMoveAsync(
                 item, request.To, folders, published, maps,
-                context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation).ConfigureAwait(false);
+                context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation,
+                context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
 
             string? error =
                 move is null ? "No such item."
@@ -239,7 +241,8 @@ internal static partial class AdminEndpoints
         PostgresLayerCatalog published,
         IWebMapStore maps,
         ICoverageCatalog? coverages,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        IDocumentStore? documents = null)
     {
         if (!string.IsNullOrWhiteSpace(item.Service))
         {
@@ -267,6 +270,16 @@ internal static partial class AdminEndpoints
 
             return await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map
                 ? (id, map.Owner, () => folders.MoveMapAsync(map.Id, to, cancellation))
+                : (id, null, null);
+        }
+
+        // A document, as a map (ADR-188).
+        if (!string.IsNullOrWhiteSpace(item.Document) && documents is not null)
+        {
+            string id = item.Document.Trim();
+
+            return await documents.FindAsync(id, cancellation).ConfigureAwait(false) is { } document
+                ? (id, document.Owner, () => folders.MoveDocumentAsync(document.Id, to, cancellation))
                 : (id, null, null);
         }
 

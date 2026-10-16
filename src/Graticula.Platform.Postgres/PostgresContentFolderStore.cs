@@ -126,6 +126,22 @@ public sealed class PostgresContentFolderStore : IContentFolderStore
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> MoveDocumentAsync(string documentId, Guid? folder, CancellationToken cancellationToken)
+    {
+        if (!WebMaps.IsId(documentId))
+        {
+            return false;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update item set content_folder_id = @folder where id = @id::uuid and kind = 'document'");
+        command.Parameters.AddWithValue("id", documentId);
+        command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
     private static ContentFolder Read(NpgsqlDataReader reader) => new(
         reader.GetGuid(0),
         reader.GetGuid(1),

@@ -322,6 +322,15 @@ internal static class OgcRecordsEndpoints
             yield break;
         }
 
+        // A document's record links its file (ADR-188), with the type it is served as.
+        if (entry.Document is { } document)
+        {
+            yield return new RecordLink(
+                $"{origin}{PortalEndpoints.Path}/content/items/{document.Id}/data", "enclosure", document.Kind.MediaType,
+                document.FileName);
+            yield break;
+        }
+
         if (entry.Coverage is { } coverage)
         {
             string image = $"{origin}/rest/services/{coverage.QualifiedName}/ImageServer";

@@ -326,7 +326,9 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                    (select count(*) from sharing_group g
                      where g.owner_principal_id = p.id),
                    (select count(*) from item m
-                     where m.owner_principal_id = p.id and m.kind = 'web map')
+                     where m.owner_principal_id = p.id and m.kind = 'web map'),
+                   (select count(*) from item d
+                     where d.owner_principal_id = p.id and d.kind = 'document')
               from principal p
              where lower(p.name) = lower(@name)
             """;
@@ -346,7 +348,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             reader.GetFieldValue<string[]>(1),
             reader.GetFieldValue<string[]>(2),
             (int)reader.GetInt64(3),
-            (int)reader.GetInt64(4));
+            (int)reader.GetInt64(4),
+            (int)reader.GetInt64(5));
     }
 
     /// <inheritdoc/>
@@ -600,9 +603,13 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                  -- one still can; only who may change it moves. The row cascades on the principal's
                  -- delete, so a transfer that forgot this would have deleted them.
                  m as (update item set owner_principal_id = (select id from taker)
-                        where owner_principal_id = (select id from giver) and kind = 'web map' returning 1)
+                        where owner_principal_id = (select id from giver) and kind = 'web map' returning 1),
+
+                 -- <b>Documents — ADR-188</b>, as maps: their scope and groups are untouched.
+                 d as (update item set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) and kind = 'document' returning 1)
             select (select count(*) from s) + (select count(*) from f)
-                 + (select count(*) from g) + (select count(*) from m)
+                 + (select count(*) from g) + (select count(*) from m) + (select count(*) from d)
             """;
 
         // <b>The content folders first, so an item stays filed — 2026-10-16.</b> The items moved below and their
@@ -703,6 +710,22 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             maps.Parameters.AddWithValue("name", name);
 
             await maps.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // <b>And their documents, as their maps</b> (ADR-188): the item is `on delete set null` on its owner, so without
+        // this a removed member's files would survive owned by nobody — and one filed in a folder would stop the removal,
+        // since the member's folders cascade while an item in one restricts.
+        await using (NpgsqlCommand documents = connection.CreateCommand())
+        {
+            documents.Transaction = transaction;
+            documents.CommandText = """
+                delete from item
+                 where kind = 'document'
+                   and owner_principal_id in (select id from principal where lower(name) = lower(@name))
+                """;
+            documents.Parameters.AddWithValue("name", name);
+
+            await documents.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         await using NpgsqlCommand command = connection.CreateCommand();

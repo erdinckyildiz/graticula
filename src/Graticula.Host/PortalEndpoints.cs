@@ -1080,6 +1080,11 @@ internal static partial class PortalEndpoints
                 .Where(map => map.Owner == current.Principal.Id && map.ContentFolder == folderId)
                 .Select(map => MapItem(context, map)),
 
+            // And their documents — ADR-188.
+            .. (await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
+                .Where(document => document.Owner == current.Principal.Id && document.ContentFolder == folderId)
+                .Select(document => DocumentItem(context, document)),
+
             // And the image services they registered — V-80 — in the content folder they were moved to (ADR-114).
             .. images
                 .Where(coverage => coverage.Owner is { } owner && owner == current.Principal.Id
@@ -1198,7 +1203,7 @@ internal static partial class PortalEndpoints
             return refused;
         }
 
-        string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation).ConfigureAwait(false);
+        string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation, context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
 
         return error is null
             ? Results.Ok(new { success = true, itemId = id, owner = current.Principal.Name, folder = to?.ToString("N") })
@@ -1232,7 +1237,7 @@ internal static partial class PortalEndpoints
 
         foreach (string id in form["items"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation).ConfigureAwait(false);
+            string? error = await MoveOneAsync(id, to, current, folders, published, maps, context.RequestServices.GetService(typeof(ICoverageCatalog)) as ICoverageCatalog, cancellation, context.RequestServices.GetService(typeof(IDocumentStore)) as IDocumentStore).ConfigureAwait(false);
             results.Add(error is null
                 ? new { itemId = id, success = true, error = (object?)null }
                 : new { itemId = id, success = false, error = (object?)new { code = 400, message = error } });
@@ -1262,7 +1267,7 @@ internal static partial class PortalEndpoints
     /// <summary>Moves one of the caller's own items by its portal id, or says why not.</summary>
     private static async Task<string?> MoveOneAsync(
         string id, Guid? to, RequestPrincipal current, IContentFolderStore folders, CatalogFallback published,
-        IWebMapStore maps, ICoverageCatalog? coverages, CancellationToken cancellation)
+        IWebMapStore maps, ICoverageCatalog? coverages, CancellationToken cancellation, IDocumentStore? documents = null)
     {
         if (Guid.TryParse(id, out Guid serviceId)
             && (await published.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?.FirstOrDefault(s => s.Id == serviceId) is { } service)
@@ -1281,6 +1286,16 @@ internal static partial class PortalEndpoints
             return image.Owner != current.Principal.Id
                 ? "Item does not exist or is inaccessible."
                 : await folders.MoveServiceAsync(image.ServiceId, to, cancellation).ConfigureAwait(false) ? null : "Item does not exist or is inaccessible.";
+        }
+
+        // A document, as a map (ADR-188). Its id is a uuid as well, so it is looked for only once no service has it.
+        if (documents is not null
+            && await documents.FindAsync(id.ToLowerInvariant(), cancellation).ConfigureAwait(false) is { } document)
+        {
+            return document.Owner == current.Principal.Id
+                && await folders.MoveDocumentAsync(document.Id, to, cancellation).ConfigureAwait(false)
+                    ? null
+                    : "Item does not exist or is inaccessible.";
         }
 
         return await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map && map.Owner == current.Principal.Id
@@ -1337,13 +1352,15 @@ internal static partial class PortalEndpoints
     /// <param name="Face">Which face of <paramref name="Service"/> it is: FeatureServer, MapServer or VectorTileServer.</param>
     /// <param name="Map">The saved web map it is, or null.</param>
     /// <param name="Coverage">The image service it is, or null.</param>
+    /// <param name="Document">The document it is, or null — ADR-188.</param>
     internal sealed record PortalListed(
         string Id,
         object Item,
         PublishedService? Service = null,
         string? Face = null,
         WebMap? Map = null,
-        PublishedCoverage? Coverage = null);
+        PublishedCoverage? Coverage = null,
+        Document? Document = null);
 
     /// <summary>
     /// Every portal item this caller may see that satisfies a query, or null when a catalogue cannot be read.
@@ -1415,6 +1432,17 @@ internal static partial class PortalEndpoints
             if (PortalQuery.Matches(item, query, map.SharedWith))
             {
                 results.Add(new PortalListed(map.Id, item, Map: map));
+            }
+        }
+
+        // Documents, under the same query and the same rule as maps (ADR-188).
+        foreach (Document document in await ReadableDocumentsAsync(context, cancellation).ConfigureAwait(false))
+        {
+            object item = DocumentItem(context, document);
+
+            if (PortalQuery.Matches(item, query, document.SharedWith))
+            {
+                results.Add(new PortalListed(document.Id, item, Document: document));
             }
         }
 
@@ -1540,6 +1568,12 @@ internal static partial class PortalEndpoints
         if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
         {
             return Results.Ok(MapItem(context, map, MapExtent(map.Document)));
+        }
+
+        // A document, as a map: it needs no catalogue either (ADR-188).
+        if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is { } document)
+        {
+            return Results.Ok(DocumentItem(context, document));
         }
 
         IReadOnlyList<PublishedService>? visible =
@@ -1730,6 +1764,15 @@ internal static partial class PortalEndpoints
         if (await ReadableMapAsync(context, maps, id, cancellation).ConfigureAwait(false) is { } map)
         {
             return Results.Content(map.Document ?? "{}", "application/json; charset=utf-8");
+        }
+
+        // <b>A document's data is its file</b> (ADR-188), and it leaves as every document does: a download, never a
+        // page (DocumentDownload).
+        if (await ReadableDocumentAsync(context, id, cancellation).ConfigureAwait(false) is { } document
+            && context.RequestServices.GetService(typeof(IDocumentStore)) is IDocumentStore documents
+            && await documents.ContentAsync(document.Id, cancellation).ConfigureAwait(false) is { } content)
+        {
+            return DocumentDownload.Result(document, content);
         }
 
         IReadOnlyList<PublishedService>? visible =
@@ -2015,6 +2058,78 @@ internal static partial class PortalEndpoints
             size = -1,
             created = map.Created.ToUnixTimeMilliseconds(),
             modified = map.Modified.ToUnixTimeMilliseconds(),
+        };
+    }
+
+    /// <summary>Every document this caller may read — ADR-188, under the rule maps are read by.</summary>
+    /// <remarks>Empty when the store is not registered, which only a test host leaves out.</remarks>
+    private static async Task<IReadOnlyList<Document>> ReadableDocumentsAsync(HttpContext context, CancellationToken cancellation)
+    {
+        if (context.RequestServices.GetService(typeof(IDocumentStore)) is not IDocumentStore documents)
+        {
+            return [];
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return
+        [
+            .. (await documents.ListAsync(cancellation).ConfigureAwait(false)).Where(document =>
+                LayerAccess.Evaluate(document.Sharing, document.Owner, current.Principal, current.Authorization, document.SharedWith).IsAllowed()),
+        ];
+    }
+
+    /// <summary>One document, if it exists and this caller may read it.</summary>
+    private static async Task<Document?> ReadableDocumentAsync(HttpContext context, string id, CancellationToken cancellation)
+    {
+        string lower = (id ?? string.Empty).ToLowerInvariant();
+
+        if (!WebMaps.IsId(lower) || context.RequestServices.GetService(typeof(IDocumentStore)) is not IDocumentStore documents)
+        {
+            return null;
+        }
+
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        return await documents.FindAsync(lower, cancellation).ConfigureAwait(false) is { } document
+            && LayerAccess.Evaluate(document.Sharing, document.Owner, current.Principal, current.Authorization, document.SharedWith).IsAllowed()
+                ? document
+                : null;
+    }
+
+    /// <summary>A document as a portal item of its ArcGIS type — <c>PDF</c>, <c>Microsoft Excel</c> and the rest (ADR-188).</summary>
+    /// <remarks>
+    /// <b>A map's item in every field it shares with one</b>, owner by the same rule (Q-127). <c>name</c> is the file's
+    /// name, as Portal gives a file item, and <c>size</c> is real; the file is at <c>items/{id}/data</c>.
+    /// </remarks>
+    private static object DocumentItem(HttpContext context, Document document)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        bool mine = !current.Principal.IsAnonymous && document.Owner == current.Principal.Id;
+
+        return new
+        {
+            id = document.Id,
+            orgId = PortalId(context),
+            owner = mine ? current.Principal.Name : "graticula",
+            ownerFolder = mine && document.ContentFolder is { } inFolder ? inFolder.ToString("N") : null,
+            title = document.Title,
+            name = document.FileName,
+            type = document.Kind.ArcGisType,
+            typeKeywords = new[] { "Data", "Document" },
+            description = document.Description ?? document.Snippet,
+            thumbnail = (string?)null,
+            snippet = document.Snippet,
+            tags = document.Tags ?? [],
+            categories = Array.Empty<string>(),
+            url = (string?)null,
+            access = Access(document.Sharing),
+            spatialReference = (string?)null,
+            extent = Array.Empty<double[]>(),
+            numViews = 0,
+            size = document.Size,
+            created = document.Created.ToUnixTimeMilliseconds(),
+            modified = document.Modified.ToUnixTimeMilliseconds(),
         };
     }
 
