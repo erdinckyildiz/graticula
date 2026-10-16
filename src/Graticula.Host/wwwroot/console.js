@@ -2102,60 +2102,16 @@ const SURFACES = {
     // writes it. The label did not change, because what an operator wanted from it did not.
     action: { id: "publishService", label: "New service" },
 
+    // <b>Four tabs since 2026-10-16 — ADR-187, by owner decision.</b> ArcGIS Server Manager's own bar:
+    // Services; Site, which is this installation (Data sources, Status, General); Security (Members,
+    // Roles, Sign-in, Apps); Logs. ADR-091's five rows fall into them without remainder, and each tab's
+    // address is its first page, so a tab is still an address this app routes (D-115). Why each screen
+    // is Server's at all is unchanged — ADR-034 §5c, ADR-091 §1 — and `SUBPAGES` says where it sits.
     tabs: [
       ["services", "Services"],
-
-      // <b>Five rows since 2026-09-25 — ADR-091.</b> Publish, Roles, Apps, Sign-in and Logs are still
-      // screens with their own addresses, but not sidebar rows: `SUBPAGES` below puts each one under
-      // the row it belongs to, the way the portal's Organization › Settings holds roles and logins.
-      // The notes on the rows that moved are kept where the rows were, because they still say why
-      // each screen is Server's.
-
-      // <b>Publish, and it is Server's because a registered database is.</b> ADR-057: a
-      // service is composed from tables in databases this server was pointed at, and pointing
-      // it at one is an administrator's act on the tab next door. Studio publishes a layer
-      // somebody imported; this publishes a service somebody assembled.
-      // ["publish", "Publish"],  — a subpage since ADR-091
-
-      // <b>Data sources is Server's, by owner decision 2026-08-17</b> — *"data sources studio'nun
-      // değil server'in bir seçeneği. onu da sadece admin ayarlayabilir."* This corrects ADR-034
-      // §5c, which had put it in Studio beside publishing. Registering a source is not publishing:
-      // it hands this server a credential for somebody else's database and adds a machine the
-      // deployment then depends on, and its failures are operational.
-      ["sources", "Data sources"],
-
-      // <b>Members, needing `admin:manageMembers`.</b> It sits in Server because making somebody
-      // an administrator is an administrative act, not a content one — the same split §5c draws
-      // everywhere else. The tab is drawn for everybody who can enter Server, which today is the
-      // same set: the administrator role carries both privileges.
-      ["members", "Members"],
-
-      // <b>Roles, needing `admin:manageRoles` — ADR-035.</b> Server's, because granting a
-      // capability is administrative even though most of the capabilities it hands out are
-      // Studio's: the same split ADR-034 §5c draws everywhere else. The tab sits beside Members
-      // because *who is there* and *what they may do* are read together.
-      // ["roles", "Roles"],  — a subpage since ADR-091
-
-      // <b>Apps, needing `admin:manageSecurity` — ADR-076.</b> Beside Members and Roles because which
-      // apps may sign people in is the same question as who is here and what they may do.
-      // ["apps", "Apps"],  — a subpage since ADR-091
-
-      // <b>Sign-in — ADR-088.</b> Beside Apps: which providers may sign people in is the question of who may,
-      // and it needs the same privilege.
-      // ["signin", "Sign-in"],  — a subpage since ADR-091
-
-      // <b>Settings — V-70, ADR-084.</b> What the whole server does unless a service sets its own, which
-      // the owner asked to be set here rather than in a configuration file. Before Operations, because it
-      // is the one screen in this surface that changes what every service answers.
-      ["settings", "Settings"],
-
-      ["operations", "Operations"],
-
-      // <b>Beside Operations, because they answer the same shift.</b> Operations says what
-      // this process is doing now; Logs says what it has done. The owner asked for it here:
-      // *"hem server hem studio ile ilgili logların sorgulandığı bir ekran lazım. bu da
-      // server ekranında olmalı."* ADR-045.
-      // ["logs", "Logs"],  — a subpage since ADR-091
+      ["sources", "Site"],
+      ["members", "Security"],
+      ["logs", "Logs"],
     ],
   },
   studio: {
@@ -2204,9 +2160,9 @@ const SURFACES = {
  * with no strip: it is where the *New service* action goes, not a place anybody browses to.
  */
 const SUBPAGES = {
-  settings: [["settings", "General"], ["roles", "Roles"], ["signin", "Sign-in"], ["apps", "Apps"]],
-  operations: [["operations", "Status"], ["logs", "Logs"]],
-  services: [["services", "Services"], ["publish", "Publish"]],
+  services: [["services", "Manage services"], ["publish", "Publish a service"]],
+  sources: [["sources", "Data sources"], ["operations", "Status"], ["settings", "General"]],
+  members: [["members", "Members"], ["roles", "Roles"], ["signin", "Sign-in"], ["apps", "Apps"]],
 };
 
 /** Which sidebar row a subpage lights, from `SUBPAGES`. */
@@ -2711,16 +2667,14 @@ function drawSurfaces(surface) {
   // strip, so the strip carried both navigation and a verb — and when navigation moved into a
   // column, the button would have been a nav item that is not one. The router fills two slots
   // instead, which is the only change the redesign made to this function.
+  // <b>A bar of words, since ADR-187.</b> The rail needed a glyph per row because it could collapse to
+  // one; a header bar has the width for its labels and nothing to collapse to, so the glyphs and the
+  // counts went with the rail. The surface's name is the badge beside the mark.
+  $("surfaceBadge").textContent = config.title;
   $("tabs").innerHTML = config.tabs.map(([name, label]) =>
-    `<a href="#/${name}" data-tab="${name}" aria-label="${h(label)}">
-       <span class="ico" aria-hidden="true">${SECTION_GLYPH[name] ?? "·"}</span>
-       <span class="label">${h(label)}</span>${
-       name === "services" ? '<span class="count" id="cServices"></span>' : ""}${
-       name === "sources" ? '<span class="count" id="cSources"></span>' : ""}</a>${
+    `<a href="#/${name}" data-tab="${name}">${h(label)}</a>${
        (config.links || []).filter(l => l.after === name).map(l =>
-         `<a href="${h(l.href)}" data-link="${h(l.key)}" aria-label="${h(l.label)}">
-            <span class="ico" aria-hidden="true">${SECTION_GLYPH[l.key] ?? "·"}</span>
-            <span class="label">${h(l.label)}</span></a>`).join("")}`).join("");
+         `<a href="${h(l.href)}" data-link="${h(l.key)}">${h(l.label)}</a>`).join("")}`).join("");
 
   // <b>One slot, because the other copy was a second element with the same id.</b> This wrote the
   // action into both page heads and said so — *"naming them apart and asking for both is what keeps
@@ -2744,28 +2698,6 @@ function drawSurfaces(surface) {
     if (slot) slot.innerHTML = home === config.home ? markup : "";
   }
 }
-
-/**
- * One glyph per section, so a sidebar row is scannable when the column is narrow.
- *
- * <b>Characters, not icons.</b> An icon font is a request and a licence; an inline SVG set is four
- * hundred bytes of path data per glyph in a file that is read by people. These are geometric
- * Unicode shapes at one opacity — they carry no meaning the label does not, which is why they can be
- * this plain, and they are the only thing that survives collapsing the sidebar.
- */
-const SECTION_GLYPH = {
-  services: "◈",
-  sources: "▤",
-  members: "◍",
-  operations: "◎",
-  settings: "◇",
-  logs: "≡",
-  content: "◈",
-  map: "◫",
-  groups: "◍",
-  domains: "▤",
-  anonymous: "◌",
-};
 
 /**
  * Goes where the map is, if we are not already there.
@@ -2816,6 +2748,11 @@ function drawSubpages(screen) {
   const row = ROW_OF[screen];
   const view = $("view-" + screen);
   if (!row || !view || row === "services") return;
+
+  // <b>A column on the page's left, since ADR-187</b> — what Server Manager draws as the grey list
+  // beside its pages. Still drawn into each page once and re-marked on every visit; `withside` is what
+  // turns the page into two columns, so a page without siblings keeps its full width.
+  view.classList.add("withside");
   let strip = view.querySelector(":scope > nav.subpages");
   if (!strip) {
     strip = document.createElement("nav");
@@ -4938,7 +4875,7 @@ let serviceIsSystem = false;
 
 async function showService(qualified) {
   editing = null;
-  showView("view-service", "services");
+  showView("view-service", surfaceOfPath() === "studio" ? "content" : "services");
 
   const { folder, name } = splitService(qualified);
 
@@ -14022,7 +13959,7 @@ function showLayer(name, page, pending = null) {
   const row = document.querySelector(`tr[data-pick="${CSS.escape(name)}"]`);
   if (row) row.classList.add("sel");
 
-  showView("view-layer", "services");
+  showView("view-layer", surfaceOfPath() === "studio" ? "content" : "services");
   window.scrollTo(0, 0);
 }
 
@@ -19674,7 +19611,7 @@ async function loadSources() {
   geoParquetRoot = root ?? null;
   remoteGeoParquet = remote === true;
   motherDuckOn = motherDuck === true;
-  $("cSources").textContent = dataSources.length;
+  if ($("cSources")) $("cSources").textContent = dataSources.length;
 
   $("sourcesPager").innerHTML = pagerFor("sources", dataSources.length);
 
@@ -21935,9 +21872,19 @@ async function refreshHealth() {
     $("healthLine").textContent = ok
       ? `platform store reachable · ${health.platformStore.layers} layers${build}`
       : `DEGRADED — platform store unreachable${build}`;
+    // The line can be cut short by the section bar beside it (ADR-187); the whole of it is the title.
+    $("healthLine").title = $("healthLine").textContent;
+    // And on the dot, because the line is hidden where the bar needs its width: the state is then the
+    // dot's colour, and a colour alone says nothing to whoever cannot tell green from amber.
+    $("healthDot").title = $("healthLine").textContent;
+    $("healthDot").setAttribute("role", "img");
+    $("healthDot").setAttribute("aria-label", $("healthLine").textContent);
   } catch {
     $("healthDot").className = "dot unknown";
     $("healthLine").textContent = "health unreachable";
+    $("healthDot").title = "health unreachable";
+    $("healthDot").setAttribute("role", "img");
+    $("healthDot").setAttribute("aria-label", "health unreachable");
   }
 }
 
@@ -23743,19 +23690,6 @@ async function handleClick(event) {
     await section("folders", loadFolders);
     await section("services", loadServices, "services");
     t.disabled = false;
-    return;
-  }
-
-  // <b>The sidebar narrows to its glyphs, and the choice is remembered.</b> `localStorage`, not
-  // `sessionStorage`: this is a preference about the shape of the tool, not a fact about the
-  // session, and somebody who wants the width back wants it back tomorrow too.
-  if (t.id === "collapse" || t.closest?.("#collapse")) {
-    const tight = $("shell").classList.toggle("tight");
-    try { localStorage.setItem("gis-rail", tight ? "tight" : "wide"); } catch { /* private mode */ }
-
-    // The label is hidden when narrow, so the tooltip is the only thing left that can say what
-    // pressing this does — and it has to say the *next* state, like the arrow beside it.
-    $("collapse").title = tight ? "Widen the sidebar" : "Narrow the sidebar";
     return;
   }
 
@@ -26987,18 +26921,6 @@ $("signout").addEventListener("click", async event => {
  * So a tokenless reader gets the form, and is told why rather than left to wonder why an
  * administrator is being asked to sign in.
  */
-/**
- * Puts the sidebar back the width it was left at.
- *
- * <b>Before the first paint rather than after `whoami`</b>, so the column does not visibly jump
- * from wide to narrow while the session is being read.
- */
-try {
-  if (localStorage.getItem("gis-rail") === "tight") {
-    $("shell").classList.add("tight");
-    $("collapse").title = "Widen the sidebar";
-  }
-} catch { /* private mode: the default width is a fine answer */ }
 
 /**
  * Takes the browsing session the services directory opened and gives this console a token of its own.

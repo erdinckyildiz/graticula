@@ -41,11 +41,15 @@ public sealed class SettingsScreenTests : ConsoleTest
             + " && (document.getElementById('setPageSizeSource')?.textContent || '').length > 0",
             "The Settings screen drew no default, or did not say where the page size comes from.");
 
-        // ---- where it lives: a named link in Server's sidebar ----
+        // ---- where it lives: General, in Site's list, under the Site tab — ADR-187 ----
+        Assert.Equal(
+            "sources",
+            await Browser.EvaluateAsync<string>(
+                "document.querySelector('#tabs a[aria-current]')?.dataset.tab || ''"));
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "[...document.querySelectorAll('a[href$=\"#/settings\"]')].some(a => (a.getAttribute('aria-label') || a.textContent).includes('Settings'))"),
-            "No link in the page is named Settings, so an administrator — or a screen reader at rail width — cannot find it.");
+                "[...document.querySelectorAll('.view.on nav.subpages a[href$=\"#/settings\"]')].some(a => a.textContent.includes('General'))"),
+            "Site's list has no link named General to this page, so an administrator cannot find it.");
 
         // ---- the first-run state: an empty box over the default, a sentence saying so, no reset ----
         Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>($"{Box}.value"));

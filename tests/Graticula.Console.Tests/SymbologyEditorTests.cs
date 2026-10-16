@@ -1225,19 +1225,17 @@ public sealed class SymbologyEditorTests : ConsoleTest
     /// <b>The pair of the test above, and the cheap way to pass that one.</b> A stacked layout at
     /// every width would put the picture on the screen everywhere and quietly retire ADR-053. So
     /// the three widths where the editor had its 1,180 pixels before this change are asked for
-    /// three columns side by side at their designed widths: the suite's own window, the floor
-    /// exactly with the sidebar open, and a 1,300 window with the sidebar collapsed — which
-    /// fitted then, and which a breakpoint written against the window would have stacked.
+    /// three columns side by side at their designed widths: the suite's own window, 1,412, and
+    /// 1,300 — which fitted before only with the sidebar collapsed, and fits with nothing pressed
+    /// since ADR-187 took the sidebar away.
     /// </remarks>
     /// <param name="width">The window's width.</param>
-    /// <param name="collapsed">Whether the sidebar is collapsed to its icons.</param>
     /// <returns>The task.</returns>
     [Theory]
-    [InlineData(1440, false)]
-    [InlineData(1412, false)]
-    [InlineData(1300, true)]
-    public async Task Where_three_columns_fitted_they_are_still_three_columns(
-        int width, bool collapsed)
+    [InlineData(1440)]
+    [InlineData(1412)]
+    [InlineData(1300)]
+    public async Task Where_three_columns_fitted_they_are_still_three_columns(int width)
     {
         (string token, _) = await SignInAsync();
         string layer = await AnyLayerAsync();
@@ -1254,15 +1252,6 @@ public sealed class SymbologyEditorTests : ConsoleTest
         {
             await OpenSymbologyAsync(layer, token);
 
-            if (collapsed)
-            {
-                await ClickAsync("#collapse");
-
-                await WaitForAsync(
-                    "document.getElementById('shell').classList.contains('tight')",
-                    "The sidebar did not collapse, so this case measured the open one.");
-            }
-
             await WaitForAsync(
                 """
                 (() => {
@@ -1275,7 +1264,7 @@ public sealed class SymbologyEditorTests : ConsoleTest
                       && Math.abs(rail.height - pic.height) < 1;
                 })()
                 """,
-                $"At {width} with the sidebar {(collapsed ? "collapsed" : "open")} the editor has "
+                $"At {width} the editor has "
                 + "its 1,180 pixels and is not three columns side by side at 264, 580 or more, and "
                 + "336 — the layout ADR-053 decided, where it fitted before D-221.");
 
@@ -1287,11 +1276,6 @@ public sealed class SymbologyEditorTests : ConsoleTest
         }
         finally
         {
-            if (collapsed)
-            {
-                await ClickIfPresentAsync("#shell.tight #collapse");
-            }
-
             await Browser.CallAsync("Emulation.clearDeviceMetricsOverride");
         }
     }

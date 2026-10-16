@@ -327,24 +327,18 @@ public sealed class ScreenReviewTests : ConsoleTest
                 + "&& document.querySelector('.view.on').textContent.trim().length > 40",
                 $"'{address}' never rendered, so its width proves nothing.");
 
-            // <b>The rail, whatever the reader last chose.</b> The sidebar's open width is 232, which is
-            // 60 per cent of this screen.
+            // <b>The sections, on a row of their own — ADR-187.</b> They used to be a rail that had to give
+            // its 232 pixels back on a phone; now they are a bar, and on a phone the bar takes the
+            // header's second row and scrolls inside itself rather than pushing the page sideways.
             await WaitForAsync(
-                "document.getElementById('rail').getBoundingClientRect().width <= 72",
-                $"The sidebar keeps its full width at 390 px on '{address}', so the work has what is left.");
+                "(() => { const t = document.getElementById('tabs').getBoundingClientRect(); "
+                + "return t.width > 0 && t.right <= window.innerWidth + 1; })()",
+                $"The section bar is not on the screen at 390 px on '{address}'.");
 
             await WaitForAsync(
                 "document.body.scrollWidth <= window.innerWidth + 1",
                 $"'{address}' scrolls sideways at 390 px. A table that needs the width scrolls inside its "
                 + "own container; the page must not, because it carries the navigation column out with it.");
-
-            // And the toggle is gone rather than drawn with nothing to do. `Shown` is the suite's own
-            // question — there and drawn. The architecture suite refuses the optional-chained
-            // `offsetParent` comparison this first used, because it is also true for a control that is
-            // not in the page at all, and it caught this one on CI.
-            bool toggle = await Browser.EvaluateAsync<bool>(Shown("#collapse"));
-
-            Assert.False(toggle, "The Collapse control is drawn on a phone, where the rail is the only width.");
 
             string[] errors = await PageErrorsAsync();
             NothingWentWrong(errors);

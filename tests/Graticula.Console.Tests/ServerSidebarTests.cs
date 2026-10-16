@@ -5,8 +5,9 @@ using Xunit;
 namespace Graticula.Console.Tests;
 
 /// <summary>
-/// Server's sidebar is five rows, and the screens that left it are reached from the page they belong
-/// to — ADR-091.
+/// Server's sections are ArcGIS Server Manager's four tabs in the header, and every other screen is
+/// reached from the list on its tab's pages — ADR-187, amending ADR-091. The class keeps its name
+/// because ADR-091 cites it.
 /// </summary>
 /// <remarks>
 /// <b>What could go wrong is silent, so each case is asserted by what is lit.</b> A subpage that routes
@@ -24,7 +25,7 @@ public sealed class ServerSidebarTests : ConsoleTest
         + ".map(a => (a.getAttribute('aria-current') ? '*' : '') + a.textContent.trim()).join(' ')";
 
     [Fact]
-    public async Task The_sidebar_has_five_rows()
+    public async Task The_top_bar_has_server_managers_four_tabs()
     {
         (string token, _) = await SignInAsync();
 
@@ -32,24 +33,32 @@ public sealed class ServerSidebarTests : ConsoleTest
 
         await WaitForAsync(
             "document.querySelectorAll('#tabs a[data-tab]').length > 0",
-            "Server drew no sidebar.");
+            "Server drew no section bar.");
 
         string rows = await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.dataset.tab).join(',')")
             ?? string.Empty;
 
-        Assert.Equal("services,sources,members,settings,operations", rows);
+        Assert.Equal("services,sources,members,logs", rows);
+
+        string labels = await Browser.EvaluateAsync<string>(
+            "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.textContent.trim()).join(',')")
+            ?? string.Empty;
+
+        Assert.Equal("Services,Site,Security,Logs", labels);
 
         NothingWentWrong(await PageErrorsAsync());
     }
 
     [Theory]
-    [InlineData("settings", "settings", "*General Roles Sign-in Apps")]
-    [InlineData("roles", "settings", "General *Roles Sign-in Apps")]
-    [InlineData("signin", "settings", "General Roles *Sign-in Apps")]
-    [InlineData("apps", "settings", "General Roles Sign-in *Apps")]
-    [InlineData("operations", "operations", "*Status Logs")]
-    [InlineData("logs", "operations", "Status *Logs")]
+    [InlineData("sources", "sources", "*Data sources Status General")]
+    [InlineData("operations", "sources", "Data sources *Status General")]
+    [InlineData("settings", "sources", "Data sources Status *General")]
+    [InlineData("members", "members", "*Members Roles Sign-in Apps")]
+    [InlineData("roles", "members", "Members *Roles Sign-in Apps")]
+    [InlineData("signin", "members", "Members Roles *Sign-in Apps")]
+    [InlineData("apps", "members", "Members Roles Sign-in *Apps")]
+    [InlineData("logs", "logs", "")]
     public async Task A_subpage_lights_its_row_and_marks_its_strip(string screen, string row, string strip)
     {
         (string token, _) = await SignInAsync();
@@ -88,19 +97,19 @@ public sealed class ServerSidebarTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/settings", token);
+        await OpenAsync("/server/#/members", token);
 
         await WaitForAsync(
             "document.querySelectorAll('.view.on nav.subpages a').length === 4",
-            "Settings drew no strip of four pages.");
+            "Security drew no list of four pages.");
 
         await ClickAsync(".view.on nav.subpages a[href='#/roles']");
 
         await WaitForAsync(
             "document.getElementById('view-roles')?.classList.contains('on')",
-            "Pressing Roles in the Settings strip did not open Roles.");
+            "Pressing Roles in Security's list did not open Roles.");
 
-        Assert.Equal("settings", await Browser.EvaluateAsync<string>(Lit));
+        Assert.Equal("members", await Browser.EvaluateAsync<string>(Lit));
         Assert.Contains("*Roles", await Browser.EvaluateAsync<string>(Strip) ?? string.Empty, StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());

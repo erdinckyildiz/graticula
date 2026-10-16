@@ -121,6 +121,17 @@ device" ADR-091 §3 worried about is now the left panel rather than a strip.
 
 **State.** None. Presentation only; no route, table, endpoint or stored value changes.
 
+*(Built 2026-10-16, step 1 of the redesign: the rail, its illustration and *Collapse* are gone; `#tabs` is a
+bar in the header beside the mark and the surface badge; `SURFACES.server.tabs` is the four tabs and
+`SUBPAGES` the three lists; a page with siblings gets `.view.withside`, a left column that becomes a
+horizontal bar below 1,100 pixels. A design review measured the first build and found the bar shrinking
+under the Server|Studio switch at every laptop width — Studio's last tab hidden at 1,440 and reachable by
+keyboard while hidden — so the bar does not shrink: the health sentence gives way first (its dot carries
+it as a label), then the product name, and below 1,100 pixels the bar takes a row of its own. Two console
+tests changed with the layout rather than with a defect: `SettingsScreenTests` now finds Settings as
+*General* in Site's list, and `SymbologyEditorTests` measures 1,300 pixels with nothing collapsed, since
+there is nothing to collapse.)*
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

@@ -122,6 +122,9 @@
   --accent: #0d7d70;
   --accent-hot: #12a293;
   --accent-soft: #e3f2f0;
+  /* Teal text on the soft teal ground: `--accent` is 4.36:1 there, under AA for small type; this is
+     4.97:1 on it and 5.73:1 on white (ADR-187 design review, 2026-10-16). */
+  --accent-ink: #0b7368;
   --accent-line: #b8ded8;
 
   --blue: #2f56c8;
@@ -248,323 +251,96 @@ a:hover { text-decoration: underline; }
   A visible focus ring, on one rule rather than per control. Keyboard reachability is not a feature
   to remember per element.
 */
-:focus-visible { outline: 2px solid var(--accent-hot); outline-offset: 2px; border-radius: 3px; }
+/* `--accent`, not `--accent-hot`: the lighter teal was 2.98:1 on the paper, under the 3:1 a focus ring needs. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 
 /* ----------------------------------------------------------------------- shell */
 
 /*
-  <b>Sidebar, then everything else.</b> Navigation is a column and the work is a column, which is
-  the reference's arrangement and the reason it survives a narrow window: the sidebar collapses
-  to a strip of icons rather than wrapping into the content. <b>The reader collapses it; no width
-  does.</b> This said *at 980 px* until 2026-09-11, when D-221's measurements found no rule at
-  980 or anywhere else — the strip is the 64-pixel state the toggle chooses.
+  <b>One column, and the sections are a bar in the header — ADR-187.</b> The rail that held them is
+  gone: ArcGIS Portal and Server Manager both navigate from the top, and a page with folders or
+  filters used to have two left columns, the app's and its own. The left column now belongs to the
+  page (`.view.withside` below), and a page that needs none has the full width.
 */
-/* <b>232, not 248.</b> Handoff 2026-09-04: sixteen pixels back to the work column, which is where
-   the screens that need width are — the members table wants 1100 and the symbology editor 1180. No
-   sidebar label wraps at 232; measured against the longest, *Anonymous view*. */
-#shell { display: grid; grid-template-columns: 232px 1fr; min-height: 100vh; }
-#shell.tight { grid-template-columns: 64px 1fr; }
+#shell { display: block; min-height: 100vh; }
 
-/*
-  <b>Navy into indigo, with two glows and a graticule over them.</b> The first pass was one flat
-  navy and the owner was right about it: *"the current sidebar is too flat and empty… the sidebar
-  should become one of the strongest elements of the product identity."* Four layers, painted
-  bottom-up, none of which is an image:
-
-  1. a base navy, so text contrast is decided by one colour rather than by wherever a gradient
-     happens to be;
-  2. an indigo wash from the top-left, which is where the eye enters the column;
-  3. a cyan glow low down, behind the decorative element, so the bottom of a tall empty column is
-     not a dead rectangle;
-  4. the graticule grid, masked to fade in downwards.
-
-  <b>Restraint is in the numbers.</b> No stop is above 22% opacity and the whole thing resolves to
-  one perceived colour from two feet away. The brief's line was *keep it professional — do not make
-  it neon or gaming-like*, and that is what the ceiling on those numbers is for.
-*/
-#rail {
-  background:
-  /* <b>Flat since 2026-09-25.</b> The owner asked for a calmer, enterprise look: the two glows and
-     the vertical wash went, and the column is the one colour its tokens already name. The hue still
-     tells Server from Studio; the atmosphere was the part that read as a template. */
-    var(--nav-base);
-  border-right: 1px solid var(--nav-line);
-  display: flex;
-  flex-direction: column;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow: hidden;
-}
-
-/*
-  <b>The graticule grid is gone, by owner instruction 2026-08-17: *"grid kalksın."*</b> It was here as
-  a reference to the product's own name — a graticule is the net of meridians and parallels
-  (ADR-032) — and it was competing with the illustration for the same job. The illustration carries
-  that reference better: each of its plates has a net drawn on it, in perspective, which is what a
-  graticule actually looks like on a surface. Two textures saying one thing is one texture too many.
-*/
-
-/*
-  <b>The decorative element, and it is the product's own subject.</b> The reference has an isometric
-  stack of translucent layers low in the sidebar; ours is the same idea drawn as three skewed
-  rectangles — a GIS layer stack, which is what a service *is* here. CSS transforms and gradients,
-  no asset, no request.
-
-  <b>Understated is a measurement, not an intention.</b> It sits at 0.5 opacity over the cyan glow,
-  below the navigation, `pointer-events: none`, and it is the first thing to go when the column is
-  collapsed. If it competes with a section name, the numbers are wrong.
-*/
-/*
-  <b>The layer stack, and an atmosphere around it.</b> Owner polish pass: make the illustration more
-  visible and *"introduce a very subtle cyan/blue/violet geospatial glow or dot/grid atmosphere
-  around it. Do not make it neon."* Two additions and one number: a dot field behind the stack, a
-  cyan-violet glow under it, and the opacity from 0.5 to 0.78.
-
-  <b>The dots are a survey field, which is the honest version of *geospatial atmosphere*.</b> A
-  radial-gradient repeated on a 22-pixel pitch — the same idea as the graticule higher up, at a
-  different scale, so the two read as one texture rather than two decorations.
-*/
-/*
-  <b>The illustration's box, and it sits higher than it did.</b> Owner 2026-08-17: *"biraz daha
-  yukarıda olması lazım."* It was anchored 118 pixels off the bottom, which put it in the Collapse
-  button's lap on a short window; 196 gives it the empty middle of the column, which is what the
-  reference does with the space.
-
-  <b>Everything else about it is in the markup now.</b> The plates, their meshes and the markers are
-  one inline SVG — see index.html for why the CSS version's regular dot lattice was a limit rather
-  than a choice.
-*/
-/*
-  <b>It gives way to the navigation, since 2026-09-06.</b> It was anchored 236 pixels off the
-  bottom — a number tuned when Server's rail held six rows. Publish made it seven, and at the
-  owner's window size the plates sat behind *Members*, *Roles*, *Operations* and *Logs*. The
-  labels were still on top (`#tabs` carries `z-index: 1`) and still unreadable, which is the
-  worse half: nothing was broken enough to notice from a test.
-
-  <b>Laid out rather than positioned, so the next row cannot do it again.</b> The rail is a flex
-  column; the art is a flex item that takes what is left between the navigation and the Collapse
-  button and is allowed to shrink to nothing. A magic offset would have needed retuning the day
-  somebody adds an eighth screen, and nobody would connect the two.
-*/
-#railArt {
-  flex: 0 1 auto; min-height: 0; align-self: stretch;
-  width: 100%; height: auto; margin: auto 0 24px;
-  pointer-events: none; opacity: .5; /* .92 until 2026-09-25: a quieter rail */
-}
-
-/* Below this there is no leftover space worth an illustration, and a squeezed one reads as a
-   rendering fault rather than as a decoration. */
-@media (max-height: 760px) { #railArt { display: none; } }
-
-#shell.tight #railArt { display: none; }
-
+/* The mark, the name and which surface this is, at the head of the bar. */
 #brand {
-  display: flex;
-  align-items: center;
-  gap: var(--gap-3);
-  padding: 20px var(--gap-4) 22px;
-  margin-bottom: var(--gap-2);
-  border-bottom: 1px solid rgba(255, 255, 255, .06);
-  position: relative;
-  z-index: 1;
+  display: flex; align-items: center; gap: 10px; flex: none;
+  color: var(--ink); text-decoration: none;
 }
-
+#brand:hover { text-decoration: none; }
 #brand .mark {
-  width: 28px; height: 28px; flex: none;
-  border-radius: var(--round);
-  background: var(--accent);
-  display: grid; place-items: center;
-  color: #fff; font-size: 13px; font-weight: 700;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18);
+  width: 28px; height: 28px; flex: none; border-radius: var(--round);
+  background: #171b49; display: grid; place-items: center;
+}
+#brand .mark svg { width: 16px; height: 16px; display: block; }
+#brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+/* Teal for Server and violet for Studio, the two halves of the switch beside it. */
+#brand .badge {
+  font-size: var(--t-label); font-weight: 600; line-height: 1; padding: 4px 8px;
+  border-radius: var(--round); background: var(--accent-soft); color: var(--accent-ink);
+  border: 1px solid var(--accent-line);
+}
+:root[data-surface="studio"] #brand .badge {
+  background: var(--violet-soft); color: var(--violet); border-color: #d9cdf5;
 }
 
 /*
-  <b>Studio's column is violet, and the reason is that the switch already said so.</b> Owner
-  2026-08-18: Server keeps its indigo, Studio gets something else, colour my choice. The choice is
-  not free — the environment switch has been teal for Server and violet for Studio since it was
-  built, so a violet column makes the hue say the same thing in two places instead of two things in
-  two places. A reader who learns one gets the other for nothing.
-
-  <b>Same construction, same brightness band, different hue.</b> `#281748` sits within a few points
-  of `#171b49` for lightness and about 50 degrees away in hue: the two read as one product at two
-  stations rather than as two applications. Every derived token is re-mixed at the new hue, for the
-  reason the last change was — a line mixed from indigo against a violet base is what makes a
-  palette look almost-right.
-
-  <b>The illustration does not change.</b> Its plates run teal to violet in both surfaces, because it
-  is the product's subject and not the environment's badge.
+  <b>The sections: words with an underline, the way Portal draws its bar.</b> The links stretch to
+  the header's full height so the underline sits on the header's own bottom rule, and the selected
+  one is teal and heavier — two signals, neither of them only colour.
 */
-:root[data-surface="studio"] {
-  --nav-base: #281748;
-  --nav-deep: #1c0f36;
-  --nav-line: #3d2668;
-  --nav-ink: #f1ecfb;
-  --nav-muted: #b3a4d8;
-  /* 3.93:1 on Studio's violet base, same finding as Server's. #9c8cc8 is 5.36:1 and stays below
-     `--nav-muted` (#b3a4d8). */
-  --nav-faint: #9c8cc8;
-  --nav-on: #33205c;
-}
-
-:root[data-surface="studio"] #rail {
-  background:
-    var(--nav-base);
-}
-
-/*
-  The selected section keeps its shape and changes its light: orchid where Server is cyan, so the two
-  columns differ by the same amount their switch halves do.
-*/
-:root[data-surface="studio"] #tabs a[data-tab], :root[data-surface="studio"] #tabs a[data-link] { color: #c6bbe4; }
-:root[data-surface="studio"] #tabs .ico { color: #a394cf; }
-:root[data-surface="studio"] #tabs a[data-tab]:hover .ico, :root[data-surface="studio"] #tabs a[data-link]:hover .ico { color: #ded4f7; }
-:root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] {
-  background: var(--nav-on);
-  box-shadow: inset 3px 0 0 #b491ff;
-  /* <b>White, like Server's — 2026-09-25.</b> The Studio link colour above is more specific than
-     the shared selected rule, so the selected label stayed lilac and read as unselected. */
-  color: #fff;
-}
-:root[data-surface="studio"] #tabs a[data-tab][aria-current="page"] .ico { color: #c9adff; }
-:root[data-surface="studio"] #brand .mark {
-  background: var(--violet);
-}
-:root[data-surface="studio"] #collapse { color: #d9d1f2; }
-
-
-#brand h1 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -.01em;
-  color: var(--nav-ink);
-  white-space: nowrap;
-}
-
-#shell.tight #brand h1 { display: none; }
-
-/*
-  <b>The section list, which is the tab strip moved into the sidebar.</b> Same links, same router,
-  same `aria-current` — the element kept its id so nothing in the router changed. A section is a
-  row with a left edge, not a pill: the edge shows selection without adding a shape, which is what
-  the brief meant by obvious selection without excessive borders.
-*/
-#tabs {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--gap-2) var(--gap-2) var(--gap-4);
-  position: relative;
-  z-index: 1;
-}
-
+#tabs { display: flex; align-self: stretch; gap: 2px; margin-left: var(--gap-3); flex: none; }
+/* <b>The bar never shrinks; what gives way is named, in order.</b> The first build let `#tabs` shrink, and
+   the design review found Studio's last tab painted under the Server|Studio switch at 1,440 pixels and
+   focus landing on it there. Now the health line goes first (its dot keeps the sentence as a label),
+   then the product's name, and below 1,100 pixels the bar takes a row of its own. */
+#brand, #surfaces, header .right, #signout { flex: none; }
+#who, #signout { white-space: nowrap; }
+#tabs a:focus-visible { outline-offset: -4px; }
+/* Studio's five words need the room sooner than Server's four (design review re-measure, 2026-10-16). */
+@media (max-width: 1480px) { :root[data-surface="studio"] #healthLine { display: none; } }
+@media (max-width: 1260px) { #healthLine { display: none; } }
+@media (max-width: 1240px) { #brand .name { display: none; } }
 #tabs a[data-tab], #tabs a[data-link] {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 12px;
-  border-radius: var(--round);
-  color: #bcc1e8;
-  font-size: var(--t-body);
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background .12s, color .12s;
+  display: flex; align-items: center; padding: 0 12px;
+  color: var(--muted); font-size: var(--t-body); font-weight: 500;
+  text-decoration: none; white-space: nowrap;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
 }
-
-#tabs a[data-tab]:hover, #tabs a[data-link]:hover {
-  background: rgba(255, 255, 255, .055);
-  color: #fff;
-  text-decoration: none;
-}
-
-/*
-  <b>The selected section is a filled row with a cyan edge and a cyan glyph.</b> The first pass gave
-  it a slightly lighter background and a 3-pixel bar, which the owner read as no presence at all —
-  correct: on navy, a teal bar and a 6% lift are both nearly invisible. Three signals now, and none
-  of them is only colour: the surface lifts, the glyph goes cyan, and the label goes to full white
-  at a heavier weight.
-*/
+#tabs a[data-tab]:hover, #tabs a[data-link]:hover { color: var(--ink); text-decoration: none; }
 #tabs a[data-tab][aria-current="page"] {
-  background: var(--nav-on);
-  box-shadow: inset 3px 0 0 var(--cyan);
-  color: #fff;
-  font-weight: 600;
-}
-#tabs a[data-tab][aria-current="page"] .ico { color: var(--cyan); opacity: 1; }
-
-/*
-  <b>And the count goes up with the label, because the selected row's ground is lighter.</b> The rule
-  above lifts the surface with a teal-to-indigo gradient, which takes the effective background from
-  `--nav-base` #171b49 to about #2b477d on Server and #533c88 on Studio. `--nav-faint` was fixed for
-  the *base* and measures 2.86:1 and 2.77:1 against those — worse than before the row was selected,
-  which is the wrong direction for the row you are on. #c3c8ea is 5.55:1 and 5.39:1, and stays quieter
-  than the label's full white beside it. Measured 2026-08-19, after a design review's own measurement
-  said 3:1 and my first check said 5.09 — both were reading a different pair, and the gradient is why.
-*/
-#tabs a[data-tab][aria-current="page"] .count { color: #c3c8ea; }
-
-/*
-  The glyph, from a token so a section cannot arrive without one. Brighter than the label on purpose
-  — the owner asked for icon contrast, and an icon at the same weight as its text is decoration.
-*/
-#tabs .ico { width: 21px; flex: none; text-align: center; font-size: 17px; color: #949bd4;
-             opacity: 1; }
-#tabs a[data-tab]:hover .ico, #tabs a[data-link]:hover .ico { color: #d6d9f7; }
-#tabs .label { font-size: var(--t-body); letter-spacing: 0; text-transform: none;
-               font-weight: inherit; color: inherit; margin: 0; }
-#collapse .label { font-size: var(--t-small); letter-spacing: 0; text-transform: none;
-                   font-weight: inherit; color: inherit; margin: 0; }
-#shell.tight #tabs .label { display: none; }
-#shell.tight #tabs a[data-tab], #shell.tight #tabs a[data-link] { justify-content: center; padding: 10px 0; gap: 0; }
-
-#tabs .count {
-  margin-left: auto;
-  font: 500 var(--t-small)/1 var(--mono);
-  color: var(--nav-faint);
-}
-
-#shell.tight #tabs .count { display: none; }
-
-/*
-  <b>No rule above Collapse.</b> Owner 2026-08-17: *"collapse gridin içinde kaldığı için silik
-  duruyor."* The grid is gone in the same pass, and with it the reason this hairline existed — it was
-  separating the button from a texture. It is now the only line in a column that has none, which reads
-  as a leftover, and the whitespace above the button already separates it from the navigation.
-*/
-#railFoot {
-  margin-top: auto;
-  padding: var(--gap-3) var(--gap-2) var(--gap-4);
-  position: relative;
-  z-index: 1;
+  color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
 }
 
 /*
-  <b>Collapse reads now.</b> Owner 2026-08-17: *"collapse çok silik."* It was `--nav-faint` at the
-  small size — a control drawn as though it were a caption. It is a control: the label goes to the
-  navigation's own ink at 500, and the arrow gets its own line-height so the two sit on one baseline.
-  Still quiet relative to a section, because it is not navigation.
+  <b>A page's own left column — what Server Manager draws as the grey list beside a page.</b>
+  `drawSubpages` puts the siblings of a page there (Site's Data sources, Status and General;
+  Security's Members, Roles, Sign-in and Apps) and adds `withside`; every other child of the page
+  stays in the second column, in its own order.
 */
-#collapse {
-  width: 100%;
-  display: flex; align-items: center; gap: 11px;
-  background: none; border: 0; cursor: pointer;
-  padding: 10px 14px; border-radius: 7px;
-  color: #d3d7f4; font: 500 var(--t-body)/1 var(--sans);
+.view.withside.on {
+  display: grid; grid-template-columns: 200px minmax(0, 1fr);
+  column-gap: var(--gap-6); align-items: start;
 }
-/*
-  <b>The arrow points at what pressing it will do.</b> Owner 2026-08-18: *"collapse olunca ok öbür
-  yöne mi dönse?"* Yes — an arrow on a toggle names the next state, not the current one, so a
-  collapsed column shows the arrow that widens it. Flipped rather than swapped for another character:
-  one glyph that turns is one glyph, and the two directions cannot drift apart.
-*/
-#collapse .arrow { font-size: 15px; line-height: 1; opacity: .8;
-                   transition: transform .16s ease-out; }
-#shell.tight #collapse .arrow { transform: scaleX(-1); }
-#collapse:hover { background: rgba(255, 255, 255, .06); color: #fff; }
-#collapse:hover .arrow { opacity: 1; }
-#shell.tight #collapse .label { display: none; }
-#shell.tight #collapse { justify-content: center; }
+.view.withside > * { grid-column: 2; min-width: 0; }
+.view.withside > nav.subpages {
+  grid-column: 1; grid-row: 1 / span 60;
+  display: flex; flex-direction: column; gap: 2px;
+  position: sticky; top: 82px;
+  margin: 0; padding: 0; border: 0; background: none;
+}
+.view.withside > nav.subpages a {
+  padding: 8px 12px; border-radius: 0 var(--round) var(--round) 0;
+  border: 0; border-left: 3px solid transparent; margin: 0;
+  color: var(--muted); font-size: var(--t-body); text-decoration: none;
+}
+.view.withside > nav.subpages a:hover { background: var(--surface-2); color: var(--ink); }
+.view.withside > nav.subpages a[aria-current="page"] {
+  background: var(--accent-soft); color: var(--accent-ink);
+  border-left-color: var(--accent); font-weight: 600;
+}
 
 /*
   <b>An ambient tint under the workspace, and the panels stay white.</b> Owner polish pass: *"the main
@@ -589,7 +365,7 @@ header {
   display: flex;
   align-items: center;
   gap: var(--gap-4);
-  padding: 0 var(--gap-5);
+  padding: 0 clamp(var(--gap-5), 3vw, 44px);
   height: 58px;
   background: var(--surface);
   border-bottom: 1px solid var(--rule);
@@ -617,7 +393,9 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
 /* `#healthDot` is a `.dot` and takes its states from there. Its own id rules, removed 2026-09-25,
    out-weighed `.dot.ok` and painted every state `--faint`, while refreshHealth() set a class
    (`bad`) that no rule named — so a healthy server showed a grey dot. */
-#healthLine { font-size: var(--t-small); color: var(--muted); }
+/* It gives way to the section bar: one line, cut with an ellipsis, and the full text in its title. */
+#healthLine { font-size: var(--t-small); color: var(--muted); min-width: 0; flex: 0 1 auto;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 #who { font-size: var(--t-small); color: var(--muted); text-align: right; line-height: 1.35; }
 #who b { display: block; color: var(--ink); font-size: var(--t-body); font-weight: 600; }
@@ -1877,11 +1655,8 @@ dialog { color: var(--ink); }
    toast spans the width instead of sitting under the thumb's corner, and the work's side padding drops
    to the gutter these pages use everywhere else. */
 @media (max-width: 760px) {
-  #shell, #shell.tight { grid-template-columns: 56px 1fr; }
-
-  /* The rail's own furniture, in the state `#shell.tight` already defines for it. */
-  #brand h1, #railArt, #tabs .label, #tabs .count, #collapse { display: none; }
-  #tabs a[data-tab], #tabs a[data-link] { justify-content: center; padding: 10px 0; gap: 0; }
+  /* A sticky header of three rows is a quarter of a phone's height on every page; it scrolls away. */
+  header { position: static; }
 
   .wrap { padding: var(--gap-4) var(--gap-3); }
 
@@ -2034,9 +1809,7 @@ dialog { color: var(--ink); }
   state*. The attribute is the same one the head script sets before first paint, so the card is
   alone from the first frame rather than after the script decides.
 */
-html[data-session="none"] #rail,
 html[data-session="none"] #main > header { display: none; }
-html[data-session="none"] #shell { grid-template-columns: 1fr; }
 #signin { width: 100%; max-width: 420px; margin: clamp(32px, 12vh, 120px) auto 48px; padding: 0 var(--gap-4); }
 #signin .panel { padding: 0; overflow: hidden; }
 #signin .signin-head {
@@ -2048,9 +1821,10 @@ html[data-session="none"] #shell { grid-template-columns: 1fr; }
                         overflow-wrap: anywhere; }
 #signin .signin-head .mark {
   width: 34px; height: 34px; flex: none; border-radius: 8px;
-  background: var(--accent);
+  background: #171b49;
   display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700;
 }
+#signin .signin-head .mark svg { width: 18px; height: 18px; display: block; }
 #signin .signin-body { padding: var(--gap-2) var(--gap-5) var(--gap-5); }
 #signin #u, #signin #p { font-size: 15px; min-height: 42px; padding: 8px 10px; }
 #signin #p { padding-right: 68px; }
@@ -4337,17 +4111,6 @@ button.thsort:hover { text-decoration: underline; }
 button.thsort:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .datatools { margin-bottom: var(--gap-2); }
 
-/*
-  <b>The sidebar is a rail at 1024 pixels and below — ADR-102 step 0.</b> At 768 the item page scrolled
-  sideways to 813 pixels because the 232-pixel sidebar stayed wide; the rail is the state `#shell.tight`
-  already defines, applied by width rather than by choice. The *Collapse* control goes with it, since there
-  is no wider state to return to at this width.
-*/
-@media (max-width: 1024px) {
-  #shell, #shell.tight { grid-template-columns: 64px 1fr; }
-  #brand h1, #railArt, #tabs .label, #tabs .count, #collapse { display: none; }
-  #tabs a[data-tab], #tabs a[data-link] { justify-content: center; padding: 10px 0; gap: 0; }
-}
 
 /* The item's tab strip goes under its title when the two do not fit side by side, and scrolls rather
    than pushing the page sideways. */
@@ -4737,3 +4500,42 @@ h4.spaced { margin-top: 24px; }
 #generalOgc .check-row > * { min-width: 0; }
 #generalOgc input[aria-disabled="true"], #generalOgc input[aria-disabled="true"] + span { opacity: .5; }
 @media (max-width: 480px) { #generalOgc .check-row { grid-template-columns: 1fr; } }
+
+/*
+  <b>Below 1,100 pixels the section bar takes a row of its own, and a page's left column goes above the
+  page — ADR-187.</b> The design review measured where one row stops holding the bar (Studio's five words
+  beside the switch and the name) and where a 200-pixel page column starts hiding a table's actions
+  (Members needs 823 pixels); 1,100 is both, and it is the breakpoint the console's paired panels
+  already use. The bar scrolls inside itself and fades at its end, so a word past the edge is seen to be
+  there.
+*/
+@media (max-width: 1100px) {
+  header { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 0; padding-top: var(--gap-2); }
+  header .right { margin-left: auto; }
+  #tabs { order: 4; flex: 1 1 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none;
+          border-top: 1px solid var(--rule); min-height: 44px; scroll-padding-inline: 12px;
+          -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+          mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+  .view.withside.on { display: block; }
+  .view.withside > nav.subpages { position: static; flex-direction: row; overflow-x: auto;
+                                  margin-bottom: var(--gap-4); border-bottom: 1px solid var(--rule); }
+  .view.withside > nav.subpages a { white-space: nowrap; border-left: 0; border-bottom: 2px solid transparent;
+                                    border-radius: 0; }
+  .view.withside > nav.subpages a[aria-current="page"] { border-bottom-color: var(--accent); background: none; }
+
+  /* The bar has its own row now, so the first row has room for the health sentence again, cut short. */
+  :root[data-surface] #healthLine { display: block; flex: 1 1 0; }
+
+  /* <b>A wide table's actions stay on screen</b> — the phone rule below, from 1,100 down: Members needs 823
+     pixels and its row actions were past the edge at 768 (design review re-measure). */
+  .widetable table td:last-child, .widetable table th:last-child {
+    position: sticky; right: 0; z-index: 1; background: var(--surface);
+    box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
+  }
+  .widetable table td:last-child:has(.menu[open]) { z-index: 3; }
+  tr.pick:hover td:last-child { background: #f7fafc; }
+  /* The pinned header cell is the header's grey, not the body's white (design review, third pass). */
+  .widetable table th:last-child { background: var(--surface-2); }
+}
+/* A third header row costs a phone more than the sentence is worth; the dot keeps it as its label. */
+@media (max-width: 760px) { :root[data-surface] #healthLine { display: none; } }
