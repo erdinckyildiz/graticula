@@ -1,5 +1,13 @@
 # Stitch prompts — remaining screens
 
+> **Superseded in part, 2026-10-16 (owner).** The accent is **blue**, not teal — *"teal falan da istemiyorum. bu renkler
+> olsun"*, given with two reference images of Studio and Server in light and dark. Light theme: white cards on a
+> pale grey page (`--paper #f4f6f9`), accent `#1565d8`; dark theme: navy (`--paper #0a1120`), accent `#2563eb`. The
+> owner also ended the Stitch work (*"bunları artık stitche göndermek istemiyorum"*): the screens are built in code
+> from those images, and the build is the reference now. Where this file says teal or names Stitch as the
+> source of a screen, it is the record of the direction before that day. [ADR-187](../adr/ADR-187-primary-navigation-is-a-top-bar.md) carries the build notes.
+
+
 Project: "Graticula Hybrid — Studio & Server redesign". Use the project's design system "Graticula Hybrid" for every screen, Desktop.
 Paste one block per generation. Structure follows public screenshots of ArcGIS Server Manager and Portal (layout only — no Esri pixels, icons or branding).
 

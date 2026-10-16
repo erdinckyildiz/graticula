@@ -120,16 +120,36 @@
         JavaScript, because the list belongs to whichever surface is open.
       -->
       <nav id="tabs" aria-label="Sections"></nav>
+      <!--
+        <b>The reader's own controls are a thin line above the bar, as Server Manager keeps them</b> (owner,
+        2026-10-16: the bar was *"sıkış tıkış"*, and Server Manager's *"çok daha basit"*): the switch to the other
+        surface, the server's health, who is signed in, the theme and Sign out. The bar below holds the product
+        and its sections and nothing else.
+      -->
+      <div id="utilbar">
       <nav id="surfaces" hidden>
         <a data-surface="server">Server</a>
         <a data-surface="studio">Studio</a>
       </nav>
       <span class="dot unknown" id="healthDot"></span>
       <span id="healthLine">checking&hellip;</span>
+      <!--
+        <b>One menu for what is about the reader</b>, as Portal keeps it (owner, 2026-10-16): who is signed in and
+        with what role, the theme, and Sign out — behind the initial and the name.
+      -->
       <span class="right">
-        <span id="who"></span>
-        <button id="signout" style="display:none">Sign out</button>
+        <details class="menu usermenu" id="userMenu">
+          <summary aria-label="Your account"><span class="initial" id="userInitial" aria-hidden="true"></span><span
+            id="userName"></span><span class="caret" aria-hidden="true">▾</span></summary>
+          <div class="sheet">
+            <div id="who"></div>
+            <!-- Dark or light, chosen by the reader and remembered (ADR-187 step 4); the words name what it turns on. -->
+            <button id="themeToggle" type="button">Dark mode</button>
+            <button id="signout" style="display:none">Sign out</button>
+          </div>
+        </details>
       </span>
+      </div>
     </header>
 
 <div id="signin" class="wrap">
@@ -268,19 +288,6 @@
       It earns its space here — this console had eight screens distinguishable only by which table
       was on them.
     -->
-    <div class="pagehead">
-      <div>
-        <h2>Services</h2>
-        <p>Manage and monitor your GIS services.</p>
-      </div>
-      <!--
-        Where the surface's own action lands. Studio's *New layer* and Server's *New service* are the
-        same slot filled by the router from `SURFACES[surface].action`, which is why no button is
-        written here.
-      -->
-      <div class="right" id="pageAction"></div>
-    </div>
-
     <div id="serverGrid">
       <div>
         <!--
@@ -340,9 +347,23 @@
       </div>
 
       <div id="serverMain">
+        <div class="pagehead">
+          <div>
+            <h2>Services</h2>
+            <p>Manage and monitor your GIS services.</p>
+          </div>
+          <!--
+            Where the surface's own action lands. Studio's *New layer* and Server's *New service* are the
+            same slot filled by the router from `SURFACES[surface].action`, which is why no button is
+            written here.
+          -->
+          <div class="right" id="pageAction"></div>
+        </div>
         <div class="toolbar">
           <input type="search" id="serviceFilter" placeholder="Search services in every folder&hellip;"
                  autocomplete="off">
+          <select id="serviceTypePick" aria-label="Type"><option value="">All types</option></select>
+          <select id="serviceStatusPick" aria-label="Status"><option value="">Any status</option></select>
           <span class="val" id="serviceCount"></span>
           <span style="flex:1"></span>
           <!--
@@ -374,7 +395,7 @@
           <table>
             <thead><tr>
               <th style="width:1%"></th>
-              <th>Service</th><th>Status</th><th>Sharing</th><th>Owner</th>
+              <th>Service</th><th>Type</th><th>Status</th><th>Folder</th><th>Sharing</th><th>Owner</th>
               <th style="text-align:right">Actions</th>
             </tr></thead>
             <tbody id="services"></tbody>
@@ -443,10 +464,19 @@
       screen with the content one unclicked tab away, which is the first-run failure this console has
       already shipped once.
     -->
-    <nav class="tabstrip" id="contentScopes" aria-label="Content"></nav>
+    <!--
+      <b>A left column, as the owner's reference draws Portal's My content (2026-10-16):</b> how an item
+      reached you, your folders, and the types present as ticks with their counts. Below 1,100 pixels it
+      lies above the list.
+    -->
+    <aside id="contentSide">
+      <nav class="sidelist scopes" id="contentScopes" aria-label="Content"></nav>
 
-    <!-- ADR-114: the caller's own folders. They are in no URL; a service folder is the other kind. -->
-    <div class="folderbar" id="contentFolders" role="group" aria-label="Your folders" hidden></div>
+      <!-- ADR-114: the caller's own folders. They are in no URL; a service folder is the other kind. -->
+      <div class="folderbar" id="contentFolders" role="group" aria-label="Your folders" hidden></div>
+
+      <div class="facets" id="contentFacets" role="group" aria-label="Item type" hidden></div>
+    </aside>
 
     <!--
       <b>Search, type and order are always there, 2026-09-30.</b> The search box appeared only once a
@@ -484,7 +514,7 @@
       <table>
         <thead><tr>
           <th class="tick"><input type="checkbox" id="contentPickAll" aria-label="Select every item of yours shown"></th>
-          <th colspan="2">Name</th><th>Sharing</th><th>Modified</th><th></th>
+          <th colspan="2">Title</th><th>Type</th><th>Modified</th><th>Sharing</th><th></th>
         </tr></thead>
         <tbody id="contentRows"></tbody>
       </table>
@@ -1001,8 +1031,9 @@
       <b>Server warnings</b> is what this server itself reported — a layer it could not read, a
       source it could not reach — held in memory since it last started.</p>
 
+    <!-- The log being read, as a column on the left — Server Manager's Logs page lists its views there (ADR-187 step 4). -->
+    <div id="logSources"></div>
     <div class="toolbar">
-      <span id="logSources"></span>
       <span style="flex:1"></span>
       <span class="val" id="logCount"></span>
       <button class="tiny ghost" id="logRefresh" title="Read the log again">&#8635;</button>
@@ -1692,11 +1723,23 @@
       above 15 pixels. The tabs move up beside it as a segmented control, which is what the
       owner's own reference does and what the layer editor's strip now does one screen over.
     -->
+    <!--
+      <b>The item's head card, as the owner's reference draws Portal's (2026-10-16):</b> its picture, its name and
+      what it is, and what can be done with it on the right — the actions were a column of eight full-width buttons
+      beside the facts. The picture is Overview's; the other tabs keep the name and the actions.
+    -->
+    <!--
+      <b>Server's head card for a service (owner's reference, 2026-10-16):</b> its picture, name, kind and state,
+      its address with Copy, and Start or Stop — what Server Manager shows above a service's tabs.
+    -->
+    <div class="pagehead" id="serverHero" hidden></div>
     <div class="pagehead" id="servicePagehead">
-      <div>
+      <div id="itemThumb" hidden></div>
+      <div class="herotext">
         <h2 id="serviceTitle">—</h2>
         <p id="serviceSub"></p>
       </div>
+      <div class="itemactions" id="itemActions" hidden></div>
       <nav class="segmented solid right" id="serviceTabs" aria-label="Item"></nav>
       <!--
         <b>One Layer select for the item, in its head — ADR-102 step 1.</b> Data and Visualization each had

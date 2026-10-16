@@ -179,8 +179,9 @@ public sealed class ItemStructureTests : ConsoleTest
     }
 
     /// <summary>
-    /// Step 7: Overview is Portal's shape — the item and its layers on the left, its actions and details on the
-    /// right — with no settings on it and no buttons on the layer rows.
+    /// Step 7: Overview is Portal's shape — the actions in the item's head card, its information, description and
+    /// layers as cards under the tabs (owner's reference, 2026-10-16) — with no settings on it and no buttons on the
+    /// layer rows.
     /// </summary>
     /// <remarks>
     /// <b>Owner, 2026-10-01, beside Portal's item page: *"neden kabiliyetler ana sayfada?"*</b> What a client may
@@ -194,8 +195,8 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/service/{Service()}", token);
 
         await WaitForAsync(
-            "!!document.querySelector('#serviceDetails .itemactions a.btn.primary') && !!document.querySelector('#svcFacts #svcUrl')",
-            "Overview's right column does not hold the actions above the details and the address.");
+            "!!document.querySelector('#itemActions a.btn.primary') && !!document.querySelector('#svcFacts #svcUrl')",
+            "The head card does not hold the actions, or the item information does not hold the address.");
 
         bool settingsShown = await Browser.EvaluateAsync<bool>(
             "['serviceOps', 'serviceSpend', 'serviceAddress'].some(id => { const e = document.getElementById(id); return !!e && e.offsetParent !== null; })");
@@ -282,7 +283,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/service/{Service()}", token);
 
         await WaitForAsync(
-            "!!document.querySelector('#serviceHead #layerThumb') && !!document.querySelector('#serviceHead [data-redraw-thumb]')",
+            "!!document.querySelector('#itemThumb #layerThumb') && !!document.querySelector('#itemThumb [data-redraw-thumb]')",
             "Overview does not show the item's thumbnail with a way to redraw it.");
 
         int pictures = await Browser.EvaluateAsync<int>("document.querySelectorAll('#view-service img.thumb').length");

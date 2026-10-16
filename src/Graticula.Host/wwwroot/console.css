@@ -51,7 +51,11 @@
   --nav-faint: #868dbe;
   --nav-on: #1e2359;
 
-  --paper: #f6f8fa;
+  /* <b>2026-10-16, the owner's reference screens.</b> White cards on a pale grey page and a white
+     header, with blue as the one accent. An hour earlier the grounds were dimmed because the console
+     was "aşırı beyaz"; the owner then supplied the target and said *"bu renkler olsun"*, which is
+     these. The dark theme (header button) is the answer to glare. */
+  --paper: #f4f6f9;
   --surface: #ffffff;
   --surface-2: #f1f4f8;
   --surface-3: #e7ecf3;
@@ -119,13 +123,13 @@
     third and rarest: it marks the Studio side of the switch, so the two environments are told apart
     by hue and not only by which one is filled in.
   */
-  --accent: #0d7d70;
-  --accent-hot: #12a293;
-  --accent-soft: #e3f2f0;
-  /* Teal text on the soft teal ground: `--accent` is 4.36:1 there, under AA for small type; this is
-     4.97:1 on it and 5.73:1 on white (ADR-187 design review, 2026-10-16). */
-  --accent-ink: #0b7368;
-  --accent-line: #b8ded8;
+  --accent: #1565d8;
+  --accent-hot: #1d74ef;
+  --accent-soft: #e8f0fe;
+  /* Accent text on the soft accent ground: `--accent` is 4.72:1 there; this is 5.78:1 on it and
+     6.94:1 on white (re-measured for blue, 2026-10-16). */
+  --accent-ink: #1257c2;
+  --accent-line: #bcd2fa;
 
   --blue: #2f56c8;
   --blue-soft: #eaefff;
@@ -133,6 +137,7 @@
 
   --violet: #6a4bc0;
   --violet-soft: #f0ebfb;
+  --violet-line: #d9cdf3;
 
   /*
     <b>Cyan is the sidebar's accent and teal is the workspace's, and they are not the same colour.</b>
@@ -142,8 +147,8 @@
     bright enough to hold its own against a dark surface and would be garish on white, which is
     exactly why there are two.
   */
-  --cyan: #2ad3c4;
-  --cyan-deep: #0fb3ba;
+  --cyan: #4c8fff;
+  --cyan-deep: #1d74ef;
 
   /*
     <b>The primary action's first stop, and it is not `--cyan-deep` — D-233.</b> White on
@@ -272,7 +277,7 @@ a:hover { text-decoration: underline; }
 #brand:hover { text-decoration: none; }
 #brand .mark {
   width: 28px; height: 28px; flex: none; border-radius: var(--round);
-  background: #171b49; display: grid; place-items: center;
+  background: var(--accent); border-radius: 50%; display: grid; place-items: center;
 }
 #brand .mark svg { width: 16px; height: 16px; display: block; }
 #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
@@ -281,9 +286,6 @@ a:hover { text-decoration: underline; }
   font-size: var(--t-label); font-weight: 600; line-height: 1; padding: 4px 8px;
   border-radius: var(--round); background: var(--accent-soft); color: var(--accent-ink);
   border: 1px solid var(--accent-line);
-}
-:root[data-surface="studio"] #brand .badge {
-  background: var(--violet-soft); color: var(--violet); border-color: #d9cdf5;
 }
 
 /*
@@ -302,7 +304,8 @@ a:hover { text-decoration: underline; }
 /* Studio's five words need the room sooner than Server's four (design review re-measure, 2026-10-16). */
 @media (max-width: 1480px) { :root[data-surface="studio"] #healthLine { display: none; } }
 @media (max-width: 1260px) { #healthLine { display: none; } }
-@media (max-width: 1240px) { #brand .name { display: none; } }
+/* The name used to give way to the section bar below 1,240 pixels; the reader's controls left the bar, so it stays above a phone. */
+@media (max-width: 480px) { #brand .name { display: none; } }
 #tabs a[data-tab], #tabs a[data-link] {
   display: flex; align-items: center; padding: 0 12px;
   color: var(--muted); font-size: var(--t-body); font-weight: 500;
@@ -328,7 +331,7 @@ a:hover { text-decoration: underline; }
 .view.withside > nav.subpages {
   grid-column: 1; grid-row: 1 / span 60;
   display: flex; flex-direction: column; gap: 2px;
-  position: sticky; top: 82px;
+  position: sticky; top: 96px;
   margin: 0; padding: 0; border: 0; background: none;
 }
 .view.withside > nav.subpages a {
@@ -388,7 +391,7 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
 }
 #surfaces a:hover { color: var(--ink); text-decoration: none; }
 #surfaces a[data-surface="server"][aria-current] { background: var(--accent); color: #fff; }
-#surfaces a[data-surface="studio"][aria-current] { background: var(--violet); color: #fff; }
+#surfaces a[data-surface="studio"][aria-current] { background: var(--accent); color: #fff; }
 
 /* `#healthDot` is a `.dot` and takes its states from there. Its own id rules, removed 2026-09-25,
    out-weighed `.dot.ok` and painted every state `--faint`, while refreshHealth() set a class
@@ -564,8 +567,7 @@ tr:last-child td { border-bottom: 0; }
   their badges are wide, which is what `width: 1%` on a nowrap cell asks for.
 */
 #services .rowmeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#services td:nth-child(3), #services td:nth-child(4),
-#services td:nth-child(5), #services td:nth-child(6) { width: 1%; white-space: nowrap; }
+#services td:nth-child(n+3) { width: 1%; white-space: nowrap; }
 
 /*
   <b>The row is clickable and says so once, on hover.</b> Not a cursor change plus a colour plus an
@@ -580,7 +582,7 @@ tr.pick td { transition: background .1s; }
   on a near-white surface is almost nothing; the edge is what makes *this row is the one under the
   pointer* readable at a glance without darkening the row enough to fight the previews for attention.
 */
-tr.pick:hover td { background: #f7fafc; }
+tr.pick:hover td { background: var(--surface-2); }
 tr.pick:hover td:first-child { box-shadow: inset 3px 0 0 var(--accent-hot); }
 
 /*
@@ -940,7 +942,7 @@ button:hover .ico { opacity: 1; }
                    color: var(--warn); margin-left: 6px; }
 
 .pill.p-public { background: var(--blue-soft); border-color: var(--blue-line); color: var(--blue); }
-.pill.p-organization { background: var(--violet-soft); border-color: #d9cdf3; color: var(--violet); }
+.pill.p-organization { background: var(--violet-soft); border-color: var(--violet-line); color: var(--violet); }
 .pill.p-private { background: var(--surface-3); border-color: var(--rule-strong);
                   color: var(--muted); }
 
@@ -1008,7 +1010,7 @@ button:hover .ico { opacity: 1; }
 .rail-item.on svg { color: var(--accent); }
 .rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-count { margin-left: auto; font: var(--t-small)/1 var(--mono); color: var(--faint); }
-.rail-item.on .rail-count { color: var(--accent); }
+.rail-item.on .rail-count { color: var(--accent-ink); }
 
 /*
   <b>An operational widget, and it reports what the server actually measures.</b> The brief asked
@@ -1213,7 +1215,7 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
            color: var(--ink); line-height: 1.25; }
 .rowmeta { display: block; font-size: var(--t-small); color: var(--muted); font-weight: 400;
            margin-top: 3px; }
-.rowmeta .sep { color: var(--rule-strong); margin: 0 7px; }
+.rowmeta .sep { color: var(--faint); margin: 0 7px; }
 .rowmeta .count { font-family: var(--mono); }
 
 /* --------------------------------------------------------------------- the map */
@@ -1433,7 +1435,7 @@ td.name.nested { padding-left: 36px; }
   of text with nothing else in the panel. 168×112 is the same ratio and the height of the text block it
   sits next to. Scoped, because the base rule also draws every thumbnail on the content list.
 */
-#serviceHead .thumb { width: 168px; height: 112px; }
+#itemThumb .thumb { width: 168px; height: 112px; }
 
 /* The section heading above the layer panel, where a header row used to be. Same treatment as the
    aside's own headings, so the page names a section one way. */
@@ -1754,7 +1756,7 @@ dialog { color: var(--ink); }
 
   /* The row under the pointer keeps its highlight in the pinned column too, rather than showing a
      white patch where the later rule wins. */
-  tr.pick:hover td:last-child { background: #f7fafc; }
+  tr.pick:hover td:last-child { background: var(--surface-2); }
 
   /* <b>Not on the logs, where the last column is the resource and pinning it is a column of dashes.</b>
      There is no row menu there, so there is nothing to keep in reach. */
@@ -2451,7 +2453,7 @@ html[data-session="held"] #app { display: block !important; }
    D-221, further down, which lifts this minimum. */
 #app.symfull #page-symbology.on {
   display: flex; flex-direction: column;
-  height: calc(100vh - 58px);
+  height: calc(100vh - var(--header-h, 58px));
   min-width: 1180px;
 }
 
@@ -2673,7 +2675,7 @@ html[data-session="held"] #app { display: block !important; }
    Both fix the same fault; this one does not cost a click to see what a class is made of. */
 .symstack {
   margin-top: auto; padding: var(--gap-3);
-  border-top: 1px solid var(--rule); background: #fafbfc;
+  border-top: 1px solid var(--rule); background: var(--surface-2);
   font-size: var(--t-small);
 }
 .symstack .symstackhead {
@@ -2688,7 +2690,7 @@ html[data-session="held"] #app { display: block !important; }
 .insppane .docpane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .insppane .docpane textarea {
   flex: 1; min-height: 0; margin: 0; border: 0; border-radius: 0; resize: none;
-  padding: var(--gap-3); font: 12px/1.6 var(--mono); background: #fafbfc;
+  padding: var(--gap-3); font: 12px/1.6 var(--mono); background: var(--surface-2);
 }
 .insppane .docpane textarea:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .insppane .docfoot, .insppane .dochead {
@@ -3468,7 +3470,7 @@ tr.rowbad > td { background: var(--alert-soft); }
 .styleoverride {
   margin: var(--gap-4) calc(var(--gap-5) * -1) calc(var(--gap-4) * -1);
   padding: var(--gap-4) var(--gap-5);
-  border-top: 1px solid var(--rule); background: #fafbfc;
+  border-top: 1px solid var(--rule); background: var(--surface-2);
   border-radius: 0 0 var(--round-lg) var(--round-lg);
 }
 .styleoverridehead {
@@ -3496,10 +3498,10 @@ tr.rowbad > td { background: var(--alert-soft); }
    somebody may do, so it keeps being a control and takes the colour. */
 .rolepick { font-weight: 500; }
 .rolepick[data-role-is="administrator"] {
-  color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft);
+  color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft);
 }
 .rolepick[data-role-is="publisher"] {
-  color: var(--violet); border-color: #d9cdf3; background: var(--violet-soft);
+  color: var(--violet); border-color: var(--violet-line); background: var(--violet-soft);
 }
 
 /* -------------------------------------------------------- the sharing scope, as cards
@@ -3827,7 +3829,7 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 .composer {
   display: grid; grid-template-columns: 320px minmax(0, 1fr) 340px; gap: 12px;
   align-items: stretch;
-  height: calc(100vh - 232px); min-height: 460px;
+  height: calc(100vh - 174px - var(--header-h, 58px)); min-height: 460px;
 }
 @media (max-height: 780px) { .composer { height: auto; } }
 
@@ -4185,8 +4187,8 @@ fieldset.offered label.check { display: flex; gap: var(--gap-2); align-items: ba
 .symrail .visrange .row { flex-wrap: wrap; gap: 6px; }
 
 /* Design review 2026-10-01 on steps 8-11. */
-#serviceHead .thumbcol { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: none; }
-#serviceHead .thumbcol .hint { max-width: 168px; margin: 0; }
+#itemThumb .thumbcol { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: none; }
+#itemThumb .thumbcol .hint { max-width: 168px; margin: 0; }
 #exportData .stacked, #updateData .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #exportData .stacked select, #updateData .stacked select, #updateData .stacked input { font: inherit; max-width: 100%; }
 #exportData fieldset + .hint, #updateData fieldset { margin-bottom: 12px; }
@@ -4533,7 +4535,7 @@ h4.spaced { margin-top: 24px; }
     box-shadow: -10px 0 10px -10px rgba(16, 24, 38, .25);
   }
   .widetable table td:last-child:has(.menu[open]) { z-index: 3; }
-  tr.pick:hover td:last-child { background: #f7fafc; }
+  tr.pick:hover td:last-child { background: var(--surface-2); }
   /* The pinned header cell is the header's grey, not the body's white (design review, third pass). */
   .widetable table th:last-child { background: var(--surface-2); }
 }
@@ -4548,38 +4550,23 @@ h4.spaced { margin-top: 24px; }
   yours), which `:has` reads from the list's own `hidden`, so the router does not have to know. The head,
   the scope strip and everything under them keep their order; the column is the one thing placed.
 */
-#view-content.on:has(> #contentFolders:not([hidden])) {
-  display: grid; grid-template-columns: 220px minmax(0, 1fr);
-  column-gap: var(--gap-6); align-items: start;
-}
-#view-content.on:has(> #contentFolders:not([hidden])) > * { grid-column: 1 / -1; min-width: 0; }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders {
-  grid-column: 1; grid-row: 3 / span 12;
-  flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px;
-  margin: 0; position: sticky; top: 82px;
-}
-#view-content.on:has(> #contentFolders:not([hidden])) > .toolbar,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentNote,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentBulk,
-#view-content.on:has(> #contentFolders:not([hidden])) > .widetable,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentRowsPager { grid-column: 2; }
-#view-content > #contentFolders .folderlabel {
+#contentSide > #contentFolders .folderlabel {
   font-size: var(--t-label); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
   color: var(--muted); margin: 0 0 6px 12px;
 }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip {
+#contentSide > #contentFolders .chip {
   display: flex; justify-content: space-between; align-items: center; gap: var(--gap-2);
   text-align: left; border: 0; border-left: 3px solid transparent; border-radius: 0 var(--round) var(--round) 0;
   background: none; padding: 7px 12px; font-size: var(--t-body); color: var(--ink);
 }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip:hover { background: var(--surface-2); }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip.on {
+#contentSide > #contentFolders .chip:hover { background: var(--surface-2); }
+#contentSide > #contentFolders .chip.on {
   background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent-ink); font-weight: 600;
 }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldersep { display: none; }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders #folderNew,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldermenu { align-self: flex-start; margin: 6px 0 0 12px; }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .hint { margin-left: 12px; }
+#contentSide > #contentFolders .foldersep { display: none; }
+#contentSide > #contentFolders #folderNew,
+#contentSide > #contentFolders .foldermenu { align-self: flex-start; margin: 6px 0 0 12px; }
+#contentSide > #contentFolders .hint { margin-left: 12px; }
 
 /*
   <b>The item's tabs are words with an underline under its title — Portal's item page.</b> They were a dark
@@ -4591,7 +4578,7 @@ h4.spaced { margin-top: 24px; }
   flex-wrap: wrap; align-items: flex-end; column-gap: var(--gap-4); row-gap: var(--gap-3);
   border-bottom: 1px solid var(--rule); padding-bottom: 0;
 }
-#servicePagehead > div:first-child { flex: 1 1 100%; }
+#servicePagehead > .herotext { flex: 1 1 100%; }
 #serviceTabs.segmented {
   order: 2; align-self: flex-end; background: none; border: 0; padding: 0; gap: 0;
   border-radius: 0; margin: 0;
@@ -4610,14 +4597,13 @@ h4.spaced { margin-top: 24px; }
 }
 
 @media (max-width: 1100px) {
-  #view-content.on:has(> #contentFolders:not([hidden])) { display: block; }
-  #view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders {
+  #contentSide > #contentFolders {
     position: static; flex-direction: row; flex-wrap: wrap; align-items: center; margin: 8px 0;
   }
-  #view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip {
+  #contentSide > #contentFolders .chip {
     border: 1px solid var(--rule); border-radius: 999px; padding: 6px 12px; font-size: 13px;
   }
-  #view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip.on { border-color: var(--accent); }
+  #contentSide > #contentFolders .chip.on { border-color: var(--accent); }
   #serviceTabs.segmented { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
   #servicePagehead #itemLayerField.itemlayer { flex: 1 1 100%; max-width: 360px; margin: 0 0 8px; }
 }
@@ -4655,16 +4641,16 @@ h4.spaced { margin-top: 24px; }
 #page-about dd code { overflow-wrap: anywhere; white-space: normal; }
 
 /* The folder column scrolls inside itself when it is longer than the window, so New folder stays reachable. */
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders {
-  max-height: calc(100vh - 98px); overflow-y: auto;
+#contentSide > #contentFolders {
+  max-height: calc(100vh - 112px); overflow-y: auto;
 }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .folderlabel,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .hint,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldermenu,
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders #folderNew { margin-left: 15px; }
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders #folderNew { padding-left: 0; }
+#contentSide > #contentFolders .folderlabel,
+#contentSide > #contentFolders .hint,
+#contentSide > #contentFolders .foldermenu,
+#contentSide > #contentFolders #folderNew { margin-left: 15px; }
+#contentSide > #contentFolders #folderNew { padding-left: 0; }
 /* The menu acts on the selected folder above it; it says so instead of being a bare ⋯ (aria-label already does). */
-#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldermenu summary::after {
+#contentSide > #contentFolders .foldermenu summary::after {
   content: " Rename or delete…"; font-size: var(--t-small); color: var(--muted);
 }
 
@@ -4683,7 +4669,7 @@ h4.spaced { margin-top: 24px; }
    rule (third design pass, 2026-10-16). */
 @media (max-width: 1180px) {
   #servicePagehead { flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
-  #servicePagehead > div:first-child { flex: 1 1 100%; }
+  #servicePagehead > .herotext { flex: 1 1 100%; }
   #serviceTabs.segmented { flex: 0 1 auto; min-width: 0; margin-bottom: -1px; padding-bottom: 0; }
   #servicePagehead #itemLayerField.itemlayer { flex: none; align-self: auto; margin: 0 0 8px auto; max-width: 360px; }
 }
@@ -4692,3 +4678,488 @@ h4.spaced { margin-top: 24px; }
   #servicePagehead #itemLayerField.itemlayer { order: 1; margin: 0 0 8px; }
   #serviceTabs.segmented { order: 2; }
 }
+
+/* ═══════════════════════════════════════════ ADR-187 step 4: the dark theme */
+
+/*
+  <b>Dark is a choice the reader makes, and it is remembered.</b> The header's theme button sets
+  `data-theme` on the root and keeps it in `localStorage`; `session.js` puts it back before the first
+  paint. It is not taken from the operating system's preference: the map pages (Map Viewer, the layer
+  viewer) carry their own light tokens, and a console that turned dark by itself in front of a light map
+  would be the half-finished theme the design handoff warned against. Every value below is a token the
+  rest of the stylesheet already reads, so the theme is this block and not a second stylesheet.
+
+  <b>Contrast is measured, not hoped.</b> Ink #e6ebf4 on paper #0a1120 is 15.8:1, muted #9aa7bd on the
+  surface is 7.3:1, `--faint` #8592aa is 4.7:1 on `--surface-3`, link blue #6aa6ff is 6.0:1 on the darkest
+  ground, and the primary button's white label on #2563eb is 5.2:1.
+*/
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0a1120;
+  --surface: #0f1828;
+  --surface-2: #142034;
+  --surface-3: #1b2840;
+  --ink: #e6ebf4;
+  --muted: #9aa7bd;
+  --faint: #8592aa;
+  --rule: #1f2b40;
+  --rule-strong: #2b3a55;
+  --control-edge: #62739a;
+  --accent: #2563eb;
+  --accent-hot: #3b76f0;
+  --accent-soft: #11264a;
+  --accent-ink: #6aa6ff;
+  --accent-line: #24497f;
+  --blue: #8fa8f5;
+  --blue-soft: #1a2547;
+  --blue-line: #34477e;
+  --violet: #b39cfb;
+  --violet-soft: #251c45;
+  --violet-line: #463a77;
+  --ok: #5fd39a;
+  --ok-soft: #10301f;
+  --ok-line: #1f5236;
+  --warn: #f0bd5c;
+  --warn-soft: #33260c;
+  --warn-line: #5a4416;
+  --alert: #f58a7f;
+  --alert-soft: #3a1714;
+  --alert-line: #6a2a24;
+  --lift: 0 1px 2px rgba(0, 0, 0, .4);
+  --lift-2: 0 6px 16px -6px rgba(0, 0, 0, .6);
+}
+
+:root[data-theme="dark"] button.primary:hover { filter: brightness(1.08); }
+
+/* The mark is navy on a navy-dark header; a hairline keeps its square. */
+:root[data-theme="dark"] #brand .mark,
+:root[data-theme="dark"] #signin .signin-head .mark { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
+:root[data-theme="dark"] #brand .badge,
+:root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { color: var(--accent-ink); }
+:root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { background: var(--accent-soft); }
+:root[data-theme="dark"] #surfaces a[data-surface="studio"][aria-current] { background: var(--accent-soft); color: var(--accent-ink); }
+
+/* The few places that wrote a light colour instead of reading a token. */
+:root[data-theme="dark"] tr.pick:hover td,
+:root[data-theme="dark"] tr.pick:hover td:last-child { background: var(--surface-2); }
+:root[data-theme="dark"] .symstack,
+:root[data-theme="dark"] .insppane .docpane textarea,
+:root[data-theme="dark"] .styleoverride { background: var(--surface-2); }
+:root[data-theme="dark"] .insppane .dochead .tag,
+:root[data-theme="dark"] .thumb.empty.drewnothing b,
+:root[data-theme="dark"] .symfoldhead,
+:root[data-theme="dark"] .symoverride > b { color: var(--ink); }
+:root[data-theme="dark"] .widetable table td:last-child { background: var(--surface); }
+:root[data-theme="dark"] .widetable table th:last-child { background: var(--surface-2); }
+
+/* Thumbnails and map pictures are drawn by the server on a light ground; a frame keeps them from glaring. */
+:root[data-theme="dark"] .thumb,
+:root[data-theme="dark"] .sympreview { border-color: var(--rule-strong); }
+
+/* The theme button in the header: a word, so its state is not an icon to decode. */
+#themeToggle { white-space: nowrap; }
+
+/* Logs: which log is read is a column on the page's left, as Server Manager lists its log views (ADR-187 step 4). */
+#view-logs.on { display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: var(--gap-6); align-items: start; }
+#view-logs.on > * { grid-column: 2; min-width: 0; }
+#view-logs.on > .pagehead { grid-column: 1 / -1; }
+#view-logs.on > #logSources {
+  grid-column: 1; grid-row: 2 / span 12; position: sticky; top: 96px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+#view-logs > #logSources button {
+  text-align: left; border: 0; border-left: 3px solid transparent; border-radius: 0 var(--round) var(--round) 0;
+  background: none; color: var(--muted); padding: 8px 12px; font-size: var(--t-body); font-weight: 500; box-shadow: none;
+}
+#view-logs > #logSources button:hover { background: var(--surface-2); color: var(--ink); }
+#view-logs > #logSources button[aria-selected="true"] {
+  background: var(--accent-soft); color: var(--accent-ink); border-left-color: var(--accent); font-weight: 600;
+}
+@media (max-width: 1100px) {
+  #view-logs.on { display: block; }
+  #view-logs > #logSources { flex-direction: row; overflow-x: auto; border-bottom: 1px solid var(--rule); margin-bottom: var(--gap-3); }
+  #view-logs > #logSources button { border-left: 0; border-bottom: 2px solid transparent; border-radius: 0; white-space: nowrap; }
+  #view-logs > #logSources button[aria-selected="true"] { background: none; border-bottom-color: var(--accent); }
+}
+
+/* Dialogs read the tokens, so they follow the theme instead of keeping the browser's white. */
+dialog {
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: var(--round-lg);
+  box-shadow: var(--lift-2);
+}
+dialog::backdrop { background: rgba(16, 24, 38, .42); }
+:root[data-theme="dark"] dialog::backdrop { background: rgba(0, 0, 0, .6); }
+
+/* Surfaces that set their label in the paper colour on an ink ground, inverted for dark. */
+:root[data-theme="dark"] #toast,
+:root[data-theme="dark"] .insptabs .badge { color: var(--paper); }
+:root[data-theme="dark"] td,
+:root[data-theme="dark"] .setting.symclass { border-bottom-color: var(--rule); }
+
+/* The "nothing drawn" hatches were light greys; in dark they are drawn from the surfaces. */
+:root[data-theme="dark"] .thumb.empty,
+:root[data-theme="dark"] .symempty .sw,
+:root[data-theme="dark"] .sympreview,
+:root[data-theme="dark"] .sympreview.ground-none {
+  background: repeating-linear-gradient(45deg, var(--surface-2) 0 6px, var(--surface-3) 6px 12px);
+}
+:root[data-theme="dark"] .geoswatch {
+  background: repeating-linear-gradient(45deg, var(--surface-2) 0 5px, var(--surface-3) 5px 10px);
+}
+:root[data-theme="dark"] ::placeholder { color: var(--faint); opacity: 1; }
+:root[data-theme="dark"] .avatar {
+  background: color-mix(in oklab, var(--avatar, var(--surface-3)) 22%, var(--surface-2));
+  box-shadow: inset 0 0 0 1px var(--rule-strong); color: var(--ink);
+}
+:root[data-theme="dark"] .segmented.solid a[aria-current] {
+  background: var(--surface-3); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule-strong);
+}
+
+/* Logs' sources lie along the top on a narrow window, as every other page's left column does. */
+@media (max-width: 1100px) {
+  #view-logs.on > #logSources { flex-direction: row; position: static; grid-row: auto; }
+  #view-logs > #logSources button { flex: none; text-align: center; }
+}
+
+:root[data-theme="dark"] #addItem::backdrop,
+:root[data-theme="dark"] #issued::backdrop { background: rgba(0, 0, 0, .6); }
+
+/* ═══════════════════════════════════════════ My content's left column (owner's reference, 2026-10-16) */
+
+/*
+  <b>Portal's My content: a column of how an item reached you, your folders and the types present, and the
+  list beside it.</b> The page head is in the list's column, as the reference draws it, so the column runs from
+  the top of the page.
+*/
+#view-content.on {
+  display: grid; grid-template-columns: 236px minmax(0, 1fr);
+  column-gap: var(--gap-6); align-items: start;
+}
+#view-content.on > * { grid-column: 2; min-width: 0; }
+#view-content.on > #contentSide {
+  grid-column: 1; grid-row: 1 / span 20;
+  position: sticky; top: 96px; max-height: calc(100vh - 112px); overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--gap-4);
+  padding: var(--gap-3) 0; border: 1px solid var(--rule); border-radius: var(--round-lg);
+  background: var(--surface);
+}
+#contentSide > .sidelist { margin: 0; }
+#contentSide > .sidelist a { display: flex; justify-content: space-between; align-items: baseline; gap: var(--gap-2); }
+#contentSide > .sidelist a .count { color: var(--faint); font-family: var(--mono); font-size: var(--t-small); }
+#contentSide > .sidelist a[aria-current="page"] { background: var(--accent-soft); }
+#contentSide > .sidelist a[aria-current="page"] .count { color: var(--accent-ink); }
+#contentSide > #contentFolders { margin: 0; padding-top: var(--gap-3); border-top: 1px solid var(--rule); }
+
+.facets { display: flex; flex-direction: column; gap: 2px; padding: var(--gap-3) 0 0; border-top: 1px solid var(--rule); }
+.facets .folderlabel {
+  font-size: var(--t-label); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 6px 15px;
+}
+.facets label.check {
+  display: flex; align-items: center; gap: var(--gap-2); padding: 5px 12px 5px 15px;
+  font-size: var(--t-body); color: var(--ink); cursor: pointer;
+}
+.facets label.check:hover { background: var(--surface-2); }
+.facets label.check > span:first-of-type { flex: 1; }
+.facets .count { color: var(--faint); font-family: var(--mono); font-size: var(--t-small); }
+.facets .linkbtn { align-self: flex-start; margin: 4px 0 0 15px; }
+
+/* The type is a column now; it is short, so it does not wrap. */
+#contentRows td.type { white-space: nowrap; }
+
+@media (max-width: 1100px) {
+  #view-content.on { display: block; }
+  #view-content.on > #contentSide {
+    position: static; max-height: none; overflow: visible; margin-bottom: var(--gap-4);
+    border: 0; padding: 0; background: none; gap: var(--gap-2);
+  }
+  #contentSide > #contentFolders {
+    flex-direction: row; flex-wrap: wrap; align-items: center; border-top: 0; padding-top: 0;
+  }
+  #contentSide > #contentFolders .chip {
+    border: 1px solid var(--rule); border-radius: 999px; padding: 6px 12px; font-size: 13px;
+  }
+  #contentSide > #contentFolders .chip.on { border-color: var(--accent); }
+  .facets { flex-direction: row; flex-wrap: wrap; align-items: center; border-top: 0; padding: 0; gap: 4px 6px; }
+  .facets .folderlabel { margin: 0 4px 0 0; }
+  .facets label.check { padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; font-size: 13px; }
+  .facets .linkbtn { margin: 0; }
+}
+@media (max-width: 760px) {
+  #contentRows td.type, #view-content .widetable th:nth-child(3) { display: none; }
+}
+
+/* ═══════════════════════════════════════════ The item's head card and Overview's three cards (owner's reference, 2026-10-16) */
+
+/*
+  <b>Picture, name and actions on one band, the tabs under it.</b> The reference is Portal's item page: the
+  thumbnail on the left, the name and what it is beside it, and the actions on the right with the main one
+  first and widest. Overview then reads as three cards — what the item is, what it says about itself, and the
+  layers in it — where it was a wide column and a narrow one.
+*/
+#view-service #servicePagehead {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "thumb text actions actions" "tabs tabs tabs layer";
+  align-items: start; column-gap: 0; row-gap: var(--gap-4);
+}
+#servicePagehead > #itemThumb { grid-area: thumb; margin-right: var(--gap-5); }
+#servicePagehead:not([data-tab="overview"]) > #itemThumb { display: none; }
+#servicePagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
+#servicePagehead > #itemActions {
+  grid-area: actions; margin-left: var(--gap-5); max-width: 440px;
+  display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: var(--gap-2);
+}
+#itemActions > a.btn.primary { flex: 1 1 100%; text-align: center; }
+#itemActions > button { padding: 6px 12px; }
+#servicePagehead > #serviceTabs { grid-area: tabs; justify-self: start; align-self: end; }
+#servicePagehead > #itemLayerField { grid-area: layer; align-self: end; margin: 0 0 8px var(--gap-4); }
+#itemThumb .thumbcol { align-items: stretch; }
+#itemThumb .thumb { width: 180px; height: 116px; border-radius: var(--round-lg); }
+
+#serviceOverview.itemgrid { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+#serviceOverview > .itemmain { display: contents; }
+#serviceOverview > #serviceDetails { grid-column: 1; grid-row: 1 / span 2; order: 0; }
+#serviceOverview #serviceHead { grid-column: 2; grid-row: 1 / span 2; }
+#serviceOverview #serviceHead .itemhead { display: block; }
+#serviceOverview #serviceLayersHead {
+  grid-column: 3; grid-row: 1; margin: 0; padding: var(--gap-4) var(--gap-5) var(--gap-2);
+  background: var(--surface); border: 1px solid var(--rule); border-bottom: 0;
+  border-radius: var(--round-lg) var(--round-lg) 0 0;
+}
+#serviceOverview #serviceLayersPanel { grid-column: 3; grid-row: 2; margin: 0; border-top: 0; border-radius: 0 0 var(--round-lg) var(--round-lg); }
+#serviceOverview h4 { margin-top: 0; }
+
+@media (max-width: 1240px) {
+  #serviceOverview.itemgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #serviceOverview #serviceLayersHead { grid-column: 1 / -1; grid-row: 3; }
+  #serviceOverview #serviceLayersPanel { grid-column: 1 / -1; grid-row: 4; }
+}
+@media (max-width: 900px) {
+  #view-service #servicePagehead {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "thumb text" "actions actions" "layer layer" "tabs tabs";
+  }
+  #servicePagehead > #itemActions { margin-left: 0; max-width: none; justify-content: flex-start; }
+  #itemActions > a.btn.primary { flex: 0 1 auto; }
+  #servicePagehead > #itemLayerField { margin: 0; }
+  #itemThumb .thumb { width: 120px; height: 78px; }
+  #serviceOverview.itemgrid { grid-template-columns: minmax(0, 1fr); }
+  #serviceOverview > #serviceDetails, #serviceOverview #serviceHead,
+  #serviceOverview #serviceLayersHead, #serviceOverview #serviceLayersPanel { grid-column: 1; grid-row: auto; }
+}
+@media (max-width: 480px) {
+  #itemThumb .thumbcol .tiny { font-size: 12px; padding: 3px 6px; }
+  #itemThumb .thumb { width: 88px; height: 58px; }
+}
+
+/* ═══════════════════════════════════════════ Dense lists (owner's reference, 2026-10-16) */
+
+/*
+  <b>A row is a line, not a card.</b> The reference lists ten services in the height ours gave three: a small
+  picture, the name, then short columns. The picture stays — it is how a reader finds a layer at a glance — at a
+  size that sets the row's height to one line of text and its caption.
+*/
+#services .thumb, #contentRows .thumb { width: 56px; height: 38px; border-radius: var(--round); }
+#services td, #contentRows td { padding-top: 8px; padding-bottom: 8px; vertical-align: middle; }
+#services td:first-child { padding-right: 4px; }
+#services .name { font-size: var(--t-body); font-weight: 600; }
+#services td.type, #contentRows td.type { color: var(--muted); }
+#view-services .toolbar select { flex: none; }
+
+/* Server's page head sits over the list, beside the column, as Server Manager's does. */
+#serverMain > .pagehead { margin-top: 0; }
+
+@media (max-width: 760px) {
+  #services td.type, #services td:nth-child(5),
+  #view-services .widetable th:nth-child(3), #view-services .widetable th:nth-child(5) { display: none; }
+}
+
+/* ═══════════════════════════════════════════ Server's service page: head card and tabs (owner's reference, 2026-10-16) */
+
+/*
+  <b>Server Manager's service page: a head card, then the pages as tabs.</b> The four pages — General ·
+  Parameters · Capabilities · Layers — were a left list inside the panel; the reference runs them along the top,
+  under the service's picture, name, state and address, with Start or Stop on the right.
+*/
+#serverHero {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start;
+  column-gap: var(--gap-5); row-gap: var(--gap-3); margin: 0 0 var(--gap-4);
+}
+#serverHero .thumb { width: 180px; height: 116px; border-radius: var(--round-lg); }
+#serverHero .herotext h2 { margin: 0 0 4px; }
+#serverHero .herotext p { margin: 0 0 var(--gap-3); color: var(--muted); display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
+#serverHero .urlrow { display: flex; align-items: center; gap: var(--gap-2); max-width: 760px; }
+#serverHero .urlrow .key { font-size: var(--t-small); color: var(--muted); white-space: nowrap; }
+#serverHero .urlrow input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); }
+#serverHero .heroactions { display: flex; gap: var(--gap-2); flex-wrap: wrap; justify-content: flex-end; }
+
+:root[data-surface="server"] #serviceEdit { display: block; }
+:root[data-surface="server"] #serviceNav {
+  display: flex; flex-direction: row; gap: 0; width: auto; padding: 0 var(--gap-4);
+  border-right: 0; border-bottom: 1px solid var(--rule); background: none; overflow-x: auto;
+}
+:root[data-surface="server"] #serviceNav a {
+  padding: 12px 16px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+  background: none; color: var(--muted); white-space: nowrap; font-weight: 500;
+}
+:root[data-surface="server"] #serviceNav a:hover { color: var(--ink); background: none; }
+:root[data-surface="server"] #serviceNav a[aria-current] {
+  color: var(--accent-ink); border-bottom-color: var(--accent); background: none; font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  #serverHero { grid-template-columns: auto minmax(0, 1fr); }
+  #serverHero .heroactions { grid-column: 1 / -1; justify-content: flex-start; }
+  #serverHero .thumb { width: 104px; height: 70px; }
+}
+@media (max-width: 520px) {
+  #serverHero .urlrow .key { display: none; }
+}
+
+/* The list's short columns read in the body face, as the reference sets them; mono stays for addresses and code. */
+#contentRows td.val, #services td.val, #contentCount, #serviceCount { font-family: var(--sans); }
+/* The Layers card's head and rows are two grid items; the spare height of the tall cards goes under them. */
+#serviceOverview.itemgrid { grid-template-rows: auto 1fr; }
+@media (max-width: 1240px) { #serviceOverview.itemgrid { grid-template-rows: auto 1fr auto auto; } }
+@media (max-width: 900px) { #serviceOverview.itemgrid { grid-template-rows: none; } }
+
+/* The surface's name beside the product's, in plain grey, as the reference sets it — not a second badge. */
+#brand .badge, :root[data-theme="dark"] #brand .badge {
+  background: none; border: 0; padding: 0; color: var(--muted); font-size: 14px; font-weight: 500;
+}
+#serviceOverview #serviceLayersPanel { margin-top: calc(-1 * var(--gap-5)); }
+@media (max-width: 900px) { #serviceOverview #serviceLayersPanel { margin-top: calc(-1 * var(--gap-5)); } }
+
+/* ── The design review of the restructured screens (2026-10-16) ── */
+
+/* Dark: blue text on navy needs the lighter blue — #2563eb is 3.4:1 there and is kept for fills behind white. */
+:root[data-theme="dark"] a:not(.btn),
+:root[data-theme="dark"] .linkbtn,
+:root[data-theme="dark"] #tabs a[data-tab][aria-current="page"],
+:root[data-theme="dark"] #serviceTabs.segmented a[aria-current],
+:root[data-theme="dark"] .sidelist a[aria-current="page"] { color: var(--accent-ink); }
+
+/* The heads are cards, as the reference draws them. */
+#view-service #servicePagehead, #serverHero {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
+  padding: var(--gap-4) var(--gap-5) 0; box-shadow: var(--lift);
+}
+#serverHero { padding-bottom: var(--gap-4); }
+#view-service #servicePagehead { margin-bottom: var(--gap-5); }
+/* The main action is as wide as its words, beside the others. */
+#itemActions > a.btn.primary { flex: 0 1 auto; }
+/* Card headings in sentence case, as the reference's. */
+#serviceOverview h4 {
+  text-transform: none; letter-spacing: 0; font-size: 15px; font-weight: 600; color: var(--ink);
+}
+#newMap .plus { margin-right: 4px; }
+input[type="checkbox"] { accent-color: var(--accent); }
+.facets input[type="checkbox"] { width: 16px; height: 16px; }
+
+/* Services: the columns give way to the panel's width, so the row's actions never scroll out of sight. */
+#view-services .widetable { container-type: inline-size; }
+@container (max-width: 1000px) {
+  #services td:nth-child(7), #view-services .widetable th:nth-child(7) { display: none; }
+}
+@container (max-width: 880px) {
+  #services td:nth-child(5), #view-services .widetable th:nth-child(5) { display: none; }
+}
+/* Narrow: the list comes before the health and resource cards, which stack after it. */
+@media (max-width: 1080px) {
+  #serverGrid > div:first-child { display: contents; }
+  #serverGrid > div:first-child > #healthWidget, #serverGrid > div:first-child > #resourceWidget { order: 3; }
+  #serverMain { order: 2; }
+}
+@media (max-width: 480px) {
+  :root[data-surface="server"] #serviceNav { padding: 0 4px; }
+  :root[data-surface="server"] #serviceNav a { padding: 12px 10px; }
+}
+
+/* ═══════════════════════════════════════════ The header: a utility line over the bar (owner, 2026-10-16) */
+header:has(#utilbar) {
+  display: grid; height: auto; min-height: 0; padding: 0 clamp(var(--gap-3), 3vw, 44px);
+  grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "util util" "brand tabs";
+  column-gap: var(--gap-5); row-gap: 0; align-items: stretch;
+}
+header:has(#utilbar) > #brand { grid-area: brand; align-self: center; padding: 6px 0 8px; }
+header #tabs { grid-area: tabs; margin: 0; align-self: stretch; min-height: 48px; border-top: 0;
+               overflow-x: auto; scrollbar-width: none; }
+header #tabs a[data-tab], header #tabs a[data-link] { padding-top: 0; padding-bottom: 0; }
+#utilbar {
+  grid-area: util; display: flex; align-items: center; justify-content: flex-end; gap: var(--gap-3);
+  min-height: 30px; font-size: 12.5px; color: var(--muted); min-width: 0;
+  border-bottom: 1px solid var(--rule); margin: 0 calc(-1 * clamp(var(--gap-3), 3vw, 44px));
+  padding: 0 clamp(var(--gap-3), 3vw, 44px); background: var(--surface-2);
+}
+#utilbar > #healthLine, :root[data-surface] #utilbar > #healthLine {
+  display: block; flex: 0 1 auto; min-width: 0; max-width: 46ch; margin-right: auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; order: 0;
+}
+#utilbar > #healthDot { order: -1; }
+#utilbar #surfaces { background: none; border: 0; padding: 0; gap: 0; }
+#utilbar #surfaces a {
+  padding: 2px 8px; font-size: 12.5px; color: var(--muted); background: none; border-radius: 0; box-shadow: none;
+}
+#utilbar #surfaces a + a { border-left: 1px solid var(--rule-strong); }
+#utilbar #surfaces a[aria-current], :root[data-theme="dark"] #utilbar #surfaces a[aria-current] {
+  background: none; color: var(--accent-ink); font-weight: 600;
+}
+#utilbar .right { margin-left: 0; gap: var(--gap-3); }
+#utilbar #who, #utilbar #who b { display: inline; font-size: 12.5px; text-align: left; max-width: none; }
+#utilbar #who b { margin-right: 4px; }
+#utilbar #themeToggle, #utilbar #signout {
+  min-height: 0; padding: 0; border: 0; background: none; box-shadow: none;
+  font-size: 12.5px; font-weight: 500; color: var(--accent-ink); cursor: pointer;
+}
+#utilbar #themeToggle:hover, #utilbar #signout:hover { text-decoration: underline; }
+#utilbar .right > * + * { padding-left: var(--gap-3); border-left: 1px solid var(--rule-strong); }
+@media (max-width: 760px) {
+  #utilbar { gap: var(--gap-2); }
+  #utilbar > #healthLine, :root[data-surface] #utilbar > #healthLine { display: none; }
+  #utilbar #who { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #utilbar #who span, #utilbar #who small { display: none; }
+  header:has(#utilbar) { grid-template-areas: "util util" "brand brand" "tabs tabs"; }
+  header #tabs { min-height: 44px; border-top: 1px solid var(--rule);
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent); }
+}
+/* The health sentence is the dot's tooltip and label, not a line of its own (owner, 2026-10-16: *"platform store
+   reachable bla bla'sı ne?"*). The dot turns red when something is wrong; hovering it says what. */
+#utilbar > #healthLine, :root[data-surface] #utilbar > #healthLine { display: none; }
+#utilbar > #healthDot { margin-right: auto; cursor: help; }
+
+/* ═══════════════════════════════════════════ The account menu (owner, 2026-10-16) */
+#utilbar .usermenu > summary {
+  display: flex; align-items: center; gap: 6px; padding: 2px 6px; font-size: 12.5px; color: var(--ink);
+}
+#utilbar .usermenu .initial {
+  width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: #fff;
+  display: grid; place-items: center; font-size: 11px; font-weight: 700;
+}
+#utilbar .usermenu .caret { color: var(--muted); font-size: 10px; }
+#utilbar .usermenu .sheet { min-width: 240px; font-size: var(--t-small); }
+#utilbar .usermenu #who {
+  display: block; padding: 8px 10px 10px; margin-bottom: 4px; border-bottom: 1px solid var(--rule);
+  color: var(--muted); font-size: var(--t-small); white-space: normal; max-width: none; overflow: visible;
+}
+#utilbar .usermenu #who b { display: block; color: var(--ink); font-size: var(--t-body); margin: 0 0 2px; }
+#utilbar .usermenu #themeToggle, #utilbar .usermenu #signout {
+  display: block; width: 100%; padding: 8px 10px; border-radius: 3px; text-align: left;
+  font-size: var(--t-small); color: var(--ink); text-decoration: none; border-left: 0;
+}
+#utilbar .usermenu #themeToggle:hover, #utilbar .usermenu #signout:hover { background: var(--surface-2); text-decoration: none; }
+#utilbar .usermenu #themeToggle .ico { display: inline-block; width: 1.2em; }
+#utilbar .right > .usermenu { padding-left: 0; border-left: 0; }
+@media (max-width: 760px) { #utilbar .usermenu #userName { display: none; } }
+
+/* <b>The header's height is a token</b>, because the symbology editor and the map composer size themselves to the
+   window under it — they assumed 58 pixels, and the utility line made it 80 (three Console tests found it). */
+:root { --header-h: 80px; }
+header:has(#utilbar) { box-sizing: border-box; height: var(--header-h); grid-template-rows: 30px minmax(0, 1fr); }
+@media (max-width: 760px) {
+  :root { --header-h: 124px; }
+  header:has(#utilbar) { grid-template-rows: 30px 44px 50px; }
+}
+#utilbar .usermenu #themeToggle { display: flex; align-items: center; gap: 8px; }
+#utilbar .usermenu #themeToggle .ico { display: inline-flex; width: auto; color: var(--muted); }

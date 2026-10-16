@@ -132,6 +132,26 @@ tests changed with the layout rather than with a defect: `SettingsScreenTests` n
 *General* in Site's list, and `SymbologyEditorTests` measures 1,300 pixels with nothing collapsed, since
 there is nothing to collapse.)*
 
+*(Steps 2–4, 2026-10-16. Step 2–3 (v1.0.409): Studio's item and Server's service editor take the same
+underline tabs and left list — General · Parameters · Capabilities · Layers on a service. Step 4: Logs'
+sources become the page's left column, as every other page with siblings has, and the console gains a
+**dark theme** the reader chooses with a header button and keeps in `localStorage` (`gis-theme`) — so
+*State* above is no longer quite "none": one per-browser preference, no server value. It is not taken from
+the operating system, because the map pages keep light tokens of their own and a console that darkened by
+itself in front of them would be half a theme. A design review measured it and its contrast figures are
+the ones the stylesheet's comment now carries.)*
+
+*(Later the same day, from two reference images the owner supplied for Studio and Server, light and dark: the
+accent became **blue** (`#1565d8`, dark `#2563eb`) — *"teal falan da istemiyorum. bu renkler olsun"* — and the
+dark theme took the images' navy. Four screens were restructured to the images' shape: My content gained a left
+column (how an item reached you, folders, the types present as ticks with counts) and a Type column; the item page
+a head card with the picture, name and actions, then Item information · Description · Layers as cards; Server's
+Services list Type, Status and Folder with Type and Status filters and one-line rows; and Server's service page a
+head card (picture, kind and state, Service URL with Copy, Start or Stop) with its four pages as tabs along the
+top. The four Server tabs stand — the owner, the same day: *"arcgis server için verdiğimiz o site logs vs kararı
+aynen kalacak"*. What the images drew and the product does not have — a notification bell, favourites, instance
+counts, a Usage tab, SOAP — was left out.)*
+
 ## 7. Assumptions this decision rests on
 
 | ID | Assumption | Status |

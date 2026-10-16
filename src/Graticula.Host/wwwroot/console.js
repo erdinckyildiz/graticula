@@ -3654,6 +3654,9 @@ let contentType = "";
 /** The order of the content list. */
 let contentSort = "modified";
 
+/** The types ticked in My content's left column; empty means every type (owner's reference, 2026-10-16). */
+const contentKinds = new Set();
+
 /** A saved web map as a row of the content list — the same fields a service row reads. */
 function mapAsItem(m) {
   return {
@@ -3766,6 +3769,8 @@ function drawMyContent() {
     typeBox.hidden = kinds.length < 2;
   }
 
+  drawContentFacets(inScope, kinds);
+
   const byName = (x, y) => bareOf(x).localeCompare(bareOf(y), undefined, { sensitivity: "base" });
 
   const order = {
@@ -3784,6 +3789,7 @@ function drawMyContent() {
 
   const visible = inScope
     .filter(i => !contentType || i.kind === contentType)
+    .filter(i => contentKinds.size === 0 || contentKinds.has(i.kind))
     .filter(i => !contentIdle || idleItem(i))
     .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder,
       i.scope === "mine" ? myFolders.find(f => f.id === i.contentFolder)?.title : "", ...(i.tags || [])]
@@ -3795,7 +3801,7 @@ function drawMyContent() {
         ? "not in a folder" : `in ${myFolders.find(f => f.id === contentFolderPick)?.title || "this folder"}`}`
     : inScope.length === 0
     ? ""
-    : needle || contentType
+    : needle || contentType || contentKinds.size > 0
       ? `showing ${num(visible.length)} of ${num(inScope.length)}`
       : `${num(inScope.length)} item${inScope.length === 1 ? "" : "s"}`;
 
@@ -3851,28 +3857,28 @@ function drawMyContent() {
   // <b>A first run names both ways in, as buttons</b> (ADR-079 condition 2's review, 2026-10-14): it named only
   // *New item*, as text, and the server's note above it said everything here belonged to somebody else.
   $("contentRows").innerHTML = total === 0
-    ? `<tr><td colspan="6" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
+    ? `<tr><td colspan="7" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
          <button type="button" class="linkbtn" data-empty-new="newLayer">New item</button> publishes a layer from a
          file or a database; <button type="button" class="linkbtn" data-empty-new="newMap">New map</button> starts a
          map from the layers you can read.</td></tr>`
     : inScope.length === 0 && contentFolderPick
-      ? `<tr><td colspan="6" class="empty">${contentFolderPick === "root"
+      ? `<tr><td colspan="7" class="empty">${contentFolderPick === "root"
           ? "Everything of yours is in a folder."
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="6" class="empty">Nothing arrived this way.
+      ? `<tr><td colspan="7" class="empty">Nothing arrived this way.
            ${contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0 && contentIdle && !contentFilter
-        ? `<tr><td colspan="6" class="empty">${usageCountsAMonth()
+        ? `<tr><td colspan="7" class="empty">${usageCountsAMonth()
              ? `No idle services${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}. Everything published over
                30 days ago has had a request since ${h(day(new Date(Date.now() - 30 * 86400000).toISOString()))}.`
              : `Nothing can be called idle yet: counting began ${usageSince ? h(day(usageSince)) : "with the first request"}, and
                thirty days of it are needed.`}</td></tr>`
       : visible.length === 0
-        ? `<tr><td colspan="6" class="empty">Nothing matches${contentFilter
+        ? `<tr><td colspan="7" class="empty">Nothing matches${contentFilter
              ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
@@ -3923,11 +3929,13 @@ function drawMyContent() {
               <div class="rowmeta">${stopped ? `${pill("stopped")} ` : ""}${contentSort === "leastUsed" || contentIdle
                 ? `<span class="count">${Number((i.usage || {}).requests30 || 0).toLocaleString()}</span> request${
                   ((i.usage || {}).requests30 || 0) === 1 ? "" : "s"} ${usageCountsAMonth() || !usageSince
-                    ? "in 30 days" : `since ${h(day(usageSince))}`} · ` : ""}${h(itemTypeName(i.kind))} · ${
+                    ? "in 30 days" : `since ${h(day(usageSince))}`} · ` : ""}${
                 i.kind === "ImageServer" ? "" : `${num(i.layers)} layer${i.layers === 1 ? "" : "s"} · `}${i.folder ? `service folder ${h(i.folder)}` : "service root"}${i.description
                   ? ` · ${h(i.description)}` : ""}${i.owner && i.scope !== "mine"
                   ? ` · ${h(i.owner)}` : ""}${(i.throughGroups || []).length > 0
                   ? ` · via ${i.throughGroups.map(h).join(", ")}` : ""}${folderNote(i)}</div></td>
+            <td class="val type">${h(itemTypeName(i.kind))}</td>
+            <td class="val">${day(i.updated)}</td>
 
             <!-- ADR-034 5l: the pill is the control, because it is already the thing that says who
                  can reach this and the reader is going to press it either way. -->
@@ -3942,7 +3950,6 @@ function drawMyContent() {
               // used to read `public` and `Public` three inches apart, which is one fact twice.
               i.because === "administrativeoverride"
                 ? ` <span class="val">by override</span>` : ""}</td>
-            <td class="val">${day(i.updated)}</td>
             <td style="text-align:right">${i.kind === "ImageServer"
               ? `<details class="menu">
                   <summary title="More" aria-label="More actions">⋯</summary>
@@ -4726,10 +4733,12 @@ function mapRow(i) {
       >${m.thumbnail ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(m.thumbnail)}">`
         : `<div class="thumb empty mapthumb" aria-hidden="true"></div>`}</a></td>
     <td class="name"><a href="#/map/${encodeURIComponent(m.id)}">${h(i.name)}</a>
-      <div class="rowmeta">${contentSort === "leastUsed" ? "Not counted (map) · " : ""}Web map${folderNote(i)}${i.description ? ` · ${h(i.description)}` : ""}${
-        i.scope !== "mine" && i.owner ? ` · ${h(i.owner)}` : ""}</div></td>
-    <td>${pill(i.sharing)}</td>
+      <div class="rowmeta">${contentSort === "leastUsed" ? "Not counted (map) · " : ""}${
+        [folderNote(i).replace(/^ · /, ""), i.description ? h(i.description) : "", i.scope !== "mine" && i.owner ? h(i.owner) : ""]
+          .filter(Boolean).join(" · ")}</div></td>
+    <td class="val type">Web map</td>
     <td class="val">${day(i.updated)}</td>
+    <td>${pill(i.sharing)}</td>
     <td style="text-align:right;white-space:nowrap">
       <a class="tiny" href="${open}" aria-label="Open ${h(i.name)}">Open</a>
       ${i.scope === "mine"
@@ -4951,6 +4960,9 @@ async function showService(qualified) {
   // tell from one that failed. The name is the one fact the address already carries.
   $("serviceTitle").textContent = name;
   $("serviceSub").textContent = folder ? `in ${folder}` : "in the site root";
+  for (const id of ["itemThumb", "itemActions", "serverHero"]) {
+    if ($(id)) { $(id).innerHTML = ""; $(id).hidden = true; }
+  }
 
   // <b>A service with no layers is a different screen.</b> There is nothing to list and there are
   // bounds to set, and asking the server which kind this is beats guessing from the shape of a
@@ -5289,6 +5301,7 @@ function drawServiceTabs() {
   }
 
   if (!mine.some(([key]) => key === serviceTab)) serviceTab = mine[0]?.[0] ?? "overview";
+  if ($("servicePagehead")) $("servicePagehead").dataset.tab = serviceTab;
 
   // <b>Symbology is a link out, not a tab of this page.</b> Handoff revision 2026-09-04: the
   // tab used to open a list whose every row was one *Edit* link — an indirection with nothing in
@@ -5934,8 +5947,8 @@ async function drawServiceDetails(qualified, knownKind) {
   // — the group page's Overview lists a standing, an owner, a date and two counts in it.
   const manages = !item || item.manages !== false;
 
-  box.innerHTML = `
-    <div class="itemactions">
+  const actions = $("itemActions");
+  actions.innerHTML = `
       ${item && item.status === "stopped" ? "" : `<a class="btn primary"
         href="/studio/webmap.html?service=${encodeURIComponent(qualified)}">Open in Map Viewer</a>`}
       ${manages ? `<button type="button" data-share="${h(qualified)}">Share</button>` : ""}
@@ -5963,8 +5976,10 @@ async function drawServiceDetails(qualified, knownKind) {
       ${item && item.scope === "mine" ? `<button type="button" data-move-service="${h(item.name)}"
           data-move-folder="${h(item.contentFolder || "")}">Move</button>` : ""}
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
-        title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}
-    </div>
+        title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}`;
+  actions.hidden = false;
+
+  box.innerHTML = `
     ${serviceOpenKind === "ImageServer" && (manages || imageOffersDownload())
       ? `<p class="hint" id="imageDownloadSays" role="status" aria-live="polite"></p>
          <div id="imageAddProgress" hidden><progress id="imageAddBar" value="0" max="1" aria-labelledby="imageAddShown"></progress>
@@ -5972,7 +5987,7 @@ async function drawServiceDetails(qualified, knownKind) {
          <p class="sr-only" id="imageAddQuarter" role="status" aria-live="polite"></p>
          <p class="sr-only" id="imageAddHint">GeoTIFFs with the same bands as this image. Another coordinate system or cell
            size is resampled to fit.</p>` : ""}
-    <h4>Details</h4>
+    <h4>Item information</h4>
     <dl class="facts2" id="svcFacts"></dl>`;
   imageFactRows = [];
 
@@ -6987,8 +7002,8 @@ function drawServiceHead(item) {
   const coverLayer = coverId === undefined ? null : serviceLayers.find(one => String(one.id) === coverId);
 
   const imagery = item.kind === "ImageServer";
-  box.innerHTML = `
-    <div class="itemhead">
+  const thumb = $("itemThumb");
+  thumb.innerHTML = `
       ${imagery
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt=""
              data-thumb="${h(thumbnailFor(`/rest/services/${item.name}/ImageServer`))}&v=${Date.now()}"></div>`
@@ -6998,7 +7013,12 @@ function drawServiceHead(item) {
            <button type="button" class="tiny" data-redraw-thumb="${h(coverLayer.name || "")}"
              title="Drawn once and kept; redraw it after the data has changed">Redraw thumbnail</button>
            <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>` : ""}</div>`
-        : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}
+        : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}`;
+  thumb.hidden = false;
+
+  box.innerHTML = `
+    <div class="itemhead">
+      <h4>Description</h4>
       <div>
         <!--
           <b>The name and the kind moved to the page head.</b> They were here because this panel
@@ -7262,7 +7282,7 @@ async function drewNothing(href) {
  * thing that would show more: the map, where the extent can be changed.
  */
 async function explainBlankCover() {
-  const image = document.querySelector("#serviceHead img.thumb[src]");
+  const image = document.querySelector("#itemThumb img.thumb[src]");
 
   if (!image || image.dataset.checked) return;
 
@@ -12991,6 +13011,12 @@ let serviceFilter = "";
 /** Whether the services screen has been drawn once in this tab, for where it first lands. */
 let servicesLanded = false;
 
+/** Whether the reader pressed *Site (root)* — its address is the bare list's, so only the press tells them apart. */
+let rootChosen = false;
+document.addEventListener("click", event => {
+  if (event.target instanceof Element && event.target.closest("[data-root-pick]")) rootChosen = true;
+});
+
 /**
  * The folder rail — ADR-034 §5h.
  *
@@ -13005,7 +13031,7 @@ async function loadFolders() {
   const entry = (name, label, counts, extra = "") => {
     const here = (selectedFolder ?? "") === (name ?? "");
     return `<a href="#/services${name ? "/" + encodeURIComponent(name) : ""}"
-      class="rail-item${here ? " on" : ""}"${here ? ' aria-current="page"' : ""}>
+      class="rail-item${here ? " on" : ""}"${here ? ' aria-current="page"' : ""}${name ? "" : " data-root-pick"}>
       ${icon(name ? "folder" : "root")}
       <span class="rail-name">${h(label)}${extra}</span>
       <span class="rail-count">${counts}</span></a>`;
@@ -13057,7 +13083,10 @@ async function loadServices() {
   // meant to land in Studio, sent administrators to Server. Found by the verification review, 2026-09-30.
   const stillLanding = surfaceOfPath() === "server" && /^(#\/?)?(services\/?)?$/.test(location.hash);
 
-  if (!servicesLanded && selectedFolder === null && stillLanding) {
+  // <b>Every arrival on the bare list, not only the first read</b> (design review, 2026-10-16): the list is also read
+  // on Studio's boot and on the way through other screens, which used up the one chance, so Server opened on an
+  // empty root with nine services one folder over. Pressing *Site (root)* still shows the root.
+  if (!rootChosen && selectedFolder === null && stillLanding) {
     servicesLanded = true;
     const all = [...(services || []), ...(system.services || [])];
 
@@ -13139,11 +13168,27 @@ async function loadServices() {
     })),
   ];
 
-  const shown_ = needle
-    ? rows.filter(r => [r.qualified, r.kind, r.owner].some(v => (v || "").toLowerCase().includes(needle)))
-    : rows;
+  // <b>Type and Status beside the search</b> (owner's reference, 2026-10-16), offered from what is listed so neither
+  // can empty the list by itself.
+  const typeOf = r => r.kind === "ImageServer" ? "Image service" : String(r.kind || "").replace(/Server$/, " service");
+  const offer = (id, values, all) => {
+    const box = $(id);
+    if (!box) return "";
+    const want = box.value;
+    box.innerHTML = `<option value="">${all}</option>${values.map(v =>
+      `<option value="${h(v)}"${v === want ? " selected" : ""}>${h(v)}</option>`).join("")}`;
+    box.hidden = values.length < 2 && !want;
+    return values.includes(want) ? want : "";
+  };
+  const typePick = offer("serviceTypePick", [...new Set(rows.map(typeOf).filter(Boolean))].sort(), "All types");
+  const statusPick = offer("serviceStatusPick", [...new Set(rows.map(r => r.status).filter(Boolean))].sort(), "Any status");
 
-  $("serviceCount").textContent = needle
+  const shown_ = rows
+    .filter(r => !needle || [r.qualified, r.kind, r.owner].some(v => (v || "").toLowerCase().includes(needle)))
+    .filter(r => !typePick || typeOf(r) === typePick)
+    .filter(r => !statusPick || r.status === statusPick);
+
+  $("serviceCount").textContent = needle || typePick || statusPick
     ? `${shown_.length} of ${rows.length}`
     : `${rows.length} service${rows.length === 1 ? "" : "s"}`;
 
@@ -13155,9 +13200,11 @@ async function loadServices() {
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
 
   $("services").innerHTML = shown_.length === 0
-    ? `<tr><td colspan="6" class="empty">${rows.length === 0
+    ? `<tr><td colspan="8" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
-        : `No service in any folder matches <b>${h(serviceFilter)}</b>.`}</td></tr>`
+        : needle
+          ? `No service in any folder matches <b>${h(serviceFilter)}</b>.`
+          : `No service here is ${h([typePick, statusPick].filter(Boolean).join(" and "))}.`}</td></tr>`
     : onPage.map(r => {
       const held = [
         r.layers ? `${r.layers} layer${r.layers === 1 ? "" : "s"}` : "",
@@ -13196,13 +13243,14 @@ async function loadServices() {
 
         <td>
           <span class="name">${h(r.name)}</span>
-          <span class="rowmeta">${h(r.kind === "ImageServer" ? "Imagery" : r.kind)}${r.description
-            ? `<span class="sep">·</span>${h(r.description)}` : ""}${r.system
-            ? ""
-            : `<span class="sep">·</span><span class="count">${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`}</span>
+          <span class="rowmeta">${[r.system ? ""
+            : `<span class="count">${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
+            r.description ? h(r.description) : ""].filter(Boolean).join(`<span class="sep">·</span>`)}</span>
         </td>
 
+        <td class="val type">${h(typeOf(r))}</td>
         <td>${pill(r.status)}${refusingSays(r.refusing)}</td>
+        <td class="val">${r.folder ? h(r.folder) : "root"}</td>
         <td>${r.system
           ? `<select data-service-share="${h(r.name)}">${SCOPES.map(v =>
               `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
@@ -16823,10 +16871,79 @@ function serverAboutMarkup() {
     </dl>`;
 }
 
+/** Labels the theme button by what it turns on, and marks whether dark is on. */
+function drawThemeToggle() {
+  const button = $("themeToggle");
+  if (!button) return;
+  const dark = document.documentElement.dataset.theme === "dark";
+  // The word names what pressing it does; no `aria-pressed`, which with a flipping label was read backwards
+  // ("Light, pressed" while dark was on — design review, step 4).
+  // Drawn, not typed: the moon and sun characters are missing from some system fonts and rendered as a stray mark.
+  const icon = dark
+    ? `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="3.2"
+         fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 1.2v1.6M8 13.2v1.6M1.2 8h1.6M13.2 8h1.6M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1"/></g></svg>`
+    : `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path fill="currentColor"
+         d="M6.2 1.4a6.6 6.6 0 1 0 8.4 8.4A5.4 5.4 0 0 1 6.2 1.4z"/></svg>`;
+  button.innerHTML = `<span class="ico">${icon}</span> ${dark ? "Light mode" : "Dark mode"}`;
+  button.title = dark ? "Use the light theme" : "Use the dark theme";
+}
+drawThemeToggle();
+
+/** The account menu's face: the reader's initial and name, or "Sign in" words for nobody. */
+function drawUserMenu(name) {
+  const menu = $("userMenu");
+  if (!menu) return;
+  $("userInitial").textContent = name ? name.trim().charAt(0).toUpperCase() : "?";
+  $("userName").textContent = name || "anonymous";
+}
+
 /** Draws Server's General page again once the layers or the kind it reads have arrived. */
 function refreshServerAbout() {
   const page = $("page-about");
   if (page) page.innerHTML = serverAboutMarkup();
+  drawServerHero();
+}
+
+/**
+ * Server's head card for the open service: picture, name, kind and state, address, and Start or Stop. Read from the
+ * services listing, which carries the state and the cover layer; a system service has neither and keeps the bar.
+ */
+function drawServerHero() {
+  const hero = $("serverHero");
+  if (!hero) return;
+  const row = serviceOpen && surfaceOfPath() === "server" && !serviceIsSystem
+    ? SERVICE_ROWS.find(s => s.qualified === serviceOpen.qualified) : null;
+  hero.hidden = !row;
+  if (!row) { hero.innerHTML = ""; return; }
+
+  const face = serviceOpenKind === "ImageServer" ? "ImageServer" : "FeatureServer";
+  const url = `${location.origin}/rest/services/${row.qualified.split("/").map(encodeURIComponent).join("/")}/${face}`;
+  const cover = row.cover ? `/rest/services/${row.qualified}/FeatureServer/${row.cover.layerIndex}` : null;
+  const stopped = row.status === "stopped";
+
+  hero.innerHTML = `
+    <div class="herothumb">${serviceOpenKind === "ImageServer"
+      ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(`/rest/services/${row.qualified}/ImageServer`))}">`
+      : cover ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(cover))}">`
+      : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</div>
+    <div class="herotext">
+      <h2>${h(row.name)}</h2>
+      <p>${serviceOpenKind === "ImageServer" ? "Image service" : "Feature service"} ${pill(row.status)}${refusingSays(row.refusing)}</p>
+      <div class="urlrow">
+        <label class="sr-only" for="heroUrl">Service URL</label>
+        <span class="key" aria-hidden="true">Service URL</span>
+        <input type="text" id="heroUrl" readonly value="${h(url)}" title="${h(url)}">
+        <button type="button" class="tiny" data-copy="${h(url)}">Copy</button>
+      </div>
+    </div>
+    <div class="heroactions">
+      <button type="button" class="${stopped ? "primary" : ""}" data-service-status="${h(row.cover ? row.cover.name : "")}"
+        data-service-qualified="${h(row.qualified)}" data-to="${stopped ? "start" : "stop"}"${row.cover ? "" : " disabled"}
+        title="${stopped ? "Serve this again" : "Answer 503 for this service, without changing who may see it"}"
+        ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span> ${stopped ? "Start service" : "Stop service"}</button>
+      <a class="btn" href="/studio/#/service/${row.qualified.split("/").map(encodeURIComponent).join("/")}">Open in Studio</a>
+    </div>`;
+  paintPreviews();
 }
 
 function serverLayersMarkup() {
@@ -19060,13 +19177,14 @@ document.addEventListener("keydown", pubTreeKey);
  */
 document.addEventListener("keydown", event => {
   const tab = event.target?.closest?.("#logSources [role=tab]");
-  if (!tab || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  // Up and Down as well since ADR-187 step 4: the sources are a column on the page's left above 1,100 pixels.
+  if (!tab || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
 
   const tabs = [...document.querySelectorAll("#logSources [role=tab]")];
   const at = tabs.indexOf(tab);
   const next = event.key === "Home" ? 0
     : event.key === "End" ? tabs.length - 1
-    : (at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    : (at + (event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1) + tabs.length) % tabs.length;
 
   event.preventDefault();
   tabs[next].focus();
@@ -24539,6 +24657,7 @@ async function handleClick(event) {
       toast(`${d.serviceStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
     } catch (e) { toast(e.message); }
     await loadLayers();   // which redraws the service list, since the status it shows moved
+    drawServerHero();
     return;
   }
 
@@ -25332,6 +25451,17 @@ async function handleClick(event) {
   // said where it was).
   // A service address on Server's General page (ADR-187). The address is in the code beside the button,
   // so a browser that refuses the clipboard still shows the reader what to copy.
+  // <b>The theme — ADR-187 step 4.</b> One attribute on the root, which `session.js` restores before the first
+  // paint; the button says what pressing it turns on.
+  if (t.id === "themeToggle") {
+    const dark = document.documentElement.dataset.theme !== "dark";
+    if (dark) document.documentElement.dataset.theme = "dark";
+    else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem("gis-theme", dark ? "dark" : "light"); } catch { /* private mode: for this page only */ }
+    drawThemeToggle();
+    return;
+  }
+
   if (t.dataset?.copy) {
     try { await navigator.clipboard.writeText(t.dataset.copy); toast("The address is on the clipboard.", true); copiedHere(t); }
     catch { toast("This browser would not let the page write to the clipboard. The address is beside the button."); }
@@ -26466,6 +26596,12 @@ document.addEventListener("change", async event => {
   // moment it is chosen, like sharing and for the same reason (ADR-031 §2b): an administrator
   // revoking somebody's ability to publish has to be able to trust that it happened, rather than
   // press Save afterwards.
+  if (event.target?.id === "serviceTypePick" || event.target?.id === "serviceStatusPick") {
+    resetPage("services");
+    await section("services", loadServices, "services");
+    return;
+  }
+
   if (event.target?.id === "contentType" || event.target?.id === "contentSort" || event.target?.id === "contentIdle") {
     if (event.target.id === "contentType") contentType = event.target.value;
     else if (event.target.id === "contentIdle") contentIdle = event.target.checked;
@@ -26811,6 +26947,7 @@ async function whoami() {
   $("who").innerHTML = me.authenticated
     ? `<b>${h(me.name)}</b>${h(me.roles.join(", ") || "no roles")} · ${h(me.userType)}`
     : "anonymous";
+  drawUserMenu(me.authenticated ? me.name : "");
   return me;
 }
 
@@ -27106,6 +27243,7 @@ async function start() {
         + "again gives this console a token of its own.";
       cookieOnly.hidden = false;
       $("who").innerHTML = `<b>${h(me.name)}</b> · read-only session`;
+      drawUserMenu(me.name);
     } else {
       cookieOnly.hidden = true;
     }
@@ -27491,6 +27629,7 @@ function drawLogControlsNow() {
   if (sources) {
     sources.setAttribute("role", "tablist");
     sources.setAttribute("aria-label", "Which log");
+    sources.setAttribute("aria-orientation", window.matchMedia("(max-width: 1100px)").matches ? "horizontal" : "vertical");
 
     // <b>One tab stop, arrows between the tabs</b> — the ARIA tabs pattern. Every tab was its own stop and
     // the arrows did nothing, so a keyboard reader crossed four buttons to reach the filters. Found by the
@@ -27499,7 +27638,7 @@ function drawLogControlsNow() {
       `<button role="tab" aria-selected="${key === logSource}" aria-controls="logRows"
         tabindex="${key === logSource ? "0" : "-1"}"
         class="tiny${key === logSource ? "" : " ghost"}" data-log-source="${key}"
-        >${h(label)}</button>`).join(" ");
+        >${h(label)}</button>`).join("");
   }
 
   const own = $("logOwn");
@@ -28100,6 +28239,47 @@ function drawFolderBar() {
     <span class="foldersep" aria-hidden="true"></span>
     <button type="button" class="tiny ghost" id="folderNew">New folder</button>`;
 }
+
+/**
+ * <b>The types present, as ticks with counts</b> — the owner's reference draws Portal's *Item Type* filter this
+ * way (2026-10-16). Counted in the scope and folder shown, so a number is what ticking it lists; a type that is
+ * not there is not offered, and with one type there is nothing to narrow.
+ */
+function drawContentFacets(inScope, kinds) {
+  const box = $("contentFacets");
+  if (!box) return;
+
+  for (const k of [...contentKinds]) if (!kinds.includes(k)) contentKinds.delete(k);
+
+  const counts = new Map();
+  for (const i of inScope) counts.set(i.kind, (counts.get(i.kind) || 0) + 1);
+
+  box.hidden = kinds.length < 2;
+  box.innerHTML = `<span class="folderlabel">Item type</span>${kinds.map(k => `
+    <label class="check"><input type="checkbox" data-kind-facet="${h(k)}"${contentKinds.has(k) ? " checked" : ""}>
+      <span>${h(itemTypeName(k))}</span> <span class="count">${num(counts.get(k) || 0)}</span></label>`).join("")}${
+    contentKinds.size > 0 ? `<button type="button" class="linkbtn" id="contentFacetsClear">Clear</button>` : ""}`;
+}
+
+document.addEventListener("change", event => {
+  const box = event.target instanceof Element ? event.target.closest("[data-kind-facet]") : null;
+  if (!box) return;
+  if (box.checked) contentKinds.add(box.dataset.kindFacet);
+  else contentKinds.delete(box.dataset.kindFacet);
+  resetPage("contentRows");
+  drawMyContent();
+  paintPreviews();
+  document.querySelector(`[data-kind-facet="${CSS.escape(box.dataset.kindFacet)}"]`)?.focus();
+});
+
+document.addEventListener("click", event => {
+  if (!(event.target instanceof Element) || !event.target.closest("#contentFacetsClear")) return;
+  contentKinds.clear();
+  resetPage("contentRows");
+  drawMyContent();
+  paintPreviews();
+  document.querySelector("[data-kind-facet]")?.focus();
+});
 
 /** The small folder dialog, for a title or a choice of folder. */
 function openFolderDialog(title, body, go, label) {

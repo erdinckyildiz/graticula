@@ -49,3 +49,14 @@ try {
   // Private mode, or storage disabled. Sign-in is the honest default.
   document.documentElement.dataset.session = "none";
 }
+
+/*
+  <b>And which theme, decided before anything is painted too — ADR-187 step 4.</b> The reader chooses dark
+  with the header's button and `console.js` remembers it in `localStorage`; setting it here rather than there
+  keeps a dark reader from seeing one light frame on every load.
+*/
+try {
+  if (localStorage.getItem("gis-theme") === "dark") document.documentElement.dataset.theme = "dark";
+} catch (ignored) {
+  // No storage, no remembered choice: the light theme is the default.
+}
