@@ -147,6 +147,15 @@ None recorded.
 ## 11. Conditions
 
 1. **A real AD FS or Entra ID signs somebody in** — the suite's provider is honest and is ours.
+   **PARTLY DISCHARGED 2026-10-16 — a real SAML identity provider, though not one of the two named: Keycloak
+   26.0.7** ([tools/keycloak-probe](../../tools/keycloak-probe/), on the VPS's loopback through a tunnel, against
+   the local fixture). Registered by nothing but its metadata URL; its client made by Keycloak's own converter from
+   this server's SP metadata; Keycloak's form signed `kc.alice` in, its auto-submit form posted a signed response to
+   `/rest/auth/saml/acs`, and `/rest/whoami` answered `kc.alice`. **One real quirk met**: Keycloak's converter left
+   *Client signature required* on although the SP metadata says `AuthnRequestsSigned="false"`, and refused the
+   request with `SigAlg was null` until it was turned off — AD FS and Entra ID accept an unsigned request by default,
+   and the README now says what to turn off for Keycloak. **Still owed**: AD FS or Entra ID themselves, which are an
+   organisation's.
 2. **The design review of the screens here**, with its findings repaired. **DISCHARGED 2026-09-24.** Its blocker
    was real and every test had passed over it: saving read the secret box, which a SAML form does not have, so **no
    SAML provider could be added or saved from the console at all** — the tests had checked the form and never pressed

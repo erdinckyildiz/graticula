@@ -90,7 +90,9 @@ that works.
   ([ADR-088](docs/adr/ADR-088-sign-in-through-an-openid-connect-provider.md),
   [ADR-089](docs/adr/ADR-089-directories-and-group-mapping.md),
   [ADR-090](docs/adr/ADR-090-sign-in-through-a-saml-provider.md)). Each is tested against a
-  provider the test suite runs, **not yet against a real Entra ID, AD FS or Active Directory**.
+  provider the test suite runs, and OpenID Connect and SAML against a real Keycloak too — **not yet
+  against a real Entra ID, AD FS or Active Directory**. With Keycloak as the SAML provider, turn off
+  its client's *Client signature required*: this server does not sign its requests.
   There is no SCIM: an account is made at its first sign-in or by hand, and a change of groups
   reaches this server at the person's next sign-in. Nested Active Directory groups are not
   followed, a SAML assertion must not be encrypted, and signing out ends this server's session only.
