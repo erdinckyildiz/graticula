@@ -169,20 +169,22 @@ public sealed class WebMapStoreTests : PostgresFixture
 
         // The endpoint checks both first; the constraints are there for whatever writes past it.
         await using NpgsqlCommand array = DataSource.CreateCommand(
-            "insert into web_map (id, title, owner_principal_id, document) values (@id, 't', @owner, '[1]')");
+            "insert into web_map (id, document) values (@id, '[1]')");
         array.Parameters.AddWithValue("id", Guid.NewGuid().ToString("N"));
-        array.Parameters.AddWithValue("owner", owner);
 
         PostgresException refused = await Assert.ThrowsAsync<PostgresException>(() => array.ExecuteNonQueryAsync());
         Assert.Equal("web_map_document_is_object", refused.ConstraintName);
 
         await using NpgsqlCommand unknown = DataSource.CreateCommand(
-            "insert into web_map (id, title, owner_principal_id, sharing, document) values (@id, 't', @owner, 'everybody', '{}')");
+            // The scope is the item's since migration 87 (ADR-056).
+            "with m as (insert into web_map (id, document) values (@id, '{}') returning id) "
+            + "insert into item (id, kind, title, owner_principal_id, sharing, web_map_id) "
+            + "select id::uuid, 'web map', 't', @owner, 'everybody', id from m");
         unknown.Parameters.AddWithValue("id", Guid.NewGuid().ToString("N"));
         unknown.Parameters.AddWithValue("owner", owner);
 
         refused = await Assert.ThrowsAsync<PostgresException>(() => unknown.ExecuteNonQueryAsync());
-        Assert.Equal("web_map_sharing_known", refused.ConstraintName);
+        Assert.Equal("item_sharing_known", refused.ConstraintName);
 
         PostgresWebMapStore store = new(DataSource);
         WebMap grouped = await store.CreateAsync("t", null, owner, SharingScope.Group, "{}", CancellationToken.None);

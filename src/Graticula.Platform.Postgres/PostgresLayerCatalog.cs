@@ -34,8 +34,9 @@ public sealed class PostgresLayerCatalog
         -- answer "who may see this service", so the question is asked of the
         -- container. Reading l.sharing here would be the is_hosted mistake a
         -- second time, on the column that decides who sees what.
-        s.owner_principal_id, s.sharing, s.status, l.attachment_quota_bytes,
-        s.id, l.layer_index, s.name, s.folder, s.kind, s.description,
+        -- <b>Owner, scope, description, tags, folder and groups are the item's — ADR-056, migration 87.</b>
+        i.owner_principal_id, i.sharing, s.status, l.attachment_quota_bytes,
+        s.id, l.layer_index, s.name, s.folder, s.kind, i.description,
         l.parent_layer_index, l.cache_seconds,
 
         -- The stored style, or null for the generated one (ADR-028).
@@ -85,7 +86,7 @@ public sealed class PostgresLayerCatalog
         -- group and make the reader deduplicate. Empty for all but a `group`-scoped service, and the
         -- read path does not consult it otherwise.
         (select coalesce(array_agg(gi.group_id), '{}')
-           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
+           from item_group gi where gi.item_id = s.id) as shared_with_groups,
 
         -- The reference this service is served in, or null for each layer's own
         -- (ADR-057 §5c, migration 39). On the end, per the rule above.
@@ -130,7 +131,7 @@ public sealed class PostgresLayerCatalog
         l.stale_seconds, s.tile_cache_quota_mb,
 
         -- The service's tags (ADR-111, migration 70). On the end, read by name.
-        s.tags as service_tags,
+        i.tags as service_tags,
 
         -- ADR-113, migration 71: the source this service is a view of, whether any service is a view of this one,
         -- and the layer's filter as it was written. On the end, read by name.
@@ -146,7 +147,7 @@ public sealed class PostgresLayerCatalog
           as view_layers,
 
         -- ADR-114, migration 72: the owner's content folder the service is in, or null for the root. On the end.
-        s.content_folder_id as service_content_folder,
+        i.content_folder_id as service_content_folder,
 
         -- ADR-115, migration 73: whether its editors change only what they added. On the end.
         l.edit_own_only,
@@ -171,7 +172,8 @@ public sealed class PostgresLayerCatalog
     private const string From =
         "from layer l "
         + "join data_source d on d.id = l.data_source_id "
-        + "join service s on s.id = l.service_id";
+        + "join service s on s.id = l.service_id "
+        + "join item i on i.service_id = s.id";
 
     /// <remarks>
     /// <b>Left, and it matters the moment somebody creates a service before
@@ -181,6 +183,7 @@ public sealed class PostgresLayerCatalog
     /// </remarks>
     private const string ServiceFrom =
         "from service s "
+        + "join item i on i.service_id = s.id "
         + "left join layer l on l.service_id = s.id "
         + "left join data_source d on d.id = l.data_source_id "
 
@@ -267,8 +270,8 @@ public sealed class PostgresLayerCatalog
     public async Task<bool> AnythingSharedAsync(CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select count(*), count(*) filter (where s.sharing <> 'private') "
-            + "from layer l join service s on s.id = l.service_id");
+            "select count(*), count(*) filter (where i.sharing <> 'private') "
+            + "from layer l join item i on i.service_id = l.service_id");
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);

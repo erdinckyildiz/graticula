@@ -170,6 +170,34 @@ reading that row.
 carry its scope, so a model where the service is authoritative needs a second rule for
 everything that is not one — which is the model this decision exists to leave behind.
 
+### 5a. How it was built — 2026-10-16
+
+**Built by owner decision of 2026-10-15** (*"Vaktimiz var. Hepsini."*, [ADR-101](ADR-101-studio-is-walked-the-way-a-portal-user-walks-it.md)
+condition 4), as migration 87.
+
+- **`item`**: `id`, `kind` (`service` or `web map`), `title`, `snippet`, `description`, `tags`, `owner_principal_id`,
+  `sharing`, `content_folder_id`, `delete_protected`, and `service_id` or `web_map_id` — the thing it is of, or
+  neither. **An item's id is its thing's id**, so no portal address changes; the reference is a column of its own as
+  well because it is what cascades, and every existing delete path stays as it was.
+- **`item_group`** replaces `sharing_group_item` and `sharing_group_map`: one share table.
+- **What stays with the thing**: a service's name (its address), kind, status, faces and settings, and its times — a
+  dozen settings write `updated_at` and Portal reports them as the item's modification; a map's document, picture and
+  times. A service's item title starts as its name.
+- **A contract that closes the rollback window at 87**, as migration 55 did. The columns that moved are dropped in the
+  same step: a build before it reading stale copies would show an old owner or scope, which is the wrong direction for
+  a sharing rule to fail in.
+- **Every reader reads the item**: the serving catalogue, the image catalogue, the administration listings, the web
+  map store, groups, members, content folders and the manifest. `PublishedService.Owner` and `.Sharing` are filled
+  from it, as §5 said, and `LayerAccess` was not touched. The manifest file kept its shape and splits a service object
+  into service and item on apply.
+- **Removing a member still takes their web maps with them**, as a map's row cascade did; the delete is now said in
+  `DeletePrincipalAsync` rather than left to a foreign key, because the item's owner is `on delete set null` like a
+  service's always was.
+- **Evidence.** Rehearsed on a copy of the showcase's platform schema on its own host (27 services, 1 web map, 2 group
+  shares): a digest of every owner, scope, description, tag list, folder, protection, title, snippet and share is
+  `c77ac364…` before and after, and 28 items exist. The Postgres suite (manifest round trip byte for byte included),
+  conformance, host and console suites ran against a migrated store.
+
 ## 6. Consequences
 
 - ~~**A coverage becomes findable by whoever published it**, which it is not today.~~ **Done
@@ -206,4 +234,6 @@ everything that is not one — which is the model this decision exists to leave 
 2. **The first kind with no service behind it is built before the model is called proved.**
    An icon or a document, listed, owned, shared and opened. Coverages and services both have
    something behind them, so a table that only ever holds those two has not yet demonstrated
-   the sentence it was built for.
+   the sentence it was built for. *(Open. The table exists since 2026-10-16 — §5a — and holds services and web maps;
+   a document needs its own kind in `item_kind_known`, a store for its bytes and a screen to add it, which waits on
+   the Studio redesign of 2026-10-16.)*

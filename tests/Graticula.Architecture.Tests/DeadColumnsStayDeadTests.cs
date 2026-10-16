@@ -149,8 +149,9 @@ public sealed class DeadColumnsStayDeadTests
     /// </summary>
     /// <remarks>
     /// <b>A search that finds nothing because it is searching nowhere passes silently.</b> The
-    /// catalogue's SQL is where the right spelling lives, so seeing `s.sharing` there is the
-    /// cheapest proof that this test can see the code it is checking.
+    /// catalogue's SQL is where the right spelling lives, so seeing it there is the cheapest proof
+    /// that this test can see the code it is checking. It was `s.sharing` until migration 87 moved
+    /// the scope from the service to its item (ADR-056), and is `i.sharing` since.
     /// </remarks>
     [Fact]
     public void The_check_is_reading_the_catalogue_it_is_about()
@@ -161,7 +162,7 @@ public sealed class DeadColumnsStayDeadTests
         Assert.True(File.Exists(catalogue), $"{catalogue} is not where this test expects it.");
 
         Assert.Contains(
-            "s.sharing",
+            "i.sharing",
             File.ReadAllText(catalogue),
             StringComparison.Ordinal);
     }

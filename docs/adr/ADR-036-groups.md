@@ -273,7 +273,8 @@ Three tables, and the naming avoids a reserved word rather than quoting it every
   `created_at`, `updated_at`.
 - **`sharing_group_member`** — `(group_id, principal_id)`, `membership` (`member` | `manager`),
   `added_at`, `added_by`.
-- **`sharing_group_item`** — `(group_id, service_id)`, `shared_at`, `shared_by`.
+- **`sharing_group_item`** — `(group_id, service_id)`, `shared_at`, `shared_by`. *(Since migration 87, 2026-10-16:
+  **`item_group`** — `(group_id, item_id)` — one table for services and web maps alike, ADR-056.)*
 
 **`group` is a reserved word and `"group"` would need quoting in every statement.** This project has
 already been bitten by a class of defect that lives in exactly that kind of care requirement, so the

@@ -180,9 +180,10 @@ public abstract class PostgresFixture : IAsyncLifetime
         Guid id = Guid.NewGuid();
 
         await using NpgsqlCommand command = DataSource.CreateCommand(
-            "insert into service (id, name, folder, kind, description, owner_principal_id, "
-            + "sharing) values (@id, @name, @folder, 'FeatureServer', @description, @owner, "
-            + "@sharing)");
+            // The service and its item, as publishing writes them (ADR-056, migration 87).
+            "insert into service (id, name, folder, kind) values (@id, @name, @folder, 'FeatureServer'); "
+            + "insert into item (id, kind, title, description, owner_principal_id, sharing, service_id) "
+            + "values (@id, 'service', @name, @description, @owner, @sharing, @id)");
 
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("name", name);

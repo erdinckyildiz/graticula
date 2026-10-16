@@ -12,8 +12,7 @@ public sealed class PostgresContentFolderStore : IContentFolderStore
 {
     private const string Counted = """
         f.id, f.owner_principal_id, f.title, f.created_at,
-        (select count(*) from service s where s.content_folder_id = f.id)
-          + (select count(*) from web_map m where m.content_folder_id = f.id)
+        (select count(*) from item i where i.content_folder_id = f.id)
         """;
 
     private readonly NpgsqlDataSource _dataSource;
@@ -109,7 +108,7 @@ public sealed class PostgresContentFolderStore : IContentFolderStore
     public async Task<bool> MoveServiceAsync(Guid serviceId, Guid? folder, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update service set content_folder_id = @folder where id = @id");
+            "update item set content_folder_id = @folder where service_id = @id");
         command.Parameters.AddWithValue("id", serviceId);
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 
@@ -120,7 +119,7 @@ public sealed class PostgresContentFolderStore : IContentFolderStore
     public async Task<bool> MoveMapAsync(string mapId, Guid? folder, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update web_map set content_folder_id = @folder where id = @id");
+            "update item set content_folder_id = @folder where web_map_id = @id");
         command.Parameters.AddWithValue("id", mapId);
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
 

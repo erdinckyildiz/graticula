@@ -34,11 +34,11 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         c.width, c.height, c.band_count, c.sample_kind, c.no_data,
         c.min_x, c.min_y, c.max_x, c.max_y,
         c.tile_width, c.tile_height, c.overview_count, c.style,
-        s.sharing, s.status, s.owner_principal_id,
+        i.sharing, s.status, i.owner_principal_id,
         s.created_at, s.updated_at,
         (select coalesce(array_agg(gi.group_id), '{}')
-           from sharing_group_item gi where gi.service_id = s.id) as shared_with_groups,
-        s.description, s.tags, s.content_folder_id, c.download, c.images, c.classes, s.ogc_off, s.ogc_fees, s.ogc_access_constraints, s.ogc_inspire,
+           from item_group gi where gi.item_id = s.id) as shared_with_groups,
+        i.description, i.tags, i.content_folder_id, c.download, c.images, c.classes, s.ogc_off, s.ogc_fees, s.ogc_access_constraints, s.ogc_inspire,
         c.elevation, s.copyright_text
         """;
 
@@ -62,6 +62,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             select {Columns}
             from coverage c
             join service s on s.id = c.service_id
+            join item i on i.service_id = s.id
             order by coalesce(s.folder, ''), lower(s.name)
             """);
 
@@ -89,6 +90,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
             select {Columns}
             from coverage c
             join service s on s.id = c.service_id
+            join item i on i.service_id = s.id
             where lower(s.name) = lower(@name)
               and coalesce(s.folder, '') = coalesce(@folder, '')
             """);
@@ -131,8 +133,12 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
 
         await using (NpgsqlCommand service = new(
             """
-            insert into service (id, name, folder, kind, owner_principal_id, sharing, status)
-            values (@id, @name, @folder, 'ImageServer', @owner, 'private', 'started')
+            insert into service (id, name, folder, kind, status)
+            values (@id, @name, @folder, 'ImageServer', 'started');
+
+            -- Its item in the same act (ADR-056 §6): an image service with no item is invisible in Studio.
+            insert into item (id, kind, title, owner_principal_id, sharing, service_id)
+            values (@id, 'service', @name, @owner, 'private', @id)
             """,
             connection,
             transaction))

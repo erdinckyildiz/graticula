@@ -208,7 +208,11 @@ services directory), ADR-034 (Server and Studio).
    *Customised* are left: they run through the style controls and their tests, a change of its own.)* **Still open** for the owner's first use, which the
    dissent below waits on.)*
 3. **The next item kind builds ADR-056's table** and moves web maps into it, rather than becoming a third
-   source for the portal listing.
+   source for the portal listing. **DISCHARGED 2026-10-16, before a next kind rather than with it** — owner decision of
+   2026-10-15 to build ADR-101 condition 4's structural items. Migration 87 makes `item` and moves every web map's
+   title, snippet, description, tags, owner, scope, folder and protection into it, and `sharing_group_map` into
+   `item_group`; the map keeps its document and times. Rehearsed on a copy of the showcase's schema: the digest of
+   every item fact is the same before and after.
 4. **Group sharing for maps** — built, or recorded as not wanted. **DISCHARGED 2026-10-01 — built**, after the ArcGIS review's second pass ranked it second (*Field Maps crews get their maps through groups*): migration 67 adds the `group` scope and `sharing_group_map`; `PUT|DELETE /admin/groups/{name}/maps/{id}` by the service's rule (the group's owner or a manager, and the map's owner); the map's Share dialog offers *Groups*; a group's Content lists its maps. `WebMapGroupSharingTests` reads the map as a member and as a stranger.
 
 ## 10. Revisit triggers

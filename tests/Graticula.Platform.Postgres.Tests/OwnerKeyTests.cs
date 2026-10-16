@@ -58,7 +58,7 @@ public sealed class OwnerKeyTests : PostgresFixture
         }
 
         await using NpgsqlCommand read = DataSource.CreateCommand(
-            "select owner_principal_id is null from service where id = @id");
+            "select owner_principal_id is null from item where service_id = @id");
 
         read.Parameters.AddWithValue("id", service);
 
@@ -144,7 +144,8 @@ public sealed class OwnerKeyTests : PostgresFixture
         Guid id = Guid.NewGuid();
 
         await using NpgsqlCommand command = DataSource.CreateCommand(
-            "insert into service (id, name, owner_principal_id) values (@id, @name, @owner)");
+            "with s as (insert into service (id, name) values (@id, @name) returning id) "
+            + "insert into item (id, kind, title, owner_principal_id, service_id) select id, 'service', @name, @owner, id from s");
 
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("name", name);

@@ -183,21 +183,25 @@ public sealed class IdentitySchemaTests : PostgresFixture
         //
         // Migration 55 is the second contract — shared domains, ADR-087 — and raises it to 55: a build
         // before it reads a field's {"id"} as a domain it cannot parse and stops refusing values outside it.
+        //
+        // Migration 87 is the third — the item, ADR-056 — and raises it to 87: a build before it reads an owner
+        // and a scope from columns that are gone.
         await MigrateAsync();
 
         SchemaStamp? stamp = await Store().ReadStampAsync(CancellationToken.None);
 
         Assert.Equal(PlatformMigrations.ComponentSchemaVersion, stamp!.Applied);
-        Assert.Equal(new SchemaVersion(55), stamp.MinimumReader);
-        Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(55), stamp).IsCompatible);
-        Assert.False(SchemaCompatibility.Check("server", new SchemaVersion(54), stamp).IsCompatible);
+        Assert.Equal(new SchemaVersion(87), stamp.MinimumReader);
+        Assert.True(SchemaCompatibility.Check("server", new SchemaVersion(87), stamp).IsCompatible);
+        Assert.False(SchemaCompatibility.Check("server", new SchemaVersion(86), stamp).IsCompatible);
     }
 
     [Fact]
     public async Task The_layers_dead_columns_are_gone_after_every_migration()
     {
         // D-33. Present, they were a value that is wrong and does not error; absent, a
-        // stale read fails. The service carries the same names and keeps them.
+        // stale read fails. The service keeps its status; its owner and scope moved to its item in
+        // migration 87 (ADR-056), for the same reason.
         await MigrateAsync();
 
         await using NpgsqlCommand command = DataSource.CreateCommand(
@@ -220,9 +224,7 @@ public sealed class IdentitySchemaTests : PostgresFixture
             }
         }
 
-        Assert.Equal(
-            ["service.owner_principal_id", "service.sharing", "service.status"],
-            found);
+        Assert.Equal(["service.status"], found);
     }
 
     private async Task<Guid> CreateUserAsync(string name)

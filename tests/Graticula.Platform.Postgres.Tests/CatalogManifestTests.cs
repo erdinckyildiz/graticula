@@ -98,9 +98,11 @@ public sealed class CatalogManifestTests : PostgresFixture
               select gen_random_uuid(), 'MfKinds', '{"type":"codedValue","name":"MfKinds","codedValues":[{"code":"a","name":"Ağaç"}]}', id
                 from principal where name = 'mf_owner';
             insert into content_folder (id, owner_principal_id, title) select gen_random_uuid(), id, 'Projeler' from principal where name = 'mf_owner';
-            insert into service (id, name, folder, kind, description, owner_principal_id, sharing, content_folder_id, tags)
-              select gen_random_uuid(), 'mf_service', 'mf_folder', 'FeatureServer', 'Bir açıklama', p.id, 'private', c.id, array['bir','iki']
-                from principal p join content_folder c on c.owner_principal_id = p.id where p.name = 'mf_owner';
+            insert into service (id, name, folder, kind) values (gen_random_uuid(), 'mf_service', 'mf_folder', 'FeatureServer');
+            insert into item (id, kind, title, description, owner_principal_id, sharing, content_folder_id, tags, service_id)
+              select s.id, 'service', 'mf_service', 'Bir açıklama', p.id, 'private', c.id, array['bir','iki'], s.id
+                from service s, principal p join content_folder c on c.owner_principal_id = p.id
+               where p.name = 'mf_owner' and s.name = 'mf_service';
             insert into group_layer (id, service_id, layer_index, name)
               select gen_random_uuid(), id, 0, 'Grup' from service where name = 'mf_service';
             """);
@@ -124,7 +126,7 @@ public sealed class CatalogManifestTests : PostgresFixture
             insert into service_style (service_id, name, style) select id, 'gece', '{"version":8}' from service where name = 'mf_service';
             insert into service_sprite (service_id, pixel_ratio, index_json, image)
               select id, 1, '{}', '\x89504e47'::bytea from service where name = 'mf_service';
-            insert into sharing_group_item (group_id, service_id)
+            insert into item_group (group_id, item_id)
               select g.id, s.id from sharing_group g, service s where g.name = 'mf_group' and s.name = 'mf_service';
             """);
     }

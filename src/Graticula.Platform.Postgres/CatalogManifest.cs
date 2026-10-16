@@ -63,6 +63,32 @@ public static class CatalogManifest
     private static readonly Table[] Covered =
         [DataSources, Folders, Domains, Services, Layers, Groups, Coverages, Styles, Sprites, SharedWith, Relationships];
 
+    /// <summary>
+    /// The columns of a service's item that a manifest carries on the service — ADR-056, migration 87.
+    /// </summary>
+    /// <remarks>
+    /// <b>The manifest's shape did not move when the store's did.</b> A service object has always carried its owner,
+    /// sharing, description, tags, content folder and protection, and since migration 87 those live on its item. So the
+    /// snapshot reads a service as its row with these beside it, and the writer splits them off again into the item,
+    /// and a manifest written before the item existed applies to a store that has one. The service's own name is the
+    /// item's title when the item is made.
+    /// </remarks>
+    private static readonly string[] ItemColumns =
+        ["description", "tags", "owner_principal_id", "sharing", "content_folder_id", "delete_protected"];
+
+    /// <summary>Where a covered table's rows are read from: the table itself, or for the two above, what stands for it.</summary>
+    private static string SourceOf(string table) => table switch
+    {
+        "service" => "(select s.*, " + string.Join(", ", ItemColumns.Select(c => "i." + c))
+            + " from service s join item i on i.service_id = s.id)",
+
+        // A service's group shares, as the table that held them until migration 87 named them.
+        "sharing_group_item" => "(select gi.group_id, i.service_id, gi.shared_by from item_group gi "
+            + "join item i on i.id = gi.item_id where i.service_id is not null)",
+
+        _ => table,
+    };
+
     /// <summary>A column's name and its PostgreSQL type, as <c>information_schema</c> reports it.</summary>
     /// <param name="Name">The column's name.</param>
     /// <param name="Type">Its type, as <c>information_schema</c> spells it.</param>
@@ -219,13 +245,19 @@ public static class CatalogManifest
             {
                 List<Column> columns = [];
 
+                // The service's own columns and then its item's (ADR-056); the shares as item_group holds them.
                 await using (NpgsqlCommand command = new(
                     "select column_name, data_type, identity_generation = 'ALWAYS', is_generated = 'ALWAYS' "
                     + "from information_schema.columns "
-                    + "where table_schema = current_schema() and table_name = @t order by ordinal_position",
+                    + "where table_schema = current_schema() and ("
+                    + "(table_name = @t and @t not in ('sharing_group_item')) "
+                    + "or (@t = 'service' and table_name = 'item' and column_name = any(@item)) "
+                    + "or (@t = 'sharing_group_item' and table_name = 'item_group' and column_name in ('group_id', 'shared_by'))) "
+                    + "order by table_name = 'item', ordinal_position",
                     connection, transaction))
                 {
                     command.Parameters.AddWithValue("t", table.Name);
+                    command.Parameters.AddWithValue("item", ItemColumns);
                     await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
                     while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -245,6 +277,11 @@ public static class CatalogManifest
                             + "would carry a key or bytes nobody chose to carry. Add a rule for it in CatalogManifest "
                             + "and to docs/catalogue-manifest.md (ADR-183).");
                     }
+                }
+
+                if (table == SharedWith)
+                {
+                    columns.Insert(1, new Column("service_id", "uuid"));
                 }
 
                 read.Columns[table.Name] = columns;
@@ -293,7 +330,7 @@ public static class CatalogManifest
             List<JsonObject> rows = [];
 
             // The table name is one of the constants above, never a caller's text.
-            await using NpgsqlCommand command = new($"select to_jsonb(t)::text from {table} t", connection, transaction);
+            await using NpgsqlCommand command = new($"select to_jsonb(t)::text from {SourceOf(table)} t", connection, transaction);
             await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -1209,6 +1246,57 @@ public static class CatalogManifest
             return made;
         }
 
+        /// <summary>
+        /// A service row's item columns written to its item, and a service's group share written as an item's — ADR-056,
+        /// migration 87; see <see cref="ItemColumns"/>.
+        /// </summary>
+        private static void Split(List<(string Table, JsonObject Row, string? Match)> rows)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                (string table, JsonObject row, string? match) = rows[i];
+
+                if (table == "sharing_group_item")
+                {
+                    rows[i] = ("item_group", new JsonObject
+                    {
+                        ["group_id"] = row["group_id"]?.DeepClone(),
+                        ["item_id"] = row["service_id"]?.DeepClone(),
+                    }, match);
+                    continue;
+                }
+
+                if (table != "service")
+                {
+                    continue;
+                }
+
+                JsonObject item = new() { ["id"] = row["id"]?.DeepClone() };
+
+                foreach (string column in ItemColumns)
+                {
+                    if (row.TryGetPropertyValue(column, out JsonNode? value))
+                    {
+                        item[column] = value?.DeepClone();
+                        row.Remove(column);
+                    }
+                }
+
+                if (match is null)
+                {
+                    item["kind"] = "service";
+                    item["title"] = row["name"]?.DeepClone();
+                    item["service_id"] = row["id"]?.DeepClone();
+                }
+                else if (item.Count == 1)
+                {
+                    continue;
+                }
+
+                rows.Insert(++i, ("item", item, match));
+            }
+        }
+
         /// <summary>The rows to write in order: table, row, and how an existing one is matched (null to insert).</summary>
         private List<(string Table, JsonObject Row, string? Match)> Pending { get; } = [];
 
@@ -1221,6 +1309,9 @@ public static class CatalogManifest
             {
                 step();
             }
+
+            Split(Pending);
+            Split(Later);
 
             HashSet<string> identities = new(StringComparer.Ordinal);
 

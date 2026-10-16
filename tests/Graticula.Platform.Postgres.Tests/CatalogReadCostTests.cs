@@ -125,10 +125,11 @@ public sealed class CatalogReadCostTests(ITestOutputHelper output) : PostgresFix
         const string Sql = """
             select l.*, d.*, s.*,
                    (select coalesce(array_agg(gi.group_id), '{}')
-                      from sharing_group_item gi where gi.service_id = s.id)
+                      from item_group gi where gi.item_id = s.id)
               from layer l
               join data_source d on d.id = l.data_source_id
               join service s on s.id = l.service_id
+              join item i on i.service_id = s.id
              where l.name = @name
              order by s.name
              limit 1

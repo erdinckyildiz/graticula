@@ -16,13 +16,13 @@ public sealed class PostgresWebMapStore : IWebMapStore
 {
     /// <summary>The columns <see cref="Read"/> reads, without the document.</summary>
     private const string Listed =
-        "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, null::text, m.created_at, m.modified_at"
-        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags, m.content_folder_id, m.description, m.thumbnail is not null";
+        "m.id, i.title, i.snippet, i.owner_principal_id, p.name, i.sharing, null::text, m.created_at, m.modified_at"
+        + ", coalesce((select array_agg(gm.group_id) from item_group gm where gm.item_id = i.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from item_group gm join sharing_group g on g.id = gm.group_id where gm.item_id = i.id), '{}'::text[]), i.delete_protected, i.tags, i.content_folder_id, i.description, m.thumbnail is not null";
 
     /// <summary>The columns <see cref="Read"/> reads, with the document.</summary>
     private const string Whole =
-        "m.id, m.title, m.snippet, m.owner_principal_id, p.name, m.sharing, m.document::text, m.created_at, m.modified_at"
-        + ", coalesce((select array_agg(gm.group_id) from sharing_group_map gm where gm.map_id = m.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from sharing_group_map gm join sharing_group g on g.id = gm.group_id where gm.map_id = m.id), '{}'::text[]), m.delete_protected, m.tags, m.content_folder_id, m.description, m.thumbnail is not null";
+        "m.id, i.title, i.snippet, i.owner_principal_id, p.name, i.sharing, m.document::text, m.created_at, m.modified_at"
+        + ", coalesce((select array_agg(gm.group_id) from item_group gm where gm.item_id = i.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from item_group gm join sharing_group g on g.id = gm.group_id where gm.item_id = i.id), '{}'::text[]), i.delete_protected, i.tags, i.content_folder_id, i.description, m.thumbnail is not null";
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -43,7 +43,7 @@ public sealed class PostgresWebMapStore : IWebMapStore
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {Listed} "
-            + "from web_map m join principal p on p.id = m.owner_principal_id "
+            + "from web_map m join item i on i.web_map_id = m.id join principal p on p.id = i.owner_principal_id "
             + "order by m.modified_at desc, m.id");
 
         await using NpgsqlDataReader reader =
@@ -71,7 +71,7 @@ public sealed class PostgresWebMapStore : IWebMapStore
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             $"select {Whole} "
-            + "from web_map m join principal p on p.id = m.owner_principal_id where m.id = @id");
+            + "from web_map m join item i on i.web_map_id = m.id join principal p on p.id = i.owner_principal_id where m.id = @id");
 
         command.Parameters.AddWithValue("id", id);
 
@@ -97,8 +97,10 @@ public sealed class PostgresWebMapStore : IWebMapStore
         string id = Guid.NewGuid().ToString("N");
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "insert into web_map (id, title, snippet, owner_principal_id, sharing, document) "
-            + "values (@id, @title, @snippet, @owner, @sharing, @document)");
+            // Its item in the same statement — ADR-056 §6. The item's id is the map's, read as the uuid it is.
+            "with made as (insert into web_map (id, document) values (@id, @document) returning id) "
+            + "insert into item (id, kind, title, snippet, owner_principal_id, sharing, web_map_id) "
+            + "select id::uuid, 'web map', @title, @snippet, @owner, @sharing, id from made");
 
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("title", title);
@@ -132,8 +134,9 @@ public sealed class PostgresWebMapStore : IWebMapStore
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update web_map set title = @title, snippet = @snippet, sharing = @sharing, "
-            + "document = @document, modified_at = now() where id = @id");
+            "with saved as (update web_map set document = @document, modified_at = now() where id = @id returning id) "
+            + "update item set title = @title, snippet = @snippet, sharing = @sharing "
+            + "where web_map_id in (select id from saved)");
 
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("title", title);
@@ -157,8 +160,9 @@ public sealed class PostgresWebMapStore : IWebMapStore
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             "with taker as (select id from principal where lower(name) = lower(@receiver)), "
-            + "moved as (update web_map set owner_principal_id = (select id from taker), content_folder_id = null, modified_at = now() "
-            + "where id = @id and exists (select 1 from taker) returning 1) "
+            + "moved as (update item set owner_principal_id = (select id from taker), content_folder_id = null "
+            + "where web_map_id = @id and exists (select 1 from taker) returning web_map_id), "
+            + "touched as (update web_map set modified_at = now() where id in (select web_map_id from moved) returning 1) "
             + "select (select count(*) from taker), (select count(*) from moved)");
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("receiver", receiver);
@@ -178,7 +182,8 @@ public sealed class PostgresWebMapStore : IWebMapStore
         ArgumentNullException.ThrowIfNull(tags);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update web_map set tags = @tags, modified_at = now() where id = @id");
+            "with touched as (update web_map set modified_at = now() where id = @id returning id) "
+            + "update item set tags = @tags where web_map_id in (select id from touched)");
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("tags", System.Linq.Enumerable.ToArray(tags));
 
@@ -191,7 +196,8 @@ public sealed class PostgresWebMapStore : IWebMapStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update web_map set description = @description, modified_at = now() where id = @id");
+            "with touched as (update web_map set modified_at = now() where id = @id returning id) "
+            + "update item set description = @description where web_map_id in (select id from touched)");
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("description", (object?)description ?? DBNull.Value);
 
@@ -229,7 +235,7 @@ public sealed class PostgresWebMapStore : IWebMapStore
         ArgumentException.ThrowIfNullOrWhiteSpace(id);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update web_map set delete_protected = @protected where id = @id");
+            "update item set delete_protected = @protected where web_map_id = @id");
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("protected", protectedFromDeletion);
 

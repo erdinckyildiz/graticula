@@ -42,8 +42,8 @@ public sealed class FolderCaseSchemaTests : PostgresFixture
     private async Task InsertServiceAsync(string name, string? folder)
     {
         await using NpgsqlCommand command = DataSource.CreateCommand(
-            "insert into service (id, name, folder, kind, sharing, status) "
-            + "values (gen_random_uuid(), @name, @folder, 'FeatureServer', 'private', 'started')");
+            "insert into service (id, name, folder, kind, status) "
+            + "values (gen_random_uuid(), @name, @folder, 'FeatureServer', 'started')");
 
         command.Parameters.AddWithValue("name", name);
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);

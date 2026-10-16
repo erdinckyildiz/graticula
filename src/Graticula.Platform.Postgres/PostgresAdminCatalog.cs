@@ -178,18 +178,25 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             composition.Replacing is null
                 ? """
                   insert into service
-                      (id, name, folder, kind, description, owner_principal_id, sharing, status,
+                      (id, name, folder, kind, status,
                        srid, srid_wkt, next_layer_index, serves_features, serves_tiles,
                        capability_ceiling)
-                  values (@id, @name, @folder, 'FeatureServer', @description, @owner, @sharing,
-                          'started', @srid, @sridwkt, @next, @features, @tiles, @ceiling::text[])
+                  values (@id, @name, @folder, 'FeatureServer',
+                          'started', @srid, @sridwkt, @next, @features, @tiles, @ceiling::text[]);
+
+                  -- Its item in the same act — ADR-056 §6: a service with no item is invisible in Studio.
+                  insert into item (id, kind, title, description, owner_principal_id, sharing, service_id)
+                  values (@id, 'service', @name, @description, @owner, @sharing, @id)
                   """
                 : """
+                  update item
+                     set description = @description,
+                         sharing = @sharing
+                   where id = @id;
+
                   update service
                      set name = @name,
                          folder = @folder,
-                         description = @description,
-                         sharing = @sharing,
                          status = 'started',
                          srid = @srid,
                          srid_wkt = @sridwkt,
@@ -535,11 +542,18 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 -- to put a layer at 0. See `slot` for why it cannot be bumped
                 -- afterwards.
                 insert into service
-                    (id, name, folder, kind, owner_principal_id, sharing, next_layer_index)
-                select gen_random_uuid(), @service, c.name, 'FeatureServer', @owner, @sharing, 1
+                    (id, name, folder, kind, next_layer_index)
+                select gen_random_uuid(), @service, c.name, 'FeatureServer', 1
                 from chosen c
                 where not exists (select 1 from existing)
                 returning id, 0 as layer_index
+            ),
+            created_item as (
+                -- Its item in the same statement — ADR-056 §6. The reference is checked when the statement ends,
+                -- by which time `created` has written the service it names.
+                insert into item (id, kind, title, owner_principal_id, sharing, service_id)
+                select id, 'service', @service, @owner, @sharing, id from created
+                returning 1
             ),
             bumped as (
                 -- <b>The index comes from a counter on the service row, not from
@@ -927,8 +941,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // /admin/featureservices about the same service. Found 2026-08-17 by stopping a layer
         // and watching it keep serving.
         const string Sql = """
-            select l.id, l.name, d.name, l.schema_name, l.table_name, s.sharing,
-                   s.owner_principal_id, p.name, l.object_id_column, s.status,
+            select l.id, l.name, d.name, l.schema_name, l.table_name, i.sharing,
+                   i.owner_principal_id, p.name, l.object_id_column, s.status,
                    d.is_datastore, s.name, s.folder, l.layer_index,
 
                    -- Q-129, on the end: the console shows a declaration that is set and
@@ -957,7 +971,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
-            left join principal p on p.id = s.owner_principal_id
+            join item i on i.service_id = s.id
+            left join principal p on p.id = i.owner_principal_id
             order by l.name
             """;
 
@@ -1149,7 +1164,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // 0 is not reserved, and a service whose first layer was unpublished still has a
         // member to draw and to address.
         const string Sql = """
-            select s.id, s.name, s.folder, s.kind, s.sharing, s.status, s.description, p.name,
+            select s.id, s.name, s.folder, s.kind, i.sharing, s.status, i.description, p.name,
                    (select count(*) from layer l where l.service_id = s.id),
                    (select count(*) from group_layer g where g.service_id = s.id),
                    (select l.name from layer l
@@ -1158,7 +1173,8 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                      where l.service_id = s.id order by l.layer_index limit 1),
                    s.updated_at, s.created_at
             from service s
-            left join principal p on p.id = s.owner_principal_id
+            join item i on i.service_id = s.id
+            left join principal p on p.id = i.owner_principal_id
             order by coalesce(s.folder, ''), lower(s.name)
             """;
 
@@ -1215,12 +1231,13 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // *free* about a name the insert then refuses, which is the one answer of the three that
         // is not discovered until the composition is finished.
         const string Sql = """
-            select s.id, s.name, s.folder, s.owner_principal_id, p.name,
+            select s.id, s.name, s.folder, i.owner_principal_id, p.name,
                    (select count(*) from layer l where l.service_id = s.id),
                    (select count(*) from group_layer g where g.service_id = s.id),
                    s.created_at
               from service s
-              left join principal p on p.id = s.owner_principal_id
+              join item i on i.service_id = s.id
+              left join principal p on p.id = i.owner_principal_id
              where coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
                and lower(s.name) = lower(@name)
             """;
@@ -2268,10 +2285,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
 
         const string Sql = """
-            select editing_offered, delete_protected, capability_ceiling, ogc_off, ogc_fees, ogc_access_constraints, ogc_inspire
-              from service
-             where lower(name) = lower(@name)
-               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            select s.editing_offered, i.delete_protected, s.capability_ceiling, s.ogc_off, s.ogc_fees,
+                   s.ogc_access_constraints, s.ogc_inspire
+              from service s
+              join item i on i.service_id = s.id
+             where lower(s.name) = lower(@name)
+               and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
              limit 1
             """;
 
@@ -2389,10 +2408,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
 
         const string Sql = """
-            update service
-               set delete_protected = @protected, updated_at = now()
-             where lower(name) = lower(@name)
-               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            with touched as (update service set updated_at = now()
+                               where lower(name) = lower(@name)
+                                 and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                             returning id)
+            update item set delete_protected = @protected where id in (select id from touched)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -2490,9 +2510,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentNullException.ThrowIfNull(tags);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
-            update service set tags = @tags, updated_at = now()
-             where lower(name) = lower(@name)
-               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            with touched as (update service set updated_at = now()
+                               where lower(name) = lower(@name)
+                                 and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                             returning id)
+            update item set tags = @tags where id in (select id from touched)
             """);
         command.Parameters.AddWithValue("name", serviceName);
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
@@ -2514,12 +2536,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         const string Sql = """
             with taker as (select id from principal where lower(name) = lower(@receiver)),
-                 moved as (update service set owner_principal_id = (select id from taker), content_folder_id = null,
-                                   updated_at = now()
-                            where lower(name) = lower(@name)
-                              and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                 moved as (update item i set owner_principal_id = (select id from taker), content_folder_id = null
+                             from service s
+                            where i.service_id = s.id
+                              and lower(s.name) = lower(@name)
+                              and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')
                               and exists (select 1 from taker)
-                           returning 1)
+                           returning i.id),
+                 touched as (update service set updated_at = now() where id in (select id from moved) returning 1)
             select (select count(*) from taker), (select count(*) from moved)
             """;
 
@@ -2547,10 +2571,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
         // Matched as SetServiceSharingAsync matches: case-insensitive, the folder through `coalesce`.
         const string Sql = """
-            update service
-               set description = @description, updated_at = now()
-             where lower(name) = lower(@name)
-               and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+            with touched as (update service set updated_at = now()
+                               where lower(name) = lower(@name)
+                                 and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                             returning id)
+            update item set description = @description where id in (select id from touched)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -2603,12 +2628,14 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // against a subquery over the same table does: it is evaluated on the statement's snapshot,
         // which is the state before the update.
         const string Sql = """
-            update service s
-               set sharing = @sharing, updated_at = now()
-              from (select id, sharing from service
-                     where lower(name) = lower(@name)
-                       and coalesce(lower(folder), '') = coalesce(lower(@folder), '')) was
-             where s.id = was.id
+            with touched as (update service set updated_at = now()
+                              where lower(name) = lower(@name)
+                                and coalesce(lower(folder), '') = coalesce(lower(@folder), '')
+                             returning id)
+            update item i
+               set sharing = @sharing
+              from (select id, sharing from item where id in (select id from touched)) was
+             where i.id = was.id
             returning was.sharing
             """;
 
@@ -2656,10 +2683,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // audit record, and the only moment the "before" is knowable is inside
         // the statement that replaces it.
         const string Sql = """
-            update service s set sharing = @sharing
+            update item i set sharing = @sharing
             from layer l
-            where l.service_id = s.id and l.id = @id
-            returning l.id, l.name, s.sharing, s.owner_principal_id,
+            where l.service_id = i.service_id and l.id = @id
+            returning l.id, l.name, i.sharing, i.owner_principal_id,
                       l.object_id_column, l.schema_name, l.table_name
             """;
 
@@ -2803,10 +2830,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // so a table two owners share is counted once for the disk.
         const string Sql = """
             with hosted as (
-                select distinct s.owner_principal_id as owner, l.schema_name, l.table_name
+                select distinct i.owner_principal_id as owner, l.schema_name, l.table_name
                   from layer l
                   join data_source d on d.id = l.data_source_id
-                  join service s on s.id = l.service_id
+                  join item i on i.service_id = l.service_id
                  where d.is_datastore
             ),
             sized as (

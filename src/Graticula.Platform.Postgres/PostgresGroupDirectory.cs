@@ -54,8 +54,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         const string Sql = """
             select g.id, g.name, g.title, g.description, p.name, g.item_update,
                    (select count(*) from sharing_group_member m where m.group_id = g.id),
-                   (select count(*) from sharing_group_item i where i.group_id = g.id)
-                   + (select count(*) from sharing_group_map gm where gm.group_id = g.id),
+                   (select count(*) from item_group i where i.group_id = g.id),
                    coalesce(
                      (select m.membership from sharing_group_member m
                        where m.group_id = g.id and m.principal_id = @who), ''),
@@ -433,8 +432,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         }
 
         await using NpgsqlCommand find = _dataSource.CreateCommand(
-            "select id, owner_principal_id from service where lower(name) = lower(@name) "
-            + "and coalesce(lower(folder), '') = coalesce(lower(@folder), '')");
+            "select s.id, i.owner_principal_id from service s join item i on i.service_id = s.id "
+            + "where lower(s.name) = lower(@name) and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '')");
 
         find.Parameters.AddWithValue("name", service);
         find.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
@@ -463,9 +462,9 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(wanted
-            ? "insert into sharing_group_item (group_id, service_id, shared_by) "
+            ? "insert into item_group (group_id, item_id, shared_by) "
               + "values (@g, @s, @by) on conflict do nothing"
-            : "delete from sharing_group_item where group_id = @g and service_id = @s");
+            : "delete from item_group where group_id = @g and item_id = @s");
 
         command.Parameters.AddWithValue("g", id);
         command.Parameters.AddWithValue("s", item);
@@ -500,7 +499,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
             return GroupChange.NotYours;
         }
 
-        await using NpgsqlCommand find = _dataSource.CreateCommand("select owner_principal_id from web_map where id = @id");
+        await using NpgsqlCommand find = _dataSource.CreateCommand("select owner_principal_id from item where web_map_id = @id");
         find.Parameters.AddWithValue("id", mapId);
 
         if (await find.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not Guid owner)
@@ -514,8 +513,9 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(wanted
-            ? "insert into sharing_group_map (group_id, map_id, shared_by) values (@g, @m, @by) on conflict do nothing"
-            : "delete from sharing_group_map where group_id = @g and map_id = @m");
+            ? "insert into item_group (group_id, item_id, shared_by) "
+              + "select @g, id, @by from item where web_map_id = @m on conflict do nothing"
+            : "delete from item_group where group_id = @g and item_id = (select id from item where web_map_id = @m)");
         command.Parameters.AddWithValue("g", id);
         command.Parameters.AddWithValue("m", mapId);
 
@@ -723,25 +723,21 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         // reaches the group's members only when the service is `group`-scoped as well; reporting the
         // scope turns that from a caveat the operator carries to another screen into a column.
         const string Sql = """
-            select case when s.folder is null then s.name else s.folder || '/' || s.name end,
-                   s.sharing, s.kind, i.shared_at, sharedby.name,
+            -- <b>One share table, over items — ADR-056, migration 87.</b> A service is listed by its address and a web
+            -- map (ADR-079 condition 4) by its title, as before the two tables became one.
+            select case when s.id is null then it.title
+                        when s.folder is null then s.name else s.folder || '/' || s.name end,
+                   it.sharing, coalesce(s.kind, 'Web map'), gi.shared_at, sharedby.name,
                    (select l.name from layer l
                      where l.service_id = s.id order by l.layer_index limit 1),
                    (select l.layer_index from layer l
                      where l.service_id = s.id order by l.layer_index limit 1),
-                   null::text
+                   it.web_map_id
               from sharing_group g
-              join sharing_group_item i on i.group_id = g.id
-              join service s on s.id = i.service_id
-              left join principal sharedby on sharedby.id = i.shared_by
-             where lower(g.name) = lower(@name)
-            union all
-            -- Web maps shared into it (ADR-079 condition 4), listed beside the services.
-            select m.title, m.sharing, 'Web map', gm.shared_at, sharedby.name, null, null, m.id
-              from sharing_group g
-              join sharing_group_map gm on gm.group_id = g.id
-              join web_map m on m.id = gm.map_id
-              left join principal sharedby on sharedby.id = gm.shared_by
+              join item_group gi on gi.group_id = g.id
+              join item it on it.id = gi.item_id
+              left join service s on s.id = it.service_id
+              left join principal sharedby on sharedby.id = gi.shared_by
              where lower(g.name) = lower(@name)
              order by 1
             """;

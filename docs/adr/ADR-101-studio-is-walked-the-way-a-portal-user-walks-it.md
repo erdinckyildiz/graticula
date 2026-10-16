@@ -243,8 +243,11 @@ way they expect, and the caching page says the thing that is true about this eng
    invalidation ([ADR-186](ADR-186-an-edit-empties-the-tiles-it-reached.md)), CSV and XLSX upload
    ([ADR-112](ADR-112-a-table-with-coordinates-is-published.md)), *Update data / Overwrite / Append*
    ([ADR-103](ADR-103-a-hosted-layer-is-updated-from-a-file.md), [ADR-105](ADR-105-arcgis-clients-append-through-uploads.md))
-   and editing in the Data table ([ADR-134](ADR-134-features-are-edited-in-the-browser.md)). Open: the item model
-   (ADR-056) and one map engine.
+   and editing in the Data table ([ADR-134](ADR-134-features-are-edited-in-the-browser.md)). **2026-10-16: the item
+   model too** — [ADR-056](ADR-056-an-item-is-its-own-thing-and-a-service-is-one-kind.md) §5a, migration 87: one
+   `item` table holds every service's and web map's owner, scope, folder, description, tags and protection, and one
+   share table their groups. Open: one map engine, which waits on the Studio redesign handed over on 2026-10-16
+   (`docs/design/GRATICULA-HYBRID.md`), by owner decision of the same day.
 
 ## 11. Dissent
 

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(86);
+    public static SchemaVersion ComponentSchemaVersion => new(87);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -121,7 +121,129 @@ public static class PlatformMigrations
         AnImageMayBeAnElevationSurfaceV84,
         AServiceStatesItsCreditsV85,
         ThePythonApiIsABuiltInAppV86,
+        AnItemIsItsOwnRecordV87,
     ]);
+
+    /// <summary>
+    /// An item is a record of its own, and a service and a web map are each one kind of it — ADR-056, owner decision
+    /// 2026-09-05 that the item is authoritative, built 2026-10-16 (ADR-101 condition 4).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One row answers who may see a thing, who owns it, where it is filed and how it is described.</b> Until this,
+    /// <c>service</c> and <c>web_map</c> each carried an owner, a sharing scope, a content folder, a description, tags
+    /// and delete protection, and each had its own table of group shares — ADR-056 §2's Alternative A, two loops where
+    /// the third kind would make three. They move to <c>item</c> and <c>item_group</c>, and the service and the map
+    /// keep only what is theirs: an address, faces and settings; a map document.
+    /// </para>
+    /// <para>
+    /// <b>An item's id is its thing's id</b>, so no item address and no portal URL changes: a service's own uuid, and a
+    /// web map's 32-hex id read as the uuid it already is. The reference to the thing is a column of its own as well,
+    /// because it is what cascades: deleting a service or a map deletes its item, and every existing delete path stays
+    /// as it is. An item with neither reference is the item that is not of anything — ADR-056 condition 2's kind.
+    /// </para>
+    /// <para>
+    /// <b>A service's title starts as its name.</b> The name stays the service's address; the title is the item's, as
+    /// a Portal item's title is not its service's name. Times stay with the thing that has them — a service's
+    /// <c>updated_at</c> is written by a dozen settings — and an item of nothing will carry its own.
+    /// </para>
+    /// <para>
+    /// <b>Contract, and it closes the rollback window at this version</b>, as migration 55 did: the columns it moves
+    /// are dropped in the same step, since a build before this one reading the stale copies would show an old owner
+    /// or scope — the wrong direction for a sharing rule to fail in.
+    /// </para>
+    /// </remarks>
+    private static Migration AnItemIsItsOwnRecordV87 => Migration.Contract(
+        new SchemaVersion(87),
+        raisesMinimumReaderTo: new SchemaVersion(87),
+        "An item is its own record: owner, sharing, folder, description, tags and protection move from services and web maps to it (ADR-056).",
+
+        """
+        create table item (
+            id                 uuid        not null primary key,
+            kind               text        not null,
+            title              text        not null,
+            snippet            text        null,
+            description        text        null,
+            tags               text[]      not null default '{}',
+            owner_principal_id uuid        null references principal (id) on delete set null,
+            sharing            text        not null default 'private',
+            content_folder_id  uuid        null references content_folder (id) on delete restrict,
+            delete_protected   boolean     not null default false,
+            service_id         uuid        null unique references service (id) on delete cascade,
+            web_map_id         text        null unique references web_map (id) on delete cascade,
+            constraint item_kind_known check (kind in ('service', 'web map')),
+            constraint item_title_present check (length(btrim(title)) > 0),
+            constraint item_sharing_known check (sharing in ('private', 'group', 'organization', 'public')),
+            constraint item_of_one_thing check (num_nonnulls(service_id, web_map_id) <= 1),
+            constraint item_is_its_service check (service_id is null or service_id = id),
+            constraint item_kind_matches check (
+                (kind = 'service') = (service_id is not null) and (kind = 'web map') = (web_map_id is not null))
+        )
+        """,
+
+        "create index item_by_owner on item (owner_principal_id)",
+
+        """
+        insert into item (id, kind, title, description, tags, owner_principal_id, sharing, content_folder_id,
+                          delete_protected, service_id)
+        select id, 'service', name, description, tags, owner_principal_id, sharing, content_folder_id,
+               delete_protected, id
+          from service
+        """,
+
+        """
+        insert into item (id, kind, title, snippet, description, tags, owner_principal_id, sharing, content_folder_id,
+                          delete_protected, web_map_id)
+        select id::uuid, 'web map', title, snippet, description, tags, owner_principal_id, sharing, content_folder_id,
+               delete_protected, id
+          from web_map
+        """,
+
+        """
+        create table item_group (
+            group_id  uuid        not null references sharing_group (id) on delete cascade,
+            item_id   uuid        not null references item (id) on delete cascade,
+            shared_at timestamptz not null default now(),
+            shared_by uuid        references principal (id) on delete set null,
+            constraint item_group_pk primary key (group_id, item_id)
+        )
+        """,
+
+        "create index item_group_by_item on item_group (item_id)",
+
+        """
+        insert into item_group (group_id, item_id, shared_at, shared_by)
+        select group_id, service_id, shared_at, shared_by from sharing_group_item
+        """,
+
+        """
+        insert into item_group (group_id, item_id, shared_at, shared_by)
+        select group_id, map_id::uuid, shared_at, shared_by from sharing_group_map
+        """,
+
+        "drop table sharing_group_item",
+        "drop table sharing_group_map",
+
+        "alter table service drop column description",
+        "alter table service drop column tags",
+        "alter table service drop column owner_principal_id",
+        "alter table service drop column sharing",
+        "alter table service drop column content_folder_id",
+        "alter table service drop column delete_protected",
+
+        "alter table web_map drop column title",
+        "alter table web_map drop column snippet",
+        "alter table web_map drop column description",
+        "alter table web_map drop column tags",
+        "alter table web_map drop column owner_principal_id",
+        "alter table web_map drop column sharing",
+        "alter table web_map drop column content_folder_id",
+        "alter table web_map drop column delete_protected")
+        .Cautioning(
+            "Nothing anybody can see changes: every service and web map keeps its owner, sharing, groups, folder, "
+            + "description, tags and protection, now held by its item. A build older than this one cannot run against "
+            + "the store afterwards — take a backup first, as for every contract.");
 
     /// <summary>
     /// The ArcGIS API for Python is a built-in OAuth app, as ArcGIS Field Maps is — owner decision 2026-10-15, Q-170.

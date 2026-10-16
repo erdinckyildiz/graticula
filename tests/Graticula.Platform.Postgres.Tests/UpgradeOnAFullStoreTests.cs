@@ -131,13 +131,14 @@ public sealed class UpgradeOnAFullStoreTests : PostgresFixture
             // <b>Read where the meaning lives, which is not where it was written.</b> Migration 5
             // put `sharing` on the layer; migration 11 carried each layer's value onto the
             // service made for it; migration 43 dropped the layer's column (D-33). Reading the
-            // service is also what the catalogue does, so this is the scope a caller gets.
+            // service is also what the catalogue does, so this is the scope a caller gets — and since
+            // migration 87 the service's scope is its item's (ADR-056).
             await using NpgsqlCommand read = connection.CreateCommand();
             read.CommandText =
                 $"""
-                select s.sharing
+                select i.sharing
                   from "{SchemaName}".layer l
-                  join "{SchemaName}".service s on s.id = l.service_id
+                  join "{SchemaName}".item i on i.service_id = l.service_id
                  where l.name = 'published_before_sharing'
                 """;
 

@@ -128,7 +128,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         const string Sql = """
             select p.id, p.name, p.display_name, p.user_type, p.disabled_at, p.created_at,
                    coalesce(array_agg(r.role_name) filter (where r.role_name is not null), '{}'),
-                   (select count(*) from service s where s.owner_principal_id = p.id)
+                   (select count(*) from item i where i.owner_principal_id = p.id and i.kind = 'service')
             from principal p
             left join principal_role r on r.principal_id = p.id
             where p.kind = 'user'
@@ -319,13 +319,14 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             select p.id,
                    coalesce((select array_agg(
                               coalesce(nullif(s.folder, '') || '/', '') || s.name order by s.name)
-                             from service s where s.owner_principal_id = p.id), '{}'),
+                             from service s join item i on i.service_id = s.id
+                            where i.owner_principal_id = p.id), '{}'),
                    coalesce((select array_agg(f.name order by f.name)
                              from folder f where f.owner_principal_id = p.id), '{}'),
                    (select count(*) from sharing_group g
                      where g.owner_principal_id = p.id),
-                   (select count(*) from web_map m
-                     where m.owner_principal_id = p.id)
+                   (select count(*) from item m
+                     where m.owner_principal_id = p.id and m.kind = 'web map')
               from principal p
              where lower(p.name) = lower(@name)
             """;
@@ -445,9 +446,9 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             owned.Transaction = transaction;
 
             owned.CommandText = """
-                select (select count(*) from service s
+                select (select count(*) from item s
                          join principal p on p.id = s.owner_principal_id
-                        where lower(p.name) = lower(@name))
+                        where lower(p.name) = lower(@name) and s.kind = 'service')
                      + (select count(*) from folder f
                          join principal p on p.id = f.owner_principal_id
                         where lower(p.name) = lower(@name))
@@ -569,8 +570,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         const string Sql = """
             with giver as (select id from principal where lower(name) = lower(@from)),
                  taker as (select id from principal where lower(name) = lower(@to)),
-                 s as (update service set owner_principal_id = (select id from taker)
-                        where owner_principal_id = (select id from giver) returning 1),
+                 s as (update item set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) and kind = 'service' returning 1),
                  f as (update folder set owner_principal_id = (select id from taker)
                         where owner_principal_id = (select id from giver) returning 1),
                  -- <b>The layer's owner column is not updated here — D-24.</b> A layer's
@@ -598,8 +599,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                  -- <b>Saved web maps — ADR-079.</b> Their scope is untouched, so whoever could open
                  -- one still can; only who may change it moves. The row cascades on the principal's
                  -- delete, so a transfer that forgot this would have deleted them.
-                 m as (update web_map set owner_principal_id = (select id from taker)
-                        where owner_principal_id = (select id from giver) returning 1)
+                 m as (update item set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) and kind = 'web map' returning 1)
             select (select count(*) from s) + (select count(*) from f)
                  + (select count(*) from g) + (select count(*) from m)
             """;
@@ -617,11 +618,9 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                              join content_folder t on lower(t.title) = lower(g.title)
                               and t.owner_principal_id = (select id from taker)
                             where g.owner_principal_id = (select id from giver)),
-                 s as (update service set content_folder_id = pairs.now from pairs
-                        where service.content_folder_id = pairs.was returning 1),
-                 m as (update web_map set content_folder_id = pairs.now from pairs
-                        where web_map.content_folder_id = pairs.was returning 1)
-            select (select count(*) from s) + (select count(*) from m)
+                 s as (update item set content_folder_id = pairs.now from pairs
+                        where item.content_folder_id = pairs.was returning 1)
+            select count(*) from s
             """;
 
         // Then the giver's copies of those, now empty, and the giver's other folders change hands. Two statements:
@@ -687,6 +686,23 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             exports.Parameters.AddWithValue("name", name);
 
             await exports.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // <b>Their web maps go with them, as they always did</b> (ADR-079): a map's row cascaded on its owner's delete
+        // until migration 87 moved the owner to the item, which is `on delete set null` as a service's always was. The
+        // delete is said here so the behaviour is the one it was, rather than a map surviving with nobody to own it.
+        await using (NpgsqlCommand maps = connection.CreateCommand())
+        {
+            maps.Transaction = transaction;
+            maps.CommandText = """
+                delete from web_map
+                 where id in (select web_map_id from item
+                               where web_map_id is not null
+                                 and owner_principal_id in (select id from principal where lower(name) = lower(@name)))
+                """;
+            maps.Parameters.AddWithValue("name", name);
+
+            await maps.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         await using NpgsqlCommand command = connection.CreateCommand();

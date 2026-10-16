@@ -114,9 +114,10 @@ public sealed class MemberRemovalTests : PostgresFixture
         Guid owner = await MakeAsync(members, "in_folder", "publisher");
 
         await ExecuteAsync(
-            $"insert into {SchemaName}.service (id, name, folder, kind, owner_principal_id, "
-            + "sharing, status) values (gen_random_uuid(), 'inside', 'shelf', 'FeatureServer', "
-            + $"'{owner}', 'private', 'started')");
+            $"with s as (insert into {SchemaName}.service (id, name, folder, kind, status) values "
+            + "(gen_random_uuid(), 'inside', 'shelf', 'FeatureServer', 'started') returning id) "
+            + $"insert into {SchemaName}.item (id, kind, title, owner_principal_id, service_id) "
+            + $"select id, 'service', 'inside', '{owner}', id from s");
 
         MemberHoldings holdings =
             (await members.HoldingsOfAsync("in_folder", CancellationToken.None))!.Value;
@@ -177,8 +178,8 @@ public sealed class MemberRemovalTests : PostgresFixture
 
         // The layer went with its service, which is the only ownership a layer has.
         Assert.Equal(1L, await ScalarAsync(
-            $"select count(*) from {SchemaName}.layer l join {SchemaName}.service s "
-            + "on s.id = l.service_id join " + SchemaName + ".principal p "
+            $"select count(*) from {SchemaName}.layer l join {SchemaName}.item s "
+            + "on s.service_id = l.service_id join " + SchemaName + ".principal p "
             + "on p.id = s.owner_principal_id where l.name = 'a_layer' and p.name = 'taker'"));
     }
 
@@ -209,9 +210,9 @@ public sealed class MemberRemovalTests : PostgresFixture
             + $"('aaaaaaaa-0000-0000-0000-000000000002', '{giver}', 'Projects'), "
             + $"('bbbbbbbb-0000-0000-0000-000000000002', '{taker}', 'projects')");
         await ExecuteAsync(
-            $"update {SchemaName}.service set content_folder_id = 'aaaaaaaa-0000-0000-0000-000000000001' where name = 'filed_alone'");
+            $"update {SchemaName}.item set content_folder_id = 'aaaaaaaa-0000-0000-0000-000000000001' where title = 'filed_alone'");
         await ExecuteAsync(
-            $"update {SchemaName}.service set content_folder_id = 'aaaaaaaa-0000-0000-0000-000000000002' where name = 'filed_shared'");
+            $"update {SchemaName}.item set content_folder_id = 'aaaaaaaa-0000-0000-0000-000000000002' where title = 'filed_shared'");
 
         Assert.Equal(
             MemberRemoval.Removed,
@@ -219,13 +220,13 @@ public sealed class MemberRemovalTests : PostgresFixture
 
         // The folder the taker did not have is now theirs, with its item still in it.
         Assert.Equal(1L, await ScalarAsync(
-            $"select count(*) from {SchemaName}.service s join {SchemaName}.content_folder f on f.id = s.content_folder_id "
-            + $"where s.name = 'filed_alone' and f.title = 'Only mine' and f.owner_principal_id = '{taker}'"));
+            $"select count(*) from {SchemaName}.item s join {SchemaName}.content_folder f on f.id = s.content_folder_id "
+            + $"where s.title = 'filed_alone' and f.title = 'Only mine' and f.owner_principal_id = '{taker}'"));
 
         // The one they had takes the other item, and the giver's copy is gone.
         Assert.Equal(
             "bbbbbbbb-0000-0000-0000-000000000002",
-            (await ScalarObjectAsync($"select content_folder_id::text from {SchemaName}.service where name = 'filed_shared'"))!.ToString());
+            (await ScalarObjectAsync($"select content_folder_id::text from {SchemaName}.item where title = 'filed_shared'"))!.ToString());
         Assert.Equal(2L, await ScalarAsync(
             $"select count(*) from {SchemaName}.content_folder where owner_principal_id = '{taker}'"));
     }
@@ -383,9 +384,10 @@ public sealed class MemberRemovalTests : PostgresFixture
     private async Task OwnAsync(Guid owner, string service, string? folder)
     {
         await ExecuteAsync(
-            $"insert into {SchemaName}.service (id, name, kind, owner_principal_id, sharing, "
-            + $"status) values (gen_random_uuid(), '{service}', 'FeatureServer', '{owner}', "
-            + "'private', 'started')");
+            $"with s as (insert into {SchemaName}.service (id, name, kind, status) values "
+            + $"(gen_random_uuid(), '{service}', 'FeatureServer', 'started') returning id) "
+            + $"insert into {SchemaName}.item (id, kind, title, owner_principal_id, service_id) "
+            + $"select id, 'service', '{service}', '{owner}', id from s");
 
         if (folder is not null)
         {

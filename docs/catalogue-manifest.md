@@ -61,28 +61,33 @@ A key is the column's own name. A reviewer reading a diff sees the column that c
 | `data_sources` | `data_source` | `name` | `name`; the datastore by role (below) |
 | `folders` | `folder` | `name` | `name`, without case |
 | `shared_domains` | `field_domain` | `name` | `name`, without case |
-| `services` | `service` | `folder`, `name`, without case | `folder` and `name`, without case |
+| `services` | `service`, and its `item` | `folder`, `name`, without case | `folder` and `name`, without case |
 | `services[].layers` | `layer` | `layer_index` | the service and `layer_index` |
 | `services[].groups` | `group_layer` | `layer_index` | the service and `layer_index` |
 | `services[].coverage` | `coverage` | one or `null` | the service |
 | `services[].styles` | `service_style` | `name`, without case | the service and `name` |
 | `services[].sprites` | `service_sprite` | `pixel_ratio` | the service and `pixel_ratio` |
-| `services[].shared_with` | `sharing_group_item` | group name | the service and the group |
+| `services[].shared_with` | `item_group`, the service's item's | group name | the service and the group |
 | `relationships` | `relationship` | `name` | `name` |
 
 ### References by name
 
 | Column | In the file |
 |---|---|
-| `owner_principal_id` | `owner`: the principal's name, or `null` |
+| `owner_principal_id` | `owner`: the principal's name, or `null` — a service's is its item's |
 | `layer.data_source_id` | `data_source`: the source's name |
 | `service.view_of` | `view_of`: `{"folder", "name"}` of the service, or `null` |
-| `service.content_folder_id` | `content_folder`: the folder's title, under the service's owner |
+| `item.content_folder_id` | `content_folder`: the folder's title, under the service's owner |
 | `relationship.origin_layer_id`, `related_layer_id` | `origin`, `related`: `{"folder", "service", "layer"}`, the layer by index |
-| `sharing_group_item.group_id` | an entry of `shared_with`: the group's name |
+| `item_group.group_id` | an entry of `shared_with`: the group's name |
 | a shared domain inside `layer.field_overrides`, stored `{"id": …}` | `{"shared_domain": "<name>"}` |
 
-Dropped and not replaced: `sharing_group_item.shared_by`, who shared it, which is history.
+Dropped and not replaced: `item_group.shared_by`, who shared it, which is history.
+
+**A service object carries its item's columns** — `owner`, `sharing`, `description`, `tags`, `content_folder` and
+`delete_protected` — as it did before migration 87 moved them from `service` to `item` (ADR-056). The file did not
+change shape: a manifest written before the item existed applies to a store that has one, and an item is made for a
+new service with the service's name as its title.
 
 ### A data source
 
