@@ -2502,6 +2502,13 @@ document.addEventListener("toggle", event => {
   // this it would simply hang off the bottom of the window on the last row of a long table.
   const box = sheet.getBoundingClientRect();
 
+  // <b>And opened rightward from a menu in a left column</b> — My content's folder menu since ADR-187, which
+  // the right-aligned sheet put at x = −122 with Rename and Delete off the screen (design review, step 2).
+  if (box.left < 8) {
+    sheet.style.right = "auto";
+    sheet.style.left = `${Math.max(8, Math.round(at.left))}px`;
+  }
+
   if (box.bottom > window.innerHeight - 8) {
     sheet.style.top = `${Math.max(8, Math.round(at.top - box.height - 4))}px`;
   }
@@ -4881,6 +4888,8 @@ async function showService(qualified) {
 
   serviceOpen = { qualified, folder, name };
   serviceOpenKind = null;
+  // The previous service's layers are not this one's; Server's General page read them until these arrived.
+  serviceLayers = [];
 
   // A different service, so the previous answer about tiles is somebody else's.
   visTiled = null;
@@ -5064,6 +5073,7 @@ async function showService(qualified) {
   }
 
   serviceOpenKind = kind;
+  refreshServerAbout();
 
   // <b>The image service's own document, which this branch never read (ux review 8).</b> Settings choose their pages
   // by its bands and pixel type, and the Overview offers Download by its capabilities (ADR-148): both read
@@ -5701,6 +5711,7 @@ function drawServiceLayers(layers, qualified) {
       layersPage.innerHTML = serverLayersMarkup();
       if (layersPage.classList.contains("on")) showAskedLayer();
     }
+    refreshServerAbout();
 
     if (serviceTab === "settings" && surfaceOfPath() === "studio") {
       if (!!tileLayerOf() !== !!$("page-tiles")) settingsFollowTiles();
@@ -7907,7 +7918,9 @@ function drawServiceSettings(name, folder) {
     return;
   }
 
-  const page = SERVICE_PAGE_OPEN && mine.includes(SERVICE_PAGE_OPEN) ? SERVICE_PAGE_OPEN : mine[0];
+  // Server still opens on Capabilities, the page its operators come for, though General is listed first.
+  const page = SERVICE_PAGE_OPEN && mine.includes(SERVICE_PAGE_OPEN) ? SERVICE_PAGE_OPEN
+    : mine.includes("capabilities") ? "capabilities" : mine[0];
 
   const tiled = tileLayerOf();
   // An image service has a Display page and no Feature layer page; a feature service the other way round (ADR-123).
@@ -7931,7 +7944,8 @@ function drawServiceSettings(name, folder) {
   $("servicePagesBody").innerHTML = serviceSettingsMarkup(name, folder)
     + (tiled ? `<section class="page" id="page-tiles">${tileLayerMarkup(tiled, tiled.name)}</section>` : "")
     + (mine.includes("layers") ? `<section class="page" id="page-layers">${serverLayersMarkup()}</section>` : "")
-    + (open === "general" || open === "feature" || open === "tiles" || open === "layers" || open === "images" || open === "classes"
+    + (mine.includes("about") ? `<section class="page" id="page-about">${serverAboutMarkup()}</section>` : "")
+    + (open === "about" || open === "general" || open === "feature" || open === "tiles" || open === "layers" || open === "images" || open === "classes"
       ? ""
       : `<div class="row" style="margin-top:22px">
            <button class="primary" data-service-save="${h(name)}"
@@ -7974,7 +7988,7 @@ function drawServiceSettings(name, folder) {
 }
 
 /** The labels the Settings list shows, where a page's key is not already its name. */
-const SERVICE_PAGE_LABELS = { general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers", imagery: "Display", images: "Images", classes: "Classes" };
+const SERVICE_PAGE_LABELS = { about: "General", limits: "Parameters", general: "General", feature: "Feature layer", tiles: "Tile layer", layers: "Layers", imagery: "Display", images: "Images", classes: "Classes" };
 
 /**
  * The open service's first layer that has tiles, as the layer listing describes it, or null when it has none.
@@ -8913,7 +8927,7 @@ function serviceSettingsMarkup(name, folder) {
           aria-describedby="capPageSays"><span class="u">features</span></div>
       <p class="hint" id="capPageSays">What a query returns when it does not ask for a number, and the most
         it returns when it does — ArcGIS's <code>maxRecordCount</code>. Empty uses the server's page
-        size<span id="capServerPage"></span>, set on <a href="#/settings">Settings</a>.</p>
+        size<span id="capServerPage"></span>, set on <a href="#/settings">Site › General</a>.</p>
       <div class="setting"><label class="q" for="capOutBytes">The most one response body may reach:</label>
         <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
 
@@ -13593,8 +13607,12 @@ const EDIT_PAGES = Object.keys(LAYER_PAGES);
  * spend* is the server's business and *who may read it* is the publisher's.
  */
 const SERVICE_PAGES = {
-  capabilities: "server",
+  // <b>Server Manager's order since ADR-187: General, Parameters, Capabilities, Layers.</b> `about` is the
+  // service's identity and addresses, read-only; `limits` keeps its key — tests, links and `?section=limits`
+  // use it — and is labelled Parameters, Server Manager's word for the same settings.
+  about: "server",
   limits: "server",
+  capabilities: "server",
 
   // <b>Layers — what the server knows about each layer, on the service's page (owner decision 2026-10-01).</b> It
   // was Server's layer page, which by ADR-102 step 10 held only this: state, identity, addresses and *forget the
@@ -16773,6 +16791,44 @@ function fillEndpoints(name, layer, place) {
  * <b>What Server's layer page held once the publisher's settings left it</b> (ADR-102 step 10), moved onto the
  * service's page by owner decision 2026-10-01. The publisher's settings are one link away, in the item.
  */
+/**
+ * The service's General page on Server — what it is and where it answers. ADR-187, after Server Manager's
+ * General tab. Read-only, and only what this page already knows: the address, the kind the service document
+ * said, its layers, and the faces it is reached through; sharing and state are in the head above it.
+ */
+function serverAboutMarkup() {
+  if (!serviceOpen) return "";
+  const base = `${location.origin}/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
+  const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
+  const groups = serviceLayers.length - drawable.length;
+  const faces = serviceOpenKind === "ImageServer"
+    ? [["Image service", "ImageServer"]]
+    : [["Feature access", "FeatureServer"], ["Map image", "MapServer"],
+       ...(tileLayerOf() ? [["Vector tiles", "VectorTileServer"]] : [])];
+  const item = `/studio/#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
+  return `
+    <h4>General</h4>
+    <dl class="facts2">
+      <dt>Name</dt><dd>${h(serviceOpen.name)}</dd>
+      <dt>Folder</dt><dd>${h(serviceOpen.folder || "Site (root)")}</dd>
+      <dt>Kind</dt><dd>${serviceOpenKind === "ImageServer" ? "Image service" : "Feature service"}</dd>
+      ${serviceOpenKind === "ImageServer" ? "" : `<dt>Layers</dt><dd>${num(drawable.length)}${
+        groups ? ` · ${num(groups)} group${groups === 1 ? "" : "s"}` : ""}</dd>`}
+      <dt>Item</dt><dd><a href="${h(item)}">Open the item in Studio</a> — sharing, style and fields are set there</dd>
+    </dl>
+    <h4>Addresses</h4>
+    <dl class="facts2">
+      ${faces.map(([label, face]) => `<dt>${h(label)}</dt><dd><code>${h(base)}/${face}</code>
+        <button type="button" class="tiny" data-copy="${h(base)}/${face}">Copy</button></dd>`).join("")}
+    </dl>`;
+}
+
+/** Draws Server's General page again once the layers or the kind it reads have arrived. */
+function refreshServerAbout() {
+  const page = $("page-about");
+  if (page) page.innerHTML = serverAboutMarkup();
+}
+
 function serverLayersMarkup() {
   const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
   if (drawable.length === 0) return `<p class="hint">This service holds no layers.</p>`;
@@ -25274,6 +25330,14 @@ async function handleClick(event) {
 
   // A saved map's address, to give somebody (ADR-079 condition 2's review: Share made a map public and nothing
   // said where it was).
+  // A service address on Server's General page (ADR-187). The address is in the code beside the button,
+  // so a browser that refuses the clipboard still shows the reader what to copy.
+  if (t.dataset?.copy) {
+    try { await navigator.clipboard.writeText(t.dataset.copy); toast("The address is on the clipboard.", true); copiedHere(t); }
+    catch { toast("This browser would not let the page write to the clipboard. The address is beside the button."); }
+    return;
+  }
+
   if (t.id === "mapCopyLink") {
     const field = $("mapLink");
     if (!field) return;
@@ -28002,7 +28066,8 @@ function folderNote(i) {
 }
 
 /**
- * <b>The caller's folders, as chips under the scopes</b> — Portal keeps them down the left of My content; here the
+ * <b>The caller's folders — a column on the left of My content since ADR-187, as Portal keeps them, and chips under
+ * the scopes below 1,100 pixels</b>; here the
  * scopes already hold that place, so the folders are the row beneath them. Shown on Everything and My content, where
  * the caller's own items are.
  */

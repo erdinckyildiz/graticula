@@ -4539,3 +4539,156 @@ h4.spaced { margin-top: 24px; }
 }
 /* A third header row costs a phone more than the sentence is worth; the dot keeps it as its label. */
 @media (max-width: 760px) { :root[data-surface] #healthLine { display: none; } }
+
+/* ═══════════════════════════════════════════ ADR-187 step 2: Studio's My content and item page */
+
+/*
+  <b>My content's folders are a column on the left, the way Portal lists its folders beside the
+  results.</b> Only while the folder list is there (Everything and Mine — other scopes have no folders of
+  yours), which `:has` reads from the list's own `hidden`, so the router does not have to know. The head,
+  the scope strip and everything under them keep their order; the column is the one thing placed.
+*/
+#view-content.on:has(> #contentFolders:not([hidden])) {
+  display: grid; grid-template-columns: 220px minmax(0, 1fr);
+  column-gap: var(--gap-6); align-items: start;
+}
+#view-content.on:has(> #contentFolders:not([hidden])) > * { grid-column: 1 / -1; min-width: 0; }
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders {
+  grid-column: 1; grid-row: 3 / span 12;
+  flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px;
+  margin: 0; position: sticky; top: 82px;
+}
+#view-content.on:has(> #contentFolders:not([hidden])) > .toolbar,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentNote,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentBulk,
+#view-content.on:has(> #contentFolders:not([hidden])) > .widetable,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentRowsPager { grid-column: 2; }
+#view-content > #contentFolders .folderlabel {
+  font-size: var(--t-label); font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 6px 12px;
+}
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip {
+  display: flex; justify-content: space-between; align-items: center; gap: var(--gap-2);
+  text-align: left; border: 0; border-left: 3px solid transparent; border-radius: 0 var(--round) var(--round) 0;
+  background: none; padding: 7px 12px; font-size: var(--t-body); color: var(--ink);
+}
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip:hover { background: var(--surface-2); }
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip.on {
+  background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+}
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldersep { display: none; }
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders #folderNew,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldermenu { align-self: flex-start; margin: 6px 0 0 12px; }
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .hint { margin-left: 12px; }
+
+/*
+  <b>The item's tabs are words with an underline under its title — Portal's item page.</b> They were a dark
+  segmented control beside the title; Overview · Data · Visualization · Settings now run along the line
+  that separates the item's head from its content, and the Layer select sits at the end of that line,
+  where it applies to the tab beside it.
+*/
+#servicePagehead {
+  flex-wrap: wrap; align-items: flex-end; column-gap: var(--gap-4); row-gap: var(--gap-3);
+  border-bottom: 1px solid var(--rule); padding-bottom: 0;
+}
+#servicePagehead > div:first-child { flex: 1 1 100%; }
+#serviceTabs.segmented {
+  order: 2; align-self: flex-end; background: none; border: 0; padding: 0; gap: 0;
+  border-radius: 0; margin: 0;
+}
+#serviceTabs.segmented a {
+  padding: 10px 16px; margin-bottom: -1px; border-radius: 0; background: none; box-shadow: none;
+  border-bottom: 2px solid transparent; color: var(--muted); font-size: var(--t-body); font-weight: 500;
+}
+#serviceTabs.segmented a:hover { color: var(--ink); }
+#serviceTabs.segmented a[aria-current] {
+  background: none; box-shadow: none; color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+}
+#servicePagehead #itemLayerField.itemlayer {
+  order: 3; flex: 0 1 280px; width: auto; max-width: 280px; margin: 0 0 8px auto;
+  display: flex; align-items: center; gap: var(--gap-2);
+}
+
+@media (max-width: 1100px) {
+  #view-content.on:has(> #contentFolders:not([hidden])) { display: block; }
+  #view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders {
+    position: static; flex-direction: row; flex-wrap: wrap; align-items: center; margin: 8px 0;
+  }
+  #view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip {
+    border: 1px solid var(--rule); border-radius: 999px; padding: 6px 12px; font-size: 13px;
+  }
+  #view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .chip.on { border-color: var(--accent); }
+  #serviceTabs.segmented { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  #servicePagehead #itemLayerField.itemlayer { flex: 1 1 100%; max-width: 360px; margin: 0 0 8px; }
+}
+
+/* ═══════════════════════════════════════════ ADR-187 step 3: Server's Services column */
+.sidelist { display: flex; flex-direction: column; gap: 2px; margin: 0 0 var(--gap-4); }
+.sidelist a {
+  padding: 8px 12px; border-left: 3px solid transparent; border-radius: 0 var(--round) var(--round) 0;
+  color: var(--muted); font-size: var(--t-body); text-decoration: none;
+}
+.sidelist a:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
+.sidelist a[aria-current="page"] {
+  background: var(--accent-soft); color: var(--accent-ink); border-left-color: var(--accent); font-weight: 600;
+}
+@media (max-width: 1100px) {
+  .sidelist { flex-direction: row; border-bottom: 1px solid var(--rule); overflow-x: auto; }
+  .sidelist a { border-left: 0; border-bottom: 2px solid transparent; border-radius: 0; white-space: nowrap; }
+  .sidelist a[aria-current="page"] { background: none; border-bottom-color: var(--accent); }
+}
+
+/* ── Steps 2–3, after the design review's measurements (2026-10-16) ── */
+
+/* The item head: its own ≤1180 rule stacks it as a column, where `flex-end` meant the right edge. */
+@media (max-width: 1180px) {
+  #servicePagehead { align-items: stretch; }
+  #serviceTabs.segmented, #servicePagehead #itemLayerField.itemlayer { align-self: flex-start; }
+  #serviceTabs.segmented { max-width: 100%; overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; padding-bottom: 1px; }
+  #serviceTabs.segmented a { margin-bottom: 0; }
+}
+/* The Layer field is a row, label beside its select, so the tab line does not drop on Data. */
+#servicePagehead #itemLayerField.itemlayer { flex-direction: row; align-items: center; gap: 8px; }
+#serviceTabs.segmented a:focus-visible { outline-offset: -2px; }
+
+/* Server's General page: an address wraps rather than running out of its panel. */
+#page-about dd code { overflow-wrap: anywhere; white-space: normal; }
+
+/* The folder column scrolls inside itself when it is longer than the window, so New folder stays reachable. */
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders {
+  max-height: calc(100vh - 98px); overflow-y: auto;
+}
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .folderlabel,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .hint,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldermenu,
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders #folderNew { margin-left: 15px; }
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders #folderNew { padding-left: 0; }
+/* The menu acts on the selected folder above it; it says so instead of being a bare ⋯ (aria-label already does). */
+#view-content.on:has(> #contentFolders:not([hidden])) > #contentFolders .foldermenu summary::after {
+  content: " Rename or delete…"; font-size: var(--t-small); color: var(--muted);
+}
+
+/* My content's toolbar wraps beside the folder column instead of squeezing the search box. */
+#view-content > .toolbar { flex-wrap: wrap; row-gap: 8px; }
+#view-content > .toolbar input[type="search"] { flex: 1 1 16rem; }
+#view-content .toolbar label.check { white-space: nowrap; }
+/* The count is a sentence and may take two lines — `nowrap` on it pushed a phone 225 pixels sideways. */
+#contentCount { white-space: normal; overflow-wrap: anywhere; }
+
+/* Services' list marks its page by the bar and weight, not the fill the selected folder under it uses. */
+.sidelist a[aria-current="page"] { background: none; }
+
+/* The item head stays a wrapping row at ≤1,180 rather than the column its older rule made it: the title takes
+   the first line, the tabs and the Layer field share the second, and the tabs' underline lands on the head's
+   rule (third design pass, 2026-10-16). */
+@media (max-width: 1180px) {
+  #servicePagehead { flex-direction: row; flex-wrap: wrap; align-items: flex-end; }
+  #servicePagehead > div:first-child { flex: 1 1 100%; }
+  #serviceTabs.segmented { flex: 0 1 auto; min-width: 0; margin-bottom: -1px; padding-bottom: 0; }
+  #servicePagehead #itemLayerField.itemlayer { flex: none; align-self: auto; margin: 0 0 8px auto; max-width: 360px; }
+}
+/* On a phone the Layer field cannot share the tabs' line; it goes above them so the tabs stay on the rule. */
+@media (max-width: 600px) {
+  #servicePagehead #itemLayerField.itemlayer { order: 1; margin: 0 0 8px; }
+  #serviceTabs.segmented { order: 2; }
+}

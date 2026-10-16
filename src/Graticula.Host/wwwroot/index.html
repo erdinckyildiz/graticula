@@ -287,6 +287,14 @@
           <b>Folders on the left, and the rail is navigation.</b> ADR-034 §5h, after the owner's
           objection to three stacked tables. Narrow on purpose: the width belongs to the list.
         -->
+        <!--
+          <b>Services' own pages, above its folders — ADR-187.</b> Server Manager lists Manage Services and
+          Publish Service at the head of this column; Publish was reachable only from *New service* until now.
+        -->
+        <nav class="sidelist" id="servicesNav" aria-label="Services">
+          <a href="#/services" aria-current="page">Manage services</a>
+          <a href="#/publish">Publish a service</a>
+        </nav>
         <div id="folderRail">
           <div class="rail-head">
             Folders
@@ -641,7 +649,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Settings</h2>
+        <h2>General</h2>
         <p>What this whole server does unless a service sets its own.</p>
       </div>
     </div>
@@ -793,7 +801,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Operations</h2>
+        <h2>Status</h2>
         <p>The store, the runtime, the caches, and which routes are governed.</p>
       </div>
     </div>
@@ -1689,7 +1697,7 @@
         <h2 id="serviceTitle">—</h2>
         <p id="serviceSub"></p>
       </div>
-      <nav class="segmented solid right" id="serviceTabs"></nav>
+      <nav class="segmented solid right" id="serviceTabs" aria-label="Item"></nav>
       <!--
         <b>One Layer select for the item, in its head — ADR-102 step 1.</b> Data and Visualization each had
         their own picker, so a layer chosen on one was not the layer on the other; the choice is the item's
