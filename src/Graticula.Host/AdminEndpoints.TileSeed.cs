@@ -75,13 +75,22 @@ internal static partial class AdminEndpoints
     /// <b>Nothing else is touched.</b> The seed record stays, so the levels once seeded are still listed —
     /// with nothing cached under them now, which is what the read-back will then say.
     /// </para>
+    /// <para>
+    /// <b>Scoped, when asked — 2026-10-16, ADR-017 §3.1 step 4 (*fix it, scoped*).</b> A body in a seed's shape —
+    /// <c>minZoom</c>, <c>maxZoom</c>, an <c>extent</c> in the scheme's reference, Web Mercator or degrees — clears
+    /// only the tiles at those levels that meet that area, through the cache's purge by address that an edit uses
+    /// (ADR-186). No body is the whole service, as it always was.
+    /// </para>
     /// </remarks>
     private static async Task ClearServiceCacheAsync(
         HttpContext context,
         string name,
         string? folder,
+        SeedRequest? request,
         PostgresLayerCatalog owners,
         ITileCache tiles,
+        ServiceContexts contexts,
+        IProjector projector,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -105,16 +114,57 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        Func<TileAddress, bool>? scoped = null;
+        VectorTileScheme scheme = service.TileScheme;
+
+        if (request is { MinZoom: not null } or { MaxZoom: not null } or { Extent: not null })
+        {
+            int low = request.MinZoom ?? 0;
+            int high = request.MaxZoom ?? scheme.MaxLevel;
+
+            if (low < 0 || high > scheme.MaxLevel || low > high)
+            {
+                await Refuse(
+                    context, 400,
+                    $"'minZoom' {low} and 'maxZoom' {high}: this service's levels are 0 to {scheme.MaxLevel}, "
+                    + "and the first may not be above the last.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            Envelope? area = null;
+
+            if (request.Extent is not null)
+            {
+                (Envelope? found, _, string? unplaced) =
+                    await AreaOfAsync(service, request.Extent, contexts, projector, cancellation).ConfigureAwait(false);
+
+                if (found is not { } placed)
+                {
+                    await Refuse(context, 400, unplaced!).ConfigureAwait(false);
+                    return;
+                }
+
+                area = placed;
+            }
+
+            // An address the scheme does not have is out of any scope; a tile meets the area by its own box.
+            scoped = address =>
+                address.Z >= low && address.Z <= high && scheme.Rejection(address) is null
+                && (area is not { } box || scheme.Envelope(address) is var tile
+                    && tile.MinX <= box.MaxX && tile.MaxX >= box.MinX && tile.MinY <= box.MaxY && tile.MaxY >= box.MinY);
+        }
+
         int cleared = 0;
 
         foreach (PublishedLayer layer in service.Layers)
         {
-            cleared += tiles.Purge(layer.Id);
+            cleared += scoped is null ? tiles.Purge(layer.Id) : tiles.Purge(layer.Id, scoped);
         }
 
         await AuditAsync(
             context, audit, "service.cache.clear", service.Name,
-            Detail(new { folder = service.Folder, tiles = cleared }),
+            Detail(new { folder = service.Folder, tiles = cleared, scoped = scoped is not null, request?.MinZoom, request?.MaxZoom, request?.Extent }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await Results.Json(new

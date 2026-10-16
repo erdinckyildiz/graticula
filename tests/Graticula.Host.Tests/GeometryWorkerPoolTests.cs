@@ -273,8 +273,11 @@ public sealed class GeometryWorkerPoolTests
     {
         RequireWorker();
 
+        // <b>A minute's deadline, because the clock below is the bound this test is about.</b> On 2026-10-16 the warm-up
+        // itself ran out the pool's ten seconds on a busy runner (v1.0.396's datastore job) — the worker's first start,
+        // which is not what is measured here; the pre-flight is held to five seconds by the stopwatch, as before.
         await using GeometryWorkerPool pool = Pool(
-            maximumCandidatePairs: GeometryWorkerPool.PreflightAbove);
+            deadline: TimeSpan.FromSeconds(60), maximumCandidatePairs: GeometryWorkerPool.PreflightAbove);
 
         // <b>The worker is started before the clock is.</b> The first request starts a process — a .NET
         // runtime and its JIT — and the clock used to include that, so this measured the start on a busy

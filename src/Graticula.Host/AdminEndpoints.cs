@@ -559,6 +559,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/datasources/{id:guid}", UpdateDataSourceAsync);
         app.MapDelete("/admin/datasources/{id:guid}", RemoveDataSourceAsync);
         app.MapGet("/admin/datasources/{id:guid}/capability", CapabilityAsync);
+        app.MapGet("/admin/datasources/{id:guid}/drift", DriftAsync);
 
         /*
           <b>ADR-059: the fifth of ADR-007 §4.8's five bullets, and the one never built.</b> A
@@ -9083,6 +9084,117 @@ internal static partial class AdminEndpoints
     /// ADR-017 §3.3 step 4: the honest list of what we could do with this
     /// source, given the rights actually granted.
     /// </summary>
+    /// <summary>
+    /// Whether the tables a data source's layers read have changed since this server last read them — ADR-017 §3.1
+    /// step 3, <i>has the source changed</i>, 2026-10-16.
+    /// </summary>
+    /// <remarks>
+    /// <b>Every layer on the source, each table read once now beside the shape this server remembers.</b> A column
+    /// added, gone, or of another type or nullability is named; a layer nothing has read since this server started has
+    /// nothing to compare with and says so; a source that will not answer says why. The privilege is the one
+    /// <c>/capability</c> asks, for the same source. Nothing is changed by asking: what is remembered goes on being
+    /// served until its thirty seconds run out or an error renews it, and <c>POST /admin/layers/{name}/refresh</c>
+    /// renews it now.
+    /// </remarks>
+    private static async Task DriftAsync(
+        HttpContext context,
+        Guid id,
+        IAdminCatalog catalog,
+        CatalogFallback services,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentRegisterDataStore).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        string? connectionString = await catalog.ConnectionStringOfAsync(id, cancellation).ConfigureAwait(false);
+
+        if (connectionString is null)
+        {
+            await Refuse(context, 404, $"No data source '{id}'.").ConfigureAwait(false);
+            return;
+        }
+
+        CatalogListing listing = await services.ListServicesAsync(cancellation).ConfigureAwait(false);
+        List<object> layers = [];
+        int changed = 0;
+
+        foreach (PublishedLayer layer in (listing.Services ?? [])
+                     .SelectMany(service => service.Layers)
+                     .Where(layer => string.Equals(layer.ConnectionString, connectionString, StringComparison.Ordinal))
+                     .OrderBy(layer => layer.Definition.Name, StringComparer.Ordinal))
+        {
+            (Graticula.Features.LayerDescription? remembered, Graticula.Features.LayerDescription? now, string? error) =
+                await contexts.CompareAsync(layer, cancellation).ConfigureAwait(false);
+
+            string table = $"{layer.Definition.SchemaName}.{layer.Definition.TableName}";
+
+            if (now is null)
+            {
+                layers.Add(new { name = layer.Definition.Name, table, state = "unreachable", note = error });
+                continue;
+            }
+
+            if (remembered is null)
+            {
+                layers.Add(new { name = layer.Definition.Name, table, state = "notYetRead", note = "Nothing has read this layer since the server started, so there is no earlier shape to compare with." });
+                continue;
+            }
+
+            (string[] added, string[] removed, string[] retyped) = Drift(remembered.Fields, now.Fields);
+
+            bool moved = added.Length + removed.Length + retyped.Length > 0;
+            changed += moved ? 1 : 0;
+
+            layers.Add(new
+            {
+                name = layer.Definition.Name,
+                table,
+                state = moved ? "changed" : "unchanged",
+                added,
+                removed,
+                retyped,
+            });
+        }
+
+        await Results.Json(new
+        {
+            dataSource = id,
+            checkedAt = DateTimeOffset.UtcNow,
+            layers,
+            note = layers.Count == 0
+                ? "No published layer reads this data source."
+                : changed == 0
+                    ? "No layer's table has changed since this server last read it."
+                    : $"{changed} layer{(changed == 1 ? "'s table has" : "s' tables have")} changed since this server last read "
+                      + (changed == 1 ? "it" : "them") + ". What was read is served until it is read again — within thirty "
+                      + "seconds, or now with POST /admin/layers/{name}/refresh.",
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The columns added, gone, and changed in type, nullability or length between two reads of one table.
+    /// </summary>
+    /// <param name="was">The columns as last read.</param>
+    /// <param name="now">The columns as read now.</param>
+    /// <returns>Each list by name, in order.</returns>
+    internal static (string[] Added, string[] Removed, string[] Retyped) Drift(
+        IReadOnlyList<Graticula.Features.FieldDescription> was, IReadOnlyList<Graticula.Features.FieldDescription> now)
+    {
+        Dictionary<string, Graticula.Features.FieldDescription> before = was.ToDictionary(f => f.Name, StringComparer.Ordinal);
+        Dictionary<string, Graticula.Features.FieldDescription> after = now.ToDictionary(f => f.Name, StringComparer.Ordinal);
+
+        return (
+            [.. after.Keys.Except(before.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+            [.. before.Keys.Except(after.Keys, StringComparer.Ordinal).Order(StringComparer.Ordinal)],
+            [.. before.Keys.Intersect(after.Keys, StringComparer.Ordinal)
+                .Where(name => before[name].Type != after[name].Type || before[name].Nullable != after[name].Nullable
+                    || before[name].MaxLength != after[name].MaxLength)
+                .Order(StringComparer.Ordinal)]);
+    }
+
     private static async Task CapabilityAsync(
         HttpContext context,
         Guid id,

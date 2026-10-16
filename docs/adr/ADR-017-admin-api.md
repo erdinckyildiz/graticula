@@ -331,6 +331,18 @@ administrator has left.
    walk is**: it answered 200 the whole time, so a walk that reads status codes called it
    walkable while an operator meeting the outage learned nothing. The script reads that
    body now.
+   **2026-10-16: two more steps answer.** §3.1 step 1 — *read this layer back* — answers at
+   `GET /admin/layers/{name}`, which exists now; and §3.1 step 4 — *fix it, scoped* — answers at
+   `POST /admin/services/{name}/cache/clear` with a seed's body (levels and an area), which clears only those tiles
+   through ADR-186's purge by address; no body is the whole service, as before. The walk runs it on a level-22 speck
+   of ocean so it empties nothing (`AScopedClearEmptiesOnlyItsAreaTests` is the test that it empties the right
+   thing). And §3.1 step 2 — *when each level was generated* — was answered all along at a different address: the
+   service's cache report gives each seeded level's `lastSeeded`, and a tile built on demand carries its own `Age`; the
+   walk reads both now. And §3.1 step 3 — *has the source changed* — answers at `GET /admin/datasources/{id}/drift`:
+   every layer on the source, its table read once now beside the shape this server remembers, with the columns
+   added, removed and retyped named; measured on the fixture against a table given one column, relieved of one and
+   narrowed in a third. Asked rather than polled, which is A-023's fallback kept and an operator's question answered.
+   **Still absent**: §3.4's certificate list and upload (rotation without a restart exists, by replacing the file).
    **This discharges when those exist.** It is not discharged by the walk being written
    down; what the walk bought is that the gap is now sixteen rows with a verdict each rather
    than a sentence nobody had checked.

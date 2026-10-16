@@ -404,6 +404,39 @@ internal sealed class ServiceContexts
     }
 
     /// <summary>
+    /// The table's columns as this server last read them and as the source answers now — ADR-017 §3.1 step 3,
+    /// <i>has the source changed</i>.
+    /// </summary>
+    /// <remarks>
+    /// <b>Asked, not polled.</b> A-023 asked whether a fingerprint could be polled cheaply and the product took the
+    /// fallback — a shape is read again after <see cref="Lifetime"/> and on an error — so between those this server
+    /// does not know a table moved. An operator meeting <i>the map is showing old data</i> can ask, and this reads the
+    /// table once, now, beside what is remembered. Neither is the overridden shape a face serves: this compares
+    /// tables, which is what a DBA changes. Nothing is forgotten or replaced by asking.
+    /// </remarks>
+    /// <param name="layer">The layer.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>What was remembered (null when nothing has read it since start), what the source says now (null when
+    /// it would not say), and why not.</returns>
+    public async Task<(LayerDescription? Remembered, LayerDescription? Now, string? Error)> CompareAsync(
+        PublishedLayer layer, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        _known.TryGetValue(Key.Of(layer), out LayerDescription? remembered);
+
+        try
+        {
+            LayerDescription now = await _connections.SourceFor(layer).DescribeAsync(cancellation).ConfigureAwait(false);
+            return (remembered, now, null);
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException)
+        {
+            return (remembered, null, failure.Message);
+        }
+    }
+
+    /// <summary>
     /// Forgets a layer's shape.
     /// </summary>
     /// <param name="layer">The layer, or null to forget everything.</param>

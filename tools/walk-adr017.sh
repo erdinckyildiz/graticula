@@ -28,8 +28,12 @@ print((one['folder'] + '/' if one['folder'] else '') + one['service'])
 ")
 
 case "$SERVICE" in
-  */*) CAPABILITIES="/admin/services/${SERVICE##*/}/capabilities?folder=${SERVICE%/*}" ;;
-  *)   CAPABILITIES="/admin/services/$SERVICE/capabilities" ;;
+  */*) CAPABILITIES="/admin/services/${SERVICE##*/}/capabilities?folder=${SERVICE%/*}"
+       CLEAR="/admin/services/${SERVICE##*/}/cache/clear?folder=${SERVICE%/*}"
+       CACHE="/admin/services/${SERVICE##*/}/cache?folder=${SERVICE%/*}" ;;
+  *)   CAPABILITIES="/admin/services/$SERVICE/capabilities"
+       CLEAR="/admin/services/$SERVICE/cache/clear"
+       CACHE="/admin/services/$SERVICE/cache" ;;
 esac
 
 SOURCE=$(curl -sk "$ROOT/admin/datasources" -H "Authorization: Bearer $TOKEN" \
@@ -64,6 +68,8 @@ step() {  # scenario  n  method  path  what-it-answers  [body]
 echo '3.1 "The map is showing old data"'
 step 3.1 1 GET  "/admin/layers/$LAYER"                    "hosted or registered, which source"
 step 3.1 2 GET  "/admin/layers/$LAYER/cache"              "when each level was generated"
+# A seeded level's time is the service's cache report's levels[].lastSeeded; a tile built on demand says its own Age.
+step 3.1 2 GET  "$CACHE"                                  "  ^ answered here instead, levels[].lastSeeded"
 
 # <b>Step 3.1.2 is read as well as counted, for the reason step 3.4.1 is.</b> The 405 says
 # only that there is no per-layer cache document. It does not say whether the *tile* answers
@@ -104,6 +110,11 @@ step 3.1 3 GET  "/admin/datasources/$SOURCE/drift"        "has the source change
 # and it is deliberately not walked here, because a walk that can be run on demand must not
 # empty a cache to prove that it can.
 step 3.1 4 POST "/admin/layers/$LAYER/cache/invalidate"   "fix it, scoped"
+
+# <b>Scoped since 2026-10-16</b>, on the service: POST .../cache/clear with a seed's body clears only those levels
+# and that area (ADR-186's purge by address). Walked with a level-22 speck of open ocean, which no cache holds, so
+# the walk proves the address answers without emptying anything.
+step 3.1 4 POST "$CLEAR"                                  "  ^ answered here instead, scoped"   '{"minZoom":22,"maxZoom":22,"extent":{"xmin":-20000000,"ymin":-15000000,"xmax":-19999999,"ymax":-14999999,"spatialReference":{"wkid":3857}}}'
 
 echo
 echo '3.2 "This service is slow"'
