@@ -5304,3 +5304,13 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #contentSide > #contentFolders:not(:has(.chip)) { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 #contentSide > #contentFolders:not(:has(.chip)) .folderlabel { margin-bottom: 0; }
 #contentSide > #contentFolders:not(:has(.chip)) #folderNew { margin: 0 0 0 auto; padding: 2px 8px; }
+
+/* The item's secondary actions, one menu (owner, 2026-10-17). It looks like the buttons beside it. */
+#itemActions .itemmore > summary {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: var(--t-small);
+  color: var(--ink); border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface);
+  font-weight: 500; line-height: 1.4;
+}
+#itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover { background: var(--surface-2); }
+#itemActions .itemmore .sheet { min-width: 200px; }
+#itemActions .itemmore .sheet button { display: block; width: 100%; text-align: left; }

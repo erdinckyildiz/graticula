@@ -5956,16 +5956,24 @@ async function drawServiceDetails(qualified, knownKind) {
       ${item && item.status === "stopped" ? "" : `<a class="btn primary"
         href="/studio/webmap.html?service=${encodeURIComponent(qualified)}">Open in Map Viewer</a>`}
       ${manages ? `<button type="button" data-share="${h(qualified)}">Share</button>` : ""}
-      ${knownKind || !serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"))
-        // Settings › Feature layer's *Export data* is Extract, and it is about others: the owner may always
-        // take their own data away, as in Portal; anybody else only when the service offers Extract.
-        || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
-        ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
+
       ${serviceOpenKind === "ImageServer" && (manages || imageOffersDownload())
         // ADR-143: the uploaded file back. In place from the start, so nothing below it moves when the server answers;
         // enabled when it says there is a file to give, removed when there is none. ADR-148: offered to everyone it is
         // shared with when its Download capability is on.
         ? `<button type="button" id="imageDownload" aria-disabled="true">Download</button>` : ""}
+      ${(() => {
+        // <b>The main action, Share and Download stay in sight; the rest is one ⋯</b> (owner, 2026-10-17: the head
+        // card was a wall of seven equal buttons). The menu is drawn only when it holds something.
+        const more = `      ${knownKind || !serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"))
+        // Settings › Feature layer's *Export data* is Extract, and it is about others: the owner may always
+        // take their own data away, as in Portal; anybody else only when the service offers Extract.
+        || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
+        ? "" : `<button type="button" id="exportDataOpen">Export data</button>`}
+      ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+        ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
+      ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+        ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
       ${serviceOpenKind === "ImageServer" && manages
         // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
         // says the image was uploaded here, with the Download button.
@@ -5973,14 +5981,16 @@ async function drawServiceDetails(qualified, knownKind) {
              title="GeoTIFFs with the same bands as this image. Another coordinate system or cell size is resampled to fit.">Add images</button>
            <button type="button" id="imageAddStop" hidden>Stop</button>
            <input type="file" id="imageAddFile" accept=".tif,.tiff,.jp2,.j2k,.nc,.nc4,.h5,.hdf5,.he5,.hdf,.img,.asc,image/tiff" multiple hidden>` : ""}
-      ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
-        ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
-      ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
-        ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
       ${item && item.scope === "mine" ? `<button type="button" data-move-service="${h(item.name)}"
           data-move-folder="${h(item.contentFolder || "")}">Move</button>` : ""}
       ${manages && tileLayerOf() ? `<button type="button" data-manage-tiles="1"
         title="What is cached, clear it, pre-build an area, offline packages">Manage tiles</button>` : ""}`;
+        return !/<button|<a /.test(more) ? "" : `
+        <details class="menu itemmore">
+          <summary aria-label="More actions for this item" title="More actions">More <span aria-hidden="true">▾</span></summary>
+          <div class="sheet">${more}</div>
+        </details>`;
+      })()}`;
   actions.hidden = false;
 
   box.innerHTML = `

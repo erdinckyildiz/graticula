@@ -44,7 +44,10 @@ public sealed class HostedViewPagesTests : ConsoleTest
             // ------------------------------------------------ the source
             await OpenAsync($"/studio/#/service/hosted/{source}", token);
 
-            await WaitForAsync(Shown("#createViewOpen"), "A hosted service's page offers no Create view.");
+            // Create view is behind the head card's More menu since 2026-10-17; a reader opens it first.
+            await WaitForAsync("!!document.getElementById('createViewOpen')", "A hosted service's page offers no Create view.");
+            await Browser.EvaluateAsync<bool>("(() => { document.querySelector('#itemActions .itemmore').open = true; return true; })()");
+            await WaitForAsync(Shown("#createViewOpen"), "Create view is in the More menu but not shown when it is open.");
             await WaitForAsync(
                 $"!!document.querySelector('#svcViews a[href$=\"{view}\"]')",
                 "The source's details do not list its view.");
