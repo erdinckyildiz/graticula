@@ -2,6 +2,10 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<!-- The surface the page is served for; the server writes /server/ here for Server (Program.cs, 2026-10-17). What
+     the page loads by a relative path is found beside the surface at any depth: /studio/user/root loads
+     /studio/console.js. -->
+<base href="/studio/">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graticula console</title>
 
@@ -109,7 +113,7 @@
         across the top, and a page with folders or filters had two left columns while the rail stood.
         The mark is nine squares, a graticule in miniature, drawn inline so it needs no asset.
       -->
-      <a id="brand" href="./" aria-label="Graticula home">
+      <a id="brand" href="" aria-label="Graticula home">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
         <span class="name">Graticula</span>
         <span class="badge" id="surfaceBadge"></span>
@@ -144,7 +148,7 @@
           <div class="sheet">
             <div id="who"></div>
             <!-- Dark or light, chosen by the reader and remembered (ADR-187 step 4); the words name what it turns on. -->
-            <a id="myProfile" href="/studio/#/" hidden>My profile</a>
+            <a id="myProfile" href="/studio/" hidden>My profile</a>
             <button id="themeToggle" type="button">Dark mode</button>
             <button id="signout" style="display:none">Sign out</button>
           </div>

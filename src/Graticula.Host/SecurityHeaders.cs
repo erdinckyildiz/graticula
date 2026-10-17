@@ -182,7 +182,11 @@ internal static class SecurityHeaders
         + "worker-src blob:; "
         + "form-action 'self'; "
         + "frame-ancestors 'none'; "
-        + "base-uri 'none'";
+
+        // <b>'self', not 'none', since 2026-10-17</b>: the page names its surface in `<base href>` so that what it
+        // loads by a relative path is found at any depth of a screen address (`/studio/user/root`). Only this
+        // origin may be named, so an injected `<base>` still cannot send a relative load anywhere else.
+        + "base-uri 'self'";
 
     /// <summary>
     /// The policy for everything else, which is a document rather than a page.

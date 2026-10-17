@@ -1,4 +1,16 @@
 /*
+  <b>An address from before 2026-10-17 is turned into today's, first.</b> The screen was the hash then —
+  `/studio/#/content` — and is the path now — `/studio/content`. A bookmark, a link in a mail or a test that opens the
+  old shape lands on the new one in place, without a second load and without an entry in the history.
+*/
+(() => {
+  const surface = /^\/(studio|server)(\/|$)/.exec(location.pathname);
+  if (surface && location.hash.startsWith("#/")) {
+    history.replaceState(null, "", `/${surface[1]}/${location.hash.slice(2)}`);
+  }
+})();
+
+/*
   <b>Which of the two screens this page is, decided before anything is painted.</b>
 
   <b>The bug this fixes, reported by the owner:</b> *"server'dan studio ya geçerken 1 sn

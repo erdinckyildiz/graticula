@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>284a482a</code> · 2026-10-17 17:25</p>
+<p class="stamp">Generated from commit <code>dbb88546</code> · 2026-10-17 18:10</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">190</div><div class="kpi-l">ADRs</div><div class="kpi-n">76 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">191</div><div class="kpi-l">ADRs</div><div class="kpi-n">77 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">376/429</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">45 live · 8 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">162 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">13</div><div class="kpi-l">open debts</div><div class="kpi-n">277 repaid · 5 waiting on a trigger · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/89</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4970</div><div class="kpi-l">tests</div><div class="kpi-n">502 source files, 226,991 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4970</div><div class="kpi-l">tests</div><div class="kpi-n">502 source files, 227,038 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -373,6 +373,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">189</td><td>Studio holds the organization and Server the engine</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every part is an owner decision of one day, taken against Portal and Server…</td><td class="num"></td></tr>
 <tr><td class="id">190</td><td>Members are searched in the database, sorted into categories, and have profiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is Portal&#x27;s and the owner&#x27;s; the search has not been measured past a…</td><td class="num"></td></tr>
 <tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/6</td></tr>
+<tr><td class="id">192</td><td>A screen is a path, not a fragment</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — measured on dev.graticula.com in a browser before release; the old addresses are…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -514,20 +515,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>284a482a</code><time>2026-10-17</time><span>README and ADR-191 say Pro publishes here; the hosting server is listed, Q-176 is answered</span></li>
-<li><code>e6f4658a</code><time>2026-10-17</time><span>Publishing from Pro is on by default; recording Pro&#x27;s calls stays a dev-only setting (ADR-191)</span></li>
-<li><code>9656b634</code><time>2026-10-17</time><span>A layer published or overwritten from Pro draws as it did in Pro&#x27;s map (ADR-191 §5.7)</span></li>
-<li><code>207a4f34</code><time>2026-10-17</time><span>Overwrite Web Layer works from Pro&#x27;s pane; the capture no longer writes passwords (ADR-191 condition 6)</span></li>
-<li><code>b03bf03f</code><time>2026-10-17</time><span>Overwrite Web Layer from Pro replaces the data and keeps the service (ADR-191 §5.6)</span></li>
-<li><code>a4c1f1fe</code><time>2026-10-17</time><span>What Pro publishes is shared as its Share pane says: Organization, Everyone and groups (ADR-191)</span></li>
-<li><code>cbb81dc2</code><time>2026-10-17</time><span>Pro&#x27;s Share As Web Layer publishes from its UI once the portal has a Web Adaptor name: /studio (ADR-191 condition 2)</span></li>
-<li><code>f52db0ea</code><time>2026-10-17</time><span>The portal answers a user&#x27;s tags, and the admin token&#x27;s expiry is a string, while Pro&#x27;s Share pane is measured</span></li>
-<li><code>a2d9bd3d</code><time>2026-10-17</time><span>While Pro&#x27;s publishing calls are recorded, the portal&#x27;s root answers a UTF-8 page rather than a 302</span></li>
-<li><code>389f52de</code><time>2026-10-17</time><span>ArcGIS Pro publishes a hosted feature layer: its service definition&#x27;s geodatabase is imported (ADR-191)</span></li>
-<li><code>af636411</code><time>2026-10-17</time><span>While Pro&#x27;s publishing calls are recorded, the hosting server&#x27;s own address answers 200</span></li>
-<li><code>088d07a6</code><time>2026-10-17</time><span>While Pro&#x27;s publishing calls are recorded, the admin URL gives back the token the pipeline already admitted</span></li>
-<li><code>162d849f</code><time>2026-10-17</time><span>While Pro&#x27;s publishing calls are recorded, the hosting server exchanges a portal token and answers its admin reads</span></li>
-<li><code>edcbcd08</code><time>2026-10-17</time><span>While Pro&#x27;s publishing calls are recorded, the hosting server is listed under /arcgis</span></li>
+<li><code>dbb88546</code><time>2026-10-17</time><span>Content&#x27;s pictures are drawn three at a time, so one slow render no longer holds the rest</span></li>
+<li><code>0197e319</code><time>2026-10-17</time><span>Screen links carry the path they go to, and a #/ put on the address still opens its screen; tests read the route</span></li>
+<li><code>9e1e4b89</code><time>2026-10-17</time><span>The console&#x27;s policy lets its own base stand (base-uri &#x27;self&#x27;)</span></li>
+<li><code>71b70483</code><time>2026-10-17</time><span>The screen is the path, not the hash: /studio/content, /studio/user/root; old #/ addresses are turned into these</span></li>
+<li><code>2dc10522</code><time>2026-10-17</time><span>ArcGIS Pro publishes and overwrites hosted feature layers here (ADR-191)</span></li>
+<li><code>8c07a47b</code><time>2026-10-17</time><span>Console tests open the pages that moved to Studio at their Studio addresses</span></li>
+<li><code>bbb72942</code><time>2026-10-17</time><span>Studio holds the organization and Server the engine; members are searched, categorized and have profiles (ADR-189, ADR-190, migration 90)</span></li>
+<li><code>279e36ca</code><time>2026-10-17</time><span>A service row&#x27;s Stop, Map and Delete are labelled buttons, and Delete is in the row</span></li>
+<li><code>9f088389</code><time>2026-10-17</time><span>Services can be ticked and started, stopped or deleted together</span></li>
+<li><code>147fd013</code><time>2026-10-17</time><span>Logs&#x27; head sits over the log beside its sources, and its count is a line, not a card</span></li>
+<li><code>7fa0cac2</code><time>2026-10-17</time><span>The item&#x27;s head card keeps three actions in sight and the rest behind More</span></li>
+<li><code>c76b0b5f</code><time>2026-10-17</time><span>My content lists items as media rows, as the Services list does</span></li>
+<li><code>1008d20e</code><time>2026-10-17</time><span>One type voice across the console: sentence-case labels, numbers in the body face</span></li>
+<li><code>2d1a8e68</code><time>2026-10-17</time><span>Services are listed as media rows, as Server Manager lists them, and the health cards move to Site › Status</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

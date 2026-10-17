@@ -2350,7 +2350,7 @@ function wmDrawAddList() {
     const said = wm$("addStatus");
     said.classList.remove("bad");
     said.innerHTML = `There are no services you can read yet. Publish one from
-      <a href="/studio/#/content">My content</a> in Studio, or ask for one to be shared with you; then press
+      <a href="/studio/content">My content</a> in Studio, or ask for one to be shared with you; then press
       <b>Add layer</b> again.`;
     said.tabIndex = -1;
     if (document.activeElement === wm$("addFilter") || document.activeElement === document.body) said.focus();
@@ -3378,7 +3378,7 @@ wm$("mapDelete").addEventListener("click", async () => {
   try {
     await wmFetch(`/content/webmaps/${wmState.id}`, { method: "DELETE" });
     wmState.dirty = false;
-    location.href = "/studio/#/content";
+    location.href = "/studio/content";
   } catch (e) {
     wmSayIn("mapStatus", `Not deleted: ${e.message}`, true);
   }
@@ -3504,7 +3504,7 @@ async function wmStart() {
         ? `<p>No map <code>${wmEscape(id)}</code> that you can open.</p><p>${wmMe.authenticated
           ? "It may have been deleted, or its owner has not shared it with you."
           : `If it is shared with your organization, <a href="/studio/">sign in to Studio</a>, then open this link again.`}</p>
-          <p><a href="/studio/#/content">Your maps</a></p>`
+          <p><a href="/studio/content">Your maps</a></p>`
         : `<p>${wmEscape(e.message)}</p>`;
       return;
     }

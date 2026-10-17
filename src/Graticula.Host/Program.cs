@@ -1591,15 +1591,58 @@ public static class Program
         // yerine server kullanacaktık ya."* A name nobody uses any more should not be in the
         // address bar.
         //
-        // <b>The surface is the path and the screen is the hash.</b> `/server/#/services` and
-        // `/studio/#/content`. The path carries the environment because that is what it is —
-        // ArcGIS separates them as far as two applications — while the hash keeps doing what
-        // ADR-020 §5c needs: a screen you can link to and reach with Back.
+        // <b>The surface is the first segment and the screen is the rest of the path</b> — `/server/services` and
+        // `/studio/content` — since 2026-10-17, by owner decision (*"şu urldeki hashtag ne işe yarıyor. kalkmaz
+        // mı?"*). It was the hash until then (`/studio/#/content`); those addresses still open, turned into these
+        // by `session.js` before anything is drawn. A screen is still something you can link to and reach with
+        // Back (ADR-020 §5c); the browser's history carries it instead of the fragment.
         //
         // <b>One physical directory served twice, not two copies.</b> ADR-034 condition 2 asks
         // for one stylesheet and one map module across both surfaces, and two mounts over one
         // folder is the cheapest way to mean it: there is nothing to keep in step.
         PhysicalFileProvider surfaces = new(Path.Combine(AppContext.BaseDirectory, "wwwroot"));
+
+        // <b>Every screen address is the one page, with its surface as the base for what it loads</b> — 2026-10-17.
+        // `/studio/user/root` asks for no file of that name; it is Studio's page at a screen the page draws. A path
+        // whose last segment has an extension is a file and is left to the file server below. `<base href>` is the
+        // surface's own, so `console.js` beside `/studio/user/root` is `/studio/console.js`, as it was beside
+        // `/studio/`. Read from disk per request and not cached here: `no-cache` below is what keeps the page and
+        // its stylesheet one release, and this is the page.
+        app.Use(async (context, next) =>
+        {
+            PathString path = context.Request.Path;
+            string? surface = path.StartsWithSegments("/studio", out PathString below) ? "studio"
+                : path.StartsWithSegments("/server", out below) ? "server"
+                : null;
+
+            if (surface is null
+                || !(HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method))
+                || Path.HasExtension(below.Value ?? string.Empty))
+            {
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            // `/studio` without its slash is sent to `/studio/`, as the file server always did.
+            if (!below.HasValue)
+            {
+                context.Response.Redirect($"/{surface}/{context.Request.QueryString}");
+                return;
+            }
+
+            Microsoft.Extensions.FileProviders.IFileInfo page = surfaces.GetFileInfo("index.html");
+            string html;
+            using (StreamReader reader = new(page.CreateReadStream()))
+            {
+                html = await reader.ReadToEndAsync(context.RequestAborted).ConfigureAwait(false);
+            }
+
+            context.Response.ContentType = "text/html; charset=utf-8";
+            context.Response.Headers.CacheControl = "no-cache";
+            await context.Response.WriteAsync(
+                html.Replace("<base href=\"/studio/\">", $"<base href=\"/{surface}/\">", StringComparison.Ordinal),
+                context.RequestAborted).ConfigureAwait(false);
+        });
 
         foreach (string surface in (string[])["/server", "/studio"])
         {

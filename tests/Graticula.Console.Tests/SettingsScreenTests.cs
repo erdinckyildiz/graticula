@@ -48,7 +48,7 @@ public sealed class SettingsScreenTests : ConsoleTest
                 "document.querySelector('#tabs a[aria-current]')?.dataset.tab || ''"));
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "[...document.querySelectorAll('.view.on nav.subpages a[href$=\"#/settings\"]')].some(a => a.textContent.includes('General'))"),
+                "[...document.querySelectorAll('.view.on nav.subpages a[href$=\"/settings\"]')].some(a => a.textContent.includes('General'))"),
             "Site's list has no link named General to this page, so an administrator cannot find it.");
 
         // ---- the first-run state: an empty box over the default, a sentence saying so, no reset ----

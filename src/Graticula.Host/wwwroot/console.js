@@ -2175,7 +2175,7 @@ const SURFACES = {
  * <b>The row is the key, and its strip is the list.</b> The first entry of each list is the row's own
  * screen, which is why Settings' first page is itself (labelled *General*) and Operations' is itself
  * (labelled *Status*). Every screen here keeps its address — `#/roles` still opens Roles — so links,
- * bookmarks and the suites' `OpenAsync("/server/#/roles")` did not move; what moved is which sidebar
+ * bookmarks and the suites' `OpenAsync("/server/roles")` did not move; what moved is which sidebar
  * row is lit and the strip that appears at the top of the page. `publish` is a subpage of Services
  * with no strip: it is where the *New service* action goes, not a place anybody browses to.
  */
@@ -2243,19 +2243,19 @@ const SCREEN_SURFACE = {
   logs: "server",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
-  // A screen absent from this table falls through to its surface's home, so `/server/#/group/planning`
+  // A screen absent from this table falls through to its surface's home, so `/server/group/planning`
   // would land an administrator on Services with no explanation.
   group: "studio",
   content: "studio",
   map: "studio",
   sources: "server",
-  // Studio's since 2026-10-17 — Organization (see Studio's tabs). An old `/server/#/roles` is a navigation here.
+  // Studio's since 2026-10-17 — Organization (see Studio's tabs). An old `/server/roles` is a navigation here.
   members: "studio",
   orgsettings: "studio",
   utilities: "studio",
 
   // <b>Both were missing, and the failure was silent.</b> A screen absent from this table falls
-  // through to the surface's home — so `/server/#/groups` landed an administrator on Services with
+  // through to the surface's home — so `/server/groups` landed an administrator on Services with
   // no explanation, which is exactly the *"a screen asked for in the wrong surface is a navigation,
   // not a 404"* promise above, unkept for the two newest screens.
   roles: "studio",
@@ -2274,8 +2274,8 @@ const allowed = () => Object.keys(SURFACES).filter(name => may(SURFACES[name].ne
 /**
  * Which surface this page *is*, from its own address.
  *
- * <b>The path carries the environment and the hash carries the screen</b> — `/server/#/services`
- * and `/studio/#/content`. The owner's objection was that the application still lived at
+ * <b>The path carries the environment and the hash carries the screen</b> — `/server/services`
+ * and `/studio/content`. The owner's objection was that the application still lived at
  * `/console` after being renamed: *"console yerine server kullanacaktık ya."* A surface in the
  * path is also what ArcGIS does, where the two environments are two applications; ours are one
  * application served at two paths, which is ADR-034 §5a's *one deployable* without pretending
@@ -2284,14 +2284,51 @@ const allowed = () => Object.keys(SURFACES).filter(name => may(SURFACES[name].ne
 const surfaceOfPath = () =>
   location.pathname.startsWith("/studio") ? "studio" : "server";
 
-/** A link into the other surface, keeping the reader's place in mind. */
-const surfaceHref = (surface, hash) => `/${surface}/#/${hash}`;
+/** A screen's address in a surface: `surfaceHref("studio", "content")` is `/studio/content`; a `#/` in front is dropped. */
+const surfaceHref = (surface, screen) => `/${surface}/${String(screen || "").replace(/^#?\/?/, "")}`;
+
+/**
+ * The screen part of the address, in the words this router has always read — `#/` + the path after the surface
+ * + the query — since the screen moved from the hash to the path (2026-10-17). Everything that asked
+ * `location.hash` which screen it was on asks this.
+ */
+function routeHash() {
+  return "#/" + location.pathname.replace(/^\/(studio|server)\/?/, "") + location.search;
+}
+
+/** Any way this console names a screen — `#/x`, `/studio/x`, or an old `/studio/#/x` — as the path it now is. */
+function pathOf(target) {
+  const to = String(target || "");
+  const old = /^\/(studio|server)\/#\/?(.*)$/.exec(to);
+  if (old) return `/${old[1]}/${old[2]}`;
+  return to.startsWith("#") ? surfaceHref(surfaceOfPath(), to) : to;
+}
+
+/**
+ * Goes to a screen. In this surface it is a step in the history and a redraw, as a hash change was; in the other
+ * it is a page load, as it always was. `replace` leaves no step behind, for a correction rather than a move.
+ */
+function navigateTo(target, replace = false) {
+  const to = pathOf(target);
+  const there = /^\/(studio|server)(\/|$|\?)/.exec(to)?.[1];
+
+  if (there && there !== surfaceOfPath()) {
+    if (replace) location.replace(to); else location.assign(to);
+    return;
+  }
+
+  if (to !== location.pathname + location.search) {
+    history[replace ? "replaceState" : "pushState"](null, "", to);
+  }
+  window.dispatchEvent(new Event("graticula:navigate"));
+  route();
+}
 
 /**
  * The address, read.
  *
- * <b>The surface is the path and the screen is the hash</b> — `/server/#/services`,
- * `/studio/#/content`. Addresses from before the surfaces existed are translated rather than
+ * <b>The surface is the path and the screen is the hash</b> — `/server/services`,
+ * `/studio/content`. Addresses from before the surfaces existed are translated rather than
  * 404'd, in both shapes they have had today: ADR-020 §5c took *frozen URLs* from the reference
  * as a rule, and a rename is the case that rule is for.
  */
@@ -2314,19 +2351,20 @@ function route() {
   // told from a service named `x/visualization` — the note beside the service page's tab strip records
   // that. A query sits outside the split entirely, so an entry point can land on a named tab with a
   // named layer without waiting for the larger addressing fix. Design review 2026-08-19 proposed it.
-  const cut = location.hash.indexOf("?");
-  const path = cut < 0 ? location.hash : location.hash.slice(0, cut);
+  const here = routeHash();
+  const cut = here.indexOf("?");
+  const path = cut < 0 ? here : here.slice(0, cut);
 
-  hashQuery = new URLSearchParams(cut < 0 ? "" : location.hash.slice(cut + 1));
+  hashQuery = new URLSearchParams(cut < 0 ? "" : here.slice(cut + 1));
 
   const rest = path.replace(/^#\/?/, "").split("/").filter(Boolean)
     .map(decodeURIComponent);
 
   // <b>A hash that names a surface is from earlier today</b>, when the surface lived in the
-  // hash rather than the path: `#/server/services` becomes `/server/#/services`. Translated in
+  // hash rather than the path: `#/server/services` becomes `/server/services`. Translated in
   // place so Back does not bounce between the two shapes.
   if (rest[0] in SURFACES) {
-    location.replace(surfaceHref(rest[0], rest.slice(1).join("/")));
+    navigateTo(surfaceHref(rest[0], rest.slice(1).join("/")), true);
     return;
   }
 
@@ -2340,7 +2378,7 @@ function route() {
   // same change as the page it points to, so no address leads to a page that is not there yet.
   const moved = legacyRoute(rest);
   if (moved) {
-    location.replace(moved);
+    navigateTo(moved, true);
     return;
   }
 
@@ -2350,11 +2388,11 @@ function route() {
 
     if (!may(SURFACES[owner].needs)) {
       toast(`That page is in ${SURFACES[owner].title}, which needs ${SURFACES[owner].needs}.`);
-      location.replace(surfaceHref(surface, SURFACES[surface].home));
+      navigateTo(surfaceHref(surface, SURFACES[surface].home), true);
       return;
     }
 
-    location.assign(`/${owner}/${location.hash}`);
+    location.assign(surfaceHref(owner, routeHash()));
     return;
   }
 
@@ -2363,10 +2401,10 @@ function route() {
     if (!may(SURFACES[lives].needs)) {
       toast(`That screen is in ${SURFACES[lives].title}, which needs `
         + `${SURFACES[lives].needs}.`);
-      location.replace(surfaceHref(surface, SURFACES[surface].home));
+      navigateTo(surfaceHref(surface, SURFACES[surface].home), true);
       return;
     }
-    location.assign(`/${lives}/${location.hash}`);
+    location.assign(surfaceHref(lives, routeHash()));
     return;
   }
 
@@ -2449,7 +2487,7 @@ function legacyRoute(rest) {
   if (surfaceOfPath() === "server" && (!rest[2] || LAYER_PAGES[rest[2]] === "server")) {
     const place = placeOf(decodeURIComponent(rest[1]));
     if (!place) return null;
-    return `/server/#/service/${place.service.split("/").map(encodeURIComponent).join("/")}?section=layers&layer=${place.id}`;
+    return `/server/service/${place.service.split("/").map(encodeURIComponent).join("/")}?section=layers&layer=${place.id}`;
   }
 
   // A bare layer address in Studio opens that layer inside its item (ADR-102): Studio has no layer page left.
@@ -2469,7 +2507,7 @@ function legacyRoute(rest) {
   if (to.view) query.set("view", to.view);
   if (to.layer !== false && place.id !== undefined && to.tab !== "settings") query.set("layer", String(place.id));
 
-  return `/studio/#/service/${place.service.split("/").map(encodeURIComponent).join("/")}?${query}`;
+  return `/studio/service/${place.service.split("/").map(encodeURIComponent).join("/")}?${query}`;
 }
 
 /**
@@ -2561,7 +2599,14 @@ document.addEventListener("toggle", event => {
   }
 }, true);
 
-window.addEventListener("hashchange", route);
+// Back and Forward, since the screen is the path (2026-10-17); a move made here calls `route` itself, in `navigateTo`.
+window.addEventListener("popstate", route);
+
+// <b>A `#/…` put on the address is still a screen</b> — typed, pasted from an old link, or set by a script — and is
+// turned into the path it names, in place, as `session.js` does for a page that loads with one.
+window.addEventListener("hashchange", () => {
+  if (location.hash.startsWith("#/")) navigateTo(location.hash, true);
+});
 
 /**
  * Update data's button and warning follow the choice: *Replace all features* is said on the button, in the danger
@@ -2684,10 +2729,12 @@ async function readUpdateColumns() {
 }
 
 // The Export data dialog is about the page it was opened on; Back, a link or a typed address closes it.
-window.addEventListener("hashchange", () => {
-  if ($("exportData")?.open) $("exportData").close();
-  if ($("updateData")?.open) $("updateData").close();
-});
+for (const moved of ["popstate", "graticula:navigate"]) {
+  window.addEventListener(moved, () => {
+    if ($("exportData")?.open) $("exportData").close();
+    if ($("updateData")?.open) $("updateData").close();
+  });
+}
 
 /** Draws the header's surface switch and the surface's own tab strip. */
 function drawSurfaces(surface) {
@@ -3635,7 +3682,7 @@ async function loadLayers() {
   if (!layers.some(l => l.name === editing.name)) {
     selected = null;
     editing = null;
-    location.hash = "#/services";
+    navigateTo("#/services");
     return;
   }
   redrawLayerPage();
@@ -4722,7 +4769,7 @@ document.addEventListener("click", async event => {
     try {
       await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}`, { method: "DELETE" });
       mapOpen = null;
-      location.hash = "#/content";
+      navigateTo("#/content");
     } catch (e) {
       toast(e.message || String(e));
     }
@@ -5449,7 +5496,7 @@ function writeItemAddress() {
   const path = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
   const next = query.toString() ? `${path}?${query}` : path;
 
-  if (location.hash !== next) history.replaceState(null, "", next);
+  if (routeHash() !== next) history.replaceState(null, "", pathOf(next));
 }
 
 /** The layer the item is on: the one chosen, or the first that is not a group. */
@@ -7675,7 +7722,7 @@ function toVisualization(name, mode) {
     return;
   }
 
-  if (where.startsWith("#")) location.hash = where;
+  if (where.startsWith("#")) navigateTo(where);
   else location.assign(where);
 }
 
@@ -7985,7 +8032,7 @@ async function drawFeatureFacts(name, folder) {
       <dt>Rows in one answer</dt><dd>${num(c.maxRecordCount ?? c.serverPageSize ?? 0)}${c.maxRecordCount == null ? " (the server's own)" : ""}</dd>
     </dl>
     ${may("admin:manageServer")
-      ? `<p class="hint"><a href="/server/#/service/${path.split("/").map(encodeURIComponent).join("/")}">Change these in Server</a>.</p>` : ""}`;
+      ? `<p class="hint"><a href="/server/service/${path.split("/").map(encodeURIComponent).join("/")}">Change these in Server</a>.</p>` : ""}`;
 
   $("offerSave")?.addEventListener("click", async () => {
     const chosen = [...box.querySelectorAll("[data-offer]")].filter(i => i.checked && !i.disabled).map(i => i.dataset.offer);
@@ -12995,7 +13042,7 @@ async function saveCategorize() {
     });
     $("catDialog").close();
     toast(`${members.length === 1 ? members[0] : `${num(members.length)} members`}: categories saved.`, true);
-    if (location.hash.startsWith("#/user/")) route(); else section("members", loadMembers, "members");
+    if (routeHash().startsWith("#/user/")) route(); else section("members", loadMembers, "members");
   } catch (e) {
     toast(e.message);
   }
@@ -13046,7 +13093,7 @@ document.addEventListener("click", async event => {
   if (t.id === "catCancel" || t.id === "catDialogClose") { $("catDialog").close(); return; }
   if (t.id === "catDone") {
     $("catDialog").close();
-    if (location.hash.startsWith("#/members")) section("members", loadMembers, "members");
+    if (routeHash().startsWith("#/members")) section("members", loadMembers, "members");
     return;
   }
   if (d.catChild) {
@@ -13887,7 +13934,7 @@ async function loadServices() {
   // <b>And only on Server.</b> The list is also read on Studio's boot, for an administrator; this rewrote
   // Studio's empty hash to `#/services/hosted`, which the router then sent to Server — so `/console`,
   // meant to land in Studio, sent administrators to Server. Found by the verification review, 2026-09-30.
-  const stillLanding = surfaceOfPath() === "server" && /^(#\/?)?(services\/?)?$/.test(location.hash);
+  const stillLanding = surfaceOfPath() === "server" && /^(#\/?)?(services\/?)?$/.test(routeHash());
 
   // <b>Every arrival on the bare list, not only the first read</b> (design review, 2026-10-16): the list is also read
   // on Studio's boot and on the way through other screens, which used up the one chance, so Server opened on an
@@ -13903,7 +13950,7 @@ async function loadServices() {
 
       if (busiest) {
         selectedFolder = busiest[0];
-        history.replaceState(null, "", `#/services/${encodeURIComponent(busiest[0])}`);
+        history.replaceState(null, "", pathOf(`#/services/${encodeURIComponent(busiest[0])}`));
         section("folders", loadFolders);
       }
     }
@@ -14103,7 +14150,7 @@ async function loadServices() {
 
           <!-- No Map here since 2026-10-17, by owner decision: *"server serverliğini bilsin, studio studioluğunu"*. -->
           ${r.kind === "ImageServer"
-            ? `<a class="rowbtn" href="/studio/#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
+            ? `<a class="rowbtn" href="/studio/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
                  aria-label="Delete ${h(label)}, on its own page"
                  title="An image service is deleted where its owner works, which says whether its file goes too"
                  >${glyph("delete")}Delete</a>`
@@ -14181,41 +14228,49 @@ function thumbnailFor(url) {
  * pictures, and on a cold cache each of those is a render — firing them together is a load test
  * of our own server dressed up as a screen. Warm they cost about fifteen milliseconds each from
  * memory, so the serial cost is invisible; cold it is the difference between forty concurrent
- * renders and forty sequential ones. Sequential also means the pictures appear in the order
- * somebody reads them.
+ * renders and forty sequential ones.
+ *
+ * <b>Three at a time since 2026-10-17, not one.</b> The owner found a page of white boxes under layers
+ * published that day: one cold render held every picture below it, so a slow first picture read as no pictures
+ * at all. Three lanes keep a cold page far from forty concurrent renders and let one slow render be passed; the
+ * slots are still taken top to bottom, so pictures still arrive roughly in reading order.
  */
 async function paintPreviews() {
-  for (const image of document.querySelectorAll("img.thumb[data-thumb]")) {
-    if (image.dataset.drawn) continue;
-    image.dataset.drawn = "1";
+  const queue = [...document.querySelectorAll("img.thumb[data-thumb]")].filter(image => !image.dataset.drawn);
+  for (const image of queue) image.dataset.drawn = "1";
+  await Promise.all([0, 1, 2].map(async () => {
+    for (let image = queue.shift(); image; image = queue.shift()) await paintPreview(image);
+  }));
+}
 
-    const address = image.dataset.thumb;
+/** One slot of `paintPreviews`: its picture, or the hatched slot with the reason there is none. */
+async function paintPreview(image) {
+  const address = image.dataset.thumb;
 
-    if (!address) {
-      image.replaceWith(emptyThumb("This service has no map to show.", null));
-      continue;
-    }
+  if (!address) {
+    image.replaceWith(emptyThumb("This service has no map to show.", null));
+    return;
+  }
 
-    let holding = pictures.get(address);
+  let holding = pictures.get(address);
 
-    if (!holding) {
-      holding = drawnPicture(address);
-      pictures.set(address, holding);
-    }
+  if (!holding) {
+    holding = drawnPicture(address);
+    pictures.set(address, holding);
+  }
 
-    const drawn = await holding;
+  const drawn = await holding;
 
-    if (drawn.href) {
-      image.src = drawn.href;
-      image.title = "";
+  if (drawn.href) {
+    image.src = drawn.href;
+    image.title = "";
 
-      // <b>The attribute is removed, not just read.</b> `img.thumb[data-thumb]:not([src])` is the
-      // waiting shimmer, and leaving the attribute on would keep a filled slot matching a rule
-      // written for an empty one the moment anything else set `src` later.
-      delete image.dataset.thumb;
-    } else {
-      image.replaceWith(emptyThumb(drawn.why, drawn.note));
-    }
+    // <b>The attribute is removed, not just read.</b> `img.thumb[data-thumb]:not([src])` is the
+    // waiting shimmer, and leaving the attribute on would keep a filled slot matching a rule
+    // written for an empty one the moment anything else set `src` later.
+    delete image.dataset.thumb;
+  } else {
+    image.replaceWith(emptyThumb(drawn.why, drawn.note));
   }
 }
 
@@ -14701,7 +14756,7 @@ function showLayer(name, page, pending = null) {
       p[0].toUpperCase() + p.slice(1)}</a>`).join("")
     + (elsewhere === "studio"
       // Studio has no layer page since ADR-102 step 9: its settings are the item's, and this is the way there.
-      ? (at ? `<a class="crossing" href="/studio/#/service/${at.service.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${at.id ?? 0}">Open the item
+      ? (at ? `<a class="crossing" href="/studio/service/${at.service.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${at.id ?? 0}">Open the item
           <span class="in">in Studio</span></a>` : "")
       : may(SURFACES[elsewhere].needs) && pagesOf(elsewhere).length
       ? `<a class="crossing" href="${surfaceHref(elsewhere,
@@ -17655,7 +17710,7 @@ function serverAboutMarkup() {
     ? [["Image service", "ImageServer"]]
     : [["Feature access", "FeatureServer"], ["Map image", "MapServer"],
        ...(tileLayerOf() ? [["Vector tiles", "VectorTileServer"]] : [])];
-  const item = `/studio/#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
+  const item = `/studio/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
   return `
     <h4>General</h4>
     <dl class="facts2">
@@ -17756,7 +17811,7 @@ function drawServerHero() {
         data-service-qualified="${h(row.qualified)}" data-to="${stopped ? "start" : "stop"}"${row.cover ? "" : " disabled"}
         title="${stopped ? "Serve this again" : "Answer 503 for this service, without changing who may see it"}"
         ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span> ${stopped ? "Start service" : "Stop service"}</button>
-      <a class="btn" href="/studio/#/service/${row.qualified.split("/").map(encodeURIComponent).join("/")}">Open in Studio</a>
+      <a class="btn" href="/studio/service/${row.qualified.split("/").map(encodeURIComponent).join("/")}">Open in Studio</a>
     </div>`;
   paintPreviews();
 }
@@ -17766,7 +17821,7 @@ function serverLayersMarkup() {
   if (drawable.length === 0) return `<p class="hint">This service holds no layers.</p>`;
 
   const item = serviceOpen
-    ? `/studio/#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}` : null;
+    ? `/studio/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}` : null;
 
   return `
     <p class="hint">What the server knows about each layer. Its fields, style, time column and visible range are
@@ -17796,7 +17851,7 @@ function serverLayersMarkup() {
 
 /** Brings the layer an old address asked for (`layer=`) into view in Server's Layers section, and focuses it. */
 function showAskedLayer() {
-  const asked = new URLSearchParams(location.hash.split("?")[1] || "").get("layer");
+  const asked = new URLSearchParams(location.search).get("layer");
   const block = asked !== null ? $(`srvLayer-${asked}`) : null;
   if (block) { block.classList.add("asked"); block.scrollIntoView({ block: "start" }); block.focus({ preventScroll: true }); }
 }
@@ -23917,7 +23972,7 @@ function openCreated(created, chosen) {
   $("addItem")?.close();
   toast(`${path.split("/").pop()} is published${sharing === "private"
     ? ". Only you can see it until you share it." : "."}`, true);
-  location.hash = `#/service/${path}`;
+  navigateTo(`#/service/${path}`);
 }
 
 function reportNew(created) {
@@ -24789,7 +24844,7 @@ async function handleClick(event) {
   // on it, and a drawer cannot hold that. It stays a button in the slot both surfaces share
   // rather than becoming a link there, because the slot is one line of markup for both and a
   // link that looks like Studio's button is worse than a button that navigates.
-  if (t.id === "publishService") { location.hash = "#/publish"; return; }
+  if (t.id === "publishService") { navigateTo("#/publish"); return; }
   if (t.id === "addItemClose") { if (imageryUpload) { imageryUpload.abort(); return; } $("addItem").close(); return; }
 
   // <b>Making a folder is on the rail</b>, which is the only place a folder is the subject
@@ -24878,7 +24933,7 @@ async function handleClick(event) {
   // choice. `data-only` carries the member's name, from the same `cover` the preview uses.
   const service = t.closest("tr[data-service]");
   if (service && !control) {
-    location.hash = `#/service/${encodeURIComponent(service.dataset.service)}`;
+    navigateTo(`#/service/${encodeURIComponent(service.dataset.service)}`);
     return;
   }
 
@@ -25165,7 +25220,7 @@ async function handleClick(event) {
       editing = null;                    // there is no longer a layer to have open
       // Inside the item, the item again; elsewhere, the services list as before.
       if (serviceOpen && surfaceOfPath() === "studio") showService(serviceOpen.qualified);
-      else location.hash = "#/services";
+      else navigateTo("#/services");
       toast(`${d.delete} deleted.`, true);
     } catch (e) { toast(e.message); }
     await loadLayers();
@@ -25627,7 +25682,7 @@ async function handleClick(event) {
   const groupRow = t.closest?.("tr[data-group]");
 
   if (groupRow) {
-    location.hash = `#/group/${encodeURIComponent(groupRow.dataset.group)}`;
+    navigateTo(`#/group/${encodeURIComponent(groupRow.dataset.group)}`);
     return;
   }
 
@@ -25684,7 +25739,7 @@ async function handleClick(event) {
       // <b>Straight to its page.</b> The next act after making a group is adding members, and those
       // verbs live there — staying on the list left the new row highlighted under nothing, which was a
       // leftover of the panel this replaced.
-      location.hash = `#/group/${encodeURIComponent(name)}/overview`;
+      navigateTo(`#/group/${encodeURIComponent(name)}/overview`);
       return;
     } catch (e) {
       // Said in the dialog, which stays open with everything typed, so a taken name is one edit away.
@@ -25797,7 +25852,7 @@ async function handleClick(event) {
     t.disabled = false;
 
     if (refused.length === 0) {
-      location.hash = `#/group/${encodeURIComponent(groupOpen)}/content`;
+      navigateTo(`#/group/${encodeURIComponent(groupOpen)}/content`);
       return;
     }
 
@@ -25823,7 +25878,7 @@ async function handleClick(event) {
         `/admin/groups/${encodeURIComponent(groupNow.name)}/membership`, { method: "DELETE" });
 
       toast(answer?.note || "You left the group.", true);
-      location.hash = "#/groups";
+      navigateTo("#/groups");
     } catch (failure) {
       t.disabled = false;
       toast(failure.message);
@@ -26026,7 +26081,7 @@ async function handleClick(event) {
       groupOpen = null;
     } catch (e) { toast(e.message); }
 
-    location.hash = "#/groups";
+    navigateTo("#/groups");
     await section("groups", loadGroups, "groupRows");
     return;
   }
@@ -26618,8 +26673,8 @@ async function handleClick(event) {
 
   // A navigation, so Back returns to Overview (verification review): the address names the section.
   if (t.dataset?.manageTiles && serviceOpen) {
-    location.hash = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
-      + "?tab=settings&section=tiles";
+    navigateTo(`#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`
+      + "?tab=settings&section=tiles");
     return;
   }
 
@@ -26957,7 +27012,7 @@ async function handleClick(event) {
         const answer = await api(`/admin/coverages/${encodeURIComponent(serviceOpen.name)}`
           + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`, { method: "DELETE" });
         toast(answer?.note || `${serviceOpen.qualified}: deleted`, true);
-        location.hash = surfaceOfPath() === "studio" ? "#/content" : "#/services";
+        navigateTo(surfaceOfPath() === "studio" ? "#/content" : "#/services");
       } catch (e) { toast(e.message); }
       return;
     }
@@ -26989,7 +27044,7 @@ async function handleClick(event) {
         { method: "DELETE" });
 
       toast(answer.note || `${serviceOpen.qualified}: deleted`, true);
-      location.hash = surfaceOfPath() === "studio" ? "#/content" : "#/services";
+      navigateTo(surfaceOfPath() === "studio" ? "#/content" : "#/services");
     } catch (e) { toast(e.message); }
 
     return;
@@ -27878,7 +27933,7 @@ async function whoami() {
   signedInAs = me.authenticated ? (me.name || "") : "";
   if ($("myProfile")) {
     $("myProfile").hidden = !signedInAs;
-    $("myProfile").href = `/studio/#/user/${encodeURIComponent(signedInAs)}`;
+    $("myProfile").href = `/studio/user/${encodeURIComponent(signedInAs)}`;
   }
   // Two lines rather than one sentence with separators: `#who b` is a block, so a leading "·" on
   // the second line was left dangling under the name. The name is the identity and the rest is what
@@ -28085,7 +28140,7 @@ async function drawSigninProviders() {
     directories = answer.directories || [];
   } catch { providers = []; }
 
-  const back = encodeURIComponent(location.pathname + location.hash);
+  const back = encodeURIComponent(location.pathname + location.search);
   box.hidden = providers.length === 0 && directories.length === 0;
 
   // Design review 2026-09-24 (B3): whose password the form takes, said, so a directory's people know it is theirs.
@@ -28891,7 +28946,7 @@ async function createView() {
         sharing: $("cvSharing").value }),
     });
     $("createView").close();
-    location.hash = servicePage(made?.name || name, made?.folder ?? item.folder);
+    navigateTo(servicePage(made?.name || name, made?.folder ?? item.folder));
   } catch (e) {
     says.textContent = e.message || String(e);
     go.disabled = false;
@@ -29471,7 +29526,7 @@ async function uploadImagery(event) {
     // Only when this dialog is still the one that asked: nothing else is taken away from the user.
     if (dialog.open && $("imgResult") === box) {
       dialog.close();
-      location.hash = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}`;
+      navigateTo(`#/service/${qualified.split("/").map(encodeURIComponent).join("/")}`);
     }
     return;
   }
@@ -30831,3 +30886,55 @@ function coverageRampCss(ramp) {
   }[ramp] || ["#000", "#fff"];
   return `linear-gradient(to right, ${stops.join(", ")})`;
 }
+
+/**
+ * <b>A link to a screen says the address it goes to.</b> The page's markup and every redraw write screen links the way
+ * they always have, `href="#/content"`; each is rewritten to the path, `/studio/content`, as it enters the document,
+ * so hovering one shows where it leads and opening it in a new tab opens that. One observer rather than a change at
+ * forty call sites, each of which would be one more place to forget.
+ */
+function pathLinks(node) {
+  if (node.nodeType !== 1) return;
+  const links = node.matches('a[href^="#/"]') ? [node] : [];
+  for (const a of [...links, ...node.querySelectorAll('a[href^="#/"]')]) {
+    a.setAttribute("href", surfaceHref(surfaceOfPath(), a.getAttribute("href")));
+  }
+}
+pathLinks(document.body);
+new MutationObserver(records => {
+  for (const r of records) {
+    if (r.type === "attributes") pathLinks(r.target);
+    else for (const added of r.addedNodes) pathLinks(added);
+  }
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["href"] });
+
+/**
+ * A link to a screen is followed without loading the page again — 2026-10-17, when the screen moved from the hash to
+ * the path. A link whose address was `#/…` changed only the fragment, which never loads a page; `/studio/…` would, so
+ * this keeps it a step in the history. Registered last, so a handler that took the click for itself
+ * (`preventDefault`) keeps it; a modified click, a new tab, a download or a file is left to the browser.
+ */
+document.addEventListener("click", event => {
+  if (event.defaultPrevented || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+  const link = event.target.closest?.("a[href]");
+  if (!link || (link.target && link.target !== "_self") || link.hasAttribute("download")) return;
+
+  const raw = link.getAttribute("href");
+  let to = null;
+
+  if (raw.startsWith("#/")) {
+    to = raw;
+  } else if (!raw.startsWith("#")) {
+    const url = new URL(link.href, location.href);
+    if (url.origin === location.origin && /^\/(studio|server)(\/|$)/.test(url.pathname)
+        && !/\.[A-Za-z0-9]+$/.test(url.pathname)) {
+      to = url.pathname + url.search + url.hash;
+    }
+  }
+
+  if (!to) return;
+  event.preventDefault();
+  navigateTo(to);
+});

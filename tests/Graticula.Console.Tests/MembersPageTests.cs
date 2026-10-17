@@ -40,7 +40,7 @@ public sealed class MembersPageTests : ConsoleTest
             + "q.dispatchEvent(new Event('input', { bubbles: true })); return true; })()");
 
         await WaitForAsync(
-            $"[...document.querySelectorAll('#members tr a[href^=\"#/user/\"]')].some(a => a.getAttribute('href') === '#/user/' + encodeURIComponent({System.Text.Json.JsonSerializer.Serialize(Me)}))",
+            $"[...document.querySelectorAll('#members tr a[href*=\"/user/\"]')].some(a => a.getAttribute('href').endsWith('/user/' + encodeURIComponent({System.Text.Json.JsonSerializer.Serialize(Me)})))",
             "Searching for the signed-in member did not list them with a link to their profile.");
 
         NothingWentWrong(await PageErrorsAsync());

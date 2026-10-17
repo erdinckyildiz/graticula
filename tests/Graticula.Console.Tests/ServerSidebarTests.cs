@@ -98,7 +98,7 @@ public sealed class ServerSidebarTests : ConsoleTest
             "document.querySelectorAll('.view.on nav.subpages a').length === 3",
             "Site drew no list of three pages.");
 
-        await ClickAsync(".view.on nav.subpages a[href='#/operations']");
+        await ClickAsync(".view.on nav.subpages a[href$='/operations']");
 
         await WaitForAsync(
             "document.getElementById('view-operations')?.classList.contains('on')",

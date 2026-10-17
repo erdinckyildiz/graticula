@@ -89,7 +89,7 @@ public sealed class ServicePageOpensEveryKindTests : ConsoleTest
         string address = await Browser.EvaluateAsync<string>(
             "document.querySelector('#svcUrl').value") ?? string.Empty;
 
-        string where = await Browser.EvaluateAsync<string>("location.hash") ?? string.Empty;
+        string where = await Browser.EvaluateAsync<string>("(window.routeHash ? routeHash() : '')") ?? string.Empty;
 
         Assert.False(
             address.EndsWith("/FeatureServer", StringComparison.Ordinal),

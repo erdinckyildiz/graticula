@@ -86,7 +86,7 @@ public sealed class OrganizationTests : ConsoleTest
             "document.querySelectorAll('.view.on > nav.subpages a').length === 4",
             "Settings drew no column of four pages.");
 
-        await ClickAsync(".view.on > nav.subpages a[href='#/utilities']");
+        await ClickAsync(".view.on > nav.subpages a[href$='/utilities']");
 
         await WaitForAsync(
             "document.getElementById('view-utilities')?.classList.contains('on')",

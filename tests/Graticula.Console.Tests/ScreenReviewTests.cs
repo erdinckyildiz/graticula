@@ -135,7 +135,7 @@ public sealed class ScreenReviewTests : ConsoleTest
         await ClickAsync("#services a[href*=\"/studio/\"]");
 
         await WaitForAsync(
-            "location.pathname === '/studio/' "
+            "location.pathname.startsWith('/studio/') "
             + "&& document.querySelector('#serviceNav a[aria-current=\"page\"]')?.textContent"
             + "?.trim() === 'General' && !!document.getElementById('generalSharing')",
             "The link did not open Studio's General settings, where the sharing is stated with the Share "
@@ -189,7 +189,7 @@ public sealed class ScreenReviewTests : ConsoleTest
             """), "Studio's content list has no feature service to open.");
 
         await WaitForAsync(
-            "location.hash.startsWith('#/service/') "
+            "(window.routeHash ? routeHash() : '').startsWith('#/service/') "
             + "&& " + Shown("#serviceOverview"),
             "A content row did not open the service's own page on Overview. §5k: the row opens the "
             + "item, and the item lists its layers.");
@@ -222,7 +222,7 @@ public sealed class ScreenReviewTests : ConsoleTest
         // tabs and its Layer select, rather than a page of its own that left the item.
         await WaitForAsync(
             "document.getElementById('view-service')?.classList.contains('on') "
-            + "&& /tab=data&layer=[0-9]+/.test(location.hash) && !document.getElementById('serviceData').hidden",
+            + "&& /tab=data&layer=[0-9]+/.test((window.routeHash ? routeHash() : '')) && !document.getElementById('serviceData').hidden",
             "A layer named in the service's Overview did not open inside the item.");
 
         string[] errors = await PageErrorsAsync();

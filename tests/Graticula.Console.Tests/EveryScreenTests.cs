@@ -140,7 +140,7 @@ public sealed class EveryScreenTests : ConsoleTest
                 $"/server/#/layer/{Uri.EscapeDataString(layer)}{(page.Length == 0 ? "" : "/" + page)}", token);
 
             await WaitForAsync(
-                "location.hash.includes('section=layers') && !!document.querySelector('#page-layers.on .srvlayer.asked')",
+                "(window.routeHash ? routeHash() : '').includes('section=layers') && !!document.querySelector('#page-layers.on .srvlayer.asked')",
                 $"server/#/layer/{layer}/{page} did not open the service's Layers section at that layer.");
 
             string[] thrown = await PageErrorsAsync();

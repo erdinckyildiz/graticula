@@ -127,7 +127,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         // <b>`?tab=symbology` is a link people already have</b>; since ADR-102 it lands on Visualization with the
         // Style panel open, which is where the editor is.
         await WaitForAsync(
-            "location.hash.includes('panel=style')",
+            "(window.routeHash ? routeHash() : '').includes('panel=style')",
             "An address asking for the Symbology tab did not reach the editor, so every link "
             + "anybody already had is now a page that draws nothing.");
 
@@ -464,7 +464,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
             "document.querySelector('#serviceCrumb a')?.getAttribute('href') || ''")
             ?? string.Empty;
 
-        Assert.Equal("#/content", crumb);
+        Assert.Equal("/studio/content", crumb);
 
         Assert.Equal(
             "Content",
@@ -510,7 +510,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         await ClickAsync("#visStyle");
 
         await WaitForAsync(
-            "typeof symModel !== 'undefined' && symModel !== null && location.hash.includes('panel=style')",
+            "typeof symModel !== 'undefined' && symModel !== null && (window.routeHash ? routeHash() : '').includes('panel=style')",
             "Pressing Style opened nothing, or did not write the panel into the address.");
 
         await WaitForAsync(

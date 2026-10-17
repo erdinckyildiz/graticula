@@ -71,12 +71,12 @@ public sealed class ItemStructureTests : ConsoleTest
             "(() => { const s = document.getElementById('itemLayer'); const v = s.options[s.options.length - 1].value;"
             + " s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); return v; })()") ?? "";
 
-        await WaitForAsync($"/[?&]layer={last}(&|$)/.test(location.hash)", "Choosing a layer did not write it into the address.");
+        await WaitForAsync($"/[?&]layer={last}(&|$)/.test((window.routeHash ? routeHash() : ''))", "Choosing a layer did not write it into the address.");
 
         await ClickAsync("[data-service-tab=\"visualization\"]");
 
         await WaitForAsync(
-            $"document.getElementById('itemLayer').value === '{last}' && /tab=visualization/.test(location.hash)",
+            $"document.getElementById('itemLayer').value === '{last}' && /tab=visualization/.test((window.routeHash ? routeHash() : ''))",
             "On Visualization the item's layer is not the one chosen on Data.");
 
         await Browser.EvaluateAsync<bool>("(location.reload(), true)");
@@ -107,7 +107,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await ClickAsync("[data-manage-tiles]");
 
         await WaitForAsync(
-            "!!document.querySelector('#page-tiles.on #tilesStatus dl') && /section=tiles/.test(location.hash)",
+            "!!document.querySelector('#page-tiles.on #tilesStatus dl') && /section=tiles/.test((window.routeHash ? routeHash() : ''))",
             "Manage tiles did not open Settings › Tile layer with the cache's status.");
 
         // The verification blocker, as the mechanism: a level seeded and since emptied is not pre-built.
@@ -226,7 +226,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await ClickAsync("[data-data-view=\"history\"]");
 
         await WaitForAsync(
-            "!!document.querySelector('#dataRows #page-history') && /view=history/.test(location.hash)",
+            "!!document.querySelector('#dataRows #page-history') && /view=history/.test((window.routeHash ? routeHash() : ''))",
             "Data › History did not open the layer's history.");
 
         await OpenAsync($"/studio/#/service/{Service()}?tab=settings&section=feature", token);
@@ -461,7 +461,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}{page}", token);
 
         await WaitForAsync(
-            "location.hash.startsWith('#/service/') && document.getElementById('view-service').classList.contains('on')",
+            "(window.routeHash ? routeHash() : '').startsWith('#/service/') && document.getElementById('view-service').classList.contains('on')",
             $"Studio did not open the item for #/layer/{layer}{page}.");
 
         bool layerScreen = await Browser.EvaluateAsync<bool>(

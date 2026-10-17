@@ -36,7 +36,7 @@ public sealed class ContentUsageTests : ConsoleTest
 
         // A service's page says its usage.
         await Browser.EvaluateAsync<bool>(
-            "(() => { const a = [...document.querySelectorAll('#contentRows td.name a')].find(x => x.getAttribute('href').startsWith('#/service/')); a.click(); return true; })()");
+            "(() => { const a = [...document.querySelectorAll('#contentRows td.name a')].find(x => x.getAttribute('href').includes('/service/')); a.click(); return true; })()");
         await WaitForAsync("[...document.querySelectorAll('#svcFacts dt')].some(d => d.textContent === 'Usage')",
             "A service's page does not say its usage.");
 

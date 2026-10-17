@@ -372,7 +372,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             await WaitForAsync(
                 "document.getElementById('mapTitle').textContent === 'Item page test'"
-                + " && !!document.querySelector('#mapLayers a[href^=\"#/service/\"]')"
+                + " && !!document.querySelector('#mapLayers a[href*=\"/service/\"]')"
                 + " && !!document.querySelector('#mapSide a[href*=\"webmap.html?id=\"]')",
                 "The map's item page did not show its title, its layer with the way to that layer's item, and Open in Map Viewer.");
 
@@ -1271,7 +1271,7 @@ public sealed class WebMapViewerTests : ConsoleTest
         await Browser.EvaluateAsync<bool>("(document.getElementById('addLayer').focus(), true)");
         await ClickAsync("#addLayer");
 
-        await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/#/content\"]')",
+        await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/content\"]')",
             "With nothing to add, Add layer did not link to where a service is published.");
         Assert.False(await Browser.EvaluateAsync<bool>(Shown("#addFilter")), "With nothing to add, the filter is still offered.");
         Assert.Equal("addStatus", await Browser.EvaluateAsync<string>("document.activeElement && document.activeElement.id"));
@@ -1297,7 +1297,7 @@ public sealed class WebMapViewerTests : ConsoleTest
         await Browser.EvaluateAsync<bool>("(wmState.doc = null, wmServices = [], true)");
         await ClickAsync("#addLayer");
 
-        await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/#/content\"]')",
+        await WaitForAsync("!!document.querySelector('#addStatus a[href=\"/studio/content\"]')",
             "Add layer pressed before the map was read did not answer.");
     }
 

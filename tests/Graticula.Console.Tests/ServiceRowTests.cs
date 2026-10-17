@@ -41,7 +41,7 @@ public sealed class ServiceRowTests : ConsoleTest
 
         await OpenFolderHoldingAsync(stop, token);
 
-        string? before = await Browser.EvaluateAsync<string>("location.hash");
+        string? before = await Browser.EvaluateAsync<string>("(window.routeHash ? routeHash() : '')");
         await ClickAsync(stop);
 
         await WaitForAsync(
@@ -58,7 +58,7 @@ public sealed class ServiceRowTests : ConsoleTest
         // several services can share.
         Assert.Matches(@"/(stop|start)\?service=[^&]+$", sent);
 
-        Assert.Equal(before, await Browser.EvaluateAsync<string>("location.hash"));
+        Assert.Equal(before, await Browser.EvaluateAsync<string>("(window.routeHash ? routeHash() : '')"));
     }
 
     /// <summary>
@@ -146,7 +146,7 @@ public sealed class ServiceRowTests : ConsoleTest
         await ClickAsync("tr[data-service] td.svcbody");
 
         await WaitForAsync(
-            "location.hash.startsWith('#/service/')",
+            "(window.routeHash ? routeHash() : '').startsWith('#/service/')",
             "Clicking a service row did not open the service.");
     }
 }

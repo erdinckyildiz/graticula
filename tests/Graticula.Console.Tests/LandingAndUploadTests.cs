@@ -42,7 +42,7 @@ public sealed class LandingAndUploadTests : ConsoleTest
         // Long enough for every boot-time read to have answered and rewritten the address, if one does.
         await Task.Delay(3000);
 
-        string where = await Browser.EvaluateAsync<string>("location.pathname + location.hash") ?? "";
+        string where = await Browser.EvaluateAsync<string>("location.pathname + location.search + location.hash") ?? "";
 
         Assert.True(
             where.StartsWith("/studio/", StringComparison.Ordinal) && !where.Contains("services", StringComparison.Ordinal),
@@ -84,7 +84,7 @@ public sealed class LandingAndUploadTests : ConsoleTest
             await Browser.EvaluateAsync<bool>($"(openCreated({answer}, 'private'), true)");
 
             await WaitForAsync(
-                $"location.hash === '#/service/hosted/{name}'",
+                $"(window.routeHash ? routeHash() : '') === '#/service/hosted/{name}'",
                 $"The import's own answer did not open the new item. It answered: {answer}");
         }
         finally

@@ -1056,7 +1056,7 @@ public abstract class ConsoleTest : IAsyncLifetime
           // navigation nobody asked for.
           try {
             const seen = JSON.parse(sessionStorage.getItem("__documents") || "[]");
-            seen.push(location.pathname + location.hash);
+            seen.push(location.pathname + location.search + location.hash);
             sessionStorage.setItem("__documents", JSON.stringify(seen.slice(-8)));
           } catch (e) { /* a storage a browser refuses is not worth a failed page */ }
 

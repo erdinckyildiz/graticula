@@ -71,7 +71,7 @@ public sealed class DrawingALayerReachesTheMapTests : ConsoleTest
         Assert.True(toasts.Length == 0, "The console complained: " + string.Join(" | ", toasts));
 
         await WaitForAsync(
-            "location.hash.includes('tab=visualization')",
+            "(window.routeHash ? routeHash() : '').includes('tab=visualization')",
             "The draw control was pressed and nothing threw, and the browser is still on the "
             + "layer page — so the press reached neither the map nor an error.");
     }

@@ -92,7 +92,7 @@ public sealed class ReachabilityTests : ConsoleTest
             await ClickAsync(row);
 
             await WaitForAsync(
-                "location.hash.startsWith('#/service/')",
+                "(window.routeHash ? routeHash() : '').startsWith('#/service/')",
                 $"Clicking '{service}' did not open the service. A service that opens one of its "
                 + "layers instead has no reachable Capabilities or Limits at all, which is what "
                 + "left eight of nine without them.");

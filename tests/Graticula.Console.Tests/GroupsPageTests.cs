@@ -414,7 +414,7 @@ public sealed class GroupsPageTests : ConsoleTest
             // addressable and that is the difference between it and the panel it replaced; a handler
             // that drew the page without moving the hash would leave Back on the previous screen and
             // a copied link on the wrong one.
-            string where = await Browser.EvaluateAsync<string>("location.hash") ?? string.Empty;
+            string where = await Browser.EvaluateAsync<string>("(window.routeHash ? routeHash() : '')") ?? string.Empty;
 
             Assert.Contains($"group/{Probe}", where, StringComparison.Ordinal);
 

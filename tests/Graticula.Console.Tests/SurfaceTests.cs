@@ -87,7 +87,7 @@ public sealed class SurfaceTests : ConsoleTest
         await ClickAsync("#publishService");
 
         await WaitForAsync(
-            "location.hash === '#/publish'",
+            "(window.routeHash ? routeHash() : '') === '#/publish'",
             "Pressing New service went nowhere. The screen behind it has its own tests; this is "
             + "the page action D-90 says nobody presses.");
 
