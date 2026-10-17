@@ -5320,3 +5320,12 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #view-logs.on > .lede + .toolbar, #view-logs.on > #logSources + .toolbar {
   background: none; border: 0; box-shadow: none; padding: 0; margin: 0 0 var(--gap-2); min-height: 0;
 }
+
+/* Services' ticks (owner, 2026-10-17): the heading row comes back, slim, to carry Select all. */
+#view-services .widetable thead { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+#view-services .widetable thead th { padding-top: 10px; padding-bottom: 10px; }
+#services tr.svcrow td.tick, #view-services th.tick { width: 1%; padding-right: 0; text-align: center; }
+#services tr.svcrow td.tick { padding-top: 18px; }
+#view-services th.tick + th + th { padding-left: 0; }
+#serviceBulk button.tiny svg { width: 12px; height: 12px; vertical-align: -1px; margin-right: 2px; }
+#view-services .widetable table th:last-child { background: var(--surface-2); }

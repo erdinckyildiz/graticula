@@ -367,9 +367,12 @@
           what exceeds the window. So it scrolls, and the row menu is positioned against the viewport
           on open so the scroll box cannot clip it — `console.js`, the `toggle` listener.
         -->
+        <!-- What is ticked, and Start, Stop or Delete for all of it at once (owner, 2026-10-17). -->
+        <div class="bulkbar" id="serviceBulk" role="region" aria-label="Selected services" hidden></div>
         <div class="panel widetable">
           <table>
             <thead><tr>
+              <th class="tick"><input type="checkbox" id="servicePickAll" aria-label="Select every service on this page"></th>
               <th><span class="sr-only">Picture</span></th>
               <th>Service</th>
               <th><span class="sr-only">Actions</span></th>

@@ -62,6 +62,39 @@ public sealed class ServiceRowTests : ConsoleTest
     }
 
     /// <summary>
+    /// Ticked services are stopped together, each through its own row's route.
+    /// </summary>
+    /// <remarks>
+    /// <b>Server Manager's toolbar over its list</b> (owner, 2026-10-17). The bar sends one request per ticked service,
+    /// to the same route the row's own button uses, and names the service in it — so two ticks are two requests.
+    /// </remarks>
+    [Fact]
+    public async Task Two_ticked_services_are_stopped_with_one_press()
+    {
+        (string token, _) = await SignInAsync();
+
+        const string ticks = "tr[data-service]:has(button[data-service-status][data-to=\"stop\"]:not([disabled])) [data-svc-pick]";
+
+        await OpenFolderHoldingAsync(ticks, token);
+
+        int ticked = await Browser.EvaluateAsync<int>(
+            "(() => { window.confirm = () => true; const boxes = [...document.querySelectorAll("
+            + JsonSerializer.Serialize(ticks) + ")].slice(0, 2);"
+            + " for (const b of boxes) b.click(); return boxes.length; })()");
+
+        Assert.True(ticked >= 1, "No started service on the list could be ticked.");
+
+        await WaitForAsync("!!document.getElementById('svcBulkStop') && !document.getElementById('svcBulkStop').disabled",
+            "Ticking services drew no Stop in the selection bar.");
+
+        await ClickAsync("#svcBulkStop");
+
+        await WaitForAsync(
+            $"window.__writes.filter(w => w.includes('/admin/layers/') && w.includes('/stop?service=')).length >= {ticked}",
+            "Stop in the selection bar did not send one stop per ticked service through the row's route.");
+    }
+
+    /// <summary>
     /// A click where the Stop icon is drawn reaches the button, as a mouse's would.
     /// </summary>
     /// <remarks>

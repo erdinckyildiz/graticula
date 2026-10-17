@@ -12864,6 +12864,135 @@ function drawHealthWidget(rows) {
   widget.hidden = false;
 }
 
+// ---------------------------------------------------------------- several services at once (owner, 2026-10-17)
+
+/** What is ticked on the Services list, by qualified name, kept across pages, folders and redraws. */
+const servicePicked = new Set();
+
+/** The rows the list last drew, by qualified name, so the bar knows what each ticked service is. */
+let serviceRowsBy = new Map();
+
+/** What the last bulk action did, said in the bar until the selection changes. */
+let serviceBulkSaid = "";
+
+/**
+ * <b>Start, Stop and Delete for every ticked service</b> — what Server Manager's toolbar does over its list. Each
+ * goes through the same route its row's own button does, one at a time, so a refusal is the server's and names
+ * its service; the bar then says how many moved and which did not, and keeps the selection so a retry is one
+ * press. Delete is offered only when every ticked service is empty, as on the row: a service delete never removes
+ * what is in it.
+ */
+function drawServiceBulk() {
+  const bar = $("serviceBulk");
+  if (!bar) return;
+
+  const picked = [...servicePicked].map(q => serviceRowsBy.get(q)).filter(Boolean);
+  const listed = new Set([...document.querySelectorAll("#services [data-svc-pick]")].map(b => b.dataset.svcPick));
+  const here = picked.filter(r => listed.has(r.qualified)).length;
+  const n = servicePicked.size;
+  const canStart = picked.some(r => r.status === "stopped" && (r.system || r.cover));
+  const canStop = picked.some(r => r.status !== "stopped" && (r.system || r.cover));
+  const deletable = picked.length > 0 && picked.every(r => !r.system && r.empty && r.kind !== "ImageServer");
+
+  bar.hidden = n === 0 && !serviceBulkSaid;
+  bar.innerHTML = (serviceBulkSaid ? `<p class="bulksaid" role="status">${serviceBulkSaid}</p>` : "") + (n === 0 ? "" : `
+    <b>${num(n)} selected${here < n ? ` · ${num(n - here)} not on this page` : ""}</b>
+    <button type="button" class="tiny" id="svcBulkStart"${canStart ? "" : " disabled"}
+      title="${canStart ? "Serve every ticked service that is stopped" : "Nothing ticked is stopped"}">${glyph("play")} Start</button>
+    <button type="button" class="tiny" id="svcBulkStop"${canStop ? "" : " disabled"}
+      title="${canStop ? "Answer 503 for every ticked service, without changing who may see it" : "Nothing ticked is started"}">${glyph("stop")} Stop</button>
+    <button type="button" class="tiny danger" id="svcBulkDelete"${deletable ? "" : " disabled"}
+      title="${deletable ? "Delete every ticked service; each holds nothing"
+        : "Only empty services can be deleted here — unpublish what a service holds first, and an image service is deleted from its own page"}"
+      >Delete…</button>
+    <button type="button" class="tiny ghost" id="svcBulkClear">Clear selection</button>`);
+
+  const all = $("servicePickAll");
+  if (all) {
+    const boxes = [...document.querySelectorAll("#services [data-svc-pick]")];
+    all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+    all.indeterminate = !all.checked && boxes.some(b => b.checked);
+    all.disabled = boxes.length === 0;
+  }
+}
+
+/** Runs one verb over every ticked service it applies to, and says what happened. */
+async function serviceBulkGo(verb) {
+  const picked = [...servicePicked].map(q => serviceRowsBy.get(q)).filter(Boolean);
+  const targets = verb === "delete" ? picked
+    : picked.filter(r => (r.system || r.cover) && (verb === "start" ? r.status === "stopped" : r.status !== "stopped"));
+  if (targets.length === 0) return;
+
+  const names = targets.map(r => r.name);
+  const list = names.length <= 5 ? names.join(", ") : `${names.slice(0, 5).join(", ")} and ${names.length - 5} more`;
+  if (verb === "stop" && !confirm(`Stop ${targets.length} service${targets.length === 1 ? "" : "s"} (${list})? `
+      + "Every client gets 503 until they are started again; who may see them does not change.")) return;
+  if (verb === "delete" && !confirm(`Delete ${targets.length} service${targets.length === 1 ? "" : "s"} (${list})? `
+      + "Each holds no layers, so nothing published goes with them.")) return;
+
+  for (const id of ["svcBulkStart", "svcBulkStop", "svcBulkDelete"]) if ($(id)) $(id).disabled = true;
+
+  const refused = [];
+  for (const r of targets) {
+    try {
+      if (verb === "delete") {
+        await api(`/admin/featureservices/${encodeURIComponent(r.name)}?folder=${encodeURIComponent(r.folder || "")}`,
+          { method: "DELETE" });
+        servicePicked.delete(r.qualified);
+      } else if (r.system) {
+        await api(`/admin/services/${encodeURIComponent(r.name)}/${verb}?folder=${encodeURIComponent(r.folder || "")}`,
+          { method: "POST" });
+      } else {
+        await api(`/admin/layers/${encodeURIComponent(r.cover.name)}/${verb}?service=${encodeURIComponent(r.qualified)}`,
+          { method: "POST" });
+        if (verb === "stop") hide(r.cover.name);
+      }
+    } catch (e) {
+      refused.push(`${h(r.name)}: ${h(e.message || String(e))}`);
+    }
+  }
+
+  const done = targets.length - refused.length;
+  const past = { start: "Started", stop: "Stopped", delete: "Deleted" }[verb];
+  serviceBulkSaid = `${past} ${num(done)} of ${num(targets.length)}.${refused.length
+    ? ` <span class="bad-inline">Refused — ${refused.join("; ")}</span>` : ""}`;
+  await loadLayers();   // which redraws the list and this bar
+  $("serviceBulk")?.querySelector(".bulksaid")?.setAttribute("tabindex", "-1");
+  $("serviceBulk")?.querySelector(".bulksaid")?.focus();
+}
+
+document.addEventListener("change", event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t) return;
+  if (t.matches("[data-svc-pick]")) {
+    if (t.checked) servicePicked.add(t.dataset.svcPick); else servicePicked.delete(t.dataset.svcPick);
+    serviceBulkSaid = "";
+    drawServiceBulk();
+  } else if (t.id === "servicePickAll") {
+    for (const box of document.querySelectorAll("#services [data-svc-pick]")) {
+      box.checked = t.checked;
+      if (t.checked) servicePicked.add(box.dataset.svcPick); else servicePicked.delete(box.dataset.svcPick);
+    }
+    serviceBulkSaid = "";
+    drawServiceBulk();
+  }
+});
+
+document.addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t || !t.closest("#serviceBulk")) return;
+  if (t.id === "svcBulkStart") serviceBulkGo("start");
+  else if (t.id === "svcBulkStop") serviceBulkGo("stop");
+  else if (t.id === "svcBulkDelete") serviceBulkGo("delete");
+  else if (t.id === "svcBulkClear") {
+    servicePicked.clear();
+    serviceBulkSaid = "";
+    for (const box of document.querySelectorAll("#services [data-svc-pick]")) box.checked = false;
+    drawServiceBulk();
+    $("servicePickAll")?.focus();
+  }
+});
+
 /** One line over the services list: how many, and how many of them are answering (owner, 2026-10-17). */
 function drawServiceSummary(rows) {
   const line = $("serviceSummary");
@@ -13239,7 +13368,7 @@ async function loadServices() {
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
 
   $("services").innerHTML = shown_.length === 0
-    ? `<tr><td colspan="3" class="empty">${rows.length === 0
+    ? `<tr><td colspan="4" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : needle
           ? `No service in any folder matches <b>${h(serviceFilter)}</b>.`
@@ -13295,6 +13424,8 @@ async function loadServices() {
       ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
 
       return `<tr class="pick svcrow" data-service="${h(r.qualified)}">
+        <td class="tick"><input type="checkbox" data-svc-pick="${h(r.qualified)}"${servicePicked.has(r.qualified) ? " checked" : ""}
+          aria-label="Select ${h(label)}"></td>
         <td class="thumbcell">${r.cover
           ? `<img class="thumb" alt="" loading="lazy"
                data-thumb="${h(thumbnailFor(r.cover.url))}">`
@@ -13357,6 +13488,8 @@ async function loadServices() {
 
   drawHealthWidget(rows);
   drawServiceSummary(rows);
+  serviceRowsBy = new Map(rows.map(r => [r.qualified, r]));
+  drawServiceBulk();
 
   paintPreviews();
 }
