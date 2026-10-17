@@ -371,8 +371,16 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/studio/#/domains", token);
-        await WaitForAsync(Shown("#domainNew"), "The Domains screen drew no New domain.");
+        // The list of domains is under Define your own layer since ADR-189, and its editor is a dialog.
+        await OpenAsync("/studio/#/content", token);
+        await WaitForAsync(Shown("#newLayer"), "Content drew no New item.");
+        await ClickAsync("#newLayer");
+        await WaitForAsync(Shown("#kindFeatureLayer"), "New item offered no feature layer.");
+        await ClickAsync("#kindFeatureLayer");
+        await WaitForAsync(Shown("[data-route=design]"), "Create a feature layer offered no Define your own layer.");
+        await ClickAsync("[data-route=design]");
+        await ClickAsync("#itemNext");
+        await WaitForAsync(Shown("#domainNew"), "Define your own layer drew no New domain.");
         await ClickAsync("#domainNew");
 
         await WaitForAsync(Shown("#domEditName"), "New domain opened no editor.");

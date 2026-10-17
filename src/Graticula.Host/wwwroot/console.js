@@ -56,6 +56,17 @@ function toast(message, ok = false) {
   t._timer = setTimeout(() => (t.className = ""), 7000);
 }
 
+/**
+ * A refusal said inside the dialog that asked, not in a toast: a modal's backdrop sits over the page, and what was
+ * typed stays in the form to be corrected (2026-10-17, when every "new" became a dialog).
+ */
+function dialogSay(id, message) {
+  const p = $(id);
+  if (!p) { if (message) toast(message); return; }
+  p.textContent = message || "";
+  p.hidden = !message;
+}
+
 async function api(path, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (token) headers.Authorization = "Bearer " + token;
@@ -1359,9 +1370,9 @@ function drawIdpForm() {
   const p = idpEditing && idpEditing !== "new" ? idpList.find(x => x.id === idpEditing) : null;
 
   if (!idpEditing) {
-    form.hidden = true;
     form.innerHTML = "";
     $("idpNew").hidden = false;
+    if ($("idpDialog").open) $("idpDialog").close();
     return;
   }
 
@@ -1377,7 +1388,8 @@ function drawIdpForm() {
   // ADR-089: a directory is chosen when a provider is added, and stays what it is.
   const kind = p ? p.kind : (idpNewKind || "oidc");
 
-  form.hidden = false;
+  $("idpDialogTitle").textContent = p ? `Edit ${p.name}` : "Add a provider";
+  if (!$("idpDialog").open) $("idpDialog").showModal();
   $("idpNew").hidden = true;
   // <b>In the order the provider asks for things</b> — design review 2026-09-24 (M5): a provider shows its issuer,
   // client ID and secret only after this server is registered there with its redirect URI, so that comes first.
@@ -2107,10 +2119,11 @@ const SURFACES = {
     // Roles, Sign-in, Apps); Logs. ADR-091's five rows fall into them without remainder, and each tab's
     // address is its first page, so a tab is still an address this app routes (D-115). Why each screen
     // is Server's at all is unchanged — ADR-034 §5c, ADR-091 §1 — and `SUBPAGES` says where it sits.
+    // <b>Three since 2026-10-17, by owner decision:</b> Security went to Studio as Organization — who the
+    // organisation is, not what the engine does. See Studio's tabs.
     tabs: [
       ["services", "Services"],
       ["sources", "Site"],
-      ["members", "Security"],
       ["logs", "Logs"],
     ],
   },
@@ -2119,15 +2132,14 @@ const SURFACES = {
     needs: null,
     home: "content",
     tabs: [
-      ["content", "My content"],
+      // *Content*, not *My content*, since 2026-10-17 by owner decision: the page lists the organization's and the
+      // public's too, so the possessive named a third of it.
+      ["content", "Content"],
 
-      // <b>*"no anonymous view for server"* — the owner, 2026-08-17.</b> ADR-034 §6 had
-      // already half-said this: the screen answers *what does a stranger see of this layer*,
-      // which is a question about content and its sharing, not about a running server. It
-      // stayed in Server because that is where it was written and where the listing it read
-      // lived. Now it reads the content listing, which is Studio's, so it is where it belongs
-      // rather than where it started.
-      ["anonymous", "Anonymous view"],
+      // <b>No Anonymous view since 2026-10-17, by owner decision:</b> *"Anonymous View da saçma"*, and
+      // asked where its probe should go instead, *"tamamen kaldır"*. It asked every layer as a caller with
+      // no credential and set the answer against the layer's sharing; what a stranger receives is held by
+      // the conformance suite (AnonymousAccessConformanceTests), not by a screen.
 
       // <b>Groups — ADR-036, and Studio's because ADR-034 §6 said so before they existed:</b>
       // *"Q-112 (groups), when answered, lands in Studio."* A group is content collaboration — who
@@ -2135,9 +2147,17 @@ const SURFACES = {
       // administrator's.
       ["groups", "Groups"],
 
-      // <b>Domains — ADR-087.</b> Studio's, beside Groups, because a domain is something a publisher gives
-      // their fields and shares with other publishers' — content, not server administration.
-      ["domains", "Domains"],
+      // <b>Organization — 2026-10-17, by owner decision.</b> Members, Roles, Sign-in and Apps were Server's Security,
+      // and the basemaps, map ground and geometry service were in Server's General; ArcGIS Enterprise keeps all of
+      // them in Portal's Organization, because they are about who the organisation is and what its maps offer, not
+      // about one machine — which is also what keeps them right when more than one machine serves it. The third
+      // entry is who sees the tab: anybody holding one of these, and nobody else.
+      ["members", "Organization", ["admin:manageMembers", "admin:manageRoles", "admin:manageSecurity", "admin:manageServer"]],
+
+      // <b>No Domains tab since 2026-10-17, by owner decision — ADR-087 §6.</b> *"domains ayrı bir sekme
+      // değil. Yeni feature layer oluşturulurken kullanılacak bir şey."* A domain is listed, made, changed and
+      // deleted where a layer is designed (New item › Define your own layer), and a Fields page opens the same
+      // list in a dialog for a layer that already exists.
     ],
     action: { id: "newLayer", label: "New item" },
 
@@ -2162,8 +2182,21 @@ const SURFACES = {
 const SUBPAGES = {
   services: [["services", "Manage services"], ["publish", "Publish a service"]],
   sources: [["sources", "Data sources"], ["operations", "Status"], ["settings", "General"]],
-  members: [["members", "Members"], ["roles", "Roles"], ["signin", "Sign-in"], ["apps", "Apps"]],
+  // Organization's screens. It draws them in two levels rather than one column — `ORG_SETTINGS`.
+  members: [["members", "Members"], ["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
+    ["utilities", "Utility services"], ["apps", "Apps"]],
 };
+
+/**
+ * Organization › Settings' own column — 2026-10-17, by owner decision, after Portal's: Organization has a strip
+ * (Members, Settings) and Settings has a list of short pages down its left, so a new setting is a card on one of
+ * them or a new entry here rather than a longer page. Apps is a section of Security, where `#/apps` lands.
+ */
+const ORG_SETTINGS = [["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
+  ["utilities", "Utility services"]];
+
+/** Whether this reader sees a tab: one with no third entry is everybody's, one with a list needs any of it. */
+const tabAllowed = ([, , needs]) => !needs || needs.some(may);
 
 /** Which sidebar row a subpage lights, from `SUBPAGES`. */
 const ROW_OF = Object.fromEntries(Object.entries(SUBPAGES)
@@ -2215,19 +2248,19 @@ const SCREEN_SURFACE = {
   group: "studio",
   content: "studio",
   map: "studio",
-  anonymous: "studio",
-  // ADR-087: the shared domains, Studio's beside Groups.
-  domains: "studio",
   sources: "server",
-  members: "server",
+  // Studio's since 2026-10-17 — Organization (see Studio's tabs). An old `/server/#/roles` is a navigation here.
+  members: "studio",
+  orgsettings: "studio",
+  utilities: "studio",
 
   // <b>Both were missing, and the failure was silent.</b> A screen absent from this table falls
   // through to the surface's home — so `/server/#/groups` landed an administrator on Services with
   // no explanation, which is exactly the *"a screen asked for in the wrong surface is a navigation,
   // not a 404"* promise above, unkept for the two newest screens.
-  roles: "server",
-  apps: "server",
-  signin: "server",
+  roles: "studio",
+  apps: "studio",
+  signin: "studio",
   groups: "studio",
 };
 
@@ -2355,6 +2388,12 @@ function route() {
     return;
   }
 
+  // A member's profile — `#/user/{name}` (2026-10-17), Studio's, as Portal's user page is.
+  if (rest[0] === "user" && rest[1]) {
+    showProfile(decodeURIComponent(rest[1]));
+    return;
+  }
+
   // A service, and what is in it. The address carries the folder because a service is
   // addressed by folder and name — `#/service/turkiye/tr_ref`.
   if (rest[0] === "service" && rest[1]) {
@@ -2376,7 +2415,7 @@ function route() {
     contentScope = CONTENT_SCOPES.some(([key]) => key === rest[1]) ? rest[1] : "all";
   }
 
-  const screens = SURFACES[surface].tabs.map(([name]) => name);
+  const screens = SURFACES[surface].tabs.filter(tabAllowed).map(([name]) => name);
   // A subpage is a screen of the surface its row is in (ADR-091), so it routes like a row.
   for (const [screen, row] of Object.entries(ROW_OF)) {
     if (screens.includes(row) && !screens.includes(screen)) screens.push(screen);
@@ -2678,7 +2717,7 @@ function drawSurfaces(surface) {
   // one; a header bar has the width for its labels and nothing to collapse to, so the glyphs and the
   // counts went with the rail. The surface's name is the badge beside the mark.
   $("surfaceBadge").textContent = config.title;
-  $("tabs").innerHTML = config.tabs.map(([name, label]) =>
+  $("tabs").innerHTML = config.tabs.filter(tabAllowed).map(([name, label]) =>
     `<a href="#/${name}" data-tab="${name}">${h(label)}</a>${
        (config.links || []).filter(l => l.after === name).map(l =>
          `<a href="${h(l.href)}" data-link="${h(l.key)}">${h(l.label)}</a>`).join("")}`).join("");
@@ -2755,6 +2794,7 @@ function drawSubpages(screen) {
   const row = ROW_OF[screen];
   const view = $("view-" + screen);
   if (!row || !view || row === "services") return;
+  if (row === "members") return drawOrgNav(view, screen);
 
   // <b>A column on the page's left, since ADR-187</b> — what Server Manager draws as the grey list
   // beside its pages. Still drawn into each page once and re-marked on every visit; `withside` is what
@@ -2764,10 +2804,37 @@ function drawSubpages(screen) {
   if (!strip) {
     strip = document.createElement("nav");
     strip.className = "tabstrip subpages";
-    strip.setAttribute("aria-label", SURFACES.server.tabs.find(([name]) => name === row)?.[1] || row);
+    strip.setAttribute("aria-label", Object.values(SURFACES).flatMap(x => x.tabs)
+      .find(([name]) => name === row)?.[1] || row);
     view.prepend(strip);
   }
   strip.innerHTML = SUBPAGES[row].map(([name, label]) =>
+    `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
+}
+
+/** Organization's strip across the top, and on a settings page `ORG_SETTINGS` down its left. */
+function drawOrgNav(view, screen) {
+  const settings = screen !== "members";
+  let strip = view.querySelector(":scope > nav.orgstrip");
+  if (!strip) {
+    strip = document.createElement("nav");
+    strip.className = "tabstrip orgstrip";
+    strip.setAttribute("aria-label", "Organization");
+    view.prepend(strip);
+  }
+  strip.innerHTML = `<a href="#/members"${settings ? "" : ' aria-current="page"'}>Members</a>
+    <a href="#/orgsettings"${settings ? ' aria-current="page"' : ""}>Settings</a>`;
+  if (!settings) return;
+
+  view.classList.add("withside");
+  let side = view.querySelector(":scope > nav.subpages");
+  if (!side) {
+    side = document.createElement("nav");
+    side.className = "tabstrip subpages";
+    side.setAttribute("aria-label", "Settings");
+    strip.after(side);
+  }
+  side.innerHTML = ORG_SETTINGS.map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
 }
 
@@ -2781,6 +2848,10 @@ function openScreen(surface, screen, folder) {
   // The editing session ends with the page it was on. Leaving it open would let a background
   // refresh redraw a screen nobody is looking at.
   editing = null;
+
+  // Apps is a section of Security since 2026-10-17; its old address opens the page it is on, at it.
+  const appsAsked = screen === "apps";
+  if (appsAsked) screen = "signin";
 
   showView("view-" + screen, ROW_OF[screen] || screen);
   drawSubpages(screen);
@@ -2796,15 +2867,18 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "members") section("members", loadMembers, "members");
   if (screen === "roles") section("roles", loadRoles, "roleRows");
-  if (screen === "apps") section("apps", loadApps, "appRows");
-  if (screen === "signin") section("sign-in providers", loadSignin, "idpRows");
+  if (screen === "signin") {
+    section("sign-in providers", loadSignin, "idpRows");
+    section("apps", loadApps, "appRows").then(() => { if (appsAsked) $("appsTitle")?.scrollIntoView(); });
+  }
   if (screen === "groups") section("groups", loadGroups, "groupRows");
-  if (screen === "domains") section("domains", loadDomains, "domainRows");
   if (screen === "operations") {
     section("operations", loadOperations);
     section("resources", drawStatusWidgets);
   }
   if (screen === "settings") section("settings", loadSettings);
+  if (screen === "orgsettings") section("settings", loadOrgSettings);
+  if (screen === "utilities") section("settings", loadGeometryService);
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") section("logs", loadLogs, "logRows");
@@ -3617,6 +3691,23 @@ const CONTENT_SCOPES = [
   ["administrative", "Not shared with you"],
 ];
 
+/**
+ * Whether an item is listed under a scope — 2026-10-17, by owner decision: *"Mine olanların tamamı public. Public
+ * sekmesinde gelmiyor ama."*
+ *
+ * <b>The scopes overlap, as Portal's filters do.</b> Each item carries one `scope`, the way it reached the reader —
+ * mine, a group, the organization, the public — and the sections used to be those ways, so something of yours shared
+ * publicly was under Mine and nowhere else, and Public read 0 on a server whose every item was public. Mine and From
+ * my groups are still how it reached you; Organization and Public are now who can read it, whoever owns it.
+ */
+function inContentScope(item, scope) {
+  if (scope === "all") return true;
+  if (item.scope === "administrative") return scope === "administrative";
+  if (scope === "organization") return item.sharing === "organization" || item.sharing === "public";
+  if (scope === "public") return item.sharing === "public";
+  return item.scope === scope;
+}
+
 /** Which scope the content screen is showing. */
 let contentScope = "all";
 
@@ -3724,9 +3815,9 @@ function drawMyContent() {
   const { answer, maps } = contentAnswer;
   const mapItems = (maps.webMaps || []).map(mapAsItem);
   const items = [...(answer.items || []), ...mapItems];
-  const counts = { ...(answer.counts || {}) };
-
-  for (const m of mapItems) counts[m.scope] = (counts[m.scope] || 0) + 1;
+  // Counted here, by the same rule the list is filtered by, so a tab's number is what pressing it shows.
+  const counts = Object.fromEntries(CONTENT_SCOPES.map(([key]) =>
+    [key, items.filter(i => inContentScope(i, key)).length]));
 
   const total = items.length;
 
@@ -3752,9 +3843,7 @@ function drawMyContent() {
 
   drawFolderBar();
 
-  const inScope = (contentScope === "all"
-    ? items
-    : items.filter(i => i.scope === contentScope))
+  const inScope = items.filter(i => inContentScope(i, contentScope))
     // ADR-114: a folder is the caller's, so choosing one shows the caller's items in it.
     .filter(i => !contentFolderPick || (i.scope === "mine"
       && (contentFolderPick === "root" ? !i.contentFolder : i.contentFolder === contentFolderPick)));
@@ -3824,14 +3913,13 @@ function drawMyContent() {
       `Shared with you through a group you are in. What a group confers is fixed when it is made —
        reading, or editing what its members shared.`,
     organization:
-      `Shared with everyone signed in to this server. Not public — a stranger with the address still
-       gets nothing — and not through any group.`,
+      `Readable by everyone signed in to this server, yours included — shared with the organization, or
+       public, which takes in the organization too.`,
     public:
-      `Readable by anyone with the address, signed in or not. <b>Anonymous view</b> shows what a
-       stranger actually receives, which is the check worth making before believing this list.`,
+      `Readable by anyone with the address, signed in or not, yours included.`,
     mine:
-      `Published by you. Sharing one does not move it out of here — this is ownership, and the other
-       sections are how it reached somebody else.`,
+      `Published by you, however it is shared. Organization and Public list yours as well, beside everybody
+       else's that is shared that widely.`,
   };
 
   usageSince = answer.usageSince || usageSince;
@@ -4392,7 +4480,7 @@ function serviceOfLayerUrl(url) {
 
 async function showWebMapItem(id) {
   showView("view-map", "content");
-  $("mapCrumb").innerHTML = `<a href="#/content">My content</a> › <b>…</b>`;
+  $("mapCrumb").innerHTML = `<a href="#/content">Content</a> › <b>…</b>`;
   $("mapTitle").textContent = "";
   $("mapSub").textContent = "";
 
@@ -4400,7 +4488,7 @@ async function showWebMapItem(id) {
   try {
     map = await api(`/content/webmaps/${encodeURIComponent(id)}`);
   } catch (e) {
-    $("mapAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to My content</a></p>`;
+    $("mapAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to Content</a></p>`;
     $("mapLayers").innerHTML = "";
     $("mapSide").innerHTML = "";
     return;
@@ -4411,7 +4499,7 @@ async function showWebMapItem(id) {
   const layers = Array.isArray(doc.operationalLayers) ? doc.operationalLayers : [];
   const open = `/studio/webmap.html?id=${encodeURIComponent(map.id)}`;
 
-  $("mapCrumb").innerHTML = `<a href="#/content">My content</a> › <b>${h(map.title)}</b>`;
+  $("mapCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(map.title)}</b>`;
   $("mapTitle").textContent = map.title;
   $("mapSub").textContent = [
     "Web map", `${num(layers.length)} layer${layers.length === 1 ? "" : "s"}`, map.owner ? `owner ${map.owner}` : "",
@@ -4951,7 +5039,7 @@ async function showService(qualified) {
   // and `#/services` is a Server screen — so on Studio, where the reader arrived from *My
   // content*, the way back led nowhere. A breadcrumb that does not go back is decoration.
   const backTo = surfaceOfPath() === "studio"
-    ? { hash: "#/content", label: "My content" }
+    ? { hash: "#/content", label: "Content" }
     : { hash: `#/services${folder ? "/" + encodeURIComponent(folder) : ""}`, label: "Services" };
 
   $("serviceCrumb").innerHTML =
@@ -6657,7 +6745,7 @@ const SHARE_SCOPES = [
   ["organization", "Organization",
    "Everyone signed in to this server can read it. A stranger with the address still gets nothing."],
   ["public", "Everyone (public)",
-   "Anyone with the address can read it, signed in or not. Anonymous view shows what they receive."],
+   "Anyone with the address can read it, signed in or not."],
 ];
 
 /** What the share dialog is editing, and what it has been told to do. */
@@ -7497,7 +7585,7 @@ function drawVisStyle() {
     // The strip names the layer, stamps the service on its service-wide controls and draws the item's tabs —
     // what the layer page did before it drew the editor.
     const path = serviceOpen.qualified.split("/").map(encodeURIComponent).join("/");
-    drawSymStrip(name, placeOf(name), [`<a href="#/content">My content</a>`,
+    drawSymStrip(name, placeOf(name), [`<a href="#/content">Content</a>`,
       `<a href="#/service/${path}">${h(serviceOpen.name)}</a>`]);
 
     section("the symbology", () => loadSymbology(name), "symState");
@@ -12614,22 +12702,126 @@ function roleFromId(name) {
   return Array.from(String(name)).map(c => c.charCodeAt(0).toString(36)).join("-");
 }
 
+/**
+ * The Members page's question — 2026-10-17, Portal's Members page: what is searched, filtered and sorted.
+ * Every change sends the list back to its first page and asks the server again.
+ */
+const memberFilter = {
+  q: "", roles: new Set(), types: new Set(), status: "", signedIn: "", group: "", sort: "name", order: "asc",
+  categories: new Set(),
+};
+
+/** The organization's member categories (migration 90), read with the list. */
+let memberCategories = [];
+
+/** The rows on the page, by name, so a selection knows each member's categories. */
+let memberRowsBy = new Map();
+
+/** Members ticked on the page, for Categorize. */
+const memberPicked = new Set();
+
+/** Twenty-five a page, Portal's own number being a hundred and a console screen being shorter. */
+const MEMBERS_PAGE = 25;
+
+/** The groups offered as a filter, read once a visit. */
+let memberGroups = null;
+
+/** `/admin/members`' query for what `memberFilter` says and the page `pages` holds. */
+function memberQueryString() {
+  const f = memberFilter;
+  const q = new URLSearchParams({ num: String(MEMBERS_PAGE), start: String((pages.get("members") || 0) * MEMBERS_PAGE) });
+  if (f.q.trim()) q.set("q", f.q.trim());
+  if (f.roles.size) q.set("role", [...f.roles].join(","));
+  if (f.types.size) q.set("type", [...f.types].join(","));
+  if (f.status) q.set("status", f.status);
+  if (f.signedIn) q.set("signedIn", f.signedIn);
+  if (f.group) q.set("group", f.group);
+  if (f.categories.size) q.set("category", [...f.categories].join(","));
+  q.set("sort", f.sort);
+  if (f.order === "desc") q.set("order", "desc");
+  return q.toString();
+}
+
+/** When somebody last signed in, the way a person says it. */
+function lastSignInText(at) {
+  if (!at) return "Never";
+  const then = new Date(at);
+  const days = Math.floor((Date.now() - then.getTime()) / 86400000);
+  if (days <= 0 && new Date().toDateString() === then.toDateString()) return "Today";
+  if (days <= 1) return "Yesterday";
+  if (days < 30) return `${days} days ago`;
+  return then.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+}
+
+/** The filter column's lists, drawn from what the server said exists, ticked from `memberFilter`. */
+function drawMemberFilters(roles, types) {
+  const box = (kind, value, on) =>
+    `<label><input type="checkbox" data-mf-${kind}="${h(value)}"${on ? " checked" : ""}> ${h(value)}</label>`;
+  const roleQ = ($("mfRoleQ")?.value || "").trim().toLowerCase();
+  $("mfRoles").innerHTML = roles.filter(r => !roleQ || r.toLowerCase().includes(roleQ) || memberFilter.roles.has(r))
+    .map(r => box("role", r, memberFilter.roles.has(r))).join("") || `<span class="hint">No role matches.</span>`;
+  $("mfTypes").innerHTML = types.map(t => box("type", t, memberFilter.types.has(t))).join("");
+  $("mfStatus").value = memberFilter.status;
+  $("mfSigned").value = memberFilter.signedIn;
+  const f = memberFilter;
+  $("mfCats").innerHTML = memberCategories.length
+    ? categoryTree(memberCategories, c => `<label><input type="checkbox" data-mf-category="${h(c.id)}"${
+        f.categories.has(c.id) ? " checked" : ""}> ${h(c.name)}</label>`)
+    : `<span class="hint">None yet.</span>`;
+  $("mfClear").hidden = !(f.roles.size || f.types.size || f.status || f.signedIn || f.group || f.q.trim()
+    || f.categories.size);
+}
+
+/** Each sortable heading says which way it sorts, for the eye and for a screen reader. */
+function drawMemberSort() {
+  for (const th of document.querySelectorAll("#view-members th[data-sort-col]")) {
+    const on = th.dataset.sortCol === memberFilter.sort;
+    if (on) th.setAttribute("aria-sort", memberFilter.order === "desc" ? "descending" : "ascending");
+    else th.removeAttribute("aria-sort");
+  }
+}
+
+/** A pager for a list the server pages: the same buttons `pagerFor` draws, over the server's total. */
+function memberPager(total) {
+  const at = pages.get("members") || 0;
+  if (total <= MEMBERS_PAGE && at === 0) return "";
+  const last = Math.max(0, Math.ceil(total / MEMBERS_PAGE) - 1);
+  return `<div class="pager">
+    <button class="tiny ghost" data-page="members" data-page-to="${at - 1}" ${at === 0 ? "disabled" : ""}
+      title="Previous ${MEMBERS_PAGE}">&larr;</button>
+    <span class="val">${num(Math.min(total, at * MEMBERS_PAGE + 1))}&ndash;${num(Math.min(total, (at + 1) * MEMBERS_PAGE))} of ${num(total)}</span>
+    <button class="tiny ghost" data-page="members" data-page-to="${at + 1}" ${at >= last ? "disabled" : ""}
+      title="Next ${MEMBERS_PAGE}">&rarr;</button>
+  </div>`;
+}
+
 async function loadMembers() {
-  const answer = await api("/admin/members");
+  // The administrators who can still sign in, for the guard on Remove (D-101): its own small question now,
+  // since the page holds twenty-five members and not all of them.
+  const [answer, admins, categories] = await Promise.all([
+    api(`/admin/members?${memberQueryString()}`),
+    api("/admin/members?num=500&role=administrator&status=active"),
+    api("/admin/member-categories").catch(() => ({ categories: [] })),
+  ]);
+  memberCategories = categories.categories || [];
   const rows = answer.members || [];
+  const total = answer.total ?? rows.length;
+
+  // Turned past the end — the last member of the last page was removed, or a filter shrank the list.
+  if (rows.length === 0 && total > 0 && (pages.get("members") || 0) > 0) {
+    pages.set("members", Math.max(0, Math.ceil(total / MEMBERS_PAGE) - 1));
+    return loadMembers();
+  }
 
   memberGrants = answer.grants || {};
+  administrators = (admins.members || []).map(m => m.name);
 
-  // Kept for the transfer picker: a removal has to offer somebody, and the listing is where the
-  // names already are. Only the ones who can sign in, because the server refuses a disabled
-  // target and a control that exists to be told no is worse than no control.
-  memberNames = rows.filter(m => !m.disabled).map(m => m.name);
-
-  // Only the ones who can sign in, which is the server's own test: a disabled administrator
-  // cannot recover a server, so they do not count towards there being one.
-  administrators = rows
-    .filter(m => !m.disabled && (m.roles || []).includes("administrator"))
-    .map(m => m.name);
+  if (memberGroups === null) {
+    try { memberGroups = ((await api("/admin/groups")) || {}).groups || []; } catch { memberGroups = []; }
+    $("mfGroup").innerHTML = `<option value="">Any group</option>` + memberGroups.map(g =>
+      `<option value="${h(g.name)}">${h(g.title || g.name)}</option>`).join("");
+    $("mfGroup").value = memberFilter.group;
+  }
 
   const fill = (id, values, chosen) => {
     $(id).innerHTML = values.map(v =>
@@ -12645,41 +12837,42 @@ async function loadMembers() {
 
   fill("mType", answer.userTypes || [], "creator");
   describeRole();
+  drawMemberFilters(answer.roles || [], answer.userTypes || []);
+  drawMemberSort();
 
-  $("memberCount").textContent =
-    `${rows.length} member${rows.length === 1 ? "" : "s"}`;
+  $("memberCount").textContent = `${num(total)} member${total === 1 ? "" : "s"}`;
+  $("membersPager").innerHTML = memberPager(total);
+  memberRowsBy = new Map(rows.map(m => [m.name, m]));
 
-  $("membersPager").innerHTML = pagerFor("members", rows.length);
-
-  // <b>An empty listing says so, like its two siblings in this file.</b> `loadSources` answers *None
-  // registered.* and `loadRoles` answers *No roles, which cannot happen: the schema seeds five.*; this
-  // one rendered a header over blank white. Probably unreachable — root always exists — and a screen
-  // that would look broken if it were is worth one line. Design review 2026-08-19.
   $("members").innerHTML = rows.length === 0
-    ? `<tr><td colspan="7" class="empty">No members, which cannot happen while you are reading this:
-         you are signed in as one. If you are seeing this, the directory answered and the answer was
-         empty — look at the platform store rather than at this screen.</td></tr>`
-    : pageOf("members", rows).map(m => `
-    <tr>
+    ? `<tr><td colspan="6" class="empty">No member matches. ${$("mfClear").hidden ? ""
+        : `<button type="button" class="linkbtn" data-mf-clear>Clear the filters</button> to see everybody.`}</td></tr>`
+    : rows.map(m => `
+    <tr${m.disabled ? ' class="isoff"' : ""}>
+      <td class="tick"><input type="checkbox" data-member-pick="${h(m.name)}"${memberPicked.has(m.name) ? " checked" : ""}
+        aria-label="Select ${h(m.name)}"></td>
       <!--
         <b>Initials, because a list of names is read by shape before it is read by word.</b>
-        Handoff 2026-09-04. No image and no request: two letters on a tinted square, the tint
-        derived from the name so it is the same square every time and on every deployment — the
-        same determinism the generated symbology uses, and for the same reason.
+        Handoff 2026-09-04. Two letters on a tinted square, the tint derived from the name so it is the
+        same square every time and on every deployment.
       -->
-      <td class="name"><span class="whorow"><span class="avatar"
-        style="--avatar:${h(initialsHue(m.name))}" aria-hidden="true">${h(initialsOf(m.name))}</span>
-        <span>${h(m.name)}${m.displayName
-          ? `<span class="val" style="display:block;font-weight:400">${h(m.displayName)}</span>`
-          : ""}${m.signsInWith
+      <td class="name"><span class="whorow">${memberAvatar(m)}
+        <span><a href="#/user/${encodeURIComponent(m.name)}">${h(m.displayName || m.name)}</a>
+          <span class="val" style="display:block;font-weight:400">${h(m.name)}${m.disabled ? " · disabled" : ""}</span>${m.signsInWith
           ? `<span class="hint" style="display:block">signs in with ${h(m.signsInWith)}</span>`
           : ""}</span></span></td>
+      <td class="val" title="${m.lastSignIn ? h(new Date(m.lastSignIn).toLocaleString()) : "Has never signed in"}">${h(lastSignInText(m.lastSignIn))}</td>
       <!--
-        <b>The role keeps its select and takes the pill's hue.</b> The handoff draws a pill —
-        admin teal, publisher violet, other grey — and a pill is not editable; this is the one
-        control on the row that changes what somebody may do, so it stays a control and wears the
-        colour rather than being replaced by a label that carries it.
+        <b>User type and role stay controls in the row.</b> They are the two answers an administrator comes to
+        this page to change (ADR-018 §1: what somebody may do is the type's ceiling over the role's grants), and
+        a menu between them and the change would be a click that buys nothing.
       -->
+      <td><select class="rolepick" data-member-type="${h(m.name)}" aria-label="User type of ${h(m.name)}"
+        data-was-type="${h(m.userType)}">
+        ${(answer.userTypes || []).map(t =>
+          `<option value="${h(t)}"${t === m.userType ? " selected" : ""}>${h(t)}</option>`)
+          .join("")}
+      </select></td>
       <td><select class="rolepick" data-role-is="${h((m.roles || [])[0] || "none")}"
         data-member-role="${h(m.name)}" aria-label="Role of ${h(m.name)}"${m.roleManaged
           ? ` disabled aria-describedby="roleFrom-${h(roleFromId(m.name))}"` : ""}>
@@ -12692,47 +12885,492 @@ async function loadMembers() {
         ? `<span class="hint" id="roleFrom-${h(roleFromId(m.name))}" style="display:block">Set by ${h(m.signsInWith)}'s groups —
             <a href="#/signin" data-open-groups="${h(m.signsInWith)}">change on Sign-in</a></span>`
         : ""}</td>
-      <!--
-        <b>A control, because it was a word and the word was the answer to a question nobody
-        could act on.</b> The owner read this column and asked how to change a user type; the
-        answer was that they could not — not here, not through the API, not at all after the
-        member was created — while ADR-018's own privilege table has said that admin:manageRoles
-        grants *roles and user types* since it was written.
-
-        <b>Beside the role and shaped like it, because they are two halves of one answer.</b>
-        §1: what somebody may do is this ceiling intersected with what that role grants. Putting
-        them in different idioms — one a control, one a label — said the ceiling was a property
-        of the account rather than a decision somebody makes.
-      -->
-      <td><select class="rolepick" data-member-type="${h(m.name)}"
-        data-was-type="${h(m.userType)}">
-        ${(answer.userTypes || []).map(t =>
-          `<option value="${h(t)}"${t === m.userType ? " selected" : ""}>${h(t)}</option>`)
-          .join("")}
-      </select></td>
-      <td>${pill(m.disabled ? "disabled" : "active")}</td>
-      <td class="num">${num(m.ownsServices)}</td>
-      <td class="val">${h(String(m.createdAt).slice(0, 10))}</td>
-      <td class="acts" style="text-align:right">
-        ${m.signsInWith
-          // ADR-089, design review 2026-09-24 (B2): a password here would cut them off from their provider.
-          ? `<span class="hint">${h(m.signsInWith)} keeps their password</span>`
-          : `<button class="tiny" data-member-password="${h(m.name)}">Set password</button>`}
-        <button class="tiny ${m.disabled ? "" : "danger"}"
-          data-member-state="${h(m.name)}" data-to="${m.disabled ? "enable" : "disable"}"
-          >${m.disabled ? "Enable" : "Disable"}</button>
-
-        <!--
-          <b>Remove reads before it asks, and asks before it acts.</b> ADR-015 §6c puts the
-          judgement with the operator: what a member owns keeps serving under somebody's name,
-          and only a person can say whose. So this fetches the holdings, and the dialog is
-          where the choice is made rather than a confirm that guesses one.
-        -->
-        <button class="tiny danger" data-member-remove="${h(m.name)}"
-          title="Remove this member, and decide what happens to what they own">Remove</button>
+      <td class="acts">
+        <details class="rowmenu">
+          <summary aria-label="Actions for ${h(m.name)}" title="Actions">&#8943;</summary>
+          <div class="rowmenubody" role="menu">
+            <a role="menuitem" href="#/user/${encodeURIComponent(m.name)}">View profile</a>
+            <button type="button" role="menuitem" data-member-categorize="${h(m.name)}">Categorize…</button>
+            ${m.signsInWith
+              // ADR-089, design review 2026-09-24 (B2): a password here would cut them off from their provider.
+              ? `<span class="hint">${h(m.signsInWith)} keeps their password</span>`
+              : `<button type="button" role="menuitem" data-member-password="${h(m.name)}">Set password</button>`}
+            <button type="button" role="menuitem" class="${m.disabled ? "" : "danger"}"
+              data-member-state="${h(m.name)}" data-to="${m.disabled ? "enable" : "disable"}"
+              >${m.disabled ? "Enable account" : "Disable account"}</button>
+            <button type="button" role="menuitem" class="danger" data-member-remove="${h(m.name)}"
+              title="Remove this member, and decide what happens to what they own">Remove member</button>
+          </div>
+        </details>
       </td>
     </tr>`).join("");
+  drawMemberPicks();
+  paintPhotos();
 }
+
+/** A member's square: their photo when they have one, their initials on their hue when not. */
+function memberAvatar(m, size = "") {
+  return m.photo
+    ? `<img class="avatar photo${size}" data-photo="${h(m.photo)}" alt="" aria-hidden="true">`
+    : `<span class="avatar${size}" style="--avatar:${h(initialsHue(m.name))}" aria-hidden="true">${h(initialsOf(m.name))}</span>`;
+}
+
+/** Photos are read with the session's token, which an `<img src>` would not send; kept by address. */
+const photoUrls = new Map();
+
+async function paintPhotos() {
+  for (const img of document.querySelectorAll("img[data-photo]")) {
+    const address = img.dataset.photo;
+    delete img.dataset.photo;
+    try {
+      if (!photoUrls.has(address)) {
+        photoUrls.set(address, fetch(address, { headers: token ? { Authorization: "Bearer " + token } : {} })
+          .then(r => r.ok ? r.blob() : null).then(b => b ? URL.createObjectURL(b) : null));
+      }
+      const url = await photoUrls.get(address);
+      if (url) img.src = url; else img.replaceWith(Object.assign(document.createElement("span"), { className: "avatar" }));
+    } catch { /* the initials-less square stays */ }
+  }
+}
+
+/** Categories as a nested list, parents before children, each drawn by `item`. */
+function categoryTree(all, item, parent = null) {
+  const here = all.filter(c => (c.parentId || null) === parent);
+  if (!here.length) return "";
+  return `<ul class="cattree">${here.map(c => `<li>${item(c)}${categoryTree(all, item, c.id)}</li>`).join("")}</ul>`;
+}
+
+/** Shows Categorize when something is ticked, and keeps Select all honest. */
+function drawMemberPicks() {
+  const button = $("memberCategorize");
+  if (button) {
+    button.hidden = memberPicked.size === 0;
+    button.textContent = `Categorize ${num(memberPicked.size)} selected`;
+  }
+  const boxes = [...document.querySelectorAll("[data-member-pick]")];
+  const all = $("memberPickAll");
+  if (all) {
+    all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+    all.indeterminate = !all.checked && boxes.some(b => b.checked);
+  }
+}
+
+/**
+ * Categorize: which categories these members are in. With one member a box says yes or no; with several a box is
+ * half-ticked where only some are in it, and a half-ticked box left alone changes nobody.
+ */
+function openCategorize(names) {
+  const rows = names.map(n => memberRowsBy.get(n)).filter(Boolean);
+  if (!rows.length) return;
+  const had = new Map(memberCategories.map(c => [c.id, rows.filter(r => (r.categories || []).includes(c.id)).length]));
+
+  $("catDialogTitle").textContent = rows.length === 1 ? `Categorize ${rows[0].name}` : `Categorize ${num(rows.length)} members`;
+  $("catDialogBody").innerHTML = memberCategories.length
+    ? categoryTree(memberCategories, c => `<label><input type="checkbox" data-cat-assign="${h(c.id)}"${
+        had.get(c.id) === rows.length ? " checked" : ""}> ${h(c.name)}</label>`)
+    : `<p class="hint">There are no categories yet. <button type="button" class="linkbtn" id="catGoEdit">Make some</button>.</p>`;
+  for (const box of document.querySelectorAll("[data-cat-assign]")) {
+    const n = had.get(box.dataset.catAssign);
+    box.indeterminate = n > 0 && n < rows.length;
+    box.dataset.had = String(n);
+  }
+  $("catDialogFoot").innerHTML = `<span class="fill"></span>
+    <button type="button" class="ghost" id="catCancel">Cancel</button>
+    <button type="button" class="primary" id="catAssignSave"${memberCategories.length ? "" : " disabled"}>Save</button>`;
+  $("catDialog").dataset.members = JSON.stringify(rows.map(r => r.name));
+  if (!$("catDialog").open) $("catDialog").showModal();
+}
+
+async function saveCategorize() {
+  const members = JSON.parse($("catDialog").dataset.members || "[]");
+  const add = [], remove = [];
+  for (const box of document.querySelectorAll("[data-cat-assign]")) {
+    if (box.indeterminate) continue;
+    if (box.checked) add.push(box.dataset.catAssign);
+    else if (Number(box.dataset.had) > 0) remove.push(box.dataset.catAssign);
+  }
+  try {
+    await api("/admin/members/categorize", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ members, add, remove }),
+    });
+    $("catDialog").close();
+    toast(`${members.length === 1 ? members[0] : `${num(members.length)} members`}: categories saved.`, true);
+    if (location.hash.startsWith("#/user/")) route(); else section("members", loadMembers, "members");
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+/** Edit categories: the tree, each name a box that renames on change, a child added under any, a delete beside. */
+function openCategoryEditor(focusId) {
+  $("catDialogTitle").textContent = "Member categories";
+  $("catDialogBody").innerHTML = `
+    <p class="hint">Sort members into categories, and filter the list by them. A category may hold others; filtering by
+      one includes those under it. Deleting one takes members out of it and nothing else.</p>
+    ${categoryTree(memberCategories, c => `<div class="catedit">
+        <input type="text" value="${h(c.name)}" data-cat-rename="${h(c.id)}" aria-label="Name of ${h(c.name)}" maxlength="100">
+        <span class="val">${num(c.members)}</span>
+        <button type="button" class="tiny ghost" data-cat-child="${h(c.id)}">Add under</button>
+        <button type="button" class="tiny ghost danger" data-cat-delete="${h(c.id)}" aria-label="Delete ${h(c.name)}">Delete</button>
+      </div>`) || `<p class="hint">None yet.</p>`}
+    <div class="catnew"><input type="text" id="catNewName" placeholder="New category" maxlength="100" aria-label="New category">
+      <input type="hidden" id="catNewParent" value="">
+      <span class="val" id="catNewUnder"></span>
+      <button type="button" class="ghost" id="catNewAdd">Add</button></div>
+    <p class="bad-inline" id="catSays" role="alert" hidden></p>`;
+  $("catDialogFoot").innerHTML = `<span class="fill"></span><button type="button" class="primary" id="catDone">Done</button>`;
+  if (!$("catDialog").open) $("catDialog").showModal();
+  (focusId ? document.querySelector(`[data-cat-rename="${focusId}"]`) : $("catNewName"))?.focus();
+}
+
+async function reloadCategories(focusId) {
+  memberCategories = ((await api("/admin/member-categories")) || {}).categories || [];
+  openCategoryEditor(focusId);
+}
+
+function catSay(message) {
+  const p = $("catSays");
+  if (!p) return;
+  p.hidden = !message;
+  p.textContent = message || "";
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target;
+  const d = t.dataset || {};
+
+  if (d.memberCategorize) { openCategorize([d.memberCategorize]); return; }
+  if (t.id === "memberCategorize") { openCategorize([...memberPicked]); return; }
+  if (t.id === "mfCatEdit" || t.id === "catGoEdit") { openCategoryEditor(); return; }
+  if (t.id === "catAssignSave") { await saveCategorize(); return; }
+  if (t.id === "catCancel" || t.id === "catDialogClose") { $("catDialog").close(); return; }
+  if (t.id === "catDone") {
+    $("catDialog").close();
+    if (location.hash.startsWith("#/members")) section("members", loadMembers, "members");
+    return;
+  }
+  if (d.catChild) {
+    const parent = memberCategories.find(c => c.id === d.catChild);
+    $("catNewParent").value = d.catChild;
+    $("catNewUnder").textContent = parent ? `under ${parent.name}` : "";
+    $("catNewName").focus();
+    return;
+  }
+  if (t.id === "catNewAdd") {
+    const name = $("catNewName").value.trim();
+    if (!name) { catSay("A category needs a name."); return; }
+    try {
+      const made = await api("/admin/member-categories", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parentId: $("catNewParent").value || null }),
+      });
+      await reloadCategories();
+      catSay("");
+      $("catSays") && ($("catSays").hidden = true);
+      toast(`“${made.name}” was added.`, true);
+    } catch (e) { catSay(e.message); }
+    return;
+  }
+  if (d.catDelete) {
+    const c = memberCategories.find(x => x.id === d.catDelete);
+    if (!c || !confirm(`Delete “${c.name}” and any category under it? ${c.members
+      ? `${num(c.members)} member(s) are taken out of it; nothing else changes.` : "Nobody is in it."}`)) return;
+    try {
+      await api(`/admin/member-categories/${encodeURIComponent(c.id)}`, { method: "DELETE" });
+      memberFilter.categories.delete(c.id);
+      await reloadCategories();
+    } catch (e) { catSay(e.message); }
+  }
+});
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Enter" && event.target.id === "catNewName") { event.preventDefault(); $("catNewAdd").click(); }
+});
+
+document.addEventListener("change", async event => {
+  const t = event.target;
+  if (t.dataset?.catRename) {
+    const name = t.value.trim();
+    try {
+      await api(`/admin/member-categories/${encodeURIComponent(t.dataset.catRename)}`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+      });
+      await reloadCategories(t.dataset.catRename);
+    } catch (e) { catSay(e.message); }
+  } else if (t.dataset?.catAssign) {
+    t.indeterminate = false;
+  } else if (t.dataset?.memberPick !== undefined) {
+    if (t.checked) memberPicked.add(t.dataset.memberPick); else memberPicked.delete(t.dataset.memberPick);
+    drawMemberPicks();
+  } else if (t.id === "memberPickAll") {
+    for (const box of document.querySelectorAll("[data-member-pick]")) {
+      box.checked = t.checked;
+      if (t.checked) memberPicked.add(box.dataset.memberPick); else memberPicked.delete(box.dataset.memberPick);
+    }
+    drawMemberPicks();
+  } else if (t.dataset?.mfCategory !== undefined) {
+    if (t.checked) memberFilter.categories.add(t.dataset.mfCategory); else memberFilter.categories.delete(t.dataset.mfCategory);
+    reloadMembers();
+  }
+});
+
+/* ------------------------------------------------------------------ a member's profile */
+
+/** The profile on screen, as the server last said it. */
+let profileNow = null;
+
+const VISIBILITY = [
+  ["private", "Only me and administrators"],
+  ["organization", "Everyone signed in to this organization"],
+  ["public", "Everyone (public)"],
+];
+
+async function showProfile(name) {
+  showView("view-user", name === signedInAs ? "" : "members");
+  $("profileName").textContent = name;
+  $("profileSub").textContent = "";
+  $("profilePhoto").innerHTML = "";
+  $("profileBody").innerHTML = `<p class="hint">Reading the profile…</p>`;
+
+  let p;
+  try {
+    p = await api(`/rest/members/${encodeURIComponent(name)}/profile`);
+  } catch (e) {
+    $("profileBody").innerHTML = `<p class="bad-inline">${h(e.message)}</p>`;
+    return;
+  }
+  profileNow = p;
+  drawProfile();
+  $("profileName").focus({ preventScroll: true });
+}
+
+function drawProfile() {
+  const p = profileNow;
+  const cats = (p.categories || []).map(id => memberCategories.find(c => c.id === id)?.name).filter(Boolean);
+
+  $("profilePhoto").innerHTML = `${memberAvatar({ name: p.name, photo: p.photo }, " big")}${p.mayEdit
+    ? `<button type="button" class="tiny ghost" id="photoOpen">${p.photo ? "Change photo" : "Add a photo"}</button>` : ""}`;
+  $("profileName").textContent = p.displayName || p.name;
+  $("profileSub").textContent = [p.name, p.email].filter(Boolean).join(" · ") + (p.disabled ? " · disabled" : "");
+
+  const facts = p.mayEdit ? `
+    <dl class="profilefacts">
+      ${p.roles ? `<dt>Role</dt><dd>${h((p.roles || []).join(", ") || "none")}</dd>` : ""}
+      ${p.userType ? `<dt>User type</dt><dd>${h(p.userType)}</dd>` : ""}
+      <dt>Last login</dt><dd>${h(lastSignInText(p.lastSignIn))}</dd>
+      <dt>Member since</dt><dd>${h(new Date(p.createdAt).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }))}</dd>
+      ${p.mayCategorize ? `<dt>Categories</dt><dd>${cats.length ? cats.map(h).join(", ") : "none"}
+        <button type="button" class="linkbtn" data-member-categorize="${h(p.name)}">Categorize…</button></dd>` : ""}
+    </dl>` : "";
+
+  $("profileBody").innerHTML = p.mayEdit ? `
+    <div class="profileform">
+      <label for="pfDisplay">Name shown</label>
+      <input id="pfDisplay" type="text" maxlength="255" value="${h(p.displayName || "")}" placeholder="${h(p.name)}">
+      <label for="pfEmail">E-mail</label>
+      <input id="pfEmail" type="email" maxlength="254" value="${h(p.email || "")}">
+      <label for="pfBio">Bio</label>
+      <textarea id="pfBio" rows="4" maxlength="4000" placeholder="Add a bio">${h(p.bio || "")}</textarea>
+      <label for="pfVisibility">Profile visibility</label>
+      <select id="pfVisibility">${VISIBILITY.map(([v, t]) =>
+        `<option value="${v}"${v === p.visibility ? " selected" : ""}>${h(t)}</option>`).join("")}</select>
+      <p class="hint" id="pfVisibilityHint">${h(visibilityHint(p.visibility))}</p>
+      <div class="row"><button type="button" class="primary" id="pfSave">Save profile</button>
+        <span class="val" id="pfSays" role="status" aria-live="polite"></span></div>
+    </div>${facts}`
+    : `${p.bio ? `<p class="profilebio">${h(p.bio)}</p>` : `<p class="hint">No bio.</p>`}`;
+  paintPhotos();
+}
+
+function visibilityHint(v) {
+  return v === "public" ? "Anybody with the address can read this profile, signed in or not."
+    : v === "private" ? "Only you and the administrators who manage members can read it."
+    : "Anybody signed in to this organization can read it; a stranger cannot.";
+}
+
+let photoChosen = null;
+
+function openPhotoDialog() {
+  photoChosen = null;
+  $("photoPreview").hidden = true;
+  $("photoSave").disabled = true;
+  $("photoSays").hidden = true;
+  $("photoRemove").hidden = !profileNow?.photo;
+  $("photoDialog").showModal();
+}
+
+function choosePhoto(file) {
+  const says = $("photoSays");
+  says.hidden = true;
+  if (!file) return;
+  if (!["image/png", "image/jpeg", "image/gif"].includes(file.type)) {
+    says.textContent = "A photo is a JPG, PNG or GIF file."; says.hidden = false; return;
+  }
+  if (file.size > 1048576) {
+    says.textContent = "That file is over a megabyte; 200 × 200 pixels is all a profile shows."; says.hidden = false; return;
+  }
+  photoChosen = file;
+  $("photoPreview").src = URL.createObjectURL(file);
+  $("photoPreview").hidden = false;
+  $("photoSave").disabled = false;
+}
+
+async function afterPhotoChange() {
+  $("photoDialog").close();
+  photoUrls.clear();
+  await showProfile(profileNow.name);
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target;
+  if (t.id === "photoOpen") { openPhotoDialog(); return; }
+  if (t.id === "photoBrowse") { $("photoFile").click(); return; }
+  if (t.id === "photoCancel" || t.id === "photoDialogClose") { $("photoDialog").close(); return; }
+  if (t.id === "photoSave" && photoChosen) {
+    t.disabled = true;
+    try {
+      await api(`/rest/members/${encodeURIComponent(profileNow.name)}/photo`, {
+        method: "PUT", headers: { "Content-Type": photoChosen.type }, body: photoChosen,
+      });
+      await afterPhotoChange();
+      toast("Photo saved.", true);
+    } catch (e) {
+      $("photoSays").textContent = e.message; $("photoSays").hidden = false; t.disabled = false;
+    }
+    return;
+  }
+  if (t.id === "photoRemove") {
+    if (!confirm("Remove this photo?")) return;
+    try {
+      await api(`/rest/members/${encodeURIComponent(profileNow.name)}/photo`, { method: "DELETE" });
+      await afterPhotoChange();
+    } catch (e) { toast(e.message); }
+    return;
+  }
+  if (t.id === "pfSave") {
+    t.disabled = true;
+    try {
+      profileNow = await api(`/rest/members/${encodeURIComponent(profileNow.name)}/profile`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayName: $("pfDisplay").value, email: $("pfEmail").value, bio: $("pfBio").value,
+          visibility: $("pfVisibility").value,
+        }),
+      });
+      drawProfile();
+      $("pfSays").textContent = "Saved.";
+      $("pfSave").focus();
+    } catch (e) {
+      $("pfSays").textContent = e.message;
+      t.disabled = false;
+    }
+  }
+});
+
+document.addEventListener("change", event => {
+  if (event.target.id === "photoFile") choosePhoto(event.target.files?.[0]);
+  if (event.target.id === "pfVisibility") $("pfVisibilityHint").textContent = visibilityHint(event.target.value);
+});
+
+for (const kind of ["dragover", "drop"]) {
+  document.addEventListener(kind, event => {
+    const zone = event.target.closest?.("#photoDrop");
+    if (!zone) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (kind === "drop") choosePhoto(event.dataTransfer?.files?.[0]);
+  }, true);
+}
+
+/** ✕ and Escape on the dialogs whose form is drawn from state: closing ends the edit, as Cancel does. */
+document.addEventListener("click", event => {
+  if (event.target.id === "domainEditClose") $("domainEditDialog").close();
+  if (event.target.id === "idpDialogClose") $("idpDialog").close();
+});
+
+document.addEventListener("close", event => {
+  if (event.target.id === "domainEditDialog" && domainEdit) { domainEdit = null; drawDomains(); }
+  if (event.target.id === "idpDialog" && idpEditing) { idpEditing = null; idpSay(""); drawIdpForm(); }
+}, true);
+
+/** Asks the server again from the first page, which every change to the question must do. */
+function reloadMembers() {
+  pages.set("members", 0);
+  section("members", loadMembers, "members");
+}
+
+let memberTyping = null;
+
+document.addEventListener("input", event => {
+  const t = event.target;
+  if (t.id === "memberQ") {
+    memberFilter.q = t.value;
+    clearTimeout(memberTyping);
+    memberTyping = setTimeout(reloadMembers, 300);
+  } else if (t.id === "mfRoleQ") {
+    // Narrows the list of roles on the page; it asks the server nothing.
+    const roles = [...document.querySelectorAll("#mRole option")].map(o => o.value);
+    drawMemberFilters(roles, memberUserTypes);
+  }
+});
+
+document.addEventListener("change", event => {
+  const t = event.target;
+  if (t.dataset?.mfRole !== undefined) {
+    if (t.checked) memberFilter.roles.add(t.dataset.mfRole); else memberFilter.roles.delete(t.dataset.mfRole);
+  } else if (t.dataset?.mfType !== undefined) {
+    if (t.checked) memberFilter.types.add(t.dataset.mfType); else memberFilter.types.delete(t.dataset.mfType);
+  } else if (t.id === "mfStatus") memberFilter.status = t.value;
+  else if (t.id === "mfSigned") memberFilter.signedIn = t.value;
+  else if (t.id === "mfGroup") memberFilter.group = t.value;
+  else return;
+  reloadMembers();
+});
+
+document.addEventListener("click", event => {
+  const t = event.target;
+
+  // A row's ⋯ is closed by a click anywhere but inside it, as a menu is; and only one is open at a time.
+  for (const open of document.querySelectorAll("details.rowmenu[open]")) {
+    if (!open.contains(t) || t.closest?.(".rowmenubody button")) open.open = false;
+  }
+
+  const sort = t.closest?.("[data-member-sort]");
+  if (sort) {
+    const by = sort.dataset.memberSort;
+    // A second press on the same heading reverses it; a new heading starts where a reader expects:
+    // names A–Z, last login newest first.
+    if (memberFilter.sort === by) memberFilter.order = memberFilter.order === "asc" ? "desc" : "asc";
+    else { memberFilter.sort = by; memberFilter.order = by === "lastSignIn" ? "desc" : "asc"; }
+    reloadMembers();
+    return;
+  }
+
+  if (t.id === "mfClear" || t.dataset?.mfClear !== undefined) {
+    Object.assign(memberFilter, { q: "", status: "", signedIn: "", group: "" });
+    memberFilter.roles.clear();
+    memberFilter.types.clear();
+    memberFilter.categories.clear();
+    $("memberQ").value = "";
+    $("mfRoleQ").value = "";
+    $("mfGroup").value = "";
+    reloadMembers();
+  }
+});
+
+/**
+ * A row's ⋯ opens over the table rather than inside it: the table scrolls sideways in its own box, and a menu
+ * drawn inside that box is cut off at its edge — which is why this table had no row menu until now.
+ */
+document.addEventListener("toggle", event => {
+  const menu = event.target;
+  if (!(menu instanceof HTMLDetailsElement) || !menu.classList.contains("rowmenu") || !menu.open) return;
+  for (const other of document.querySelectorAll("details.rowmenu[open]")) if (other !== menu) other.open = false;
+  const at = menu.querySelector("summary").getBoundingClientRect();
+  const body = menu.querySelector(".rowmenubody");
+  body.style.top = `${Math.round(at.bottom + 4)}px`;
+  body.style.right = `${Math.round(window.innerWidth - at.right)}px`;
+}, true);
 
 /**
  * Shows a password the server has just issued, and says what it is for.
@@ -13463,11 +14101,7 @@ async function loadServices() {
               : "Answer 503 for this service, without changing who may see it"}"
             >${glyph(stopped ? "play" : "stop")}${stopVerb}</button>
 
-          ${r.cover && !stopped
-            ? `<a class="rowbtn" href="${h(visHref(r.cover.name, "features") || "#/")}"
-                 aria-label="Map of ${h(label)}" title="Draw ${h(r.cover.name)} on the map, in Studio">${glyph("map")}Map</a>`
-            : ""}
-
+          <!-- No Map here since 2026-10-17, by owner decision: *"server serverliğini bilsin, studio studioluğunu"*. -->
           ${r.kind === "ImageServer"
             ? `<a class="rowbtn" href="/studio/#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
                  aria-label="Delete ${h(label)}, on its own page"
@@ -14025,7 +14659,7 @@ function showLayer(name, page, pending = null) {
   // refusal toast and a bounce to Studio's home. A plain *nevermind* should not cross the product.
   // Design review 2026-08-19.
   const home = surfaceOfPath() === "studio" ? "content" : "services";
-  const homeLabel = home === "content" ? "My content" : "Services";
+  const homeLabel = home === "content" ? "Content" : "Services";
 
   $("editCancel").setAttribute("href", `#/${home}`);
 
@@ -15948,9 +16582,9 @@ function drawValues() {
         </select></label>` : ""}
     ${chosen ? `<p class="hint" id="valuesSharedSays">${uses.count
       ? `Also used by ${h(uses.text)}.`
-      : "Shared, and used by no other field yet."} Its values are changed on the Domains screen, where the change
+      : "Shared, and used by no other field yet."} Its values are changed in the list of domains, where the change
       reaches every field that uses it.
-      <button type="button" class="tiny ghost" data-values-edit-shared="${h(chosen.id)}">Change “${h(chosen.name)}” on Domains</button></p>`
+      <button type="button" class="tiny ghost" data-values-edit-shared="${h(chosen.id)}">Change “${h(chosen.name)}”…</button></p>`
       : (v.kind === "list" || v.kind === "range")
         ? `<p class="hint${taken ? " bad-inline" : ""}" id="valuesSharedSays">${taken
           ? `A shared ${noun} is already named “${h(String(v.name).trim())}”. Choose it above, or give this one a name no other has.`
@@ -16328,8 +16962,7 @@ document.addEventListener("click", async e => {
   }
 
   if (t.dataset && t.dataset.valuesEditShared) {
-    domainsEditId = t.dataset.valuesEditShared;
-    location.hash = "#/domains";
+    openDomainsDialog(t.dataset.valuesEditShared);
     return;
   }
 
@@ -21297,6 +21930,98 @@ async function loadDomains() {
   else if (typing) $(typing)?.focus();
 }
 
+/**
+ * The list of domains, wherever it is shown — ADR-087 §6, 2026-10-17.
+ *
+ * <b>One copy in the document at a time.</b> The list's controls are addressed by id (`domainRows`, `domainNew`,
+ * the editor's boxes), and it is shown in two places — the Define your own layer form and the dialog a Fields page
+ * opens — so mounting it in one takes it out of the other, rather than leaving two `domainRows` where
+ * `getElementById` would write into whichever came first.
+ */
+function mountDomains(host) {
+  $("domainsPanel")?.remove();
+  domainEdit = null;
+  host.innerHTML = `
+    <section class="domainspanel" id="domainsPanel" aria-labelledby="domainsTitle">
+      <div class="domainshead">
+        <h4 id="domainsTitle" tabindex="-1">Domains</h4>
+        <button type="button" class="ghost tiny" id="domainNew">New domain</button>
+      </div>
+      <p class="hint">Lists and ranges of values a field can be held to. One is shared by every field that chooses
+        it, on any layer, and a change to it reaches all of them.</p>
+      <div class="domainstable"><table>
+        <thead><tr>
+          <th>Domain</th><th>Values</th><th>Used by</th><th>Owner</th><th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="domainRows"><tr><td colspan="5" class="empty">Reading the domains…</td></tr></tbody>
+      </table></div>
+      <p class="hint" id="domainsSays" aria-live="polite"></p>
+    </section>`;
+  return loadDomains().catch(e => {
+    $("domainsSays").textContent = e.message || String(e);
+    $("domainsSays").classList.add("bad-inline");
+  });
+}
+
+/** The list of domains over a Fields page, open on one of them when it is named. */
+function openDomainsDialog(id) {
+  let dialog = $("domainsDialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "domainsDialog";
+    dialog.setAttribute("aria-labelledby", "domainsTitle");
+    dialog.innerHTML = `
+      <header class="dialoghead"><span></span>
+        <button type="button" class="tiny ghost" id="domainsDialogClose" aria-label="Close">&#10005;</button></header>
+      <div class="dialogbody" id="domainsDialogBody"></div>`;
+    document.body.append(dialog);
+    dialog.querySelector("#domainsDialogClose").addEventListener("click", () => dialog.close());
+
+    // Closing takes the list out, so the define form can have it, and reads the Fields page's choices again:
+    // a domain changed or renamed here is what that page's Values editor offers next.
+    dialog.addEventListener("close", async () => {
+      $("domainsDialogBody").innerHTML = "";
+      domainEdit = null;
+      if (fieldsState) {
+        try { fieldsState.shared = (await api("/admin/domains")).domains || fieldsState.shared; } catch { /* keep */ }
+        if (fieldsState.values) drawValues();
+      }
+    });
+  }
+  domainsEditId = id || null;
+  dialog.showModal();
+  mountDomains($("domainsDialogBody"));
+}
+
+/**
+ * Which shared domains a designed field of this type can choose — `DomainRules.KindsFor` on the server, which is
+ * what judges the choice; this only keeps impossible ones off the list. A text field takes a list of text, a number
+ * a list of numbers or a range, a date a range; a 64-bit integer, a yes/no and a GUID take none.
+ */
+function domainFitsType(d, type) {
+  const values = domainValueType(d);
+  const text = values === "String" || values === "Text";
+  if (type === "Text") return d.type === "codedValue" && text;
+  if (["SmallInteger", "Integer", "Single", "Double"].includes(type)) return !text && values !== "Date";
+  if (type === "Date") return d.type === "range" && !text;
+  return false;
+}
+
+/** Redraws each designed field's Domain choice from the list, keeping what was chosen while it still fits. */
+function drawDomainPicks() {
+  for (const row of document.querySelectorAll("#dFields tr")) {
+    const pick = row.querySelector(".fDomain");
+    if (!pick) continue;
+    const type = row.querySelector(".fType").value;
+    const was = pick.value;
+    const fits = domainsListed.filter(d => domainFitsType(d, type));
+    pick.innerHTML = `<option value="">None</option>` + fits.map(d =>
+      `<option value="${h(d.id)}"${d.id === was ? " selected" : ""}>${h(d.name)}</option>`).join("");
+    pick.disabled = fits.length === 0;
+    pick.title = fits.length ? "" : `No domain fits a ${type} field yet`;
+  }
+}
+
 /** How a domain's values are typed: the column type of a field that uses it, or what the values look like. */
 function domainValueType(d) {
   if (d.fieldType) return d.fieldType;
@@ -21361,8 +22086,7 @@ function domainEditor() {
           .map(([v, t]) => `<option value="${v}" ${e.type === v ? "selected" : ""}>${t}</option>`).join("")}
       </select></div>`;
 
-  return `<tr class="valuesrow"><td colspan="5"><div class="valuesedit" role="group" aria-labelledby="domEditTitle">
-    <h4 id="domEditTitle">${e.id ? `Change “${h(d ? d.name : e.name)}”` : "A new domain"}</h4>
+  return `<div class="valuesedit" role="group" aria-labelledby="domEditTitle">
     ${uses.length ? `<p class="hint"><b>Used by ${fieldsCount(uses.length)}</b>: ${h(uses.slice(0, 4).map(u =>
       `${u.layer} · ${u.column}`).join(", "))}${uses.length > 4 ? ` and ${uses.length - 4} more` : ""}.
       Saving changes it on every one of them.</p>` : ""}
@@ -21390,7 +22114,8 @@ function domainEditor() {
       <button type="button" class="primary" id="domEditSave">${e.id ? "Save" : "Create"}</button>
       <button type="button" class="ghost" id="domEditCancel">Cancel</button>
     </div>
-  </div></td></tr>`;
+    <p class="bad-inline" id="domEditSays" role="alert" hidden></p>
+  </div>`;
 }
 
 function drawDomains() {
@@ -21417,15 +22142,27 @@ function drawDomains() {
         : `<span class="hint">Nothing</span>`}</td>
       <td>${h(d.owner || "—")}</td>
       <td class="actions">${actions}</td>
-    </tr>${e && e.id === d.id ? domainEditor() : ""}`;
+    </tr>`;
   }).join("");
 
-  $("domainRows").innerHTML = (e && !e.id ? domainEditor() : "") + (domainsListed.length || (e && !e.id)
+  $("domainRows").innerHTML = (domainsListed.length
     ? rows
-    : `<tr><td colspan="5" class="empty">No shared domains yet. One is made the first time a column is given a list
-        or a range on its layer's Fields page, when a geodatabase with domains is imported, or with New domain.</td></tr>`);
+    : `<tr><td colspan="5" class="empty">No domains yet. Make one with New domain, and a field above can choose
+        it. One is also made when a geodatabase with domains is imported.</td></tr>`);
 
-  $("domainNew").hidden = !!(e && !e.id);
+  // <b>The editor is a dialog over the list</b> (owner, 2026-10-17: every "new" is a modal that can be closed).
+  const dialog = $("domainEditDialog");
+  if (e) {
+    const d = e.id ? domainsListed.find(x => x.id === e.id) : null;
+    $("domEditTitle").textContent = e.id ? `Change “${d ? d.name : e.name}”` : "New domain";
+    $("domainEditBody").innerHTML = domainEditor();
+    if (!dialog.open) dialog.showModal();
+  } else if (dialog.open) {
+    dialog.close();
+  }
+
+  // A domain made, renamed or deleted here is at once a choice, or no longer one, on the fields being designed.
+  drawDomainPicks();
 }
 
 /** The editor's copy as the server takes it. */
@@ -21461,7 +22198,7 @@ async function saveDomain() {
 
     $("domainsSays").textContent = e.id
       ? `“${name}” was saved${uses.length ? `, and every one of its ${fieldsCount(uses.length)} now allows what it says` : ""}.`
-      : `“${name}” was created. A column can choose it on its layer's Fields page.`;
+      : `“${name}” was created. ${$("dFields") ? "A field above can choose it now." : "A field can choose it now."}`;
     $("domainsSays").classList.remove("bad-inline");
 
     const at = domainsListed.findIndex(x => x.name === name);
@@ -21469,6 +22206,7 @@ async function saveDomain() {
   } catch (err) {
     $("domainsSays").textContent = err.message;
     $("domainsSays").classList.add("bad-inline");
+    dialogSay("domEditSays", err.message);
     $("domEditSave")?.focus();
   }
 }
@@ -21516,7 +22254,6 @@ async function loadSettings() {
 
   const settings = await api("/admin/settings") || {};
   drawSettings(settings);
-  await drawGround(settings.ground || {});
 
   // Enter saves, as it does in every form a person fills in; assigned rather than added so a redraw
   // does not stack a second listener.
@@ -21531,7 +22268,16 @@ async function loadSettings() {
   // and awaited above these two lines it left the box without Enter or its input handler for as long as
   // that answer took (SettingsScreenTests caught it over a slow link, 2026-09-29).
   await loadStyleOrigins();
-  await loadGeometryService();
+}
+
+/**
+ * Organization › Settings — 2026-10-17: the basemaps, the map ground and the geometry service, which were Server's
+ * General until the owner moved them to Studio with members and roles. Same reads, same cards, same ids.
+ */
+async function loadOrgSettings() {
+  groundSay("");
+  const settings = await api("/admin/settings") || {};
+  await drawGround(settings.ground || {});
   await loadBasemaps();
 }
 
@@ -22582,18 +23328,22 @@ function drawDesignForm() {
         </select></label>
       </div>
       <table>
-        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th></th></tr></thead>
+        <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Domain</th><th></th></tr></thead>
         <tbody id="dFields"></tbody>
       </table>
       <div class="row" style="margin:10px 0 0">
         <button type="button" id="dAdd" class="ghost">Add field</button>
       </div>
     </form>
+    <div id="designDomains"></div>
     <div id="newResult" class="group" style="display:none"></div>`;
 
   $("designForm").addEventListener("submit", createDesigned);
   $("dAdd").addEventListener("click", () => addFieldRow());
   addFieldRow();
+
+  // ADR-087 §6: the domains a field chooses are listed, made, changed and deleted on this screen.
+  mountDomains($("designDomains"));
 }
 
 /**
@@ -23130,9 +23880,12 @@ function addFieldRow(name = "", type = "Text") {
      <td><select class="fType">${FIELD_TYPES.map(t =>
        `<option${t === type ? " selected" : ""}>${t}</option>`).join("")}</select></td>
      <td style="text-align:center"><input class="fReq" type="checkbox"></td>
+     <td><select class="fDomain" aria-label="Domain"><option value="">None</option></select></td>
      <td><button type="button" class="ghost tiny fDel">Remove</button></td>`;
   row.querySelector(".fDel").onclick = () => row.remove();
+  row.querySelector(".fType").onchange = () => drawDomainPicks();
   $("dFields").append(row);
+  drawDomainPicks();
 }
 
 // Reports what the server said rather than "done". The import response carries
@@ -23806,6 +24559,8 @@ async function createDesigned(event) {
     name: row.querySelector(".fName").value.trim(),
     type: row.querySelector(".fType").value,
     nullable: !row.querySelector(".fReq").checked,
+    // ADR-087 §6: a shared domain, by id, bound as the layer is made.
+    domain: row.querySelector(".fDomain")?.value || null,
   })).filter(f => f.name);
 
   try {
@@ -23822,6 +24577,7 @@ async function createDesigned(event) {
     $("dName").value = "";
     $("dFields").innerHTML = "";
     addFieldRow();
+    if ($("domainsPanel")) await loadDomains();
     await loadLayers();
   } catch (e) {
     // The server's message is the useful part — a name in use, a reserved
@@ -24096,16 +24852,6 @@ async function handleClick(event) {
     t.disabled = true;
     await section("operations", loadOperations);
     await section("health", refreshHealth);
-    t.disabled = false;
-    return;
-  }
-
-  // Asked for rather than run on entry. It is three requests per layer against
-  // our own server, and a report that quietly generates load every time somebody
-  // clicks a tab is a report people learn to avoid.
-  if (t.id === "anonRun") {
-    t.disabled = true;
-    await section("the anonymous view", loadAnonymous, "anonRows");
     t.disabled = false;
     return;
   }
@@ -24519,6 +25265,7 @@ async function handleClick(event) {
 
     try {
       const held = await api(`/admin/members/${encodeURIComponent(d.memberRemove)}/holdings`);
+      memberNames = (((await api("/admin/members?num=500&status=active")) || {}).members || []).map(m => m.name);
 
       // <b>Nothing owned: one question, and it is the ordinary one.</b> Asking about a
       // disposition for content that does not exist is a dialog nobody can answer.
@@ -24892,44 +25639,29 @@ async function handleClick(event) {
   // return to. And a browser that has offered *"prevent this page from creating additional
   // dialogs"* makes New group silently do nothing for the rest of the session.
   if (t.id === "groupNew") {
-    $("groupNewForm").innerHTML = `
-      <div class="picker">
-        <label for="newGroupName">Name</label>
-        <input id="newGroupName" type="text" placeholder="planning" autocomplete="off">
+    // A fresh question each time: what was typed into a group that was not made does not wait for the next one.
+    for (const id of ["newGroupName", "newGroupTitle", "newGroupWhy"]) $(id).value = "";
+    $("newGroupUpdate").value = "none";
+    $("newGroupSays").hidden = true;
+    $("groupNewDialog").showModal();
+    $("newGroupName").focus();
+    return;
+  }
 
-        <label for="newGroupTitle">Title <span class="val">shown in the list</span></label>
-        <input id="newGroupTitle" type="text" placeholder="Planning team" autocomplete="off">
-
-        <label for="newGroupWhy">What it is for</label>
-        <input id="newGroupWhy" type="text" autocomplete="off">
-
-        <label for="newGroupUpdate">What members may do with the services shared into it</label>
-        <select id="newGroupUpdate">
-          <option value="none">none — read them</option>
-          <option value="ownItems">ownItems — edit the ones they shared themselves</option>
-          <option value="allItems">allItems — edit every service shared with the group</option>
-        </select>
-
-        <p class="hint"><b>This one cannot be changed afterwards.</b> Widening it would make every
-          service already shared with the group editable by every member, retroactively — so the
-          server has no way to change it and neither does this screen (ADR-036 §4c). To change it,
-          make another group and move the shares.</p>
-
-        <div class="row">
-          <button class="primary" id="newGroupSave">Create group</button>
-          <button class="ghost" id="groupPickCancel">Cancel</button>
-        </div>
-      </div>`;
-
-    $("groupNewForm").hidden = false;
-    $("newGroupName")?.focus();
+  if (t.id === "groupNewCancel" || t.id === "groupNewClose") {
+    $("groupNewDialog").close();
     return;
   }
 
   if (t.id === "newGroupSave") {
     const name = ($("newGroupName")?.value || "").trim();
 
-    if (!name) { toast("A group needs a name."); $("newGroupName")?.focus(); return; }
+    if (!name) {
+      $("newGroupSays").textContent = "A group needs a name.";
+      $("newGroupSays").hidden = false;
+      $("newGroupName").focus();
+      return;
+    }
 
     try {
       await api("/admin/groups", {
@@ -24947,16 +25679,19 @@ async function handleClick(event) {
       });
       groupOpen = name;
       toast(`${name}: created. You own it.`, true);
-      $("groupNewForm").hidden = true;
+      $("groupNewDialog").close();
 
       // <b>Straight to its page.</b> The next act after making a group is adding members, and those
       // verbs live there — staying on the list left the new row highlighted under nothing, which was a
       // leftover of the panel this replaced.
       location.hash = `#/group/${encodeURIComponent(name)}/overview`;
       return;
-    } catch (e) { toast(e.message); }
-
-    await section("groups", loadGroups, "groupRows");
+    } catch (e) {
+      // Said in the dialog, which stays open with everything typed, so a taken name is one edit away.
+      $("newGroupSays").textContent = e.message;
+      $("newGroupSays").hidden = false;
+      $("newGroupName").focus();
+    }
     return;
   }
 
@@ -25147,7 +25882,6 @@ async function handleClick(event) {
     // Whichever is open: the create form has its own slot outside the editor, and the member and
     // service pickers are inside it, because those two *are* operations on the open group.
     $("groupPicker").hidden = true;
-    $("groupNewForm").hidden = true;
     return;
   }
 
@@ -25744,13 +26478,14 @@ async function handleClick(event) {
   }
 
   if (t.id === "appNew") {
-    $("appForm").hidden = false;
+    dialogSay("appFormSays", "");
+    $("appDialog").showModal();
     $("appTitle").focus();
     return;
   }
 
-  if (t.id === "appCancel") {
-    $("appForm").hidden = true;
+  if (t.id === "appCancel" || t.id === "appDialogClose") {
+    $("appDialog").close();
     $("appNew").focus();
     return;
   }
@@ -25760,8 +26495,8 @@ async function handleClick(event) {
     const redirectUris = $("appRedirects").value.split(/\r?\n/).map(u => u.trim()).filter(Boolean);
     const clientId = $("appClientId").value.trim();
 
-    if (!title) { toast("An app needs a name: it is what people see before they type a password."); $("appTitle").focus(); return; }
-    if (redirectUris.length === 0) { toast("An app needs at least one address to return people to."); $("appRedirects").focus(); return; }
+    if (!title) { dialogSay("appFormSays", "An app needs a name: it is what people see before they type a password."); $("appTitle").focus(); return; }
+    if (redirectUris.length === 0) { dialogSay("appFormSays", "An app needs at least one address to return people to."); $("appRedirects").focus(); return; }
 
     try {
       // Kept on screen if refused, so the server's sentence can be acted on without typing it all again.
@@ -25775,11 +26510,11 @@ async function handleClick(event) {
 
       // <b>Focus moves the moment the form is hidden</b>, not after the list is read again: in between,
       // it sat on a field nobody could see — found by the console test on its first run.
-      $("appForm").hidden = true;
+      $("appDialog").close();
       $("appNew").focus();
       $("appSays").textContent = `${title} is registered. Its app ID is ${made && made.clientId ? made.clientId : "shown in the list"}.`;
     } catch (e) {
-      toast(e.message);
+      dialogSay("appFormSays", e.message);
       return;
     }
 
@@ -25816,8 +26551,22 @@ async function handleClick(event) {
   }
 
   if (t.id === "roleNew") {
-    const name = prompt("Name for the new role (lower case, no spaces):");
-    if (!name) return;
+    $("newRoleName").value = "";
+    $("newRoleWhy").value = "";
+    dialogSay("newRoleSays", "");
+    $("roleDialog").showModal();
+    $("newRoleName").focus();
+    return;
+  }
+
+  if (t.id === "roleNewCancel" || t.id === "roleDialogClose") {
+    $("roleDialog").close();
+    return;
+  }
+
+  if (t.id === "roleNewSave") {
+    const name = $("newRoleName").value.trim();
+    if (!name) { dialogSay("newRoleSays", "A role needs a name."); $("newRoleName").focus(); return; }
 
     try {
       // <b>Created empty, and the editor is where privileges are chosen.</b> A creation dialog with
@@ -25826,11 +26575,15 @@ async function handleClick(event) {
       await api("/admin/roles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: "", privileges: [] }),
+        body: JSON.stringify({ name, description: $("newRoleWhy").value.trim(), privileges: [] }),
       });
-      roleOpen = name.trim();
-      toast(`${name.trim()}: created, granting nothing yet`, true);
-    } catch (e) { toast(e.message); }
+      roleOpen = name;
+      $("roleDialog").close();
+      toast(`${name}: created, granting nothing yet`, true);
+    } catch (e) {
+      dialogSay("newRoleSays", e.message);
+      return;
+    }
 
     await section("roles", loadRoles, "roleRows");
     return;
@@ -26255,14 +27008,15 @@ async function handleClick(event) {
   }
 
   if (t.id === "memberNew") {
-    $("memberForm").hidden = false;
+    dialogSay("memberSays", "");
+    $("memberDialog").showModal();
     $("mName").focus();
     drawMemberProviders();
     return;
   }
 
-  if (t.id === "mCancel") {
-    $("memberForm").hidden = true;
+  if (t.id === "mCancel" || t.id === "memberDialogClose") {
+    $("memberDialog").close();
     for (const id of ["mName", "mDisplay"]) $(id).value = "";
     return;
   }
@@ -26285,11 +27039,15 @@ async function handleClick(event) {
           username: $("mVia")?.value ? ($("mUsername").value || null) : null,
         }),
       });
-      $("memberForm").hidden = true;
+      $("memberDialog").close();
       for (const id of ["mName", "mDisplay", "mUsername"]) if ($(id)) $(id).value = "";
       if (made && made.password) showIssuedPassword(made);
       else toast(made && made.note || "Created.", true);
-    } catch (e) { toast(e.message); }
+    } catch (e) {
+      dialogSay("memberSays", e.message);
+      t.disabled = false;
+      return;
+    }
     t.disabled = false;
     await section("members", loadMembers, "members");
     return;
@@ -27080,11 +27838,6 @@ document.addEventListener("keydown", event => {
     // navigated to is left with Back or Cancel.
     // <b>An open picker closes first.</b> It is the innermost thing on screen and Escape means *out
     // of this*, so a chain that skipped it would send the reader out of the screen instead.
-    if ($("groupNewForm") && !$("groupNewForm").hidden) {
-      $("groupNewForm").hidden = true;
-      return;
-    }
-
     if ($("groupPicker") && !$("groupPicker").hidden) {
       $("groupPicker").hidden = true;
       return;
@@ -27123,6 +27876,10 @@ async function whoami() {
   // caller from a group, and every other member operation names somebody else — so this is the only
   // place the console needs to know who it is beyond drawing the banner.
   signedInAs = me.authenticated ? (me.name || "") : "";
+  if ($("myProfile")) {
+    $("myProfile").hidden = !signedInAs;
+    $("myProfile").href = `/studio/#/user/${encodeURIComponent(signedInAs)}`;
+  }
   // Two lines rather than one sentence with separators: `#who b` is a block, so a leading "·" on
   // the second line was left dangling under the name. The name is the identity and the rest is what
   // it can do, which is the hierarchy this pair should read as anyway.
@@ -27492,168 +28249,6 @@ async function start() {
   // makes it an address rather than a bookmark that lands somewhere else — and the
   // page cannot say whether the layer is hosted until the catalogue is in hand.
   route();
-}
-
-// ------------------------------------------------------- the anonymous view
-
-/**
- * One request as a caller with no credential would make it.
- *
- * <b>This whole surface rests on omitting one header.</b> `api()` attaches the
- * session token to everything, which is right for a console and wrong for the
- * only question asked here. ADR-015 §3 makes a session an opaque bearer token
- * rather than a cookie, so there is nothing else to suppress — `credentials:
- * "omit"` is there anyway, so that moving to a cookie session later cannot
- * quietly turn this tab into a liar.
- *
- * The status is returned rather than thrown on. Every other caller in this file
- * wants a refusal to be an error; here a refusal is the measurement.
- */
-async function anon(path) {
-  try {
-    const response = await fetch(path, { credentials: "omit" });
-    return { status: response.status, ok: response.ok };
-  } catch (e) {
-    // A dropped connection is not a refusal, and reporting it as one would
-    // invent an authorization result out of a network failure.
-    return { status: 0, ok: false, error: e.message || String(e) };
-  }
-}
-
-// What each code means to the person reading the table. The 404 line is the
-// important one: ADR-018's refusal is deliberately identical for a layer that
-// does not exist and one that exists and is not shared, so this column cannot
-// be read as "missing" — which is exactly the mistake D-45 recorded.
-const MEANING = {
-  0: "no answer — the request did not complete",
-  200: "readable with no credential",
-  401: "a credential is asked for",
-  403: "refused, and the reason is authorization",
-  404: "not found, or found and not shared — deliberately the same answer",
-  503: "the service is stopped",
-};
-
-/**
- * What the catalogue intended, against what an anonymous caller actually got.
- *
- * Only disagreement is marked. A table where every cell is coloured tells the
- * reader nothing about which row to look at, and the point of this screen is
- * that most rows are boring.
- */
-function reality(layer, results) {
-  if (layer.status === "stopped") {
-    return { bad: false, text: "stopped — nothing is expected to answer" };
-  }
-  const anyReadable = results.some(r => r.ok);
-  if (layer.sharing === "public") {
-    return results.every(r => r.ok)
-      ? { bad: false, text: "as intended" }
-      : { bad: true, text: "shared public, and not readable" };
-  }
-  // private and organization are alike from out here: an anonymous caller is
-  // not in the organization either.
-  return anyReadable
-    ? { bad: true, text: `shared ${layer.sharing}, and readable without a credential` }
-    : { bad: false, text: "as intended" };
-}
-
-const codeCell = r =>
-  `<td class="num" title="${h(r.error || MEANING[r.status] || "")}">${
-    r.status || "—"}</td>`;
-
-/**
- * Probes every catalogued layer as an anonymous client and reports the two
- * mismatches that matter.
- *
- * <b>Your content, not the catalogue</b>, since it moved to Studio. It used to read
- * `/admin/layers` — every layer on the server — which needed `admin:viewAllContent` and made
- * this an operator's report. The question it answers is a publisher's: *is this layer of mine
- * visible to somebody with no credential, and did I mean that?* So it now walks the same
- * `/content/layers` rows the content screen draws, which for an administrator is still
- * everything they own and everything shared with them.
- *
- * <b>The address comes from the listing and the probe is made without your session</b>, and
- * that split is the design: you cannot ask what a stranger sees at a URL you were unable to
- * find. Group layers never appear because they are not layers in this listing — they hold no
- * features, so a count query against one is not a question about sharing.
- *
- * <b>It used to walk the services directory for the address, and therefore skipped every
- * stopped layer</b> — reporting them as *not addressable* rather than probing them. A stopped
- * layer's anonymous answer is a real answer (503, and the same for everybody), and leaving it
- * out of a report about who can see what is the wrong silence.
- */
-async function loadAnonymous() {
-  const body = $("anonRows");
-
-  // The content screen fills `content`; this tab can be opened first, so it is filled here
-  // when it is empty rather than assumed.
-  if (content.size === 0) await loadMyContent();
-
-  const layers = [...content.values()];
-
-  $("anonSummary").innerHTML = "";
-  body.innerHTML = `<tr><td colspan="6" class="empty">Probing ${layers.length} layers…</td></tr>`;
-
-  const rows = [];
-  // Four at a time. Ninety-odd requests fired at once is a load test of our own
-  // server dressed up as a report, and it would make the slowest row look like
-  // a refusal.
-  for (let i = 0; i < layers.length; i += 4) {
-    const batch = layers.slice(i, i + 4);
-    rows.push(...await Promise.all(batch.map(async layer => {
-      // Straight from the row: `/content/layers` carries the address, which is the whole of
-      // D-45's complaint answered for this listing.
-      const place = { service: layer.service, id: layer.layerId };
-      const base = `/rest/services/${place.service}/FeatureServer`;
-      const results = await Promise.all([
-        anon(`${base}?f=json`),
-        anon(`${base}/${place.id}?f=json`),
-        anon(`${base}/${place.id}/query?where=1%3D1&returnCountOnly=true&f=json`),
-      ]);
-      return { layer, place, results, said: reality(layer, results) };
-    })));
-    body.innerHTML = `<tr><td colspan="6" class="empty">Probing ${
-      Math.min(i + 4, layers.length)} of ${layers.length}…</td></tr>`;
-  }
-
-  rows.sort((a, b) => (b.said.bad ? 1 : 0) - (a.said.bad ? 1 : 0)
-    || a.layer.name.localeCompare(b.layer.name));
-
-  // <b>A disagreeing row is tinted, and only a disagreeing one.</b> The comment on `reality`
-  // above says why: a table where every cell is coloured says nothing about which row to look
-  // at, and most rows here are meant to be boring. The tint is the row-level version of the
-  // sentence that was already in the last cell.
-  body.innerHTML = rows.map(({ layer, place, results, said }) => `
-    <tr${said.bad ? ' class="rowbad"' : ""}>
-      <td><code>${h(layer.name)}</code><br><span class="val">${h(place.service)} · ${place.id}</span></td>
-      <td>${pill(layer.sharing)}</td>
-      ${results.map(codeCell).join("")}
-      <td${said.bad ? ' class="bad-inline"' : ' class="val"'}>${h(said.text)}</td>
-    </tr>`).join("")
-    || `<tr><td colspan="6" class="empty">You own nothing and nothing is shared with you, so
-          there was nothing to probe.</td></tr>`;
-
-  const exposed = rows.filter(r => r.said.bad && r.layer.sharing !== "public").length;
-  const unreachable = rows.filter(r => r.said.bad && r.layer.sharing === "public").length;
-  const agreed = rows.length - exposed - unreachable;
-
-  // <b>Three tiles, and they were two sentences.</b> Handoff 2026-09-04. The two said what went
-  // wrong and left the reader to work out how much did not; a report whose answer is usually
-  // *nothing is wrong* has to be able to say that as a number, or every run reads as a run that
-  // found nothing rather than as one that found nothing wrong.
-  const tiles = [
-    ["As intended", agreed, "ok",
-      "The catalogue and the anonymous answer agree, or the service is stopped"],
-    ["Answered anyway", exposed, "alert",
-      "Shared private or organization, and readable without a credential"],
-    ["Refused anyway", unreachable, "warn",
-      "Shared public and did not answer — an ArcGIS client sees the layer as missing"],
-  ];
-
-  $("anonSummary").innerHTML = `<div class="tilerow">${tiles.map(([label, n, tone, why]) =>
-    `<div class="tile t-${tone}${n === 0 && tone !== "ok" ? " quiet" : ""}" title="${h(why)}">
-      <b>${num(n)}</b><span>${h(label)}</span>
-    </div>`).join("")}</div>`;
 }
 
 /**

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(89);
+    public static SchemaVersion ComponentSchemaVersion => new(90);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -124,7 +124,66 @@ public static class PlatformMigrations
         AnItemIsItsOwnRecordV87,
         ArcGisProIsABuiltInAppV88,
         ADocumentIsAnItemV89,
+        MembersHaveProfilesAndCategoriesV90,
     ]);
+
+    /// <summary>
+    /// A member has a profile — an e-mail address, a bio, who may read it, a photo — and an organization sorts its
+    /// members into categories, as Portal's do.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>2026-10-17, by owner decision</b>, after Portal's Members and profile pages: *"categoryleme, category'e göre
+    /// filtreleme"*, and *"kullanıcıların profil sayfaları olsa. her kullanıcı ya da admin onlara fotoğraf
+    /// koyabilse."* The photo is its own row, so listing members never reads image bytes; categories are a tree, as
+    /// Portal's category schema is, and a member may be in several.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> Three nullable or defaulted columns and three new tables; a build before this one reads
+    /// <c>principal</c> by naming its columns and never touches the rest.
+    /// </para>
+    /// </remarks>
+    private static Migration MembersHaveProfilesAndCategoriesV90 => Migration.Expand(
+        new SchemaVersion(90),
+        "A member has a profile and a photo, and members are sorted into categories.",
+        "alter table principal add column if not exists email text null",
+        "alter table principal add column if not exists bio text null",
+        "alter table principal add column if not exists profile_visibility text not null default 'organization'",
+        "alter table principal drop constraint if exists principal_profile_visibility_known",
+        """
+        alter table principal add constraint principal_profile_visibility_known
+          check (profile_visibility in ('private', 'organization', 'public'))
+        """,
+        """
+        create table if not exists principal_photo (
+            principal_id uuid        not null primary key references principal (id) on delete cascade,
+            content_type text        not null,
+            content      bytea       not null,
+            updated_at   timestamptz not null default now(),
+            constraint principal_photo_type_known check (content_type in ('image/png', 'image/jpeg', 'image/gif')),
+            constraint principal_photo_is_bounded check (octet_length(content) <= 1048576)
+        )
+        """,
+        """
+        create table if not exists member_category (
+            id        uuid not null primary key,
+            parent_id uuid null references member_category (id) on delete cascade,
+            name      text not null,
+            constraint member_category_name_present check (length(btrim(name)) > 0)
+        )
+        """,
+        """
+        create unique index if not exists member_category_name_unique
+            on member_category (coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name))
+        """,
+        """
+        create table if not exists principal_category (
+            principal_id uuid not null references principal (id) on delete cascade,
+            category_id  uuid not null references member_category (id) on delete cascade,
+            constraint principal_category_pk primary key (principal_id, category_id)
+        )
+        """,
+        "create index if not exists principal_category_category_idx on principal_category (category_id)");
 
     /// <summary>
     /// A document is an item — ADR-188: a file somebody brought, kept beside its item in the platform store.

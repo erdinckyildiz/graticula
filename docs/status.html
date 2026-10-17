@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>7a6483a2</code> · 2026-10-17 00:25</p>
+<p class="stamp">Generated from commit <code>a90c707e</code> · 2026-10-17 04:22</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">187</div><div class="kpi-l">ADRs</div><div class="kpi-n">74 accepted outright</div></div>
+<div class="kpi "><div class="kpi-v">189</div><div class="kpi-l">ADRs</div><div class="kpi-n">76 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">376/423</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">39 live · 8 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">161 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">277 repaid · 5 waiting on a trigger · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/89</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">4951</div><div class="kpi-l">tests</div><div class="kpi-n">495 source files, 223,955 lines</div></div>
+<div class="kpi good"><div class="kpi-v">4958</div><div class="kpi-l">tests</div><div class="kpi-n">498 source files, 225,171 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -369,6 +369,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">186</td><td>An edit empties the tiles it reached, not the whole layer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">187</td><td>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the structure is the owner&#x27;s, taken from two reference products; nothing is…</td><td class="num"></td></tr>
 <tr><td class="id">188</td><td>A document is an item: a file kept in the platform store and shared like a web map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
+<tr><td class="id">189</td><td>Studio holds the organization and Server the engine</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every part is an owner decision of one day, taken against Portal and Server…</td><td class="num"></td></tr>
+<tr><td class="id">190</td><td>Members are searched in the database, sorted into categories, and have profiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is Portal&#x27;s and the owner&#x27;s; the search has not been measured past a…</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -494,10 +496,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1379</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.6%"></div></div><div class="bar-n">891</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.1%"></div></div><div class="bar-n">774</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.5%"></div></div><div class="bar-n">779</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.2%"></div></div><div class="bar-n">555</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">415</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">295</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.5%"></div></div><div class="bar-n">297</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.4%"></div></div><div class="bar-n">226</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.1%"></div></div><div class="bar-n">126</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">124</div></div>
@@ -507,20 +509,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>7a6483a2</code><time>2026-10-17</time><span>The Istanbul buildings are on the showcase from PostGIS, and on them simplifying is worth 2.7 % (ADR-085 condition 2)</span></li>
-<li><code>7ab52561</code><time>2026-10-17</time><span>A long service description wraps under its name instead of widening the Services list off the screen</span></li>
-<li><code>3cad59d9</code><time>2026-10-17</time><span>A document is an item: a file filed and shared like a web map, always served as a download (ADR-188, migration 89; ADR-056 condition 2)</span></li>
-<li><code>13d11aa4</code><time>2026-10-16</time><span>The console takes the owner&#x27;s reference: blue, a dark theme, a utility line, and four screens rebuilt (ADR-187)</span></li>
-<li><code>844edd79</code><time>2026-10-16</time><span>The owner confirms the four affinity conditions deferred with ADR-029 (ADR-007 conditions 1 and 4, ADR-029 conditions 2 and 4)</span></li>
-<li><code>b5690be9</code><time>2026-10-16</time><span>The upload limits stay and a deployment may change them (Q-175, owner decision; ADR-024 condition 4, A-062)</span></li>
-<li><code>09b69bbe</code><time>2026-10-16</time><span>Studio&#x27;s My content keeps its folders in a left column and the item&#x27;s tabs run under its title; Server&#x27;s service editor reads General · Parameters · Capabilities · Layers (ADR-187 steps 2–3)</span></li>
-<li><code>fb57c2a7</code><time>2026-10-16</time><span>A feature is read by its id: FeatureServer/{layer}/{objectId} answers as ArcGIS&#x27;s Feature resource (D-298, partly)</span></li>
-<li><code>d9b87057</code><time>2026-10-16</time><span>ArcGIS Pro&#x27;s export reads a feature&#x27;s attachments by POST, and the routes beside the FeatureServer documents answer it (D-46 instance 19, D-298)</span></li>
-<li><code>64914f12</code><time>2026-10-16</time><span>Server and Studio navigate from a top bar: Server Manager&#x27;s four tabs, Portal&#x27;s five, and a page&#x27;s left column is its own (ADR-187 step 1)</span></li>
-<li><code>9dcdc403</code><time>2026-10-16</time><span>A tile&#x27;s simplification costs nothing measurable on GeoParquet rows: the +24 % was the machine between two days (ADR-085 c2)</span></li>
-<li><code>b4194cd9</code><time>2026-10-16</time><span>ArcGIS Pro is a built-in OAuth app: the precondition for supportsOAuth, found before the flag was turned on (ADR-076 c3, partly)</span></li>
-<li><code>d3db0851</code><time>2026-10-16</time><span>Tile encoding measured on a road network, mixed geometry and a second machine (ADR-021 c2 discharged); one cold tile&#x27;s noise measured (ADR-085 c2)</span></li>
-<li><code>d0a51cb8</code><time>2026-10-16</time><span>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs (ADR-187); the Hybrid redesign is designed screen by screen</span></li>
+<li><code>a90c707e</code><time>2026-10-17</time><span>Content, not My content; Organization and Public list everything shared that widely, yours included</span></li>
+<li><code>7f8ac7ae</code><time>2026-10-17</time><span>Every &quot;new&quot; is a dialog that can be put away: member, role, app, provider and domain</span></li>
+<li><code>7a85b813</code><time>2026-10-17</time><span>New group&#x27;s choice is in the body face</span></li>
+<li><code>1d95f176</code><time>2026-10-17</time><span>New group asks in a dialog that ✕, Cancel or Escape puts away; a profile&#x27;s bio is in the body face</span></li>
+<li><code>3fb628ab</code><time>2026-10-17</time><span>Clear filters clears the categories too</span></li>
+<li><code>02de1889</code><time>2026-10-17</time><span>Members have profiles with a photo, and categories to sort and filter them by (migration 90)</span></li>
+<li><code>40456016</code><time>2026-10-17</time><span>Members&#x27; menu reads left to right, and the initials are the sign-in name&#x27;s; the column fits a phone</span></li>
+<li><code>e69ff5b3</code><time>2026-10-17</time><span>Members has Portal&#x27;s shape: search, filters down the left, sortable columns, a page at a time, verbs behind ⋯; Server&#x27;s service rows have no Map</span></li>
+<li><code>a2540ed3</code><time>2026-10-17</time><span>Conflict markers left in console.css by the rebase are removed</span></li>
+<li><code>07ce41e3</code><time>2026-10-17</time><span>Members can be searched, filtered, ordered and paged in the database, with when each last signed in</span></li>
+<li><code>5a9456ba</code><time>2026-10-17</time><span>Organization is Members and Settings, and Settings is short pages down its left, as Portal&#x27;s is</span></li>
+<li><code>0751ef2d</code><time>2026-10-17</time><span>Members, roles, sign-in, apps and the map settings are Studio&#x27;s Organization, not Server&#x27;s</span></li>
+<li><code>50015bd9</code><time>2026-10-17</time><span>Studio has no Anonymous view: the probe screen is removed, by owner decision</span></li>
+<li><code>64c88c8b</code><time>2026-10-17</time><span>Domains are listed, made and chosen where a layer is designed, not on a tab of their own (ADR-087 §6)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

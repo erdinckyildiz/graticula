@@ -797,10 +797,10 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 /* At a phone's width the table scrolls inside its card rather than the page sideways — design review
    2026-09-24 measured 539 px of page in a 390 px window — and an empty one does not size itself by its head. */
 @media (max-width: 760px) {
-  #view-domains .panel { overflow-x: auto; }
-  #view-domains .panel table { min-width: 460px; }
-  #view-domains .panel table:has(td.empty) { min-width: 0; }
-  #view-domains .panel table:has(td.empty) thead { display: none; }
+  .domainstable { overflow-x: auto; }
+  .domainstable table { min-width: 460px; }
+  .domainstable table:has(td.empty) { min-width: 0; }
+  .domainstable table:has(td.empty) thead { display: none; }
   .valuesedit { overflow-x: auto; }
 }
 
@@ -1768,17 +1768,15 @@ dialog { color: var(--ink); }
   .tabstrip { overflow-x: auto; scrollbar-width: none; }
   .tabstrip a { flex: 0 0 auto; white-space: nowrap; min-height: 40px;
                 display: inline-flex; align-items: center; }
-  #view-groups .panel, #view-anonymous .panel { overflow-x: auto; }
-  #view-groups .panel table, #view-anonymous .panel table { min-width: 460px; }
+  #view-groups .panel { overflow-x: auto; }
+  #view-groups .panel table { min-width: 460px; }
 
   /* <b>An empty state is a sentence, not a table.</b> Dropping the minimum width was not enough: the
      global `th { white-space: nowrap }` still sized the table from a header with nothing under it, so
      the sentence was clipped at 504 pixels in a 308-pixel panel. With no rows to label, the header is
      not a header. */
-  #view-groups .panel table:has(td.empty),
-  #view-anonymous .panel table:has(td.empty) { min-width: 0; }
-  #view-groups .panel table:has(td.empty) thead,
-  #view-anonymous .panel table:has(td.empty) thead { display: none; }
+  #view-groups .panel table:has(td.empty) { min-width: 0; }
+  #view-groups .panel table:has(td.empty) thead { display: none; }
 
   /* The controls the first pass missed, measured at 20 to 34 pixels. */
   /* `td a:has(.pill)` is the visibility link, which is a pill inside a link and was 20 pixels tall; the
@@ -3360,40 +3358,6 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
   box-shadow: 0 0 0 2px var(--accent);
 }
 .thumblink:focus-visible { outline: none; }
-
-/* ------------------------------------------------------ summary tiles, handoff 2026-09-04
-   <b>A count first, then what it counts.</b> Used by the anonymous view's three outcomes: a
-   report whose usual answer is *nothing is wrong* has to be able to say that as a number, or
-   every run reads as one that found nothing rather than as one that found nothing wrong.
-
-   <b>A zero is quiet, and a zero is not always good.</b> Nought layers answering anyway is the
-   result somebody wants; drawing it in alert red would train the reader to ignore the colour.
-   The tone only fills in when the count is above nought. */
-.tilerow {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--gap-3); margin-bottom: var(--gap-4);
-}
-.tile {
-  background: var(--surface); border: 1px solid var(--rule); border-radius: var(--round-lg);
-  box-shadow: var(--lift); padding: var(--gap-3) var(--gap-4);
-  display: flex; flex-direction: column; gap: 2px;
-}
-.tile b {
-  font-size: 26px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-.tile span { font-size: var(--t-small); color: var(--muted); }
-.tile.t-ok b { color: var(--ok); }
-.tile.t-alert { border-color: var(--alert-line); background: var(--alert-soft); }
-.tile.t-alert b { color: var(--alert); }
-.tile.t-warn { border-color: var(--warn-line); background: var(--warn-soft); }
-.tile.t-warn b { color: var(--warn); }
-.tile.quiet { border-color: var(--rule); background: var(--surface); }
-.tile.quiet b { color: var(--faint); }
-
-/* A row the report disagrees with, tinted where the eye lands rather than only in its last
-   cell. `--alert-soft` is the same ground the alert pill uses, so the two read as one signal. */
-tr.rowbad > td { background: var(--alert-soft); }
 
 /* ------------------------------------------------------- operations, handoff 2026-09-04
    Three cards across rather than three sections down, then the two short blocks side by side.
@@ -5349,3 +5313,108 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 }
 #view-services .widetable table tr.pick:hover td:last-child { background: var(--surface-2); }
 #view-services .widetable table tr.pick.on:hover td:last-child { background: var(--accent-soft); }
+/* The list of domains (ADR-087 §6, 2026-10-17): under the designed fields, and in the Fields page's dialog. */
+.domainspanel { margin-top: var(--gap-4); padding-top: var(--gap-3); border-top: 1px solid var(--rule); }
+.domainshead { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.domainshead h4 { margin: 0; }
+.domainstable { overflow-x: auto; }
+#domainsDialog { width: min(820px, calc(100vw - 32px)); }
+#domainsDialog .domainspanel { margin-top: 0; padding-top: 0; border-top: 0; }
+#dFields .fDomain { min-width: 9em; }
+
+/* Organization (2026-10-17): Members and Settings across the top, over both columns of a settings page. */
+.view > nav.orgstrip { margin-bottom: var(--gap-5); }
+.view.withside > nav.orgstrip { grid-column: 1 / -1; grid-row: 1; }
+.view.withside > nav.orgstrip ~ nav.subpages { grid-row: 2 / span 60; }
+/* A section inside a page — Security's Sign-in and Apps — under the page's own head. */
+.pagehead.sub { margin: var(--gap-6) 0 var(--gap-4); }
+.pagehead + .pagehead.sub { margin-top: 0; }
+.pagehead.sub h3 { margin: 0; font-size: 17px; }
+
+/* Members, as Portal's Members page (2026-10-17): filters down the left, the list beside them. */
+.memberslayout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-5); align-items: start; }
+.memberfilters { position: sticky; top: 96px; }
+.memberfilters h4 { margin: 0 0 var(--gap-2); }
+.memberfilters details { border-top: 1px solid var(--rule); padding: 8px 0; }
+.memberfilters summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 2px 0; }
+.memberfilters select, .memberfilters input[type=search] { width: 100%; margin-top: 6px; }
+.mflist { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 220px; overflow-y: auto; }
+.mflist label { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+#view-members .toolbar input[type=search] { flex: 0 1 360px; }
+#view-members .sortbtn { all: unset; cursor: pointer; font: inherit; color: inherit; }
+#view-members .sortbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#view-members th[aria-sort] .sortbtn { color: var(--accent-ink); }
+#view-members th[aria-sort="ascending"] .sortbtn::after { content: " \25B2"; font-size: 10px; }
+#view-members th[aria-sort="descending"] .sortbtn::after { content: " \25BC"; font-size: 10px; }
+#members tr.isoff td.name { opacity: .65; }
+details.rowmenu { display: inline-block; }
+details.rowmenu > summary {
+  list-style: none; cursor: pointer; padding: 4px 10px; border-radius: var(--round); font-size: 18px; line-height: 1;
+}
+details.rowmenu > summary::-webkit-details-marker { display: none; }
+details.rowmenu > summary:hover, details.rowmenu[open] > summary { background: var(--surface-2); }
+details.rowmenu > .rowmenubody {
+  position: fixed; z-index: 50; min-width: 200px; display: flex; flex-direction: column; padding: 6px; text-align: left;
+  background: var(--surface); border: 1px solid var(--rule-strong); border-radius: var(--round); box-shadow: var(--lift);
+}
+details.rowmenu > .rowmenubody button {
+  all: unset; cursor: pointer; padding: 8px 10px; border-radius: var(--round); font-size: 14px; color: var(--ink); text-align: left;
+}
+details.rowmenu > .rowmenubody button:hover, details.rowmenu > .rowmenubody button:focus-visible { background: var(--surface-2); }
+details.rowmenu > .rowmenubody button.danger { color: var(--alert); }
+details.rowmenu > .rowmenubody .hint { padding: 8px 10px; }
+@media (max-width: 760px) {
+  .memberslayout { grid-template-columns: minmax(0, 1fr); }
+  .memberfilters { position: static; }
+}
+
+/* Member categories and profiles (2026-10-17). */
+.memberfilters .mfedit { margin: 4px 0 2px; }
+ul.cattree { list-style: none; margin: 0; padding: 0; }
+ul.cattree ul.cattree { padding-left: 18px; }
+ul.cattree label { display: flex; gap: 8px; align-items: center; padding: 2px 0; font-size: 14px; cursor: pointer; }
+#catDialog { width: min(560px, calc(100vw - 32px)); }
+#catDialogBody .catedit { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+#catDialogBody .catedit input { flex: 1; min-width: 0; }
+#catDialogBody .catnew { display: flex; gap: 8px; align-items: center; margin-top: var(--gap-3); flex-wrap: wrap; }
+#catDialogBody .catnew input[type=text] { flex: 1; min-width: 160px; }
+#members td.tick, #view-members th.tick { width: 1%; padding-right: 0; }
+img.avatar.photo { object-fit: cover; padding: 0; }
+.avatar.big, img.avatar.big { width: 96px; height: 96px; font-size: 32px; border-radius: 50%; }
+#view-user .profilecard {
+  max-width: 560px; margin: 0 auto; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--round-lg, 10px); padding: var(--gap-5);
+}
+#view-user .profilehead { text-align: center; border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
+#view-user .profilephoto { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-bottom: var(--gap-3); }
+#view-user .profilehead h2 { margin: 0; }
+#view-user .profileform { display: flex; flex-direction: column; gap: 6px; }
+#view-user .profileform label { font-weight: 600; font-size: 14px; margin-top: 8px; }
+#view-user .profilefacts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: var(--gap-4) 0 0;
+  padding-top: var(--gap-4); border-top: 1px solid var(--rule); }
+#view-user .profilefacts dt { color: var(--muted); }
+#view-user .profilefacts dd { margin: 0; }
+#view-user .profilebio { white-space: pre-wrap; }
+#photoDialog { width: min(560px, calc(100vw - 32px)); }
+#photoDialog #photoPreview { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; }
+.usermenu .sheet a#myProfile { display: block; padding: 8px 12px; color: var(--ink); text-decoration: none; }
+.usermenu .sheet a#myProfile:hover { background: var(--surface-2); }
+details.rowmenu > .rowmenubody a { padding: 8px 10px; border-radius: var(--round); font-size: 14px; color: var(--ink); text-decoration: none; }
+details.rowmenu > .rowmenubody a:hover { background: var(--surface-2); }
+
+#view-user .profileform textarea { font: inherit; }
+
+/* New group, as a dialog (2026-10-17). */
+#groupNewDialog { width: min(560px, calc(100vw - 32px)); }
+#groupNewDialog .picker { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; background: none; }
+#groupNewDialog .picker label { margin-top: 6px; }
+#groupNewDialog select { font: inherit; }
+
+/* Every "new" is a dialog (2026-10-17). */
+dialog.formdialog { width: min(640px, calc(100vw - 32px)); }
+#idpDialog { width: min(820px, calc(100vw - 32px)); }
+dialog.formdialog .picker { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; background: none; }
+dialog.formdialog .picker label { margin-top: 6px; }
+dialog.formdialog select, dialog.formdialog textarea { font: inherit; }
+#memberDialog #memberPages { border: 0; padding: 0; }
+#domainEditDialog .valuesedit { border: 0; padding: 0; margin: 0; background: none; }

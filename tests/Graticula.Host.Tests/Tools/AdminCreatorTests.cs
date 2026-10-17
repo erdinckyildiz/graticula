@@ -386,6 +386,9 @@ public sealed class AdminCreatorTests
         public Task<IReadOnlyList<Member>> ListMembersAsync(CancellationToken cancellationToken) =>
             throw Not();
 
+        public Task<MemberPage> SearchMembersAsync(MemberQuery query, CancellationToken cancellationToken) =>
+            throw Not();
+
         public Task<bool?> SetDisabledAsync(
             string name, bool disabled, CancellationToken cancellationToken) => throw Not();
 

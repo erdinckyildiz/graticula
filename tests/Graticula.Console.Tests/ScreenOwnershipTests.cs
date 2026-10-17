@@ -177,6 +177,12 @@ public sealed class ScreenOwnershipTests : ConsoleTest
     /// move as reading the tables out of it — one source, not a second copy.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Addresses `openScreen` turns into another screen's view: `apps` is a section of Security since ADR-189, and
+    /// `#/apps` opens `view-signin` at it.
+    /// </summary>
+    private static readonly HashSet<string> Aliases = ["apps"];
+
     [Fact]
     public async Task The_surface_table_names_only_screens_that_exist()
     {
@@ -198,7 +204,7 @@ public sealed class ScreenOwnershipTests : ConsoleTest
         [
             .. screens.EnumerateObject()
                 .Select(entry => entry.Name)
-                .Where(name => !drawable.Contains(name))
+                .Where(name => !drawable.Contains(name) && !Aliases.Contains(name))
                 .OrderBy(name => name, StringComparer.Ordinal),
         ];
 

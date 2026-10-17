@@ -8,7 +8,7 @@ using Xunit;
 namespace Graticula.Console.Tests;
 
 /// <summary>
-/// Shared domains on screen — ADR-087: the Domains screen, and a column's Values offering them.
+/// Shared domains on screen — ADR-087, placed by ADR-189: the list under Define your own layer, and a column's Values offering them.
 /// </summary>
 /// <remarks>
 /// <b>The data is made through the real API and the screens' writes never reach it</b>, as everywhere in this
@@ -99,12 +99,17 @@ public sealed class SharedDomainsScreenTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/studio/#/domains", token);
+            // The list is under Define your own layer since ADR-189; there is no Domains screen.
+            await OpenAsync("/studio/#/content", token);
+            await ClickAsync("#newLayer");
+            await ClickAsync("#kindFeatureLayer");
+            await ClickAsync("[data-route=design]");
+            await ClickAsync("#itemNext");
 
             string Row(string name) =>
                 $"[...document.querySelectorAll('#domainRows tr')].find(r => r.querySelector('td.name')?.textContent === {JsonSerializer.Serialize(name)})";
 
-            await WaitForAsync($"!!{Row(made.Domain)} && !!{Row(made.Unused)}", "The Domains screen does not list both domains.");
+            await WaitForAsync($"!!{Row(made.Domain)} && !!{Row(made.Unused)}", "The list of domains does not show both.");
 
             // ---- the one in use says where, and offers no Delete that would be refused ----
             Assert.Contains("1 field", await Browser.EvaluateAsync<string>($"{Row(made.Domain)}.querySelector('summary')?.textContent || ''") ?? string.Empty, StringComparison.Ordinal);

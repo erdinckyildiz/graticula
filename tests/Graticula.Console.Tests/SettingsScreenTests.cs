@@ -110,7 +110,7 @@ public sealed class SettingsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/settings", token);
+        await OpenAsync("/studio/#/orgsettings", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#groundList input[type=checkbox]').length >= 3",
@@ -183,7 +183,7 @@ public sealed class SettingsScreenTests : ConsoleTest
             (int published, string said) = await PublishOneAsync(Private, Private);
             Assert.True(published is 200 or 201, $"publishing {Private}: {published} {said}");
 
-            await OpenAsync("/server/#/settings", token);
+            await OpenAsync("/studio/#/orgsettings", token);
 
             await WaitForAsync(
                 $"[...document.querySelectorAll('#groundList input')].some(i => i.value.endsWith('{Private}'))",

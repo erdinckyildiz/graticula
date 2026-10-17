@@ -41,10 +41,11 @@ public sealed class EveryScreenTests : ConsoleTest
     /// tab is added, this list is the second place to change and the failure says so.
     /// </remarks>
     private static readonly string[] ServerScreens =
-        ["services", "sources", "members", "operations"];
+        ["services", "sources", "operations"];
 
     /// <summary>The Studio surface's screens.</summary>
-    private static readonly string[] StudioScreens = ["content", "anonymous"];
+    // Organization's pages are Studio's since ADR-189, and Anonymous view is gone.
+    private static readonly string[] StudioScreens = ["content", "groups", "members", "orgsettings", "roles", "signin", "utilities"];
 
     /// <summary>
     /// Every Server screen opens, paints its own heading, and throws nothing.

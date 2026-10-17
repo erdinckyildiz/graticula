@@ -19,18 +19,23 @@ Status column: `—` not designed · `draft` generated, awaiting owner review ·
 
 ```text
 /studio/  (signed in)                                   /server/  (admin:manageServer)
-TOP NAV (Portal-like)                                   TOP NAV — Services · Site · Security · Logs (ADR-187)
-├─ My content   #/content[/scope]                       ├─ Services      #/services[/folder]
-│   scopes as tab strip under the title; left panel: Folders · Type          │   left panel: Manage services · Publish · Folders
-│   ├─ Item       #/service/<f>/<n>?tab=…               │   ├─ Service   #/service/<f>/<n>[?section=…]
-│   │   Overview · Data · Visualization · Settings      │   │   Capabilities · Limits · Layers
-│   └─ Web map    #/map/<id>                            │   └─ Publish   #/publish   (action, not a section)
-├─ Map          → /studio/webmap.html (link out)        ├─ Data sources  #/sources
-├─ Anonymous view #/anonymous                           ├─ Members       #/members
-├─ Groups       #/groups                                ├─ Settings      General #/settings · Roles #/roles
-│   └─ Group    #/group/<n>/<tab>                       │                Sign-in #/signin · Apps #/apps
-│       Overview · Content · Members · Settings (+Add)  └─ Operations    Status #/operations · Logs #/logs
-└─ Domains      #/domains
+TOP NAV — Content · Map · Groups · Organization         TOP NAV — Services · Site · Logs (ADR-187, ADR-189)
+├─ Content      #/content[/scope]                       ├─ Services      #/services[/folder]
+│   scopes overlap (ADR-189): Organization and Public   │   left panel: Manage services · Publish · Folders
+│   list everything shared that widely, yours too       │   ├─ Service   #/service/<f>/<n>[?section=…]
+│   ├─ Item       #/service/<f>/<n>?tab=…               │   │   Capabilities · Limits · Layers
+│   │   Overview · Data · Visualization · Settings      │   └─ Publish   #/publish   (action, not a section)
+│   └─ Web map    #/map/<id>                            ├─ Site          Data sources #/sources · Status #/operations
+├─ Map          → /studio/webmap.html (link out)        │                General #/settings (page size, style origins)
+├─ Groups       #/groups   (New group: a dialog)        └─ Logs          #/logs
+│   └─ Group    #/group/<n>/<tab>
+├─ Organization (admin privileges only — ADR-189)
+│   Members #/members · Settings: Map #/orgsettings · Member roles #/roles
+│   · Security #/signin (Sign-in + Apps; #/apps lands here) · Utility services #/utilities
+└─ Profile      #/user/<name>   (account menu › My profile — ADR-190)
+Domains: no screen — the list is under New item › Define your own layer, and a Fields page's dialog (ADR-189).
+Anonymous view: removed (ADR-189).
+Every "new" is a dialog that ✕, Cancel and Escape close (ADR-189).
 Header right (both): Server|Studio switch (only if both allowed) · name + roles · Sign out
 ```
 
@@ -54,7 +59,7 @@ and are not designed.
 
 | ID | Screen | Route | States / dialogs | Stitch | Status |
 |---|---|---|---|---|---|
-| ST-01 | My content | `#/content[/all\|mine\|group\|organization\|public\|administrative]` | loading · nothing at all · empty scope · empty folder · no match · load error · N selected (bulk bar) · non-manager row | corrections project `15636992451718109493` · `d4ece2c6f98642aca9b61aa50d959ce5` (Portal tab strip, map previews; earlier Balanced `c55b6a8f…` superseded) · superseded: `54e4ce2f…` A (scopes in the panel), `8a7e7024…` B, `61c391ed…` Wide and `1bba9f0e…` Compact (invented storage quota / collapse) | draft |
+| ST-01 | Content | `#/content[/all\|mine\|group\|organization\|public\|administrative]` | loading · nothing at all · empty scope · empty folder · no match · load error · N selected (bulk bar) · non-manager row | corrections project `15636992451718109493` · `d4ece2c6f98642aca9b61aa50d959ce5` (Portal tab strip, map previews; earlier Balanced `c55b6a8f…` superseded) · superseded: `54e4ce2f…` A (scopes in the panel), `8a7e7024…` B, `61c391ed…` Wide and `1bba9f0e…` Compact (invented storage quota / collapse) | draft |
 | ST-02 | New item | dialog from ST-01 | choose · feature-layer kind · Define your own · Upload a file · Publish a table · Imagery · reading layers · choose layers · publishing · refused · created | `c28682b0d67d4cc59ff26472a32e9b86` (step 1) | draft |
 | ST-03 | Share | dialog | level · group sharing · read-only | `7c0de9d0cd2e4b6d9dafff38d198e81a` (level) | draft |
 | ST-04 | Folder dialog | dialog | new · rename · delete (blocked) · move · bulk move · bulk share | | — |
@@ -73,14 +78,14 @@ and are not designed.
 | ST-17 | Item › Settings › Tile layer | `?section=tiles` | status · pre-build · building · offline · advanced · untiled | `bc2d2c9e86b948e2915ae7b028025445` | draft |
 | ST-18 | Image item › Settings | `?section=imagery\|images\|classes\|general` | display · images · classes · download/elevation | | — |
 | ST-19 | Web map item | `#/map/<id>` | owner · reader · no layers · error · map Share dialog | `fa845a9774284713a9997871c68d9e59` | draft |
-| ST-20 | Anonymous view | `#/anonymous` | not run · results | `87c8031ee00642d6abd9f2fe82f15d13` | draft |
+| ST-20 | ~~Anonymous view~~ | ~~`#/anonymous`~~ | removed 2026-10-17 (ADR-189) | `87c8031ee00642d6abd9f2fe82f15d13` | exception |
 | ST-21 | Groups | `#/groups` | list · new group form · none · no match | `6785d62f6a664e91b15f9572b24df39d` (Portal filters; earlier `4933ba00…` not used) | draft |
 | ST-22 | Group › Overview | `#/group/<n>/overview` | member · manager · owner | `41da328bb11b4d49808851a99bada908` | draft |
 | ST-23 | Group › Content | `/content` | list · empty · manager | | — |
 | ST-24 | Group › Add items | `/add` | picking · already in group | | — |
 | ST-25 | Group › Members | `/members` | list · add-member picker | | — |
 | ST-26 | Group › Settings | `/settings` | manager · non-manager hint · unsaved | | — |
-| ST-27 | Domains | `#/domains` | list · inline editor · empty · in-use | `a85b9d1967c54c148ec8b890ed88bf8d` | draft |
+| ST-27 | Domains | under Define your own layer, and a Fields page's dialog (no address since 2026-10-17, ADR-189) | list · editor dialog · empty · in-use | `a85b9d1967c54c148ec8b890ed88bf8d` | draft |
 | ST-28 | Map Viewer | `/studio/webmap.html?id=` | Layers · Search · Measure · Bookmarks · Print · Map; identify/edit · table · time bar · sketch · signed-out read-only · not found | `0c3cf40f6a1844688ae9956517561471` | draft |
 | ST-29 | Layer viewer | `/studio/view.html` | features · map image | | — |
 | ST-30 | SDK viewer | `/studio/map.html` | 2D · scene | | exception? (test page, Q4) |

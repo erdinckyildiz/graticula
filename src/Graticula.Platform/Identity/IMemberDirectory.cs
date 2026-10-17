@@ -30,6 +30,53 @@ public readonly record struct Member(
     DateTimeOffset CreatedAt,
     int OwnsServices);
 
+/// <summary>What a member search matches — <see cref="IMemberDirectory.SearchMembersAsync"/>.</summary>
+/// <param name="Text">Part of a sign-in or display name, any case; null or blank for anyone.</param>
+/// <param name="Roles">Members holding any of these roles; null or empty for any.</param>
+/// <param name="UserTypes">Members of any of these user types; null or empty for any.</param>
+/// <param name="Disabled">True for disabled accounts only, false for active only, null for both.</param>
+/// <param name="Group">Members of the group with this name; null or blank for any.</param>
+/// <param name="SignedInSince">Last signed in at or after this; null for no lower bound.</param>
+/// <param name="SignedInBefore">Last signed in before this, or never; null for no upper bound.</param>
+/// <param name="NeverSignedIn">Only members who have never signed in.</param>
+/// <param name="Sort">One of <c>name</c>, <c>lastSignIn</c>, <c>userType</c>, <c>role</c>, <c>created</c>.</param>
+/// <param name="Descending">Whether the order is reversed.</param>
+/// <param name="Start">How many matching members to skip.</param>
+/// <param name="Count">How many to return.</param>
+/// <param name="Categories">Members in any of these categories or a category under one; null or empty for any.</param>
+public sealed record MemberQuery(
+    string? Text = null,
+    IReadOnlyList<string>? Roles = null,
+    IReadOnlyList<string>? UserTypes = null,
+    bool? Disabled = null,
+    string? Group = null,
+    DateTimeOffset? SignedInSince = null,
+    DateTimeOffset? SignedInBefore = null,
+    bool NeverSignedIn = false,
+    string Sort = "name",
+    bool Descending = false,
+    int Start = 0,
+    int Count = 25,
+    IReadOnlyList<Guid>? Categories = null);
+
+/// <summary>A member as a search lists them: the account, and when they last signed in.</summary>
+/// <param name="Member">The account.</param>
+/// <param name="LastSignIn">When their newest session began, or null when they have never signed in.</param>
+/// <param name="Email">Their e-mail address, or null.</param>
+/// <param name="PhotoUpdatedAt">When their photo was set, or null when they have none.</param>
+/// <param name="Categories">The categories they are in.</param>
+public readonly record struct MemberListing(
+    Member Member,
+    DateTimeOffset? LastSignIn,
+    string? Email = null,
+    DateTimeOffset? PhotoUpdatedAt = null,
+    IReadOnlyList<Guid>? Categories = null);
+
+/// <summary>One page of a member search.</summary>
+/// <param name="Members">The page.</param>
+/// <param name="Total">How many members the query matches in all.</param>
+public sealed record MemberPage(IReadOnlyList<MemberListing> Members, int Total);
+
 /// <summary>
 /// What a member owns, which is what a removal has to decide about.
 /// </summary>
@@ -221,6 +268,18 @@ public interface IMemberDirectory
     /// somebody administers would invite an attempt to disable it.
     /// </remarks>
     Task<IReadOnlyList<Member>> ListMembersAsync(CancellationToken cancellationToken);
+
+    /// <summary>One page of the members a query matches, and how many it matches in all.</summary>
+    /// <param name="query">What to match, how to order it, and which page.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The page.</returns>
+    /// <remarks>
+    /// <b>2026-10-17, the owner's question:</b> *"n tane kullanıcı olursa sorgulaması vs olmayacak mı?"*
+    /// <see cref="ListMembersAsync"/> reads every account, which a screen of five names can afford and a
+    /// screen of five thousand cannot. This matches, orders and pages in the database, as Portal's Members
+    /// page does, and says when each member last signed in.
+    /// </remarks>
+    Task<MemberPage> SearchMembersAsync(MemberQuery query, CancellationToken cancellationToken);
 
     /// <summary>Replaces the roles a member holds.</summary>
     /// <param name="name">Their sign-in name.</param>

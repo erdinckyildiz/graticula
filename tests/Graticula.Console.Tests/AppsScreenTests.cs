@@ -64,7 +64,7 @@ public sealed class AppsScreenTests : ConsoleTest
 
         Assert.Contains(await WritesAsync(), w => w.StartsWith("POST", StringComparison.Ordinal) && w.Contains("/admin/oauth/apps", StringComparison.Ordinal));
         Assert.Equal("polite", await Browser.EvaluateAsync<string>("document.getElementById('appSays').getAttribute('aria-live')"));
-        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('appForm').hidden"), "The form stayed open after registering.");
+        Assert.True(await Browser.EvaluateAsync<bool>("!document.getElementById('appDialog').open"), "The form stayed open after registering.");
         Assert.Equal("appNew", await Browser.EvaluateAsync<string>("document.activeElement?.id || ''"));
 
         // ---- a removal, after a confirmation that names what it costs ----

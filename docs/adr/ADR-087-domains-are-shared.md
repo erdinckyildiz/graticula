@@ -6,7 +6,7 @@
 | **Confidence** | `HIGH` |
 | **Decided** | 2026-09-24, by owner decision, in two answers. On 2026-09-23, asked ADR-065's first `INFERRED` item: *"Domain'ler paylaşılsın"* — domains are shared across layers, as a geodatabase shares them. On 2026-09-24, asked the four questions ADR-065 left to the ADR that builds it: who changes a shared domain — *its owner and administrators*; what deleting one in use means — *refused, and the refusal counts the layers*; where names are unique — *across the server*; what becomes of the domains stored on layers today — *converted to shared ones by the migration*. Each answer was the option recommended to the owner, and each is the enterprise geodatabase's own behaviour. |
 | **Supersedes** | — (amends [ADR-065](ADR-065-domains-and-subtypes.md) §5, whose per-column domain becomes a reference; discharges its condition 5) |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-189](ADR-189-studio-holds-the-organization-and-server-the-engine.md) in part, 2026-10-17: the Domains screen is gone; the list is under *Define your own layer* and a Fields page's dialog |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.

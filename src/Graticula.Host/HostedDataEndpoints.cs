@@ -1008,7 +1008,12 @@ internal static class HostedDataEndpoints
     /// an ArcGIS form shows as a field that takes anything; a length here is a
     /// <c>varchar(n)</c> the database enforces and the document reports.
     /// </param>
-    internal sealed record FieldDesign(string? Name, string? Type, bool? Nullable, int? Length = null);
+    /// <param name="Domain">
+    /// The shared domain the column is given as it is made, by id, or null for any value its type allows.
+    /// <b>Added 2026-10-17 by owner decision</b> — ADR-087 §6: domains are chosen, and made, where a layer is
+    /// designed, so a column is bound from its first moment rather than on a second visit to its Fields page.
+    /// </param>
+    internal sealed record FieldDesign(string? Name, string? Type, bool? Nullable, int? Length = null, Guid? Domain = null);
 
     /// <summary>
     /// Creates an empty hosted feature class from a schema.
@@ -1024,6 +1029,7 @@ internal static class HostedDataEndpoints
         LayerDesign design,
         PostGisImporter importer,
         IAdminCatalog catalog,
+        IFieldDomainStore sharedDomains,
         IAuditLog audit,
         CancellationToken cancellation)
     {
@@ -1058,6 +1064,40 @@ internal static class HostedDataEndpoints
         {
             await Fail(context, 400, fieldError!).ConfigureAwait(false);
             return;
+        }
+
+        // <b>ADR-087 §6: a shared domain is checked against its column before the table exists</b>, by the rules
+        // the Fields page's save is judged by, so a refusal leaves nothing made — not a layer half bound.
+        List<Graticula.Catalog.FieldOverride> bound = [];
+
+        foreach (FieldDesign asked in design.Fields ?? [])
+        {
+            if (asked.Domain is not { } domainId)
+            {
+                continue;
+            }
+
+            if (await sharedDomains.FindAsync(domainId, cancellation).ConfigureAwait(false) is not { } shared)
+            {
+                await Fail(context, 400,
+                    $"Field '{asked.Name}' names the shared domain {domainId}, and there is none; it may have been "
+                    + "deleted since the form was read.").ConfigureAwait(false);
+                return;
+            }
+
+            FieldDescription column = fields.First(f => string.Equals(f.Name, asked.Name, StringComparison.Ordinal));
+
+            if (Graticula.Catalog.DomainRules.Refuse(shared.Domain, column.Type, column.MaxLength) is { } unfit)
+            {
+                await Fail(context, 400,
+                    $"Field '{column.Name}' cannot take the domain '{shared.Domain.Name}': {unfit}").ConfigureAwait(false);
+                return;
+            }
+
+            // The column as the table names it — the importer lowers and cleans a designed name — since an
+            // override is matched to the table's column, ordinally.
+            bound.Add(new Graticula.Catalog.FieldOverride(
+                PostGisImporter.ColumnNameFor(column.Name), null, Hidden: false, Domain: shared.Domain));
         }
 
         SharingScope sharing = ParseSharing(design.Sharing);
@@ -1124,6 +1164,11 @@ internal static class HostedDataEndpoints
             throw;
         }
 
+        if (bound.Count > 0)
+        {
+            await catalog.SetFieldOverridesAsync(published.Id, bound, cancellation).ConfigureAwait(false);
+        }
+
         await audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id, current.Principal.Name,
@@ -1133,6 +1178,7 @@ internal static class HostedDataEndpoints
                 {
                     table = $"{result.SchemaName}.{result.TableName}",
                     fields = fields.Count,
+                    domains = bound.Count,
                     geometryType = kind.ToString(),
                 }),
                 true),
@@ -1147,7 +1193,13 @@ internal static class HostedDataEndpoints
             table = $"{result.SchemaName}.{result.TableName}",
             rows = 0,
             geometryType = kind.ToString(),
-            fields = fields.Select(f => new { f.Name, type = f.Type.ToString(), f.Nullable }),
+            fields = fields.Select(f => new
+            {
+                f.Name,
+                type = f.Type.ToString(),
+                f.Nullable,
+                domain = bound.FirstOrDefault(b => b.Matches(PostGisImporter.ColumnNameFor(f.Name))).Domain?.Name,
+            }),
             sharing = sharing.ToString().ToLowerInvariant(),
             services = Services(published.ServiceName, published.LayerIndex),
             note = "The feature class is empty. Add features through the FeatureServer's "

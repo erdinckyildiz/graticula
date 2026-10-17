@@ -250,10 +250,10 @@ public sealed class ScreenReviewTests : ConsoleTest
     [Theory]
     [InlineData("/server/#/services/hosted")]
     [InlineData("/server/#/operations")]
-    [InlineData("/server/#/members")]
-    [InlineData("/server/#/roles")]
+    [InlineData("/studio/#/members")]
+    [InlineData("/studio/#/roles")]
     [InlineData("/studio/#/content")]
-    [InlineData("/studio/#/anonymous")]
+    [InlineData("/studio/#/orgsettings")]
     public async Task A_screen_fits_a_1024_pixel_window(string address)
     {
         (string token, _) = await SignInAsync();

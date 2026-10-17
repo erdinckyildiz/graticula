@@ -144,6 +144,7 @@
           <div class="sheet">
             <div id="who"></div>
             <!-- Dark or light, chosen by the reader and remembered (ADR-187 step 4); the words name what it turns on. -->
+            <a id="myProfile" href="/studio/#/" hidden>My profile</a>
             <button id="themeToggle" type="button">Dark mode</button>
             <button id="signout" style="display:none">Sign out</button>
           </div>
@@ -404,7 +405,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>My content</h2>
+        <h2>Content</h2>
         <p>What you own, and what other people have shared with you.</p>
       </div>
       <!--
@@ -649,41 +650,20 @@
   </section>
 
   <!-- ---------------------------------------------------------- operations -->
-  <section class="view" id="view-settings">
-    <!--
-      <b>V-70, the owner's decision of 2026-09-23 (ADR-084):</b> "server tarafında genel ayarlar gibi bir
-      yer olsun. oradan default da değiştirilebilsin." What the whole server does unless a service says
-      otherwise, set here rather than in a configuration file. One setting today; the card is its own so the
-      next one is a second card rather than a longer form.
-    -->
+  <!-- ------------------------------------------------ STUDIO · organization settings -->
+  <!--
+    <b>2026-10-17, by owner decision ("Taşı o zaman").</b> Members, roles, sign-in, apps and these settings are the
+    organisation's — who it is and what its maps offer — and not one machine's, so they are Studio's, under
+    Organization, as ArcGIS Enterprise keeps them in Portal's Organization rather than in Server Manager. Server keeps
+    what the engine does: its services, its data sources, its status, its query page size and style origins, its logs.
+    The three cards below came from Server's General whole; their ids and their routes did not change.
+  -->
+  <section class="view" id="view-orgsettings">
     <div class="pagehead">
       <div>
-        <h2>General</h2>
-        <p>What this whole server does unless a service sets its own.</p>
+        <h2>Map</h2>
+        <p>What every map in this organization starts on: the basemaps it offers, and the ground under them.</p>
       </div>
-    </div>
-
-    <div class="panel pad settingcard">
-      <h4>Query results</h4>
-      <p class="hint">How many features a query returns when it does not ask for a number, and the
-        most it returns when it does — ArcGIS's <code>maxRecordCount</code>, which every service
-        document gives. Larger pages mean fewer requests and heavier responses. A service that sets
-        its own page size on its Limits page keeps it; empty here means the server's default.</p>
-
-      <div class="setting">
-        <label class="q" for="setPageSize">Page size:</label>
-        <input type="number" id="setPageSize" min="1" step="1" inputmode="numeric"
-          aria-describedby="setPageSizeSource">
-        <span class="u">features</span>
-      </div>
-      <p class="hint" id="setPageSizeSource"></p>
-
-      <div class="row">
-        <button class="primary" id="setSave">Save</button>
-        <button class="tiny" id="setReset" hidden>Use the default</button>
-      </div>
-
-      <p class="hint" id="setSays" role="status" aria-live="polite"></p>
     </div>
 
     <!--
@@ -751,29 +731,15 @@
       <p class="hint" id="groundSays" aria-live="polite"></p>
     </div>
 
-    <!--
-      <b>ADR-094, the owner's decision of 2026-09-29:</b> a style may name sources on other servers, but only
-      hosts an administrator has allowed. Empty is the rule styles always had: nothing leaves this server. One
-      origin a line, because the list is short and an operator pastes it from a vendor's documentation.
-    -->
-    <div class="panel pad settingcard">
-      <h4>Style sources</h4>
-      <p class="hint">Other servers a vector tile style may fetch tiles, fonts or icons from, such as a basemap
-        vendor. A style is fetched by every viewer's browser, so only an administrator decides where it may send
-        them. Write each as <code>https://host</code>, <code>https://host:port</code> or
-        <code>https://*.host</code> for every name under a host. With none listed, a style may use only this
-        server's own resources.</p>
+  </section>
 
-      <label class="q" for="styleOrigins">Allowed origins, one a line:</label>
-      <textarea id="styleOrigins" rows="4" disabled spellcheck="false" autocomplete="off"
-        aria-describedby="styleOriginsSource" placeholder="https://tiles.example.com"></textarea>
-      <p class="hint" id="styleOriginsSource"></p>
-
-      <div class="row">
-        <button class="primary" id="styleOriginsSave" disabled>Save style sources</button>
+  <!-- Organization › Settings › Utility services — Portal's name for the services its clients are pointed at. -->
+  <section class="view" id="view-utilities">
+    <div class="pagehead">
+      <div>
+        <h2>Utility services</h2>
+        <p>Services this organization points its ArcGIS clients at for work a map asks for.</p>
       </div>
-
-      <p class="hint" id="styleOriginsSays" aria-live="polite"></p>
     </div>
 
     <!--
@@ -800,6 +766,71 @@
 
       <p class="hint" id="geometryServiceSays" role="status" aria-live="polite"></p>
     </div>
+  </section>
+
+  <section class="view" id="view-settings">
+    <!--
+      <b>V-70, the owner's decision of 2026-09-23 (ADR-084):</b> "server tarafında genel ayarlar gibi bir
+      yer olsun. oradan default da değiştirilebilsin." What the whole server does unless a service says
+      otherwise, set here rather than in a configuration file. One setting today; the card is its own so the
+      next one is a second card rather than a longer form.
+    -->
+    <div class="pagehead">
+      <div>
+        <h2>General</h2>
+        <p>What this whole server does unless a service sets its own. What a map offers — basemaps, the ground
+          under them, the geometry service clients use — is Studio's, under Organization › Settings.</p>
+      </div>
+    </div>
+
+    <div class="panel pad settingcard">
+      <h4>Query results</h4>
+      <p class="hint">How many features a query returns when it does not ask for a number, and the
+        most it returns when it does — ArcGIS's <code>maxRecordCount</code>, which every service
+        document gives. Larger pages mean fewer requests and heavier responses. A service that sets
+        its own page size on its Limits page keeps it; empty here means the server's default.</p>
+
+      <div class="setting">
+        <label class="q" for="setPageSize">Page size:</label>
+        <input type="number" id="setPageSize" min="1" step="1" inputmode="numeric"
+          aria-describedby="setPageSizeSource">
+        <span class="u">features</span>
+      </div>
+      <p class="hint" id="setPageSizeSource"></p>
+
+      <div class="row">
+        <button class="primary" id="setSave">Save</button>
+        <button class="tiny" id="setReset" hidden>Use the default</button>
+      </div>
+
+      <p class="hint" id="setSays" role="status" aria-live="polite"></p>
+    </div>
+
+    <!--
+      <b>ADR-094, the owner's decision of 2026-09-29:</b> a style may name sources on other servers, but only
+      hosts an administrator has allowed. Empty is the rule styles always had: nothing leaves this server. One
+      origin a line, because the list is short and an operator pastes it from a vendor's documentation.
+    -->
+    <div class="panel pad settingcard">
+      <h4>Style sources</h4>
+      <p class="hint">Other servers a vector tile style may fetch tiles, fonts or icons from, such as a basemap
+        vendor. A style is fetched by every viewer's browser, so only an administrator decides where it may send
+        them. Write each as <code>https://host</code>, <code>https://host:port</code> or
+        <code>https://*.host</code> for every name under a host. With none listed, a style may use only this
+        server's own resources.</p>
+
+      <label class="q" for="styleOrigins">Allowed origins, one a line:</label>
+      <textarea id="styleOrigins" rows="4" disabled spellcheck="false" autocomplete="off"
+        aria-describedby="styleOriginsSource" placeholder="https://tiles.example.com"></textarea>
+      <p class="hint" id="styleOriginsSource"></p>
+
+      <div class="row">
+        <button class="primary" id="styleOriginsSave" disabled>Save style sources</button>
+      </div>
+
+      <p class="hint" id="styleOriginsSays" aria-live="polite"></p>
+    </div>
+
   </section>
 
   <section class="view" id="view-operations">
@@ -985,23 +1016,6 @@
     </div>
   </section>
 
-  <!-- ------------------------------------------------------ anonymous view -->
-  <!--
-    Why this screen exists, and it is not a security dashboard.
-
-    The product's promise is that an unmodified ArcGIS client keeps working
-    (Q-07, Q-17). The question an administrator asks on the first day is
-    therefore not "is my catalogue correct" but "will the client see it" — and
-    nothing in this console could answer that, because every request the console
-    makes carries the administrator's own token. So the console was the one
-    viewer guaranteed to see more than any real caller.
-
-    It also closes a specific trap. ADR-018's refusal is deliberately identical
-    for a layer that is absent and one that is present and not shared, which is
-    correct — the alternative leaks the catalogue to anyone who can count 404s —
-    but it means an administrator reading a 404 cannot tell the two apart. D-45
-    is that mistake, made by me, against my own server.
-  -->
   <!-- Groups — ADR-036. Studio's, because a group is about who may read somebody's content. -->
   <!-- ------------------------------------------------- SERVER · logs -->
   <!--
@@ -1092,34 +1106,12 @@
     <p><button class="ghost" id="logMore" hidden>Older</button></p>
   </section>
 
-  <section class="view" id="view-domains">
-    <!--
-      <b>ADR-087, the owner's decision of 2026-09-23 and 2026-09-24:</b> a domain is shared across layers, as a
-      geodatabase shares it. This screen lists them and where each is used, and deletes one nothing uses. Its
-      values are edited here and only here — design review 2026-09-24 found editing them from a layer bundled a
-      change to every layer with that layer's save, and a refusal of the second hid the first.
-    -->
-    <div class="pagehead">
-      <div>
-        <h2 id="domainsTitle" tabindex="-1">Domains</h2>
-        <p>Lists and ranges of values that fields on many layers share. A field chooses one on its layer's
-          Fields page; its values are changed here, and a change reaches every field that uses it.</p>
-      </div>
-    </div>
-    <div class="toolbar">
-      <span style="flex:1"></span>
-      <button class="primary" id="domainNew">New domain</button>
-    </div>
-    <div class="panel">
-      <table>
-        <thead><tr>
-          <th>Domain</th><th>Values</th><th>Used by</th><th>Owner</th><th><span class="sr-only">Actions</span></th>
-        </tr></thead>
-        <tbody id="domainRows"></tbody>
-      </table>
-    </div>
-    <p class="hint" id="domainsSays" aria-live="polite"></p>
-  </section>
+  <!--
+    The Domains screen was here until 2026-10-17. ADR-087 §6, by owner decision: the list of shared domains is
+    on New item › Define your own layer, where a field chooses one, and a Fields page opens it in a dialog —
+    `mountDomains` in console.js draws it in either. Its values are still edited only in that list, which is what
+    the design review of 2026-09-24 asked for.
+  -->
 
   <section class="view" id="view-groups">
     <div class="pagehead">
@@ -1143,7 +1135,47 @@
       exactly the state a first-time reader is in. Creating a group is also not an operation *on* a
       group, so it does not belong on a group's panel.
     -->
-    <div id="groupNewForm" hidden></div>
+    <!--
+      <b>A modal since 2026-10-17, by owner decision:</b> *"new group dediğimizde modal açalım. belki eklemiycem. çarpıya
+      basıp kapatırım."* The form opened inside the page and pushed the list down; a dialog is a question that can be
+      put away with ✕, Cancel or Escape, and the list behind it stays where it was.
+    -->
+    <dialog id="groupNewDialog" aria-labelledby="groupNewTitle">
+      <header class="dialoghead">
+        <h3 id="groupNewTitle">New group</h3>
+        <button type="button" class="tiny ghost" id="groupNewClose" aria-label="Close">&#10005;</button>
+      </header>
+      <div class="dialogbody">
+        <div class="picker">
+          <label for="newGroupName">Name</label>
+          <input id="newGroupName" type="text" placeholder="planning" autocomplete="off">
+
+          <label for="newGroupTitle">Title <span class="val">shown in the list</span></label>
+          <input id="newGroupTitle" type="text" placeholder="Planning team" autocomplete="off">
+
+          <label for="newGroupWhy">What it is for</label>
+          <input id="newGroupWhy" type="text" autocomplete="off">
+
+          <label for="newGroupUpdate">What members may do with the services shared into it</label>
+          <select id="newGroupUpdate">
+            <option value="none">none — read them</option>
+            <option value="ownItems">ownItems — edit the ones they shared themselves</option>
+            <option value="allItems">allItems — edit every service shared with the group</option>
+          </select>
+
+          <p class="hint"><b>This one cannot be changed afterwards.</b> Widening it would make every
+            service already shared with the group editable by every member, retroactively — so the
+            server has no way to change it and neither does this screen (ADR-036 §4c). To change it,
+            make another group and move the shares.</p>
+          <p class="bad-inline" id="newGroupSays" role="alert" hidden></p>
+        </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="groupNewCancel">Cancel</button>
+        <button type="button" class="primary" id="newGroupSave">Create group</button>
+      </footer>
+    </dialog>
 
     <div class="panel">
       <table>
@@ -1395,47 +1427,6 @@
     </div>
   </section>
 
-  <section class="view" id="view-anonymous">
-    <div class="pagehead"><div><h2>Anonymous view</h2>
-      <p>What a caller with no credential actually sees of your content.</p></div></div>
-    <!--
-      <b>In Studio, not Server</b> — the owner, 2026-08-17: *"no anonymous view for server."*
-      ADR-034 §6 had already half-said it: this answers *what does a stranger see of this
-      layer*, which is a question about content and its sharing rather than about a running
-      server. The copy follows the move: it is your content it probes, not the catalogue.
-    -->
-    <p class="lede">What a caller with no credential actually sees of your content, by asking.
-      Every request in this table leaves the <code>Authorization</code> header off; the address
-      comes from your own listing, because you cannot ask what a stranger sees at a URL you were
-      unable to find.</p>
-    <div class="toolbar">
-      <button id="anonRun">Run the probe</button>
-      <span class="val">Three requests per layer: the service document, the layer document, and a
-        count query.</span>
-    </div>
-    <div id="anonSummary"></div>
-    <div class="panel">
-      <table>
-        <thead><tr>
-          <th>Layer</th><th>Shared</th>
-          <th class="num" title="/rest/services/{service}/FeatureServer?f=json">Service</th>
-          <th class="num" title="/rest/services/{service}/FeatureServer/{id}?f=json">Layer</th>
-          <th class="num" title="…/query?where=1=1&amp;returnCountOnly=true">Count</th>
-          <th>Reality against intent</th>
-        </tr></thead>
-        <tbody id="anonRows">
-          <tr><td colspan="6" class="empty">Not run yet.</td></tr>
-        </tbody>
-      </table>
-    </div>
-    <p class="lede"><b>404 does not mean missing.</b> It is the same answer for a layer that does not
-      exist and one that exists and is not shared with you, and that is deliberate. So the column to
-      read is the last one, which compares what answered against what the catalogue says you
-      intended. Two disagreements are marked: something shared <code>private</code> or
-      <code>organization</code> that answered anyway, and something shared <code>public</code> that
-      did not.</p>
-  </section>
-
   <!-- --------------------------------------------------------- layer settings -->
   <!--
     The layer editor is a page, not a drawer, and that is the owner's correction:
@@ -1476,7 +1467,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Roles</h2>
+        <h2>Member roles</h2>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
       </div>
       <div class="right">
@@ -1484,6 +1475,29 @@
         <button class="primary" id="roleNew">New role</button>
       </div>
     </div>
+
+    <dialog id="roleDialog" class="formdialog" aria-labelledby="roleDialogTitle">
+      <header class="dialoghead">
+        <h3 id="roleDialogTitle">New role</h3>
+        <button type="button" class="tiny ghost" id="roleDialogClose" aria-label="Close">&#10005;</button>
+      </header>
+      <div class="dialogbody">
+        <div class="picker">
+          <label for="newRoleName">Name <span class="val">lower case, no spaces</span></label>
+          <input id="newRoleName" type="text" placeholder="field_editor" autocomplete="off" spellcheck="false">
+          <label for="newRoleWhy">What it is for</label>
+          <input id="newRoleWhy" type="text" autocomplete="off">
+          <p class="hint">It starts granting nothing; its privileges are chosen beside the list once it is made, or copied
+            from another role there.</p>
+          <p class="bad-inline" id="newRoleSays" role="alert" hidden></p>
+        </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="roleNewCancel">Cancel</button>
+        <button type="button" class="primary" id="roleNewSave">Create role</button>
+      </footer>
+    </dialog>
 
     <div class="pickpair">
       <div>
@@ -1522,7 +1536,13 @@
     -->
     <div class="pagehead">
       <div>
-        <h2 id="idpTitle" tabindex="-1">Sign-in</h2>
+        <h2>Security</h2>
+        <p>How people sign in to this organization, and which apps may sign them in.</p>
+      </div>
+    </div>
+    <div class="pagehead sub">
+      <div>
+        <h3 id="idpTitle" tabindex="-1">Sign-in</h3>
         <p>Where people can sign in besides a password on this server: an OpenID Connect or SAML 2.0 provider such
           as Microsoft Entra ID, AD FS, Keycloak, Okta or Google, or an LDAP directory such as Active Directory. Their
           groups there can decide their role and groups here.</p>
@@ -1532,7 +1552,13 @@
         <button class="primary" id="idpNew" hidden>Add a provider</button>
       </div>
     </div>
-    <div id="idpForm" hidden></div>
+    <dialog id="idpDialog" class="formdialog" aria-labelledby="idpDialogTitle">
+      <header class="dialoghead">
+        <h3 id="idpDialogTitle">Add a provider</h3>
+        <button type="button" class="tiny ghost" id="idpDialogClose" aria-label="Close">&#10005;</button>
+      </header>
+      <div class="dialogbody"><div id="idpForm"></div></div>
+    </dialog>
     <!-- ADR-089: a provider's groups, mapped to a role and a group here. -->
     <div id="idpGroups" hidden></div>
     <p class="hint" id="idpSays" aria-live="polite"></p>
@@ -1545,9 +1571,8 @@
         <tbody id="idpRows"></tbody>
       </table>
     </div></div>
-  </section>
 
-  <section class="view" id="view-apps">
+    <!-- Apps — beside Sign-in since 2026-10-17, as Organization › Settings › Security. -->
     <!--
       <b>ADR-076 condition 5: the apps that may sign people in, on a screen.</b> They were registered
       through the admin API alone, which is a curl command an administrator has to know exists. Server's,
@@ -1556,9 +1581,9 @@
       the server does not do: there is no edit, because an app's redirects are its identity and
       changing them in place would quietly redirect codes somewhere else.
     -->
-    <div class="pagehead">
+    <div class="pagehead sub">
       <div>
-        <h2>Apps</h2>
+        <h3 id="appsTitle" tabindex="-1">Apps</h3>
         <p>Apps that sign people in to this server through OAuth — a web app with an app ID, or ArcGIS Field Maps. A person signs in on this server's own page, and the app receives a code only at an address registered here.</p>
       </div>
       <div class="right">
@@ -1567,7 +1592,12 @@
       </div>
     </div>
 
-    <div id="appForm" hidden>
+    <dialog id="appDialog" class="formdialog" aria-labelledby="appDialogTitle">
+      <header class="dialoghead">
+        <h3 id="appDialogTitle">Register an app</h3>
+        <button type="button" class="tiny ghost" id="appDialogClose" aria-label="Close">&#10005;</button>
+      </header>
+      <div class="dialogbody" id="appForm">
       <div class="picker">
         <label for="appTitle">Name <span class="val">shown on the sign-in page, so people can tell who is asking</span></label>
         <input id="appTitle" type="text" placeholder="Inspections map" autocomplete="off">
@@ -1582,12 +1612,15 @@
         <label for="appClientId">App ID <span class="val">optional — one is made when this is empty</span></label>
         <input id="appClientId" type="text" autocomplete="off" spellcheck="false">
 
-        <div class="row">
-          <button class="primary" id="appSave">Register</button>
-          <button class="ghost" id="appCancel">Cancel</button>
-        </div>
+        <p class="bad-inline" id="appFormSays" role="alert" hidden></p>
       </div>
-    </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="appCancel">Cancel</button>
+        <button type="button" class="primary" id="appSave">Register</button>
+      </footer>
+    </dialog>
 
     <p class="hint" id="appSays" role="status" aria-live="polite"></p>
 
@@ -1614,15 +1647,14 @@
       </div>
     </div>
 
-    <div class="toolbar">
-      <span class="val" id="memberCount"></span>
-      <span style="flex:1"></span>
-      <button class="primary" id="memberNew">New member</button>
-    </div>
-
-    <div class="panel" id="memberForm" hidden>
+    <!-- New member, as a dialog (owner, 2026-10-17: *"new olan her şey kapatılabilir modal olmalı"*). -->
+    <dialog id="memberDialog" class="formdialog" aria-labelledby="memberDialogTitle">
+      <header class="dialoghead">
+        <h3 id="memberDialogTitle">New member</h3>
+        <button type="button" class="tiny ghost" id="memberDialogClose" aria-label="Close">&#10005;</button>
+      </header>
+      <div class="dialogbody" id="memberForm">
       <div class="page on" id="memberPages">
-        <h4>A new member</h4>
         <div class="setting"><label class="q" for="mName" id="mNameLabel">Name they sign in with:</label>
           <input id="mName" type="text" autocomplete="off"><span class="u"></span></div>
         <!-- ADR-088: an account that signs in through a provider has no password here. -->
@@ -1654,37 +1686,141 @@
           signing in has to be setting their own — nothing else answers until they do. There is no
           invitation e-mail because this server cannot send a message at all.</p>
 
-        <div class="row">
-          <button class="primary" id="mSave">Create</button>
-          <button class="tiny" id="mCancel">Cancel</button>
-        </div>
-
+        <p class="bad-inline" id="memberSays" role="alert" hidden></p>
       </div>
-    </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="mCancel">Cancel</button>
+        <button type="button" class="primary" id="mSave">Create</button>
+      </footer>
+    </dialog>
 
     <!--
-      <b>`widetable`: 1182 pixels against a 1024 viewport, and the two destructive actions were the
-      part off screen.</b> At the initial scroll position only *Set password* was visible; *Disable*
-      and *Remove* sat past x=1100 with nothing to say they existed. Measured 2026-08-19, and it is
-      the shape this repository has shipped three times — a control that is in the DOM and cannot be
-      seen. No row menu in this table, so the scroll container clips nothing.
+      <b>Portal's Members page, 2026-10-17, by owner decision</b> — *"n tane kullanıcı olursa sorgulaması vs
+      olmayacak mı?"*, then a Portal screenshot. Search, filters down the left, columns that sort, and a page at a
+      time, all done by the server (`/admin/members?num=…`): a list that reads every account to show twenty-five
+      is a list that stops working at the size it is for. The row's verbs are behind ⋯, as Portal's are, and the
+      role and the user type stay controls in the row because they are the two answers somebody comes to change.
     -->
-    <div class="panel widetable">
-      <table>
-        <thead><tr>
-          <th>Member</th><th>Role</th><th>User type</th><th>State</th>
-          <th class="num">Owns</th><th>Since</th><th></th>
-        </tr></thead>
-        <tbody id="members"></tbody>
-      </table>
-    </div>
-    <div id="membersPager"></div>
+    <div class="memberslayout">
+      <aside class="memberfilters" aria-label="Filters">
+        <h4>Filters</h4>
+        <details open><summary>Categories</summary>
+          <button type="button" class="tiny ghost mfedit" id="mfCatEdit" title="Add, rename or delete categories">Edit categories</button>
+          <div id="mfCats" class="mflist"></div></details>
+        <details open><summary>Role</summary>
+          <input type="search" id="mfRoleQ" placeholder="Search roles" aria-label="Search roles" autocomplete="off">
+          <div id="mfRoles" class="mflist"></div></details>
+        <details open><summary>User type</summary><div id="mfTypes" class="mflist"></div></details>
+        <details open><summary>Status</summary>
+          <select id="mfStatus" aria-label="Status">
+            <option value="">Any</option><option value="active">Active</option><option value="disabled">Disabled</option>
+          </select></details>
+        <details open><summary>Last login</summary>
+          <select id="mfSigned" aria-label="Last login">
+            <option value="">Any time</option>
+            <option value="7d">In the last 7 days</option>
+            <option value="30d">In the last 30 days</option>
+            <option value="90d">In the last 90 days</option>
+            <option value="older90d">Not in the last 90 days</option>
+            <option value="never">Never</option>
+          </select></details>
+        <details open><summary>Group</summary>
+          <select id="mfGroup" aria-label="Group"><option value="">Any group</option></select></details>
+        <button type="button" class="tiny ghost" id="mfClear" hidden>Clear filters</button>
+      </aside>
 
-    <p class="hint"><b>There is no delete, and the <em>Owns</em> column is why.</b> A member owns
-      content: removing the row would orphan every service that names them as its owner, and the
-      sharing rules read that to decide who may see what. Disabling stops the sign-in and leaves
-      the ownership standing.</p>
+      <div class="membersmain">
+        <div class="toolbar">
+          <input type="search" id="memberQ" placeholder="Search members by name" aria-label="Search members"
+            autocomplete="off">
+          <span class="val" id="memberCount" aria-live="polite"></span>
+          <span style="flex:1"></span>
+          <button type="button" class="ghost" id="memberCategorize" hidden>Categorize</button>
+          <button class="primary" id="memberNew">New member</button>
+        </div>
+
+        <div class="panel widetable">
+          <table>
+            <thead><tr>
+              <th class="tick"><input type="checkbox" id="memberPickAll" aria-label="Select every member on this page"></th>
+              <th data-sort-col="name"><button type="button" class="sortbtn" data-member-sort="name">Name</button></th>
+              <th data-sort-col="lastSignIn"><button type="button" class="sortbtn" data-member-sort="lastSignIn">Last login</button></th>
+              <th data-sort-col="userType"><button type="button" class="sortbtn" data-member-sort="userType">User type</button></th>
+              <th data-sort-col="role"><button type="button" class="sortbtn" data-member-sort="role">Role</button></th>
+              <th><span class="sr-only">Actions</span></th>
+            </tr></thead>
+            <tbody id="members"></tbody>
+          </table>
+        </div>
+        <div id="membersPager"></div>
+
+        <p class="hint">Removing a member asks what happens to what they own; disabling stops their sign-in and
+          leaves everything they own where it is.</p>
+      </div>
+    </div>
   </section>
+
+
+  <!-- ------------------------------------------------------- STUDIO · a member's profile -->
+  <!--
+    <b>2026-10-17, by owner decision</b>, after Portal's profile page: *"kullanıcıların profil sayfaları olsa. her
+    kullanıcı ya da admin onlara fotoğraf koyabilse."* One card: the photo, the name, what they say about themselves and
+    who may read it — and, to themselves and to whoever manages members, what they hold. `#/user/{name}`.
+  -->
+  <section class="view" id="view-user">
+    <div class="profilecard">
+      <div class="profilehead">
+        <div class="profilephoto" id="profilePhoto"></div>
+        <h2 id="profileName" tabindex="-1"></h2>
+        <p class="val" id="profileSub"></p>
+      </div>
+      <div id="profileBody"></div>
+    </div>
+  </section>
+
+  <!-- A domain's editor, over whichever list opened it (2026-10-17). Filled by console.js. -->
+  <dialog id="domainEditDialog" class="formdialog" aria-labelledby="domEditTitle">
+    <header class="dialoghead">
+      <h3 id="domEditTitle">New domain</h3>
+      <button type="button" class="tiny ghost" id="domainEditClose" aria-label="Close">&#10005;</button>
+    </header>
+    <div class="dialogbody" id="domainEditBody"></div>
+  </dialog>
+
+  <dialog id="photoDialog" aria-labelledby="photoDialogTitle">
+    <header class="dialoghead">
+      <h3 id="photoDialogTitle">Profile photo</h3>
+      <button type="button" class="tiny ghost" id="photoDialogClose" aria-label="Close">&#10005;</button>
+    </header>
+    <div class="dialogbody">
+      <div class="dropzone" id="photoDrop">
+        <img id="photoPreview" alt="" hidden>
+        <p>Drag and drop a JPG, PNG or GIF file.</p>
+        <span class="val">For best results, the image should be 200 × 200 pixels, and at most a megabyte.</span>
+        <button type="button" class="ghost" id="photoBrowse">Browse…</button>
+        <input type="file" id="photoFile" accept="image/png,image/jpeg,image/gif" hidden>
+      </div>
+      <p class="bad-inline" id="photoSays" role="alert" hidden></p>
+    </div>
+    <footer class="dialogfoot">
+      <button type="button" class="ghost danger" id="photoRemove" hidden>Remove photo</button>
+      <span class="fill"></span>
+      <button type="button" class="ghost" id="photoCancel">Cancel</button>
+      <button type="button" class="primary" id="photoSave" disabled>Save</button>
+    </footer>
+  </dialog>
+
+  <!-- Member categories: drawn and assigned (2026-10-17). One dialog, two uses, filled by console.js. -->
+  <dialog id="catDialog" aria-labelledby="catDialogTitle">
+    <header class="dialoghead">
+      <h3 id="catDialogTitle">Categories</h3>
+      <button type="button" class="tiny ghost" id="catDialogClose" aria-label="Close">&#10005;</button>
+    </header>
+    <div class="dialogbody" id="catDialogBody"></div>
+    <footer class="dialogfoot" id="catDialogFoot"></footer>
+  </dialog>
 
   <section class="view" id="view-service">
     <div id="editHead">

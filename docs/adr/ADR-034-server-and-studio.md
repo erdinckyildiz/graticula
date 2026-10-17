@@ -6,7 +6,7 @@
 | **Confidence** | `HIGH` for the split · `MEDIUM` for where each screen lands |
 | **Decided** | 2026-08-17 |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-189](ADR-189-studio-holds-the-organization-and-server-the-engine.md) in part, 2026-10-17: members, roles, sign-in, apps and the map settings are Studio's; Anonymous view is removed |
 | **Amends** | [ADR-020](ADR-020-admin-console-and-service-status.md) — one console becomes two surfaces over the same API |
 
 > **Amended 2026-10-01 by [ADR-102](ADR-102-the-studio-item-is-one-page-and-every-setting-has-one-home.md).** Layer pages leave both surfaces: a layer opens inside its item, and the settings a publisher owns but Server showed — time field, visible range, thumbnail — move to the item. Server keeps the service's server settings and links to the item. Built in steps (ADR-102 §5.6). *As built, what Server's layer page still held — state, identity, addresses — is the service page's* Layers *section (owner decision 2026-10-01), and Server's layer addresses open it (ADR-102 §5.6, as-built note).*

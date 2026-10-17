@@ -74,7 +74,7 @@ public sealed class WebMapOffersTheBasemapGalleryTests : ConsoleTest
                 "OpenStreetMap chosen from the list, but the page still draws the gallery's basemap.");
 
             // ---- Settings: the gallery and the default as stored ----
-            await OpenAsync("/server/#/settings", token);
+            await OpenAsync("/studio/#/orgsettings", token);
             await WaitForAsync(
                 $"document.getElementById('basemapGallery')?.value === '{groupId}' && document.getElementById('basemapDefault')?.value === '{entry}'",
                 "The Settings screen does not show the stored gallery and default.");

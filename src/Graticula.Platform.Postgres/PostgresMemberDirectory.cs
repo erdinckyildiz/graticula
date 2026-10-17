@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Identity;
@@ -114,6 +115,133 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
         return new Principal(id, PrincipalKind.User, name, displayName, isDisabled: false);
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>Last sign-in is the newest session's start</b>: every sign-in — the console's, a token for an
+    /// ArcGIS client, an OAuth code exchanged — begins a session, and sessions are kept after they end,
+    /// so no write path had to learn to record it. <b>The sort is chosen from a fixed list</b> and never
+    /// written from the request, because an <c>order by</c> is not a parameter.
+    /// </remarks>
+    public async Task<MemberPage> SearchMembersAsync(MemberQuery query, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        string order = query.Sort switch
+        {
+            "lastSignIn" => "m.last_sign_in",
+            "userType" => "m.user_type",
+            "role" => "m.roles[1]",
+            "created" => "m.created_at",
+            _ => "lower(m.name)",
+        };
+        string direction = query.Descending ? "desc" : "asc";
+
+        string sql = $"""
+            with m as (
+                select p.id, p.name, p.display_name, p.user_type, p.disabled_at, p.created_at,
+                       coalesce((select array_agg(r.role_name order by r.role_name)
+                                 from principal_role r where r.principal_id = p.id), '{"{}"}') as roles,
+                       (select count(*) from item i where i.owner_principal_id = p.id and i.kind = 'service') as owns,
+                       (select max(s.created_at) from session s where s.principal_id = p.id) as last_sign_in,
+                       p.email,
+                       (select ph.updated_at from principal_photo ph where ph.principal_id = p.id) as photo_at,
+                       coalesce((select array_agg(pc.category_id) from principal_category pc
+                                 where pc.principal_id = p.id), '{"{}"}') as categories
+                from principal p
+                where p.kind = 'user'
+            )
+            select m.id, m.name, m.display_name, m.user_type, m.disabled_at, m.created_at, m.roles, m.owns,
+                   m.last_sign_in, count(*) over () as total, m.email, m.photo_at, m.categories
+            from m
+            where (@pattern::text is null or m.name ilike @pattern escape '\' or m.display_name ilike @pattern escape '\'
+                   or m.email ilike @pattern escape '\')
+              and (@categories::uuid[] is null or m.categories && array(
+                    with recursive under as (
+                        select c.id from member_category c where c.id = any (@categories)
+                        union all
+                        select c.id from member_category c join under u on c.parent_id = u.id)
+                    select id from under))
+              and (@roles::text[] is null or m.roles && @roles)
+              and (@types::text[] is null or m.user_type = any (@types))
+              and (@disabled::boolean is null or (m.disabled_at is not null) = @disabled)
+              and (@group::text is null or exists (
+                    select 1 from sharing_group_member g join sharing_group sg on sg.id = g.group_id
+                    where sg.name = @group and g.principal_id = m.id))
+              and (@since::timestamptz is null or m.last_sign_in >= @since)
+              and (@before::timestamptz is null or m.last_sign_in is null or m.last_sign_in < @before)
+              and (not @never or m.last_sign_in is null)
+            order by {order} {direction} nulls last, lower(m.name)
+            offset @start limit @count
+            """;
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(sql);
+
+        string? text = string.IsNullOrWhiteSpace(query.Text) ? null : query.Text.Trim();
+        command.Parameters.Add(new NpgsqlParameter("pattern", NpgsqlDbType.Text)
+        {
+            Value = text is null ? DBNull.Value
+                : "%" + text.Replace(@"\", @"\\", StringComparison.Ordinal).Replace("%", @"\%", StringComparison.Ordinal)
+                    .Replace("_", @"\_", StringComparison.Ordinal) + "%",
+        });
+        command.Parameters.Add(new NpgsqlParameter("roles", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = query.Roles is { Count: > 0 } roles ? roles.ToArray() : DBNull.Value,
+        });
+        command.Parameters.Add(new NpgsqlParameter("types", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = query.UserTypes is { Count: > 0 } types ? types.ToArray() : DBNull.Value,
+        });
+        command.Parameters.Add(new NpgsqlParameter("disabled", NpgsqlDbType.Boolean) { Value = (object?)query.Disabled ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("group", NpgsqlDbType.Text)
+        {
+            Value = string.IsNullOrWhiteSpace(query.Group) ? DBNull.Value : query.Group.Trim(),
+        });
+        command.Parameters.Add(new NpgsqlParameter("since", NpgsqlDbType.TimestampTz) { Value = (object?)query.SignedInSince ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("before", NpgsqlDbType.TimestampTz) { Value = (object?)query.SignedInBefore ?? DBNull.Value });
+        command.Parameters.Add(new NpgsqlParameter("never", NpgsqlDbType.Boolean) { Value = query.NeverSignedIn });
+        command.Parameters.Add(new NpgsqlParameter("categories", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+        {
+            Value = query.Categories is { Count: > 0 } categories ? categories.ToArray() : DBNull.Value,
+        });
+        command.Parameters.Add(new NpgsqlParameter("start", NpgsqlDbType.Integer) { Value = Math.Max(0, query.Start) });
+        command.Parameters.Add(new NpgsqlParameter("count", NpgsqlDbType.Integer) { Value = Math.Clamp(query.Count, 1, 500) });
+
+        List<MemberListing> members = [];
+        int total = 0;
+
+        await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                members.Add(new MemberListing(
+                    new Member(
+                        reader.GetGuid(0),
+                        reader.GetString(1),
+                        reader.IsDBNull(2) ? null : reader.GetString(2),
+                        reader.GetFieldValue<string[]>(6),
+                        reader.GetString(3),
+                        !reader.IsDBNull(4),
+                        reader.GetFieldValue<DateTimeOffset>(5),
+                        (int)reader.GetInt64(7)),
+                    reader.IsDBNull(8) ? null : reader.GetFieldValue<DateTimeOffset>(8),
+                    reader.IsDBNull(10) ? null : reader.GetString(10),
+                    reader.IsDBNull(11) ? null : reader.GetFieldValue<DateTimeOffset>(11),
+                    reader.GetFieldValue<Guid[]>(12)));
+                total = (int)reader.GetInt64(9);
+            }
+        }
+
+        // A page past the end has no row to carry the count, so it is asked for on its own.
+        if (members.Count == 0 && query.Start > 0)
+        {
+            MemberPage first = await SearchMembersAsync(query with { Start = 0, Count = 1 }, cancellationToken)
+                .ConfigureAwait(false);
+            total = first.Total;
+        }
+
+        return new MemberPage(members, total);
     }
 
     /// <inheritdoc/>

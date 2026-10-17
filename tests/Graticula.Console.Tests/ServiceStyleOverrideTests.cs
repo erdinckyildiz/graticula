@@ -467,7 +467,7 @@ public sealed class ServiceStyleOverrideTests : ConsoleTest
         Assert.Equal("#/content", crumb);
 
         Assert.Equal(
-            "My content",
+            "Content",
             await Browser.EvaluateAsync<string>(
                 "document.querySelector('#serviceCrumb a')?.textContent.trim() || ''"));
 

@@ -628,6 +628,7 @@ internal static partial class AdminEndpoints
         MapVisibleRange(app);    // ADR-070 — AdminEndpoints.VisibleRange.cs
         MapServerSettings(app);  // ADR-084 — AdminEndpoints.Settings.cs
         MapSharedDomains(app);   // ADR-087 — AdminEndpoints.Domains.cs
+        MapMemberProfiles(app);  // profiles, photos, member categories — AdminEndpoints.MemberProfiles.cs
         MapIdentityProviders(app); // ADR-088 — AdminEndpoints.IdentityProviders.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
@@ -9981,6 +9982,44 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>A member search, from <c>/admin/members</c>' query string.</summary>
+    /// <remarks>
+    /// <c>q</c> text; <c>role</c> and <c>type</c> repeated or comma-separated; <c>status</c> <c>active</c> or
+    /// <c>disabled</c>; <c>group</c> a group's name; <c>signedIn</c> <c>7d</c>, <c>30d</c>, <c>90d</c> (within),
+    /// <c>older90d</c> (not within, or never) or <c>never</c>; <c>sort</c>; <c>order</c> <c>desc</c>;
+    /// <c>start</c>; <c>num</c>, at most 500; <c>category</c> ids, a category matching those under it too. A value it does not know matches as if it were not sent.
+    /// </remarks>
+    private static MemberQuery MemberQueryOf(IQueryCollection asked)
+    {
+        static List<string> Many(Microsoft.Extensions.Primitives.StringValues values) =>
+            [.. values.SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))];
+
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string signedIn = asked["signedIn"].ToString();
+
+        return new MemberQuery(
+            Text: asked["q"].ToString(),
+            Roles: Many(asked["role"]),
+            UserTypes: Many(asked["type"]),
+            Disabled: asked["status"].ToString() switch { "active" => false, "disabled" => true, _ => null },
+            Group: asked["group"].ToString(),
+            SignedInSince: signedIn switch
+            {
+                "7d" => now.AddDays(-7),
+                "30d" => now.AddDays(-30),
+                "90d" => now.AddDays(-90),
+                _ => null,
+            },
+            SignedInBefore: signedIn == "older90d" ? now.AddDays(-90) : null,
+            NeverSignedIn: signedIn == "never",
+            Sort: asked["sort"].ToString() is { Length: > 0 } sort ? sort : "name",
+            Descending: string.Equals(asked["order"], "desc", StringComparison.OrdinalIgnoreCase),
+            Start: int.TryParse(asked["start"], out int start) ? start : 0,
+            Count: int.TryParse(asked["num"], out int count) ? count : 25,
+            Categories: [.. Many(asked["category"]).Select(c => Guid.TryParse(c, out Guid id) ? id : Guid.Empty)
+                .Where(id => id != Guid.Empty)]);
+    }
+
     /// <summary>Everybody with an account, and what they hold.</summary>
     /// <remarks>
     /// <b><c>admin:manageMembers</c>, and reading is the same privilege as writing here.</b> A
@@ -10002,8 +10041,26 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        IReadOnlyList<Member> members =
-            await directory.ListMembersAsync(cancellation).ConfigureAwait(false);
+        // <b>A page when one is asked for — 2026-10-17.</b> `num` makes this a search done in the database
+        // (`SearchMembersAsync`), filtered, ordered and paged as Portal's Members page is; without it the
+        // answer is every member, as it always was, for the callers that need the whole list.
+        IQueryCollection asked = context.Request.Query;
+        MemberPage? page = null;
+        IReadOnlyList<Member> members;
+
+        if (asked.ContainsKey("num"))
+        {
+            page = await directory.SearchMembersAsync(MemberQueryOf(asked), cancellation).ConfigureAwait(false);
+            members = [.. page.Members.Select(l => l.Member)];
+        }
+        else
+        {
+            members = await directory.ListMembersAsync(cancellation).ConfigureAwait(false);
+        }
+
+        Dictionary<Guid, MemberListing> listed = page is null
+            ? []
+            : page.Members.ToDictionary(l => l.Member.Id);
 
         IReadOnlyList<RoleGrant> defined = await roles.ListAsync(cancellation).ConfigureAwait(false);
 
@@ -10026,7 +10083,16 @@ internal static partial class AdminEndpoints
                 // Why there is no delete on this surface, said per row rather than in a paragraph
                 // somebody has to find.
                 ownsServices = m.OwnsServices,
+
+                // Only on a page: the whole list does not read sessions, photos or categories.
+                lastSignIn = listed.TryGetValue(m.Id, out MemberListing l) ? l.LastSignIn : null,
+                email = l.Email,
+                photo = l.PhotoUpdatedAt is { } photoAt
+                    ? $"/rest/members/{Uri.EscapeDataString(m.Name)}/photo?v={photoAt.ToUnixTimeMilliseconds()}"
+                    : null,
+                categories = l.Categories ?? [],
             }),
+            total = page?.Total ?? members.Count,
             // <b>Every role, not only the five built-in ones — corrected 2026-08-18.</b> A
             // deployment can define its own roles now (ADR-035), and a picker listing `Roles.All`
             // would offer five choices on a server that has seven.

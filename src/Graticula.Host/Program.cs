@@ -622,6 +622,10 @@ public static class Program
         builder.Services.AddSingleton<IMemberDirectory>(services =>
             new PostgresMemberDirectory(services.GetRequiredService<NpgsqlDataSource>()));
 
+        // Profiles, photos and member categories (migration 90): its own port, because a member edits their own.
+        builder.Services.AddSingleton<IMemberProfiles>(services =>
+            new PostgresMemberProfiles(services.GetRequiredService<NpgsqlDataSource>()));
+
         // <b>Its own pool, not the platform store's, and the difference is the
         // search path.</b> The platform store's connection names the schema
         // holding `layer` and `principal`; PostGIS lives in `public`. Sharing

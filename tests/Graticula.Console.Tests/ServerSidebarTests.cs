@@ -5,15 +5,14 @@ using Xunit;
 namespace Graticula.Console.Tests;
 
 /// <summary>
-/// Server's sections are ArcGIS Server Manager's four tabs in the header, and every other screen is
-/// reached from the list on its tab's pages — ADR-187, amending ADR-091. The class keeps its name
-/// because ADR-091 cites it.
+/// Server's sections are three tabs in the header — Services, Site, Logs — and every other Server screen is reached
+/// from the list on its tab's pages: ADR-187, amended by ADR-189, which took Security to Studio's Organization. The
+/// class keeps its name because ADR-091 cites it.
 /// </summary>
 /// <remarks>
 /// <b>What could go wrong is silent, so each case is asserted by what is lit.</b> A subpage that routes
 /// but lights no row reads as a page from nowhere; one that lights the wrong row sends the reader back
-/// to the wrong place. Every subpage keeps its address, which is why the rest of the suite still opens
-/// <c>/server/#/roles</c> and <c>/server/#/logs</c> directly.
+/// to the wrong place. Every subpage keeps its address.
 /// </remarks>
 public sealed class ServerSidebarTests : ConsoleTest
 {
@@ -25,7 +24,7 @@ public sealed class ServerSidebarTests : ConsoleTest
         + ".map(a => (a.getAttribute('aria-current') ? '*' : '') + a.textContent.trim()).join(' ')";
 
     [Fact]
-    public async Task The_top_bar_has_server_managers_four_tabs()
+    public async Task The_top_bar_has_server_managers_tabs_without_security()
     {
         (string token, _) = await SignInAsync();
 
@@ -39,13 +38,13 @@ public sealed class ServerSidebarTests : ConsoleTest
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.dataset.tab).join(',')")
             ?? string.Empty;
 
-        Assert.Equal("services,sources,members,logs", rows);
+        Assert.Equal("services,sources,logs", rows);
 
         string labels = await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.textContent.trim()).join(',')")
             ?? string.Empty;
 
-        Assert.Equal("Services,Site,Security,Logs", labels);
+        Assert.Equal("Services,Site,Logs", labels);
 
         NothingWentWrong(await PageErrorsAsync());
     }
@@ -54,10 +53,6 @@ public sealed class ServerSidebarTests : ConsoleTest
     [InlineData("sources", "sources", "*Data sources Status General")]
     [InlineData("operations", "sources", "Data sources *Status General")]
     [InlineData("settings", "sources", "Data sources Status *General")]
-    [InlineData("members", "members", "*Members Roles Sign-in Apps")]
-    [InlineData("roles", "members", "Members *Roles Sign-in Apps")]
-    [InlineData("signin", "members", "Members Roles *Sign-in Apps")]
-    [InlineData("apps", "members", "Members Roles Sign-in *Apps")]
     [InlineData("logs", "logs", "")]
     public async Task A_subpage_lights_its_row_and_marks_its_strip(string screen, string row, string strip)
     {
@@ -97,20 +92,20 @@ public sealed class ServerSidebarTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/server/#/sources", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('.view.on nav.subpages a').length === 4",
-            "Security drew no list of four pages.");
+            "document.querySelectorAll('.view.on nav.subpages a').length === 3",
+            "Site drew no list of three pages.");
 
-        await ClickAsync(".view.on nav.subpages a[href='#/roles']");
+        await ClickAsync(".view.on nav.subpages a[href='#/operations']");
 
         await WaitForAsync(
-            "document.getElementById('view-roles')?.classList.contains('on')",
-            "Pressing Roles in Security's list did not open Roles.");
+            "document.getElementById('view-operations')?.classList.contains('on')",
+            "Pressing Status in Site's list did not open Status.");
 
-        Assert.Equal("members", await Browser.EvaluateAsync<string>(Lit));
-        Assert.Contains("*Roles", await Browser.EvaluateAsync<string>(Strip) ?? string.Empty, StringComparison.Ordinal);
+        Assert.Equal("sources", await Browser.EvaluateAsync<string>(Lit));
+        Assert.Contains("*Status", await Browser.EvaluateAsync<string>(Strip) ?? string.Empty, StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
     }
