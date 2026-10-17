@@ -21,7 +21,7 @@ public sealed class AppsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/apps", token);
+        await OpenAsync("/studio/#/apps", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#appRows tr').length > 0 && document.getElementById('appCount').textContent.length > 0",

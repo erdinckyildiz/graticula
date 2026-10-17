@@ -40,7 +40,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#members select[data-member-type]').length > 0",
@@ -122,7 +122,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     public async Task Removing_yourself_is_refused_before_the_panel_opens()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
             "document.querySelector('#members tr button[data-member-remove]')",
@@ -178,7 +178,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     public async Task The_only_administrator_is_refused_before_the_panel_opens()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
             "document.querySelector('#members tr button[data-member-remove]')",
@@ -258,7 +258,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     public async Task With_a_second_administrator_the_panel_opens_as_before()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
             "document.querySelector('#members tr button[data-member-remove]')",
@@ -308,7 +308,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     public async Task Owning_something_puts_the_choice_on_the_screen()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
             "document.querySelector('#members tr button[data-member-remove]')",
@@ -378,7 +378,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     public async Task Transfer_without_a_recipient_asks_rather_than_sending()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/members", token);
+        await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
             "document.querySelector('#members tr button[data-member-remove]')",

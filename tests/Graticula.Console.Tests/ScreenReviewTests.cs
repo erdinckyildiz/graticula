@@ -304,7 +304,7 @@ public sealed class ScreenReviewTests : ConsoleTest
     [Theory]
     [InlineData("/server/#/services/hosted")]
     [InlineData("/server/#/operations")]
-    [InlineData("/server/#/members")]
+    [InlineData("/studio/#/members")]
     [InlineData("/studio/#/content")]
     public async Task A_screen_fits_a_phone(string address)
     {
@@ -364,7 +364,7 @@ public sealed class ScreenReviewTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#roleRows tr').length > 0",

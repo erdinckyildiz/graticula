@@ -9,7 +9,7 @@ using Xunit;
 namespace Graticula.Console.Tests;
 
 /// <summary>
-/// Sign-in providers on screen — ADR-088 and ADR-089: Server › Sign-in, the sign-in panel's way in, New member
+/// Sign-in providers on screen — ADR-088 and ADR-089: Organization › Security, the sign-in panel's way in, New member
 /// through one, a directory's Groups, Members for somebody a provider signs in, and a SAML provider (ADR-090).
 /// </summary>
 /// <remarks>
@@ -102,8 +102,8 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/signin", token);
-        await WaitForAsync(Shown("#idpNew"), "Server › Sign-in drew no Add a provider.");
+        await OpenAsync("/studio/#/signin", token);
+        await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
 
         await ClickAsync("#idpNew");
         await WaitForAsync(Shown("#idpName"), "Add a provider opened no form.");
@@ -138,7 +138,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/server/#/members", token);
+            await OpenAsync("/studio/#/members", token);
             await WaitForAsync(Shown("#memberNew"), "Members drew no New member.");
             await ClickAsync("#memberNew");
 
@@ -222,8 +222,8 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/server/#/signin", token);
-            await WaitForAsync($"!!document.getElementById('idpRows') && {InRow(name, "[data-idp-groups]")}", "Server › Sign-in lists no Groups for the directory just added.");
+            await OpenAsync("/studio/#/signin", token);
+            await WaitForAsync($"!!document.getElementById('idpRows') && {InRow(name, "[data-idp-groups]")}", "Organization › Security lists no Groups for the directory just added.");
             await WaitForAsync(Shown("#idpMapAdd"), "Groups opened no editor.");
 
             await ClickAsync("#idpMapAdd");
@@ -265,7 +265,7 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
                 JsonSerializer.Serialize(new { name = member, role = "viewer", provider = id, username = member + "@example.org" }));
             Assert.True(status is 200 or 201, $"Adding a member through the provider answered {status}: {body}");
 
-            await OpenAsync("/server/#/members", token);
+            await OpenAsync("/studio/#/members", token);
 
             string row = $"[...document.querySelectorAll('#view-members tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(member)}))";
             await WaitForAsync($"!!({row})", "Members does not list the member just added.");
@@ -292,8 +292,8 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/signin", token);
-        await WaitForAsync(Shown("#idpNew"), "Server › Sign-in drew no Add a provider.");
+        await OpenAsync("/studio/#/signin", token);
+        await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
         await ClickAsync("#idpNew");
         await WaitForAsync(Shown("[name=idpKind][value=saml]"), "Add a provider offers no SAML.");
 
@@ -337,9 +337,9 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/server/#/signin", token);
+            await OpenAsync("/studio/#/signin", token);
             string row = $"[...document.querySelectorAll('#idpRows tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(name)}))";
-            await WaitForAsync($"!!({row})", "Server › Sign-in does not list the SAML provider just added.");
+            await WaitForAsync($"!!({row})", "Organization › Security does not list the SAML provider just added.");
             Assert.Contains("SAML", await Browser.EvaluateAsync<string>($"({row}).querySelector('.idpissuer').textContent") ?? string.Empty, StringComparison.Ordinal);
 
             // Edit says whose metadata is held and until when its certificate holds.

@@ -86,7 +86,7 @@ public sealed class RolesPageTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/server/#/roles", token);
+            await OpenAsync("/studio/#/roles", token);
 
             await WaitForAsync(
                 $"!!document.querySelector('#roleRows tr[data-role={Probe}]')",
@@ -189,7 +189,7 @@ public sealed class RolesPageTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/server/#/roles", token);
+            await OpenAsync("/studio/#/roles", token);
 
             await WaitForAsync(
                 $"!!document.querySelector('#roleRows tr[data-role={Probe}]')",
@@ -257,7 +257,7 @@ public sealed class RolesPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#roleRows tr').length > 0",
@@ -324,7 +324,7 @@ public sealed class RolesPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#rolePrivileges input[data-privilege]').length >= 18",
@@ -360,7 +360,7 @@ public sealed class RolesPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#rolePrivileges input[data-privilege]').length >= 18",
@@ -392,7 +392,7 @@ public sealed class RolesPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#roleRows tr[data-role]').length >= 5",
@@ -445,7 +445,7 @@ public sealed class RolesPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "!!document.querySelector('#roleRows tr[data-role=administrator]')",
@@ -502,7 +502,7 @@ public sealed class RolesPageTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "!!document.querySelector('#roleRows tr[data-role=viewer]')",
@@ -547,7 +547,7 @@ public sealed class RolesPageTests : ConsoleTest
             StringComparison.Ordinal);
 
         // <b>And nothing was saved.</b> Re-opening the role must show it granting nothing again.
-        await OpenAsync("/server/#/roles", token);
+        await OpenAsync("/studio/#/roles", token);
 
         await WaitForAsync(
             "!!document.querySelector('#roleRows tr[data-role=viewer]')",
