@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <!--
     Central package management.
 
@@ -13,16 +13,18 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
-  <ItemGroup Label="Geometry — Tier 2, and in a separate process">
+  <ItemGroup Label="Geometry â€” Tier 2, and in a separate process">
     <!-- NetTopologySuite: BSD-3-Clause, compatible with our Apache-2.0
          outbound. Referenced by Graticula.Overlay.Worker and by nothing else,
          which is not tidiness: benchmarks/geometry-overlay measured a
          6,408-vertex adversarial input costing 153 seconds and 16.7 GB, and
          OverlayNG cannot be interrupted. Keeping the library out of the server
-         process is what makes the cost killable (Q-97, ADR-022 §9). -->
+         process is what makes the cost killable (Q-97, ADR-022 Â§9). -->
     <PackageVersion Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <PackageVersion Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" Version="8.23.0" />
     <PackageVersion Include="ITfoxtec.Identity.Saml2" Version="4.21.0" />
+    <!-- ADR-191: a service definition from ArcGIS Pro is a 7z container (LZMA). MIT. -->
+    <PackageVersion Include="SharpCompress" Version="0.50.4" />
     <!-- 9.0.21, 2026-10-14: GHSA-846f-f764-76mx (Pkcs) and GHSA-r955-8q5j-3h83, -7hqp-7c5m-4vq6 and -c399-9853-6jmj
          (Xml), four denial-of-service advisories published 2026-10-13 against 9.0.20, which the security workflow's
          dependency check failed on the next morning. Pkcs comes through Xml and ITfoxtec.Identity.Saml2 and is pinned
@@ -32,87 +34,87 @@
     <PackageVersion Include="NetTopologySuite" Version="2.5.0" />
     <PackageVersion Include="System.DirectoryServices.Protocols" Version="9.0.9" />
   </ItemGroup>
-  <ItemGroup Label="Formats — Tier 2, and in a separate process for the same reason as geometry">
+  <ItemGroup Label="Formats â€” Tier 2, and in a separate process for the same reason as geometry">
     <!-- GDAL through its managed bindings, referenced by Graticula.Import.Reader and by nothing
-         else. ADR-037 §5a, which reversed that ADR's own Python worker on the day it was written:
+         else. ADR-037 Â§5a, which reversed that ADR's own Python worker on the day it was written:
          once GDAL is acceptable, .NET needs a binding rather than a parser, and a second language
-         runtime buys nothing. Measured on the owner's own geodatabases — 0.06s against the Python
+         runtime buys nothing. Measured on the owner's own geodatabases â€” 0.06s against the Python
          worker's 0.29s for the same layer.
 
          <b>Out of the server process, and the reason is the same argument NetTopologySuite's row
-         makes.</b> This parses a file somebody else chose. ADR-009 §2.2's original words are that
+         makes.</b> This parses a file somebody else chose. ADR-009 Â§2.2's original words are that
          keeping GDAL out of the serving process "removes an untrusted-file parser from the process
-         that serves public requests" — a child process is what makes that true here, since the
+         that serves public requests" â€” a child process is what makes that true here, since the
          package is now in the server image.
 
          <b>D-06 is due, and this row is the trigger firing.</b> The header of this file names it:
          repayment comes "before the first binary that bundles a database driver, a GDAL build or a
-         Python wheel set." This is that binary. GDAL's own LICENSE.TXT is a bill of materials —
+         Python wheel set." This is that binary. GDAL's own LICENSE.TXT is a bill of materials â€”
          MIT-style core beside BSD, public-domain, Apache-2.0 Esri components, ISC, Info-ZIP and
-         Qhull — so what must be enumerated is the *driver set this build carries*, not "GDAL".
+         Qhull â€” so what must be enumerated is the *driver set this build carries*, not "GDAL".
 
          MaxRev.Gdal.Core is MIT; the native payload it carries is GDAL's own bill. The runtime
          package is per platform and both are listed because the development machine is Windows and
-         the deployment is Linux (ADR-016 §2). -->
+         the deployment is Linux (ADR-016 Â§2). -->
     <PackageVersion Include="MaxRev.Gdal.Core" Version="3.13.1.534" />
     <PackageVersion Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.13.1.534" />
     <PackageVersion Include="MaxRev.Gdal.LinuxRuntime.Minimal" Version="3.13.1.534" />
   </ItemGroup>
-  <ItemGroup Label="Data access — Tier 2, adapters only">
+  <ItemGroup Label="Data access â€” Tier 2, adapters only">
     <!-- Npgsql: PostgreSQL License (BSD-style), compatible with our Apache-2.0
          outbound. Referenced only by Graticula.Platform.Postgres; the
          architecture test fails the build if it reaches Tier 1.
          D-06's trigger is the first binary that BUNDLES a driver, not the first
-         reference, so it is not yet due — but the row in DEPENDENCY-LICENSES.md
+         reference, so it is not yet due â€” but the row in DEPENDENCY-LICENSES.md
          is now real rather than hypothetical. -->
     <PackageVersion Include="Npgsql" Version="9.0.2" />
-    <!-- Argon2id. ADR-015 §5 names the algorithm; .NET has no implementation of
+    <!-- Argon2id. ADR-015 Â§5 names the algorithm; .NET has no implementation of
          it, and writing one is the least defensible thing we could do with this
-         budget — a wrong Argon2id verifies against itself perfectly while being
+         budget â€” a wrong Argon2id verifies against itself perfectly while being
          far weaker than intended, so testing does not catch it.
          MIT, managed, no native payload. Behind IPasswordHasher (Tier 1) so the
          choice is replaceable: this is a small community package holding the
          single most security-critical primitive in the server, and that is worth
          saying out loud rather than discovering later. -->
     <PackageVersion Include="Konscious.Security.Cryptography.Argon2" Version="1.3.1" />
-    <!-- DuckDB, for layers served from GeoParquet files — ADR-066. MIT for the managed binding,
+    <!-- DuckDB, for layers served from GeoParquet files â€” ADR-066. MIT for the managed binding,
          the native bindings and DuckDB itself; Apache.Arrow (Apache-2.0) arrives with it. The
          Full package carries the native library for linux-x64, linux-arm64, win-x64, win-arm64
          and osx, and only the first two reach the server image (deploy/server.Dockerfile).
 
          <b>A native library in the serving process that parses files, and that is the part to
          read twice.</b> GDAL is confined to a child process because it parses a file a caller
-         chose (ADR-009 §2.2). A GeoParquet layer's file is placed on disk by the operator, under a
-         root the deployment names, and never arrives through the API — which is the line ADR-066
-         §3 draws, and the thing that moves DuckDB out of process if it is ever crossed.
+         chose (ADR-009 Â§2.2). A GeoParquet layer's file is placed on disk by the operator, under a
+         root the deployment names, and never arrives through the API â€” which is the line ADR-066
+         Â§3 draws, and the thing that moves DuckDB out of process if it is ever crossed.
 
          Core only: the spatial extension is never installed or loaded, so GEOS and GDAL do not
          come with it. Confined to Graticula.Providers.DuckDb by NativeDependencyTests. -->
     <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.5" />
   </ItemGroup>
-  <ItemGroup Label="Rendering — Tier 2, behind our own port, in the serving process">
+  <ItemGroup Label="Rendering â€” Tier 2, behind our own port, in the serving process">
     <!-- ADR-041. The only rasteriser in this repository, and the first native
          binary admitted into the process that answers public requests.
 
-         Why that is not ADR-009 §2.2's rule being broken: GDAL is confined to a
+         Why that is not ADR-009 Â§2.2's rule being broken: GDAL is confined to a
          child process because it parses a file somebody else chose. Skia parses
          our own geometry and our own symbology document, never a caller's upload,
-         and the alternative to it is not "no native code" — it is a GL context,
+         and the alternative to it is not "no native code" â€” it is a GL context,
          which is what deferred ADR-004 in the first place.
 
          MIT over Skia's BSD-3, so nothing propagates downstream. The managed
          alternative, ImageSharp.Drawing, ships under a split licence that is free
          to us and payable by a commercial redistributor of us, which would attach
-         a constraint CLAUDE.md §7 says this product does not have.
+         a constraint CLAUDE.md Â§7 says this product does not have.
 
          NoDependencies carries its own font and graphics stack, so an air-gapped
-         image needs no system packages — the specific question ADR-004 §0 raised
+         image needs no system packages â€” the specific question ADR-004 Â§0 raised
          and could not answer. Both Linux variants are declared because a native
          dependency arrives as a family and a rule naming one of them guards
          nothing.
 
          Confined to Graticula.Render.Skia by NativeDependencyTests. -->
-    <!-- The raster reader, ADR-043 §3.5. BSD-3-Clause with bundled IJG JPEG and
+    <!-- The raster reader, ADR-043 Â§3.5. BSD-3-Clause with bundled IJG JPEG and
          libtiff notices; DEPENDENCY-LICENSES.md carries all three. Managed code
          with no native asset, which is why it is a smaller answer than GDAL for
          an air-gapped image (Q-15). -->
@@ -138,8 +140,8 @@
          behaviour, and the alternative to a controllable clock is a test that
          sleeps: slow, flaky, and unable to test a 15-minute window at all. -->
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.0.0" />
-    <!-- ADR-068: response compression is a pipeline behaviour — what a middleware
-         does to headers and bytes on the wire — and every other test in this suite
+    <!-- ADR-068: response compression is a pipeline behaviour â€” what a middleware
+         does to headers and bytes on the wire â€” and every other test in this suite
          exercises a class or a pure function directly. `ResponseCompressionMiddleware`
          decides whether to compress from `IHttpsCompressionFeature`, which nothing
          populates until a server implementation calls `OnStarting`; `TestServer` is

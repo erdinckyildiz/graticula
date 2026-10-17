@@ -959,8 +959,12 @@ internal static class AuthEndpoints
     /// </remarks>
     /// <param name="context">The request.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="thisServerWhenUnnamed">
+    /// Asked at the admin URL: the token may come in a header, and an unnamed server is this one.
+    /// </param>
     /// <returns>The exchange, or <c>Asked = false</c> when the request is an ordinary sign-in.</returns>
-    internal static async Task<Exchange> TryExchangeAsync(HttpContext context, CancellationToken cancellation)
+    internal static async Task<Exchange> TryExchangeAsync(
+        HttpContext context, CancellationToken cancellation, bool thisServerWhenUnnamed = false)
     {
         IFormCollection? form = context.Request.HasFormContentType
             ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
@@ -974,6 +978,15 @@ internal static class AuthEndpoints
 
         string presented = Read("token").Trim();
 
+        // The administrative door, asked by the server's own admin URL: the token may come in a header, and the
+        // server it is for is this one whether or not it is named (ArcGIS Pro's hosting-server exchange, 2026-10-17).
+        if (thisServerWhenUnnamed && presented.Length == 0)
+        {
+            string header = context.Request.Headers["X-Esri-Authorization"].ToString();
+            if (header.Length == 0) header = context.Request.Headers.Authorization.ToString();
+            presented = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? header[7..].Trim() : string.Empty;
+        }
+
         if (presented.Length == 0 || Read("username").Trim().Length > 0)
         {
             return new Exchange(false, 0, null, null, default);
@@ -981,6 +994,11 @@ internal static class AuthEndpoints
 
         string serverUrl = Read("serverUrl").Trim();
         string origin = $"{context.Request.Scheme}://{context.Request.Host}";
+
+        if (thisServerWhenUnnamed && serverUrl.Length == 0)
+        {
+            serverUrl = origin;
+        }
 
         if (!Uri.TryCreate(serverUrl, UriKind.Absolute, out Uri? server)
             || !string.Equals(server.GetLeftPart(UriPartial.Authority), origin, StringComparison.OrdinalIgnoreCase))

@@ -66,6 +66,31 @@ internal static partial class PortalEndpoints
     /// </remarks>
     public const string PortalVersion = "11.2";
 
+    /// <summary>
+    /// The ArcGIS Enterprise release this server answers as, beside <see cref="PortalVersion"/>.
+    /// </summary>
+    /// <remarks>
+    /// <b>An Enterprise portal says it next to its API level</b> (<c>"enterpriseVersion": "11.5.0"</c> at
+    /// <c>/portal/sharing/rest</c> on a real one), and Pro's Share pane read its absence as a server too old for the
+    /// data: <i>"The dataset version is later than is supported by your server. Minimum version: 11.2"</i> (dev,
+    /// 2026-10-17, ADR-191 condition 2). The same release as the server's own <c>/rest/info</c> <c>fullVersion</c>.
+    /// </remarks>
+    public const string EnterpriseVersion = "12.1.0";
+
+    /// <summary>
+    /// The portal API level said to a client — a real Enterprise's pair while Pro's publishing is measured.
+    /// </summary>
+    /// <remarks>
+    /// An Enterprise 11.5 portal says <c>currentVersion "2025.1"</c> with <c>enterpriseVersion "11.5.0"</c>; this one
+    /// said <c>"11.2"</c>, which as an API level is years older, and Pro's analyzer still said the server is too old
+    /// for the data with <see cref="EnterpriseVersion"/> beside it (dev, 2026-10-17). It is the number Pro reads: with
+    /// the real pair the analyzer passed. Where Pro may publish (ADR-191) that pair is sent; a deployment that turns
+    /// publishing off keeps the old one.
+    /// </remarks>
+    private static string PortalVersionOf(HttpContext context) => Publishing(context) ? "2025.1" : PortalVersion;
+
+    private static string EnterpriseVersionOf(HttpContext context) => Publishing(context) ? "11.5.0" : EnterpriseVersion;
+
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
     public static void MapPortal(this WebApplication app)
@@ -127,6 +152,13 @@ internal static partial class PortalEndpoints
         // token, then fetched this, got 404 and reported *unable to connect* — a
         // sign-in that had already succeeded, failing on the profile behind it.
         Discoverable(app, $"{Path}/community/users/{{username}}", UserAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>A user's tags</b>, which Pro asks for on every sign-in and the Share pane fills its Tags box from: a 404
+        // with no body was the one request of Pro's sign-in that failed (traced 2026-10-17, ADR-191 condition 2). Empty is
+        // true — tags here belong to items, not to a person's list of favourites.
+        Discoverable(app, $"{Path}/community/users/{{username}}/tags", (HttpContext context, string username) =>
+            Self(context, username) is null ? Unknown("User") : Results.Ok(new { tags = Array.Empty<object>() }))
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         // <b>POST as well as GET, because Pro posts its searches.</b> Its query is
@@ -205,6 +237,10 @@ internal static partial class PortalEndpoints
         // the item says; the route answers for the one it says and 404s the rest.
         Discoverable(app, $"{Path}/content/items/{{id}}/info/thumbnail/{{file}}", ItemThumbnailAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
+
+        MapProPublish(app);
+        MapProShare(app);
+        MapProPublishCapture(app);
     }
 
     /// <summary>
@@ -225,6 +261,59 @@ internal static partial class PortalEndpoints
 
     /// <summary>What everybody else may do.</summary>
     private static readonly string[] MemberPrivileges = ["portal:user:viewOrgItems"];
+
+    /// <summary>
+    /// The portal privileges this account holds, in the words a portal client reads.
+    /// </summary>
+    /// <remarks>
+    /// <b>Editing is said when it is true</b> (gap review, 2026-10-17). The list named only viewing, so a client that
+    /// gates its edit tools on <c>features:user:edit</c> — Field Maps and the JS Editor widget among them (INFERRED) —
+    /// could hide editing from an administrator who may edit everything here. <c>features:user:edit</c> and
+    /// <c>features:user:fullEdit</c> follow this server's own <see cref="Privilege.FeaturesEdit"/> and
+    /// <see cref="Privilege.FeaturesFullEdit"/>. <c>portal:user:createItem</c> stays off: there is no portal write
+    /// API (ADR-040 §4f), and a privilege for an action that fails is the generous list this guards against.
+    /// </remarks>
+    private static string[] PrivilegesOf(RequestPrincipal current, bool administrator, bool publishing)
+    {
+        List<string> held = [.. administrator ? AdministratorPrivileges : MemberPrivileges];
+
+        // ADR-191 §5.4: where Pro may publish, a member is told what their own role lets them do — publish, and share
+        // to groups, the organization or everyone — so that Pro enables Analyze and Publish for exactly those.
+        if (publishing)
+        {
+            if (current.Authorization.Allows(Privilege.ContentPublishFeatures))
+            {
+                held.AddRange(["portal:user:createItem", "portal:publisher:publishFeatures"]);
+            }
+
+            if (current.Authorization.Allows(Privilege.GroupsShareTo))
+            {
+                held.Add("portal:user:shareToGroup");
+            }
+
+            if (current.Authorization.Allows(Privilege.SharingShareToOrganization))
+            {
+                held.Add("portal:user:shareToOrg");
+            }
+
+            if (current.Authorization.Allows(Privilege.SharingShareToPublic))
+            {
+                held.Add("portal:user:shareToPublic");
+            }
+        }
+
+        if (current.Authorization.Allows(Privilege.FeaturesEdit))
+        {
+            held.Add("features:user:edit");
+        }
+
+        if (current.Authorization.Allows(Privilege.FeaturesFullEdit))
+        {
+            held.Add("features:user:fullEdit");
+        }
+
+        return [.. held];
+    }
 
     /// <summary>Maps a route that answers HEAD as well as GET.</summary>
     private static RouteHandlerBuilder Discoverable(
@@ -270,7 +359,8 @@ internal static partial class PortalEndpoints
     /// </remarks>
     private static IResult InfoAsync(HttpContext context) => Results.Ok(new
     {
-        currentVersion = PortalVersion,
+        currentVersion = PortalVersionOf(context),
+        enterpriseVersion = EnterpriseVersionOf(context),
         authInfo = new
         {
             isTokenBasedSecurity = true,
@@ -515,8 +605,9 @@ internal static partial class PortalEndpoints
             name = "Graticula",
             portalName = "ArcGIS Enterprise",
             portalMode = "singletenant",
-            customBaseUrl = string.Empty,
-            portalHostname = context.Request.Host.Value,
+            // The Web Adaptor name and the host with it, as an Enterprise portal under a path says them.
+            customBaseUrl = context.Request.PathBase.Value?.Trim('/') ?? string.Empty,
+            portalHostname = context.Request.Host.Value + context.Request.PathBase.Value,
             isPortal = true,
             // <b>`RequireHttps`, the same fact every token response now reports as `ssl`.</b> True on
             // every deployment that did not turn HTTPS off, which is the value this always had.
@@ -530,11 +621,16 @@ internal static partial class PortalEndpoints
             supportsOAuth = false,
             supportsHostedServices = true,
 
+            // An Enterprise portal says whether its members may share with everyone; Pro greys *Everyone* without
+            // it. Said only while Pro's publishing calls are recorded (dev, PortalEndpoints.ProCapture).
+            canSharePublic = Publishing(context),
+
             // <b>The ports the caller reached, not the defaults — V-58.</b> A client that rebuilds a
             // URL from these two and the host would otherwise drop the showcase's 8443.
             httpPort = PortOf(context, https: false),
             httpsPort = PortOf(context, https: true),
-            currentVersion = PortalVersion,
+            currentVersion = PortalVersionOf(context),
+            enterpriseVersion = EnterpriseVersionOf(context),
             access = "public",
 
             // <b>What every ArcGIS Enterprise portal says about itself and this one did not — 2026-10-13.</b> Pro's
@@ -758,7 +854,7 @@ internal static partial class PortalEndpoints
             // reads these to decide which buttons to offer, so a generous list is a
             // set of actions that fail when somebody presses them — the same
             // failure as advertising an operator the filter reader refuses.
-            privileges = administrator ? AdministratorPrivileges : MemberPrivileges,
+            privileges = PrivilegesOf(current, administrator, Publishing(context)),
             access = "private",
             provider = "arcgis",
             userType = "creatorUT",
@@ -805,31 +901,39 @@ internal static partial class PortalEndpoints
     private static IResult RegionsAsync() =>
         Results.Ok(new[] { new { region = "WO", localizedName = "World" } });
 
-    /// <summary>The servers federated with this portal: this one, which hosts what it publishes.</summary>
+    /// <summary>The servers federated with this portal: none that hosts, because nothing is published from Pro.</summary>
     /// <remarks>
-    /// <b>One server, and the portal and it are the same process.</b> An Enterprise portal lists each ArcGIS Server
-    /// federated with it and marks the one that hosts; here the portal and the server are one, so the list names
-    /// this server once, as the hosting server, at the address the caller reached.
+    /// <b>An answer, and an empty one</b> (2026-10-17, Q-176). ADR-040 §4f left this route unanswered so that Pro
+    /// would not offer a publishing path this server cannot serve; commit <c>f5adfb37</c> answered it with this
+    /// server as the <c>HOSTING_SERVER</c>, to stop Pro's Add Data dialog spinning on a 404. Pro then opened
+    /// <i>Share As Web Layer</i> against dev.graticula.com with "(Hosting Server)" chosen — the owner's screen — and
+    /// asked <c>/admin/generateToken</c> as the first step of a publish that <c>addItem</c>, <c>createService</c>
+    /// and <c>shareItems</c>, none of them served, would have failed. An empty list is what §4f called the quieter
+    /// answer: the route still answers 200, so whatever spun on the 404 has its document, and no server is offered
+    /// to publish to. When publishing from Pro is served, this lists the server again.
     /// </remarks>
     private static IResult ServersAsync(HttpContext context, string id) =>
         string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
             || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
             ? Results.Ok(new
             {
-                servers = new[]
-                {
-                    new
+                // Listed only while Pro's publishing calls are being recorded (dev, PortalEndpoints.ProCapture).
+                servers = Publishing(context)
+                    ? new object[]
                     {
-                        id = PortalId(context),
-                        name = context.Request.Host.Value,
-                        url = Origin(context),
-                        adminUrl = $"{Origin(context)}/admin",
-                        isHosted = true,
-                        serverType = "ArcGIS",
-                        serverRole = "HOSTING_SERVER",
-                        serverFunction = string.Empty,
-                    },
-                },
+                        new
+                        {
+                            id = PortalId(context),
+                            name = context.Request.Host.Value,
+                            url = $"{context.Request.Scheme}://{context.Request.Host}/arcgis",
+                            adminUrl = $"{context.Request.Scheme}://{context.Request.Host}/arcgis/admin",
+                            isHosted = true,
+                            serverType = "ArcGIS",
+                            serverRole = "HOSTING_SERVER",
+                            serverFunction = string.Empty,
+                        },
+                    }
+                    : Array.Empty<object>(),
             })
             : Unknown("Organization");
 

@@ -306,6 +306,28 @@ to leave them unanswered.** Naming this server as a federated hosting server wou
 empty list would be quieter and would say the same thing less clearly. Revisit when publishing from
 Pro is.
 
+*(Reversed in code 2026-10-13 without this section being amended — found by the ArcGIS gap review of
+2026-10-17. Commit `f5adfb37` made `portals/self/servers` answer with this server as the
+`HOSTING_SERVER`, because Pro asks for it twice after sign-in and its Add Data dialog was spinning; whether
+the answer stopped the spinning was never established. **The risk this section named is now live and
+unmeasured**: Pro may offer *Share as Web Layer* to a server with no publishing route
+(`addItem`, `createService` and `shareItems` are not served). Left answering, rather than reverted again
+on a guess, until it is observed in Pro on dev.graticula.com which of the two failures is real — the
+spinning dialog without the answer, or a sharing path that fails with it. The owner's check is
+[Q-176](../open-questions.md).)*
+
+*(Observed the same day, and the route now answers an empty list. In Pro against dev.graticula.com the owner's
+screen showed **Share As Web Layer** open with "https://dev.graticula.com (Hosting Server)" chosen, and the request
+log shows Pro asking `/admin/generateToken` next — the first step of a publish this server cannot finish. So the
+risk this section named was real. `servers` now answers `{"servers":[]}`: the quieter answer this section
+weighed, which still gives Pro a 200 for the route it asks twice. Whether Add Data still works with it is the half
+of Q-176 left to observe.)*
+
+*(Superseded for one path the same day by [ADR-191](ADR-191-arcgis-pro-publishes-hosted-feature-layers.md), by owner
+decision: Pro publishes hosted feature layers here (*Copy all data → Feature*). `servers` names this server as the
+hosting server again, and the portal serves the write calls that path makes. The rest of this section — no other
+publishing from Pro — stands.)*
+
 ## 5. Consequences
 
 **Positive.** A Pro user gets the browse workflow the owner asked for. Every other ArcGIS client

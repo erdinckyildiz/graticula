@@ -205,6 +205,14 @@ failure is unrecoverable and looks like corruption rather than a mistake.
 Migration is therefore an **explicit operation**: an admin API call or a command,
 which takes a backup first (§6), reports what it will do, and does it once.
 
+*(Not built — the ArcGIS gap review of 2026-10-17 found this sentence and §6's "migrate, contract, backup"
+promising a backup that no code takes: there is no `pg_dump` in `src` and no backup route.
+[deployment.md](../deployment.md) §2.4 says the opposite, *"no backup mechanism ships, and that is a decision"*,
+and it is the one that describes the product: `migrate --apply` takes no backup, and an operator takes one first,
+as §2 of that document says how. The two documents contradicted each other for as long as both stood; this note
+is where the contradiction ends. Whether a backup command should exist is
+[Q-177](../open-questions.md).)*
+
 Three components, one version: server, job worker and the datastore's schema
 stamp must agree. A mismatch produces a startup refusal naming **which two
 disagree and in which direction** — not "incompatible schema".

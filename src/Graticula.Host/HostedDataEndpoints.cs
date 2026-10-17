@@ -89,7 +89,7 @@ internal static class HostedDataEndpoints
         Settings(context)?.Shapefile ?? ArchiveLimits.ForShapefile;
 
     /// <summary>What may be built from one file on this deployment.</summary>
-    private static ImportLimits Limits(HttpContext context) =>
+    internal static ImportLimits Limits(HttpContext context) =>
         Settings(context)?.Import ?? ImportLimits.Default;
 
     private static HostSettings? Settings(HttpContext context) =>
@@ -2769,6 +2769,7 @@ internal static class HostedDataEndpoints
     /// <param name="name">The layer's name.</param>
     /// <param name="what">What was being attempted, for the refusal.</param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="service">The service to look in, as <c>?service=</c> says it; null reads the request's.</param>
     /// <returns>The layer, or null when a refusal has been written.</returns>
     /// <remarks>
     /// <b>ADR-058 §5h: a registered table is refused, and told where it is changed instead.</b>
@@ -2781,7 +2782,8 @@ internal static class HostedDataEndpoints
         PostgresLayerCatalog layers,
         string name,
         string what,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? service = null)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
             .ConfigureAwait(false))
@@ -2789,7 +2791,7 @@ internal static class HostedDataEndpoints
             return null;
         }
 
-        if (await AdminEndpoints.OneNamedLayerAsync(context, layers, name, cancellation)
+        if (await AdminEndpoints.OneNamedLayerAsync(context, layers, name, cancellation, service)
             .ConfigureAwait(false) is not { } found)
         {
             return null;

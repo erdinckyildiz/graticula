@@ -78,6 +78,10 @@ internal static class ShapefileViaReader
     /// </param>
     /// <param name="limits">What may be built from it.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="layer">
+    /// One layer of an archive that holds several — a geodatabase Pro overwrites with (ADR-191) — or null for the
+    /// one layer a shapefile archive holds. With a layer named, an <paramref name="srid"/> of 0 takes the reader's.
+    /// </param>
     /// <returns>The dataset, or the sentence to refuse with.</returns>
     public static async Task<(ImportedDataset? Dataset, string? Error)>
         ReadAsync(
@@ -86,7 +90,8 @@ internal static class ShapefileViaReader
         int srid,
         string? encoding,
         ImportLimits limits,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? layer = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentException.ThrowIfNullOrWhiteSpace(archive);
@@ -110,7 +115,7 @@ internal static class ShapefileViaReader
                 return (null, listError);
             }
 
-            if (!Single(listed.RootElement, out layerName, out kind, out string? whichError))
+            if (!Single(listed.RootElement, layer, out layerName, out kind, out string? whichError))
             {
                 return (null, whichError);
             }
@@ -267,6 +272,13 @@ internal static class ShapefileViaReader
                 return (null, headerError);
             }
 
+            if (srid == 0 && layer is not null
+                && header.RootElement.TryGetProperty("srid", out JsonElement stated)
+                && stated.ValueKind == JsonValueKind.Number)
+            {
+                srid = stated.GetInt32();
+            }
+
             if (trailer is null)
             {
                 return (null,
@@ -370,7 +382,7 @@ internal static class ShapefileViaReader
     /// because the sentence it produces is better than an index out of range.
     /// </remarks>
     private static bool Single(
-        JsonElement answer, out string? name, out GeometryKind? kind, out string? error)
+        JsonElement answer, string? wanted, out string? name, out GeometryKind? kind, out string? error)
     {
         name = null;
         kind = null;
@@ -384,15 +396,34 @@ internal static class ShapefileViaReader
             return false;
         }
 
-        if (layers.GetArrayLength() > 1)
+        JsonElement only = layers[0];
+
+        if (wanted is not null)
+        {
+            only = default;
+
+            foreach (JsonElement each in layers.EnumerateArray())
+            {
+                if (each.TryGetProperty("name", out JsonElement called)
+                    && string.Equals(called.GetString(), wanted, StringComparison.OrdinalIgnoreCase))
+                {
+                    only = each;
+                }
+            }
+
+            if (only.ValueKind != JsonValueKind.Object)
+            {
+                error = $"This archive holds no layer called '{wanted}'.";
+                return false;
+            }
+        }
+        else if (layers.GetArrayLength() > 1)
         {
             error = "This archive holds more than one shapefile. Upload one at a time, so "
                 + "that what gets published is the file you meant.";
 
             return false;
         }
-
-        JsonElement only = layers[0];
 
         name = only.TryGetProperty("name", out JsonElement said) ? said.GetString() : null;
 

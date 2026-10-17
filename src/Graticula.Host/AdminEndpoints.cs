@@ -21,6 +21,8 @@ using Graticula.Platform.Jobs;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 
 namespace Graticula.Host;
@@ -6934,11 +6936,65 @@ internal static partial class AdminEndpoints
     /// readable, and is not a 404.
     /// </para>
     /// </remarks>
+    /// <summary>The token a request carries, in its query or its Authorization or X-Esri-Authorization header.</summary>
+    private static string PresentedToken(HttpContext context)
+    {
+        string query = context.Request.Query["token"].ToString().Trim();
+        if (query.Length > 0) return query;
+        string header = context.Request.Headers["X-Esri-Authorization"].ToString();
+        if (header.Length == 0) header = context.Request.Headers.Authorization.ToString();
+        return header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? header[7..].Trim() : string.Empty;
+    }
+
     private static async Task AdminTokenAsync(
         HttpContext context,
         LoginService login,
         CancellationToken cancellation)
     {
+        // <b>The hosting server's exchange, while Pro's publishing calls are recorded</b> (dev, PortalEndpoints.ProCapture).
+        // Pro, signed in to the portal, asks this admin URL for a server token with the portal's token and no
+        // username; refusing it — "'username' and 'password' are required" — is what stopped Share As Web Layer
+        // reading the server's folders and cache directory (traced 2026-10-17). The answer is the same token, as at
+        // /rest/generateToken (AuthEndpoints.TryExchangeAsync).
+        bool capturing = PortalEndpoints.PublishingFromPro(context.RequestServices.GetRequiredService<IConfiguration>());
+
+        // <b>Already signed in by the token it carries</b>: Pro sends the portal token in a header and no Referer, and
+        // the request pipeline has admitted it as the caller; the exchange's own binding check, which reads a Referer,
+        // refused the same token (traced 2026-10-17). The admitted token is the answer.
+        if (capturing
+            && context.Features.Get<RequestPrincipal>() is { } signedIn && signedIn.Principal != Principal.Anonymous
+            && string.IsNullOrWhiteSpace(context.Request.Query["username"].ToString())
+            && PresentedToken(context) is { Length: > 0 } admitted)
+        {
+            // `expires` as a string, which is how the ArcGIS Server admin API writes it; Pro's server connection reads
+            // this answer and went no further with the number (2026-10-17, being measured).
+            await Results.Json(new
+            {
+                token = admitted,
+                expires = DateTimeOffset.UtcNow.AddMinutes(60).ToUnixTimeMilliseconds()
+                    .ToString(System.Globalization.CultureInfo.InvariantCulture),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (capturing
+            && await AuthEndpoints.TryExchangeAsync(context, cancellation, thisServerWhenUnnamed: true).ConfigureAwait(false)
+                is { Asked: true } exchanged)
+        {
+            if (exchanged.Error is { } refusal)
+            {
+                await AdminTokenError(context, StatusCodes.Status200OK, exchanged.Status, refusal).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(new
+            {
+                token = exchanged.Token,
+                expires = exchanged.Expires.ToUnixTimeMilliseconds(),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         string? name = null;
         string? password = null;
 
@@ -10577,6 +10633,7 @@ internal static partial class AdminEndpoints
     /// how the same collision is already resolved everywhere a service is addressed.
     /// </para>
     /// </remarks>
+    /// <param name="service">The service to look in, as <c>?service=</c> says it; null reads the request's.</param>
     /// <remarks>
     /// <b><c>internal</c> since 2026-09-08, because ADR-058's field endpoints need the same
     /// lookup.</b> D-109's rule — an ambiguous name is refused rather than resolved by sort
@@ -10588,12 +10645,13 @@ internal static partial class AdminEndpoints
         HttpContext context,
         PostgresLayerCatalog layers,
         string name,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        string? service = null)
     {
         IReadOnlyList<PublishedLayer> found =
             await layers.NamedAsync(name, cancellation).ConfigureAwait(false);
 
-        string? wanted = context.Request.Query["service"].FirstOrDefault();
+        string? wanted = service ?? context.Request.Query["service"].FirstOrDefault();
 
         if (wanted is { Length: > 0 })
         {

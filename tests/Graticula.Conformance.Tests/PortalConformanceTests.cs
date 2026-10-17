@@ -327,6 +327,21 @@ public sealed class PortalConformanceTests : ArcGisClient
             $"/sharing/rest/search?q=&f=json&token={token}",
         ];
 
+        // <b>This server is the portal's hosting server</b> (ADR-191 §5.4, superseding Q-176's empty list): Pro shares
+        // to it, so it is listed under /arcgis — the path an Enterprise hosting server lives at — and that address
+        // answers, because Pro asks it before it publishes.
+        JsonElement servers = await GetJsonAsync($"/sharing/rest/portals/self/servers?f=json&token={token}");
+        JsonElement hosting = Assert.Single(servers.GetProperty("servers").EnumerateArray());
+
+        Assert.Equal("HOSTING_SERVER", hosting.GetProperty("serverRole").GetString());
+        Assert.True(hosting.GetProperty("isHosted").GetBoolean());
+        Assert.EndsWith("/arcgis", hosting.GetProperty("url").GetString(), StringComparison.Ordinal);
+
+        using (HttpResponseMessage server = await Http.GetAsync(new Uri($"{root}/arcgis")))
+        {
+            Assert.Equal(System.Net.HttpStatusCode.OK, server.StatusCode);
+        }
+
         foreach (string path in chain)
         {
             using HttpResponseMessage response =

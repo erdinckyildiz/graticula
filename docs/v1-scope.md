@@ -133,6 +133,12 @@ narrowed to PostGIS estates, and it is the price of shipping.
 > **WCS, 2026-10-03 — [ADR-170](adr/ADR-170-image-services-are-wcs-coverages.md).** Image services are WCS 2.0.1
 > coverages over their raw export, by owner decision (*"Yap"*).
 
+> **WMS and ArcGIS MapServer are built and served beside v1, 2026-10-17.** The ArcGIS gap review read this section as
+> saying they are absent, while every hosted layer answers a MapServer and lists a *Map Service* item in the portal.
+> Both are [ADR-041](adr/ADR-041-the-map-renderer.md)'s two faces of the map renderer, built and served; *out of v1*
+> here means v1 does not promise them, as with ImageServer above, not that a client finds nothing. What a MapServer
+> does not do — `find`, a cached raster tile layer — the README now says by name.
+
 - **Q-85 dissolves.** ~~ADR-004 stays `DEFERRED`~~ and no longer contradicts an
   in-scope capability, which was review finding S2/A7.
 - **ADR-009 can re-close.** ImageServer was what reopened it; the near-free

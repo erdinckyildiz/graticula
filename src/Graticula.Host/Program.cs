@@ -848,6 +848,65 @@ public static class Program
 
         WebApplication app = builder.Build();
 
+        // <b>Every request as it arrived, while Pro's publishing calls are recorded</b> (dev only, ADR-191 condition 2):
+        // the request log reads the path after this server's own rewrites, and the Share pane's failure is in which
+        // address Pro asked. One line per request, the token removed, to the capture directory.
+        if (PortalEndpoints.RecordingPro(app.Configuration))
+        {
+            string wire = System.IO.Path.Combine(
+                app.Configuration["Graticula:ProPublishCaptureDirectory"] ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "pro-capture"),
+                "wire.log");
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(wire)!);
+            object gate = new();
+            static bool Secret(string key) => PortalEndpoints.CapturedSecret(key);
+
+            app.Use(async (context, next) =>
+            {
+                string asked = context.Request.Method + " " + context.Request.Path + System.Text.RegularExpressions.Regex.Replace(
+                    context.Request.QueryString.Value ?? string.Empty, "(?i)((?:token|pass[a-z]*|secret|[a-z]*key)=)[^&]*", "$1*");
+                string agent = context.Request.Headers.UserAgent.ToString();
+                bool bearer = context.Request.Headers.Authorization.Count > 0 || context.Request.Headers["X-Esri-Authorization"].Count > 0;
+                // A small form body too (the token removed): Pro's POST search says what it looks for only there.
+                if (context.Request.HasFormContentType && context.Request.ContentType?.StartsWith("application/x-www-form-urlencoded", StringComparison.OrdinalIgnoreCase) == true
+                    && context.Request.ContentLength is > 0 and < 16384)
+                {
+                    IFormCollection posted = await context.Request.ReadFormAsync(context.RequestAborted).ConfigureAwait(false);
+                    asked += " | form " + string.Join("&", posted
+                        .Select(f => f.Key + "=" + (Secret(f.Key) ? "*" : f.Value.ToString())));
+                }
+
+                // The answer to publish and share too: a portal error is a 200 with `error` in its body, so the status
+                // alone said a failed overwrite had succeeded (dev, 2026-10-17).
+                string answered = string.Empty;
+                if (context.Request.Path.Value is { } p && (p.EndsWith("/publish", StringComparison.OrdinalIgnoreCase)
+                    || p.EndsWith("/shareItems", StringComparison.OrdinalIgnoreCase)))
+                {
+                    System.IO.Stream original = context.Response.Body;
+                    using System.IO.MemoryStream copy = new();
+                    context.Response.Body = copy;
+                    try
+                    {
+                        await next(context).ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        context.Response.Body = original;
+                        copy.Position = 0;
+                        string body = System.Text.Encoding.UTF8.GetString(copy.ToArray());
+                        answered = " | answer " + (body.Length > 600 ? body[..600] : body);
+                        await copy.CopyToAsync(original).ConfigureAwait(false);
+                    }
+                }
+                else
+                {
+                    await next(context).ConfigureAwait(false);
+                }
+
+                string line = $"{DateTime.UtcNow:HH:mm:ss.fff} {context.Response.StatusCode} {context.Response.ContentType} | {asked}{answered} | auth={bearer} | {agent}" + Environment.NewLine;
+                lock (gate) { System.IO.File.AppendAllText(wire, line); }
+            });
+        }
+
         // ADR-101 condition 4: an edit empties only the tiles it reached, in its service's scheme, which the catalogue
         // the services are already listed from knows.
         {
@@ -1021,6 +1080,72 @@ public static class Program
           routing. A rewrite behind it rewrites a decision that has already been made, which is
           what the first attempt did and what the measurement caught.
         */
+        // <b>The server under /arcgis, while Pro's publishing calls are recorded</b> (dev only, PortalEndpoints.ProCapture).
+        // Pro asked the hosting server's address — this origin — again and again while opening Share As Web Layer and
+        // met the Services page; an Enterprise hosting server lives under a path. Both are the same routes.
+        if (PortalEndpoints.PublishingFromPro(app.Configuration))
+        {
+            app.Use(async (context, next) =>
+            {
+                // The path only, not PathBase: the portal is this origin, and /rest/info's owningSystemUrl, which reads
+                // PathBase, has to keep naming it — the hosting server is federated with the portal at the root.
+                // <b>The portal under /portal</b>: Esri's article 000031246 names a portal URL without a Web Adaptor name
+                // (https://host/<webadaptorname>) as a cause of Analyze and Publish staying grey, and this portal lives at
+                // the root. Under /portal the same routes answer with /portal as their base, so the portal's documents
+                // name the address the client used.
+                if (context.Request.Path.StartsWithSegments("/portal", out PathString portalRest))
+                {
+                    context.Request.PathBase = context.Request.PathBase.Add("/portal");
+                    context.Request.Path = portalRest.HasValue ? portalRest : "/";
+                }
+
+                // <b>And under /studio, which is this product's portal</b> (owner, 2026-10-17: "dev.graticula.com/studio
+                // diye gitsek ne olur?"). Only the portal's own addresses are taken: /studio/ itself stays Studio's page.
+                else if (context.Request.Path.StartsWithSegments("/studio/sharing", out PathString studioSharing))
+                {
+                    context.Request.PathBase = context.Request.PathBase.Add("/studio");
+                    context.Request.Path = new PathString("/sharing").Add(studioSharing);
+                }
+                // An item's URL is built on the portal's base; under /studio the services answer at the server's root.
+                else if (context.Request.Path.StartsWithSegments("/studio/rest", out PathString studioRest))
+                {
+                    context.Request.Path = new PathString("/rest").Add(studioRest);
+                }
+                else if (context.Request.Path.Equals("/studio/arcgisuris.xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Request.PathBase = context.Request.PathBase.Add("/studio");
+                    context.Request.Path = "/arcgisuris.xml";
+                }
+
+                // Its admin URL is the hosting server's admin API Pro reads before it publishes, which is not this
+                // server's own /admin: the token exchange goes to /admin/generateToken, the rest to the recorder.
+                if (context.Request.Path.StartsWithSegments("/arcgis/admin", out PathString admin))
+                {
+                    context.Request.Path = admin.StartsWithSegments("/generateToken")
+                        ? "/admin/generateToken"
+                        : new PathString("/pro-admin").Add(admin.HasValue ? admin : "/");
+                }
+                else if (context.Request.Path.StartsWithSegments("/arcgis", out PathString rest))
+                {
+                    // <b>The server's own address answers 200</b>: Pro asked it dozens of times, unauthenticated, between
+                    // the token exchange and the reads it never made, and met a 302 each time (traced 2026-10-17); an
+                    // ArcGIS Server's base answers a page. This one is a page of its own, naming the directory.
+                    if (!rest.HasValue || rest == "/")
+                    {
+                        context.Response.ContentType = "text/html; charset=utf-8";
+                        await context.Response.WriteAsync(
+                            "<!doctype html><title>Graticula</title><p>Graticula serves ArcGIS REST services at "
+                            + "<a href=\"rest/services\">rest/services</a>.</p>").ConfigureAwait(false);
+                        return;
+                    }
+
+                    context.Request.Path = rest;
+                }
+
+                await next(context).ConfigureAwait(false);
+            });
+        }
+
         app.UseRouting();
 
         /*
@@ -2003,7 +2128,16 @@ public static class Program
         //
         // 302 rather than 301: a permanent redirect is cached by browsers past the
         // point where anybody can change their mind about what the root is for.
-        app.MapGet("/", () => Results.Redirect("/rest/services?f=html", permanent: false));
+        app.MapGet("/", (HttpContext context) =>
+            // <b>A page, not a redirect, while Pro's publishing calls are recorded</b> (dev, ADR-191 condition 2): the
+            // Share pane asks the portal's root dozens of times and throws "Could not determine encoding" reading a 302
+            // with no body; this answers 200 in UTF-8 and still takes a browser to the directory.
+            context.RequestServices.GetRequiredService<IConfiguration>().GetValue<bool>("Graticula:ProPublishCapture")
+                ? Results.Content(
+                    "<!doctype html><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=/rest/services?f=html\">"
+                    + "<title>Graticula</title><p><a href=\"/rest/services?f=html\">Services</a> · <a href=\"/studio/\">Studio</a>",
+                    "text/html; charset=utf-8")
+                : Results.Redirect("/rest/services?f=html", permanent: false));
 
         // The root: registered services, the folders, and the system services.
         app.MapMethods("/rest/services", ["GET", "POST"], (
