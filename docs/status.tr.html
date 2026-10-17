@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>198beee4</code> · 2026-10-17 19:42</p>
+<p class="stamp">Şu commit’ten üretildi: <code>3a5cecd2</code> · 2026-10-17 20:42</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">191</div><div class="kpi-l">ADR</div><div class="kpi-n">77 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">376/429</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">45 canlı · 8 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">183 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">192</div><div class="kpi-l">ADR</div><div class="kpi-n">77 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">379/433</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">46 canlı · 8 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">184 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">280 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/89</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">4986</div><div class="kpi-l">test</div><div class="kpi-n">508 kaynak dosya, 228,367 satır</div></div>
+<div class="kpi good"><div class="kpi-v">4999</div><div class="kpi-l">test</div><div class="kpi-n">510 kaynak dosya, 229,214 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-177</b> — Should a backup command ship?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">59 madde</span></div><p><b>45 ADR conditions</b> outstanding across 34 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">60 madde</span></div><p><b>46 ADR conditions</b> outstanding across 35 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -165,6 +165,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-181 · The ArcGIS REST API version this s</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-188 · A document is an item: a file kept</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-193 · Backup and restore are the server&#x27;</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -374,11 +375,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">190</td><td>Members are searched in the database, sorted into categories, and have profiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is Portal&#x27;s and the owner&#x27;s; the search has not been measured past a…</td><td class="num"></td></tr>
 <tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/6</td></tr>
 <tr><td class="id">192</td><td>A screen is a path, not a fragment</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — measured on dev.graticula.com in a browser before release; the old addresses are…</td><td class="num"></td></tr>
+<tr><td class="id">193</td><td>Backup and restore are the server&#x27;s own commands, and they take the database with them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
-<article class="card"><div class="card-h"><span class="id">Q-177</span><span class="owner">Owner</span></div><p>Should a backup command ship?</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -497,35 +498,35 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1382</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:65.0%"></div></div><div class="bar-n">898</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.7%"></div></div><div class="bar-n">784</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:40.2%"></div></div><div class="bar-n">555</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:30.1%"></div></div><div class="bar-n">416</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">309</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.4%"></div></div><div class="bar-n">226</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1390</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:64.6%"></div></div><div class="bar-n">898</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.8%"></div></div><div class="bar-n">789</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:39.9%"></div></div><div class="bar-n">555</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:29.9%"></div></div><div class="bar-n">416</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.2%"></div></div><div class="bar-n">309</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.3%"></div></div><div class="bar-n">226</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:9.1%"></div></div><div class="bar-n">126</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:9.0%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.9%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.6%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">49</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:3.1%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.7%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>198beee4</code><time>2026-10-17</time><span>Status page</span></li>
-<li><code>e0ac11e1</code><time>2026-10-17</time><span>A feature service is one item in a search and in My content; its map image item opens by id (owner decision)</span></li>
-<li><code>f637b627</code><time>2026-10-17</time><span>Registers after the gap review&#x27;s fixes: D-298, D-299, D-300 repaired, Q-109 answered, ADR-045 §5a amended</span></li>
-<li><code>a424749a</code><time>2026-10-17</time><span>ADR-008 §4a-iii: the having clause is a second permitted exception, on Where&#x27;s ground</span></li>
-<li><code>ed4b8e99</code><time>2026-10-17</time><span>A hosted service has its admin document, and updateDefinition changes what this server keeps</span></li>
-<li><code>9d4ae377</code><time>2026-10-17</time><span>returnCentroid is answered on PostGIS polygon layers, in JSON and in PBF</span></li>
-<li><code>b6da8575</code><time>2026-10-17</time><span>queryTopFeatures answers the first features of each group, through the query it shares a handler with</span></li>
-<li><code>22244089</code><time>2026-10-17</time><span>MapServer find answers: a text searched for in the layers&#x27; fields, case-insensitive and bound</span></li>
-<li><code>8cf90f65</code><time>2026-10-17</time><span>havingClause is parsed and bound, and answered on PostGIS layers (Q-109, closing D-41&#x27;s refusal)</span></li>
-<li><code>3dc60c2c</code><time>2026-10-17</time><span>A layer without subtypes carries ArcGIS&#x27;s default template, named after it and setting nothing</span></li>
-<li><code>6c1f2c5d</code><time>2026-10-17</time><span>A service&#x27;s item says whether it is protected from deletion, as Pro reads it (ADR-108)</span></li>
-<li><code>98ce6299</code><time>2026-10-17</time><span>f=pjson is indented on every face; answered questions leave the open register</span></li>
-<li><code>9ee7d64e</code><time>2026-10-17</time><span>A map image&#x27;s address carries no token, and the server log survives a restart (D-299, D-300)</span></li>
+<li><code>3a5cecd2</code><time>2026-10-17</time><span>ADR-193 condition 1: the round trip on a copy of the showcase answers the same</span></li>
+<li><code>94729b08</code><time>2026-10-17</time><span>ADR-193&#x27;s records: deployment.md §2.4 reversed, Q-177 answered, ADR-016&#x27;s promise kept, README, conditions</span></li>
+<li><code>19c13ecf</code><time>2026-10-17</time><span>Backups in the admin API and on a schedule, and PostgreSQL&#x27;s client tools in the server image (ADR-193)</span></li>
+<li><code>8028a335</code><time>2026-10-17</time><span>graticula backup and restore: the database through pg_dump/pg_restore, the state files, a manifest (ADR-193)</span></li>
+<li><code>99536c98</code><time>2026-10-17</time><span>The ArcGIS gap review&#x27;s remaining fixes: find, queryTopFeatures, having, centroids, updateDefinition</span></li>
 <li><code>76474a9c</code><time>2026-10-17</time><span>A screen is a path, not a hash: /studio/content, /studio/user/root, /server/services (ADR-192)</span></li>
+<li><code>2dc10522</code><time>2026-10-17</time><span>ArcGIS Pro publishes and overwrites hosted feature layers here (ADR-191)</span></li>
+<li><code>8c07a47b</code><time>2026-10-17</time><span>Console tests open the pages that moved to Studio at their Studio addresses</span></li>
+<li><code>bbb72942</code><time>2026-10-17</time><span>Studio holds the organization and Server the engine; members are searched, categorized and have profiles (ADR-189, ADR-190, migration 90)</span></li>
+<li><code>279e36ca</code><time>2026-10-17</time><span>A service row&#x27;s Stop, Map and Delete are labelled buttons, and Delete is in the row</span></li>
+<li><code>9f088389</code><time>2026-10-17</time><span>Services can be ticked and started, stopped or deleted together</span></li>
+<li><code>147fd013</code><time>2026-10-17</time><span>Logs&#x27; head sits over the log beside its sources, and its count is a line, not a card</span></li>
+<li><code>7fa0cac2</code><time>2026-10-17</time><span>The item&#x27;s head card keeps three actions in sight and the rest behind More</span></li>
+<li><code>c76b0b5f</code><time>2026-10-17</time><span>My content lists items as media rows, as the Services list does</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

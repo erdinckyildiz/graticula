@@ -313,13 +313,22 @@ never learned about, an unpublish whose `DROP` fails leaves the table behind
 (measured, with the datastore quiesced), and a DBA's own `DROP TABLE` reaches the
 same state trivially. Nothing sweeps for either direction.
 
-**No backup mechanism ships**, and that is a decision rather than an omission:
+~~**No backup mechanism ships**, and that is a decision rather than an omission:
 what a backup verb would do is run `pg_dump`, which the operator's own tooling,
-schedule and retention policy already do better. It is worth revisiting on the day
-attachments ship — [ADR-013](adr/ADR-013-feature-service-data-model.md) §4e says
-the datastore *"is about to contain arbitrary user binaries, so its backup size
-stops being a function of feature count and grows without bound"* — because that
-is the day one dump stops being a comfortable answer.
+schedule and retention policy already do better.~~ **Reversed 2026-10-17 by owner
+decision — [ADR-193](adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md).**
+`graticula backup` writes the whole database (`pg_dump -Fc`), the imagery and the
+serving certificate, and a manifest with each part's checksum and the secret key's
+fingerprint, into `Graticula:BackupPath` (default `backups` under the state
+directory); `graticula restore <backup>`, with the server stopped, restores into a
+new database, checks it, renames it into place and keeps the one it replaced. It
+refuses a backup taken with another key and one of a newer schema before it writes
+anything. `migrate --apply` takes one first unless `--no-backup`. Server's
+`/admin/backups` takes, lists, downloads and deletes them, and a schedule, off until
+set, keeps the number it is told to. **The key is not in a backup** — keep it apart,
+as §2.5 says — and a backup on the server's own disk is not a disaster recovery
+until it is copied elsewhere. The steps above still describe what the commands do,
+and still work by hand.
 
 ### 2.5 A dump is not a deployment: what else has to be kept
 

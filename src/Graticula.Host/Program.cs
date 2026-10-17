@@ -60,8 +60,21 @@ public static class Program
           graticula keygen                Print a new 32-byte AES-256 key, base64, for
                                           Graticula__SecretKey. Needs no configuration.
 
-          graticula migrate [--apply]     Report the platform schema's migrations, and
-                                          run them with --apply. Never automatic.
+          graticula migrate [--apply] [--no-backup]
+                                          Report the platform schema's migrations, and
+                                          run them with --apply, after taking a backup
+                                          unless --no-backup. Never automatic.
+
+          graticula backup                Back up the database, the imagery and the
+                                          serving certificate into Graticula:BackupPath
+                                          (ADR-193). The secret key is not included.
+
+          graticula restore <backup> [--force]
+                                          Restore a backup into this deployment, the
+                                          server stopped: into a new database first,
+                                          checked, then renamed into place; the one it
+                                          replaces is kept. Refuses another key's
+                                          backup and a newer schema.
 
           graticula tools symbology-migrate [--apply]
                                          Rewrite every stored MapLibre symbology
@@ -206,6 +219,8 @@ public static class Program
         // is — which is the shape of every stale-value fault in this repository's
         // register.
         builder.Services.AddSingleton(settings);
+        builder.Services.AddSingleton(BackupsFor(builder.Configuration, settings));
+        builder.Services.AddHostedService<BackupScheduler>();
 
         // ADR-013 condition 2, owner decision 2026-10-13: small attachments are read whole and their connection given
         // back before a slow client is written to, within a bound on what is held at once.
@@ -924,7 +939,36 @@ public static class Program
         // whether it closes the rollback window — before doing it.
         if (args is ["migrate", ..])
         {
-            return await MigrateAsync(app.Services, args.Contains("--apply")).ConfigureAwait(false);
+            return await MigrateAsync(
+                app.Services, args.Contains("--apply"),
+                BackupBeforeMigration(args, app.Services.GetRequiredService<Backups>)).ConfigureAwait(false);
+        }
+
+        // ADR-193: backup and restore are this binary's own verbs, as migrate is.
+        if (args is ["backup", ..])
+        {
+            try
+            {
+                await app.Services.GetRequiredService<Backups>().TakeAsync(Console.Out, CancellationToken.None).ConfigureAwait(false);
+                return 0;
+            }
+            catch (Exception failed) when (failed is InvalidOperationException or IOException or System.ComponentModel.Win32Exception or NpgsqlException)
+            {
+                Console.Error.WriteLine($"The backup failed and nothing was kept: {failed.Message}");
+                return 1;
+            }
+        }
+
+        if (args is ["restore", var archive, ..])
+        {
+            Backups backups = app.Services.GetRequiredService<Backups>();
+            int restored = await backups.RestoreAsync(archive, args.Contains("--force"), Console.Out, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            string folder = Directory.Exists(archive) ? archive : Path.Combine(backups.Location, archive);
+            return restored == 0 && Backups.ReadManifest(folder) is { } manifest && Backups.NeedsMigration(manifest)
+                ? await MigrateAsync(app.Services, apply: true, backup: null).ConfigureAwait(false)
+                : restored;
         }
 
         // <b>[Q-137](../../docs/open-questions.md), owner decision 2026-08-25.</b> A store
@@ -1816,7 +1860,44 @@ public static class Program
             || path == "/admin/health";
     }
 
-    private static async Task<int> MigrateAsync(IServiceProvider services, bool apply)
+    /// <summary>The backup service over this deployment's settings — ADR-193.</summary>
+    private static Backups BackupsFor(ConfigurationManager configuration, HostSettings settings) => new(
+        settings.PlatformStore,
+        settings.SecretKeyBase64,
+        settings.StatePath,
+        configuration["Graticula:BackupPath"] is { Length: > 0 } path ? path : Path.Combine(settings.StatePath, "backups"),
+        configuration["Graticula:PostgresTools"]);
+
+    /// <summary>The backup <c>migrate</c> takes first, or none when <c>--no-backup</c> was given — ADR-193 §5.7.</summary>
+    internal static Backups? BackupBeforeMigration(string[] args, Func<Backups> backups) =>
+        args.Contains("--no-backup") ? null : backups();
+
+    /// <summary>
+    /// ADR-016 §4b's promise, kept by ADR-193: a backup before the schema changes, and no change at all when the backup
+    /// fails. <paramref name="backup"/> is null when <c>--no-backup</c> was given.
+    /// </summary>
+    internal static async Task<int> BackUpThenApplyAsync(
+        Func<TextWriter, CancellationToken, Task<string>>? backup, Func<Task<int>> apply, TextWriter output, TextWriter error)
+    {
+        if (backup is not null)
+        {
+            try
+            {
+                await backup(output, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception failed) when (failed is InvalidOperationException or IOException or System.ComponentModel.Win32Exception or NpgsqlException)
+            {
+                await error.WriteLineAsync(
+                    $"No migration was run: the backup before it failed ({failed.Message}). Fix that, or run with --no-backup "
+                    + "after taking one yourself.").ConfigureAwait(false);
+                return 1;
+            }
+        }
+
+        return await apply().ConfigureAwait(false);
+    }
+
+    private static async Task<int> MigrateAsync(IServiceProvider services, bool apply, Backups? backup = null)
     {
         NpgsqlDataSource dataSource = services.GetRequiredService<NpgsqlDataSource>();
         SchemaMigrator migrator = new(new PostgresPlatformSchemaStore(dataSource), PlatformMigrations.All);
@@ -1838,12 +1919,19 @@ public static class Program
 
         try
         {
-            MigrationReport applied =
-                await migrator.ApplyAsync(CancellationToken.None).ConfigureAwait(false);
+            return await BackUpThenApplyAsync(
+                backup is null ? null : backup.TakeAsync,
+                async () =>
+                {
+                    MigrationReport applied =
+                        await migrator.ApplyAsync(CancellationToken.None).ConfigureAwait(false);
 
-            Console.WriteLine();
-            Console.WriteLine($"Applied {applied.Pending.Count} migration(s). Now at {applied.To}.");
-            return 0;
+                    Console.WriteLine();
+                    Console.WriteLine($"Applied {applied.Pending.Count} migration(s). Now at {applied.To}.");
+                    return 0;
+                },
+                Console.Out,
+                Console.Error).ConfigureAwait(false);
         }
         catch (PostgresException failure) when (failure.SqlState == "3F000")
         {
@@ -2445,6 +2533,7 @@ public static class Program
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
         ExportOutputs.Map(app);
+        BackupEndpoints.Map(app);
         ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
         KmlEndpoints.Map(app);

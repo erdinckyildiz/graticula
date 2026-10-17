@@ -106,6 +106,10 @@ that works.
 - **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
 - **No *New ArcGIS Server* connection.** That handshake is SOAP; it is not built and not
   planned. A portal connection reaches the same content.
+- **Backup is the server's own command, restore needs it stopped.** `graticula backup` and
+  `graticula restore` take the database, the imagery and the certificate, and refuse a
+  backup of another key or a newer schema; the secret key is never in a backup
+  ([ADR-193](docs/adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md)).
 - **Publishing from Pro is hosted feature layers only.** *Share As Web Layer* with *Copy all
   data → Feature* and *Overwrite Web Layer* work; map image, tile and vector tile layers and
   *Reference registered data* do not. Pop-ups set in Pro are not carried

@@ -211,7 +211,9 @@ promising a backup that no code takes: there is no `pg_dump` in `src` and no bac
 and it is the one that describes the product: `migrate --apply` takes no backup, and an operator takes one first,
 as §2 of that document says how. The two documents contradicted each other for as long as both stood; this note
 is where the contradiction ends. Whether a backup command should exist is
-[Q-177](../open-questions.md).)*
+[Q-177](../open-questions.md).)* *(Built 2026-10-17 —
+[ADR-193](ADR-193-backup-and-restore-are-the-server-s-own-commands.md): `migrate --apply` takes a backup first
+unless `--no-backup`, and the admin API has `/admin/backups`.)*
 
 Three components, one version: server, job worker and the datastore's schema
 stamp must agree. A mismatch produces a startup refusal naming **which two

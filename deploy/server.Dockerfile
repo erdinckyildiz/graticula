@@ -205,7 +205,11 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 # libldap2, for ADR-089: System.DirectoryServices.Protocols is OpenLDAP's client on Linux. It looks for 2.6 by a name
 # noble does not give it, so LdapDirectory loads libldap.so.2 itself. Without the package the image starts, and
 # every directory sign-in fails.
-RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2  && rm -rf /var/lib/apt/lists/*
+#
+# postgresql-client-16, for ADR-193: `graticula backup` and `restore` run pg_dump, pg_dumpall and pg_restore against
+# the platform store. Its major version has to be at least the server's; the datastore is PostgreSQL 16, and noble's
+# own package is 16. A deployment on a newer PostgreSQL points Graticula__PostgresTools at matching tools.
+RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16  && rm -rf /var/lib/apt/lists/*
 
 # Non-root, and the uid is fixed rather than assigned. A volume written by uid
 # 64198 on one host and read by a differently-numbered user on the next is the
