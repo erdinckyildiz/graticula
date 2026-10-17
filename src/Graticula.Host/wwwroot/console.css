@@ -5329,3 +5329,23 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #view-services th.tick + th + th { padding-left: 0; }
 #serviceBulk button.tiny svg { width: 12px; height: 12px; vertical-align: -1px; margin-right: 2px; }
 #view-services .widetable table th:last-child { background: var(--surface-2); }
+
+/* A service row's verbs, each an icon and its word (owner, 2026-10-17: the bare icons were not found). */
+.rowbtn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; min-height: 30px;
+  border: 1px solid var(--rule-strong); border-radius: var(--round); background: var(--surface);
+  color: var(--ink); font-size: 13px; font-weight: 500; line-height: 1; cursor: pointer; text-decoration: none;
+}
+.rowbtn svg { width: 13px; height: 13px; pointer-events: none; flex: none; }
+.rowbtn:hover:not([disabled]) { background: var(--surface-2); border-color: var(--control-edge); text-decoration: none; }
+.rowbtn[disabled] { opacity: .45; cursor: not-allowed; }
+.rowbtn[data-to="start"] { color: var(--ok); }
+.rowbtn.danger { color: var(--alert); }
+#services td.acts { display: table-cell; }
+#services td.acts > .rowbtn + .rowbtn { margin-left: 6px; }
+@media (max-width: 760px) {
+  #services td.acts { white-space: normal; }
+  #services td.acts > .rowbtn { margin: 0 0 6px 0 !important; width: 100%; justify-content: flex-start; }
+}
+#view-services .widetable table tr.pick:hover td:last-child { background: var(--surface-2); }
+#view-services .widetable table tr.pick.on:hover td:last-child { background: var(--accent-soft); }

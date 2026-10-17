@@ -13440,43 +13440,44 @@ async function loadServices() {
         </td>
 
         <td class="acts">${r.system ? `
-          <button class="iconbtn" data-system-status="${h(r.name)}"
+          <button class="rowbtn" data-system-status="${h(r.name)}"
             data-system-folder="${h(r.folder || "")}"
             data-to="${stopped ? "start" : "stop"}"
             aria-label="${stopVerb} ${h(label)}"
-            title="${stopped ? "Start: answer this service's operations again"
-              : "Stop: answer 503 for every operation on this service, without changing who may call it"}"
-            >${glyph(stopped ? "play" : "stop")}</button>` : `
-          <button class="iconbtn" data-service-status="${h(r.cover ? r.cover.name : "")}"
+            title="${stopped ? "Answer this service's operations again"
+              : "Answer 503 for every operation on this service, without changing who may call it"}"
+            >${glyph(stopped ? "play" : "stop")}${stopVerb}</button>` : `
+          <!--
+            <b>Words beside the icons</b> (owner, 2026-10-17: *"start stop delete nereye gitti?"*). The verbs were bare
+            icons with their names in the tooltip, and Delete was inside ⋯ — so a reader looking for them found
+            neither. Each is a labelled button now, and Delete sits in the row, as Server Manager's ✕ does: disabled,
+            with the reason, on a service that still holds layers.
+          -->
+          <button class="rowbtn" data-service-status="${h(r.cover ? r.cover.name : "")}"
             data-service-qualified="${h(r.qualified || "")}"
             data-to="${stopped ? "start" : "stop"}"
             ${r.cover ? "" : "disabled"}
             aria-label="${stopVerb} ${h(label)}"
             title="${!r.cover ? "Started and stopped from its own page: this kind has no layer to stop here"
-              : stopped ? "Start: serve this again"
-              : "Stop: answer 503 for this service, without changing who may see it"}"
-            >${glyph(stopped ? "play" : "stop")}</button>
+              : stopped ? "Serve this again"
+              : "Answer 503 for this service, without changing who may see it"}"
+            >${glyph(stopped ? "play" : "stop")}${stopVerb}</button>
 
           ${r.cover && !stopped
-            ? `<a class="iconbtn" href="${h(visHref(r.cover.name, "features") || "#/")}"
-                 aria-label="Map of ${h(label)}" title="Draw ${h(r.cover.name)} on the map, in Studio">${glyph("map")}</a>`
-            : `<span class="iconbtn placeholder" aria-hidden="true"></span>`}
+            ? `<a class="rowbtn" href="${h(visHref(r.cover.name, "features") || "#/")}"
+                 aria-label="Map of ${h(label)}" title="Draw ${h(r.cover.name)} on the map, in Studio">${glyph("map")}Map</a>`
+            : ""}
 
-          <details class="menu">
-            <summary title="More" aria-label="More actions for ${h(label)}">⋯</summary>
-            <div class="sheet">
-              ${r.kind === "ImageServer"
-                ? `<a href="/studio/#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
-                     >Delete it from the service's page</a>
-                   <div class="note">An image service is deleted where its owner works, which says whether its file goes too.</div>`
-                : `<button data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
-                class="danger" ${r.empty ? "" : "disabled"}>Delete this service</button>`}
-              ${r.kind === "ImageServer" ? "" : r.empty
-                ? `<div class="note">It holds nothing, so nothing is unpublished by removing it.</div>`
-                : `<div class="note">It holds ${h(held)}. Unpublish them first — a service delete
-                     never removes what is in it.</div>`}
-            </div>
-          </details>`}</td>
+          ${r.kind === "ImageServer"
+            ? `<a class="rowbtn" href="/studio/#/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
+                 aria-label="Delete ${h(label)}, on its own page"
+                 title="An image service is deleted where its owner works, which says whether its file goes too"
+                 >${glyph("delete")}Delete</a>`
+            : `<button class="rowbtn danger" data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
+                 ${r.empty ? "" : "disabled"} aria-label="Delete ${h(label)}"
+                 title="${r.empty ? "It holds nothing, so nothing is unpublished by removing it"
+                   : `It holds ${h(held)}. Unpublish them first — a service delete never removes what is in it`}"
+                 >${glyph("delete")}Delete</button>`}`}</td>
       </tr>`;
     }).join("");
 
@@ -17072,6 +17073,7 @@ function glyph(name) {
     play: '<path d="M5 3.5v9l7.5-4.5z" fill="currentColor" stroke="none"/>',
     map: '<path d="M1.8 3.6l4-1.6 4.4 1.6 4-1.6v10.4l-4 1.6-4.4-1.6-4 1.6zM5.8 2v10.4M10.2 3.6V14"/>',
     eye: '<path d="M1.2 8s2.5-4.6 6.8-4.6S14.8 8 14.8 8s-2.5 4.6-6.8 4.6S1.2 8 1.2 8z"/><circle cx="8" cy="8" r="2"/>',
+    delete: '<path d="M4 4l8 8M12 4l-8 8" stroke-linecap="round"/>',
   };
   return `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false" fill="none"
     stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">${paths[name] || ""}</svg>`;
