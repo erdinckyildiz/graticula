@@ -104,7 +104,13 @@ public sealed class DomainAndSubtypeDocumentTests
         Assert.Equal(JsonValueKind.Null, document.GetProperty("defaultSubtypeCode").ValueKind);
         Assert.Equal(0, document.GetProperty("types").GetArrayLength());
         Assert.Equal(0, document.GetProperty("subtypes").GetArrayLength());
-        Assert.Equal(0, document.GetProperty("templates").GetArrayLength());
+
+        // ArcGIS's default: one template named after the layer, setting nothing, so an editing client has something
+        // to create from (the ArcGIS gap review, 2026-10-17).
+        JsonElement template = Assert.Single(document.GetProperty("templates").EnumerateArray());
+        Assert.Equal(document.GetProperty("name").GetString(), template.GetProperty("name").GetString());
+        Assert.Empty(template.GetProperty("prototype").GetProperty("attributes").EnumerateObject());
+        Assert.StartsWith("esriFeatureEditTool", template.GetProperty("drawingTool").GetString(), System.StringComparison.Ordinal);
     }
 
     [Fact]

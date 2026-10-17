@@ -121,6 +121,26 @@ public sealed class FeatureCollectionPbfTests
     }
 
     [Fact]
+    public async Task A_centroid_is_field_4_a_point_on_the_same_grid()
+    {
+        // `Geometry centroid = 4` in Esri's FeatureCollection.proto — the ArcGIS gap review, 2026-10-17.
+        FeatureCollectionPbfWriter writer = new(Layer(), 0, Described);
+        using MemoryStream stream = new();
+        await writer.WriteAsync(
+            stream, new Source([Square(0, 0, 10, counterClockwise: true)], centroids: true),
+            new FeatureQuery(10, fields: Names) { ReturnCentroid = true }, GeometryKind.Polygon,
+            PbfQuantization.Default(3857), CancellationToken.None);
+
+        IReadOnlyList<Field> feature = PbfReader.QueryResult(stream.ToArray()).One(1).Message.One(15).Message;
+        IReadOnlyList<Field> centroid = feature.One(4).Message;
+
+        Assert.Equal([1UL], PbfReader.Packed(centroid.One(2).Bytes));
+
+        (IReadOnlyList<Field> plain, _) = await WriteAsync([Square(0, 0, 10, counterClockwise: true)]);
+        Assert.Empty(plain.One(15).Message.All(4));
+    }
+
+    [Fact]
     public async Task Values_follow_the_json_writer_rules()
     {
         (IReadOnlyList<Field> result, _) = await WriteAsync([new Point(1, 2)], kind: GeometryKind.Point);
@@ -365,7 +385,7 @@ public sealed class FeatureCollectionPbfTests
     }
 
     /// <summary>One feature per shape, with one value of every kind the header declares.</summary>
-    private sealed class Source(IReadOnlyList<Geometry?> shapes) : IFeatureSource
+    private sealed class Source(IReadOnlyList<Geometry?> shapes, bool centroids = false) : IFeatureSource
     {
         public static readonly DateTimeOffset When = new(2026, 9, 15, 12, 0, 0, TimeSpan.Zero);
 
@@ -392,7 +412,10 @@ public sealed class FeatureCollectionPbfTests
                     i.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     shapes[i],
                     new FeatureSchema(Names),
-                    [i, $"feature {i}", When, 9007199254740993L, true, Uid]);
+                    [i, $"feature {i}", When, 9007199254740993L, true, Uid])
+                {
+                    Centroid = centroids ? new Point(5, 5) : null,
+                };
 
                 await Task.Yield();
             }

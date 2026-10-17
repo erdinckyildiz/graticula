@@ -354,6 +354,12 @@ public sealed class FeatureCollectionPbfWriter
             message.Message(2, encoded);
         }
 
+        // returnCentroid: `Geometry centroid = 4` in Esri's FeatureCollection.proto, on the same grid.
+        if (feature.Centroid is { IsEmpty: false } centroid && Geometry(centroid, quantization) is { } point)
+        {
+            message.Message(4, point);
+        }
+
         return message;
     }
 

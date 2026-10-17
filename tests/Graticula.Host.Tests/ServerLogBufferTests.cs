@@ -54,4 +54,34 @@ public sealed class ServerLogBufferTests
         Assert.Equal($"warning {ServerLogBuffer.Capacity + 9}", newest[0].Message);
         Assert.Empty(buffer.Read(LogLevel.Warning, null, null, null, 11, 500));
     }
+
+    [Fact]
+    public void What_was_written_before_a_restart_is_read_back_from_the_state_directory()
+    {
+        // D-300: the log that matters at 2 AM did not survive the restart 2 AM usually ends with.
+        string directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"serverlog-{Guid.NewGuid():N}");
+
+        try
+        {
+            using (ServerLogBuffer before = new(TimeProvider.System, new ServerLogFiles(directory)))
+            {
+                ILogger log = before.CreateLogger("imports");
+                Write(log, LogLevel.Warning, "slow import");
+                Write(log, LogLevel.Error, "import failed", new InvalidOperationException("foreign key"));
+            }
+
+            using ServerLogBuffer after = new(TimeProvider.System, new ServerLogFiles(directory));
+            IReadOnlyList<ServerLogEntry> kept = after.Read(LogLevel.Warning, null, null, null, null, 100);
+
+            Assert.True(after.Persisted);
+            Assert.Equal(["import failed", "slow import"], kept.Select(e => e.Message));
+            Assert.Equal("InvalidOperationException: foreign key", kept[0].Exception);
+            Assert.Equal(LogLevel.Error, kept[0].Level);
+            Assert.True(after.Since <= kept[1].At);
+        }
+        finally
+        {
+            System.IO.Directory.Delete(directory, recursive: true);
+        }
+    }
 }

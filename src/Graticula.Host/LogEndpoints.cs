@@ -327,8 +327,12 @@ internal static class LogEndpoints
             source = "server",
             since = serverLog.Since,
             kept = ServerLogBuffer.Capacity,
-            scope = "This process only, since it started; entries beyond the most recent "
-                + $"{ServerLogBuffer.Capacity} and entries from before a restart are not kept.",
+            scope = serverLog.Persisted
+                ? $"This node's warnings and errors: the most recent {ServerLogBuffer.Capacity}, including those from "
+                    + $"before a restart. Every one is also in a file a day under the state directory's logs folder, "
+                    + $"kept {ServerLogFiles.Days} days."
+                : "This process only, since it started; entries beyond the most recent "
+                    + $"{ServerLogBuffer.Capacity} and entries from before a restart are not kept.",
             rows = entries.Select(e => new
             {
                 cursor = e.Cursor,

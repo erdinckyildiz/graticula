@@ -97,6 +97,9 @@ internal static class MapServerEndpoints
             app.MapMethods($"{prefix}/{{serviceName}}/MapServer/identify", Read, IdentifyAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            app.MapMethods($"{prefix}/{{serviceName}}/MapServer/find", Read, FindAsync)
+                .Governed(SharingGovernedExtensions.ByService);
+
             app.MapMethods($"{prefix}/{{serviceName}}/MapServer/legend", Read, LegendAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
@@ -589,9 +592,10 @@ internal static class MapServerEndpoints
         // that asked for JSON, which is a wrong answer with a 200 on it.
         if (ArcGisResponseFormat.WantsJson(context))
         {
-            string href = $"{context.Request.Scheme}://{context.Request.Host}"
-                + context.Request.Path
-                + ArcGisResponseFormat.WithFormat(context.Request.QueryString.Value, "image");
+            // D-299: an output address that needs no token, as ArcGIS's output directory, rather than this request
+            // again with f=image, which replayed a token= from the query string into the document.
+            string href = ExportOutputs.Keep(
+                context, image, asked.Format == MapImageFormat.Png ? "image/png" : "image/jpeg");
 
             await Results.Ok(MapServerMetadataWriter.Export(
                 href,
@@ -618,6 +622,201 @@ internal static class MapServerEndpoints
     // document. The careful part, that a query string carrying `f` twice makes
     // `Query["f"]` the single string "json,image", is worth having in one place rather
     // than rediscovered in the second.
+
+    // ---------- find ----------
+
+    /// <summary>The most results one find answers.</summary>
+    private const int MaximumFindResults = 500;
+
+    /// <summary>
+    /// ArcGIS's <c>MapServer/find</c>: a text searched for in the layers' fields — answered 404 until the ArcGIS gap
+    /// review of 2026-10-17.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Through the where grammar, with the text bound.</b> Each searched field becomes
+    /// <c>UPPER(field) LIKE UPPER('%text%')</c> (or <c>=</c> when <c>contains=false</c>), parsed by
+    /// <see cref="WhereClause"/> as a caller's where is, so the text is a parameter and never SQL. Case does not
+    /// matter, as in ArcGIS.
+    /// </para>
+    /// <para>
+    /// <b>Text fields by default</b>; <c>searchFields</c> names others, and a number is then matched for equality when
+    /// the text is one. One result per feature and field that matched, ArcGIS's shape, at most
+    /// <see cref="MaximumFindResults"/>. <c>layerDefs</c> is refused rather than ignored: a find that ignored a
+    /// definition would return features the map does not draw.
+    /// </para>
+    /// </remarks>
+    private static async Task FindAsync(
+        HttpContext context,
+        string serviceName,
+        CatalogFallback catalog,
+        ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        PublishedService? service = await ServiceLookup
+            .ServiceAsync(context, catalog, serviceName, cancellation)
+            .ConfigureAwait(false);
+
+        if (service is null || !await DrawableAsync(context, service).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        Func<string, string?> parameter = await ArcGisParameters.LookupAsync(context, cancellation).ConfigureAwait(false);
+        string text = parameter("searchText") ?? string.Empty;
+
+        if (text.Length == 0)
+        {
+            await RefuseAsync(context, 400, "'searchText' is required: the text to find.").ConfigureAwait(false);
+            return;
+        }
+
+        if (text.Length > 256)
+        {
+            await RefuseAsync(context, 400, "'searchText' is at most 256 characters.").ConfigureAwait(false);
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(parameter("layerDefs")))
+        {
+            await RefuseAsync(context, 400,
+                "'layerDefs' is not applied by find here, and a find that ignored it would return features the map does "
+                + "not draw. Search with the layer's own query and a where clause instead.").ConfigureAwait(false);
+            return;
+        }
+
+        bool contains = !string.Equals(parameter("contains"), "false", StringComparison.OrdinalIgnoreCase);
+        bool returnGeometry = !string.Equals(parameter("returnGeometry"), "false", StringComparison.OrdinalIgnoreCase);
+        HashSet<string>? searchFields = parameter("searchFields") is { Length: > 0 } named
+            ? new HashSet<string>(named.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries), StringComparer.OrdinalIgnoreCase)
+            : null;
+
+        int? srid = null;
+        if (parameter("sr") is { Length: > 0 } sr)
+        {
+            if (!int.TryParse(sr.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedSrid))
+            {
+                await RefuseAsync(context, 400, "'sr' is a well-known id, such as 4326 or 3857.").ConfigureAwait(false);
+                return;
+            }
+
+            srid = parsedSrid;
+        }
+
+        List<PublishedLayer> asked = [];
+        string layersText = parameter("layers") ?? string.Empty;
+        List<PublishedLayer> drawable = [.. service.Layers.Where(l => l.Definition.GeometryColumn is { Length: > 0 })];
+
+        if (layersText.Trim().Length == 0)
+        {
+            asked.AddRange(drawable);
+        }
+        else
+        {
+            foreach (string part in layersText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!int.TryParse(part, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
+                {
+                    await RefuseAsync(context, 400, $"'layers' is a list of layer ids, and '{part}' is not one.").ConfigureAwait(false);
+                    return;
+                }
+
+                foreach (int index in LayersBeneath(service, id) is { Count: > 0 } beneath ? beneath : [id])
+                {
+                    if (drawable.FirstOrDefault(l => l.LayerIndex == index) is { } layer && !asked.Contains(layer))
+                    {
+                        asked.Add(layer);
+                    }
+                }
+            }
+
+            if (asked.Count == 0)
+            {
+                await RefuseAsync(context, 400, "`layers` named no layer this service has.").ConfigureAwait(false);
+                return;
+            }
+        }
+
+        if (await ReadableAsync(context, asked).ConfigureAwait(false) is not { } searched)
+        {
+            return;
+        }
+
+        // Upper-cased here: the grammar reads UPPER(field) as a case-insensitive comparison and takes the literal as written.
+        string literal = "'" + (contains ? "%" + text + "%" : text).ToUpperInvariant().Replace("'", "''", StringComparison.Ordinal) + "'";
+        bool numeric = double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+        List<object> results = [];
+
+        foreach (PublishedLayer layer in searched)
+        {
+            (IFeatureSource source, LayerDescription described) =
+                await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+            string display = FeatureServerMetadataWriter.DisplayField(layer.Definition, described);
+            Dictionary<string, FieldType> types = described.Fields.ToDictionary(f => f.Name, f => f.Type, StringComparer.OrdinalIgnoreCase);
+
+            foreach (FieldDescription field in described.Fields)
+            {
+                if (results.Count >= MaximumFindResults)
+                {
+                    break;
+                }
+
+                bool isText = field.Type == FieldType.Text;
+                bool isNumber = field.Type is FieldType.SmallInteger or FieldType.Integer or FieldType.BigInteger
+                    or FieldType.Single or FieldType.Double;
+
+                if (searchFields is null ? !isText : !searchFields.Contains(field.Name) || !(isText || (isNumber && numeric)))
+                {
+                    continue;
+                }
+
+                string clause = isText
+                    ? $"UPPER({field.Name}) {(contains ? "LIKE" : "=")} {literal}"
+                    : $"{field.Name} = {text}";
+
+                if (!WhereClause.TryParse(clause, [.. types.Keys], LayerDefinition.Quote, out ParsedWhere where, out string? unread, types))
+                {
+                    // Not silently: a search the grammar cannot read is this server's fault, not an empty answer.
+                    throw new InvalidOperationException($"find built a clause the where grammar refused: {unread}");
+                }
+
+                FeatureQuery query = new(
+                    limit: MaximumFindResults - results.Count,
+                    fields: [.. described.Fields.Select(f => f.Name)],
+                    includeGeometry: returnGeometry,
+                    outSrid: srid is { } s && s != layer.Definition.Srid ? s : null,
+                    where: where);
+
+                await foreach (Feature feature in source.ReadAsync(query, cancellation).ConfigureAwait(false))
+                {
+                    Dictionary<string, object?> attributes = new(StringComparer.Ordinal);
+
+                    foreach (string name in feature.Schema.Names)
+                    {
+                        attributes[name] = feature[name];
+                    }
+
+                    results.Add(new
+                    {
+                        layerId = layer.LayerIndex,
+                        layerName = layer.Definition.Name,
+                        foundFieldName = field.Name,
+                        value = attributes.TryGetValue(field.Name, out object? found) ? found?.ToString() ?? string.Empty : string.Empty,
+                        displayFieldName = display,
+                        attributes,
+                        geometryType = returnGeometry && feature.Geometry is not null
+                            ? MapServerMetadataWriter.GeometryName(feature.Geometry.Kind)
+                            : null,
+                        geometry = returnGeometry && feature.Geometry is not null
+                            ? (object?)Shape(feature.Geometry, srid ?? layer.Definition.Srid)
+                            : null,
+                    });
+                }
+            }
+        }
+
+        await Results.Ok(new { results }).ExecuteAsync(context).ConfigureAwait(false);
+    }
 
     // ---------- identify ----------
 

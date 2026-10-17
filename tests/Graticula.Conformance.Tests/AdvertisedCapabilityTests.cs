@@ -76,6 +76,9 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             "it names an operation of its own, `queryAttachments`, not a parameter of `query`, and "
             + "the fixture layer may hold no attachments; AttachmentsAreQueriedAndReplacedTests "
             + "drives it on a layer it makes and attaches to",
+        ["supportsTopFeaturesQuery"] =
+            "it names an operation of its own, `queryTopFeatures`, not a parameter of `query`; "
+            + "QueryTopFeaturesTests drives it against the same layer",
         ["supportsCountDistinct"] =
             "the parameter is a modifier on outStatistics that this server does not parse "
             + "separately, so a refusal cannot be attributed to this key",
@@ -142,7 +145,7 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
         new(
             "supportsHavingClause",
             "outStatistics=%5B%7B%22statisticType%22%3A%22count%22%2C%22onStatisticField%22%3A%22"
-            + oid + "%22%2C%22outStatisticFieldName%22%3A%22n%22%7D%5D&having=n%3E0",
+            + oid + "%22%2C%22outStatisticFieldName%22%3A%22n%22%7D%5D&havingClause=COUNT%28" + oid + "%29%3E0",
             "asking to filter grouped rows"),
 
         // <b>An expression in `outStatistics`, which is what the flag is about.</b> Esri's layer reference

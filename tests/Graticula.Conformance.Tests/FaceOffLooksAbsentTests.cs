@@ -334,8 +334,10 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
         Assert.Equal(
             ["FeatureServer", "MapServer", "VectorTileServer"],
             await DirectoryFacesAsync(folder, service));
+        // The portal lists a feature service once, without its map image face (owner decision 2026-10-17, the ArcGIS
+        // gap review's triplicate items); the directory still lists all three.
         Assert.Equal(
-            ["FeatureServer", "MapServer", "VectorTileServer"],
+            ["FeatureServer", "VectorTileServer"],
             await PortalFacesAsync(bare, service));
 
         string before = await CapabilitiesAsync(root, bare, folder);
@@ -351,7 +353,7 @@ public sealed class FaceOffLooksAbsentTests : ArcGisClient
             await SetTileFaceAsync(root, bare, folder, serves: false);
 
             Assert.Equal(["FeatureServer", "MapServer"], await DirectoryFacesAsync(folder, service));
-            Assert.Equal(["FeatureServer", "MapServer"], await PortalFacesAsync(bare, service));
+            Assert.Equal(["FeatureServer"], await PortalFacesAsync(bare, service));
         }
         finally
         {

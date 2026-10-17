@@ -41,7 +41,7 @@ namespace Graticula.Host;
 /// definition that was half applied will build on the half that is not there (ADR-008 §2).
 /// </para>
 /// </remarks>
-internal static class ArcGisAdminEndpoints
+internal static partial class ArcGisAdminEndpoints
 {
     /// <summary>Maps the routes.</summary>
     /// <param name="app">The application.</param>
@@ -64,6 +64,8 @@ internal static class ArcGisAdminEndpoints
                     .Governed(SharingGovernedExtensions.ByPrivilege).DisableAntiforgery();
             }
         }
+
+        MapService(app);
     }
 
     /// <summary>ArcGIS field types this server can add a column for, as the hosted field types.</summary>

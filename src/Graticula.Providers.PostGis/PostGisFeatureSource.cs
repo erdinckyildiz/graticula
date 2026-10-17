@@ -221,7 +221,14 @@ public sealed class PostGisFeatureSource
                 Stopwatch.GetTimestamp() - mark,
                 geometry is null ? 0 : GeometryMeasures.CoordinateCount(geometry));
 
-            yield return new Feature(id, geometry, schema, values);
+            Geometry? centroid = null;
+
+            if (query.ReturnCentroid && !await reader.IsDBNullAsync(geometryOrdinal + 1, cancellationToken).ConfigureAwait(false))
+            {
+                centroid = WkbReader.Read((byte[])reader.GetValue(geometryOrdinal + 1), GeometryOrdinates.None, out _);
+            }
+
+            yield return new Feature(id, geometry, schema, values) { Centroid = centroid };
         }
     }
 
@@ -389,6 +396,12 @@ public sealed class PostGisFeatureSource
             sql.Append(", null::bytea");
         }
 
+        // returnCentroid: a point inside the shape, after the geometry so the sequential reader meets it last.
+        if (query.ReturnCentroid)
+        {
+            sql.Append(", st_asbinary(st_pointonsurface(").Append(OutputGeometry(query)).Append("))");
+        }
+
         sql.Append(" from ").Append(From(query));
 
         AppendWhere(sql, query);
@@ -477,9 +490,35 @@ public sealed class PostGisFeatureSource
             : $"st_transform({expression}, {Literal(_layer.Srid)})";
 
     /// <summary>Every filter this query carries, joined with <c>and</c>.</summary>
-    private void AppendWhere(StringBuilder sql, FeatureQuery query)
+    private void AppendWhere(StringBuilder sql, FeatureQuery query) => AppendWhere(sql, query, top: true);
+
+    /// <param name="sql">The statement so far.</param>
+    /// <param name="query">The query.</param>
+    /// <param name="top">
+    /// Whether <see cref="FeatureQuery.Top"/> applies: false for the ranking it is computed from, which sees every
+    /// feature the other filters keep. A clause here rather than in the read alone, so a count, an id list and an
+    /// extent of a top-features query all count the same features the read returns.
+    /// </param>
+    private void AppendWhere(StringBuilder sql, FeatureQuery query, bool top)
     {
         List<string> clauses = [];
+
+        // queryTopFeatures: the identities ranked within their group by the order asked, kept to the count. Every
+        // name was checked against the layer's fields when the filter was read, and is quoted here by us.
+        if (top && query.Top is { } filter)
+        {
+            string id = LayerDefinition.Quote(_layer.IdentityColumn);
+            string order = filter.OrderBy.Count == 0
+                ? id
+                : string.Join(", ", filter.OrderBy.Select(k => LayerDefinition.Quote(k.Field) + (k.Descending ? " desc" : " asc")));
+            StringBuilder ranked = new StringBuilder("select ").Append(id)
+                .Append(", row_number() over (partition by ")
+                .Append(string.Join(", ", filter.GroupBy.Select(LayerDefinition.Quote)))
+                .Append(" order by ").Append(order).Append(", ").Append(id).Append(") as graticula_rank from ")
+                .Append(From(query));
+            AppendWhere(ranked, query, top: false);
+            clauses.Add($"{id} in (select {id} from ({ranked}) graticula_ranked where graticula_rank <= @top_count)");
+        }
 
         if (query.BoundingBox is not null)
         {
@@ -811,6 +850,10 @@ public sealed class PostGisFeatureSource
 
     private static void BindFilters(NpgsqlCommand command, FeatureQuery query)
     {
+        if (query.Top is { } top)
+        {
+            command.Parameters.AddWithValue("top_count", (long)top.Count);
+        }
         if (query.HistoricMoment is { } moment)
         {
             command.Parameters.Add(new NpgsqlParameter(MomentParameter, NpgsqlTypes.NpgsqlDbType.TimestampTz)
@@ -1144,6 +1187,12 @@ public sealed class PostGisFeatureSource
                .Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
         }
 
+        // Q-109: the having clause, parsed and bound like where (HavingClause); its literals are @h0, @h1, ….
+        if (query.Having is { Sql.Length: > 0 } having)
+        {
+            sql.Append(" having ").Append(having.Sql);
+        }
+
         if (query.GroupBy.Count > 0)
         {
             // <b>By the caller's order when they gave one, and by the group otherwise.</b>
@@ -1204,6 +1253,14 @@ public sealed class PostGisFeatureSource
         await using NpgsqlCommand command = Command(sql.ToString());
         command.Parameters.AddWithValue("limit", query.Limit);
         BindFilters(command, query);
+
+        if (query.Having is { Sql.Length: > 0 } bound)
+        {
+            for (int i = 0; i < bound.Parameters.Count; i++)
+            {
+                command.Parameters.AddWithValue(HavingClause.Placeholder(i)[1..], bound.Parameters[i] ?? DBNull.Value);
+            }
+        }
 
         List<IReadOnlyDictionary<string, object?>> rows = [];
 

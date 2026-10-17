@@ -64,7 +64,7 @@ internal static partial class PortalEndpoints
     /// <summary>Portal's user item: the item, and who it is shared with.</summary>
     private static async Task<IResult> UserItemAsync(
         HttpContext context, CatalogFallback catalog, ServiceContexts contexts, Graticula.Geometries.IProjector projector,
-        string username, string id, CancellationToken cancellation)
+        IAdminCatalog admin, string username, string id, CancellationToken cancellation)
     {
         if (Self(context, username) is null)
         {
@@ -84,8 +84,9 @@ internal static partial class PortalEndpoints
             }
 
             double[][] extent = await ExtentAsync(service, contexts, projector, cancellation).ConfigureAwait(false);
-            object item = ItemsOf(context, service, extent)
-                .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item;
+            object item = await WithProtectionAsync(
+                ItemsOf(context, service, extent).First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item,
+                service, admin, cancellation).ConfigureAwait(false);
 
             return Results.Ok(new
             {

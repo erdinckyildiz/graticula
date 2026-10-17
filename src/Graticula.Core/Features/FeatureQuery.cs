@@ -284,6 +284,26 @@ public sealed class FeatureQuery
     /// </remarks>
     public ParsedWhere? Where { get; }
 
+    /// <summary>
+    /// ArcGIS's <c>havingClause</c>, parsed by <see cref="HavingClause"/> into SQL over the grouped statement with its
+    /// own <c>@h</c> parameters — Q-109. Null for none. Never caller text: the constructor's <c>having</c> string still
+    /// throws (D-41).
+    /// </summary>
+    public ParsedWhere? Having { get; init; }
+
+    /// <summary>
+    /// <c>queryTopFeatures</c>' filter: only the first features of each group, by an order — null for every feature.
+    /// Applied after every other filter, so the groups are formed from what matched.
+    /// </summary>
+    public TopFilter? Top { get; init; }
+
+    /// <summary>
+    /// Whether each polygon is read with a point inside it — ArcGIS's <c>returnCentroid</c>, which the Maps SDK places
+    /// labels at. Ignored until the ArcGIS gap review of 2026-10-17, which found it at odds with refusing rather than
+    /// ignoring; set only where the layer's source answers it and its shapes are polygons.
+    /// </summary>
+    public bool ReturnCentroid { get; init; }
+
     /// <summary>Attributes to return. Empty means identity and geometry only.</summary>
     public IReadOnlyList<string> Fields { get; }
 

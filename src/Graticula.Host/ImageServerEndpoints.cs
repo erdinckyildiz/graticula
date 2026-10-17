@@ -967,9 +967,8 @@ internal static partial class ImageServerEndpoints
     {
         if (ArcGisResponseFormat.WantsJson(context))
         {
-            string href = $"{context.Request.Scheme}://{context.Request.Host}"
-                + context.Request.Path
-                + ArcGisResponseFormat.WithFormat(context.Request.QueryString.Value, "image");
+            // D-299: the picture's own output address, which needs no token (ExportOutputs).
+            string href = ExportOutputs.Keep(context, image, contentType);
 
             await Results.Ok(MapServerMetadataWriter.Export(
                     href,

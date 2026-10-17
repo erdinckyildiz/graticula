@@ -32,7 +32,9 @@ public sealed class TheServerLogIsReadableTests : ArcGisClient
 
         JsonElement answer = JsonDocument.Parse(body).RootElement;
         Assert.Equal(JsonValueKind.Array, answer.GetProperty("rows").ValueKind);
-        Assert.Contains("since it started", answer.GetProperty("scope").GetString(), StringComparison.Ordinal);
+        // The answer says what it keeps: since D-300 (2026-10-17), entries from before a restart too, read back from
+        // the state directory's files.
+        Assert.Contains("before a restart", answer.GetProperty("scope").GetString(), StringComparison.Ordinal);
 
         (HttpStatusCode anonymous, _) = await AnonymousAsync("/admin/logs/server");
         Assert.NotEqual(HttpStatusCode.OK, anonymous);

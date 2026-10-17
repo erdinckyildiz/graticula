@@ -37,18 +37,42 @@ internal sealed class ServerLogBuffer : ILoggerProvider
     private readonly object _gate = new();
     private readonly Queue<ServerLogEntry> _entries = new();
     private readonly TimeProvider _time;
+    private readonly ServerLogFiles? _files;
     private long _sequence;
 
     /// <summary>Creates the buffer.</summary>
     /// <param name="time">The clock.</param>
-    public ServerLogBuffer(TimeProvider time)
+    /// <param name="files">
+    /// Where entries are also written, and the most recent read back from at start — D-300; null keeps them in memory
+    /// only, as before.
+    /// </param>
+    public ServerLogBuffer(TimeProvider time, ServerLogFiles? files = null)
     {
         ArgumentNullException.ThrowIfNull(time);
         _time = time;
+        _files = files;
+        Since = time.GetUtcNow();
+
+        if (files is not null)
+        {
+            foreach ((DateTimeOffset at, LogLevel level, string category, int id, string? name, string message, string? exception)
+                in files.ReadRecent(Capacity))
+            {
+                _entries.Enqueue(new ServerLogEntry(++_sequence, at, level, category, id, name, message, exception));
+            }
+
+            if (_entries.Count > 0)
+            {
+                Since = _entries.Peek().At;
+            }
+        }
     }
 
-    /// <summary>When this buffer began keeping entries, which is when the process started.</summary>
-    public DateTimeOffset Since { get; } = DateTimeOffset.UtcNow;
+    /// <summary>Whether entries survive a restart (D-300).</summary>
+    public bool Persisted => _files is not null;
+
+    /// <summary>The oldest moment this buffer holds entries from: the process's start, or the oldest read back.</summary>
+    public DateTimeOffset Since { get; }
 
     /// <inheritdoc/>
     public ILogger CreateLogger(string categoryName) => new Writer(this, categoryName);
@@ -88,9 +112,7 @@ internal sealed class ServerLogBuffer : ILoggerProvider
     }
 
     /// <inheritdoc/>
-    public void Dispose()
-    {
-    }
+    public void Dispose() => _files?.Dispose();
 
     private void Add(LogLevel level, string category, EventId eventId, string message, Exception? exception)
     {
@@ -103,6 +125,8 @@ internal sealed class ServerLogBuffer : ILoggerProvider
             eventId.Name,
             message,
             exception is null ? null : $"{exception.GetType().Name}: {exception.Message}");
+
+        _files?.Write(entry);
 
         lock (_gate)
         {

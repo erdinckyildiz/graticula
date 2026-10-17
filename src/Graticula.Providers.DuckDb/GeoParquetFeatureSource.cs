@@ -357,6 +357,9 @@ public sealed class GeoParquetFeatureSource
         return new LayerDescription(fields, extent, Writable: false)
         {
             AnswersDistance = AnswersDistance,
+            AnswersHaving = false,
+            AnswersTopFeatures = false,
+            AnswersCentroid = false,
             AnswersRelations = _engine is not null,
         };
     }
@@ -679,6 +682,21 @@ public sealed class GeoParquetFeatureSource
     /// <summary>Refuses what this provider does not answer, before any work is done.</summary>
     private void Refuse(FeatureQuery query)
     {
+        // Q-109's having clause is the PostGIS statement's; the layer document says so (supportsHavingClause).
+        if (query.Top is not null)
+        {
+            throw new QueryNotSupportedException(
+                "This layer is served from a GeoParquet file, and queryTopFeatures is answered on PostGIS layers only. "
+                + "Query with orderByFields and resultRecordCount for one group at a time.");
+        }
+
+        if (query.Having is not null)
+        {
+            throw new QueryNotSupportedException(
+                "This layer is served from a GeoParquet file, and a having clause is answered on PostGIS layers only. "
+                + "Filter the returned statistics, or use 'where' to narrow the rows before they are grouped.");
+        }
+
         if (query.Spatial is not { } spatial)
         {
             return;

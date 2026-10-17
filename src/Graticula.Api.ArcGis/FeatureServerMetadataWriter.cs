@@ -835,12 +835,23 @@ public static class FeatureServerMetadataWriter
             types = Types(geometryType, description),
             subtypes = Subtypes(description),
 
-            // <b>Layer-level templates are empty, with subtypes and without.</b> With subtypes the
-            // specification puts them inside each type. Without, nobody has authored one: a
-            // template invented here would be a choice the layer's owner never made, presented to
-            // every editing client as though they had — the generated-appearance argument of
-            // `drawingInfoGenerated`, and there is no key to say this one was generated.
-            templates = Array.Empty<object>(),
+            // <b>One template named after the layer, when it has no subtypes</b> — ArcGIS Server's own default, which
+            // every hosted layer it publishes carries. With subtypes the specification puts the templates inside each
+            // type, and this stays empty. It was empty here until the ArcGIS gap review of 2026-10-17: the argument
+            // was that nobody had authored one, but this one makes no choice — its prototype sets no attribute — and
+            // an editing client builds its *create* list from templates, so an empty list offered nothing to create.
+            templates = description.Subtypes is null
+                ? new object[]
+                {
+                    new
+                    {
+                        name = layer.Name,
+                        description = string.Empty,
+                        prototype = new { attributes = new Dictionary<string, object?>() },
+                        drawingTool = DrawingTool(geometryType),
+                    },
+                }
+                : Array.Empty<object>(),
             // <b>The reference this layer is served in, which is not always the one its table
             // is stored in.</b> ADR-057 §5c: a service may name its own, and a document that
             // reported the table's while the query answered the service's would be a contract
@@ -989,15 +1000,16 @@ public static class FeatureServerMetadataWriter
                 supportsQueryAttachments = layer.IsHosted,
                 // <b>From the source, since a layer's file cannot answer it — ADR-066.</b>
                 supportsQueryWithDistance = description.AnswersDistance,
-                // <b>False since 2026-08-16, and it was true for the wrong
-                // reason.</b> The clause was accepted and appended to the SQL
-                // statement unparsed, so this flag advertised an injection as a
-                // feature. It goes back to true when the clause is parsed the way
-                // `where` is — D-41, Q-109 — and not before, because a client that
-                // reads this flag and sends a clause deserves an answer rather
-                // than a 400.
-                supportsHavingClause = false,
-                supportsReturningGeometryCentroid = false,
+                // <b>False from 2026-08-16 until the clause was parsed the way `where` is — D-41, Q-109.</b> It was
+                // true before for the wrong reason: the clause was appended to the SQL statement unparsed, so the
+                // flag advertised an injection as a feature. Now HavingClause rebuilds it with bound literals, and a
+                // GeoParquet layer, whose statement takes none, says false.
+                supportsHavingClause = description.AnswersHaving,
+                // queryTopFeatures, answered where the source has a window (the ArcGIS gap review, 2026-10-17).
+                supportsTopFeaturesQuery = description.AnswersTopFeatures,
+                // Read on PostGIS polygon layers since the ArcGIS gap review of 2026-10-17; ignored before.
+                supportsReturningGeometryCentroid = description.AnswersCentroid
+                    && geometryType is GeometryKind.Polygon or GeometryKind.MultiPolygon,
 
                 // <b>About outStatistics, groupBy and orderBy, not about `where`.</b> Esri's layer
                 // reference ties this flag to an expression in those three — `onStatisticField`

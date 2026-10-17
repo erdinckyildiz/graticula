@@ -1132,12 +1132,10 @@ public sealed class ImageServerConformanceTests : ArcGisClient
 
         string href = answer.GetProperty("href").GetString() ?? string.Empty;
 
-        // <b>The href carries every other parameter and only `f` has changed.</b> One that
-        // dropped the size would name a different picture, and the client would place it
-        // in a frame sized for this one.
-        Assert.Contains("f=image", href, StringComparison.Ordinal);
-        Assert.Contains("size=64,48", href, StringComparison.Ordinal);
-        Assert.DoesNotContain("f=json", href, StringComparison.Ordinal);
+        // <b>The href is the picture already drawn, under the output directory</b> — D-299: it used to be this
+        // request again with f=image, which replayed a token= from the query string into the document.
+        Assert.Contains("/rest/directories/arcgisoutput/", href, StringComparison.Ordinal);
+        Assert.DoesNotContain("token=", href, StringComparison.OrdinalIgnoreCase);
 
         // The extent is named in a reference, both spellings of the code, like every other
         // reference object this face writes.

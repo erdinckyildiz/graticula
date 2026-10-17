@@ -176,7 +176,14 @@ console as it had been. The tab shows each entry's message on its row, offers Le
 *Only failures* (the log has no caller, and errors-and-above is a level), and says above the table when
 the process started and how many entries it keeps.
 
-**State.** None in the catalogue; a bounded queue per node.
+**Amended 2026-10-17 — and kept across a restart, in files ([D-300](../architecture-debt.md)).** The ArcGIS gap review
+named the loss at restart as the one that matters at 2 AM. Every entry is now also written, a JSON line at a time through
+a bounded channel to one writer, to a file a day under the state directory's `logs` (`ServerLogFiles`), thirty days
+kept as the request and audit logs keep theirs; the most recent 2,000 are read back into the buffer at start, and the
+answer says so. **Still not a fourth table**, so the write-load argument above stands: a flood fills a file, and when
+the writer falls behind a line is dropped and counted rather than a request held.
+
+**State.** None in the catalogue; a bounded queue per node, and its files under the state directory.
 
 ## 6. Consequences
 

@@ -127,6 +127,8 @@ internal static partial class PortalEndpoints
             url = (string?)null,
             thumbnail = Pictured(service) is null ? null : $"thumbnail/{ThumbnailFile}",
             access = Access(service.Sharing),
+            // A gallery entry is drawn from its service, and is not deleted on its own.
+            @protected = false,
             spatialReference = (string?)null,
             extent = Array.Empty<double[]>(),
             numViews = 0,

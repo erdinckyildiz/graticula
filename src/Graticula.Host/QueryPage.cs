@@ -548,12 +548,9 @@ internal static class QueryPage
 
         Text(body, "Output Spatial Reference:", "outSR", q["outSR"], string.Empty, 20);
 
-        // <b>No Having Clause box, since 2026-08-16.</b> ArcGIS's own page offers
-        // one and ours did too, with `COUNT(objectid) > 5` as the placeholder — a
-        // field whose contents went into the SQL statement unparsed (D-41). The
-        // parameter is now refused, and a box that always answers 400 is worse
-        // than no box: it reads as a capability and behaves as a bug report. It
-        // comes back with the parser, Q-109.
+        // <b>No Having Clause box from 2026-08-16 to 2026-10-17</b>, while the parameter was refused: its contents had
+        // gone into the SQL statement unparsed (D-41). It is drawn below the statistics again now that HavingClause
+        // parses it (Q-109).
 
         Text(body, "Order By Fields:", "orderByFields", q["orderByFields"],
             "field ASC, field DESC", 80);
@@ -564,6 +561,12 @@ internal static class QueryPage
         Area(body, "Output Statistics:", "outStatistics", q["outStatistics"], null,
             "[{\"statisticType\":\"count\",\"onStatisticField\":\"objectid\","
             + "\"outStatisticFieldName\":\"n\"}]");
+
+        // <b>The Having Clause box is back with its parser — Q-109, 2026-10-17</b>, on the layers that answer it.
+        if (description.AnswersHaving)
+        {
+            Text(body, "Having Clause:", "havingClause", q["havingClause"], "COUNT(objectid) > 5", 80);
+        }
 
         // <b>The layer's answer, not the server's — ADR-077, step 3</b>, as `time` became above: `query`
         // returns an elevation and a measure where the column declares them, so the control is offered

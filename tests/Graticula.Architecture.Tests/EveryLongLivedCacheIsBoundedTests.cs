@@ -66,6 +66,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
+        ["ExportOutputs.Pictures"] = "at most MaximumPictures (1,024) and MaximumBytes (256 MB), each kept ten minutes, oldest forgotten first (D-299)",
         ["PortalEndpoints.ProPublish.Staged"] = "at most MaximumStaged (256) service definitions from Pro, oldest forgotten first, and none whose scratch folder was swept (ADR-191)",
         ["InitialExtents.Found"] = "one per published layer per reference it is served in; a changed range replaces the layer's entry",
         ["GeometryServerEndpoints.Units.LinearUnits"] = "fixed: Esri's linear units, by code and name (ADR-145)",

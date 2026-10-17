@@ -32,7 +32,7 @@ public sealed class AnArcGisAddressAlwaysAnswersInJsonTests : ArcGisClient
     }
 
     [Theory]
-    [InlineData("MapServer/find?searchText=x&layers=0&f=json", 404, "find")]
+    [InlineData("MapServer/noSuchOperation?f=json", 404, "noSuchOperation")]
     [InlineData("FeatureServer/0/applyEdits?f=json", 405, "POST")]
     [InlineData("FeatureServer/0/noSuchOperation?f=json", 404, "noSuchOperation")]
     public async Task An_address_with_no_answer_still_answers_in_arcgis_s_envelope(string tail, int status, string says)

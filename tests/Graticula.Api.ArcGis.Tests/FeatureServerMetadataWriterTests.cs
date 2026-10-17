@@ -180,11 +180,16 @@ public sealed class FeatureServerMetadataWriterTests
         JsonElement advanced = layer.GetProperty("advancedQueryCapabilities");
 
         foreach (string claim in (string[])
-            ["supportsSqlExpression", "supportsCountDistinct", "supportsQueryWithResultType",
-             "supportsReturningGeometryCentroid"])
+            ["supportsSqlExpression", "supportsCountDistinct", "supportsQueryWithResultType"])
         {
             Assert.False(advanced.GetProperty(claim).GetBoolean(), claim);
         }
+
+        // A polygon's centroid is read where the source answers it (the ArcGIS gap review, 2026-10-17); a point
+        // layer has none to offer.
+        Assert.True(advanced.GetProperty("supportsReturningGeometryCentroid").GetBoolean());
+        Assert.False(Json(FeatureServerMetadataWriter.Layer(Layer(), GeometryKind.Point, Description(), "Query"))
+            .GetProperty("advancedQueryCapabilities").GetProperty("supportsReturningGeometryCentroid").GetBoolean());
 
         // <b>`supportsPercentileStatistics` left this list on 2026-09-04</b>, when
         // `PERCENTILE_CONT` and `PERCENTILE_DISC` were implemented (ADR-052 §3.11). It is
@@ -217,14 +222,10 @@ public sealed class FeatureServerMetadataWriterTests
             Assert.True(advanced.GetProperty(claim).GetBoolean(), claim);
         }
 
-        // <b>supportsHavingClause moved from the true list to here on 2026-08-16,
-        // and the move is the test.</b> The flag was true while `havingClause` was
-        // appended to the SQL statement unparsed, so the document advertised an
-        // injection as a capability (D-41). Asserting `false` rather than deleting
-        // the claim is deliberate: a client reads this to decide whether to send
-        // one, and a silently absent flag is not an answer. It goes back to true
-        // when the clause is parsed — Q-109.
-        Assert.False(advanced.GetProperty("supportsHavingClause").GetBoolean());
+        // <b>supportsHavingClause was false from 2026-08-16</b>, while `havingClause` had been appended to the SQL
+        // statement unparsed (D-41), and is true again since the clause is parsed with bound literals — Q-109,
+        // 2026-10-17. A GeoParquet layer, whose statement takes none, says false (LayerDescription.AnswersHaving).
+        Assert.True(advanced.GetProperty("supportsHavingClause").GetBoolean());
 
         // The older flat spelling, kept because some clients still read it.
         foreach (string claim in (string[])

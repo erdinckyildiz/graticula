@@ -385,7 +385,14 @@ public sealed class PortalConformanceTests : ArcGisClient
         // <b>And an Image Service — V-80, 2026-09-23.</b> Coverages live in their own catalogue and the
         // portal listed only feature services, so the fixture's image service was in the directory and
         // in no search.
-        foreach (string type in (string[])["Map Service", "Vector Tile Service", "Image Service"])
+        // <b>A map image layer is not listed beside its feature layer, since 2026-10-17</b> — owner decision on the
+        // ArcGIS gap review's triplicate items: ArcGIS lists a hosted feature layer as one item. Its MapServer still
+        // answers, and its item still opens by id; only the search no longer offers it twice over.
+        Assert.DoesNotContain(items, i => i.GetProperty("type").GetString() == "Map Service"
+            && items.Any(f => f.GetProperty("type").GetString() == "Feature Service"
+                && f.GetProperty("title").GetString() == i.GetProperty("title").GetString()));
+
+        foreach (string type in (string[])["Vector Tile Service", "Image Service"])
         {
             JsonElement item = items.FirstOrDefault(i => i.GetProperty("type").GetString() == type);
 
@@ -405,6 +412,11 @@ public sealed class PortalConformanceTests : ArcGisClient
 
             JsonElement read = await GetJsonAsync($"/sharing/rest/content/items/{item.GetProperty("id").GetString()}?token={token}");
             Assert.Equal(type, read.GetProperty("type").GetString());
+
+            // The service's delete protection (ADR-108), which Pro reads from the item — the ArcGIS gap review found
+            // the item silent about it.
+            Assert.True(read.GetProperty("protected").ValueKind is JsonValueKind.True or JsonValueKind.False,
+                $"The {type} item says nothing about its delete protection.");
 
             // <b>The item document carries the extent in WGS 84</b> — [[xmin, ymin], [xmax, ymax]] — which a
             // client zooms to when it adds the layer; a listing carries [] (PortalEndpoints.ExtentAsync).

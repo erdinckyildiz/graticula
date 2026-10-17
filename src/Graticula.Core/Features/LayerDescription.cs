@@ -234,6 +234,24 @@ public sealed record LayerDescription(
     public bool AnswersRelations { get; init; } = true;
 
     /// <summary>
+    /// Whether a statistics query may carry a having clause (Q-109) — false for a GeoParquet layer, whose statement
+    /// does not take one. The layer document's <c>supportsHavingClause</c> is read from here.
+    /// </summary>
+    public bool AnswersHaving { get; init; } = true;
+
+    /// <summary>
+    /// Whether <c>queryTopFeatures</c> is answered — false for a GeoParquet layer, whose statement has no window. The
+    /// layer document's <c>supportsTopFeaturesQuery</c> is read from here.
+    /// </summary>
+    public bool AnswersTopFeatures { get; init; } = true;
+
+    /// <summary>
+    /// Whether a polygon's centroid is read when asked (<c>returnCentroid</c>) — false for a GeoParquet layer. The
+    /// layer document's <c>supportsReturningGeometryCentroid</c> is read from here and the geometry type.
+    /// </summary>
+    public bool AnswersCentroid { get; init; } = true;
+
+    /// <summary>
     /// Whether the geometry column has a spatial index — true or false for a PostGIS table, null where the
     /// question has no answer here: a view, a foreign table, a file.
     /// </summary>

@@ -229,6 +229,54 @@ public sealed class MapServerConformanceTests : ArcGisClient
         Assert.Equal(featureField, mapField);
     }
 
+    /// <remarks>
+    /// <c>MapServer/find</c> answered 404 until the ArcGIS gap review of 2026-10-17. A value the layer holds is found by
+    /// a part of it in another case, the result names the field and the layer as ArcGIS's does, an exact search finds
+    /// it whole, and a quote in the text is a character rather than SQL.
+    /// </remarks>
+    [Fact]
+    public async Task Find_finds_a_value_by_part_of_it_in_any_case()
+    {
+        (string Service, string Bbox, int Srid)? drawable = await DrawableAsync();
+        Assert.NotNull(drawable);
+
+        string service = drawable!.Value.Service;
+        string? field = (await GetJsonAsync($"/rest/services/{service}/FeatureServer/0")).GetProperty("displayField").GetString();
+        Assert.False(string.IsNullOrEmpty(field), "The layer names no display field to search.");
+
+        JsonElement first = await GetJsonAsync(
+            $"/rest/services/{service}/FeatureServer/0/query?where={Uri.EscapeDataString(field + " IS NOT NULL")}"
+            + $"&outFields={field}&returnGeometry=false&resultRecordCount=1");
+        JsonElement features = first.GetProperty("features");
+        Assert.True(features.GetArrayLength() > 0, "The layer has no feature with a display value to find.");
+
+        JsonElement held = features[0].GetProperty("attributes").GetProperty(field!);
+        if (held.ValueKind != JsonValueKind.String || held.GetString()!.Length < 3)
+        {
+            return;
+        }
+
+        string value = held.GetString()!;
+        string part = value.Substring(1, Math.Min(4, value.Length - 1)).ToLowerInvariant();
+
+        JsonElement found = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/find?searchText={Uri.EscapeDataString(part)}&layers=0&returnGeometry=false");
+        JsonElement result = found.GetProperty("results").EnumerateArray()
+            .First(r => r.GetProperty("value").GetString() == value);
+
+        Assert.Equal(0, result.GetProperty("layerId").GetInt32());
+        Assert.Equal(field, result.GetProperty("foundFieldName").GetString());
+        Assert.Equal(value, result.GetProperty("attributes").GetProperty(field!).GetString());
+
+        JsonElement exact = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/find?searchText={Uri.EscapeDataString(value)}&contains=false&layers=0&returnGeometry=false");
+        Assert.Contains(exact.GetProperty("results").EnumerateArray(), r => r.GetProperty("value").GetString() == value);
+
+        JsonElement quoted = await GetJsonAsync(
+            $"/rest/services/{service}/MapServer/find?searchText={Uri.EscapeDataString("x' OR '1'='1")}&layers=0&returnGeometry=false");
+        Assert.Equal(0, quoted.GetProperty("results").GetArrayLength());
+    }
+
     // ---------- export ----------
 
     [Fact]
@@ -301,7 +349,9 @@ public sealed class MapServerConformanceTests : ArcGisClient
 
         string href = document.GetProperty("href").GetString()!;
 
-        Assert.Contains("f=image", href, StringComparison.Ordinal);
+        // D-299: an output address, as ArcGIS's output directory, that carries no token.
+        Assert.Contains("/rest/directories/arcgisoutput/", href, StringComparison.Ordinal);
+        Assert.DoesNotContain("token=", href, StringComparison.OrdinalIgnoreCase);
 
         string root = await RequireServerAsync();
 

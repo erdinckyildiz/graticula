@@ -842,7 +842,9 @@ public static class Program
         QuietTheFramework(builder.Logging, builder.Configuration);
 
         // <b>What the server itself warned about, readable at /admin/logs/server — ADR-045 §5a.</b>
-        ServerLogBuffer serverLog = new(TimeProvider.System);
+        // D-300: also written under the state directory, thirty days, and read back at start.
+        ServerLogBuffer serverLog = new(
+            TimeProvider.System, new ServerLogFiles(System.IO.Path.Combine(settings.StatePath, "logs")));
         builder.Services.AddSingleton(serverLog);
         builder.Logging.AddProvider(serverLog);
 
@@ -1171,6 +1173,13 @@ public static class Program
             context => ResponseCompressionPolicy.IsAllowed(context.Request.Path),
             branch => branch.UseResponseCompression());
 
+        // <b>`f=pjson` is indented on every face</b>, as ArcGIS writes it — the ArcGIS gap review found it compact
+        // everywhere but the geometry service, which had its own. One place rather than one per face: the answer is
+        // buffered only when pjson is asked, which is a person reading, never a client paging features.
+        app.UseWhen(
+            context => string.Equals(context.Request.Query["f"], "pjson", StringComparison.OrdinalIgnoreCase),
+            branch => branch.Use(PrettyJson.IndentAsync));
+
         /*
           <b>Who is calling, resolved once, [D-12](../../docs/architecture-debt.md).</b> The
           per-address rate limit used the socket address and never `X-Forwarded-For`, so behind a
@@ -1235,10 +1244,7 @@ public static class Program
             string message = status == StatusCodes.Status405MethodNotAllowed
                 ? $"'{last}' does not accept {context.Request.Method}. Operations that change data take POST; "
                   + "resources and queries take GET or POST."
-                : path.Value?.EndsWith("/MapServer/find", StringComparison.OrdinalIgnoreCase) == true
-                    ? "'find' is not implemented by this server. Search a layer with its FeatureServer's 'query' "
-                      + "and a 'where' clause such as name LIKE '%value%'."
-                    : $"There is no '{last}' at this address. The services directory lists what this server offers.";
+                : $"There is no '{last}' at this address. The services directory lists what this server offers.";
 
             await Results.Json(
                 new { error = new { code = status, message, details = Array.Empty<string>() } },
@@ -2275,6 +2281,19 @@ public static class Program
             app.MapPost($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/query", QueryAsync)
                 .Governed(SharingGovernedExtensions.ByService);
 
+            // queryTopFeatures — the first features of each group, answered by the query above with `topFilter`, so
+            // every format, count and id list it serves is the query's own (the ArcGIS gap review, 2026-10-17).
+            app.MapMethods($"{prefix}/{{serviceName}}/FeatureServer/{{layerId:int}}/queryTopFeatures", ["GET", "POST"],
+                    (HttpContext context, string serviceName, int layerId, CatalogFallback catalog, ServiceContexts contexts,
+                        ILoggerFactory loggerFactory, HostSettings settings, IProjector projector, DatumShiftNotices datumShifts,
+                        CancellationToken cancellation) =>
+                    {
+                        context.Items[TopFeaturesKey] = true;
+                        return QueryAsync(context, serviceName, layerId, catalog, contexts, loggerFactory, settings, projector,
+                            datumShifts, cancellation);
+                    })
+                .Governed(SharingGovernedExtensions.ByService);
+
             // <b>The service's own query — V-82, 2026-09-23.</b> Several layers in one request, each
             // answered by the layer query above on a request of its own (ServiceQuery), so there is one
             // implementation of what a query means.
@@ -2425,6 +2444,7 @@ public static class Program
         WfsEndpoints.Map(app);
         WmsEndpoints.Map(app);
         MapServerEndpoints.Map(app);
+        ExportOutputs.Map(app);
         ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
         KmlEndpoints.Map(app);
@@ -5730,6 +5750,9 @@ public static class Program
     private static long Microseconds(long ticks) =>
         ticks * 1_000_000 / Stopwatch.Frequency;
 
+    /// <summary>Marks a request that came in as <c>queryTopFeatures</c>.</summary>
+    private const string TopFeaturesKey = "graticula.topFeatures";
+
     private static async Task QueryAsync(
         HttpContext context,
         string serviceName,
@@ -5879,7 +5902,9 @@ public static class Program
                 Graticula.Api.Wms.TimeDimension.FieldOf(described.Fields, layer.TimeField),
 
                 // ADR-078: a moment in the past only where the database keeps one.
-                described.Archived))
+                described.Archived,
+                context.Items.ContainsKey(TopFeaturesKey),
+                described.AnswersCentroid && layer.GeometryType is GeometryKind.Polygon or GeometryKind.MultiPolygon))
         {
             await Results.Json(
                 new { error = new { code = 400, message = error, details = Array.Empty<string>() } },

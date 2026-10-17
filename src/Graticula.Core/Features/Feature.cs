@@ -54,6 +54,12 @@ public sealed class Feature
     /// <summary>The shape, or <see langword="null"/> where the row has none.</summary>
     public Geometry? Geometry { get; }
 
+    /// <summary>
+    /// A point inside the feature's shape, for a label — ArcGIS's <c>centroid</c>, read only when the query asked
+    /// (<see cref="FeatureQuery.ReturnCentroid"/>); null otherwise.
+    /// </summary>
+    public Geometry? Centroid { get; init; }
+
     /// <summary>The attribute names, shared with every feature in this result.</summary>
     public FeatureSchema Schema { get; }
 

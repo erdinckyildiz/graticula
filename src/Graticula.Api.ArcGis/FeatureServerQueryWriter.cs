@@ -490,6 +490,13 @@ public sealed class FeatureServerQueryWriter
 
         writer.WriteEndObject();
 
+        // returnCentroid: ArcGIS writes it beside the geometry, as a point in the answer's reference.
+        if (feature.Centroid is { IsEmpty: false } centroid)
+        {
+            writer.WritePropertyName("centroid");
+            ArcGisGeometryWriter.Write(writer, centroid, srid, wkt);
+        }
+
         if (feature.Geometry is null || feature.Geometry.IsEmpty)
         {
             // A row with no shape keeps its attributes. Dropping the feature

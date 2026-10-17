@@ -58,6 +58,13 @@ public sealed class SqlStaysOutOfTheQueryModelTests
         ["FeatureQuery.Where"] =
             "ADR-008 §4a: WhereClause parses the caller's predicate and re-emits our own SQL "
             + "with every literal bound, so what crosses is our text and not theirs.",
+
+        // Q-109, 2026-10-17: the having clause crosses the same way, and is what D-41's refusal waited for.
+        ["FeatureQuery.set_Having(value)"] = "The init accessor of FeatureQuery.Having, below; ADR-008 §4a-iii.",
+        ["FeatureQuery.Having"] =
+            "Q-109: HavingClause replaces each aggregate with a name of its own, parses the rest with the where "
+            + "grammar and re-emits our own SQL with every literal bound under @h; the aggregates are rebuilt from "
+            + "its own table, so what crosses is our text and not theirs.",
     };
 
     private static Assembly CoreAssembly => typeof(FeatureQuery).Assembly;
@@ -106,8 +113,12 @@ public sealed class SqlStaysOutOfTheQueryModelTests
             // which functions want `numeric` — and PredicateSql took a placeholder function
             // for exactly that until ADR-083 brought three more differences. Nothing in the
             // model holds one; the provider hands it to the emitter at the boundary.
+            //
+            // <b>HavingClause joined it on 2026-10-17 (ADR-008 §4a-iii)</b>: it manufactures the having clause's
+            // ParsedWhere the way WhereClause manufactures where's, through the same grammar and emitter.
             if (type == typeof(ParsedWhere)
                 || type == typeof(WhereClause)
+                || type == typeof(HavingClause)
                 || type == typeof(PredicateSql)
                 || type == typeof(SqlDialect))
             {
@@ -143,8 +154,8 @@ public sealed class SqlStaysOutOfTheQueryModelTests
              §4.1: the model "must contain no SQL concepts. The moment it does, it stops being
              able to target GeoParquet, FlatGeobuf, or anything that is not a database."
 
-             There is exactly one permitted exception, FeatureQuery.Where, and §4a-i explains
-             why it is one. If this member is a second exception, amend ADR-008 first and add
+             There are two permitted exceptions, FeatureQuery.Where and FeatureQuery.Having, and §4a-i
+             and §4a-iii explain why. If this member is a second exception, amend ADR-008 first and add
              it to Permitted with its argument — do not widen the allow-list to make a build
              pass. If it is a caller's SQL, it is D-41 happening again: parse it and bind the
              literals, as WhereClause does.

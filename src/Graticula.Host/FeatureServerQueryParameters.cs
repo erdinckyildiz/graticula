@@ -123,15 +123,6 @@ internal static class FeatureServerQueryParameters
         // (ADR-073). A json answer has no grid to apply it to and is written at full precision.
         ["quantizationParameters"] = "honoured for f=pbf; a json answer is written at full precision",
 
-        // <b>Refused for half an hour, on a misreading.</b> returnCentroid does
-        // not replace the geometry — it asks for a centroid property *alongside*
-        // it, which the ArcGIS SDK uses to place labels on polygons. Refusing it
-        // broke every polygon layer in the SDK to prevent a harm that does not
-        // exist: not returning extra data is not returning wrong data. The
-        // visible consequence of ignoring it is that labels fall back to the
-        // client's own placement, which is a missing capability rather than a
-        // wrong answer.
-        ["returnCentroid"] = "no centroid is computed, so labels use the client's own placement",
         ["returnExceededLimitFeatures"] = "the transfer limit is reported either way",
 
         // <b>Refused until 2026-09-13, and it cost a map.</b> The ArcGIS Maps SDK 4.29 loads a
@@ -260,6 +251,8 @@ internal static class FeatureServerQueryParameters
     /// Whether the layer keeps its history — ADR-078. <c>historicMoment</c> is answered where it does and
     /// refused where it does not.
     /// </param>
+    /// <param name="topFeatures">Whether this is <c>queryTopFeatures</c>, which requires <c>topFilter</c>.</param>
+    /// <param name="centroids">Whether the layer reads polygon centroids, so <c>returnCentroid</c> is honoured.</param>
     public static bool TryParse(
         IQueryCollection parameters,
         string objectIdColumn,
@@ -274,7 +267,9 @@ internal static class FeatureServerQueryParameters
         int? servedSrid = null,
         string? servedWkt = null,
         string? timeField = null,
-        bool archived = false)
+        bool archived = false,
+        bool topFeatures = false,
+        bool centroids = false)
     {
         query = null;
         shape = QueryShape.Features;
@@ -365,6 +360,48 @@ internal static class FeatureServerQueryParameters
             return Fail(out error, error);
         }
 
+        // queryTopFeatures' topFilter: required there and refused on a plain query, where ArcGIS does not take it.
+        TopFilter? top = null;
+        string topText = First(parameters, "topFilter");
+
+        if (!topFeatures && topText.Length > 0)
+        {
+            return Fail(out error, "'topFilter' is queryTopFeatures' parameter; a plain query does not take it.");
+        }
+
+        if (topFeatures)
+        {
+            if (!TryTopFilter(topText, allFields, out top, out string? topError))
+            {
+                return Fail(out error, topError);
+            }
+        }
+
+        // Q-109: the having clause, parsed against the layer's fields and the grouping; refused without statistics,
+        // which is the only statement it filters.
+        ParsedWhere? havingParsed = null;
+        if (First(parameters, "havingClause") is { Length: > 0 } havingText)
+        {
+            if (statistics.Count == 0)
+            {
+                return Fail(out error,
+                    "'havingClause' filters the groups of an 'outStatistics' query, and this query computes none.");
+            }
+
+            if (!HavingClause.TryParse(
+                    havingText,
+                    allFields.GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First().Type, StringComparer.OrdinalIgnoreCase),
+                    groupBy,
+                    LayerDefinition.Quote,
+                    out ParsedWhere parsedHaving,
+                    out string? havingError))
+            {
+                return Fail(out error, havingError);
+            }
+
+            havingParsed = parsedHaving;
+        }
+
         // <b>After the statistics, because their output names may be ordered by — V-71, the fourth ArcGIS
         // review.</b> "The ten most common values" is a grouped count ordered by the count, and
         // `orderByFields=value DESC` was refused as *not a field of this layer* while both providers already
@@ -436,6 +473,12 @@ internal static class FeatureServerQueryParameters
         {
             KeepOrdinates = keep,
             HistoricMoment = moment,
+            Having = havingParsed,
+            Top = top,
+            // <b>Answered where the layer can, and still not refused where it cannot</b> — refusing it once broke every
+            // polygon layer in the Maps SDK, which sends it whatever the document says. Where a layer says
+            // supportsReturningGeometryCentroid false, the client places its own labels.
+            ReturnCentroid = centroids && Flag(parameters, "returnCentroid", defaultValue: false),
 
             // <b>Only when the caller did not name a reference of their own.</b> `outSR` is the
             // client asking for a code; a service served in a written definition still has to
@@ -519,7 +562,7 @@ internal static class FeatureServerQueryParameters
         "maxAllowableOffset", "geometryPrecision", "returnZ", "returnM",
         "resultRecordCount", "resultOffset",
         "returnCountOnly", "returnIdsOnly", "returnExtentOnly", "returnDistinctValues",
-        "outStatistics", "groupByFieldsForStatistics", "havingClause",
+        "outStatistics", "groupByFieldsForStatistics", "havingClause", "topFilter",
 
         // Checked for its value in `TryUnknown`, which is the one parameter here whose name is
         // always sent and whose value decides whether the answer is the one asked for.
@@ -1803,6 +1846,89 @@ internal static class FeatureServerQueryParameters
     /// </remarks>
     public const int MaximumObjectIds = 10_000;
 
+    /// <summary>
+    /// Reads <c>topFilter</c> — <c>{"groupByFields":"a,b","topCount":3,"orderByFields":"c DESC"}</c> — checking every
+    /// name against the layer's fields, so nothing the caller wrote reaches SQL but a field this layer has.
+    /// </summary>
+    private static bool TryTopFilter(
+        string text, IReadOnlyList<FieldDescription> allFields, out TopFilter? top, out string? error)
+    {
+        top = null;
+        error = null;
+
+        if (text.Length == 0)
+        {
+            error = "queryTopFeatures needs 'topFilter': {\"groupByFields\":\"field\",\"topCount\":3,\"orderByFields\":\"field DESC\"}.";
+            return false;
+        }
+
+        JsonElement root;
+        try
+        {
+            root = JsonDocument.Parse(text).RootElement;
+        }
+        catch (JsonException e)
+        {
+            error = $"'topFilter' is not valid JSON: {e.Message}";
+            return false;
+        }
+
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            error = "'topFilter' is an object with groupByFields, topCount and orderByFields.";
+            return false;
+        }
+
+        string? Named(string wanted) =>
+            allFields.Where(f => string.Equals(f.Name, wanted, StringComparison.OrdinalIgnoreCase)).Select(f => f.Name).FirstOrDefault();
+
+        List<string> groups = [];
+        foreach (string part in Text(root, "groupByFields").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (Named(part) is not { } field)
+            {
+                error = $"'topFilter' groups by '{part}', which is not a field of this layer.";
+                return false;
+            }
+
+            groups.Add(field);
+        }
+
+        if (groups.Count == 0)
+        {
+            error = "'topFilter' needs 'groupByFields': the fields whose values make a group.";
+            return false;
+        }
+
+        if (!root.TryGetProperty("topCount", out JsonElement countElement)
+            || countElement.ValueKind != JsonValueKind.Number
+            || !countElement.TryGetInt32(out int count)
+            || count < 1 || count > TopFilter.MaximumCount)
+        {
+            error = $"'topFilter' needs 'topCount', a whole number from 1 to {TopFilter.MaximumCount}.";
+            return false;
+        }
+
+        List<Graticula.Features.SortKey> order = [];
+        foreach (string part in Text(root, "orderByFields").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            string[] words = part.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            bool descending = words.Length > 1 && string.Equals(words[^1], "DESC", StringComparison.OrdinalIgnoreCase);
+            bool ascending = words.Length > 1 && string.Equals(words[^1], "ASC", StringComparison.OrdinalIgnoreCase);
+
+            if (words.Length > 2 || (words.Length == 2 && !descending && !ascending) || Named(words[0]) is not { } field)
+            {
+                error = $"'topFilter' orders by '{part}', which is not a field of this layer followed by ASC or DESC.";
+                return false;
+            }
+
+            order.Add(new Graticula.Features.SortKey(field, descending));
+        }
+
+        top = new TopFilter(groups, count, order).Validated();
+        return true;
+    }
+
     /// <summary>Statistics, their grouping, and the filter over them.</summary>
     private static bool TryStatistics(
         IQueryCollection parameters,
@@ -1819,25 +1945,11 @@ internal static class FeatureServerQueryParameters
 
         string raw = First(parameters, "outStatistics");
         string groups = First(parameters, "groupByFieldsForStatistics");
-        // <b>Refused rather than parsed, 2026-08-16 — D-41.</b> This used to take
-        // the caller's text and PostGisFeatureSource appended it to the statement
-        // unparsed, so `havingClause` was SQL injection on any layer shared to
-        // public. Refusing is the same move §4a of ADR-008 records for `where`
-        // before the parser existed: a refusal is a capability nobody has, and a
-        // pass-through is a capability everybody has, including whoever did not
-        // pay for it. The parser is Q-109.
+        // <b>Refused from 2026-08-16 — D-41 — and parsed since the ArcGIS gap review of 2026-10-17 (Q-109).</b>
+        // This used to take the caller's text and PostGisFeatureSource appended it to the statement unparsed, so
+        // `havingClause` was SQL injection on any layer shared to public. The string `having` stays null for ever;
+        // the clause travels as HavingClause's parsed SQL instead, read below once the grouping is known.
         having = null;
-
-        if (First(parameters, "havingClause").Length > 0)
-        {
-            error =
-                "'havingClause' is not supported. It is SQL over aggregates, and this server "
-                + "will not accept SQL it has not parsed — every predicate it runs is rebuilt "
-                + "from a checked expression with bound literals. Filter the returned "
-                + "statistics client-side, or use 'where' to narrow the rows before they are "
-                + "aggregated.";
-            return false;
-        }
 
         HashSet<string> known = new(allFields.Select(f => f.Name), StringComparer.OrdinalIgnoreCase);
 

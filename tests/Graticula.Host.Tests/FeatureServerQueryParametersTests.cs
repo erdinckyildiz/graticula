@@ -88,28 +88,26 @@ public sealed class FeatureServerQueryParametersTests
     }
 
     [Fact]
-    public void A_having_clause_is_refused_whatever_it_contains()
+    public void A_having_clause_is_parsed_and_a_subquery_in_one_is_refused()
     {
-        // <b>D-41's regression test at the boundary.</b> The clause reached
-        // `PostGisFeatureSource` and was appended to the statement with no parsing
-        // at all, on a surface a public layer exposes anonymously. The payload
-        // below is the harmless shape of the problem: an aggregate predicate
-        // followed by a subquery, which no grammar in this server would accept and
-        // which the old path would have run.
+        // <b>D-41's regression test at the boundary, kept now the clause is parsed (Q-109).</b> The clause reached
+        // `PostGisFeatureSource` and was appended to the statement with no parsing at all, on a surface a public layer
+        // exposes anonymously. The payload below is the harmless shape of the problem: an aggregate predicate followed
+        // by a subquery, which the old path would have run and the having grammar refuses.
+        const string Statistics = """[{"statisticType":"count","onStatisticField":"objectid","outStatisticFieldName":"n"}]""";
         string error = Refuse(
-            ("outStatistics", """[{"statisticType":"count","onStatisticField":"objectid","outStatisticFieldName":"n"}]"""),
+            ("outStatistics", Statistics),
             ("havingClause", "count(objectid) > 0 and (select count(*) from pg_authid) > 0"));
 
-        Assert.Contains("havingClause", error, StringComparison.Ordinal);
-        Assert.Contains("has not parsed", error, StringComparison.Ordinal);
+        Assert.Contains("having clause", error, StringComparison.OrdinalIgnoreCase);
 
-        // And refused on its own too, without outStatistics — the old code path
-        // reported the missing outStatistics first, which would have let the clause
-        // through the moment a caller supplied one.
-        Assert.Contains(
-            "havingClause",
-            Refuse(("havingClause", "count(objectid) > 0")),
-            StringComparison.Ordinal);
+        // Refused on its own too, without outStatistics: there is no grouped statement for it to filter.
+        Assert.Contains("havingClause", Refuse(("havingClause", "count(objectid) > 0")), StringComparison.Ordinal);
+
+        // And a clause that is an aggregate predicate is read, bound and carried.
+        FeatureQuery read = Parse(("outStatistics", Statistics), ("havingClause", "COUNT(objectid) > 0"));
+        Assert.Contains("count(", read.Having!.Value.Sql, StringComparison.Ordinal);
+        Assert.Single(read.Having.Value.Parameters);
     }
 
     /// <summary>
@@ -880,12 +878,25 @@ public sealed class FeatureServerQueryParametersTests
             Parse(("resultRecordCount", "999999999")).Limit);
     }
 
+    [Fact]
+    public void ReturnCentroid_is_read_where_the_layer_answers_it_and_accepted_where_it_does_not()
+    {
+        // Ignored until the ArcGIS gap review of 2026-10-17; refusing it broke every polygon layer in the Maps SDK.
+        Assert.True(FeatureServerQueryParameters.TryParse(
+            Query(("returnCentroid", "true")), "objectid", Srid, Fields, out FeatureQuery? read, out _, out string? error,
+            centroids: true), error);
+        Assert.True(read!.ReturnCentroid);
+
+        Assert.True(FeatureServerQueryParameters.TryParse(
+            Query(("returnCentroid", "true")), "objectid", Srid, Fields, out FeatureQuery? plain, out _, out error), error);
+        Assert.False(plain!.ReturnCentroid);
+    }
+
     // ---------- the ignored set ----------
 
     [Theory]
     [InlineData("quantizationParameters")]
     [InlineData("cacheHint")]
-    [InlineData("returnCentroid")]
     // `f` left this set on 2026-09-15: a format other than json or html is refused rather than
     // answered as json, which is `A_format_that_is_not_produced_is_refused`.
     public void A_parameter_that_cannot_lose_data_is_accepted_and_declares_itself_ignored(string name)

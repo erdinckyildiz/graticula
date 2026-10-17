@@ -1176,7 +1176,7 @@ internal static partial class PortalEndpoints
             .. visible
                 .Where(service => service.Owner is { } owner && owner == current.Principal.Id
                     && service.ContentFolder == folderId)
-                .SelectMany(service => ItemsOf(context, service).Select(face => face.Item)),
+                .SelectMany(service => ListedFacesOf(service).Select(face => Item(context, service, face))),
 
             // <b>And the maps they saved — ADR-079</b>, which have an owner of their own and no
             // service behind them.
@@ -1510,7 +1510,7 @@ internal static partial class PortalEndpoints
 
         foreach (PublishedService service in visible)
         {
-            foreach (string face in FacesOf(service))
+            foreach (string face in ListedFacesOf(service))
             {
                 object item = Item(context, service, face);
 
@@ -1663,6 +1663,7 @@ internal static partial class PortalEndpoints
         Graticula.Geometries.IProjector projector,
         IWebMapStore maps,
         ICoverageCatalog coverages,
+        Graticula.Platform.Admin.IAdminCatalog admin,
         string id,
         CancellationToken cancellation)
     {
@@ -1697,8 +1698,10 @@ internal static partial class PortalEndpoints
                     double[][] extent = await ExtentAsync(service, contexts, projector, cancellation)
                         .ConfigureAwait(false);
 
-                    return Results.Ok(ItemsOf(context, service, extent)
-                        .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item);
+                    return Results.Ok(await WithProtectionAsync(
+                        ItemsOf(context, service, extent)
+                            .First(face => string.Equals(face.Id, id, StringComparison.OrdinalIgnoreCase)).Item,
+                        service, admin, cancellation).ConfigureAwait(false));
                 }
             }
         }
@@ -2053,6 +2056,8 @@ internal static partial class PortalEndpoints
             url = $"{Origin(context)}/rest/services/{coverage.QualifiedName}/ImageServer",
             thumbnail = $"thumbnail/{ThumbnailFile}",
             access = Access(coverage.Sharing),
+            // An image service has no delete protection here, so false is the truth rather than a default.
+            @protected = false,
             spatialReference = (string?)null,
             extent = extent ?? [],
             numViews = Views(context, coverage.ServiceId),
@@ -2156,6 +2161,7 @@ internal static partial class PortalEndpoints
             categories = Array.Empty<string>(),
             url = (string?)null,
             access = Access(map.Sharing),
+            @protected = map.DeleteProtected,
             spatialReference = (string?)null,
             extent = extent ?? [],
             numViews = 0,
@@ -2228,6 +2234,7 @@ internal static partial class PortalEndpoints
             categories = Array.Empty<string>(),
             url = (string?)null,
             access = Access(document.Sharing),
+            @protected = document.DeleteProtected,
             spatialReference = (string?)null,
             extent = Array.Empty<double[]>(),
             numViews = 0,
@@ -2368,6 +2375,22 @@ internal static partial class PortalEndpoints
         {
             yield return "VectorTileServer";
         }
+    }
+
+    /// <summary>
+    /// The faces a search or a member's content lists: <see cref="FacesOf"/> without the map image face of a service
+    /// that has a feature face — owner decision 2026-10-17, on the ArcGIS gap review's *triplicate items*.
+    /// </summary>
+    /// <remarks>
+    /// <b>ArcGIS lists a hosted feature layer as one item</b>, and its vector tile layer as another when one is
+    /// published; this listed a third, the map image face, beside every feature service, so Pro's catalogue showed each
+    /// service three times. The map item still resolves by its id and its MapServer still answers — only a listing
+    /// leaves it out. The vector tile item stays: the basemap gallery is made of them (ADR-184).
+    /// </remarks>
+    internal static IEnumerable<string> ListedFacesOf(PublishedService service)
+    {
+        List<string> faces = [.. FacesOf(service)];
+        return faces.Contains("FeatureServer") ? faces.Where(face => face != "MapServer") : faces;
     }
 
     /// <summary>The item id of one face of a service: the service's own id for its primary face.</summary>
@@ -2540,6 +2563,22 @@ internal static partial class PortalEndpoints
             modified = service.Modified?.ToUnixTimeMilliseconds(),
         };
     }
+
+    /// <summary>
+    /// An item's document with <c>protected</c> — the service's delete protection (ADR-108), which Pro reads from the
+    /// item to grey its Delete; the ArcGIS gap review found the item silent about it.
+    /// </summary>
+    internal static async Task<System.Text.Json.Nodes.JsonObject> WithProtectionAsync(
+        object item, PublishedService service, Graticula.Platform.Admin.IAdminCatalog admin, CancellationToken cancellation)
+    {
+        System.Text.Json.Nodes.JsonObject node = System.Text.Json.JsonSerializer.SerializeToNode(item, ItemJson)!.AsObject();
+        Graticula.Platform.Admin.ServiceStewardship? stewardship = await admin.FindStewardshipAsync(service.Name, service.Folder, cancellation)
+            .ConfigureAwait(false);
+        node["protected"] = stewardship?.DeleteProtected ?? false;
+        return node;
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions ItemJson = new(System.Text.Json.JsonSerializerDefaults.Web);
 
     /// <summary>The type keywords for an item, with <c>Hosted Service</c> only where it is true.</summary>
     /// <param name="face">The face the item is: FeatureServer, MapServer or VectorTileServer.</param>

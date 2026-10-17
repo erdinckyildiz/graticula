@@ -645,6 +645,20 @@ still not been paid by anybody. Its *security* value was immediate and nobody ha
 noticed it was there. A rule justified on one ground and load-bearing on another
 is a rule to keep as written even when its stated reason looks distant.
 
+### 4a-iii. The having clause comes back parsed — Q-109, 2026-10-17
+
+The ArcGIS gap review of 2026-10-17 asked for `havingClause`, and this is the parsed version §4a-ii waited for.
+**`FeatureQuery.Having` is a second permitted exception to §4.1, on the same ground as `Where` (§4a-i)**: it is a
+`ParsedWhere` built by `HavingClause`, never the caller's text. Each aggregate call — `COUNT(field)`, `COUNT(*)`,
+`SUM`, `MIN`, `MAX`, `AVG`, `STDDEV`, `VAR` — is found outside quoted strings, its field checked against the layer's,
+and replaced by a name of the parser's own; the rest is parsed by the where grammar, every literal bound under its own
+`@h` placeholders, and the names are turned back into aggregates only when the SQL is written, from the parser's own
+table. §4a-ii's payload — an aggregate predicate followed by a subquery — is refused by the grammar, and a test keeps
+it so. The string parameter `having` still throws, so nothing can carry the clause as text again.
+`SqlStaysOutOfTheQueryModelTests` permits `FeatureQuery.Having` and treats `HavingClause` as part of the sanctioned
+boundary beside `WhereClause` and `PredicateSql`. `supportsHavingClause` is true where the source answers it (PostGIS)
+and false on GeoParquet layers, which refuse it in their own words.
+
 ### 4b. Everything else the query operation documents
 
 The same pass implemented the rest of the parameters, each against PostGIS:
