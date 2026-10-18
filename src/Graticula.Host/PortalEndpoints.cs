@@ -202,6 +202,11 @@ internal static partial class PortalEndpoints
         Discoverable(app, $"{Path}/portals/{{id}}/categorySchema", CategorySchemaAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
+        // <b>The organisation's stored resources, which are none — 2026-10-17, V-86.</b> A portal keeps logos,
+        // localised properties and app themes here; clients list it on opening and met a 404.
+        Discoverable(app, $"{Path}/portals/{{id}}/resources", ResourcesAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
         // <b>The servers federated with this portal, which is one: itself — 2026-10-13.</b> Pro asks for
         // portals/self/servers twice after signing in, and answered 404 it had no hosting server to add data to.
         Discoverable(app, $"{Path}/portals/{{id}}/servers", ServersAsync)
@@ -216,6 +221,11 @@ internal static partial class PortalEndpoints
         // POST as well as GET, because a portal search is a search: Pro sends `q`
         // in a form body when it is long enough to be worth one.
         app.MapMethods($"{Path}/community/groups", ["GET", "HEAD", "POST"], GroupsAsync)
+            .Governed(SharingGovernedExtensions.ByFiltering);
+
+        // <b>One group by its id — 2026-10-17.</b> Pro asks it for the basemap gallery's group while sharing a web map,
+        // and met a 404 while the same group was found by community/groups?q=id:… (another session's trace of Pro).
+        Discoverable(app, $"{Path}/community/groups/{{id:length(32)}}", GroupAsync)
             .Governed(SharingGovernedExtensions.ByFiltering);
 
         Discoverable(app, $"{Path}/content/items/{{id}}", ItemAsync)
@@ -885,7 +895,7 @@ internal static partial class PortalEndpoints
     /// invoices looks like.
     /// </remarks>
     private static IResult SubscriptionAsync(HttpContext context, string id) =>
-        string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+        IsThisPortal(context, id)
             ? Results.Ok(new
             {
                 id = PortalId(context),
@@ -913,8 +923,7 @@ internal static partial class PortalEndpoints
     /// to publish to. When publishing from Pro is served, this lists the server again.
     /// </remarks>
     private static IResult ServersAsync(HttpContext context, string id) =>
-        string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+        IsThisPortal(context, id)
             ? Results.Ok(new
             {
                 // Listed only while Pro's publishing calls are being recorded (dev, PortalEndpoints.ProCapture).
@@ -937,9 +946,15 @@ internal static partial class PortalEndpoints
             })
             : Unknown("Organization");
 
+    /// <summary>The resources an organisation has stored, which is none: ArcGIS's empty page of them.</summary>
+    private static IResult ResourcesAsync(HttpContext context, string id) =>
+        IsThisPortal(context, id)
+            ? Results.Ok(new { total = 0, start = 1, num = 0, nextStart = -1, resources = Array.Empty<object>() })
+            : Unknown("Organization");
+
     /// <summary>The item categories an organisation has defined, which is none.</summary>
     private static IResult CategorySchemaAsync(HttpContext context, string id) =>
-        string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase)
+        IsThisPortal(context, id)
             ? Results.Ok(new { categorySchema = Array.Empty<object>() })
             : Unknown("Organization");
 
@@ -1010,21 +1025,34 @@ internal static partial class PortalEndpoints
 
         List<object> results = [.. mine.Where(group => PortalQuery.Matches(group, query))];
 
+        // start, num and sortField as ArcGIS reads them — PortalPage (V-83); until 2026-10-17 every group, -1.
+        PortalPage.Page page = PortalPage.Of(results, context, context.Request.HasFormContentType ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false) : null);
+
         return Results.Ok(new
         {
             query,
-            total = results.Count,
-            start = 1,
-            num = results.Count,
-
-            // -1 means there is no next page, which is true: this returns every
-            // group the caller may see. The item search says the same and for the
-            // same reason — paging arrives when a deployment has enough for it to
-            // matter, and a server whose scale target is 100-1,000 services has
-            // fewer groups than that (§82).
-            nextStart = -1,
-            results,
+            total = page.Total,
+            start = page.Start,
+            num = page.Num,
+            nextStart = page.NextStart,
+            results = page.Results,
         });
+    }
+
+    /// <summary>One group this caller may see, by the rule the listing uses — the same objects, chosen by id.</summary>
+    private static async Task<IResult> GroupAsync(
+        HttpContext context, IGroupDirectory directory, string id, CancellationToken cancellation)
+    {
+        IReadOnlyList<object> mine = await MineAsync(context, directory, cancellation).ConfigureAwait(false);
+
+        if (await GalleryGroupAsync(context, directory, mine, cancellation).ConfigureAwait(false) is { } gallery)
+        {
+            mine = [.. mine, gallery];
+        }
+
+        return mine.FirstOrDefault(group => PortalQuery.Matches(group, $"id:{id}")) is { } found
+            ? Results.Ok(found)
+            : Unknown("Group");
     }
 
     /// <summary>
@@ -1196,15 +1224,17 @@ internal static partial class PortalEndpoints
                 .Select(coverage => CoverageItem(context, coverage)),
         ];
 
+        PortalPage.Page page = PortalPage.Of(items, context);
+
         return Results.Ok(new
         {
             username,
-            total = items.Count,
-            start = 1,
-            num = items.Count,
-            nextStart = -1,
+            total = page.Total,
+            start = page.Start,
+            num = page.Num,
+            nextStart = page.NextStart,
             currentFolder = here is null ? null : Folder(here, current.Principal.Name),
-            items,
+            items = page.Results,
             folders = mine.Select(f => Folder(f, current.Principal.Name)),
         });
     }
@@ -1589,19 +1619,16 @@ internal static partial class PortalEndpoints
         }
 
         List<object> results = [.. listed.Select(entry => entry.Item)];
+        PortalPage.Page page = PortalPage.Of(results, context, context.Request.HasFormContentType ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false) : null);
 
         return Results.Ok(new
         {
             query,
-            total = results.Count,
-            start = 1,
-            num = results.Count,
-
-            // -1 means there is no next page, which is true: this returns every
-            // item the caller may see. Paging arrives when a deployment has enough
-            // items for it to matter, and not before (§82).
-            nextStart = -1,
-            results,
+            total = page.Total,
+            start = page.Start,
+            num = page.Num,
+            nextStart = page.NextStart,
+            results = page.Results,
         });
     }
 
@@ -1644,15 +1671,16 @@ internal static partial class PortalEndpoints
         }
 
         List<object> results = [.. listed.Select(entry => entry.Item)];
+        PortalPage.Page page = PortalPage.Of(results, context);
 
         return Results.Ok(new
         {
             query = asked,
-            total = results.Count,
-            start = 1,
-            num = results.Count,
-            nextStart = -1,
-            results,
+            total = page.Total,
+            start = page.Start,
+            num = page.Num,
+            nextStart = page.NextStart,
+            results = page.Results,
         });
     }
 
@@ -2691,6 +2719,15 @@ internal static partial class PortalEndpoints
     /// Derived from the origin rather than generated, because a client caches it
     /// and a portal whose id changes is a portal that has been replaced.
     /// </remarks>
+    /// <summary>
+    /// Whether <paramref name="id"/> names this portal: its id, or <c>self</c>, which every ArcGIS portal answers for its
+    /// own organisation. <c>portals/self/categorySchema</c> answered 400 while the same route under the id answered
+    /// (veteran review V-86, 2026-10-17).
+    /// </summary>
+    private static bool IsThisPortal(HttpContext context, string id) =>
+        string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase);
+
     private static string PortalId(HttpContext context)
     {
         byte[] hash = System.Security.Cryptography.SHA256.HashData(

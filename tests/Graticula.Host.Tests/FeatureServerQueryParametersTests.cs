@@ -69,7 +69,6 @@ public sealed class FeatureServerQueryParametersTests
     // ---------- refusals ----------
 
     [Theory]
-    [InlineData("time")]
     [InlineData("fullText")]
     [InlineData("uniqueIds")]
     [InlineData("returnUniqueIdsOnly")]
@@ -78,8 +77,9 @@ public sealed class FeatureServerQueryParametersTests
         // <b>What is left, and each is absent for a reason that is not
         // effort.</b> outStatistics, returnIdsOnly and objectIds were all on this
         // list until 2026-08-15 and are now implemented; these four need something
-        // the product does not have — a time-aware layer, a tsvector index, a
-        // version tree. **havingClause was also called implemented and was not:**
+        // the product does not have — a tsvector index, a version tree. (`time` was
+        // here as "a time-aware layer" until 2026-10-17: a layer without a time field
+        // now ignores it, as ArcGIS does — TimeQueryTests, V-84.) **havingClause was also called implemented and was not:**
         // it was accepted and appended to the SQL statement unparsed, so it is
         // refused again as of 2026-08-16 (D-41) and returns when it is parsed
         // (Q-109). Its refusal is asserted separately below, because the message
@@ -206,7 +206,7 @@ public sealed class FeatureServerQueryParametersTests
         // "Not supported" sends somebody to file an issue. Naming the thing that
         // is absent answers the question in the message.
         Assert.Contains(
-            "timeInfo", Refuse(("time", "1,2")), StringComparison.Ordinal);
+            "tsvector", Refuse(("fullText", "x")), StringComparison.Ordinal);
     }
 
     [Fact]

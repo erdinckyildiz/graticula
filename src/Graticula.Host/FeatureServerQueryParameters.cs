@@ -163,6 +163,9 @@ internal static class FeatureServerQueryParameters
         ["multipatchOption"] = "no layer here has multipatch geometry",
         ["sqlFormat"] = "no SQL is exposed",
 
+        // Not the query's at all: Jsonp wraps the answer in it on the way out (V-85).
+        ["callback"] = "the answer is wrapped in the function it names (JSONP) on the way out; it changes no data",
+
         // <b>Not a REST parameter at all, and the ArcGIS API for Python sends it on every query.</b>
         // It is the API's own switch — page through on the client until the server stops reporting
         // exceededTransferLimit — and it travels with the request only because the API's query model
@@ -711,13 +714,13 @@ internal static class FeatureServerQueryParameters
             return true;
         }
 
+        // <b>Ignored on a layer without a time field, as ArcGIS ignores it on one that is not time-aware</b> (veteran
+        // review V-84, 2026-10-17). A map with a time slider sends it to every layer it draws, so refusing it here
+        // blanked the layers that were never about time; the layer's document says no timeInfo, which is how a
+        // client knows this one did not filter.
         if (timeField is null)
         {
-            error =
-                "'time' is not supported on this layer: it has no time field, so there is nothing to "
-                + "filter on and its document reports no timeInfo. An administrator names one with "
-                + "PUT /admin/layers/{name}/time-field.";
-            return false;
+            return true;
         }
 
         string[] ends = raw.Split(',', StringSplitOptions.TrimEntries);

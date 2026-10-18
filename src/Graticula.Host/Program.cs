@@ -1126,70 +1126,74 @@ public static class Program
           routing. A rewrite behind it rewrites a decision that has already been made, which is
           what the first attempt did and what the measurement caught.
         */
-        // <b>The server under /arcgis, while Pro's publishing calls are recorded</b> (dev only, PortalEndpoints.ProCapture).
-        // Pro asked the hosting server's address — this origin — again and again while opening Share As Web Layer and
-        // met the Services page; an Enterprise hosting server lives under a path. Both are the same routes.
-        if (PortalEndpoints.PublishingFromPro(app.Configuration))
+        // <b>The addresses an ArcGIS shop already has — /arcgis and /server/rest — always</b> (ArcGisAddresses); the
+        // portal's under /portal and /studio, and Pro's view of a hosting server's admin API, while Pro may publish.
+        bool publishing = PortalEndpoints.PublishingFromPro(app.Configuration);
+        app.Use(async (context, next) =>
         {
-            app.Use(async (context, next) =>
+            // ArcGIS's item page, at any of the portal's three addresses, is Studio's item page (ItemPageAddress).
+            if (ItemPageAddress.Location(context.Request.Path, context.Request.Query) is { } itemPage)
             {
-                // The path only, not PathBase: the portal is this origin, and /rest/info's owningSystemUrl, which reads
-                // PathBase, has to keep naming it — the hosting server is federated with the portal at the root.
-                // <b>The portal under /portal</b>: Esri's article 000031246 names a portal URL without a Web Adaptor name
-                // (https://host/<webadaptorname>) as a cause of Analyze and Publish staying grey, and this portal lives at
-                // the root. Under /portal the same routes answer with /portal as their base, so the portal's documents
-                // name the address the client used.
-                if (context.Request.Path.StartsWithSegments("/portal", out PathString portalRest))
-                {
-                    context.Request.PathBase = context.Request.PathBase.Add("/portal");
-                    context.Request.Path = portalRest.HasValue ? portalRest : "/";
-                }
+                context.Response.Redirect(itemPage);
+                return;
+            }
 
-                // <b>And under /studio, which is this product's portal</b> (owner, 2026-10-17: "dev.graticula.com/studio
-                // diye gitsek ne olur?"). Only the portal's own addresses are taken: /studio/ itself stays Studio's page.
-                else if (context.Request.Path.StartsWithSegments("/studio/sharing", out PathString studioSharing))
-                {
-                    context.Request.PathBase = context.Request.PathBase.Add("/studio");
-                    context.Request.Path = new PathString("/sharing").Add(studioSharing);
-                }
-                // An item's URL is built on the portal's base; under /studio the services answer at the server's root.
-                else if (context.Request.Path.StartsWithSegments("/studio/rest", out PathString studioRest))
-                {
-                    context.Request.Path = new PathString("/rest").Add(studioRest);
-                }
-                else if (context.Request.Path.Equals("/studio/arcgisuris.xml", StringComparison.OrdinalIgnoreCase))
-                {
-                    context.Request.PathBase = context.Request.PathBase.Add("/studio");
-                    context.Request.Path = "/arcgisuris.xml";
-                }
+            if (publishing)
+            {
+                RewritePortalAddresses(context);
+            }
 
-                // Its admin URL is the hosting server's admin API Pro reads before it publishes, which is not this
-                // server's own /admin: the token exchange goes to /admin/generateToken, the rest to the recorder.
-                if (context.Request.Path.StartsWithSegments("/arcgis/admin", out PathString admin))
-                {
-                    context.Request.Path = admin.StartsWithSegments("/generateToken")
-                        ? "/admin/generateToken"
-                        : new PathString("/pro-admin").Add(admin.HasValue ? admin : "/");
-                }
-                else if (context.Request.Path.StartsWithSegments("/arcgis", out PathString rest))
-                {
-                    // <b>The server's own address answers 200</b>: Pro asked it dozens of times, unauthenticated, between
-                    // the token exchange and the reads it never made, and met a 302 each time (traced 2026-10-17); an
-                    // ArcGIS Server's base answers a page. This one is a page of its own, naming the directory.
-                    if (!rest.HasValue || rest == "/")
-                    {
-                        context.Response.ContentType = "text/html; charset=utf-8";
-                        await context.Response.WriteAsync(
-                            "<!doctype html><title>Graticula</title><p>Graticula serves ArcGIS REST services at "
-                            + "<a href=\"rest/services\">rest/services</a>.</p>").ConfigureAwait(false);
-                        return;
-                    }
+            ArcGisAddresses.Mapping mapped = ArcGisAddresses.Map(context.Request.Path, publishing);
+            switch (mapped.Outcome)
+            {
+                case ArcGisAddresses.Outcome.ServerPage:
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    await context.Response.WriteAsync(
+                        "<!doctype html><title>Graticula</title><p>Graticula serves ArcGIS REST services at "
+                        + "<a href=\"rest/services\">rest/services</a>.</p>").ConfigureAwait(false);
+                    return;
+                case ArcGisAddresses.Outcome.NotFound:
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+                case ArcGisAddresses.Outcome.Rewritten:
+                    context.Request.Path = mapped.Path;
+                    break;
+            }
 
-                    context.Request.Path = rest;
-                }
+            await next(context).ConfigureAwait(false);
+        });
 
-                await next(context).ConfigureAwait(false);
-            });
+        static void RewritePortalAddresses(HttpContext context)
+        {
+            // The path only, not PathBase: the portal is this origin, and /rest/info's owningSystemUrl, which reads
+            // PathBase, has to keep naming it — the hosting server is federated with the portal at the root.
+            // <b>The portal under /portal</b>: Esri's article 000031246 names a portal URL without a Web Adaptor name
+            // (https://host/<webadaptorname>) as a cause of Analyze and Publish staying grey, and this portal lives at
+            // the root. Under /portal the same routes answer with /portal as their base, so the portal's documents
+            // name the address the client used.
+            if (context.Request.Path.StartsWithSegments("/portal", out PathString portalRest))
+            {
+                context.Request.PathBase = context.Request.PathBase.Add("/portal");
+                context.Request.Path = portalRest.HasValue ? portalRest : "/";
+            }
+
+            // <b>And under /studio, which is this product's portal</b> (owner, 2026-10-17: "dev.graticula.com/studio
+            // diye gitsek ne olur?"). Only the portal's own addresses are taken: /studio/ itself stays Studio's page.
+            else if (context.Request.Path.StartsWithSegments("/studio/sharing", out PathString studioSharing))
+            {
+                context.Request.PathBase = context.Request.PathBase.Add("/studio");
+                context.Request.Path = new PathString("/sharing").Add(studioSharing);
+            }
+            // An item's URL is built on the portal's base; under /studio the services answer at the server's root.
+            else if (context.Request.Path.StartsWithSegments("/studio/rest", out PathString studioRest))
+            {
+                context.Request.Path = new PathString("/rest").Add(studioRest);
+            }
+            else if (context.Request.Path.Equals("/studio/arcgisuris.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Request.PathBase = context.Request.PathBase.Add("/studio");
+                context.Request.Path = "/arcgisuris.xml";
+            }
         }
 
         app.UseRouting();
@@ -1220,6 +1224,10 @@ public static class Program
         // <b>`f=pjson` is indented on every face</b>, as ArcGIS writes it — the ArcGIS gap review found it compact
         // everywhere but the geometry service, which had its own. One place rather than one per face: the answer is
         // buffered only when pjson is asked, which is a person reading, never a client paging features.
+        // <b>`callback=` wraps the answer, JSONP, outside pjson</b> so the two together are an indented answer wrapped
+        // — Jsonp's remarks say why such a request never reads the session cookie.
+        app.UseWhen(context => Jsonp.Asked(context.Request), branch => branch.Use(Jsonp.WrapAsync));
+
         app.UseWhen(
             context => string.Equals(context.Request.Query["f"], "pjson", StringComparison.OrdinalIgnoreCase),
             branch => branch.Use(PrettyJson.IndentAsync));
@@ -3623,6 +3631,10 @@ public static class Program
         // ADR-113: a view says so, and so does a source with views.
         document = ViewFlags.Apply(context, document, service.ViewOf is not null, service.HasViews, serviceCapabilities);
 
+        // The portal item this face is, as ArcGIS's service documents name it (ServiceItem).
+        string serviceItemId = PortalEndpoints.ItemIdOf(service, "FeatureServer");
+        document = ServiceItem.Apply(context, document, serviceItemId);
+
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
             await Results.Content(
@@ -3666,7 +3678,8 @@ public static class Program
                         WfsEndpoints.DirectoryLink(null),
                         WmsEndpoints.DirectoryLink(null, null, 0),
                         OgcFeaturesEndpoints.DirectoryLink(null),
-                    ]),
+                    ],
+                    serviceItemId: serviceItemId),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

@@ -461,7 +461,7 @@ public sealed class ItemStructureTests : ConsoleTest
         await OpenAsync($"/studio/#/layer/{Uri.EscapeDataString(layer)}{page}", token);
 
         await WaitForAsync(
-            "(window.routeHash ? routeHash() : '').startsWith('#/service/') && document.getElementById('view-service').classList.contains('on')",
+            "['#/service/', '#/item/'].some(p => (window.routeHash ? routeHash() : '').startsWith(p)) && document.getElementById('view-service').classList.contains('on')",
             $"Studio did not open the item for #/layer/{layer}{page}.");
 
         bool layerScreen = await Browser.EvaluateAsync<bool>(

@@ -931,6 +931,30 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 $"identify with an Esri point in Web Mercator answered {(int)identified}: {pixel}");
             Assert.Contains("800", pixel, StringComparison.Ordinal);
 
+            // V-87, 2026-10-17: a point written x,y with no reference is read in the service's reference by identify and
+            // by getSamples alike. getSamples read the comma form in the file's own, and the two answered two places.
+            // An elevation surface, so that the service's reference (its tiling scheme's) is not the file's.
+            (HttpStatusCode surface, byte[] surfaceBody) = await SendAsync(root, token!, HttpMethod.Put,
+                $"/admin/coverages/{name}/elevation?folder=hosted",
+                new StringContent("{\"elevation\":true}", Encoding.UTF8, "application/json"));
+            Assert.True(surface == HttpStatusCode.OK, $"Making it a surface answered {(int)surface}: {Encoding.UTF8.GetString(surfaceBody)}");
+            int serviceWkid = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"{service}?f=json")).Body)
+                .RootElement.GetProperty("spatialReference").GetProperty("wkid").GetInt32();
+            string comma = serviceWkid is 3857 or 102100
+                ? FormattableString.Invariant($"{mx},{my}")
+                : FormattableString.Invariant($"{lon},{lat}");
+            string byIdentify = Encoding.UTF8.GetString((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/identify?geometry={comma}&geometryType=esriGeometryPoint&f=json")).Body);
+            JsonElement bySamples = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get,
+                $"{service}/getSamples?geometry={comma}&geometryType=esriGeometryPoint&f=json")).Body).RootElement;
+            Assert.Contains("800", byIdentify, StringComparison.Ordinal);
+            Assert.True(bySamples.TryGetProperty("samples", out JsonElement commaSamples), bySamples.GetRawText());
+            Assert.StartsWith("800", commaSamples[0].GetProperty("value").GetString(), StringComparison.Ordinal);
+
+            // And back, for the steps below, which read the service in the file's reference.
+            await SendAsync(root, token!, HttpMethod.Put, $"/admin/coverages/{name}/elevation?folder=hosted",
+                new StringContent("{\"elevation\":false}", Encoding.UTF8, "application/json"));
+
             // ADR-127: the values themselves, as a float GeoTIFF — in the image's own reference and warped into Web
             // Mercator — whatever the style; every value one the model holds.
             foreach (string box in new[]

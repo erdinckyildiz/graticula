@@ -231,4 +231,19 @@ public sealed class IgnoredParameterTests : ArcGisClient
 
         Assert.Equal(HttpStatusCode.OK, carried);
     }
+
+    /// <summary>
+    /// <c>"callback"</c> is ignored by the query and changes the answer on purpose: it is the same answer, byte for
+    /// byte, inside the function it names (JSONP, V-85). Not in the table above, whose claim is "unchanged".
+    /// </summary>
+    [Fact]
+    public async Task Callback_is_ignored_by_the_query_and_wraps_its_answer_unchanged()
+    {
+        (HttpStatusCode plainStatus, string plain) = await QueryAsync(Baseline);
+        (HttpStatusCode wrappedStatus, string wrapped) = await QueryAsync($"{Baseline}&callback=cb");
+
+        Assert.Equal(HttpStatusCode.OK, plainStatus);
+        Assert.Equal(HttpStatusCode.OK, wrappedStatus);
+        Assert.Equal($"/**/cb({plain});", wrapped);
+    }
 }

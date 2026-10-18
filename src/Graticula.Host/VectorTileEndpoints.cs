@@ -373,6 +373,11 @@ internal static class VectorTileEndpoints
                 document, service.Limits.Export.MaximumOf(settings.TileExportMaximumTiles));
         }
 
+        // The portal item this face is, as ArcGIS's service documents name it (ServiceItem). The route's only: an
+        // exported package carries the document unchanged (ADR-098 §5.2), and its item is another portal's.
+        string serviceItemId = PortalEndpoints.ItemIdOf(service, "VectorTileServer");
+        document = ServiceItem.Apply(context, document, serviceItemId);
+
         // <b>A page, as every other face has — 2026-10-10.</b> This face answered JSON to a browser that asked for a
         // page, so the services directory's VectorTileServer link opened the raw document while the FeatureServer and
         // MapServer links beside it opened a page with a way to look at the map. The owner clicked it on the
@@ -393,7 +398,8 @@ internal static class VectorTileEndpoints
                         ("ArcGIS SDK", $"/studio/map.html?face=vectortileserver&service={named}"),
                         ("Style", $"{path}/resources/styles/root.json"),
                     ],
-                    linksLabel: "View in"),
+                    linksLabel: "View in",
+                    serviceItemId: serviceItemId),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

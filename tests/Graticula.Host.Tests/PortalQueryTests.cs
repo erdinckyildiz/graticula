@@ -222,4 +222,20 @@ public sealed class PortalQueryTests
         Assert.True(PortalQuery.Matches(map, "Map"));
         Assert.True(PortalQuery.Matches(Item(), "hosted"));
     }
+
+    /// <summary>A bare word matches the start of a word, not anywhere inside one — 2026-10-18, q=tur.</summary>
+    [Theory]
+    [InlineData("tur", "tur_admin_public", "Feature Service", true)]
+    [InlineData("tur", "Turkey borders", "Feature Service", true)]
+    [InlineData("tur", "deneme", "Feature Service", false)]
+    [InlineData("ist", "istanbul_roads", "Feature Service", true)]
+    [InlineData("anbul", "istanbul_roads", "Feature Service", false)]
+    [InlineData("Map", "anything", "Web Map", true)]
+    [InlineData("eature", "anything", "Feature Service", false)]
+    public void A_bare_word_begins_a_word_of_the_field(string query, string title, string type, bool expected)
+    {
+        object item = new { title, type, snippet = "Buildings and their features", owner = "root" };
+
+        Assert.Equal(expected, PortalQuery.Matches(item, query));
+    }
 }

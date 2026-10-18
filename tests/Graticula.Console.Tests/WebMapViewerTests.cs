@@ -160,8 +160,11 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             Assert.True(failures.Length == 0, "webmap.html threw:\n  " + string.Join("\n  ", failures));
 
-            // Moving a layer is an edit to the map, not a write to the server.
-            Assert.Empty(await WritesAsync());
+            // Moving a layer is an edit to the map, not a write to the server. The picture a map without one is
+            // given when somebody who may change it opens it (ADR-196's fallback, 2026-10-18) is the opening's, not
+            // the move's, and lands whenever the capture finishes — two runs in three caught it here.
+            Assert.DoesNotContain(await WritesAsync(),
+                w => !(w.StartsWith("PUT", StringComparison.Ordinal) && w.Contains("/thumbnail", StringComparison.Ordinal)));
         }
         finally
         {

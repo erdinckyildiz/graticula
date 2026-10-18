@@ -1241,6 +1241,15 @@ internal static partial class AdminEndpoints
             items.Add(new
             {
                 name = service.QualifiedName,
+
+                // <b>The portal's item id — ADR-196.</b> Studio's item page is addressed by it, as Portal's
+                // `item.html?id=` is, so a link survives a rename or a move between folders. An image service's
+                // item is its coverage's, which this listing does not hold; it keeps its service address.
+                itemId = string.Equals(service.Kind, "ImageServer", StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : PortalEndpoints.ItemIdOf(service,
+                        string.Equals(service.Kind, "VectorTileServer", StringComparison.OrdinalIgnoreCase)
+                            ? "VectorTileServer" : "FeatureServer"),
                 bare = service.Name,
                 folder = service.Folder,
                 kind = service.Kind,

@@ -189,7 +189,7 @@ public sealed class ScreenReviewTests : ConsoleTest
             """), "Studio's content list has no feature service to open.");
 
         await WaitForAsync(
-            "(window.routeHash ? routeHash() : '').startsWith('#/service/') "
+            "['#/service/', '#/item/'].some(p => (window.routeHash ? routeHash() : '').startsWith(p)) "
             + "&& " + Shown("#serviceOverview"),
             "A content row did not open the service's own page on Overview. §5k: the row opens the "
             + "item, and the item lists its layers.");

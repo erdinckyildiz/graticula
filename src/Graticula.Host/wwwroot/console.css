@@ -5418,3 +5418,18 @@ dialog.formdialog .picker label { margin-top: 6px; }
 dialog.formdialog select, dialog.formdialog textarea { font: inherit; }
 #memberDialog #memberPages { border: 0; padding: 0; }
 #domainEditDialog .valuesedit { border: 0; padding: 0; margin: 0; background: none; }
+
+/* Studio's search (ADR-196): a box at the end of the bar, and the results page. */
+header:has(#utilbar) {
+  grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "util util util" "brand tabs search";
+}
+header #globalSearch { grid-area: search; display: flex; align-items: center; margin: 0; }
+header #globalSearch[hidden] { display: none; }
+#globalSearch input { width: 280px; max-width: 28vw; }
+@media (max-width: 760px) {
+  header:has(#utilbar) { grid-template-areas: "util util util" "brand brand search" "tabs tabs tabs"; }
+}
+#view-search .toolbar input[type=search] { flex: 0 1 480px; }
+#view-search code.itemid { font-size: 12px; user-select: all; }
+@media (max-width: 760px) { #globalSearch input { width: 150px; max-width: 40vw; } }
+#svcFacts code.itemid { font-size: 12px; user-select: all; }

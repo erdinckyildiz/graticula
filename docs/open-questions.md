@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-178 | **Without `num`, should a portal listing answer every result or ArcGIS's ten?** Opened 2026-10-17 overnight ([ADR-195](adr/ADR-195-jsonp-and-paged-portal-listings.md) §5.3, `INFERRED`). Search, groups, a group's content and a folder's content now honour `start`, `num` (≤ 100) and `sortField`; without `num` they still answer everything, because this server's own callers and twenty-one conformance searches send none. Every paging client — Pro, the Maps SDK, the Python API — sends `num`, so ten would change only the callers that send nothing. | Owner | Recommendation: keep *every result* until a deployment's listings are slow; then ten, and the callers fixed. |
 
 ## Answered
 

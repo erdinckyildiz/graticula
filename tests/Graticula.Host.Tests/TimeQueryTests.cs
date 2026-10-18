@@ -8,11 +8,11 @@ using Xunit;
 namespace Graticula.Host.Tests;
 
 /// <summary>
-/// <c>time</c> on a query filters on the layer's time field, and is refused on a layer without one.
+/// <c>time</c> on a query filters on the layer's time field, and is ignored on a layer without one.
 /// </summary>
 /// <remarks>
 /// Written 2026-09-15: <c>time</c> was refused on every layer, though a time field could be declared
-/// and WMS already used it.
+/// and WMS already used it. Ignored rather than refused on a layer without a time field since 2026-10-17 (V-84).
 /// </remarks>
 public sealed class TimeQueryTests
 {
@@ -66,7 +66,18 @@ public sealed class TimeQueryTests
     }
 
     [Theory]
-    [InlineData(null, "1735689600000", "no time field")]
+    [InlineData("1735689600000")]
+    [InlineData("1735689600000,1767225600000")]
+    [InlineData("yesterday")]
+    public void On_a_layer_without_a_time_field_time_is_ignored_as_ArcGIS_ignores_it(string time)
+    {
+        Assert.True(Parse(null, out FeatureQuery? query, out string? error, ("time", time)), error);
+        Assert.True(Parse(null, out FeatureQuery? without, out _));
+
+        Assert.Equal(without!.Where?.Sql, query!.Where?.Sql);
+    }
+
+    [Theory]
     [InlineData("observed_at", "yesterday", "epoch milliseconds")]
     [InlineData("observed_at", "1767225600000,1735689600000", "starts after it ends")]
     [InlineData("observed_at", "1,2,3", "one instant")]

@@ -620,6 +620,13 @@ internal sealed class Authentication
             return null;
         }
 
+        // <b>Nor for JSONP</b>: a script request carries no Origin, so the line above cannot see where it came from
+        // (Jsonp, V-85).
+        if (Jsonp.Asked(context.Request))
+        {
+            return null;
+        }
+
         return context.Request.Cookies.TryGetValue(SessionCookie, out string? token)
             && token.Length > 0
                 ? token

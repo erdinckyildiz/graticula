@@ -445,9 +445,35 @@ internal static class PortalQuery
         return false;
     }
 
-    private static bool Contains(object? actual, string wanted) =>
-        actual is not null
-        && actual.ToString()?.Contains(wanted, StringComparison.OrdinalIgnoreCase) == true;
+    /// <summary>
+    /// Whether <paramref name="wanted"/> begins a word of <paramref name="actual"/> — a word being a run of letters and
+    /// digits, so <c>_</c> and spaces both part them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not anywhere inside one — 2026-10-18.</b> <c>q=tur</c> answered 44 items, most because their type is
+    /// <i>Feature</i> Service and their summary says <i>features</i>: a substring was matched (found by the session
+    /// building Studio's search). ArcGIS's search matches whole words; the start of a word is a little wider, on
+    /// purpose, because a person types the beginning of the word they mean — <c>kontrol</c>, <c>ist</c> for istanbul.
+    /// </remarks>
+    private static bool Contains(object? actual, string wanted)
+    {
+        if (actual?.ToString() is not { Length: > 0 } text || wanted.Length == 0)
+        {
+            return false;
+        }
+
+        for (int at = text.IndexOf(wanted, StringComparison.OrdinalIgnoreCase);
+             at >= 0;
+             at = text.IndexOf(wanted, at + 1, StringComparison.OrdinalIgnoreCase))
+        {
+            if (at == 0 || !char.IsLetterOrDigit(text[at - 1]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool ContainsAny(object? actual, string wanted, bool prefix) =>
         actual is IEnumerable<string> values && values.Any(value => Same(value, wanted, prefix));

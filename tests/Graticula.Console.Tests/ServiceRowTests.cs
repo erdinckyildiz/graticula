@@ -146,7 +146,7 @@ public sealed class ServiceRowTests : ConsoleTest
         await ClickAsync("tr[data-service] td.svcbody");
 
         await WaitForAsync(
-            "(window.routeHash ? routeHash() : '').startsWith('#/service/')",
+            "['#/service/', '#/item/'].some(p => (window.routeHash ? routeHash() : '').startsWith(p))",
             "Clicking a service row did not open the service.");
     }
 }

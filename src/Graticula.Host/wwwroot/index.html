@@ -125,6 +125,15 @@
       -->
       <nav id="tabs" aria-label="Sections"></nav>
       <!--
+        <b>One search for all of Studio, in the bar — ADR-196, owner 2026-10-18:</b> *"Arcgis'te de olduğu gibi bir genel
+        sorgu. Itemid ile de sorgulama imkanı. Her bir sayfadaki değil, genel bir sorgu."* Content, groups and members by
+        their words; an item's id opens the item.
+      -->
+      <form id="globalSearch" role="search" hidden>
+        <input type="search" id="gq" placeholder="Search Studio, or paste an item id" aria-label="Search Studio"
+          autocomplete="off" spellcheck="false">
+      </form>
+      <!--
         <b>The reader's own controls are a thin line above the bar, as Server Manager keeps them</b> (owner,
         2026-10-16: the bar was *"sıkış tıkış"*, and Server Manager's *"çok daha basit"*): the switch to the other
         surface, the server's health, who is signed in, the theme and Sign out. The bar below holds the product
@@ -1825,6 +1834,23 @@
     <div class="dialogbody" id="catDialogBody"></div>
     <footer class="dialogfoot" id="catDialogFoot"></footer>
   </dialog>
+
+  <!-- Studio's search results — ADR-196. `/studio/search?q=…`. -->
+  <section class="view" id="view-search">
+    <div class="pagehead">
+      <div>
+        <h2 id="searchTitle" tabindex="-1">Search</h2>
+        <p>Everything in Studio you can see: content by its title, tags, description, owner or item id; groups; and,
+          for whoever manages members, members.</p>
+      </div>
+    </div>
+    <div class="toolbar">
+      <input type="search" id="searchQ" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false">
+      <span class="val" id="searchCount" aria-live="polite"></span>
+    </div>
+    <nav class="tabstrip" id="searchTabs" aria-label="What was found"></nav>
+    <div class="panel widetable"><table><tbody id="searchRows"></tbody></table></div>
+  </section>
 
   <section class="view" id="view-service">
     <div id="editHead">

@@ -64,7 +64,7 @@ internal static partial class PortalEndpoints
     /// <summary>Portal's user item: the item, and who it is shared with.</summary>
     private static async Task<IResult> UserItemAsync(
         HttpContext context, CatalogFallback catalog, ServiceContexts contexts, Graticula.Geometries.IProjector projector,
-        IAdminCatalog admin, string username, string id, CancellationToken cancellation)
+        IAdminCatalog admin, IWebMapStore maps, string username, string id, CancellationToken cancellation)
     {
         if (Self(context, username) is null)
         {
@@ -95,6 +95,21 @@ internal static partial class PortalEndpoints
                 {
                     access = Access(service.Sharing),
                     groups = service.SharedWith.Select(g => g.ToString("N")).ToArray(),
+                },
+            });
+        }
+
+        // A web map — one Pro added with Share As Web Map, which it reads back here — when it is the user's.
+        if (WebMaps.IsId(id) && await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map
+            && Self(context, username) is { } owner && map.Owner == owner.Principal.Id)
+        {
+            return Results.Ok(new
+            {
+                item = MapItem(context, map),
+                sharing = new
+                {
+                    access = Access(map.Sharing),
+                    groups = (map.SharedWith ?? []).Select(g => g.ToString("N")).ToArray(),
                 },
             });
         }
@@ -144,7 +159,7 @@ internal static partial class PortalEndpoints
 
     /// <summary>Portal's item <c>share</c>: one item, to everyone, the organization and/or groups.</summary>
     private static async Task<IResult> ShareItemAsync(
-        HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, string username, string id,
+        HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, IWebMapStore maps, string username, string id,
         CancellationToken cancellation)
     {
         if (Self(context, username) is not { } current)
@@ -155,7 +170,7 @@ internal static partial class PortalEndpoints
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
         await RecordFormAsync(context, form, cancellation).ConfigureAwait(false);
         (bool ok, List<string> notShared, string? error) = await ShareOneAsync(
-            context, current, catalog, groups, id, form, cancellation).ConfigureAwait(false);
+            context, current, catalog, groups, maps, id, form, cancellation).ConfigureAwait(false);
 
         return ok
             ? Results.Ok(new { notSharedWith = notShared, itemId = id })
@@ -164,7 +179,8 @@ internal static partial class PortalEndpoints
 
     /// <summary>Portal's <c>shareItems</c>: several items, the same way.</summary>
     private static async Task<IResult> ShareItemsAsync(
-        HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, string username, CancellationToken cancellation)
+        HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, IWebMapStore maps, string username,
+        CancellationToken cancellation)
     {
         if (Self(context, username) is not { } current)
         {
@@ -178,7 +194,7 @@ internal static partial class PortalEndpoints
         foreach (string id in First(form, context, "items").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             (bool ok, List<string> notShared, string? error) = await ShareOneAsync(
-                context, current, catalog, groups, id, form, cancellation).ConfigureAwait(false);
+                context, current, catalog, groups, maps, id, form, cancellation).ConfigureAwait(false);
 
             results.Add(ok
                 ? new { itemId = id, success = true, notSharedWith = notShared }
@@ -190,8 +206,8 @@ internal static partial class PortalEndpoints
 
     /// <summary>Sets one service's scope and groups from a share form; says which groups it could not reach.</summary>
     private static async Task<(bool Ok, List<string> NotShared, string? Error)> ShareOneAsync(
-        HttpContext context, RequestPrincipal current, IAdminCatalog catalog, IGroupDirectory groups, string id,
-        IFormCollection form, CancellationToken cancellation)
+        HttpContext context, RequestPrincipal current, IAdminCatalog catalog, IGroupDirectory groups, IWebMapStore maps,
+        string id, IFormCollection form, CancellationToken cancellation)
     {
         string serviceItem = Staged.Values.FirstOrDefault(s => s.Owner == current.Principal.Id
             && string.Equals(s.Id, id, StringComparison.OrdinalIgnoreCase))?.ServiceItemId ?? id;
@@ -200,11 +216,6 @@ internal static partial class PortalEndpoints
             ? (await catalog.ListServicesAsync(cancellation).ConfigureAwait(false))
                 .Where(s => s.Id == serviceId).Select(s => (AdminService?)s).FirstOrDefault()
             : null;
-
-        if (service is not { } found)
-        {
-            return (false, [], $"No item '{id}' that this portal can share.");
-        }
 
         bool everyone = string.Equals(First(form, context, "everyone"), "true", StringComparison.OrdinalIgnoreCase);
         // Pro says the organization as `account` (measured, dev 2026-10-17); the portal API documents `org`.
@@ -220,6 +231,13 @@ internal static partial class PortalEndpoints
             : organization ? SharingScope.Organization
             : groupIds.Length > 0 ? SharingScope.Group
             : SharingScope.Private;
+
+        if (service is not { } found)
+        {
+            // A web map Pro added after its layers (Share As Web Map) is shared by the same form.
+            return await ShareMapAsync(current, maps, groups, id, scope, groupIds, cancellation).ConfigureAwait(false)
+                ?? (false, [], $"No item '{id}' that this portal can share.");
+        }
 
         Privilege needed = scope switch
         {

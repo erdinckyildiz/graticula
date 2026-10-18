@@ -267,14 +267,21 @@ internal static partial class ImageServerEndpoints
             // The comma form a browser address bar sends for a point: x,y.
             string[] parts = text.Split(',');
 
+            // <b>Read in the same reference as the JSON form</b> — `sr`, or the service's — rather than the file's own: the
+            // veteran review of 2026-10-17 (V-87) sent 29,41 to identify and to getSamples of one elevation service and
+            // got two places, NoData from one and a height from the other.
             if (parts.Length == 2
                 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out double px)
                 && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double py))
             {
-                return (new Point(px, py), null);
+                using JsonDocument point = JsonDocument.Parse(string.Create(
+                    CultureInfo.InvariantCulture, $"{{\"x\":{px:R},\"y\":{py:R}}}"));
+                json = point.RootElement.Clone();
             }
-
-            return (null, "`geometry` is not JSON, nor a point written x,y.");
+            else
+            {
+                return (null, "`geometry` is not JSON, nor a point written x,y.");
+            }
         }
 
         if (json.ValueKind != JsonValueKind.Object)

@@ -71,10 +71,11 @@ internal static partial class PortalEndpoints
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
 
         // Pro's last act after a publish sets the service item's typeKeywords; this server derives those from the
-        // service (PortalEndpoints.Keywords), so the answer is success with nothing stored.
-        app.MapPost($"{Path}/content/users/{{username}}/items/{{id}}/update", (string id) => Results.Ok(new { success = true, id }))
+        // service (PortalEndpoints.Keywords), so for a service the answer is success with nothing stored. A web map Pro
+        // added is updated for real — its picture above all (UpdateUserItemAsync, 2026-10-18).
+        app.MapPost($"{Path}/content/users/{{username}}/items/{{id}}/update", UpdateUserItemAsync)
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
-        app.MapPost($"{Path}/content/users/{{username}}/{{folderId:length(32)}}/items/{{id}}/update", (string id) => Results.Ok(new { success = true, id }))
+        app.MapPost($"{Path}/content/users/{{username}}/{{folderId:length(32)}}/items/{{id}}/update", UpdateUserItemAsync)
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
 
         if (!RecordingPro(app.Configuration))

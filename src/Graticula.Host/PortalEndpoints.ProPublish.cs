@@ -139,22 +139,29 @@ internal static partial class PortalEndpoints
             ? current
             : null;
 
-    /// <summary>Portal's <c>addItem</c>, for a service definition only.</summary>
+    /// <summary>Portal's <c>addItem</c>: a service definition to publish, or the web map Pro shares after it.</summary>
     private static async Task<IResult> AddDefinitionAsync(
-        HttpContext context, ImportScratch scratch, string username, CancellationToken cancellation)
+        HttpContext context, ImportScratch scratch, IWebMapStore maps, IContentFolderStore folders, IAuditLog audit,
+        string username, CancellationToken cancellation)
     {
+        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        string type = First(form, context, "type");
+
+        // Share As Web Map: the layers first, then this (PortalEndpoints.ProWebMap).
+        if (string.Equals(type, "Web Map", StringComparison.OrdinalIgnoreCase))
+        {
+            return await AddWebMapAsync(context, form, username, maps, folders, audit, cancellation).ConfigureAwait(false);
+        }
+
         if (Publisher(context, username) is not { } current)
         {
             return PortalError(403, "Publishing needs the privilege to publish features.");
         }
 
-        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
-        string type = First(form, context, "type");
-
         if (!string.Equals(type, "Service Definition", StringComparison.OrdinalIgnoreCase))
         {
             return PortalError(400,
-                $"Only a service definition is added from Pro here, to publish a hosted feature layer (ADR-191); '{type}' is not.");
+                $"A service definition or a web map is added from Pro here (ADR-191); '{type}' is neither.");
         }
 
         string id = Guid.NewGuid().ToString("N");

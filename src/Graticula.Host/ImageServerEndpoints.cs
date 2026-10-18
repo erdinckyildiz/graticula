@@ -411,6 +411,8 @@ internal static partial class ImageServerEndpoints
 
             // ADR-182: the reference it describes itself in, which a request without one is read in (SurfaceFrameAsync).
             spatialReference = new { wkid = statedSrid, latestWkid = statedSrid },
+            // The portal item this service is, as ArcGIS's service documents name it (ServiceItem, 2026-10-18).
+            serviceItemId = PortalEndpoints.CoverageItemId(coverage),
             // ADR-148: Download when its owner offers the file to everyone it is shared with.
             // ADR-152: Edit when its images can be added and removed — an upload's, not files registered in place.
             capabilities = Capabilities + (coverage.Download ? ",Download" : "")
@@ -609,7 +611,8 @@ internal static partial class ImageServerEndpoints
                             + $"&bboxSR={info.Srid.ToString(CultureInfo.InvariantCulture)}"
                             + "&size=800,600&format=png&f=image"),
                     ],
-                    linksLabel: "View in"),
+                    linksLabel: "View in",
+                    serviceItemId: PortalEndpoints.CoverageItemId(coverage)),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

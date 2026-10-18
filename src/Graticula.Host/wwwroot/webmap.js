@@ -3353,6 +3353,7 @@ function wmAdopt(saved) {
     mine: saved.mine,
     modified: saved.modified,
     savedSharing: saved.sharing,
+    thumbnail: saved.thumbnail || null,
   };
 }
 
@@ -3483,6 +3484,15 @@ async function wmStart() {
       wmAdopt(saved);
       wmDrawSaved();
       await wmOpen(saved.document);
+
+      // <b>A map with no picture gets one the first time somebody who may change it opens it</b> (owner, 2026-10-18:
+      // a map published from Pro said "Saved" here while its item page said to save it for a picture, and Save had
+      // nothing to save). The view it opens on is the one it was saved with, so that is the picture.
+      if (wmState.meta.manages && !wmState.meta.thumbnail) {
+        wmSendThumbnail(saved.id).then(said => {
+          if (said === "taken") wmState.meta.thumbnail = true;
+        });
+      }
     } catch (e) {
       wmState.doc = wmEmptyDocument();
       wmDrawSaved();

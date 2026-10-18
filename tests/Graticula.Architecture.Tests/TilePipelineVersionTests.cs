@@ -218,7 +218,9 @@ public sealed class TilePipelineVersionTests
         // a tile are what they were.
         // <b>Moved again 2026-10-16 for D-46 instance 19, and the version did not move.</b> The service document, its
         // styles and `resources/info` answer POST as well as GET; the tile, font and sprite routes are untouched.
-        "422f967704d8197003710bda706a2fa19fac27c8bbb350d48ec82e84aaf6af9a";
+        // <b>Moved again 2026-10-18, and the version did not move.</b> The service document names its portal item
+        // (`serviceItemId`, ServiceItem) and its page links it; no tile byte, key or route changed.
+        "3659678c2f3abb852b76c85bc4a1354f59e69d641c7d70c68e6258e59ec38fab";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

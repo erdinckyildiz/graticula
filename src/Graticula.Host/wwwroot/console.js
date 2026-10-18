@@ -2253,6 +2253,7 @@ const SCREEN_SURFACE = {
   members: "studio",
   orgsettings: "studio",
   utilities: "studio",
+  search: "studio",
 
   // <b>Both were missing, and the failure was silent.</b> A screen absent from this table falls
   // through to the surface's home — so `/server/groups` landed an administrator on Services with
@@ -2409,6 +2410,7 @@ function route() {
   }
 
   drawSurfaces(surface);
+  $("globalSearch").hidden = surface !== "studio";
 
   if (rest[0] === "layer" && rest[1]) {
     const mine = pagesOf(surface);
@@ -2439,8 +2441,22 @@ function route() {
     return;
   }
 
-  // A web map's item page — `#/map/{id}`.
+  // <b>An item by its id — `#/item/{id}`, ADR-196</b>: the address Studio's item page has, as Portal's
+  // `item.html?id=` is. The id says which item; what kind it is decides which page draws it.
+  if (rest[0] === "item" && rest[1]) {
+    showItemById(rest[1]);
+    return;
+  }
+
+  // Studio's search — `#/search?q=…`, ADR-196.
+  if (rest[0] === "search") {
+    showSearch(hashQuery.get("q") || "");
+    return;
+  }
+
+  // A web map's item page — `#/map/{id}`, whose id is its item id: the address moves to `#/item/{id}`.
   if (rest[0] === "map" && rest[1]) {
+    if (surface === "studio") history.replaceState(null, "", pathOf(`#/item/${rest[1]}`));
     showWebMapItem(rest[1]);
     return;
   }
@@ -3755,6 +3771,43 @@ function inContentScope(item, scope) {
   return item.scope === scope;
 }
 
+/** Each listed service's portal item id, by qualified name — ADR-196; filled by every read of the content list. */
+const itemIds = new Map();
+
+/**
+ * Opens an item by its portal id — ADR-196. The portal's own item document says what it is: a web map opens its
+ * page; a service opens its item page, at this id's address; anything Studio has no page for says so.
+ */
+async function showItemById(id) {
+  let item;
+  try {
+    item = await api(`/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`);
+  } catch {
+    item = null;
+  }
+
+  if (!item || item.error || !item.type) {
+    toast(`No item ${id} that you can see. It may have been deleted, or not shared with you.`);
+    navigateTo("#/content", true);
+    return;
+  }
+
+  if (item.type === "Web Map") {
+    showWebMapItem(item.id);
+    return;
+  }
+
+  const service = /\/rest\/services\/(.+?)\/(FeatureServer|MapServer|VectorTileServer|ImageServer)(\/|$)/.exec(item.url || "");
+  if (service) {
+    itemIds.set(service[1], item.id);
+    showService(service[1]);
+    return;
+  }
+
+  toast(`${item.title || "This item"} is a ${item.type}, which Studio has no page for yet.`);
+  navigateTo("#/content", true);
+}
+
 /** Which scope the content screen is showing. */
 let contentScope = "all";
 
@@ -3842,6 +3895,7 @@ async function loadMyContent() {
       .map(e => [e.name, e]));
 
   contentAnswer = { answer, maps };
+  for (const i of answer.items || []) if (i.itemId) itemIds.set(i.name, i.itemId);
 
   const button = $("newMap");
 
@@ -4625,8 +4679,8 @@ function drawMapAbout(editing = false) {
         ${map.thumbnail
           ? `<img class="thumb mapitemthumb" data-thumb="${h(map.thumbnail)}" alt="Picture of ${h(map.title)}, taken when it was last saved">`
           : `<div class="thumb empty mapitemthumb" aria-hidden="true"></div>
-             <figcaption class="hint">No picture yet. Open the map in the Map Viewer and save it; the view you save
-               becomes its picture.</figcaption>`}
+             <figcaption class="hint">No picture yet. It is taken the first time the map is opened in the Map Viewer by
+               somebody who can change it, and again whenever it is saved there.</figcaption>`}
       </figure>
       <div>
         <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
@@ -5493,7 +5547,12 @@ function writeItemAddress() {
   if (serviceTab === "settings" && SERVICE_PAGE_OPEN) query.set("section", SERVICE_PAGE_OPEN);
   if (serviceTab === "data" && dataView !== "table") query.set("view", dataView);
 
-  const path = `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
+  // ADR-196: the item's id when it is known — its listing row carries it — and its service address until then.
+  const id = (serviceItem && serviceItem.name === serviceOpen.qualified && serviceItem.itemId)
+    || itemIds.get(serviceOpen.qualified);
+  const path = id
+    ? `#/item/${encodeURIComponent(id)}`
+    : `#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
   const next = query.toString() ? `${path}?${query}` : path;
 
   if (routeHash() !== next) history.replaceState(null, "", pathOf(next));
@@ -6227,6 +6286,8 @@ async function drawServiceDetails(qualified, knownKind) {
 
     const rows = [
       ["Type", h(itemTypeName(item.kind) + (item.isView ? " (view)" : ""))],
+      // ADR-196: the portal item's id, what Portal's item page and every ArcGIS client name it by.
+      ...(item.itemId ? [["Item ID", `<code class="itemid" title="Select to copy">${h(item.itemId)}</code>`]] : []),
       ["Owner", `${h(item.owner || "—")}${may("admin:manageAllContent")
         ? ` <button type="button" class="linkbtn" data-change-owner="service">Change owner…</button>` : ""}`],
       // ADR-114: two kinds of folder, and each named for what it is — the service's is in its address.
@@ -6274,6 +6335,11 @@ async function drawServiceDetails(qualified, knownKind) {
     }
 
     serviceItem = item;
+    // ADR-196: opened by its service address, the page moves to its item's once the row says the id.
+    if (item.itemId) {
+      itemIds.set(item.name, item.itemId);
+      writeItemAddress();
+    }
     drawServiceHead(item);
     if (item.isView || item.hasViews) drawViewLinks(item);
     if (item.scope === "mine" && item.contentFolder && !myFolders.some(f => f.id === item.contentFolder)) {
@@ -30897,8 +30963,23 @@ function pathLinks(node) {
   if (node.nodeType !== 1) return;
   const links = node.matches('a[href^="#/"]') ? [node] : [];
   for (const a of [...links, ...node.querySelectorAll('a[href^="#/"]')]) {
-    a.setAttribute("href", surfaceHref(surfaceOfPath(), a.getAttribute("href")));
+    a.setAttribute("href", surfaceHref(surfaceOfPath(), itemAddress(a.getAttribute("href"))));
   }
+}
+
+/**
+ * A Studio link to a service or a map, as its item's address — ADR-196. `#/service/hosted/x?tab=data` is
+ * `#/item/{id}?tab=data` when Studio knows the id, and stays itself when it does not; `#/map/{id}` is the item.
+ */
+function itemAddress(href) {
+  if (surfaceOfPath() !== "studio") return href;
+  const map = /^#\/map\/([^/?]+)(.*)$/.exec(href);
+  if (map) return `#/item/${map[1]}${map[2]}`;
+  const service = /^#\/service\/([^?]+)(\?.*)?$/.exec(href);
+  if (!service) return href;
+  const qualified = service[1].split("/").map(decodeURIComponent).join("/");
+  const id = itemIds.get(qualified);
+  return id ? `#/item/${encodeURIComponent(id)}${service[2] || ""}` : href;
 }
 pathLinks(document.body);
 new MutationObserver(records => {
@@ -30937,4 +31018,146 @@ document.addEventListener("click", event => {
   if (!to) return;
   event.preventDefault();
   navigateTo(to);
+});
+
+/* ------------------------------------------------------------------ Studio's search — ADR-196 */
+
+/** An item id as Portal writes it: 32 hexadecimal characters, alone or after `id:`. */
+const ITEM_ID = /^(?:id:)?([0-9a-f]{32})$/i;
+
+/** What the search page last read, so typing narrows it without asking again. */
+let searchRead = null;
+
+/** Which list the results show: content, groups or members. */
+let searchTab = "content";
+
+/** The bar's box: an id opens its item; words open the results. */
+document.addEventListener("submit", event => {
+  if (event.target.id !== "globalSearch") return;
+  event.preventDefault();
+  const q = $("gq").value.trim();
+  if (!q) return;
+  const id = ITEM_ID.exec(q);
+  navigateTo(id ? `#/item/${id[1].toLowerCase()}` : `#/search?q=${encodeURIComponent(q)}`);
+  $("gq").blur();
+});
+
+/** Everything the search looks through, read once a visit to the page and kept while the reader types. */
+async function readSearchable() {
+  const [items, maps, groups] = await Promise.all([
+    api("/content/items").catch(() => ({})),
+    api("/content/webmaps").catch(() => ({})),
+    api("/admin/groups").catch(() => ({})),
+  ]);
+  const content = [
+    ...(items.items || []).map(i => ({
+      id: i.itemId || "", title: i.bare || i.name, kind: itemTypeName(i.kind), owner: i.owner || "",
+      sharing: i.sharing, words: [i.name, i.description, ...(i.tags || [])].join(" "),
+      href: i.itemId ? `#/item/${i.itemId}` : `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`,
+    })),
+    ...(maps.webMaps || []).map(m => ({
+      id: m.id, title: m.title || m.id, kind: "Web map", owner: m.owner || "", sharing: m.sharing,
+      words: [m.snippet, m.description, ...(m.tags || [])].join(" "), href: `#/item/${m.id}`,
+    })),
+  ];
+  return { content, groups: groups.groups || [] };
+}
+
+/** Whether every word asked for is somewhere in what a thing says about itself. */
+function matchesAll(words, ...about) {
+  const hay = about.join(" ").toLowerCase();
+  return words.every(w => hay.includes(w));
+}
+
+async function showSearch(q) {
+  showView("view-search", "");
+  $("gq").value = q;
+  $("searchQ").value = q;
+  $("searchRows").innerHTML = `<tr><td class="empty">Searching…</td></tr>`;
+  searchRead = await readSearchable();
+  await drawSearch();
+  $("searchQ").focus();
+}
+
+async function drawSearch() {
+  const q = $("searchQ").value.trim();
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const id = ITEM_ID.exec(q)?.[1]?.toLowerCase();
+
+  const content = !q ? [] : searchRead.content.filter(c =>
+    id ? c.id === id : matchesAll(words, c.title, c.kind, c.owner, c.id, c.words));
+  const groups = !q || id ? [] : searchRead.groups.filter(g =>
+    matchesAll(words, g.name, g.title || "", g.description || "", g.owner || ""));
+
+  let members = [];
+  if (q && !id && may("admin:manageMembers")) {
+    try {
+      members = ((await api(`/admin/members?num=50&q=${encodeURIComponent(q)}`)) || {}).members || [];
+    } catch { members = []; }
+  }
+
+  // The address keeps the question, so a reload or a copied link asks it again.
+  const next = q ? `#/search?q=${encodeURIComponent(q)}` : "#/search";
+  if (routeHash() !== next) history.replaceState(null, "", pathOf(next));
+
+  const tabs = [["content", "Content", content.length], ["groups", "Groups", groups.length]];
+  if (may("admin:manageMembers")) tabs.push(["members", "Members", members.length]);
+  if (!tabs.some(([key]) => key === searchTab)) searchTab = "content";
+  // Where nothing was found in the open list and something was in another, the other is opened.
+  if (q && !tabs.find(([key]) => key === searchTab)[2]) searchTab = (tabs.find(t => t[2]) || tabs[0])[0];
+
+  $("searchTabs").innerHTML = tabs.map(([key, label, n]) =>
+    `<a href="#/search?q=${encodeURIComponent(q)}" data-search-tab="${key}"${key === searchTab ? ' aria-current="page"' : ""}>${label}
+      <span class="count">${num(n)}</span></a>`).join("");
+
+  const total = content.length + groups.length + members.length;
+  $("searchCount").textContent = !q ? "" : `${num(total)} found`;
+
+  const empty = text => `<tr><td class="empty">${text}</td></tr>`;
+  if (!q) { $("searchRows").innerHTML = empty("Type what you are looking for: a title, a tag, an owner, or an item id."); return; }
+
+  if (searchTab === "content") {
+    $("searchRows").innerHTML = content.map(c => `<tr>
+      <td class="name"><a href="${h(c.href)}">${h(c.title)}</a>
+        <span class="val" style="display:block">${h(c.kind)}${c.owner ? ` · ${h(c.owner)}` : ""}</span></td>
+      <td>${c.sharing ? pill(c.sharing) : ""}</td>
+      <td class="val">${c.id ? `<code class="itemid" title="Item id">${h(c.id)}</code>` : ""}</td>
+    </tr>`).join("") || empty(id ? `No item ${h(id)} that you can see.` : "No content matches.");
+  } else if (searchTab === "groups") {
+    $("searchRows").innerHTML = groups.map(g => `<tr>
+      <td class="name"><a href="#/group/${encodeURIComponent(g.name)}">${h(g.title || g.name)}</a>
+        <span class="val" style="display:block">${h(g.name)}${g.owner ? ` · ${h(g.owner)}` : ""}</span></td>
+      <td colspan="2" class="val">${h(g.description || "")}</td>
+    </tr>`).join("") || empty("No group matches.");
+  } else {
+    $("searchRows").innerHTML = members.map(m => `<tr>
+      <td class="name"><a href="#/user/${encodeURIComponent(m.name)}">${h(m.displayName || m.name)}</a>
+        <span class="val" style="display:block">${h(m.name)}${m.email ? ` · ${h(m.email)}` : ""}</span></td>
+      <td colspan="2" class="val">${h((m.roles || []).join(", "))}</td>
+    </tr>`).join("") || empty("No member matches.");
+  }
+}
+
+let searchTyping = null;
+
+document.addEventListener("input", event => {
+  if (event.target.id !== "searchQ" || !searchRead) return;
+  clearTimeout(searchTyping);
+  searchTyping = setTimeout(drawSearch, 250);
+});
+
+document.addEventListener("click", event => {
+  const tab = event.target.closest?.("[data-search-tab]");
+  if (!tab) return;
+  event.preventDefault();
+  searchTab = tab.dataset.searchTab;
+  drawSearch();
+});
+
+document.addEventListener("keydown", event => {
+  // An id pasted into the page's own box opens the item, as it does in the bar.
+  if (event.key === "Enter" && event.target.id === "searchQ") {
+    const id = ITEM_ID.exec(event.target.value.trim());
+    if (id) navigateTo(`#/item/${id[1].toLowerCase()}`);
+  }
 });

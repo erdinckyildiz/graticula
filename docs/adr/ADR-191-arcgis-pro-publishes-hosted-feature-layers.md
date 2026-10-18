@@ -122,10 +122,19 @@ No implementation has been measured yet; §6's conditions carry what must be.
    (`featureserveritemdata.json`) is not read yet.
 8. **Publishing from Pro is on by default** — owner decision 2026-10-17, *"bence bunu main'e artık geçirebiliriz"*.
    `Graticula:PublishFromPro` (default `true`) carries the portal's `/studio` and `/portal` addresses, the Enterprise
-   version pair, the hosting server under `/arcgis`, the publish and share routes and the privileges; a deployment
+   version pair, ~~the hosting server under `/arcgis`~~ the hosting server's admin API under `/arcgis/admin` *(the rest
+   of `/arcgis`, and `/server/rest`, answer always since 2026-10-17 —
+   [ADR-194](ADR-194-an-arcgis-shop-s-addresses-answer.md))*, the publish and share routes and the privileges; a deployment
    sets it to `false` to keep the read-only portal of ADR-040 §5, with its old version pair. Recording Pro's calls —
    the wire log, the unknown-call recorder and the share forms — stays on `Graticula:ProPublishCapture`, which only
    dev.graticula.com sets: it is a measuring tool, and it once wrote a sign-in's password in clear.
+9. **Share As Web Map keeps the map** — 2026-10-17, from Pro's own `SharingJobLog.log` read by another session: the
+   layers published, then *"Failed to add web item"*, because `addItem` took only a service definition. A
+   `type=Web Map` `addItem` now stores its `text` as a Studio web map (ADR-079) — the caller's, private, with its
+   title, snippet, tags, description and PNG thumbnail, in the folder of the path when it is the caller's — and
+   answers `{success, id, folder}`; `share`/`shareItems` reach a map as they reach a service, and the user's item route
+   reads it back. Adding a web map needs `content:create`, not the publishing privilege. **Not yet driven through Pro's
+   UI**: measured by `ShareAsWebMapTests` against the wire shape the trace recorded.
 
 ## 6. Consequences
 

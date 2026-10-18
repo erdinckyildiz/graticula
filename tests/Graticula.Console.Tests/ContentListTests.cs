@@ -48,7 +48,7 @@ public sealed class ContentListTests : ConsoleTest
             "(() => { const all = [...(contentAnswer.answer.items || []), ...((contentAnswer.maps.webMaps || []).map(mapAsItem))];"
             + " return [...document.querySelectorAll('#contentRows td.name a')].map(a => {"
             + "   const href = a.getAttribute('href') || '';"
-            + "   const hit = all.find(i => i.map ? href.includes(i.map.id) : href.endsWith('/service/' + i.name.split('/').map(encodeURIComponent).join('/')));"
+            + "   const hit = all.find(i => i.map ? href.includes(i.map.id) : (i.itemId && href.includes(i.itemId)) || href.endsWith('/service/' + i.name.split('/').map(encodeURIComponent).join('/')));"
             + "   return hit ? String(hit.updated || '') : '?'; }); })()")
             ?? [];
 

@@ -169,6 +169,10 @@ internal static class MapServerEndpoints
             service.CopyrightText,
             GroupsOf(service));
 
+        // The portal item this face is, as ArcGIS's service documents name it (ServiceItem).
+        string serviceItemId = PortalEndpoints.ItemIdOf(service, "MapServer");
+        document = ServiceItem.Apply(context, document, serviceItemId);
+
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
             string path = context.Request.Path;
@@ -207,7 +211,8 @@ internal static class MapServerEndpoints
                         ("Legend", $"{path}/legend?f=json"),
                     ],
                     linksLabel: "View in",
-                    formats: [WmsEndpoints.DirectoryLink(null, null, 0)]),
+                    formats: [WmsEndpoints.DirectoryLink(null, null, 0)],
+                    serviceItemId: serviceItemId),
                 "text/html; charset=utf-8")
                 .ExecuteAsync(context).ConfigureAwait(false);
 

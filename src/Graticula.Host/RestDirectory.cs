@@ -405,6 +405,7 @@ internal static class RestDirectory
     /// Other representations of this same resource, offered beside <c>JSON</c> on
     /// the format line — a WFS document for a feature service, for instance.
     /// </param>
+    /// <param name="serviceItemId">The service's portal item, linked to Studio's item page; null for none.</param>
     /// <returns>An HTML document.</returns>
     /// <remarks>
     /// <b>Rendered by walking the serialised JSON</b>, rather than by a template
@@ -418,7 +419,8 @@ internal static class RestDirectory
         IEnumerable<(string Label, string Href)>? links = null,
         string linksLabel = "View in",
         IEnumerable<(string Label, string Href, int Depth)>? tree = null,
-        IEnumerable<(string Label, string Href)>? formats = null)
+        IEnumerable<(string Label, string Href)>? formats = null,
+        string? serviceItemId = null)
     {
         HtmlBuilder body = new();
 
@@ -435,6 +437,12 @@ internal static class RestDirectory
                     Html.Of($"<a href=\"{l.Href}\">{l.Label}</a>"))));
                 body.Append(Html.Markup("</p>"));
             }
+        }
+
+        // The service's portal item, on Studio's item page (ServiceItem, 2026-10-18).
+        if (serviceItemId is { Length: > 0 })
+        {
+            body.Append($"<p><b>Portal item:</b> <a href=\"/studio/item/{serviceItemId}\">{serviceItemId}</a></p>");
         }
 
         if (tree is not null)
