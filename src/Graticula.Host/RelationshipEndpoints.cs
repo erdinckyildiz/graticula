@@ -508,6 +508,30 @@ internal static class RelationshipEndpoints
         (_, LayerDescription description) =
             await contexts.GetAsync(other, cancellation).ConfigureAwait(false);
 
+        // <b>outFields, as the query reads it — V-102, 2026-10-19.</b> It was not read: every field came back, which
+        // is the most a pop-up's related list asks to download. `*` or nothing is every field; a name the related
+        // layer does not have is refused by name; its object id comes back whatever is asked, as ArcGIS answers.
+        string asked = Value(context, "outFields").Trim();
+        List<FieldDescription> fields = [.. description.Fields];
+
+        if (asked.Length > 0 && asked != "*")
+        {
+            string[] names = asked.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            string? unknown = names.FirstOrDefault(n => !description.Fields.Any(f => f.Name.Equals(n, StringComparison.OrdinalIgnoreCase)));
+
+            if (unknown is not null)
+            {
+                await Fail(context, 400, $"'{unknown}' in outFields is not a field of '{other.Definition.Name}'.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            string? objectId = other.Definition.IntegerIdentityColumn;
+            fields = [.. description.Fields.Where(f =>
+                names.Contains(f.Name, StringComparer.OrdinalIgnoreCase)
+                || string.Equals(f.Name, objectId, StringComparison.OrdinalIgnoreCase))];
+        }
+
         IReadOnlyList<RelatedGroup> groups = await connections
             .RelatedFor(layer, other)
             .QueryAsync(
@@ -517,7 +541,7 @@ internal static class RelationshipEndpoints
         await Results.Json(new
         {
             relationshipId = relationship.Number is { } answered ? answered : (object)relationship.Id,
-            fields = description.Fields.Select(f => new
+            fields = fields.Select(f => new
             {
                 name = f.Name,
                 type = FeatureServerMetadataWriter.TypeName(f.Type),
@@ -527,7 +551,14 @@ internal static class RelationshipEndpoints
             relatedRecordGroups = groups.Select(g => new
             {
                 objectId = g.ObjectId,
-                relatedRecords = g.Records.Select(r => new { attributes = r }),
+
+                // The query's value rules — a date as epoch milliseconds above all (V-102).
+                relatedRecords = g.Records.Select(r => new
+                {
+                    attributes = fields
+                        .Where(f => r.ContainsKey(f.Name))
+                        .ToDictionary(f => f.Name, f => FeatureServerQueryWriter.AttributeValue(r[f.Name])),
+                }),
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }

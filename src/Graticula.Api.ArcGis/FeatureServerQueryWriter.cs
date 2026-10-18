@@ -565,6 +565,27 @@ public sealed class FeatureServerQueryWriter
         _ => null,
     };
 
+    /// <summary>
+    /// A row's value as an ArcGIS attribute is written — a date as epoch milliseconds, a GUID braced, a flag 0 or 1, a
+    /// 64-bit integer as text — for an answer that serialises attributes itself rather than through this writer.
+    /// </summary>
+    /// <remarks>
+    /// <b>V-102, 2026-10-19:</b> <c>queryRelatedRecords</c> wrote its rows' values as they came, so a date went out
+    /// as ISO text where the same field in a query is a number. One rule, <see cref="WriteAttribute"/>'s.
+    /// </remarks>
+    /// <param name="value">A value read from a row.</param>
+    /// <returns>What the attribute is written as.</returns>
+    public static object? AttributeValue(object? value) => value switch
+    {
+        null => null,
+        string or int or short or double or float or decimal => value,
+        Guid guid => GlobalIds.Braced(guid),
+        bool flag => flag ? 1 : 0,
+        long number => number.ToString(CultureInfo.InvariantCulture),
+        DateTime or DateTimeOffset => EpochMilliseconds(value),
+        _ => value.ToString(),
+    };
+
     private static void WriteAttribute(Utf8JsonWriter writer, string name, object? value)
     {
         switch (value)
