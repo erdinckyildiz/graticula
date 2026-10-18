@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Readers;
@@ -23,20 +24,34 @@ namespace Graticula.Host;
 /// <c>servicedescriptions/featureserver/featureserver.json</c> — the symbology Pro gave it, in the form a FeatureServer
 /// layer publishes. Empty when the file is absent.
 /// </param>
+/// <param name="Item">The summary, description and tags Pro's share pane held, from <c>esriinfo/iteminfo.xml</c>.</param>
 internal sealed record ServiceDefinition(
     string ServiceName, string? FolderName, string? Capabilities, int? MaxRecordCount, int Layers,
-    IReadOnlyDictionary<string, string> DrawingInfos);
+    IReadOnlyDictionary<string, string> DrawingInfos, ItemDetails Item);
+
+/// <summary>
+/// What Pro's share pane held for the item: its <i>Summary</i>, <i>Description</i> and <i>Tags</i> (comma-separated),
+/// null where the pane was empty. Pro sends none of them over HTTP — measured on dev 2026-10-18: <c>addItem</c>,
+/// <c>commit</c> (only <c>title</c> and <c>type</c>) and <c>publish</c> carried none, and no item update followed — so
+/// they are read where Pro writes them, the service definition's <c>esriinfo/iteminfo.xml</c> (ADR-191 condition 4).
+/// </summary>
+internal sealed record ItemDetails(string? Snippet, string? Description, string? Tags)
+{
+    /// <summary>Nothing at all: an archive without the file, or a pane left empty.</summary>
+    public static readonly ItemDetails None = new(null, null, null);
+}
 
 /// <summary>
 /// Opens a service definition Pro uploaded and takes out its file geodatabase — ADR-191.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Read from the file Pro sent, and only three parts of it</b> (ADR-191 condition 4). A service definition is a 7z
+/// <b>Read from the file Pro sent, and only four parts of it</b> (ADR-191 condition 4). A service definition is a 7z
 /// container; this reads <c>serviceconfiguration.json</c> for the service's name and settings,
-/// <c>servicedescriptions/featureserver/featureserver.json</c> for each layer's <c>drawingInfo</c>, and copies the entries
-/// under <c>cd/*.gdb/</c> — the data, a file geodatabase — into a zip the hosted-import pipeline already reads
-/// (ADR-038). The map documents, metadata and thumbnail are not opened.
+/// <c>servicedescriptions/featureserver/featureserver.json</c> for each layer's <c>drawingInfo</c>,
+/// <c>esriinfo/iteminfo.xml</c> for the item's summary, description and tags (owner decision 2026-10-18), and copies the
+/// entries under <c>cd/*.gdb/</c> — the data, a file geodatabase — into a zip the hosted-import pipeline already reads
+/// (ADR-038). The map documents, the rest of the metadata and the thumbnail are not opened.
 /// </para>
 /// <para>
 /// <b>Bounded before anything is trusted</b> (condition 3): an entry whose path is absolute or climbs out with
@@ -78,6 +93,7 @@ internal static class ServiceDefinitionArchive
         }
 
         JsonElement? configuration = null;
+        ItemDetails item = ItemDetails.None;
         Dictionary<string, string> drawingInfos = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> geodatabases = new(StringComparer.OrdinalIgnoreCase);
         long written = 0;
@@ -115,6 +131,18 @@ internal static class ServiceDefinitionArchive
                     using JsonDocument document = await JsonDocument.ParseAsync(
                         read, new JsonDocumentOptions { MaxDepth = 256 }, cancellation).ConfigureAwait(false);
                     DrawingInfosOf(document.RootElement, drawingInfos);
+                    continue;
+                }
+
+                if (string.Equals(key, "esriinfo/iteminfo.xml", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (entry.Size > MaximumConfigurationBytes)
+                    {
+                        throw new InvalidDataException("The service definition's item information is larger than a megabyte.");
+                    }
+
+                    using Stream read = entry.OpenEntryStream();
+                    item = ItemOf(read);
                     continue;
                 }
 
@@ -171,7 +199,7 @@ internal static class ServiceDefinitionArchive
             && p.TryGetProperty("maxRecordCount", out JsonElement m) && m.ValueKind == JsonValueKind.Number
             && m.TryGetInt32(out int mrc) ? mrc : null;
 
-        return new ServiceDefinition(name, folder, capabilities, maxRecordCount, geodatabases.Count, drawingInfos);
+        return new ServiceDefinition(name, folder, capabilities, maxRecordCount, geodatabases.Count, drawingInfos, item);
     }
 
     /// <summary>
@@ -204,6 +232,54 @@ internal static class ServiceDefinitionArchive
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// The item's <c>snippet</c> (else <c>summary</c>), <c>description</c> and <c>tags</c> from Pro's
+    /// <c>ESRI_ItemInformation</c> document, children of its root. No DTD and no resolver: the file came from a client.
+    /// An unreadable document is an item with nothing said, not a failed share.
+    /// </summary>
+    internal static ItemDetails ItemOf(Stream xml)
+    {
+        Dictionary<string, string> said = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using XmlReader reader = XmlReader.Create(xml, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, IgnoreComments = true,
+                MaxCharactersInDocument = MaximumConfigurationBytes,
+            });
+
+            reader.MoveToContent();
+            int root = reader.Depth;
+            reader.Read();
+            while (!reader.EOF)
+            {
+                // ReadElementContentAsString moves past the element itself, so it is not followed by a Read: that
+                // skipped the next sibling — <description> straight after <snippet> — in the first version.
+                if (reader.NodeType == XmlNodeType.Element && reader.Depth == root + 1
+                    && reader.LocalName is "snippet" or "summary" or "description" or "tags")
+                {
+                    string name = reader.LocalName;
+                    if (reader.ReadElementContentAsString().Trim() is { Length: > 0 } text)
+                    {
+                        said[name] = text;
+                    }
+                }
+                else
+                {
+                    reader.Read();
+                }
+            }
+        }
+        catch (XmlException)
+        {
+            return ItemDetails.None;
+        }
+
+        return new ItemDetails(
+            said.GetValueOrDefault("snippet") ?? said.GetValueOrDefault("summary"),
+            said.GetValueOrDefault("description"), said.GetValueOrDefault("tags"));
     }
 
     /// <summary>An entry's path with forward slashes, refused when it is absolute or climbs out.</summary>

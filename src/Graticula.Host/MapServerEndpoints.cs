@@ -248,12 +248,13 @@ internal static class MapServerEndpoints
         // layer's range from the layer.
         FeatureServerMetadataWriter.ServiceLayer entry = new(
             layer.LayerIndex,
-            layer.Definition.Name,
+            layer.DisplayName,
             layer.GeometryType,
             servedSrid,
             servedExtent)
         {
             ParentId = layer.ParentIndex,
+            CatalogName = layer.Definition.Name,
             MinScale = layer.VisibleRange.MinScale,
             MaxScale = layer.VisibleRange.MaxScale,
         };
@@ -804,7 +805,7 @@ internal static class MapServerEndpoints
                     results.Add(new
                     {
                         layerId = layer.LayerIndex,
-                        layerName = layer.Definition.Name,
+                        layerName = layer.DisplayName,
                         foundFieldName = field.Name,
                         value = attributes.TryGetValue(field.Name, out object? found) ? found?.ToString() ?? string.Empty : string.Empty,
                         displayFieldName = display,
@@ -902,7 +903,7 @@ internal static class MapServerEndpoints
 
                 results.Add(MapServerMetadataWriter.IdentifyResult(
                     layer.LayerIndex,
-                    layer.Definition.Name,
+                    layer.DisplayName,
                     display,
                     display.Length > 0 && attributes.TryGetValue(display, out object? value)
                         ? value?.ToString() ?? string.Empty
@@ -1047,7 +1048,7 @@ internal static class MapServerEndpoints
             layers.Add(MapServerMetadataWriter.LegendLayer(
                 new FeatureServerMetadataWriter.ServiceLayer(
                     layer.LayerIndex,
-                    layer.Definition.Name,
+                    layer.DisplayName,
                     layer.GeometryType,
                     layer.Definition.Srid,
                     described.Extent)
@@ -1257,13 +1258,14 @@ internal static class MapServerEndpoints
 
             layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
                 layer.LayerIndex,
-                layer.Definition.Name,
+                layer.DisplayName,
                 layer.GeometryType,
                 srid,
                 extent)
             {
                 // ADR-070: the export draws the layer only inside these, so the document says so.
                 ParentId = layer.ParentIndex,
+                CatalogName = layer.Definition.Name,
                 MinScale = layer.VisibleRange.MinScale,
                 MaxScale = layer.VisibleRange.MaxScale,
 

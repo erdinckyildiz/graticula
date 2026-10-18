@@ -5580,7 +5580,7 @@ function drawItemLayer() {
 
   const now = itemLayerNow();
   select.innerHTML = drawable.map(l => `<option value="${h(String(l.id ?? 0))}"${
-    String(l.id) === now ? " selected" : ""}>${h(l.name || `layer ${l.id}`)}</option>`).join("");
+    String(l.id) === now ? " selected" : ""}>${h(l.shown || l.name || `layer ${l.id}`)}</option>`).join("");
 
   select.onchange = () => {
     dataLayerIndex = select.value;
@@ -5907,7 +5907,14 @@ let visAsking = null;
  * attachment tables visible but unpublishable on the geodatabase screen.
  */
 function drawServiceLayers(layers, qualified) {
-  serviceLayers = layers || [];
+  // <b>A layer's `name` in the ArcGIS document is its label, and this page used it as its address</b> (2026-10-18).
+  // A layer with a title is called by it there, Pro's table-of-contents name for one Pro published, and
+  // `/admin/layers/{name}/...`, `known` and `content` are keyed by the catalogue name, so the title read as a name
+  // made the swatch and every setting of the layer 404. The document carries the catalogue name as `catalogName`; the
+  // entry keeps it as `name` (the address, as before) and the label as `shown`, which the places that name a layer to
+  // a person use.
+  serviceLayers = (layers || []).map(one =>
+    one.catalogName && one.catalogName !== one.name ? { ...one, shown: one.name, name: one.catalogName } : one);
 
   // <b>What depends on knowing the layers is drawn again once they are known</b> — the Tile layer section and
   // Overview's *Manage tiles* (ADR-102). An address straight to `?tab=settings&section=tiles` otherwise drew
@@ -5995,7 +6002,7 @@ function drawServiceLayers(layers, qualified) {
           : `<span class="geoswatch" data-geoswatch="${h(layer.name || "")}"></span>`}</td>
         <td class="name${nested ? " nested" : ""}">${group
             ? h(layer.name || "")
-            : `<a href="${at}">${h(layer.name || "")}</a>`}
+            : `<a href="${at}">${h(layer.shown || layer.name || "")}</a>`}
           <div class="rowmeta">${h(said)}</div></td>
 
         <!--
@@ -6395,7 +6402,7 @@ function drawServiceData() {
     ? `<option value="">this service holds no layers</option>`
     : publishable.map(l =>
         `<option value="${num(l.id ?? 0)}"${String(l.id) === wanted ? " selected" : ""}>${
-          h(l.name || `layer ${l.id}`)}</option>`).join("");
+          h(l.shown || l.name || `layer ${l.id}`)}</option>`).join("");
 
   picker.disabled = publishable.length === 0;
 
@@ -7550,8 +7557,8 @@ function drawServiceVis() {
 
   picker.innerHTML = drawable.map(l =>
     `<a href="#" data-vis-layer="${num(l.id ?? 0)}"${
-      String(l.id) === wanted ? ' aria-current="page"' : ""} title="${h(l.name || "")}"
-      >${num(l.id ?? 0)} · ${h(l.name || `layer ${l.id}`)}</a>`).join("");
+      String(l.id) === wanted ? ' aria-current="page"' : ""} title="${h(l.shown || l.name || "")}"
+      >${num(l.id ?? 0)} · ${h(l.shown || l.name || `layer ${l.id}`)}</a>`).join("");
 
   // <b>The link follows the picker.</b> A Symbology link that always opened the first layer
   // would be worse than none on a service with several: it would look like it worked.
@@ -7722,7 +7729,7 @@ async function drawVisNow() {
   const layer = serviceLayers.find(l => String(l.id) === String(visLayerIndex));
   if (!layer) return;
 
-  const named = layer.name || `layer ${layer.id}`;
+  const named = layer.shown || layer.name || `layer ${layer.id}`;
 
   $("mapPanel").hidden = false;
   $("legend").textContent = `Drawing ${named}…`;

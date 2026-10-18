@@ -3583,12 +3583,13 @@ public static class Program
 
             layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
                 layer.LayerIndex,
-                layer.Definition.Name,
+                layer.DisplayName,
                 layer.GeometryType,
                 moved is null ? layer.Definition.Srid : service.Srid!.Value,
                 moved ?? described.Extent)
             {
                 ParentId = layer.ParentIndex,
+                CatalogName = layer.Definition.Name,
                 MinScale = layer.VisibleRange.MinScale,
                 MaxScale = layer.VisibleRange.MaxScale,
 
@@ -3953,7 +3954,10 @@ public static class Program
             copyrightText: layer.ServiceCopyrightText,
 
             // ADR-101 #3: the lifetime `query` is sent with, in the field ArcGIS publishes it in.
-            cacheMaxAge: (int)QueryResponseCaching.LifetimeOf(layer, settings.TileCacheLifetime, description.Writable).TotalSeconds);
+            cacheMaxAge: (int)QueryResponseCaching.LifetimeOf(layer, settings.TileCacheLifetime, description.Writable).TotalSeconds,
+
+            // 2026-10-18: the title when the layer has one, which is what Pro called the layer it published.
+            displayName: layer.DisplayName);
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);

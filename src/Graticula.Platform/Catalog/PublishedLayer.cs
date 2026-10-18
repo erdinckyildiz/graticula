@@ -351,6 +351,15 @@ public sealed class PublishedLayer
     public string? Title { get; init; }
 
     /// <summary>
+    /// What the ArcGIS faces call the layer, 2026-10-18: its <see cref="Title"/> when it has one, else its catalogue
+    /// name. ArcGIS's layer has a name and no title, and clients address it by index, so the title is the name a person
+    /// gave it (Pro's table-of-contents name for a layer Pro published, ADR-191 section 5.7). <b>A label, never an
+    /// address</b>: the documents carry the catalogue name beside it as <c>catalogName</c>, and this console's calls
+    /// to <c>/admin/layers/{name}</c> use that.
+    /// </summary>
+    public string DisplayName => Title is { Length: > 0 } title ? title : Definition.Name;
+
+    /// <summary>
     /// Its service's credits — ArcGIS's <c>copyrightText</c> — or null. Carried on the layer because a layer's document is
     /// answered without its service, and an ArcGIS client takes a layer's attribution from the layer's own document.
     /// </summary>

@@ -44,6 +44,30 @@ public sealed class FeatureServerMetadataWriterTests
         JsonDocument.Parse(JsonSerializer.Serialize(value)).RootElement;
 
     [Fact]
+    public void A_titled_layer_is_called_by_its_title_and_still_says_its_catalogue_name()
+    {
+        // 2026-10-18: Pro published "Provinces by area" over a dataset called buildings. ArcGIS shows `name`; this server's
+        // own clients address the layer, and read the address from `catalogName` (`name` 404'd Studio's symbology call).
+        JsonElement shown = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query", displayName: "Provinces by area"));
+
+        Assert.Equal("Provinces by area", shown.GetProperty("name").GetString());
+        Assert.Equal("buildings", shown.GetProperty("catalogName").GetString());
+        Assert.Equal("Provinces by area", shown.GetProperty("templates")[0].GetProperty("name").GetString());
+
+        JsonElement plain = Json(FeatureServerMetadataWriter.Layer(Layer(), GeometryKind.Polygon, Description(), "Query"));
+        Assert.Equal("buildings", plain.GetProperty("name").GetString());
+        Assert.Equal("buildings", plain.GetProperty("catalogName").GetString());
+
+        // And the service document's entry says the same of the same layer.
+        FeatureServerMetadataWriter.ServiceLayer entry = OneLayer() with { Name = "Provinces by area" };
+        JsonElement listed = Json(FeatureServerMetadataWriter.Service([entry with { CatalogName = "buildings" }], "Query"))
+            .GetProperty("layers")[0];
+        Assert.Equal("Provinces by area", listed.GetProperty("name").GetString());
+        Assert.Equal("buildings", listed.GetProperty("catalogName").GetString());
+    }
+
+    [Fact]
     public void A_layer_that_keeps_its_history_says_so_where_the_SDK_reads_it()
     {
         // ADR-078 condition 2: the ArcGIS Maps SDK took `supportsHistoricMoment` from `archivingInfo`

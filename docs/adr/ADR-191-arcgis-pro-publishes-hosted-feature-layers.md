@@ -120,6 +120,30 @@ No implementation has been measured yet; §6's conditions carry what must be.
    reported to anyone. Measured with arcpy on dev: the point symbol arrived exactly (`esriSMS`, colour
    `[130,95,31]`, size 4, outline 0.7), `drawingInfoGenerated` false. The item's pop-up
    (`featureserveritemdata.json`) is not read yet.
+   **The item's summary and tags come with it** — added 2026-10-18, measured on dev: Studio's item page said *No
+   description yet* over a summary and two tags typed in Pro's pane. **They are not on the wire**: the dev wire log of
+   that publish shows `addItem` and `addPart` with no such fields, `commit` with only `title` and `type`, `publish` with
+   `itemid`, `filetype`, `buildInitialCache` and `overwrite`, and no item update after it. Pro writes them into the
+   service definition's `esriinfo/iteminfo.xml` (`snippet`, `summary`, `description`, `tags`), so **that file joins
+   condition 4's list — owner decision 2026-10-18**, asked in those terms (*"Evet, ekle"*). It is item information, not
+   the map's symbols the condition keeps out, and it is read with no DTD, no resolver and a one-megabyte bound. The
+   summary (`snippet`, else `summary`, else `description`) is stored as the service's description and the
+   comma-separated tags as its tags, which Studio's item page reads; an overwrite writes only what the pane held.
+   **The drawing on an overwrite** was paired by the geodatabase's dataset name, which a lone layer's drawing — keyed by
+   Pro's map-layer name — never matched, so an overwrite dropped the map's symbology; it is now paired as the publish
+   pairs it. **The layer is called what Pro's map called it** — owner decision 2026-10-18, *"Eklenen her bir katman kendi
+   adı ile gelmeli... Pro'da TOC'taki isim olmalı. ArcGIS öyle değil mi?"*; the service stays `Turkey_Provinces`. The
+   same pairing sets the layer's **title** (ADR-179) to `contents.name` (*Provinces by area*, over the dataset
+   `tur_admin1`), on a publish and on an overwrite, and the ArcGIS faces call a layer by its title when it has one
+   (`PublishedLayer.DisplayName`: the service and layer documents, the layer's template, MapServer's, identify and find).
+   This takes the revisit trigger ADR-179 §9 named. **A name is a label there and an address in this server's own
+   clients**, and a first attempt that only renamed the documents was taken back the same day: Studio asked
+   `/admin/layers/Provinces%20by%20area/symbology` and got 404. So the documents keep the catalogue name beside the
+   label, as `catalogName` on each layer entry of the service document and on the layer document — an extra property
+   ArcGIS clients ignore — and Studio and the web map editor address the layer by it. Resolving `/admin/layers/{x}` by
+   title instead was rejected: titles are free text, not unique, and D-109 already says names are not. **Every layer
+   with a title is named by it on the ArcGIS faces, not only Pro's** — the CITE fixture's `cite:*` layers among them;
+   asked of the owner in those terms and released on their word the same day (*"maine çık"*).
 8. **Publishing from Pro is on by default** — owner decision 2026-10-17, *"bence bunu main'e artık geçirebiliriz"*.
    `Graticula:PublishFromPro` (default `true`) carries the portal's `/studio` and `/portal` addresses, the Enterprise
    version pair, ~~the hosting server under `/arcgis`~~ the hosting server's admin API under `/arcgis/admin` *(the rest
@@ -192,7 +216,8 @@ None recorded.
    behind the capture setting until §5.8 made publishing the default.)*
 3. **The archive is bounded**: an over-size, over-member or path-escaping service definition is refused before
    anything is written, with a test for each.
-4. **What is read is what this ADR names**: `cd/*.gdb`, `serviceconfiguration.json`, `servicedescriptions/**`;
+4. **What is read is what this ADR names**: `cd/*.gdb`, `serviceconfiguration.json`, `servicedescriptions/**`, and
+   since 2026-10-18 `esriinfo/iteminfo.xml` (owner decision, §5.7);
    reading the `.msd`/`.mapx` (for symbology) is a later decision with its own note on the clean-room line.
 5. **Several parts**: a service definition larger than one `addPart` is reassembled in order, with a test.
 6. **Overwrite from Pro's own pane**, not only arcpy: *Overwrite Web Layer* in Pro's UI replaces the data and keeps the

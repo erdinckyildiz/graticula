@@ -443,15 +443,18 @@ internal static partial class PortalEndpoints
             ? await catalog.FindServiceAtAsync(FeatureServerMetadataWriter.HostedFolder, service, cancellation).ConfigureAwait(false)
             : null;
 
-        if (made is { } published && definition.DrawingInfos.Count > 0)
+        if (made is { } published)
         {
-            List<PublishedLayer> fresh = [.. (await layerCatalog.ListAsync(cancellation).ConfigureAwait(false))
-                .Where(l => l.ServiceId == published.Id)];
-            List<(PublishedLayer, string)> named = fresh.Count == 1 && definition.DrawingInfos.Count == 1
-                ? [(fresh[0], definition.DrawingInfos.Keys.First())]
-                : [.. fresh.Select(l => (l, definition.DrawingInfos.Keys.FirstOrDefault(k => SameLayer(l, k))))
-                    .Where(p => p.Item2 is not null).Select(p => (p.l, p.Item2!))];
-            await ApplySymbologyAsync(definition, named, catalog, warmer, cancellation).ConfigureAwait(false);
+            if (definition.DrawingInfos.Count > 0)
+            {
+                List<PublishedLayer> fresh = [.. (await layerCatalog.ListAsync(cancellation).ConfigureAwait(false))
+                    .Where(l => l.ServiceId == published.Id)];
+                List<(PublishedLayer, string)> named = ProNamed(fresh, definition);
+                await NameLayersAsync(named, catalog, contexts, cancellation).ConfigureAwait(false);
+                await ApplySymbologyAsync(definition, named, catalog, warmer, cancellation).ConfigureAwait(false);
+            }
+
+            await ApplyDetailsAsync(definition.Item, service, catalog, cancellation).ConfigureAwait(false);
         }
 
         staged.ServiceItemId = made is { } done ? done.Id.ToString("N") : staged.Id;
@@ -597,7 +600,15 @@ internal static partial class PortalEndpoints
         }
 
         // ArcGIS's overwrite takes the map's drawing too: the service is what the map now is.
-        await ApplySymbologyAsync(definition, pairs, catalog, warmer, cancellation).ConfigureAwait(false);
+        // By Pro's own layer names, not the geodatabase's dataset names the pairs above are made of: the drawing is keyed
+        // by what Pro called the map layer (a lone layer for a lone layer, as the publish pairs them). Paired by dataset
+        // name, a lone layer's drawing never matched and an overwrite dropped the map's symbology (found 2026-10-18).
+        List<(PublishedLayer, string)> named = ProNamed(current, definition);
+        await NameLayersAsync(named, catalog, contexts, cancellation).ConfigureAwait(false);
+        await ApplySymbologyAsync(definition, named, catalog, warmer, cancellation).ConfigureAwait(false);
+
+        // Only what the pane held: an overwrite with no summary leaves the one the item has.
+        await ApplyDetailsAsync(definition.Item, existing.Name, catalog, cancellation).ConfigureAwait(false);
 
         staged.ServiceItemId = existing.Id.ToString("N");
         string url = $"{context.Request.Scheme}://{context.Request.Host}/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{Uri.EscapeDataString(existing.Name)}/FeatureServer";
@@ -620,6 +631,73 @@ internal static partial class PortalEndpoints
                 },
             },
         });
+    }
+
+    /// <summary>
+    /// The published layers paired with the name Pro gave each map layer in the service definition: a lone layer with a
+    /// lone drawing whatever they are called (the dataset is <c>tur_admin1</c>, the map layer <i>Provinces by area</i>),
+    /// otherwise by <see cref="SameLayer"/>. The symbology follows this pairing, on a publish and on an overwrite.
+    /// </summary>
+    internal static List<(PublishedLayer, string)> ProNamed(IReadOnlyList<PublishedLayer> layers, ServiceDefinition definition) =>
+        layers.Count == 1 && definition.DrawingInfos.Count == 1
+            ? [(layers[0], definition.DrawingInfos.Keys.First())]
+            : [.. layers.Select(l => (l, definition.DrawingInfos.Keys.FirstOrDefault(k => SameLayer(l, k))))
+                .Where(p => p.Item2 is not null).Select(p => (p.l, p.Item2!))];
+
+    /// <summary>
+    /// Gives each paired layer Pro's map-layer name as its title (ADR-191 section 5.7), which is what the ArcGIS faces
+    /// call a layer (<see cref="PublishedLayer.DisplayName"/>). The catalogue name stays the dataset's: it is the
+    /// address, it is unique, and a name with spaces would have to be escaped in every face (ADR-179 section 1). A
+    /// layer already carrying that title is left alone.
+    /// </summary>
+    internal static async Task NameLayersAsync(
+        IEnumerable<(PublishedLayer Layer, string From)> layers, IAdminCatalog catalog, ServiceContexts contexts,
+        CancellationToken cancellation)
+    {
+        foreach ((PublishedLayer layer, string from) in layers)
+        {
+            string title = from.Trim();
+            if (title.Length is 0 or > 256 || string.Equals(layer.Title, title, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (await catalog.SetLayerTitleAsync(layer.Id, title, cancellation).ConfigureAwait(false))
+            {
+                contexts.Forget(layer);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stores what Pro's pane held on the service, where Studio's item page reads it: the summary as the description
+    /// (the one text the item has) and the tags. Nothing is written for a field Pro did not send.
+    /// </summary>
+    internal static async Task ApplyDetailsAsync(
+        ItemDetails details, string service, IAdminCatalog catalog, CancellationToken cancellation)
+    {
+        string? text = (details.Snippet ?? details.Description)?.Trim();
+        if (text is { Length: > 0 })
+        {
+            if (text.Length > AdminEndpoints.MaximumDescriptionLength)
+            {
+                text = text[..AdminEndpoints.MaximumDescriptionLength];
+            }
+
+            await catalog.SetServiceDescriptionAsync(service, FeatureServerMetadataWriter.HostedFolder, text, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        if (details.Tags is { Length: > 0 } raw)
+        {
+            IEnumerable<string> words = raw.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(t => t.Length > ItemTags.MaximumLength ? t[..ItemTags.MaximumLength] : t);
+            if (ItemTags.Normalise(words.Take(ItemTags.MaximumCount), out _) is { Count: > 0 } tags)
+            {
+                await catalog.SetServiceTagsAsync(service, FeatureServerMetadataWriter.HostedFolder, tags, cancellation)
+                    .ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>Whether a layer is the one a geodatabase layer of this name became: its title, catalogue name or table.</summary>

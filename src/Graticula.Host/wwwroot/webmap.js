@@ -1928,7 +1928,8 @@ async function wmSaveStyleAsDefault(layer) {
   const drawing = layer.layerDefinition && layer.layerDefinition.drawingInfo;
   if (!run || !drawing) return;
 
-  const name = (run.info && run.info.name) || layer.title;
+  // The catalogue name is the address; `name` is the label a titled layer is called by (2026-10-18).
+  const name = (run.info && (run.info.catalogName || run.info.name)) || layer.title;
   if (!confirm(`Make this the default style of '${name}'? Every map and client that has not styled it itself will draw it this way.`)) return;
 
   try {
@@ -3662,7 +3663,9 @@ function wmInRange(layer, info) {
  */
 function wmTileTwin(layer, run, style, fields) {
   const match = /^(.*)\/rest\/services\/(.+)\/FeatureServer\/\d+$/.exec(layer.url || "");
-  if (!match || !run.info || !run.info.name) return null;
+  // A tile layer is named by the catalogue name, which `name` no longer is for a layer with a title.
+  const tileLayer = run.info && (run.info.catalogName || run.info.name);
+  if (!match || !tileLayer) return null;
 
   const service = `${match[1]}/rest/services/${match[2]}/VectorTileServer`;
   const tileJson = `${match[1]}/ogc/tiles/v1/collections/${encodeURIComponent(match[2].split("/").join("."))}`
@@ -3670,7 +3673,7 @@ function wmTileTwin(layer, run, style, fields) {
   const twin = new ol.layer.VectorTile({
     visible: false,
     source: new ol.source.VectorTile({
-      format: new ol.format.MVT({ layers: [run.info.name] }),
+      format: new ol.format.MVT({ layers: [tileLayer] }),
       url: `${service}/tile/{z}/{y}/{x}.pbf`,
       maxZoom: 22,
     }),
@@ -3681,7 +3684,7 @@ function wmTileTwin(layer, run, style, fields) {
   // come after the first page did.
   wmFetch(tileJson)
     .then(said => {
-      const carried = ((said && said.vector_layers) || []).find(l => l.id === run.info.name);
+      const carried = ((said && said.vector_layers) || []).find(l => l.id === tileLayer);
       const named = (carried && carried.fields) || {};
       const has = new Set(Array.isArray(named) ? named : Object.keys(named));
       if (!carried || !(fields || []).every(field => has.has(field))) return;

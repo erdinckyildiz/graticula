@@ -419,6 +419,13 @@ public static class FeatureServerMetadataWriter
         /// outside the visible range, so a client that opens on `initialExtent` lands where the layer is drawn.
         /// </summary>
         public Envelope? Initial { get; init; }
+
+        /// <summary>
+        /// The catalogue name when <see cref="Name"/> is the layer's title instead (2026-10-18), or null when they are
+        /// the same. Written as <c>catalogName</c>, an extra property ArcGIS clients ignore, for the clients of this
+        /// server that need an address and were reading it from <c>name</c>.
+        /// </summary>
+        public string? CatalogName { get; init; }
     }
 
     /// <summary>The union of the layers' <see cref="ServiceLayer.Initial"/> extents, or null when none has one.</summary>
@@ -600,6 +607,7 @@ public static class FeatureServerMetadataWriter
             {
                 id = layer.Id,
                 name = layer.Name,
+                catalogName = layer.CatalogName ?? layer.Name,
                 parentLayerId = layer.ParentId ?? -1,
                 defaultVisibility = true,
                 subLayerIds = (int[]?)null,
@@ -733,6 +741,7 @@ public static class FeatureServerMetadataWriter
     /// <param name="editOwnOnly">Whether editors may change only the features they added — ADR-115.</param>
     /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <param name="cacheMaxAge">The seconds a client may keep this layer's answers, as ArcGIS publishes it; zero, the default, for none.</param>
+    /// <param name="displayName">The name to show when it is not the catalogue's, the layer's title; null for the catalogue name.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -782,7 +791,11 @@ public static class FeatureServerMetadataWriter
         // <b>How long a client may keep this layer's answers — ArcGIS's `cacheMaxAge`, 2026-10-15 (ADR-101 #3).</b>
         // The seconds `Cache-Control` already carries on `query`; zero for a layer somebody can edit, which nobody
         // keeps. On the end and optional, as the rule above says.
-        int? cacheMaxAge = null)
+        int? cacheMaxAge = null,
+
+        // <b>What the layer is called here, 2026-10-18</b>: its title when it has one (Pro's table-of-contents name for a
+        // layer Pro published), else <c>layer.Name</c>. The catalogue name is still written, as <c>catalogName</c>.
+        string? displayName = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -790,11 +803,16 @@ public static class FeatureServerMetadataWriter
         // rather than throwing.
         ArgumentNullException.ThrowIfNull(capabilities);
 
+        string shownName = displayName is { Length: > 0 } ? displayName : layer.Name;
+
         object document = new
         {
             currentVersion = CurrentVersion,
             id = layerId,
-            name = layer.Name,
+            name = shownName,
+
+            // The address the clients of this server use for the layer, which `name` is not once it has a title.
+            catalogName = layer.Name,
             type = "Feature Layer",
             description = string.Empty,
             geometryType = ArcGisGeometryWriter.TypeName(geometryType),
@@ -845,7 +863,7 @@ public static class FeatureServerMetadataWriter
                 {
                     new
                     {
-                        name = layer.Name,
+                        name = shownName,
                         description = string.Empty,
                         prototype = new { attributes = new Dictionary<string, object?>() },
                         drawingTool = DrawingTool(geometryType),
