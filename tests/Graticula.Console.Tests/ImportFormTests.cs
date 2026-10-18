@@ -529,8 +529,8 @@ public sealed class ImportFormTests : ConsoleTest
             await WaitForAsync("!!document.querySelector('#serviceDescription [data-describe]')",
                 "An image service's page offers no way to describe it.");
             await OpenAsync($"/studio/#/service/hosted/{name}?tab=settings&section=general", token);
-            await WaitForAsync("(document.getElementById('svcDeleteNote')?.textContent || '').includes('cannot be recovered')",
-                "Settings › General does not say the uploaded image is deleted with the service.");
+            await WaitForAsync("(document.getElementById('svcDeleteNote')?.textContent || '').includes('recycle bin')",
+                "Settings › General does not say the uploaded image goes into the recycle bin with the service (ADR-203, D-306).");
 
             // ADR-182: a one-band image may be made an elevation surface there, off until its owner says so, and the
             // control keeps focus while it saves and then offers the 3D scene.

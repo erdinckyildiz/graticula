@@ -448,6 +448,13 @@ internal static partial class PortalEndpoints
                 LoginFailure.AddressThrottled or LoginFailure.AccountThrottled => (
                     StatusCodes.Status429TooManyRequests,
                     "Too many failed sign-in attempts. Wait and try again."),
+                // ADR-201: the password was right and the account asks for a second step, which a token request
+                // cannot carry. Said only after the password is proven.
+                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid => (
+                    StatusCodes.Status401Unauthorized,
+                    "Unable to generate token. This account signs in with a second step, which a token request cannot carry. Sign in "
+                    + "through the portal's sign-in page (OAuth), as ArcGIS Pro and the ArcGIS API for Python do; a "
+                    + "script uses an API key (ADR-200)."),
                 _ => (
                     StatusCodes.Status401Unauthorized,
                     "Unable to generate token. The name or password is incorrect."),
@@ -655,7 +662,8 @@ internal static partial class PortalEndpoints
             description = (string?)null,
             thumbnail = (string?)null,
             portalThumbnail = (string?)null,
-            hasCategorySchema = false,
+            // ADR-202: true once the organisation has defined a content category.
+            hasCategorySchema = Annotations(context).Tree.Count > 0,
             hasClassificationSchema = false,
             isReadOnly = false,
             disableSignup = true,
@@ -851,6 +859,8 @@ internal static partial class PortalEndpoints
             // owns this account's services, in the same form as an item id.
             id = current.Principal.Id.ToString("N"),
             username = current.Principal.Name,
+            // ADR-202 condition 3: where an ArcGIS client looks for this member's favourites, `group:<favGroupId>`.
+            favGroupId = FavoritesGroupOf(current.Principal.Id).ToString("N"),
             fullName = current.Principal.Name,
             firstName = current.Principal.Name,
             lastName = string.Empty,
@@ -952,11 +962,15 @@ internal static partial class PortalEndpoints
             ? Results.Ok(new { total = 0, start = 1, num = 0, nextStart = -1, resources = Array.Empty<object>() })
             : Unknown("Organization");
 
-    /// <summary>The item categories an organisation has defined, which is none.</summary>
+    /// <summary>The item categories the organisation has defined — ADR-202; empty when it has none.</summary>
     private static IResult CategorySchemaAsync(HttpContext context, string id) =>
         IsThisPortal(context, id)
-            ? Results.Ok(new { categorySchema = Array.Empty<object>() })
+            ? Results.Ok(new { categorySchema = Annotations(context).Schema() })
             : Unknown("Organization");
+
+    /// <summary>The items' terms of use and categories as held — ADR-202.</summary>
+    private static ItemAnnotations Annotations(HttpContext context) =>
+        context.RequestServices.GetRequiredService<ItemAnnotations>();
 
     /// <summary>
     /// The caller's groups, which are [ADR-036](../../docs/adr/ADR-036-groups.md)'s
@@ -983,11 +997,9 @@ internal static partial class PortalEndpoints
     /// authorization story, which is how two surfaces come to disagree.
     /// </para>
     /// <para>
-    /// <b>Anonymous gets an empty list, and that answer is now true.</b> No group is
-    /// visible to an anonymous caller — [Q-119](../../docs/open-questions.md)
-    /// removed the *anybody* visibility on 2026-08-25, so the widest a group gets is
-    /// the signed-in organisation. It is a fact about this deployment rather than a
-    /// shape, which is exactly what the whole answer used to be.
+    /// <b>Anonymous gets the public groups</b> — ADR-199, 2026-10-18. It got an empty list from 2026-08-25, when
+    /// [Q-119](../../docs/open-questions.md) removed the *anybody* visibility; the owner brought it back for open-data
+    /// portals, and this listing is where it happens.
     /// </para>
     /// </remarks>
     /// <param name="context">The request.</param>
@@ -1087,14 +1099,19 @@ internal static partial class PortalEndpoints
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        if (current.Principal.IsAnonymous)
-        {
-            return [];
-        }
-
         IReadOnlyList<GroupSummary> mine = await directory
             .ListAsync(current.Principal.Id, all: false, cancellation)
             .ConfigureAwait(false);
+
+        // ADR-199: a signed-out caller finds the public groups and no others — outside each, so the member list is
+        // withheld as it is from any outsider.
+        // The gallery group is not among them even when public: Q-174 keeps the basemap choice from a signed-out
+        // caller, and nothing since has said otherwise (ADR-199 §2, INFERRED).
+        if (current.Principal.IsAnonymous)
+        {
+            Guid? gallery = (await GalleryAsync(context, cancellation).ConfigureAwait(false)).Group;
+            mine = [.. mine.Where(group => group.Visibility == GroupVisibility.Public && group.Id != gallery)];
+        }
 
         return [.. mine.Select(group => Group(context, group))];
     }
@@ -1538,13 +1555,21 @@ internal static partial class PortalEndpoints
 
         List<PortalListed> results = [];
 
+        // ADR-202 condition 3: the caller's favourites answer `group:<favGroupId>`. Only among what this search already
+        // lists, and only for this caller, so the favourites "group" lets nobody read anything — the reason a real group
+        // was not used for them.
+        (Guid favorites, HashSet<Guid> favored) = await FavoritesAsync(context, cancellation).ConfigureAwait(false);
+
+        IReadOnlyCollection<Guid>? With(IReadOnlyCollection<Guid>? shared, Guid item) =>
+            favored.Contains(item) ? [.. shared ?? [], favorites] : shared;
+
         foreach (PublishedService service in visible)
         {
             foreach (string face in ListedFacesOf(service))
             {
                 object item = Item(context, service, face);
 
-                if (PortalQuery.Matches(item, query, service.SharedWith))
+                if (PortalQuery.Matches(item, query, With(service.SharedWith, service.Id)))
                 {
                     results.Add(new PortalListed(ItemIdOf(service, face), item, Service: service, Face: face));
                 }
@@ -1563,7 +1588,7 @@ internal static partial class PortalEndpoints
         {
             object item = MapItem(context, map);
 
-            if (PortalQuery.Matches(item, query, map.SharedWith))
+            if (PortalQuery.Matches(item, query, With(map.SharedWith, Guid.Parse(map.Id))))
             {
                 results.Add(new PortalListed(map.Id, item, Map: map));
             }
@@ -1574,7 +1599,7 @@ internal static partial class PortalEndpoints
         {
             object item = DocumentItem(context, document);
 
-            if (PortalQuery.Matches(item, query, document.SharedWith))
+            if (PortalQuery.Matches(item, query, With(document.SharedWith, Guid.Parse(document.Id))))
             {
                 results.Add(new PortalListed(document.Id, item, Document: document));
             }
@@ -1585,13 +1610,40 @@ internal static partial class PortalEndpoints
         {
             object item = CoverageItem(context, coverage);
 
-            if (PortalQuery.Matches(item, query, coverage.SharedWith))
+            if (PortalQuery.Matches(item, query, With(coverage.SharedWith, coverage.ServiceId)))
             {
                 results.Add(new PortalListed(CoverageItemId(coverage), item, Coverage: coverage));
             }
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// The id a member's favourites answer to as a group, ArcGIS's <c>favGroupId</c> — derived from the member's own id, so
+    /// it is stable, is nobody else's, and names no row (ADR-202 condition 3).
+    /// </summary>
+    internal static Guid FavoritesGroupOf(Guid principal)
+    {
+        Span<byte> hash = stackalloc byte[32];
+        System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"graticula-favorites:{principal:N}"), hash);
+        return new Guid(hash[..16]);
+    }
+
+    /// <summary>The caller's favourites group and the items in it; nothing for a signed-out caller.</summary>
+    private static async Task<(Guid Group, HashSet<Guid> Items)> FavoritesAsync(HttpContext context, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (current.Principal.IsAnonymous)
+        {
+            return (Guid.Empty, []);
+        }
+
+        IReadOnlyList<(Guid Item, string Kind, DateTimeOffset Added)> favorites = await context.RequestServices
+            .GetRequiredService<IItemAnnotationStore>().FavoritesAsync(current.Principal.Id, cancellation).ConfigureAwait(false);
+
+        return (FavoritesGroupOf(current.Principal.Id), [.. favorites.Select(f => f.Item)]);
     }
 
     /// <summary>Published services, as portal items.</summary>
@@ -2080,7 +2132,8 @@ internal static partial class PortalEndpoints
             accessInformation = coverage.CopyrightText,
             tags = coverage.Tags.Concat(coverage.Folder is null ? [] : new[] { coverage.Folder })
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            categories = Array.Empty<string>(),
+            categories = Annotations(context).CategoriesOf(coverage.ServiceId),
+            licenseInfo = Annotations(context).LicenseOf(coverage.ServiceId),
             url = $"{Origin(context)}/rest/services/{coverage.QualifiedName}/ImageServer",
             thumbnail = $"thumbnail/{ThumbnailFile}",
             access = Access(coverage.Sharing),
@@ -2186,7 +2239,8 @@ internal static partial class PortalEndpoints
             thumbnail = map.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = map.Snippet,
             tags = map.Tags ?? [],
-            categories = Array.Empty<string>(),
+            categories = Annotations(context).CategoriesOf(Guid.Parse(map.Id)),
+            licenseInfo = Annotations(context).LicenseOf(Guid.Parse(map.Id)),
             url = (string?)null,
             access = Access(map.Sharing),
             @protected = map.DeleteProtected,
@@ -2259,7 +2313,8 @@ internal static partial class PortalEndpoints
             thumbnail = (string?)null,
             snippet = document.Snippet,
             tags = document.Tags ?? [],
-            categories = Array.Empty<string>(),
+            categories = Annotations(context).CategoriesOf(Guid.Parse(document.Id)),
+            licenseInfo = Annotations(context).LicenseOf(Guid.Parse(document.Id)),
             url = (string?)null,
             access = Access(document.Sharing),
             @protected = document.DeleteProtected,
@@ -2570,9 +2625,10 @@ internal static partial class PortalEndpoints
             // ADR-111: the service's own tags; the folder stays as one, as it always was.
             tags = service.Tags.Concat(service.Folder is null ? [] : new[] { service.Folder })
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
-            // No organisation here defines categories (categorySchema is empty), so none is the truth — and an
-            // ArcGIS item always carries the array, which a client walks without asking whether it is there.
-            categories = Array.Empty<string>(),
+            // ADR-202: the item's categories, as paths under categorySchema's root, and its terms of use. An ArcGIS item
+            // always carries the array, which a client walks without asking whether it is there.
+            categories = Annotations(context).CategoriesOf(service.Id),
+            licenseInfo = Annotations(context).LicenseOf(service.Id),
             url = $"{Origin(context)}/rest/services/{service.QualifiedName}/{face}",
 
             // Relative to the item's `info/`, as a portal's is — V-50; null when there is nothing to draw.

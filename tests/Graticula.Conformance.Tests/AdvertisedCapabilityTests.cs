@@ -79,9 +79,6 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
         ["supportsTopFeaturesQuery"] =
             "it names an operation of its own, `queryTopFeatures`, not a parameter of `query`; "
             + "QueryTopFeaturesTests drives it against the same layer",
-        ["supportsCountDistinct"] =
-            "the parameter is a modifier on outStatistics that this server does not parse "
-            + "separately, so a refusal cannot be attributed to this key",
     };
 
     /// <summary>One key, the request that exercises it, and what the request means.</summary>
@@ -158,6 +155,14 @@ public sealed class AdvertisedCapabilityTests : ArcGisClient
             "outStatistics=%5B%7B%22statisticType%22%3A%22avg%22%2C%22onStatisticField%22%3A%22"
             + oid + "%2A100%22%2C%22outStatisticFieldName%22%3A%22a%22%7D%5D",
             "asking for an expression as a statistic's field"),
+
+        // <b>A count of distinct values, the one the query reference documents</b> — `returnCountOnly` with
+        // `returnDistinctValues`. It was in NotExercised as *a modifier on outStatistics*, which was a guess at what
+        // the undefined flag meant; the ArcGIS gap review read it as this pair (ADR-197 §2, INFERRED).
+        new(
+            "supportsCountDistinct",
+            $"returnCountOnly=true&returnDistinctValues=true&outFields={oid}",
+            "asking for the number of distinct values"),
 
         // <b>The probe carries `statisticParameters`, and it has to.</b> A percentile is the
         // one statistic with an argument of its own: Esri requires the fraction and this server

@@ -252,6 +252,12 @@ public sealed record LayerDescription(
     public bool AnswersCentroid { get; init; } = true;
 
     /// <summary>
+    /// Whether a statistic may be computed over an SQL expression (<see cref="StatisticExpression"/>) — false for a
+    /// GeoParquet layer. The layer document's <c>supportsSqlExpression</c> is read from here.
+    /// </summary>
+    public bool AnswersStatisticExpressions { get; init; } = true;
+
+    /// <summary>
     /// Whether the geometry column has a spatial index — true or false for a PostGIS table, null where the
     /// question has no answer here: a view, a foreign table, a file.
     /// </summary>

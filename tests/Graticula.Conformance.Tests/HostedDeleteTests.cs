@@ -10,7 +10,8 @@ using Xunit;
 namespace Graticula.Conformance.Tests;
 
 /// <summary>
-/// Deleting a hosted service takes its tables with it, and a registered one keeps its own.
+/// Deleting a hosted service takes its tables with it into the recycle bin, and back on restore (ADR-203); a registered
+/// one keeps its own.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -37,7 +38,7 @@ namespace Graticula.Conformance.Tests;
 public sealed class HostedDeleteTests : ArcGisClient
 {
     [Fact]
-    public async Task Deleting_a_hosted_service_drops_its_table_and_says_which()
+    public async Task Deleting_a_hosted_service_takes_its_table_into_the_recycle_bin_and_back()
     {
         string root = await RequireServerAsync();
         string? token = await TokenAsync(root);
@@ -67,7 +68,8 @@ public sealed class HostedDeleteTests : ArcGisClient
         // 409 still gets it; only a request that says `drop=true` empties the service.
         Assert.Contains("still holds", refused, StringComparison.OrdinalIgnoreCase);
 
-        // ---------------------------------------------------------------- asked for, and it happens
+        // ---------------------------------------------------------------- asked for: into the recycle bin (ADR-203)
+        string item = (await GetJsonAsync($"/rest/services/hosted/{name}/FeatureServer")).GetProperty("serviceItemId").GetString()!;
         (HttpStatusCode asked, string body) = await DeleteAsync(root, token!, name, drop: true);
 
         Assert.Equal(HttpStatusCode.OK, asked);
@@ -75,33 +77,39 @@ public sealed class HostedDeleteTests : ArcGisClient
         JsonElement answer = JsonDocument.Parse(body).RootElement;
 
         Assert.True(answer.GetProperty("removed").GetBoolean());
+        string entry = answer.GetProperty("recycled").GetString()!;
 
-        JsonElement layers = answer.GetProperty("layers");
-
-        Assert.Equal(1, layers.GetArrayLength());
-
-        JsonElement one = layers[0];
-
-        Assert.True(one.GetProperty("hosted").GetBoolean(), "The imported layer is not hosted.");
-        Assert.True(one.GetProperty("unpublished").GetBoolean());
-        Assert.True(
-            one.GetProperty("dropped").GetBoolean(),
-            $"The response did not say the table was dropped: {body}");
-
-        // <b>And the table is gone from the datastore, which is the claim.</b> The response's own
-        // `dropped` is this server reporting on itself; the listing is the datastore answering.
+        // <b>And the table is gone from the datastore, which is the claim.</b> The listing is the datastore
+        // answering; the table waits in the recycle schema, which nothing publishes from.
         Assert.False(
             await DatastoreHasAsync(root, token!, table),
-            $"'{table}' is still in the datasource listing after a delete that reported dropping it. "
-            + "The response and the database disagree, and the database is right.");
+            $"'{table}' is still in the datasource listing after the service was deleted. {body}");
+        Assert.Equal(HttpStatusCode.NotFound, await StatusAsync(root, $"/rest/services/hosted/{name}/FeatureServer?f=json"));
 
-        // The service is gone from the directory too, which is the half that always worked.
-        using HttpRequestMessage gone = new(
-            HttpMethod.Get, $"{root}/rest/services/hosted/{name}/FeatureServer?f=json");
+        // ---------------------------------------------------------------- restored, with its id and its table
+        (int restored, string restoredBody) = await AdminAsync(HttpMethod.Post, $"/admin/recycle-bin/{entry}/restore");
+        Assert.True(restored == 200, $"restoring: {restored} {restoredBody}");
+        Assert.True(await DatastoreHasAsync(root, token!, table), $"'{table}' did not come back with its service.");
+        Assert.Equal(item,
+            (await GetJsonAsync($"/rest/services/hosted/{name}/FeatureServer")).GetProperty("serviceItemId").GetString());
+        Assert.True((await GetJsonAsync($"/rest/services/hosted/{name}/FeatureServer/0/query?where=1%3D1&returnCountOnly=true"))
+            .GetProperty("count").GetInt64() > 0, "The restored layer has no rows.");
 
-        using HttpResponseMessage answered = await Http.SendAsync(gone);
+        // ---------------------------------------------------------------- deleted again, and emptied for good
+        (_, string again) = await DeleteAsync(root, token!, name, drop: true);
+        string second = JsonDocument.Parse(again).RootElement.GetProperty("recycled").GetString()!;
+        (int purged, string purgedBody) = await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{second}");
+        Assert.True(purged == 204, $"emptying: {purged} {purgedBody}");
+        (int missing, _) = await AdminAsync(HttpMethod.Post, $"/admin/recycle-bin/{second}/restore");
+        Assert.Equal(404, missing);
+        Assert.False(await DatastoreHasAsync(root, token!, table));
+    }
 
-        Assert.Equal(HttpStatusCode.NotFound, answered.StatusCode);
+    private async Task<HttpStatusCode> StatusAsync(string root, string path)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, $"{root}{path}");
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        return response.StatusCode;
     }
 
     /// <summary>Imports a corpus shapefile and returns the table it landed in.</summary>

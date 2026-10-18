@@ -659,6 +659,21 @@ it so. The string parameter `having` still throws, so nothing can carry the clau
 boundary beside `WhereClause` and `PredicateSql`. `supportsHavingClause` is true where the source answers it (PostGIS)
 and false on GeoParquet layers, which refuse it in their own words.
 
+### 4a-iv. A statistic may be computed over an expression — the ArcGIS gap review, 2026-10-18
+
+`supportsSqlExpression` was false, and Esri's layer reference ties it to an expression in `outStatistics`, `groupBy`
+or `orderBy`, with `onStatisticField` as `str_angle*100` its only example ([ADR-197](ADR-197-the-arcgis-gap-review-s-second-half.md) §2).
+**`StatisticRequest.Expression` is a third permitted exception to §4.1, on the same ground as §4a-i and §4a-iii**: a
+`BoundExpression` built by `StatisticExpression`, never the caller's text. The expression is handed to the where
+grammar as `(<text>) IS NULL`, and the tree that comes back must be exactly that one test — a parenthesis that
+smuggles in an `OR` or a second statement leaves a different tree and is refused — then only the operand is written,
+through `PredicateSql`, with columns resolved against the layer's and every literal bound under its statistic's own
+`@s{n}_` placeholders. An expression needs an `outStatisticFieldName`, and only `count`, `min` and `max` take one
+that is not a number. **`groupByFieldsForStatistics` takes one as well** (D-301, repaid the same day), answered as `ExprN` as
+Esri's server answers it and carried as `FeatureQuery.GroupExpressions` under this same permission; **`orderByFields`
+refuses one**, as Esri's server does ([D-301](../architecture-debt.md)). `SqlStaysOutOfTheQueryModelTests` permits the member and
+treats `BoundExpression` as carrying SQL wherever else it appears. True on PostGIS, false on GeoParquet.
+
 ### 4b. Everything else the query operation documents
 
 The same pass implemented the rest of the parameters, each against PostGIS:

@@ -1169,6 +1169,16 @@ public sealed class PostGisFeatureSource
             select.Add(LayerDefinition.Quote(group));
         }
 
+        // D-301: a grouped expression, our SQL from StatisticExpression, answered under its ExprN name.
+        foreach (GroupExpression grouped in query.GroupExpressions)
+        {
+            select.Add($"({grouped.Expression.Sql}) as {LayerDefinition.Quote(grouped.Name)}");
+        }
+
+        IEnumerable<string> groupedBy = query.GroupBy.Select(LayerDefinition.Quote)
+            .Concat(query.GroupExpressions.Select(g => $"({g.Expression.Sql})"));
+        bool grouping = query.GroupBy.Count > 0 || query.GroupExpressions.Count > 0;
+
         foreach (StatisticRequest statistic in query.Statistics)
         {
             select.Add(
@@ -1181,10 +1191,9 @@ public sealed class PostGisFeatureSource
 
         AppendWhere(sql, query);
 
-        if (query.GroupBy.Count > 0)
+        if (grouping)
         {
-            sql.Append(" group by ")
-               .Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
+            sql.Append(" group by ").Append(string.Join(", ", groupedBy));
         }
 
         // Q-109: the having clause, parsed and bound like where (HavingClause); its literals are @h0, @h1, ….
@@ -1193,7 +1202,7 @@ public sealed class PostGisFeatureSource
             sql.Append(" having ").Append(having.Sql);
         }
 
-        if (query.GroupBy.Count > 0)
+        if (grouping)
         {
             // <b>By the caller's order when they gave one, and by the group otherwise.</b>
             // *Which values are the most common* is a grouped query ordered by its own count,
@@ -1240,7 +1249,7 @@ public sealed class PostGisFeatureSource
 
             if (ordering.Count == 0)
             {
-                ordering.AddRange(query.GroupBy.Select(LayerDefinition.Quote));
+                ordering.AddRange(groupedBy);
             }
 
             sql.Append(" order by ").Append(string.Join(", ", ordering));
@@ -1259,6 +1268,19 @@ public sealed class PostGisFeatureSource
             for (int i = 0; i < bound.Parameters.Count; i++)
             {
                 command.Parameters.AddWithValue(HavingClause.Placeholder(i)[1..], bound.Parameters[i] ?? DBNull.Value);
+            }
+        }
+
+        foreach (KeyValuePair<string, object?> value in query.GroupExpressions.SelectMany(g => g.Expression.Parameters))
+        {
+            command.Parameters.AddWithValue(value.Key, value.Value ?? DBNull.Value);
+        }
+
+        foreach (StatisticRequest statistic in query.Statistics)
+        {
+            foreach (KeyValuePair<string, object?> value in statistic.Expression?.Parameters ?? [])
+            {
+                command.Parameters.AddWithValue(value.Key, value.Value ?? DBNull.Value);
             }
         }
 
@@ -1299,7 +1321,10 @@ public sealed class PostGisFeatureSource
     /// <returns>The SQL fragment.</returns>
     private static string Aggregate(StatisticRequest statistic)
     {
-        string column = LayerDefinition.Quote(statistic.Field);
+        // An expression's SQL is this server's own, written by StatisticExpression with its literals as placeholders.
+        string column = statistic.Expression is { } expression
+            ? $"({expression.Sql})"
+            : LayerDefinition.Quote(statistic.Field);
 
         if (statistic.Kind is not (StatisticKind.PercentileContinuous
             or StatisticKind.PercentileDiscrete))

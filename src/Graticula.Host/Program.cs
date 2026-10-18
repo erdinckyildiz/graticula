@@ -836,7 +836,24 @@ public static class Program
             services.GetRequiredService<IRoleGrants>(),
             services.GetRequiredService<SourceBreaker>(),
             services.GetRequiredService<AnonymousGrants>(),
-            services.GetRequiredService<BasicCredentials>()));
+            services.GetRequiredService<BasicCredentials>(),
+            services.GetRequiredService<IApiKeyStore>()));
+
+        // ADR-203: the recycle bin — deleted items kept whole with their ids until they expire.
+        builder.Services.AddSingleton<IRecycleBin>(services =>
+            new PostgresRecycleBin(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<RecycleBinService>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<RecycleBinService>());
+
+        // ADR-202: terms of use, content categories and favourites, and what the portal's documents say of them.
+        builder.Services.AddSingleton<IItemAnnotationStore>(services =>
+            new PostgresItemAnnotationStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<ItemAnnotations>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<ItemAnnotations>());
+
+        // ADR-200: service accounts and their API keys.
+        builder.Services.AddSingleton<IApiKeyStore>(services =>
+            new PostgresApiKeyStore(services.GetRequiredService<NpgsqlDataSource>()));
 
         // ADR-178: HTTP Basic on the OGC faces, over HTTPS, through the same sign-in as /rest/auth/login.
         builder.Services.AddSingleton(services => new BasicCredentials(
@@ -852,7 +869,16 @@ public static class Program
             LoginThrottle.Default,
             settings.SessionLifetime,
             services.GetRequiredService<TimeProvider>(),
-            services.GetRequiredService<Graticula.Host.Ldap.LdapDirectory>()));
+            services.GetRequiredService<Graticula.Host.Ldap.LdapDirectory>(),
+            services.GetRequiredService<SecondFactors>()));
+
+        // ADR-201: a second step at sign-in for a member who turned one on.
+        builder.Services.AddSingleton<ISecondFactorStore>(services =>
+            new PostgresSecondFactorStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => new SecondFactors(
+            services.GetRequiredService<ISecondFactorStore>(),
+            services.GetRequiredService<SecretProtector>(),
+            services.GetRequiredService<TimeProvider>()));
 
         QuietTheFramework(builder.Logging, builder.Configuration);
 
@@ -2586,9 +2612,14 @@ public static class Program
             Results.Content(
                 RestDirectory.SignIn(
                     context.Request.Query["return"].ToString(),
-                    context.Request.Query["failed"].Count > 0
-                        ? "The name or password is incorrect."
-                        : null,
+                    context.Request.Query["failed"].ToString() switch
+                    {
+                        "" => null,
+                        // ADR-201: the password was right, and the account asks for a code.
+                        "code" => "Your name and password were right. This account also asks for a code from its "
+                            + "authenticator app, or a recovery code: type the password again with the code.",
+                        _ => "The name or password is incorrect.",
+                    },
 
                     // ADR-088: a way in through each provider an operator configured and left on.
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))

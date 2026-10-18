@@ -92,7 +92,7 @@ OpenStreetMap even when a ground is set.
 5.4 **The gallery group is found by every signed-in caller, and by nobody signed out.** `community/groups` answers
 it to a signed-in caller outside it with the fields every outsider is already shown (ADR-036 §4g). **A signed-out
 caller is not given it — owner decision 2026-10-15, Q-174: *"giriş yapmamış kullanıcı basemap seçemesin"*** — so
-Q-119's rule stands whole, and a signed-out caller is given the default basemap (§5.3, which depends on the
+Q-119's rule stood whole *(until 2026-10-18, when ADR-199 brought public groups back and kept this group from a signed-out caller even when public — Q-179)*, and a signed-out caller is given the default basemap (§5.3, which depends on the
 default's own sharing, not on the group) and nothing to choose from. The item search answers `group:<gallery>` with
 the entries §5.2 gives *that* caller. A group's own content search, `content/groups/{id}/search`, answers the same listing narrowed to the group,
 because that is where the SDK asks.

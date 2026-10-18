@@ -47,28 +47,20 @@ internal static partial class GeometryServerEndpoints
     };
 
     /// <summary>
-    /// A geodesic measure asked for — <c>geodesic=true</c>, or a <c>calculationType</c> other than planar — refused by
-    /// name, since this service measures in the plane of the reference (ADR-022 §5); null when none is asked.
+    /// A geodesic measure asked of an operation made in a plane — <c>geodesic=true</c>, or a <c>calculationType</c> other
+    /// than planar — refused by name; null when none is asked. Since ADR-198 the measures answer it instead.
     /// </summary>
     private static string? GeodesicAsked(IFormCollection form)
     {
-        if (string.Equals(Field(form, "geodesic"), "true", StringComparison.OrdinalIgnoreCase))
-        {
-            return "`geodesic=true` asks for a measure on the ellipsoid, and this geometry service measures in the plane of "
-                + "the reference. Send the geometry in a projected reference suited to the area (a UTM zone, or TM30 in "
-                + "Türkiye) for distances that hold there, or omit `geodesic` for planar ones.";
-        }
+        (Calculation calculation, string? error) = CalculationOf(form);
 
-        string? type = Field(form, "calculationType");
-
-        if (type is not null && !type.Equals("planar", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"`calculationType={type}` asks for a measure on the ellipsoid, and this geometry service measures in the "
-                + "plane of the reference: `calculationType=planar`. Send the geometry in a projected reference suited to "
-                + "the area for measures that hold there.";
-        }
-
-        return null;
+        // ADR-198: lengths, areasAndLengths, distance, buffer and densify measure on the ellipsoid and never reach here
+        // asking for it; the rest of the operations are made in a plane, as ArcGIS's are.
+        return error ?? (calculation == Calculation.Planar
+            ? null
+            : "A geodesic calculation is answered by lengths, areasAndLengths, distance, buffer and densify; this "
+                + "operation is made in the plane of the reference. Omit `geodesic` and `calculationType`, or send the "
+                + "geometry in a projected reference suited to the area.");
     }
 
     /// <summary>
@@ -129,10 +121,10 @@ internal static partial class GeometryServerEndpoints
         if (reference.Angular)
         {
             return (0, string.Empty, $"`{field}` names {unit.Name}, and EPSG:{srid.ToString(CultureInfo.InvariantCulture)} is "
-                + "geographic: its coordinates are degrees, and a distance in " + unit.Name + " there is a geodesic one, "
-                + "which this geometry service does not measure. Name a projected reference suited to the area to work in "
-                + "— for a buffer, `bufferSR` (a UTM zone, TM30 in Türkiye, or 3857), and the answer comes back in this "
-                + "one — or omit the unit to work in degrees.");
+                + "geographic: its coordinates are degrees, and a distance in " + unit.Name + " there is a geodesic one. "
+                + "Buffer, distance, lengths, areasAndLengths and densify answer it on the ellipsoid (ADR-198); this "
+                + "operation is made in a plane, so name a projected reference suited to the area or omit the unit to "
+                + "work in degrees.");
         }
 
         return (unit.Metres, unit.Name, null);

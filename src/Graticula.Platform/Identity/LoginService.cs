@@ -29,6 +29,15 @@ public enum LoginFailure
 
     /// <summary>Too many recent failures from this address.</summary>
     AddressThrottled,
+
+    /// <summary>
+    /// The password was right and the account asks for a second step, which was not given — ADR-201. Said only after the
+    /// password is proven, so it tells nobody without it that the account exists.
+    /// </summary>
+    SecondFactorRequired,
+
+    /// <summary>The password was right and the second step was wrong, spent, or not this account's — ADR-201.</summary>
+    SecondFactorInvalid,
 }
 
 /// <summary>The outcome of a login attempt.</summary>
@@ -90,6 +99,9 @@ public sealed class LoginService
     /// <summary>The directories a name with no password here is tried against — ADR-089 — or null.</summary>
     private readonly IDirectorySignIn? _directory;
 
+    /// <summary>The second step at sign-in — ADR-201; null where the store has none.</summary>
+    private readonly SecondFactors? _secondFactors;
+
     /// <summary>Creates the service.</summary>
     /// <param name="store">Where identity lives.</param>
     /// <param name="hasher">The password hasher.</param>
@@ -97,13 +109,15 @@ public sealed class LoginService
     /// <param name="sessionLifetime">How long an issued session lasts.</param>
     /// <param name="time">The clock. Injected so expiry is testable without waiting.</param>
     /// <param name="directory">The directories to ask for a name with no password here — ADR-089 — or null.</param>
+    /// <param name="secondFactors">The second step at sign-in — ADR-201. Optional: without it nobody is asked for one.</param>
     public LoginService(
         IIdentityStore store,
         IPasswordHasher hasher,
         LoginThrottle throttle,
         TimeSpan sessionLifetime,
         TimeProvider time,
-        IDirectorySignIn? directory = null)
+        IDirectorySignIn? directory = null,
+        SecondFactors? secondFactors = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(hasher);
@@ -117,6 +131,7 @@ public sealed class LoginService
         _sessionLifetime = sessionLifetime;
         _time = time;
         _directory = directory;
+        _secondFactors = secondFactors;
 
         // <b>A password nobody has and nobody can guess</b>, so the decoy can never accidentally
         // be the one somebody typed. Thirty-two random bytes; what matters is only that the
@@ -136,6 +151,7 @@ public sealed class LoginService
     /// deployment's own lifetime and no further, and never under a minute; null is the deployment's.
     /// </param>
     /// <param name="scope">
+    /// <param name="code">The second step — a code from the app or a recovery code — for an account that has one (ADR-201).</param>
     /// What the session may be used for — <see cref="SessionScopes"/> — or null for every surface.
     /// </param>
     /// <param name="boundTo">
@@ -176,10 +192,19 @@ public sealed class LoginService
         CancellationToken cancellationToken,
         TimeSpan? lifetime = null,
         string? boundTo = null,
-        string? scope = null)
+        string? scope = null,
+        string? code = null)
     {
         (LoginFailure failure, Principal? principal) =
             await VerifyAsync(name, password, address, cancellationToken).ConfigureAwait(false);
+
+        if (failure != LoginFailure.None)
+        {
+            return new LoginResult(failure, null, null);
+        }
+
+        // ADR-201: the second step, after the password and before anything is issued.
+        failure = await SecondStepAsync(principal!, name, code, address, cancellationToken).ConfigureAwait(false);
 
         if (failure != LoginFailure.None)
         {
@@ -190,6 +215,53 @@ public sealed class LoginService
             principal!, address, cancellationToken, lifetime, boundTo, scope).ConfigureAwait(false);
 
         return new LoginResult(LoginFailure.None, token, session);
+    }
+
+    /// <summary>
+    /// The second step for a principal whose password was just proven — ADR-201: none when it has no second factor,
+    /// <see cref="LoginFailure.SecondFactorRequired"/> when it has one and no code was given, and a wrong code recorded
+    /// as a failed attempt, so the account and address limits that slow password guessing slow code guessing too.
+    /// </summary>
+    /// <param name="principal">Who proved the password.</param>
+    /// <param name="name">The name signed in with, under which attempts are counted.</param>
+    /// <param name="code">The code, or null.</param>
+    /// <param name="address">Where from.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The failure, or none.</returns>
+    public async Task<LoginFailure> SecondStepAsync(
+        Principal principal, string name, string? code, IPAddress? address, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        if (_secondFactors is null
+            || !await _secondFactors.RequiredAsync(principal.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return LoginFailure.None;
+        }
+
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return LoginFailure.SecondFactorRequired;
+        }
+
+        DateTimeOffset now = _time.GetUtcNow();
+        FailureCounts counts = await _store
+            .CountRecentFailuresAsync(name, address, now - _throttle.Window, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (_throttle.RefuseBeforeVerifying(counts))
+        {
+            return LoginFailure.AddressThrottled;
+        }
+
+        if (await _secondFactors.VerifyAsync(principal.Id, code, cancellationToken).ConfigureAwait(false))
+        {
+            return LoginFailure.None;
+        }
+
+        await _store.RecordAttemptAsync(name, address, succeeded: false, cancellationToken).ConfigureAwait(false);
+
+        return _throttle.ThrottleAfterFailure(counts) ? LoginFailure.AccountThrottled : LoginFailure.SecondFactorInvalid;
     }
 
     /// <summary>

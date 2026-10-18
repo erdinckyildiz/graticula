@@ -74,7 +74,7 @@ public static class CatalogManifest
     /// item's title when the item is made.
     /// </remarks>
     private static readonly string[] ItemColumns =
-        ["description", "tags", "owner_principal_id", "sharing", "content_folder_id", "delete_protected"];
+        ["description", "tags", "owner_principal_id", "sharing", "content_folder_id", "delete_protected", "license_info"];
 
     /// <summary>Where a covered table's rows are read from: the table itself, or for the two above, what stands for it.</summary>
     private static string SourceOf(string table) => table switch

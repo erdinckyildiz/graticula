@@ -360,6 +360,7 @@ public sealed class GeoParquetFeatureSource
             AnswersHaving = false,
             AnswersTopFeatures = false,
             AnswersCentroid = false,
+            AnswersStatisticExpressions = false,
             AnswersRelations = _engine is not null,
         };
     }
@@ -688,6 +689,13 @@ public sealed class GeoParquetFeatureSource
             throw new QueryNotSupportedException(
                 "This layer is served from a GeoParquet file, and queryTopFeatures is answered on PostGIS layers only. "
                 + "Query with orderByFields and resultRecordCount for one group at a time.");
+        }
+
+        if (query.Statistics.Any(s => s.Expression is not null) || query.GroupExpressions.Count > 0)
+        {
+            throw new QueryNotSupportedException(
+                "This layer is served from a GeoParquet file, and a statistic over an SQL expression is answered on "
+                + "PostGIS layers only. Compute it over a field.");
         }
 
         if (query.Having is not null)

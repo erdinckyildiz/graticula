@@ -611,6 +611,9 @@ internal static partial class AdminEndpoints
         app.MapGet("/content/items", ListContentItemsAsync);
         MapWebMaps(app);         // ADR-079 — AdminEndpoints.WebMaps.cs
         MapDocuments(app);       // ADR-188 — AdminEndpoints.Documents.cs
+        MapServiceAccounts(app); // ADR-200 — AdminEndpoints.ServiceAccounts.cs
+        MapItemAnnotations(app); // ADR-202 — AdminEndpoints.ItemAnnotations.cs
+        MapRecycleBin(app);      // ADR-203 — AdminEndpoints.RecycleBin.cs
 
         // <b>ADR-037's surface, and it is a read only.</b> A job is created by the act that needs one —
         // an upload, a seed — and never by asking for one, so there is no POST here. Cancelling is
@@ -2010,6 +2013,7 @@ internal static partial class AdminEndpoints
         ITileCache tiles,
         IAuditLog audit,
         SourceQuiesce quiesce,
+        RecycleBinService recycle,
         CancellationToken cancellation)
     {
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
@@ -2045,6 +2049,63 @@ internal static partial class AdminEndpoints
         }
 
         bool isView = target?.ViewOf is not null;
+
+        // ADR-203: a whole delete goes into the recycle bin — the hosted tables only it publishes set aside, its rows kept
+        // with their ids — and comes back from there until it expires.
+        if (drop == true && target is not null)
+        {
+            IReadOnlyList<PublishedLayer> all = await published.ListAsync(cancellation).ConfigureAwait(false);
+            List<PublishedLayer> held = [.. all.Where(l => l.ServiceId == target.Id)];
+
+            foreach (PublishedLayer layer in held.Where(l => l.Definition.IsHosted))
+            {
+                if (quiesce.Holding(layer.ConnectionString) is { } outOfService)
+                {
+                    throw new SourceQuiescedException(SourceQuiesce.Says(outOfService), outOfService.Until);
+                }
+            }
+
+            // A table another service still publishes stays where it is: that service still reads it.
+            List<(string Table, bool View)> tables = [.. held
+                .Where(l => l.Definition.IsHosted && !all.Any(other => other.ServiceId != l.ServiceId
+                    && string.Equals(other.Definition.SchemaName, l.Definition.SchemaName, StringComparison.Ordinal)
+                    && string.Equals(other.Definition.TableName, l.Definition.TableName, StringComparison.Ordinal)
+                    && string.Equals(other.ConnectionString, l.ConnectionString, StringComparison.Ordinal)))
+                .Select(l => (l.Definition.TableName, isView))
+                .Distinct()];
+
+            (Guid? entry, string? refused) = await recycle.RecycleServiceAsync(
+                target.Id, target.Name, target.Owner, context.Features.Get<RequestPrincipal>()!.Principal.Id, tables, cancellation)
+                .ConfigureAwait(false);
+
+            await AuditAsync(context, audit, "service.delete", name,
+                Detail(new { folder = at, recycled = entry, tables = tables.Select(t => t.Table) }),
+                succeeded: entry is not null, cancellation).ConfigureAwait(false);
+
+            if (entry is null)
+            {
+                await Refuse(context, 409, refused!).ConfigureAwait(false);
+                return;
+            }
+
+            foreach (PublishedLayer layer in held)
+            {
+                contexts.Forget(layer);
+                tiles.Purge(layer.Id);
+            }
+
+            await Results.Json(new
+            {
+                name,
+                folder = at,
+                removed = true,
+                recycled = entry,
+                until = DateTimeOffset.UtcNow + recycle.Retention,
+                note = $"In the recycle bin until it expires, with its {Count(tables.Count, "hosted table")}; restore it from "
+                    + "/admin/recycle-bin. A registered layer's table is never touched.",
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
 
         // <b>`drop=true` empties the service on the way out — owner instruction, ADR-034 §5k.</b> The
         // copy under the delete button used to read *the tables in the datastore are not dropped*, and
@@ -6368,6 +6429,14 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-199: making a group findable by anybody is sharing to the public, and takes the privilege an item's public
+        // sharing takes, as ArcGIS's does.
+        if (visibility == GroupVisibility.Public
+            && !await Authorize.RequireAsync(context, Privilege.SharingShareToPublic).ConfigureAwait(false))
+        {
+            return;
+        }
+
         GroupChange outcome = await groups.SetSettingsAsync(
             current.Principal.Id,
             current.Authorization.Allows(Privilege.AdminManageAllContent),
@@ -6421,6 +6490,9 @@ internal static partial class AdminEndpoints
             note = visibility == GroupVisibility.Members
                 ? "Only its members can find it. What is shared with it was already readable by them "
                   + "and by nobody else, and that has not changed."
+                : visibility == GroupVisibility.Public
+                ? "Anybody can now find it, signed in or not. A signed-out reader sees only what is shared "
+                  + "with the public; the member list is withheld from everybody outside it."
                 : "Any signed-in member can now find it. What is shared with it is still readable "
                   + "only by its members — being able to see that a group exists is not being able "
                   + "to read what is in it, and the member and item lists are withheld from anybody "
@@ -6431,6 +6503,7 @@ internal static partial class AdminEndpoints
     private static string Wire(GroupVisibility visibility) => visibility switch
     {
         GroupVisibility.Organization => "organization",
+        GroupVisibility.Public => "public",
         _ => "members",
     };
 
@@ -6455,22 +6528,13 @@ internal static partial class AdminEndpoints
             case null or "" or "members": return true;
             case "organization": visibility = GroupVisibility.Organization; return true;
 
-            // <b>`public` is named in the refusal because clients still send it.</b> It was a
-            // stored-and-refused value until 2026-08-25 and is now not a value at all (owner
-            // decision, Q-119, migration 36); a caller that sends it deserves to be told what
-            // happened rather than that the word is unrecognised.
-            case "public":
-                error = "'public' is no longer a group visibility. It meant 'discoverable by "
-                    + "anybody, including an anonymous caller', and there was nowhere for that "
-                    + "to happen — the group listing needs a signed-in caller — so it was "
-                    + "enforced exactly as 'organization' while claiming more. Use "
-                    + "'organization', which is what it did.";
-                return false;
+            // Gone from 2026-08-25 (Q-119) and back on 2026-10-18 by owner decision (ADR-199): the portal's group search
+            // now answers a signed-out caller, so there is a place for it to happen.
+            case "public": visibility = GroupVisibility.Public; return true;
 
             default:
-                error = $"'{said}' is not a group visibility. Use 'members' (the default) or "
-                    + "'organization'. It says who may find the group, not who may read "
-                    + "what is shared with it — that is always its members and nobody else.";
+                error = $"'{said}' is not a group visibility. Use 'members' (the default), 'organization' or "
+                    + "'public'. It says who may find the group, not who may read what is shared with it.";
                 return false;
         }
     }
@@ -7078,6 +7142,13 @@ internal static partial class AdminEndpoints
                 LoginFailure.AddressThrottled or LoginFailure.AccountThrottled => (
                     StatusCodes.Status429TooManyRequests,
                     "Token not generated. Too many failed sign-in attempts. Wait and try again."),
+                // ADR-201: the password was right and the account asks for a second step, which a token request
+                // cannot carry. Said only after the password is proven.
+                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid => (
+                    StatusCodes.Status401Unauthorized,
+                    "Token not generated. This account signs in with a second step, which a token request cannot carry. Sign in "
+                    + "through the portal's sign-in page (OAuth), as ArcGIS Pro and the ArcGIS API for Python do; a "
+                    + "script uses an API key (ADR-200)."),
                 _ => (
                     StatusCodes.Status401Unauthorized,
                     "Token not generated. The name or password is incorrect."),

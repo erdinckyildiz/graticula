@@ -83,13 +83,15 @@ internal sealed class Authentication
     /// every anonymous request reads the store, which is what every one did before it existed.
     /// </param>
     /// <param name="basic">HTTP Basic on the OGC faces — ADR-178. Optional: without it only tokens are read.</param>
+    /// <param name="keys">Service accounts' API keys — ADR-200. Optional: without it a key is an unknown token.</param>
     public Authentication(
         IIdentityStore store,
         TimeProvider time,
         IRoleGrants? grants = null,
         SourceBreaker? breaker = null,
         AnonymousGrants? anonymous = null,
-        BasicCredentials? basic = null)
+        BasicCredentials? basic = null,
+        IApiKeyStore? keys = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(time);
@@ -100,7 +102,11 @@ internal sealed class Authentication
         _breaker = breaker;
         _anonymous = anonymous;
         _basic = basic;
+        _keys = keys;
     }
+
+    /// <summary>Service accounts' keys — ADR-200; null where the store has none.</summary>
+    private readonly IApiKeyStore? _keys;
 
     private readonly SourceBreaker? _breaker;
     private readonly AnonymousGrants? _anonymous;
@@ -276,10 +282,18 @@ internal sealed class Authentication
 
             _breaker?.Succeeded(SourceBreaker.PlatformStore);
 
+            Authorization authorization = Authorization.Resolve(userType, roles, _grants, groups, editableGroups);
+
+            // A machine never administers and never comes to own anything (ADR-015 §2, ADR-200).
+            if (principal.Kind == PrincipalKind.Service)
+            {
+                authorization = authorization.ForAMachine();
+            }
+
             return new RequestPrincipal(
                 principal,
                 session?.SessionId,
-                Authorization.Resolve(userType, roles, _grants, groups, editableGroups),
+                authorization,
                 session?.MustChangePassword ?? false)
             {
                 TokenWasRejected = rejected,
@@ -374,9 +388,23 @@ internal sealed class Authentication
             return null;
         }
 
-        return await _store
+        AuthenticatedSession? session = await _store
             .FindSessionAsync(SessionToken.HashOf(token), _time.GetUtcNow(), cancellationToken)
             .ConfigureAwait(false);
+
+        // <b>An API key, where a session was not found — ADR-200.</b> Sent the ways a token is, so an ArcGIS client
+        // given one as its token (the Maps SDK's apiKey, the Python API's api_key) uses it unchanged. It opens what a
+        // generateToken token opens and no more: the ArcGIS faces, not the native administration API (ADR-015 §4).
+        if (session is null && _keys is not null && ApiKeyToken.IsOne(token)
+            && await _keys.FindAsync(SessionToken.HashOf(token), _time.GetUtcNow(), cancellationToken).ConfigureAwait(false)
+                is { } key)
+        {
+            await _keys.TouchAsync(key.Key, _time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+            session = new AuthenticatedSession(
+                key.Key, key.Principal, key.ExpiresAt ?? DateTimeOffset.MaxValue, Scope: SessionScopes.ArcGis);
+        }
+
+        return session;
     }
 
     /// <summary>

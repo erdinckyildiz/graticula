@@ -228,6 +228,30 @@ internal static class OAuthEndpoints
             return;
         }
 
+        // ADR-201: the second step, after the password and before a code is issued. The person is sent back to the form
+        // with their name kept and told what is missing; the password is typed again, never carried in the page.
+        LoginFailure second = await login.SecondStepAsync(
+            principal!, name, form["code"].FirstOrDefault(), CallerAddress.Of(context), cancellation).ConfigureAwait(false);
+
+        if (second != LoginFailure.None)
+        {
+            await RecordAsync(context, audit, principal!.Id, name, "oauth.signin", app.ClientId, succeeded: false, cancellation)
+                .ConfigureAwait(false);
+
+            bool slowed = second is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled;
+            await SignInPageAsync(
+                    context, app, request,
+                    slowed ? "Too many failed sign-in attempts. Wait and try again."
+                        : second == LoginFailure.SecondFactorRequired
+                            ? "This account also asks for a code from its authenticator app, or a recovery code. Type your password again with the code."
+                            : "The code is incorrect or has been used. Type your password again with the code your app shows now.",
+                    slowed ? 429 : 401,
+                    typedName: name,
+                    said: slowed ? "Too many invalid attempts. Please try again later." : "A verification code is required.")
+                .ConfigureAwait(false);
+            return;
+        }
+
         await IssueAsync(context, store, audit, app, request, principal!, cancellation).ConfigureAwait(false);
     }
 
@@ -769,6 +793,8 @@ internal static class OAuthEndpoints
             + $"<label for=\"username\">Name</label><input id=\"username\" name=\"username\" autocomplete=\"username\" required"
             + $"{(typedName is { Length: > 0 } typed ? $" value=\"{e.Encode(typed)}\"" : string.Empty)}{invalid}{(focus ? " autofocus" : string.Empty)}>"
             + $"<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required{invalid}>"
+            // ADR-201: the second step, for an account that has one.
+            + $"<label for=\"code\">Code <span class=\"small\">(only if your account asks for one)</span></label><input id=\"code\" name=\"code\" inputmode=\"numeric\" autocomplete=\"one-time-code\">"
             + $"<button type=\"submit\"{(providers ? " class=\"second\"" : string.Empty)}>{(providers ? "Sign in with password" : "Sign in")}</button></form>"
             + $"<p class=\"where small\">You will be returned to <code>{e.Encode(where)}</code>.</p>"
             + OAuthInfo(new Dictionary<string, object?>

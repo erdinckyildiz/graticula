@@ -139,6 +139,7 @@ internal static partial class CoverageAdminEndpoints
         string? folder,
         ICoverageCatalog coverages,
         IAuditLog audit,
+        RecycleBinService recycle,
         CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(coverages);
@@ -150,6 +151,37 @@ internal static partial class CoverageAdminEndpoints
         }
 
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
+
+        // D-306: into the recycle bin, the files uploaded for it with it, until it expires (ADR-203).
+        if (await coverages.FindAsync(at, name, cancellation).ConfigureAwait(false) is { } recycling)
+        {
+            HostSettings held = context.RequestServices.GetRequiredService<HostSettings>();
+            List<string> files = Uploaded(held, recycling.Path) ? UploadedFilesOf(recycling.Path) : [];
+            (Guid? entry, string? refused) = await recycle.RecycleCoverageAsync(
+                recycling.ServiceId, Qualify(name, at), recycling.Owner,
+                context.Features.Get<RequestPrincipal>()!.Principal.Id, files, cancellation).ConfigureAwait(false);
+
+            await RecordAsync(context, audit, "coverage.remove", Qualify(name, at), new { recycled = entry, files = files.Count },
+                cancellation).ConfigureAwait(false);
+
+            if (entry is null)
+            {
+                await Refuse(context, 409, refused!).ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Ok(new
+            {
+                name = Qualify(name, at),
+                removed = true,
+                recycled = entry,
+                until = DateTimeOffset.UtcNow + recycle.Retention,
+                note = files.Count > 0
+                    ? "In the recycle bin until it expires, with the files uploaded for it; restore it from /admin/recycle-bin."
+                    : "In the recycle bin until it expires. The file was registered in place and has not been touched.",
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
 
         // ADR-123: an uploaded file is this server's, kept under its own directory, and goes with the service; a file
         // registered in place is somebody else's and is never touched.
@@ -562,6 +594,28 @@ internal static partial class CoverageAdminEndpoints
     /// Deletes files this server wrote for imagery, with the overviews beside each; a mosaic's virtual raster takes the
     /// images it places with it, where they are this server's.
     /// </summary>
+    /// <summary>Every file an uploaded image service keeps — the image, its overviews, a mosaic's images beside it.</summary>
+    private static List<string> UploadedFilesOf(string path)
+    {
+        List<string> files = [];
+
+        if (Graticula.Raster.Tiff.VrtMosaicReader.IsMosaic(path) && File.Exists(path))
+        {
+            string root = Path.GetDirectoryName(Path.GetFullPath(path))!;
+
+            foreach (string image in Graticula.Raster.Tiff.VrtMosaicReader.FilesOf(path)
+                .Where(f => string.Equals(Path.GetDirectoryName(f), root, StringComparison.OrdinalIgnoreCase)))
+            {
+                files.Add(image);
+                files.Add(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(image));
+            }
+        }
+
+        files.Add(path);
+        files.Add(Graticula.Raster.Tiff.TiffCoverageReader.PyramidPath(path));
+        return [.. files.Distinct(StringComparer.OrdinalIgnoreCase).Where(File.Exists)];
+    }
+
     private static bool Forget(IEnumerable<string> paths)
     {
         bool all = true;

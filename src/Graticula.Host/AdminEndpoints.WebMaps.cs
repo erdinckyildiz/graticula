@@ -183,7 +183,7 @@ internal static partial class AdminEndpoints
 
     /// <summary>Removes a map.</summary>
     private static async Task DeleteWebMapAsync(
-        HttpContext context, string id, IWebMapStore maps, IAuditLog audit, CancellationToken cancellation)
+        HttpContext context, string id, IWebMapStore maps, IAuditLog audit, RecycleBinService recycle, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -202,20 +202,25 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        bool gone = await maps.DeleteAsync(id, cancellation).ConfigureAwait(false);
+        // ADR-203: into the recycle bin, with its id, until it expires.
+        (Guid? entry, string? refused) = await recycle.RecycleRowsAsync(
+            "web_map", id, Guid.Parse(id), "web map", before.Title, before.Owner, current.Principal.Id, cancellation)
+            .ConfigureAwait(false);
+        bool gone = entry is not null;
 
         await AuditAsync(
             context, audit, "webmap.delete", id,
-            Detail(new { title = before.Title, owner = before.OwnerName }),
+            Detail(new { title = before.Title, owner = before.OwnerName, recycled = entry }),
             succeeded: gone, cancellation).ConfigureAwait(false);
 
         if (!gone)
         {
-            await Refuse(context, 404, NoMap(id)).ConfigureAwait(false);
+            await Refuse(context, refused is null ? 404 : 409, refused ?? NoMap(id)).ConfigureAwait(false);
             return;
         }
 
-        await Results.Json(new { deleted = id, title = before.Title }).ExecuteAsync(context).ConfigureAwait(false);
+        await Results.Json(new { deleted = id, title = before.Title, recycled = entry, until = DateTimeOffset.UtcNow + recycle.Retention })
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Turns a map's delete protection on or off — whoever may change the map.</summary>

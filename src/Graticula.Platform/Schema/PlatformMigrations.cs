@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(90);
+    public static SchemaVersion ComponentSchemaVersion => new(94);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -125,7 +125,123 @@ public static class PlatformMigrations
         ArcGisProIsABuiltInAppV88,
         ADocumentIsAnItemV89,
         MembersHaveProfilesAndCategoriesV90,
+        AGroupMayBePublicV91,
+        AMemberMayHaveASecondFactorV92,
+        AnItemHasTermsCategoriesAndFavoritesV93,
+        ADeletedItemWaitsInTheRecycleBinV94,
     ]);
+
+    /// <summary>A deleted item waits in the recycle bin, its rows kept with their ids — ADR-203, Q-180.</summary>
+    /// <remarks>
+    /// <b>Expand.</b> Two new tables; a build before this one deletes for good, as it always did, and leaves any entry
+    /// here alone. The rows are <c>jsonb</c> with no key to the tables they came from, on purpose: what they point at is
+    /// deleted, and a key would refuse the delete they exist to undo.
+    /// </remarks>
+    private static Migration ADeletedItemWaitsInTheRecycleBinV94 => Migration.Expand(
+        new SchemaVersion(94),
+        "A deleted item waits in the recycle bin, its rows kept with their ids (ADR-203).",
+        """
+        create table if not exists recycle_entry (
+            id                 uuid        not null primary key,
+            item_id            uuid        not null,
+            kind               text        not null,
+            title              text        not null,
+            owner_principal_id uuid        null references principal (id) on delete set null,
+            deleted_by         uuid        null references principal (id) on delete set null,
+            deleted_at         timestamptz not null default now(),
+            expires_at         timestamptz not null,
+            root_table         text        not null,
+            relations          jsonb       not null default '[]'
+        )
+        """,
+        "create index if not exists recycle_entry_expires_idx on recycle_entry (expires_at)",
+        """
+        create table if not exists recycle_row (
+            ordinal    bigserial not null primary key,
+            entry_id   uuid      not null references recycle_entry (id) on delete cascade,
+            table_name text      not null,
+            depth      integer   not null,
+            relink     boolean   not null,
+            row        jsonb     not null
+        )
+        """,
+        "create index if not exists recycle_row_entry_idx on recycle_row (entry_id)");
+
+    /// <summary>
+    /// An item has terms of use and content categories, and a member keeps favourites — ADR-202, the ArcGIS veteran's
+    /// review (V-96).
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> One nullable column and three new tables; a build before this one reads <c>item</c> by naming its
+    /// columns and never touches the rest. The category tree is the item's own, apart from migration 90's member
+    /// categories, as Portal keeps the two apart.
+    /// </remarks>
+    private static Migration AnItemHasTermsCategoriesAndFavoritesV93 => Migration.Expand(
+        new SchemaVersion(93),
+        "An item has terms of use and content categories, and a member keeps favourites (ADR-202).",
+        "alter table item add column if not exists license_info text null",
+        """
+        create table if not exists item_category (
+            id        uuid not null primary key,
+            parent_id uuid null references item_category (id) on delete cascade,
+            name      text not null,
+            constraint item_category_name_present check (length(btrim(name)) > 0 and position('/' in name) = 0)
+        )
+        """,
+        """
+        create unique index if not exists item_category_name_unique
+            on item_category (coalesce(parent_id, '00000000-0000-0000-0000-000000000000'::uuid), lower(name))
+        """,
+        """
+        create table if not exists item_in_category (
+            item_id     uuid not null references item (id) on delete cascade,
+            category_id uuid not null references item_category (id) on delete cascade,
+            constraint item_in_category_pk primary key (item_id, category_id)
+        )
+        """,
+        "create index if not exists item_in_category_category_idx on item_in_category (category_id)",
+        """
+        create table if not exists item_favorite (
+            principal_id uuid        not null references principal (id) on delete cascade,
+            item_id      uuid        not null references item (id) on delete cascade,
+            added_at     timestamptz not null default now(),
+            constraint item_favorite_pk primary key (principal_id, item_id)
+        )
+        """);
+
+    /// <summary>A member may have a second factor at sign-in — ADR-201.</summary>
+    /// <remarks>
+    /// <b>Expand.</b> A new table, read by nothing before this build; a build before it signs a member with a second factor
+    /// in on the password alone, which is the rollback's cost and is named in ADR-201 §5.
+    /// </remarks>
+    private static Migration AMemberMayHaveASecondFactorV92 => Migration.Expand(
+        new SchemaVersion(92),
+        "A member may have a second factor at sign-in (ADR-201).",
+        """
+        create table if not exists principal_second_factor (
+            principal_id uuid        not null primary key references principal (id) on delete cascade,
+            secret       bytea       not null,
+            key_version  integer     not null,
+            last_step    bigint      not null default 0,
+            recovery     bytea[]     not null default '{}',
+            created_at   timestamptz not null default now(),
+            enabled_at   timestamptz null
+        )
+        """);
+
+    /// <summary>A group may be public again: findable by anybody, signed in or not — ADR-199.</summary>
+    /// <remarks>
+    /// <b>Expand.</b> It widens the check migration 36 narrowed; a build before this one reads a stored `public` as
+    /// `organization` (its <c>ReadVisibility</c> says so), which shows the group to fewer people, never more.
+    /// </remarks>
+    private static Migration AGroupMayBePublicV91 => Migration.Expand(
+        new SchemaVersion(91),
+        "A group may be public again (ADR-199, reversing Q-119).",
+        "alter table sharing_group drop constraint if exists sharing_group_visibility_known",
+        """
+        alter table sharing_group add constraint sharing_group_visibility_known
+          check (visibility in ('members', 'organization', 'public'))
+        """);
 
     /// <summary>
     /// A member has a profile — an e-mail address, a bio, who may read it, a photo — and an organization sorts its

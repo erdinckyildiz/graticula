@@ -203,11 +203,15 @@ public sealed class FeatureServerMetadataWriterTests
 
         JsonElement advanced = layer.GetProperty("advancedQueryCapabilities");
 
-        foreach (string claim in (string[])
-            ["supportsSqlExpression", "supportsCountDistinct", "supportsQueryWithResultType"])
-        {
-            Assert.False(advanced.GetProperty(claim).GetBoolean(), claim);
-        }
+        Assert.False(advanced.GetProperty("supportsQueryWithResultType").GetBoolean());
+
+        // <b>Both left the false list with the ArcGIS gap review (ADR-197 §2).</b> A statistic over an expression is
+        // the source's answer, and a GeoParquet layer says false; a count of distinct values both providers answer.
+        Assert.True(advanced.GetProperty("supportsSqlExpression").GetBoolean());
+        Assert.True(advanced.GetProperty("supportsCountDistinct").GetBoolean());
+        Assert.False(Json(FeatureServerMetadataWriter.Layer(
+                Layer(), GeometryKind.Polygon, Description() with { AnswersStatisticExpressions = false }, "Query"))
+            .GetProperty("advancedQueryCapabilities").GetProperty("supportsSqlExpression").GetBoolean());
 
         // A polygon's centroid is read where the source answers it (the ArcGIS gap review, 2026-10-17); a point
         // layer has none to offer.
@@ -525,6 +529,22 @@ public sealed class FeatureServerMetadataWriterTests
             Layer(), GeometryKind.Polygon, Description(), "Query"));
 
         Assert.Equal(FeatureQuery.MaximumLimit, layer.GetProperty("maxRecordCount").GetInt32());
+    }
+
+    [Fact]
+    public void The_standard_and_tile_pages_are_the_same_page_and_the_factor_is_one()
+    {
+        // V-88, ADR-197 §3: absent until the gap review, and the same figure, since neither a tile query nor
+        // maxRecordCountFactor is cut differently here.
+        JsonElement layer = Json(FeatureServerMetadataWriter.Layer(
+            Layer(), GeometryKind.Polygon, Description(), "Query", maxRecordCount: 700));
+
+        Assert.Equal(700, layer.GetProperty("standardMaxRecordCount").GetInt32());
+        Assert.Equal(700, layer.GetProperty("tileMaxRecordCount").GetInt32());
+        Assert.Equal(1, layer.GetProperty("maxRecordCountFactor").GetInt32());
+        Assert.Equal(
+            layer.GetProperty("objectIdField").GetString(),
+            layer.GetProperty("uniqueIdField").GetProperty("name").GetString());
     }
 
     /// <summary>

@@ -599,7 +599,7 @@ public sealed class GroupDirectoryTests : PostgresFixture
     }
 
     /// <summary>
-    /// `public` is refused on write, for the same reason `request` is.
+    /// `public` is a visibility again, stored and read back as itself — ADR-199, migration 91.
     /// </summary>
     /// <remarks>
     /// <b>Consistency is the argument, and the alternative was nearly shipped.</b> `public` would mean
@@ -612,15 +612,10 @@ public sealed class GroupDirectoryTests : PostgresFixture
     /// groups. <b>Readable and only unwritable</b>: a row a future build writes still reads correctly.
     /// </remarks>
     [Fact]
-    public async Task Public_is_not_a_visibility_this_product_offers()
+    public async Task Public_is_a_visibility_again()
     {
-        // <b>Owner decision 2026-08-25, migration 36, Q-119.</b> It used to be stored and
-        // refused on write — the same shape `request` still has — and it is now not a value
-        // at all: `GroupVisibility` has two members, so a build that tried to set it would
-        // not compile. What is left to assert is the *stored* side, because a row can
-        // survive a partial restore, and it must read as `organization` rather than as
-        // `members`: `organization` is what `public` was always enforced as, and demoting it
-        // further would narrow what an operator chose without telling them.
+        // Removed 2026-08-25 (Q-119, migration 36) and back 2026-10-18 by owner decision (ADR-199, migration 91). The
+        // remarks above are the 2026-08-25 argument, kept: it held while nothing answered a signed-out caller.
         await MigrateAsync();
 
         PostgresGroupDirectory groups = new(DataSource);
@@ -635,7 +630,7 @@ public sealed class GroupDirectoryTests : PostgresFixture
                 GroupChange.Done,
                 await groups.SetSettingsAsync(
                     owner, false, "zz_gv_public", null, null, null,
-                    GroupVisibility.Organization, GroupJoinPolicy.Invitation,
+                    GroupVisibility.Public, GroupJoinPolicy.Invitation,
                     GroupContribute.Managers, deleteLocked: false,
                     GroupMemberList.Members, membersMayLeave: true,
                     CancellationToken.None));
@@ -643,7 +638,7 @@ public sealed class GroupDirectoryTests : PostgresFixture
             GroupSummary after = (await groups.ListAsync(owner, true, CancellationToken.None))
                 .Single(g => g.Name == "zz_gv_public");
 
-            Assert.Equal(GroupVisibility.Organization, after.Visibility);
+            Assert.Equal(GroupVisibility.Public, after.Visibility);
         }
         finally
         {

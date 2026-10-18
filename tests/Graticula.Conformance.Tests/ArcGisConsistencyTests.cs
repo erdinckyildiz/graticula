@@ -640,8 +640,9 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         Assert.True(advanced.GetProperty("supportsStatistics").GetBoolean());
         Assert.True(advanced.GetProperty("supportsDistinct").GetBoolean());
 
-        // And the ones that are false are false, which is the other half.
-        Assert.False(advanced.GetProperty("supportsSqlExpression").GetBoolean());
+        // And the ones that are false are false, which is the other half. `supportsSqlExpression` was the example
+        // here until the ArcGIS gap review made it the source's answer (ADR-197 §2); `resultType` is still ignored.
+        Assert.False(advanced.GetProperty("supportsQueryWithResultType").GetBoolean());
 
         // <b>`supportsPercentileStatistics` was in the list above until this test was found
         // failing.</b> `PERCENTILE_CONT` and `PERCENTILE_DISC` were implemented on 2026-09-04

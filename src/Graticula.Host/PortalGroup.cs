@@ -136,10 +136,12 @@ internal static class PortalGroup
     /// </remarks>
     /// <param name="visibility">Who may discover the group.</param>
     /// <returns>The portal access level.</returns>
+    // enum-default-is-deliberate: private — a group's visibility, not an item's sharing scope: ArcGIS names a group's access private, org or public, and there is no group- or organization-scoped group.
     private static string Visibility(GroupVisibility visibility) => visibility switch
     {
         GroupVisibility.Members => "private",
         GroupVisibility.Organization => "org",
+        GroupVisibility.Public => "public",
         _ => throw new ArgumentOutOfRangeException(
             nameof(visibility),
             visibility,

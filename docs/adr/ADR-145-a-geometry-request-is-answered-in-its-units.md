@@ -6,7 +6,7 @@
 | **Confidence** | `HIGH` — each conversion is checked on a shape whose answer is known, and each refusal names its parameter |
 | **Decided** | 2026-10-03 by owner decision (*"geometry service'in … kalan işlerini tamamla"*); discharges [ADR-144](ADR-144-the-geometry-service-answers-the-js-sdk.md) condition 1 |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-198](ADR-198-the-geometry-service-measures-on-the-ellipsoid.md) in part, 2026-10-18: `lengths`, `areasAndLengths`, `distance`, `buffer` and `densify` answer a geodesic request instead of refusing it |
 | **Amends** | [ADR-022](ADR-022-geometry-server.md) (§5: geodesic was "not offered rather than offered wrongly", and was answered planar with a 200) |
 
 ---
@@ -59,7 +59,7 @@ honour.
 
 **Positive.** A measurement or buffer asked in metres is in metres, or says why it cannot be.
 
-**Negative.** Geodesic work is refused, not done.
+**Negative.** Geodesic work is refused, not done. *(Done since 2026-10-18 for the five measures — ADR-198.)*
 
 **State.** None.
 

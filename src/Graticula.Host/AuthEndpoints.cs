@@ -20,7 +20,8 @@ namespace Graticula.Host;
 /// in</em>. Null keeps what this endpoint always did, a cookie that lasts as long as the session, so a
 /// client that has never heard of the field is not signed out by a browser restart it did not ask for.
 /// </param>
-internal sealed record LoginRequest(string? Name, string? Password, bool? Remember = null);
+/// <param name="Code">The second step, for an account that has one — ADR-201: a code from its authenticator app or a recovery code.</param>
+internal sealed record LoginRequest(string? Name, string? Password, bool? Remember = null, string? Code = null);
 
 /// <summary>What a member sends to change their own password.</summary>
 /// <param name="CurrentPassword">The one they have now.</param>
@@ -36,7 +37,7 @@ internal sealed record SetupRequest(
     string? Token, string? Name, string? DisplayName, string? Password);
 
 /// <summary>The authentication endpoints.</summary>
-internal static class AuthEndpoints
+internal static partial class AuthEndpoints
 {
     /// <summary>
     /// Shortest password we accept.
@@ -76,6 +77,7 @@ internal static class AuthEndpoints
         app.MapPost("/rest/auth/logout", LogoutAsync);
         app.MapPost("/rest/auth/session", ExchangeAsync);
         app.MapPost("/rest/auth/password", ChangePasswordAsync);
+        MapSecondFactor(app); // ADR-201 — AuthEndpoints.SecondFactor.cs
 
         // <b>The token endpoint every Esri client looks for, and it was advertised
         // before it existed.</b> `/rest/info` has told clients since ADR-015 §4
@@ -192,6 +194,13 @@ internal static class AuthEndpoints
                 LoginFailure.AddressThrottled or LoginFailure.AccountThrottled => (
                     StatusCodes.Status429TooManyRequests,
                     "Too many failed sign-in attempts. Wait and try again."),
+                // ADR-201: the password was right and the account asks for a second step, which a token request
+                // cannot carry. Said only after the password is proven.
+                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid => (
+                    StatusCodes.Status401Unauthorized,
+                    "This account signs in with a second step, which a token request cannot carry. Sign in "
+                    + "through the portal's sign-in page (OAuth), as ArcGIS Pro and the ArcGIS API for Python do; a "
+                    + "script uses an API key (ADR-200)."),
                 _ => (
                     StatusCodes.Status401Unauthorized,
                     "The name or password is incorrect."),
@@ -268,7 +277,8 @@ internal static class AuthEndpoints
             request = new LoginRequest(
                 form["name"].ToString(),
                 form["password"].ToString(),
-                string.Equals(form["remember"].ToString(), "true", StringComparison.OrdinalIgnoreCase));
+                string.Equals(form["remember"].ToString(), "true", StringComparison.OrdinalIgnoreCase),
+                form["code"].ToString());
             returnTo = form["return"].ToString();
         }
         else
@@ -295,7 +305,7 @@ internal static class AuthEndpoints
         }
 
         LoginResult result = await login
-            .AuthenticateAsync(request.Name, request.Password, RemoteAddress(context), cancellation)
+            .AuthenticateAsync(request.Name, request.Password, RemoteAddress(context), cancellation, code: request.Code)
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -314,6 +324,15 @@ internal static class AuthEndpoints
                     StatusCodes.Status429TooManyRequests,
                     "Too many failed sign-in attempts for this account. Wait and try again. The "
                     + "account is not locked: the correct password still works."),
+
+                // ADR-201: said only after the password is proven. `code` is the field to send.
+                LoginFailure.SecondFactorRequired => (
+                    StatusCodes.Status401Unauthorized,
+                    "This account asks for a code from its authenticator app, or a recovery code. Send it as 'code'."),
+                LoginFailure.SecondFactorInvalid => (
+                    StatusCodes.Status401Unauthorized,
+                    "The code is incorrect or has been used. Use the code your authenticator app shows now, or a "
+                    + "recovery code."),
                 _ => (
                     StatusCodes.Status401Unauthorized,
 
@@ -329,12 +348,28 @@ internal static class AuthEndpoints
                 // renders as a wall of text. The reason is deliberately the same
                 // for every failure — see the message above.
                 context.Response.Redirect(
-                    "/rest/login?failed=1&return="
+                    "/rest/login?failed="
+                    + (result.Failure is LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid ? "code" : "1")
+                    + "&return="
                     + Uri.EscapeDataString(Safe(returnTo)));
                 return;
             }
 
-            await Refuse(context, status, message).ConfigureAwait(false);
+            // ADR-201: a client is told by a word in `details`, not by reading the sentence, that the next try needs a code.
+            await Results.Json(
+                    new
+                    {
+                        error = new
+                        {
+                            code = status,
+                            message,
+                            details = result.Failure is LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid
+                                ? SecondFactorDetail
+                                : Array.Empty<string>(),
+                        },
+                    },
+                    statusCode: status)
+                .ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
 
@@ -1030,6 +1065,9 @@ internal static class AuthEndpoints
 
         return new Exchange(true, 0, null, presented, found.ExpiresAt);
     }
+
+    /// <summary>The word in a refused sign-in's <c>details</c> that says the next try needs a code — ADR-201.</summary>
+    private static readonly string[] SecondFactorDetail = ["secondFactor"];
 
     private static Task Refuse(HttpContext context, int status, string message) =>
         Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)

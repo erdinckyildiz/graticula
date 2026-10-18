@@ -104,6 +104,47 @@ public static class PredicateSql
         return true;
     }
 
+    /// <summary>Emits a value expression — not a predicate — as SQL with its parameters.</summary>
+    /// <param name="expression">The expression, already parsed.</param>
+    /// <param name="columns">Column names it may mention.</param>
+    /// <param name="quote">How to quote a column name.</param>
+    /// <param name="placeholder">How the <c>n</c>th bound value is spelled.</param>
+    /// <param name="sql">The fragment.</param>
+    /// <param name="parameters">The values it binds, in placeholder order.</param>
+    /// <param name="error">Why it was refused.</param>
+    /// <param name="dialect">The datastore's spellings; PostgreSQL when omitted.</param>
+    /// <returns>Whether it emitted.</returns>
+    /// <remarks>
+    /// <b>The same writer a predicate's sides go through</b>, so an expression in <c>outStatistics</c> is held to
+    /// exactly what an expression in <c>where</c> is: columns resolved against the layer's, literals bound.
+    /// </remarks>
+    public static bool TryEmitExpression(
+        ScalarExpression expression,
+        IReadOnlyCollection<string> columns,
+        Func<string, string> quote,
+        Func<int, string> placeholder,
+        out string sql,
+        out IReadOnlyList<object?> parameters,
+        out string? error,
+        SqlDialect? dialect = null)
+    {
+        ArgumentNullException.ThrowIfNull(expression);
+        ArgumentNullException.ThrowIfNull(columns);
+        ArgumentNullException.ThrowIfNull(quote);
+        ArgumentNullException.ThrowIfNull(placeholder);
+
+        StringBuilder written = new();
+        List<object?> bound = [];
+
+        bool emitted = Expression(
+            expression, written, bound, columns, quote,
+            (dialect ?? SqlDialect.PostgreSql).WithPlaceholder(placeholder), 0, out error);
+
+        sql = emitted ? written.ToString() : string.Empty;
+        parameters = bound;
+        return emitted;
+    }
+
     private static bool Write(
         AttributePredicate node,
         StringBuilder sql,

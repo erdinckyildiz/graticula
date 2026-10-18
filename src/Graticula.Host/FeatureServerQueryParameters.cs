@@ -357,8 +357,10 @@ internal static class FeatureServerQueryParameters
             return Fail(out error, error);
         }
 
+        List<GroupExpression> groupExpressions = [];
+
         if (!TryStatistics(parameters, allFields, out List<StatisticRequest> statistics,
-                out List<string> groupBy, out string? having, out error))
+                out List<string> groupBy, out string? having, out error, groupExpressions))
         {
             return Fail(out error, error);
         }
@@ -477,6 +479,7 @@ internal static class FeatureServerQueryParameters
             KeepOrdinates = keep,
             HistoricMoment = moment,
             Having = havingParsed,
+            GroupExpressions = groupExpressions,
             Top = top,
             // <b>Answered where the layer can, and still not refused where it cannot</b> — refusing it once broke every
             // polygon layer in the Maps SDK, which sends it whatever the document says. Where a layer says
@@ -1939,7 +1942,8 @@ internal static class FeatureServerQueryParameters
         out List<StatisticRequest> statistics,
         out List<string> groupBy,
         out string? having,
-        out string? error)
+        out string? error,
+        List<GroupExpression>? groupExpressions = null)
     {
         statistics = [];
         groupBy = [];
@@ -1959,7 +1963,28 @@ internal static class FeatureServerQueryParameters
         foreach (string field in groups.Split(
             ',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            if (!known.TryGetValue(field, out string? actual))
+            // D-301: an expression groups too, answered as Expr1, Expr2… as ArcGIS answers it, each parsed and bound by
+            // the where grammar with placeholders of its own.
+            if (!known.TryGetValue(field, out string? actual) && groupExpressions is not null && StatisticExpression.IsExpression(field))
+            {
+                if (!StatisticExpression.TryParse(
+                        field,
+                        allFields.GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                            .ToDictionary(g => g.Key, g => g.First().Type, StringComparer.OrdinalIgnoreCase),
+                        LayerDefinition.Quote,
+                        1000 + groupExpressions.Count,
+                        out BoundExpression? grouped,
+                        out error))
+                {
+                    error = error!.Replace("'onStatisticField'", "'groupByFieldsForStatistics'", StringComparison.Ordinal);
+                    return false;
+                }
+
+                groupExpressions.Add(new GroupExpression($"Expr{groupExpressions.Count + 1}", grouped!));
+                continue;
+            }
+
+            if (actual is null)
             {
                 error = $"'groupByFieldsForStatistics' names '{field}', which is not a field.";
                 return false;
@@ -1970,7 +1995,7 @@ internal static class FeatureServerQueryParameters
 
         if (raw.Length == 0)
         {
-            if (groupBy.Count > 0)
+            if (groupBy.Count > 0 || groupExpressions is { Count: > 0 })
             {
                 error =
                     "'groupByFieldsForStatistics' only means something with 'outStatistics'. "
@@ -2001,7 +2026,7 @@ internal static class FeatureServerQueryParameters
 
         foreach (JsonElement definition in definitions.EnumerateArray())
         {
-            if (!TryStatistic(definition, known, allFields, out StatisticRequest statistic, out error))
+            if (!TryStatistic(definition, known, allFields, statistics.Count, out StatisticRequest statistic, out error))
             {
                 return false;
             }
@@ -2022,6 +2047,7 @@ internal static class FeatureServerQueryParameters
         JsonElement definition,
         HashSet<string> known,
         IReadOnlyList<FieldDescription> allFields,
+        int index,
         out StatisticRequest statistic,
         out string? error)
     {
@@ -2122,6 +2148,50 @@ internal static class FeatureServerQueryParameters
             field = every.Name;
         }
 
+        // <b>An SQL expression — `str_angle*100`, Esri's example — since the ArcGIS gap review of 2026-10-17</b>
+        // (supportsSqlExpression). Parsed by the where grammar and bound; it needs a name of the caller's, since there
+        // is no field to name the answer after.
+        if (!known.Contains(field) && StatisticExpression.IsExpression(field))
+        {
+            if (outName.Length == 0)
+            {
+                error = $"'onStatisticField' of '{field}' is an expression, and a statistic over an expression needs an "
+                    + "'outStatisticFieldName' to be answered under.";
+                return false;
+            }
+
+            if (!StatisticExpression.TryParse(
+                    field,
+                    allFields.GroupBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(g => g.Key, g => g.First().Type, StringComparer.OrdinalIgnoreCase),
+                    LayerDefinition.Quote,
+                    index,
+                    out BoundExpression? expression,
+                    out error))
+            {
+                return false;
+            }
+
+            // A count, a minimum and a maximum take any value; the rest are arithmetic and need a number.
+            if (kind is not (StatisticKind.Count or StatisticKind.Min or StatisticKind.Max)
+                && expression!.Kind is ExpressionKind.Text or ExpressionKind.Date or ExpressionKind.Boolean)
+            {
+                error = $"'{type}' is computed over numbers, and '{field}' is {expression.Kind.ToString().ToLowerInvariant()}.";
+                return false;
+            }
+
+            if (!IsIdentifier(outName))
+            {
+                error =
+                    $"'outStatisticFieldName' of '{outName}' is not a plain identifier. Use letters, "
+                    + "digits and underscores, up to 63 characters.";
+                return false;
+            }
+
+            statistic = new StatisticRequest(kind, field, outName, fraction, descending, expression);
+            return true;
+        }
+
         if (!known.TryGetValue(field, out string? actual))
         {
             error = $"'onStatisticField' names '{field}', which is not a field of this layer.";
@@ -2137,7 +2207,7 @@ internal static class FeatureServerQueryParameters
         // Restricted to what an identifier may contain rather than escaped,
         // because a name that needs escaping to be safe is a name worth
         // refusing — ADR-008 §4.6.
-        if (outName.Length > 63 || !outName.All(c => char.IsLetterOrDigit(c) || c == '_'))
+        if (!IsIdentifier(outName))
         {
             error =
                 $"'outStatisticFieldName' of '{outName}' is not a plain identifier. Use letters, "
@@ -2148,6 +2218,9 @@ internal static class FeatureServerQueryParameters
         statistic = new StatisticRequest(kind, actual, outName, fraction, descending);
         return true;
     }
+
+    private static bool IsIdentifier(string name) =>
+        name.Length is > 0 and <= 63 && name.All(c => char.IsLetterOrDigit(c) || c == '_');
 
     private static string Text(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object

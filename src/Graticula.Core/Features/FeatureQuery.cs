@@ -292,6 +292,12 @@ public sealed class FeatureQuery
     public ParsedWhere? Having { get; init; }
 
     /// <summary>
+    /// The SQL expressions a statistics query groups by, after <see cref="GroupBy"/>'s fields, each answered as its own
+    /// <c>ExprN</c> column — D-301, ADR-008 §4a-iv. Never caller text: each is built by <see cref="StatisticExpression"/>.
+    /// </summary>
+    public IReadOnlyList<GroupExpression> GroupExpressions { get; init; } = [];
+
+    /// <summary>
     /// <c>queryTopFeatures</c>' filter: only the first features of each group, by an order — null for every feature.
     /// Applied after every other filter, so the groups are formed from what matched.
     /// </summary>

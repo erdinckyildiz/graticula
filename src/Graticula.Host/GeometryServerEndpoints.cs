@@ -1137,6 +1137,39 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
+        // ADR-198: a buffer or a distance asked on the ellipsoid — geodesic, preserveShape, or metres in degrees with
+        // no plane named to work in — is made by the datastore's geography.
+        if (operation is "buffer" or "distance")
+        {
+            (Calculation calculation, string? calculationError) = CalculationOf(form);
+
+            if (calculationError is not null)
+            {
+                await Fail(context, calculationError).ConfigureAwait(false);
+                return;
+            }
+
+            bool ellipsoidal = calculation != Calculation.Planar
+                || (operation == "buffer" && NamedReference(form, "bufferSR") is null
+                    && await LinearInGeographicAsync(context, form, "unit", srid, cancellation).ConfigureAwait(false))
+                || (operation == "distance"
+                    && await LinearInGeographicAsync(context, form, "distanceUnit", srid, cancellation).ConfigureAwait(false));
+
+            if (ellipsoidal && operation == "buffer")
+            {
+                await GeodesicBufferAsync(context, form, request.Left, request.Distance, request.UnionResults, srid, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            if (ellipsoidal)
+            {
+                await GeodesicDistanceAsync(context, form, request.Left[0], request.Right[0], srid, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+        }
+
         // ADR-145: units the request names are applied, and what cannot be is refused by name.
         if (GeodesicAsked(form) is { } geodesic)
         {
@@ -2071,6 +2104,16 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
+        // ADR-198: a geodesic or preserveShape calculation, or a linear unit in a geographic reference, is measured on
+        // the ellipsoid; planar stays ADR-145's.
+        if (await EllipsoidalAsync(context, "areasAndLengths", cancellation).ConfigureAwait(false) is { } ellipsoid)
+        {
+            await GeodesicMeasuresAsync(
+                context, "areasAndLengths", geometries, ellipsoid.Form, ellipsoid.Srid, ellipsoid.Calculation, cancellation)
+                .ConfigureAwait(false);
+            return;
+        }
+
         (double lengthScale, double areaScale, string? unitError) = await MeasureScalesAsync(context, true, cancellation)
             .ConfigureAwait(false);
 
@@ -2132,6 +2175,16 @@ internal static partial class GeometryServerEndpoints
         if (!TryMeasurable(context, out List<Geometry> geometries, out string? error))
         {
             await Fail(context, error!).ConfigureAwait(false);
+            return;
+        }
+
+        // ADR-198: a geodesic or preserveShape calculation, or a linear unit in a geographic reference, is measured on
+        // the ellipsoid; planar stays ADR-145's.
+        if (await EllipsoidalAsync(context, "lengths", cancellation).ConfigureAwait(false) is { } ellipsoid)
+        {
+            await GeodesicMeasuresAsync(
+                context, "lengths", geometries, ellipsoid.Form, ellipsoid.Srid, ellipsoid.Calculation, cancellation)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -2237,6 +2290,49 @@ internal static partial class GeometryServerEndpoints
             return;
         }
 
+        // ADR-198: a geodesic densify adds points along the geodesic, the step in metres or the unit asked, and the same
+        // output cap holds — counted from the geodesic lengths before anything is made.
+        if (await EllipsoidalAsync(context, "densify", cancellation).ConfigureAwait(false) is { } ellipsoid)
+        {
+            (double stepMetres, string? stepUnitError) = await GeodesicUnitAsync(
+                context, ellipsoid.Form, "lengthUnit", srid, cancellation).ConfigureAwait(false);
+            (List<(double Length, double Area)>? measures, string? measureError) = stepUnitError is null
+                ? await MeasureOnTheEllipsoidAsync(context, geometries, srid, Calculation.Geodesic, cancellation).ConfigureAwait(false)
+                : (null, stepUnitError);
+
+            if (measureError is not null)
+            {
+                await Fail(context, measureError).ConfigureAwait(false);
+                return;
+            }
+
+            double estimate = measures!.Sum(m => m.Length / (step * stepMetres)) + geometries.Sum(g => GeometryOperations.DensifiedVertexCount(g, double.MaxValue));
+
+            if (estimate > MaximumVertices)
+            {
+                await Fail(context, $"`maxSegmentLength` of {step.ToString(CultureInfo.InvariantCulture)} would produce about "
+                    + $"{estimate:N0} vertices along these geodesics, and this operation returns at most {MaximumVertices:N0}. "
+                    + "Send a larger `maxSegmentLength`, or fewer geometries.").ConfigureAwait(false);
+                return;
+            }
+
+            (IReadOnlyList<Geometry>? densified, string? densifyError) = await GeodesicDensifyAsync(
+                context, ellipsoid.Form, geometries, step, srid, cancellation).ConfigureAwait(false);
+
+            if (densifyError is not null)
+            {
+                await Fail(context, densifyError).ConfigureAwait(false);
+                return;
+            }
+
+            await Respond(context, "densify", new
+            {
+                geometries = densified!.Select(g => ToJson(g, srid)).ToArray(),
+                note = GeodesicNote,
+            }).ConfigureAwait(false);
+            return;
+        }
+
         // ADR-145: a segment length in the unit asked, and a geodesic densify refused by name.
         if (TryForm(context, out IFormCollection form, out _))
         {
@@ -2291,8 +2387,8 @@ internal static partial class GeometryServerEndpoints
             geometries = geometries
                 .Select(g => ToJson(GeometryOperations.Densify(g, step), srid)).ToArray(),
             note = "Every original coordinate survives at its original value; densifying only "
-                 + "adds. Planar: the length is in the units of the spatial reference, and this "
-                 + "is not the geodesic densify ArcGIS also offers.",
+                 + "adds. Planar: the length is in the units of the spatial reference; "
+                 + "geodesic=true densifies along geodesics instead (ADR-198).",
         }).ConfigureAwait(false);
     }
 
@@ -2352,8 +2448,8 @@ internal static partial class GeometryServerEndpoints
     private const string PlanarNote =
         "Planar measurement, in the units of the spatial reference. These are NOT geodesic: in "
         + "Web Mercator, area is overstated by sec squared of the latitude — roughly 1.75x at "
-        + "Istanbul and 4x at Helsinki. Geodesic measurement is a different calculation and is "
-        + "not offered rather than being offered wrongly.";
+        + "Istanbul and 4x at Helsinki. Send calculationType=geodesic, or geodesic=true, for a "
+        + "measure on the ellipsoid (ADR-198).";
 
     // ---------- reading the request ----------
 

@@ -875,6 +875,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     private static string Wire(GroupVisibility visibility) => visibility switch
     {
         GroupVisibility.Organization => "organization",
+        GroupVisibility.Public => "public",
         _ => "members",
     };
 
@@ -911,12 +912,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     {
         "organization" => GroupVisibility.Organization,
 
-        // <b>A stored `public` reads as `organization`, not as `members`.</b> Migration 36
-        // demotes every row, so this should never fire — and if a row survives a partial
-        // restore, `organization` is what `public` was always *enforced* as. The comment
-        // above says an unrecognised value reads as the closed end; this one is recognised
-        // and its behaviour is known, which is a different case.
-        "public" => GroupVisibility.Organization,
+        // A visibility again since migration 91 (ADR-199); it read as `organization` while migration 36 had removed it.
+        "public" => GroupVisibility.Public,
         _ => GroupVisibility.Members,
     };
 

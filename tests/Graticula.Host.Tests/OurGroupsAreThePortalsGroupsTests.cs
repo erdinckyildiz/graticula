@@ -96,21 +96,12 @@ public sealed class OurGroupsAreThePortalsGroupsTests
     [Theory]
     [InlineData(GroupVisibility.Members, "private")]
     [InlineData(GroupVisibility.Organization, "org")]
+    // Q-119 removed it on 2026-08-25 because nothing honoured it; ADR-199 brought it back on 2026-10-18 with the
+    // portal's group search answering a signed-out caller, which is the place it happens.
+    [InlineData(GroupVisibility.Public, "public")]
     public void Visibility_is_the_portals_word_for_it(GroupVisibility visibility, string access)
     {
         Assert.Equal(access, Field(Portal(Group(visibility: visibility)), "access"));
-    }
-
-    [Fact]
-    public void No_group_is_ever_public_because_this_server_has_no_such_visibility()
-    {
-        // Q-119 removed the *anybody, including anonymous* visibility on 2026-08-25
-        // because nothing honoured it. The enumeration having two values rather than
-        // three is the guarantee; this asserts the guarantee is what is published.
-        foreach (GroupVisibility visibility in Enum.GetValues<GroupVisibility>())
-        {
-            Assert.NotEqual("public", Field(Portal(Group(visibility: visibility)), "access"));
-        }
     }
 
     [Theory]

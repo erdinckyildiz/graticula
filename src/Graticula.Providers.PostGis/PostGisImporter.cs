@@ -94,7 +94,7 @@ public sealed class AppendRefusedException : Exception
 /// in is derived and sanitised here.
 /// </para>
 /// </remarks>
-public sealed class PostGisImporter
+public sealed partial class PostGisImporter
 {
     /// <summary>The schema hosted data lives in.</summary>
     /// <remarks>

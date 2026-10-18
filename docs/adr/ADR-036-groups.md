@@ -699,6 +699,10 @@ group.
 
 ## 4b. A group is visible to its members or to the organisation — amended 2026-08-25
 
+> **Reversed 2026-10-18 by owner decision — [ADR-199](ADR-199-a-group-may-be-public.md).** A group may be public
+> again, and the portal's group search is where a signed-out caller finds it; migration 91 widens the constraint.
+> What follows is the 2026-08-25 decision, kept.
+
 **Owner decision, closing [Q-119](../open-questions.md): there is no public group.**
 `GroupVisibility` has two values, migration 36 tightens the constraint, and the console
 offers two controls where it offered three.

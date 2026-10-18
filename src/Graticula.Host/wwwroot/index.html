@@ -227,6 +227,11 @@
       No name attribute, like the two fields above: a native submit with script blocked must carry
       nothing. Unticked, the session cookie has no expiry and closing the browser ends it.
     -->
+    <!-- ADR-201: shown when the server says this account asks for a second step. -->
+    <div id="signinCodeRow" hidden>
+      <label for="signinCode">Code from your authenticator app</label>
+      <input id="signinCode" type="text" inputmode="numeric" autocomplete="one-time-code">
+    </div>
     <label class="keep"><input type="checkbox" id="keep"> Keep me signed in</label>
     <button class="primary" id="go" type="submit">Sign in</button>
     <noscript><p class="bad-inline">This console is JavaScript. Your browser is not

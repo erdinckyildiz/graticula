@@ -173,6 +173,9 @@ internal static class RestDirectory
             + $"{(failed is null ? Html.Empty : Html.Markup(" aria-describedby=\"signin-refused\""))}>"
             + $"<label class=\"field\" for=\"signin-password\">Password</label>"
             + $"<input id=\"signin-password\" type=\"password\" name=\"password\" autocomplete=\"current-password\">"
+            // ADR-201: the second step, for an account that has one; left empty by everybody else.
+            + $"<label class=\"field\" for=\"signin-code\">Code <span class=\"hint\">(only if your account asks for one)</span></label>"
+            + $"<input id=\"signin-code\" type=\"text\" name=\"code\" inputmode=\"numeric\" autocomplete=\"one-time-code\">"
             + $"<label class=\"keep\"><input type=\"checkbox\" name=\"remember\" value=\"true\"> Keep me signed in</label>"
             + $"<button type=\"submit\">Sign in</button>"
             + $"</form>");

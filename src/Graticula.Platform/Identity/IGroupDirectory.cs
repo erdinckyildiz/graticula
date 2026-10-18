@@ -40,7 +40,7 @@ public enum GroupVisibility
 
     /// <summary>Any signed-in member of the organisation can find it.</summary>
     /// <remarks>
-    /// <b>The widest a group gets, since 2026-08-25 — owner decision, migration 36,
+    /// <b>The widest a group got from 2026-08-25 until 2026-10-18 — owner decision, migration 36,
     /// [Q-119](../../../docs/open-questions.md).</b> There was a third value meaning
     /// *anybody, including an anonymous caller*, and nowhere for it to happen:
     /// `/admin/groups` refuses an anonymous caller, so it was enforced exactly as this
@@ -49,6 +49,15 @@ public enum GroupVisibility
     /// offering it.
     /// </remarks>
     Organization,
+
+    /// <summary>Anybody can find it, signed in or not — ADR-199, migration 91.</summary>
+    /// <remarks>
+    /// <b>Back by owner decision of 2026-10-18</b>, after the ArcGIS veteran's review (V-94): an open-data portal's
+    /// gallery is a public group. There is now a place for it to happen — the portal's group search answers a
+    /// signed-out caller with the public groups — so it is not the stored-and-unhonoured value Q-119 removed. Seeing
+    /// it is still not reading it: a signed-out caller is outside every group and reads only what is shared public.
+    /// </remarks>
+    Public,
 }
 
 /// <summary>How somebody comes to be in a group — ADR-036 §4g.</summary>

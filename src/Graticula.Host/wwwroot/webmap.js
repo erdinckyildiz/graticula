@@ -3373,7 +3373,7 @@ wm$("headSave").addEventListener("click", () => {
 
 wm$("mapDelete").addEventListener("click", async () => {
   if (!wmState.id) return;
-  if (!confirm(`Delete “${wmState.meta.title}”? Anybody it was shared with loses it too. This cannot be undone.`)) return;
+  if (!confirm(`Delete “${wmState.meta.title}”? Anybody it was shared with loses it too. It waits in the recycle bin for 14 days and can be restored there.`)) return;
 
   wmSayIn("mapStatus", "Deleting…");
 

@@ -58,6 +58,9 @@ internal static class GeometryPage
         new("sr", "Spatial reference", "The well-known id the geometries are in — a bare number, "
             + "or <code>{\"wkid\": 3857}</code>.", Default: "4326");
 
+    private static readonly Parameter Calculation =
+        new("calculationType", "Calculation", "planar, geodesic or preserveShape.", Default: "planar");
+
     /// <summary>Every operation this surface answers, with its parameters.</summary>
     /// <remarks>
     /// <b>Kept beside the handlers rather than derived from them.</b> A reader
@@ -80,13 +83,14 @@ internal static class GeometryPage
             ]),
 
         new("areasAndLengths",
-            "Planar area and perimeter of each polygon, in the units of the spatial reference. "
-            + "Not geodesic — see the note on the response.",
-            [Sr, Geometries]),
+            "Area and perimeter of each polygon: planar, in the units of the spatial reference, or on the "
+            + "ellipsoid with calculationType geodesic or preserveShape (ADR-198).",
+            [Sr, Geometries, Calculation]),
 
         new("lengths",
-            "Planar length of each geometry, in the units of the spatial reference.",
-            [Sr, Geometries]),
+            "Length of each geometry: planar, in the units of the spatial reference, or on the ellipsoid "
+            + "with calculationType geodesic or preserveShape (ADR-198).",
+            [Sr, Geometries, Calculation]),
 
         new("labelPoints",
             "A point guaranteed to fall inside each polygon, which is not the centroid — the "
@@ -196,9 +200,10 @@ internal static class GeometryPage
 
         new("buffer",
             "Everything within a distance of each geometry. A negative distance shrinks a "
-            + "polygon and may empty it. Planar, in the units of the spatial reference — this "
-            + "is not the geodesic buffer ArcGIS also offers.",
+            + "polygon and may empty it. Planar, in the units of the spatial reference, unless "
+            + "geodesic is true: then on the ellipsoid, the distance in metres (ADR-198).",
             [Sr, Geometries,
+             new("geodesic", "Geodesic", "true to buffer on the ellipsoid.", Default: "false"),
              new("distances", "Distance",
                  "One distance, in the units of the spatial reference. ArcGIS accepts a list "
                  + "and returns a ring per value; this server buffers once.", Default: "100")]),

@@ -833,6 +833,10 @@ public static class FeatureServerMetadataWriter
             // layer is refused by the query endpoint, and a client reading this
             // document learns why before it tries.
             objectIdField = layer.IntegerIdentityColumn,
+            // ArcGIS's statement of the same column, which the Maps SDK reads before objectIdField — V-88.
+            uniqueIdField = layer.IntegerIdentityColumn is { } identity
+                ? new { name = identity, isSystemMaintained = layer.IsHosted }
+                : null,
             displayField = DisplayField(layer, description),
             // <b>The layer's GlobalID column where it has one — 2026-09-15.</b> This was always
             // empty, while ADR-013 §2 said hosted layers carried one. See `GlobalIds`.
@@ -945,6 +949,13 @@ public static class FeatureServerMetadataWriter
             drawingInfoGenerated = generated,
 
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
+            // <b>The three page figures ArcGIS's layer carries beside it, all the same one here — V-88, ADR-197 §3.</b>
+            // A standard query and a tile query are cut at the same page, and `maxRecordCountFactor` is not
+            // honoured (the ceiling stays), so a factor of 1 is the truth and a client multiplying by it asks for
+            // what it gets. They were absent, and a client reading them fell back to its own guesses.
+            standardMaxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
+            tileMaxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
+            maxRecordCountFactor = 1,
             supportedQueryFormats = "JSON, geoJSON, PBF",
             // Hosted layers only: ADR-013 §4c's registered cases are designed
             // and not built, and declaring a capability on a layer that refuses
@@ -1031,12 +1042,16 @@ public static class FeatureServerMetadataWriter
 
                 // <b>About outStatistics, groupBy and orderBy, not about `where`.</b> Esri's layer
                 // reference ties this flag to an expression in those three — `onStatisticField`
-                // as `str_angle*100` — and they take field names only here. The where grammar
-                // has evaluated ArcGIS's standardized functions since ADR-083, which is a
-                // different claim with no flag of its own; this comment said the grammar had no
-                // functions until then, which was true and was the wrong reason.
-                supportsSqlExpression = false,
-                supportsCountDistinct = false,
+                // as `str_angle*100`, its only example. False until the ArcGIS gap review of
+                // 2026-10-17; since then `onStatisticField` takes an expression the where grammar
+                // reads and binds (StatisticExpression), on PostGIS layers. <b>groupBy and orderBy
+                // still take names only, and refuse an expression by name</b> — D-301.
+                supportsSqlExpression = description.AnswersStatisticExpressions,
+                // <b>`returnCountOnly` with `returnDistinctValues` — true since the ArcGIS gap review.</b>
+                // Esri's reference names the flag without defining it; the query page's only count of
+                // distinct values is that pair, which both providers have answered since 2026-08-19
+                // (INFERRED that the flag means it, ADR-197 §2).
+                supportsCountDistinct = true,
                 supportsQueryWithResultType = false,
 
                 // <b>True since 2026-09-04.</b> `PERCENTILE_CONT` and `PERCENTILE_DISC` are

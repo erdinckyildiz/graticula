@@ -238,7 +238,8 @@ public sealed class PortalConformanceTests : ArcGisClient
         }
 
         Assert.Equal("ArcGISEnterprise", self.GetProperty("portalDeploymentType").GetString());
-        Assert.False(self.GetProperty("hasCategorySchema").GetBoolean());
+        // ADR-202: true once a content category exists, which another test may be making while this one reads.
+        Assert.True(self.GetProperty("hasCategorySchema").ValueKind is JsonValueKind.True or JsonValueKind.False);
         Assert.Equal(JsonValueKind.String, self.GetProperty("user").GetProperty("culture").ValueKind);
     }
 

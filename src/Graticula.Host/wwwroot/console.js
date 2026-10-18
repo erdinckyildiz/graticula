@@ -4371,7 +4371,7 @@ document.addEventListener("click", async e => {
   if (t.id === "bulkDelete") {
     const items = pickedItems();
     if (!confirm(`Delete ${items.length} item${items.length === 1 ? "" : "s"}? ${items.map(i => `${i.title} (${i.what})`).join(", ")}.\n\n`
-      + "A hosted layer's data is deleted with it, and an uploaded image with its service. This cannot be undone. "
+      + "Services, image services and maps wait in the recycle bin for 14 days with their data, and can be restored (ADR-203). "
       + "A registered layer's table and an image registered from a path are not touched.")) return;
     t.disabled = true;
     const failed = await eachPicked(items, item => {
@@ -7853,8 +7853,8 @@ function drawServiceDelete() {
         if (serviceOpen !== at) return;
         note.textContent = style && style.uploaded
           ? (style.images > 1
-            ? `Deleting this service also deletes the ${style.images} images you uploaded and the mosaic made from them. They cannot be recovered.`
-            : "Deleting this service also deletes the image you uploaded. It cannot be recovered.")
+            ? `Deleting this service takes the ${style.images} images you uploaded and the mosaic made from them into the recycle bin, where they wait 14 days with it.`
+            : "Deleting this service takes the image you uploaded into the recycle bin, where it waits 14 days with it.")
           : "Deleting this service removes only the service. The image file on the server is not touched.";
       })
       .catch(() => { note.textContent = "Deleting this service removes it; an image uploaded for it goes with it."; });
@@ -7862,8 +7862,8 @@ function drawServiceDelete() {
     ? `This service holds no layers, so deleting it removes the service and no data.`
     : hostedHere
       ? `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> and
-         <b>drops their tables from the datastore</b>. Hosted data belongs to the service that holds it,
-         so this cannot be undone — there is no unpublished copy left behind.`
+         <b>takes their tables out of the datastore</b>. Hosted data belongs to the service that holds it,
+         so it waits with the service in the recycle bin for 14 days, and is restored with it (ADR-203).`
       : `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b>. These
          are registered layers: they point at a database that is not ours, so <b>no table is
          dropped</b> — the registration goes and the data stays exactly as it is.`;
@@ -28033,8 +28033,14 @@ $("signinForm").addEventListener("submit", async event => {
       headers: { "Content-Type": "application/json" },
       // `remember` is Keep me signed in: false gives a cookie with no expiry, which the browser
       // forgets when it closes. The session itself lasts as long as it always did.
-      body: JSON.stringify({ name: $("u").value, password: $("p").value, remember: $("keep").checked }),
+      body: JSON.stringify({
+        name: $("u").value, password: $("p").value, remember: $("keep").checked,
+        // ADR-201: sent only once the server has asked for it.
+        code: $("signinCodeRow").hidden ? undefined : $("signinCode").value,
+      }),
     });
+    $("signinCodeRow").hidden = true;
+    $("signinCode").value = "";
     token = r.token;
     sessionStorage.setItem("gis-token", token);
     $("p").type = "password";
@@ -28047,7 +28053,15 @@ $("signinForm").addEventListener("submit", async event => {
     // reader somewhere different.
     error.textContent = e.message || String(e);
     error.hidden = false;
-    $("p").select();
+
+    // ADR-201: the password was right and a code is needed; the code field gets the focus, not the password.
+    if ((e.details || []).includes("secondFactor")) {
+      $("signinCodeRow").hidden = false;
+      $("signinCode").value = "";
+      $("signinCode").focus();
+    } else {
+      $("p").select();
+    }
   } finally {
     button.disabled = false;
     button.textContent = "Sign in";

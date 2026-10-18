@@ -65,6 +65,17 @@ public sealed class SqlStaysOutOfTheQueryModelTests
             "Q-109: HavingClause replaces each aggregate with a name of its own, parses the rest with the where "
             + "grammar and re-emits our own SQL with every literal bound under @h; the aggregates are rebuilt from "
             + "its own table, so what crosses is our text and not theirs.",
+
+        // The ArcGIS gap review, 2026-10-17: a statistic's SQL expression crosses the same way (ADR-008 §4a-iv).
+        ["StatisticRequest.Expression"] =
+            "ADR-008 §4a-iv: StatisticExpression hands onStatisticField to the where grammar as one IS NULL test, "
+            + "keeps only its operand and re-emits it through PredicateSql with every literal bound under @s.",
+        ["StatisticRequest.set_Expression(value)"] = "The init accessor of StatisticRequest.Expression, above.",
+        ["StatisticRequest.Deconstruct(Expression)"] = "The record's deconstruction of StatisticRequest.Expression, above.",
+
+        // D-301: a grouped expression crosses the same way, under the same section.
+        ["FeatureQuery.GroupExpressions"] = "ADR-008 §4a-iv: each a GroupExpression built from StatisticExpression's BoundExpression.",
+        ["FeatureQuery.set_GroupExpressions(value)"] = "The init accessor of FeatureQuery.GroupExpressions, above.",
     };
 
     private static Assembly CoreAssembly => typeof(FeatureQuery).Assembly;
@@ -116,7 +127,12 @@ public sealed class SqlStaysOutOfTheQueryModelTests
             //
             // <b>HavingClause joined it on 2026-10-17 (ADR-008 §4a-iii)</b>: it manufactures the having clause's
             // ParsedWhere the way WhereClause manufactures where's, through the same grammar and emitter.
+            //
+            // <b>StatisticExpression and its BoundExpression joined it on 2026-10-18 (ADR-008 §4a-iv)</b>, the same way.
             if (type == typeof(ParsedWhere)
+                || type == typeof(BoundExpression)
+                || type == typeof(GroupExpression)
+                || type == typeof(StatisticExpression)
                 || type == typeof(WhereClause)
                 || type == typeof(HavingClause)
                 || type == typeof(PredicateSql)
@@ -154,8 +170,8 @@ public sealed class SqlStaysOutOfTheQueryModelTests
              §4.1: the model "must contain no SQL concepts. The moment it does, it stops being
              able to target GeoParquet, FlatGeobuf, or anything that is not a database."
 
-             There are two permitted exceptions, FeatureQuery.Where and FeatureQuery.Having, and §4a-i
-             and §4a-iii explain why. If this member is a second exception, amend ADR-008 first and add
+             There are three permitted exceptions, FeatureQuery.Where, FeatureQuery.Having and
+             StatisticRequest.Expression, and §4a-i, §4a-iii and §4a-iv explain why. If this member is a second exception, amend ADR-008 first and add
              it to Permitted with its argument — do not widen the allow-list to make a build
              pass. If it is a caller's SQL, it is D-41 happening again: parse it and bind the
              literals, as WhereClause does.
@@ -174,9 +190,9 @@ public sealed class SqlStaysOutOfTheQueryModelTests
 
             target = Nullable.GetUnderlyingType(target) ?? target;
 
-            if (target == typeof(ParsedWhere))
+            if (target == typeof(ParsedWhere) || target == typeof(BoundExpression))
             {
-                offenders.Add($"{where} is a ParsedWhere, which carries SQL");
+                offenders.Add($"{where} is a {target.Name}, which carries SQL");
                 return;
             }
 

@@ -206,10 +206,14 @@ public enum StatisticKind
 /// identifier.</b> It is checked against the same rule a column name is before
 /// it gets here — ADR-008 §4.6's two-step — because unlike a value it cannot be
 /// bound as a parameter.
+/// <b><paramref name="Expression"/>, when given, is what is computed over, and <paramref name="Field"/> is then the
+/// expression's text and names no column</b> — <c>supportsSqlExpression</c>, the ArcGIS gap review of 2026-10-17.
 /// </remarks>
+/// <param name="Expression">An SQL expression parsed and bound by <see cref="StatisticExpression"/>.</param>
 public readonly record struct StatisticRequest(
     StatisticKind Kind,
     string Field,
     string OutName,
     double Fraction = 0,
-    bool Descending = false);
+    bool Descending = false,
+    BoundExpression? Expression = null);

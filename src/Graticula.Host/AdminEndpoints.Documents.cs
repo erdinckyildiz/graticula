@@ -236,7 +236,7 @@ internal static partial class AdminEndpoints
 
     /// <summary>Removes a document and its file.</summary>
     private static async Task DeleteDocumentAsync(
-        HttpContext context, string id, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+        HttpContext context, string id, IDocumentStore documents, IAuditLog audit, RecycleBinService recycle, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
@@ -254,18 +254,24 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        bool gone = await documents.DeleteAsync(id, cancellation).ConfigureAwait(false);
+        // ADR-203: into the recycle bin, its bytes with it, until it expires.
+        (Guid? entry, string? refused) = await recycle.RecycleRowsAsync(
+            "item", Guid.Parse(id), Guid.Parse(id), "document", before.Title, before.Owner, current.Principal.Id, cancellation)
+            .ConfigureAwait(false);
+        bool gone = entry is not null;
 
-        await AuditAsync(context, audit, "document.delete", id, Detail(new { title = before.Title, owner = before.OwnerName }),
+        await AuditAsync(context, audit, "document.delete", id,
+            Detail(new { title = before.Title, owner = before.OwnerName, recycled = entry }),
             succeeded: gone, cancellation).ConfigureAwait(false);
 
         if (!gone)
         {
-            await Refuse(context, 404, NoDocument(id)).ConfigureAwait(false);
+            await Refuse(context, refused is null ? 404 : 409, refused ?? NoDocument(id)).ConfigureAwait(false);
             return;
         }
 
-        await Results.Json(new { deleted = id, title = before.Title }).ExecuteAsync(context).ConfigureAwait(false);
+        await Results.Json(new { deleted = id, title = before.Title, recycled = entry, until = DateTimeOffset.UtcNow + recycle.Retention })
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>Turns a document's delete protection on or off.</summary>

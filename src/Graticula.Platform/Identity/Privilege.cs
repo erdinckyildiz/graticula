@@ -813,6 +813,34 @@ public sealed class Authorization
             editableGroups);
     }
 
+    /// <summary>The privileges by which a principal comes to own something — ADR-200.</summary>
+    private static readonly Privilege[] Owning =
+    [
+        Privilege.ContentCreate,
+        Privilege.ContentPublishFeatures,
+        Privilege.ContentPublishTiles,
+        Privilege.ContentRegisterDataStore,
+        Privilege.GroupsCreate,
+    ];
+
+    /// <summary>
+    /// What a machine may do with these grants: never administer, and never come to own anything (ADR-015 §2) —
+    /// ADR-200.
+    /// </summary>
+    /// <remarks>
+    /// <b>Applied to the grants rather than refused at each door</b>, so every caller of <see cref="Allows"/> sees it,
+    /// including the doors written before service accounts existed — the reason implications are applied here too.
+    /// </remarks>
+    /// <returns>The narrower authorization.</returns>
+    public Authorization ForAMachine() => new(
+        UserType,
+        Roles.Where(role => !string.Equals(role, Identity.Roles.Administrator, StringComparison.Ordinal)),
+        Privileges.Except(Owning),
+        administrator: false,
+        _beforeCeiling.Except(Owning),
+        Groups,
+        EditableGroups);
+
     /// <summary>The assigned user type.</summary>
     public string UserType { get; }
 

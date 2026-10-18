@@ -166,11 +166,14 @@ public sealed class ImageryUploadTests : ArcGisClient
             (HttpStatusCode refused, string refusedBody) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", notTiff);
             Assert.True(refused == HttpStatusCode.BadRequest, $"A file that is not a GeoTIFF answered {(int)refused}: {refusedBody}");
 
-            // Removing the service removes the file it was uploaded with.
+            // Removing the service takes the file it was uploaded with into the recycle bin (ADR-203, D-306), and emptying
+            // the entry removes it for good.
             (HttpStatusCode removed, string removedBody) = await SendAsync(root, token!, HttpMethod.Delete,
                 $"/admin/coverages/{name}?folder=hosted");
             Assert.True(removed == HttpStatusCode.OK, $"Removing answered {(int)removed}: {removedBody}");
-            Assert.True(JsonDocument.Parse(removedBody).RootElement.GetProperty("fileRemoved").GetBoolean(), removedBody);
+            string entry = JsonDocument.Parse(removedBody).RootElement.GetProperty("recycled").GetString()!;
+            (HttpStatusCode emptied, string emptiedBody) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/recycle-bin/{entry}");
+            Assert.True(emptied == HttpStatusCode.NoContent, $"Emptying answered {(int)emptied}: {emptiedBody}");
         }
         finally
         {

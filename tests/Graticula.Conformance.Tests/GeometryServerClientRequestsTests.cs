@@ -128,20 +128,18 @@ public sealed class GeometryServerClientRequestsTests : ArcGisClient
         Assert.Equal(1, measured.GetProperty("areas")[0].GetDouble(), 9);
         Assert.Equal(4, measured.GetProperty("lengths")[0].GetDouble(), 9);
 
-        // Metres in degrees, a geodesic measure, a buffer in another reference: each refused, saying why.
+        // <b>Metres in degrees and a geodesic measure are answered on the ellipsoid since ADR-198</b>; they were refused
+        // by ADR-145. A 1-km buffer of a point at 41° N spans 1,000 / (111,319.49 · cos 41°) ≈ 0.01189° of longitude.
         (_, JsonElement degrees) = await PostAsync("buffer", ("inSR", "4326"),
             ("geometries", "{\"geometryType\":\"esriGeometryPoint\",\"geometries\":[{\"x\":29,\"y\":41}]}"), ("distances", "1000"), ("unit", "9001"));
-        Assert.Contains("geographic", degrees.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        double[] reach = [.. degrees.GetProperty("geometries")[0].GetProperty("rings")[0].EnumerateArray().Select(p => p[0].GetDouble())];
+        Assert.InRange(reach.Max() - 29, 0.0118, 0.0120);
 
-        (_, JsonElement geodesic) = await PostAsync("distance", ("sr", "3857"),
-            ("geometry1", "{\"x\":0,\"y\":0}"), ("geometry2", "{\"x\":1,\"y\":1}"), ("geodesic", "true"));
-        Assert.Contains("geodesic", geodesic.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
-
-        (_, JsonElement ellipsoid) = await PostAsync("areasAndLengths", ("sr", "3857"), ("polygons", $"[{kilometre}]"), ("calculationType", "geodesic"));
-        Assert.Contains("calculationType", ellipsoid.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
-
-        // The refusal of metres in degrees names the way out.
-        Assert.Contains("bufferSR", degrees.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+        // An operation made in a plane still refuses a geodesic calculation by name.
+        (_, JsonElement offset) = await PostAsync("offset", ("sr", "3857"),
+            ("geometries", "{\"geometryType\":\"esriGeometryPolyline\",\"geometries\":[{\"paths\":[[[0,0],[10,0]]]}]}"),
+            ("offsetDistance", "1"), ("geodesic", "true"));
+        Assert.Contains("geodesic", offset.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
 
         // <b>A buffer is made in `bufferSR` and answered in `outSR`, or in the request's own reference — 2026-10-11.</b>
         // A lat/lon point buffered by 100 m in Web Mercator comes back in degrees: 100 Mercator metres is
@@ -156,6 +154,35 @@ public sealed class GeometryServerClientRequestsTests : ArcGisClient
             ("geometries", point), ("distances", "100"), ("unit", "9001"));
         double[] eastings = [.. inMetres.GetProperty("geometries")[0].GetProperty("rings")[0].EnumerateArray().Select(p => p[0].GetDouble())];
         Assert.InRange(eastings.Max(), (29 * 111_319.49079327358) + 99, (29 * 111_319.49079327358) + 101);
+    }
+
+    /// <summary>
+    /// ADR-198: lengths, areas and distances on the ellipsoid, checked against WGS 84's known figures — a degree of
+    /// longitude on the equator is 111,319.49 m, a degree of latitude there 110,574.39 m, and the 1° cell at the equator
+    /// about 12,308.8 km².
+    /// </summary>
+    [Fact]
+    public async Task A_geodesic_measure_is_the_ellipsoids()
+    {
+        (_, JsonElement apart) = await PostAsync("distance", ("sr", "4326"),
+            ("geometry1", "{\"x\":0,\"y\":0}"), ("geometry2", "{\"x\":1,\"y\":0}"), ("geodesic", "true"));
+        Assert.Equal(111_319.49, apart.GetProperty("distance").GetDouble(), 1);
+
+        (_, JsonElement meridian) = await PostAsync("lengths", ("sr", "4326"),
+            ("polylines", "[{\"paths\":[[[0,0],[0,1]]]}]"), ("calculationType", "geodesic"), ("lengthUnit", "9001"));
+        Assert.InRange(meridian.GetProperty("lengths")[0].GetDouble(), 110_570, 110_580);
+
+        (_, JsonElement cell) = await PostAsync("areasAndLengths", ("sr", "4326"),
+            ("polygons", "[{\"rings\":[[[0,0],[0,1],[1,1],[1,0],[0,0]]]}]"), ("calculationType", "geodesic"),
+            ("areaUnit", "{\"areaUnit\":\"esriSquareKilometers\"}"));
+        Assert.InRange(cell.GetProperty("areas")[0].GetDouble(), 12_300, 12_320);
+
+        // A line drawn along the 60th parallel is longer as drawn than the geodesic between its ends.
+        string parallel = "[{\"paths\":[[[0,60],[10,60]]]}]";
+        (_, JsonElement shortest) = await PostAsync("lengths", ("sr", "4326"), ("polylines", parallel), ("calculationType", "geodesic"));
+        (_, JsonElement drawn) = await PostAsync("lengths", ("sr", "4326"), ("polylines", parallel), ("calculationType", "preserveShape"));
+        Assert.True(drawn.GetProperty("lengths")[0].GetDouble() > shortest.GetProperty("lengths")[0].GetDouble() + 100);
+        Assert.InRange(drawn.GetProperty("lengths")[0].GetDouble(), 557_000, 559_000);
     }
 
     [Fact]
