@@ -24,6 +24,7 @@ public sealed class ItemStructureTests : ConsoleTest
     [Theory]
     [InlineData(768)]
     [InlineData(390)]
+    [InlineData(330)]
     public async Task At_narrow_widths_the_item_page_fits_and_says_its_sharing_once(int width)
     {
         (string token, _) = await SignInAsync();

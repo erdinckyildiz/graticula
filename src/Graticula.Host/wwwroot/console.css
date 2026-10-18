@@ -5432,4 +5432,4 @@ header #globalSearch[hidden] { display: none; }
 #view-search .toolbar input[type=search] { flex: 0 1 480px; }
 #view-search code.itemid { font-size: 12px; user-select: all; }
 @media (max-width: 760px) { #globalSearch input { width: 150px; max-width: 40vw; } }
-#svcFacts code.itemid { font-size: 12px; user-select: all; }
+#svcFacts code.itemid { font-size: 12px; user-select: all; overflow-wrap: anywhere; } /* 32 unbroken characters set a narrow column's width: 386 in a 375 window on CI (2026-10-18) */
