@@ -4868,6 +4868,8 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #servicePagehead > #itemThumb { grid-area: thumb; margin-right: var(--gap-5); }
 #servicePagehead:not([data-tab="overview"]) > #itemThumb { display: none; }
 #servicePagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
+/* A service's name is one word — tur_admin_public — and it set a phone's page width: 308 in 285 (2026-10-18). */
+#servicePagehead > .herotext h2 { overflow-wrap: anywhere; }
 #servicePagehead > #itemActions {
   grid-area: actions; margin-left: var(--gap-5); max-width: 440px;
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: var(--gap-2);
