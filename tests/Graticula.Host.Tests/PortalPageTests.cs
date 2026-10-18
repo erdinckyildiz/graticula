@@ -37,11 +37,15 @@ public sealed class PortalPageTests
     }
 
     [Fact]
-    public void Without_num_every_result_comes_and_there_is_no_next_page()
+    public void Without_num_ten_come_as_ArcGIS_answers_and_next_start_says_where_the_rest_begins()
     {
-        PortalPage.Page page = Page(string.Empty);
+        IReadOnlyList<object> many = [.. Enumerable.Range(1, 25).Select(i => (object)new Item($"item {i:00}", i))];
+        DefaultHttpContext context = new();
 
-        Assert.Equal((5, 1, 5, -1), (page.Total, page.Start, page.Num, page.NextStart));
+        PortalPage.Page page = PortalPage.Of(many, context);
+
+        Assert.Equal((25, 1, 10, 11), (page.Total, page.Start, page.Num, page.NextStart));
+        Assert.Equal((5, 1, 5, -1), (Page(string.Empty).Total, Page(string.Empty).Start, Page(string.Empty).Num, Page(string.Empty).NextStart));
     }
 
     [Fact]

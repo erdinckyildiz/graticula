@@ -304,7 +304,7 @@ public sealed class MyContentIsWhatTheCallerOwnsTests : ArcGisClient
     {
         (HttpStatusCode status, string body) = await RequestAsync(
             HttpMethod.Get,
-            $"{root}/sharing/rest/content/users/{Uri.EscapeDataString(username)}?f=json",
+            $"{root}/sharing/rest/content/users/{Uri.EscapeDataString(username)}?num=100&f=json",
             token,
             json: null);
 
@@ -317,7 +317,7 @@ public sealed class MyContentIsWhatTheCallerOwnsTests : ArcGisClient
     private async Task<JsonElement> SearchAsync(string root, string token)
     {
         (HttpStatusCode status, string body) = await RequestAsync(
-            HttpMethod.Get, $"{root}/sharing/rest/search?q=&f=json", token, json: null);
+            HttpMethod.Get, $"{root}/sharing/rest/search?q=&num=100&f=json", token, json: null);
 
         Assert.True(status == HttpStatusCode.OK, $"search answered {(int)status}: {body}");
 

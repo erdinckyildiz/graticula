@@ -184,7 +184,7 @@ public sealed class ShareAsWebMapTests : ArcGisClient
 
         try
         {
-            JsonElement listing = await SendAsync(HttpMethod.Get, $"/sharing/rest/community/groups?q=title:{name}&f=json");
+            JsonElement listing = await SendAsync(HttpMethod.Get, $"/sharing/rest/community/groups?q=title:{name}&num=100&f=json");
             JsonElement results = listing.GetProperty("results");
             Assert.True(results.GetArrayLength() == 1, listing.GetRawText());
 

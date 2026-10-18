@@ -90,7 +90,7 @@ public sealed class ServiceDescriptionConformanceTests : ArcGisClient
             Assert.Equal(text, JsonDocument.Parse(listing).RootElement.GetProperty("items").EnumerateArray()
                 .First(i => i.GetProperty("name").GetString() == service).GetProperty("credits").GetString());
 
-            (_, string search) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/search?q={Uri.EscapeDataString(bare)}&f=json");
+            (_, string search) = await AdminAsync(HttpMethod.Get, $"/sharing/rest/search?q={Uri.EscapeDataString(bare)}&num=100&f=json");
             Assert.Contains(JsonDocument.Parse(search).RootElement.GetProperty("results").EnumerateArray(),
                 r => r.TryGetProperty("accessInformation", out JsonElement a) && a.GetString() == text);
 

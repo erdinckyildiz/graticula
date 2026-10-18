@@ -187,7 +187,7 @@ public sealed class ImageryGroupSharingTests : ArcGisClient
             (_, string outside) = await SendAsync(root, strangerToken, HttpMethod.Get, document);
             Assert.Contains("\"error\"", outside, StringComparison.Ordinal);
 
-            string search = $"/sharing/rest/search?q={Uri.EscapeDataString(name)}&f=json";
+            string search = $"/sharing/rest/search?q={Uri.EscapeDataString(name)}&num=100&f=json";
             (_, string found) = await SendAsync(root, memberToken, HttpMethod.Get, search);
             Assert.True(Lists(found, name), $"Portal search does not list the image service for a member of its group: {found}");
             (_, string hidden) = await SendAsync(root, strangerToken, HttpMethod.Get, search);
@@ -195,7 +195,7 @@ public sealed class ImageryGroupSharingTests : ArcGisClient
 
             // And by the group itself, which is how Pro and the Python API list a group's content — D-292.
             // The id is the portal's, read where Pro reads it: the member's own groups.
-            (_, string groups) = await SendAsync(root, memberToken, HttpMethod.Get, "/sharing/rest/community/groups?f=json");
+            (_, string groups) = await SendAsync(root, memberToken, HttpMethod.Get, "/sharing/rest/community/groups?num=100&f=json");
             string groupId = JsonDocument.Parse(groups).RootElement.GetProperty("results").EnumerateArray()
                 .First(g => g.GetProperty("title").GetString() == group).GetProperty("id").GetString()!;
             (_, string inGroup) = await SendAsync(root, memberToken, HttpMethod.Get,

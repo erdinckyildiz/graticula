@@ -57,7 +57,9 @@ result with `nextStart: -1` whatever `start` and `num` asked, and ignored `sortF
 2. **A request with `callback` is authenticated as if it had no session cookie** — anonymous, or the token the page
    put in its own address.
 3. **The four portal listings honour `start`, `num` (≤ 100), `sortField` and `sortOrder`,** and `nextStart` says
-   where the next page begins. Without `num`, every result — Q-178.
+   where the next page begins. ~~Without `num`, every result~~ **Without `num`, ten, as ArcGIS answers** — owner
+   decision 2026-10-18 (*"10 mantıklı"*, Q-178); the conformance suite's listings send `num` now, as every paging
+   client does.
 
 ## 6. Consequences
 
@@ -90,3 +92,5 @@ None recorded.
 ## 11. Conditions
 
 1. **The owner confirms the paging default** (Q-178): every result without `num`, or ArcGIS's ten.
+   **DISCHARGED 2026-10-18** — ten (*"10 mantıklı"*); `PortalPageTests` holds it, and the 32 listing calls in the
+   conformance suite that sent no `num` send `num=100`, which is what a client paging through a listing sends.

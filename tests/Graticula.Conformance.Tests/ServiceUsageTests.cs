@@ -69,7 +69,7 @@ public sealed class ServiceUsageTests : ArcGisClient
 
         // The portal face's numViews is the same count, all time.
         (_, string search) = await SendAsync(root, token!, HttpMethod.Get,
-            $"/sharing/rest/search?q={Uri.EscapeDataString(service.Split('/').Last())}&f=json");
+            $"/sharing/rest/search?q={Uri.EscapeDataString(service.Split('/').Last())}&num=100&f=json");
         JsonElement found = JsonDocument.Parse(search).RootElement.GetProperty("results").EnumerateArray()
             .First(r => r.GetProperty("name").GetString() == service.Split('/').Last());
         Assert.True(found.GetProperty("numViews").GetInt64() >= after, $"numViews is {found.GetProperty("numViews")}.");

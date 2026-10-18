@@ -223,7 +223,7 @@ public sealed class OgcRecordsConformanceTests : ArcGisClient
             // The administrator who owns it sees it, and so does the portal: the two listings are one (ADR-177).
             JsonElement owned = await JsonOkAsync(search, admin);
             string id = Assert.Single(Ids(owned));
-            JsonElement portal = await JsonOkAsync($"/sharing/rest/search?q={service}&f=json", admin);
+            JsonElement portal = await JsonOkAsync($"/sharing/rest/search?q={service}&num=100&f=json", admin);
             Assert.Contains(portal.GetProperty("results").EnumerateArray(), r => r.GetProperty("id").GetString() == id);
 
             // Private: absent for a stranger and for a member — from the search and by id, one 404 for both (ADR-018).

@@ -20,9 +20,9 @@ namespace Graticula.Host;
 /// asked for ten and was sent three thousand.
 /// </para>
 /// <para>
-/// <b>Without <c>num</c>, still every result</b> — <c>INFERRED</c>, for the owner to confirm. ArcGIS's default is ten;
-/// every client named above sends <c>num</c>, and this server's own callers and tests that do not were written against
-/// the whole list. The answer is consistent either way: <c>nextStart</c> says whether there is more.
+/// <b>Without <c>num</c>, ten, as ArcGIS answers</b> — owner decision 2026-10-18 (<i>"10 mantıklı"</i>, Q-178). For a
+/// day it was every result, <c>INFERRED</c>, because this server's own callers and tests sent no <c>num</c>; they send
+/// it now, and <c>nextStart</c> says where the rest begins.
 /// </para>
 /// <para>
 /// <b>Paged after filtering, in memory.</b> The listings are built from objects the item filter reads by reflection
@@ -34,6 +34,9 @@ internal static class PortalPage
 {
     /// <summary>ArcGIS's ceiling on <c>num</c>.</summary>
     public const int MaximumNum = 100;
+
+    /// <summary>ArcGIS's page without <c>num</c> — Q-178.</summary>
+    public const int DefaultNum = 10;
 
     internal sealed record Page(IReadOnlyList<object> Results, int Total, int Start, int Num, int NextStart);
 
@@ -50,7 +53,7 @@ internal static class PortalPage
 
         int start = int.TryParse(Parameter("start"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int s) && s >= 1 ? s : 1;
         bool asked = int.TryParse(Parameter("num"), NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) && n >= 0;
-        int num = asked ? Math.Min(n, MaximumNum) : Math.Max(all.Count - (start - 1), 0);
+        int num = asked ? Math.Min(n, MaximumNum) : DefaultNum;
 
         List<object> results = [.. sorted.Skip(start - 1).Take(num)];
         int next = start - 1 + results.Count < all.Count && results.Count > 0 ? start + results.Count : -1;

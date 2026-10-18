@@ -371,7 +371,7 @@ public sealed class ImageryDisplayTests : ArcGisClient
                 $"exportImage with a Mercator box and no bboxSR answered {(int)drawn}: {Encoding.UTF8.GetString(picture[..Math.Min(300, picture.Length)])}");
 
             // Its portal item says so too, as Esri's Terrain3D item does.
-            JsonElement item = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&f=json")).Body)
+            JsonElement item = JsonDocument.Parse((await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&num=100&f=json")).Body)
                 .RootElement.GetProperty("results").EnumerateArray().First(r => r.GetProperty("name").GetString() == name);
             Assert.Contains("Elevation 3D Layer", item.GetProperty("typeKeywords").EnumerateArray().Select(k => k.GetString()));
 

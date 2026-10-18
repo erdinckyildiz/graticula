@@ -114,7 +114,7 @@ public sealed class PortalConformanceTests : ArcGisClient
         // different claims.
         string root = await RequireServerAsync();
 
-        JsonElement anonymous = await GetJsonAsync("/sharing/rest/search?q=&f=json");
+        JsonElement anonymous = await GetJsonAsync("/sharing/rest/search?q=&num=100&f=json");
 
         int open = anonymous.GetProperty("total").GetInt32();
 
@@ -128,7 +128,7 @@ public sealed class PortalConformanceTests : ArcGisClient
             + "caller asserts nothing about filtering.");
 
         JsonElement authenticated =
-            await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}");
+            await GetJsonAsync($"/sharing/rest/search?q=&num=100&f=json&token={token}");
 
         int all = authenticated.GetProperty("total").GetInt32();
 
@@ -171,8 +171,8 @@ public sealed class PortalConformanceTests : ArcGisClient
 
         Assert.False(string.IsNullOrWhiteSpace(token));
 
-        JsonElement mine = await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}");
-        JsonElement open = await GetJsonAsync("/sharing/rest/search?q=&f=json");
+        JsonElement mine = await GetJsonAsync($"/sharing/rest/search?q=&num=100&f=json&token={token}");
+        JsonElement open = await GetJsonAsync("/sharing/rest/search?q=&num=100&f=json");
 
         HashSet<string> anonymousIds =
         [
@@ -322,9 +322,9 @@ public sealed class PortalConformanceTests : ArcGisClient
             "/sharing/rest/portals/regions?f=json&culture=en",
             $"/sharing/rest/community/self?f=json&token={token}",
             $"/sharing/rest/community/users/{user}?f=json&token={token}",
-            $"/sharing/rest/community/groups?f=json&token={token}",
-            $"/sharing/rest/content/users/{user}?f=json&token={token}",
-            $"/sharing/rest/search?q=&f=json&token={token}",
+            $"/sharing/rest/community/groups?num=100&f=json&token={token}",
+            $"/sharing/rest/content/users/{user}?num=100&f=json&token={token}",
+            $"/sharing/rest/search?q=&num=100&f=json&token={token}",
         ];
 
         // <b>This server is the portal's hosting server</b> (ADR-191 §5.4, superseding Q-176's empty list): Pro shares
@@ -377,7 +377,7 @@ public sealed class PortalConformanceTests : ArcGisClient
 
         Assert.False(string.IsNullOrWhiteSpace(token));
 
-        JsonElement[] items = [.. (await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}"))
+        JsonElement[] items = [.. (await GetJsonAsync($"/sharing/rest/search?q=&num=100&f=json&token={token}"))
             .GetProperty("results").EnumerateArray()];
 
         Assert.Equal(items.Length, items.Select(i => i.GetProperty("id").GetString()).Distinct().Count());
@@ -442,8 +442,8 @@ public sealed class PortalConformanceTests : ArcGisClient
 
         Assert.False(string.IsNullOrWhiteSpace(token));
 
-        JsonElement mine = await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}");
-        JsonElement open = await GetJsonAsync("/sharing/rest/search?q=&f=json");
+        JsonElement mine = await GetJsonAsync($"/sharing/rest/search?q=&num=100&f=json&token={token}");
+        JsonElement open = await GetJsonAsync("/sharing/rest/search?q=&num=100&f=json");
 
         JsonElement[] pictured =
         [
@@ -499,7 +499,7 @@ public sealed class PortalConformanceTests : ArcGisClient
 
         Assert.False(string.IsNullOrWhiteSpace(token));
 
-        JsonElement search = await GetJsonAsync($"/sharing/rest/search?q=&f=json&token={token}");
+        JsonElement search = await GetJsonAsync($"/sharing/rest/search?q=&num=100&f=json&token={token}");
 
         JsonElement[] items = [.. search.GetProperty("results").EnumerateArray()];
 

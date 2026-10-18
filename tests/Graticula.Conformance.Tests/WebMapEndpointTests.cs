@@ -83,7 +83,7 @@ public sealed class WebMapEndpointTests : ArcGisClient
 
             // ---- the portal: search, the owner's content, the item, its data ----
             JsonElement search = await JsonAsync(
-                HttpMethod.Get, $"{root}/sharing/rest/search?q={Uri.EscapeDataString("type:\"Web Map\"")}&f=json", token);
+                HttpMethod.Get, $"{root}/sharing/rest/search?q={Uri.EscapeDataString("type:\"Web Map\"")}&num=100&f=json", token);
 
             JsonElement item = search.GetProperty("results").EnumerateArray()
                 .Single(i => i.GetProperty("id").GetString() == id);
@@ -96,7 +96,7 @@ public sealed class WebMapEndpointTests : ArcGisClient
             string owner = item.GetProperty("owner").GetString()!;
 
             JsonElement content = await JsonAsync(
-                HttpMethod.Get, $"{root}/sharing/rest/content/users/{Uri.EscapeDataString(owner)}?f=json", token);
+                HttpMethod.Get, $"{root}/sharing/rest/content/users/{Uri.EscapeDataString(owner)}?num=100&f=json", token);
 
             Assert.Contains(content.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
 
@@ -189,7 +189,7 @@ public sealed class WebMapEndpointTests : ArcGisClient
             (_, string data) = await RequestAsync(HttpMethod.Get, $"{root}/sharing/rest/content/items/{hidden}/data?f=json", reader, null);
             Assert.Contains("does not exist or is inaccessible", data, StringComparison.Ordinal);
 
-            (_, string found) = await RequestAsync(HttpMethod.Get, $"{root}/sharing/rest/search?q=ADR-079&f=json", reader, null);
+            (_, string found) = await RequestAsync(HttpMethod.Get, $"{root}/sharing/rest/search?q=ADR-079&num=100&f=json", reader, null);
             Assert.DoesNotContain(hidden, found, StringComparison.Ordinal);
             Assert.Contains(shared, found, StringComparison.Ordinal);
 

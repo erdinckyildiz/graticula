@@ -110,7 +110,7 @@ public sealed class ADocumentIsAnItemTests : ArcGisClient
             Assert.Equal("PDF", hit.GetProperty("type").GetString());
 
             // The member's content, the item, and its data from the portal.
-            (_, string mine, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/users/{Uri.EscapeDataString(user)}?f=json");
+            (_, string mine, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/users/{Uri.EscapeDataString(user)}?num=100&f=json");
             Assert.Contains(JsonDocument.Parse(mine).RootElement.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
 
             (_, string item, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/items/{id}?f=json");
@@ -136,7 +136,7 @@ public sealed class ADocumentIsAnItemTests : ArcGisClient
                 $"Moving the document answered {(int)moved}: {moveBody}");
 
             string folderId = Guid.Parse(folder!).ToString("N");
-            (_, string inFolder, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/users/{Uri.EscapeDataString(user)}/{folderId}?f=json");
+            (_, string inFolder, _) = await SendAsync(root, admin, HttpMethod.Get, $"/sharing/rest/content/users/{Uri.EscapeDataString(user)}/{folderId}?num=100&f=json");
             Assert.Contains(JsonDocument.Parse(inFolder).RootElement.GetProperty("items").EnumerateArray(), i => i.GetProperty("id").GetString() == id);
 
             // Made public, an anonymous caller downloads it.

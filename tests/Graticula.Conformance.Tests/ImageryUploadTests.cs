@@ -79,7 +79,7 @@ public sealed class ImageryUploadTests : ArcGisClient
                 new StringContent("{\"tags\":[\"ortho\",\"2026\"]}", Encoding.UTF8, "application/json"));
             Assert.True(tagged == HttpStatusCode.OK, $"Tagging it answered {(int)tagged}: {taggedBody}");
 
-            (_, string search) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&f=json");
+            (_, string search) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q={name}&num=100&f=json");
             JsonElement item = JsonDocument.Parse(search).RootElement.GetProperty("results").EnumerateArray()
                 .First(r => r.GetProperty("name").GetString() == name);
             Assert.Equal("Orthophoto of the test square.", item.GetProperty("description").GetString());

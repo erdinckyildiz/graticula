@@ -113,7 +113,7 @@ public sealed class WebMapGroupSharingTests : ArcGisClient
             // <b>And a group search finds it, for the member</b> — D-292: `group:` passed groups for services alone,
             // so Pro's and the Python API's way of listing a group's content never found a map in it.
             // The id is the portal's, read where Pro reads it: the member's own groups.
-            (_, string groups) = await SendAsync(root, memberToken, HttpMethod.Get, "/sharing/rest/community/groups?f=json");
+            (_, string groups) = await SendAsync(root, memberToken, HttpMethod.Get, "/sharing/rest/community/groups?num=100&f=json");
             string groupId = JsonDocument.Parse(groups).RootElement.GetProperty("results").EnumerateArray()
                 .First(g => g.GetProperty("title").GetString() == group).GetProperty("id").GetString()!;
             (_, string inGroup) = await SendAsync(root, memberToken, HttpMethod.Get,

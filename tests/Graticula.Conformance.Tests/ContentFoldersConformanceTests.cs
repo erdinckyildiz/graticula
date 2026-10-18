@@ -83,16 +83,16 @@ public sealed class ContentFoldersConformanceTests : ArcGisClient
             string user = Environment.GetEnvironmentVariable("GRATICULA_TEST_USER") ?? "ci";
             string portalFolder = Guid.Parse(folder!).ToString("N");
 
-            (_, string rootListing) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/content/users/{user}?f=json");
+            (_, string rootListing) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/content/users/{user}?num=100&f=json");
             JsonElement listing = JsonDocument.Parse(rootListing).RootElement;
             Assert.Contains(listing.GetProperty("folders").EnumerateArray(), f => f.GetProperty("id").GetString() == portalFolder);
             Assert.DoesNotContain(listing.GetProperty("items").EnumerateArray(), i => i.GetProperty("title").GetString() == service);
 
-            (_, string inFolder) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/content/users/{user}/{portalFolder}?f=json");
+            (_, string inFolder) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/content/users/{user}/{portalFolder}?num=100&f=json");
             JsonElement[] there = [.. JsonDocument.Parse(inFolder).RootElement.GetProperty("items").EnumerateArray()];
             Assert.Contains(there, i => i.GetProperty("title").GetString() == service && i.GetProperty("ownerFolder").GetString() == portalFolder);
 
-            (_, string searched) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q=ownerfolder:{portalFolder}&f=json");
+            (_, string searched) = await SendAsync(root, token!, HttpMethod.Get, $"/sharing/rest/search?q=ownerfolder:{portalFolder}&num=100&f=json");
             Assert.Contains(JsonDocument.Parse(searched).RootElement.GetProperty("results").EnumerateArray(),
                 i => i.GetProperty("title").GetString() == service);
 

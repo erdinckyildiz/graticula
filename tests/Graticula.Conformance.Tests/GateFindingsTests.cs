@@ -440,9 +440,9 @@ public sealed class GateFindingsTests : ArcGisClient
                 + "content to search for. It compares a wildcard against a filter and "
                 + "needs a name the filter will actually match.");
 
-        (_, string wildcard) = await FetchAsync("/sharing/rest/search?q=*&f=json");
+        (_, string wildcard) = await FetchAsync("/sharing/rest/search?q=*&num=100&f=json");
         (_, string owned) = await FetchAsync(
-            $"/sharing/rest/search?q=owner%3A{Uri.EscapeDataString(owner)}&f=json");
+            $"/sharing/rest/search?q=owner%3A{Uri.EscapeDataString(owner)}&num=100&f=json");
 
         Assert.True(
             Total(wildcard) >= Total(owned) && Total(owned) > 0,
