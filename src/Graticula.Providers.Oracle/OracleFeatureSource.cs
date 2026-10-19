@@ -264,7 +264,11 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         List<FieldDescription> fields = [.. table.Columns.Select(c => new FieldDescription(
             c.Name, c.Type, c.Nullable && !string.Equals(c.Name, _layer.IdentityColumn, StringComparison.Ordinal), c.MaxLength))];
 
-        return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), Writable: false)
+        // ADR-205 phase 2: editable where the connected user may write the table, and read-only otherwise.
+        bool writable = await OracleConnections.CanWriteAsync(connection, _layer.SchemaName, _layer.TableName, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
         {
             AnswersDistance = false,
             AnswersHaving = false,
@@ -291,15 +295,24 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         List<(double X, double Y)> corners = [];
 
-        await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-
-        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        // <b>An index it cannot ask is an unknown extent, not a failed describe</b> — a table with no spatial index (a
+        // layer's is checked at registration) or an empty one. The describe is what every face starts from.
+        try
         {
-            if (!reader.IsDBNull(0) && !reader.IsDBNull(1))
+            await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                corners.Add((Convert.ToDouble(reader.GetValue(0), CultureInfo.InvariantCulture),
-                    Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture)));
+                if (!reader.IsDBNull(0) && !reader.IsDBNull(1))
+                {
+                    corners.Add((Convert.ToDouble(reader.GetValue(0), CultureInfo.InvariantCulture),
+                        Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture)));
+                }
             }
+        }
+        catch (OracleException)
+        {
+            return null;
         }
 
         return corners.Count == 0
@@ -658,36 +671,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         $"A query on layer '{_layer.Name}' ran past the {_timeout.TotalSeconds:0.#} seconds this service allows one "
         + "statement, and Oracle was told to stop. Narrow the extent or the where clause.");
 
-    /// <summary>
-    /// A pooled connection with the session's formats pinned, so nothing depends on the server process's culture.
-    /// </summary>
-    /// <remarks>
-    /// <b>The managed driver takes the session's language and territory from the .NET culture</b>, and a territory
-    /// decides the decimal separator a <c>cast(… as varchar2)</c> writes and the order a text sort uses. Pinned here to
-    /// a full stop and binary order — PostgreSQL's <c>C</c> collation's order.
-    /// </remarks>
-    private async Task<OracleConnection> OpenAsync(CancellationToken cancellationToken)
-    {
-        OracleConnection connection = new(_connectionString);
-
-        try
-        {
-            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
-
-            await using OracleCommand session = new(
-                "alter session set nls_territory = 'AMERICA' nls_language = 'AMERICAN' "
-                + "nls_numeric_characters = '.,' nls_sort = 'BINARY' nls_comp = 'BINARY'",
-                connection);
-
-            await session.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            return connection;
-        }
-        catch
-        {
-            await connection.DisposeAsync().ConfigureAwait(false);
-            throw;
-        }
-    }
+    private Task<OracleConnection> OpenAsync(CancellationToken cancellationToken) =>
+        OracleConnections.OpenAsync(_connectionString, cancellationToken);
 
     /// <summary>The table's columns and its geometry's Oracle SRID, read at most once a minute.</summary>
     private async Task<OracleTable> TableAsync(OracleConnection connection, CancellationToken cancellationToken)

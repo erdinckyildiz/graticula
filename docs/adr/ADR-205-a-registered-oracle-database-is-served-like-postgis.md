@@ -162,6 +162,31 @@ returns no geometry, as ArcGIS's does; whole numbers are typed as ArcGIS types t
 and editor-tracking rules the PostGIS writer enforces — the same `EditBatch`, a second implementation. Measured against
 the PostGIS writer's own tests before it is offered (condition 6).
 
+**As built, 2026-10-20.** The rules are not a second implementation after all: what an edit may send — the column
+whitelist, domains and subtypes (and Q-152's subtype move), the tracked columns, the GlobalID, the ordinates a store
+would lose — moved out of `PostGisFeatureWriter` into Core's `EditColumns`, and both writers call it, so the two refuse
+the same values with the same sentences by running the same code. `OracleFeatureWriter` owns only the SQL: one
+transaction, a savepoint per edit, PL/SQL blocks that build the `SDO_GEOMETRY` from WKB with the column's Oracle SRID
+and return the new key, ownership in the `where`. A layer is offered as editable — `Create,Update,Delete` — where the
+connected user owns the table or holds all three object grants or the `ANY TABLE` privileges (`CanWriteAsync`), and
+read-only otherwise. Measured end to end on the fixture: `applyEdits` added, updated (a point sent in EPSG:3857 stored in
+4326), deleted and refused a text value for a number by name; OGC API Features created, replaced and deleted an item.
+
+**`INFERRED` — this session's, for the owner to confirm:**
+
+1. **A new row's key must be made by the database** — an identity column or a column default. Where it is not, adds are
+   refused with the reason and updates and deletes are answered: a customer's table numbers its rows its own way, and
+   this server inventing a number (a `max + 1`) races every other writer.
+2. **A polygon is stored as sent, not repaired.** The PostGIS writer repairs an invalid polygon with `ST_MakeValid`
+   (Q-153); Oracle's validity is not PostGIS's (condition 8), and repairing by one engine's rules data the other engine
+   holds changes the customer's rows for a reason their own tools would not give.
+3. **A version precondition is refused.** An Oracle layer publishes no row versions (no ETag), so a client holding one
+   holds a version this server did not issue; writing over it would be the lost update D-186 stops.
+4. **No history, attachments or GlobalIDs.** Each needs a table or column this server creates, and it creates nothing in
+   a registered database (ADR-002 §4.2).
+5. **A service-level edit across several Oracle layers is not one transaction** — each layer's batch is its own, as for
+   any pair of sources `OneTransactionHolds` does not join.
+
 ### 5c. Tiles — through the datastore
 
 > **Amended 2026-10-20 — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md): Oracle layers are not tiled.** No registered source is; `TileSources.Tiled` answers by `hosted` alone, ADR-008's Q-67 amendment (*registered Oracle layers never serve tiles*) holds again, and `ReadTileSource` is removed. The paragraphs below are kept as the record of what was decided and built the same day. An Oracle layer's *query answers* still keep five minutes and `best-effort` coherence.
@@ -265,6 +290,11 @@ Oracle connection pool per registered source, inside the same admission budget t
    answers for the same polygon** over the same tables. Pro and Graticula read one table and agree on it.
 6. **The Oracle writer passes the PostGIS writer's edit-rule tests** — domains, subtypes, editor tracking, own-only
    editing (ADR-115), one transaction — before editing is offered on an Oracle layer.
+   **DISCHARGED 2026-10-20** — `OracleFeatureWriterTests` ports `PostGisFeatureWriterTests`, `DomainWriterTests` and
+   `EditorTrackingWriterTests` case by case to Oracle tables made for them, asserting what they assert (one case, two
+   layers in one transaction, has no Oracle counterpart — §5b item 5), plus Oracle's own two: a key the database does
+   not make, and a geometry sent in another reference. All pass against Oracle 26ai Free; the own-only case fails when
+   the ownership predicate is removed (falsified), and the PostGIS writer's 48 rule tests pass on the shared code.
 7. **[Q-182](../open-questions.md) is answered** — `SDO_GEOMETRY`, the phasing, and the tile route — before phase 1 is
    merged. **DISCHARGED 2026-10-19** — the owner answered *"evet"* to all three.
 8. **A geometry Oracle calls invalid is still served.** `TRDATA.TR_KARA`'s two polygons (13356) come back as

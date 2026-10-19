@@ -486,6 +486,27 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // <b>ADR-205 phase 2: an Oracle table is edited by its own writer</b>, under the rules the PostGIS one applies
+        // (EditColumns), behind the same quiesce. Not wrapped in TilePurgingWriter: a registered layer has no tiles (ADR-206).
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            if (_quiesce?.Holding(layer.ConnectionString) is { } held)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+            }
+
+            if (_projector is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    + "the projector an edit's geometry is moved with.");
+            }
+
+            return new OracleFeatureWriter(
+                layer.ConnectionString, layer.Definition, fields, _projector, tracking, subtypes, Lowered(layer));
+        }
+
         RefuseIfFile(layer, "edited");
 
         IFeatureWriter writer = new PostGisFeatureWriter(
@@ -900,12 +921,14 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 + $"{what}: the file is read in place and never written (ADR-066).");
         }
 
-        // ADR-205 §5b: an Oracle layer is read before it is written, and the writer waits on condition 6.
+        // ADR-205: an Oracle layer's rows are edited in place (WriterFor), and nothing else is made for it — a history,
+        // attachments or a GlobalID lookup would need tables in the customer's database, which this server never creates
+        // (ADR-002 §4.2).
         if (OracleLocator.Is(layer.ConnectionString))
         {
             throw new QueryNotSupportedException(
-                $"Layer '{layer.Definition.Name}' is in an Oracle database, which this server reads and does not yet "
-                + $"write, so it cannot be {what} (ADR-205 phase 2).");
+                $"Layer '{layer.Definition.Name}' is in a registered Oracle database, whose rows this server edits in "
+                + $"place and beside which it makes nothing, so it cannot be {what} (ADR-205).");
         }
     }
 

@@ -30,7 +30,8 @@ public sealed class OracleDataSourceProbeTests
         Assert.Equal(("SHAPE", 4326, "Point", "OBJECTID"), (places.GeometryColumn, places.Srid, places.GeometryType, places.CandidateObjectIdColumn));
 
         // Phase 1 reads; editing waits on the writer (condition 6).
-        Assert.All(result.Tables, t => Assert.False(t.Writable));
+        // ADR-205 phase 2: the test user owns these tables, so they are offered as editable.
+        Assert.All(result.Tables, t => Assert.True(t.Writable));
     }
 
     [Fact]

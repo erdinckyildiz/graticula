@@ -197,7 +197,7 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
                 key,
                 key,
                 [key],
-                Writable: false));
+                Writable: await OracleConnections.CanWriteAsync(connection, row.Owner, row.Table, cancellation).ConfigureAwait(false)));
         }
 
         return (tables, skipped);

@@ -66,7 +66,7 @@ public sealed class OracleFeatureSourceTests
         Assert.Equal(["OBJECTID", "AD", "TUR", "NUFUS"], description.Fields.Select(f => f.Name));
         Assert.Equal(FieldType.Integer, description.Fields[0].Type);
         Assert.Equal(FieldType.Text, description.Fields[1].Type);
-        Assert.False(description.Writable);
+        Assert.True(description.Writable, "The test user owns TR_YER, so it may edit it — ADR-205 phase 2.");
         Assert.NotNull(description.Extent);
         Assert.InRange(description.Extent!.Value.MinX, 25, 27);
         Assert.InRange(description.Extent!.Value.MaxY, 41, 43);
