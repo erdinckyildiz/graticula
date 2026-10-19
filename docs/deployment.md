@@ -144,6 +144,55 @@ detail redacted** — that is [D-18](architecture-debt.md), recorded there as th
 wrong trade and the only one available, because a readiness endpoint a load
 balancer can reach is a readiness endpoint a stranger can reach.
 
+### 0.3 The role the server connects as
+
+**A role that is neither a superuser nor `BYPASSRLS`, and owns the database.** That is what the server should
+be given, and since 2026-10-19 it says at startup when it is not (event 1094). The reason is
+[ADR-204](adr/ADR-204-one-deployment-holds-several-organisations.md): several organisations in one deployment are
+kept apart by PostgreSQL's row-level security, and **a superuser is never bound by it** — measured, a superuser
+read all 1,000 services as an organisation that owns 50. Until a deployment holds a second organisation nothing
+depends on it, and the warning is all that happens.
+
+**Nothing in the product needs more.** Built from nothing as such a role, the conformance suite answers exactly as
+it does under a superuser — 853 passed, the same 10 failed —
+([benchmarks/tenant-floor/ROLES.md](../benchmarks/tenant-floor/ROLES.md)). PostGIS is the one thing it cannot
+create, so step 1's `CREATE EXTENSION` is a superuser's, once:
+
+```sql
+CREATE ROLE graticula LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE PASSWORD '…';
+CREATE DATABASE gis OWNER graticula;
+\c gis
+CREATE EXTENSION postgis;
+CREATE SCHEMA gisserver AUTHORIZATION graticula;
+```
+
+**Restore is the exception, and it has its own connection.** It creates a database and puts PostGIS in it, which
+that role may not. Give `Graticula__MaintenanceStore` a connection string to the same server as a role that may —
+the superuser, for most — and `graticula restore` uses it for those steps only; the dump is still restored by the
+serving role, so what it creates is that role's. Without it, restore runs as the serving role and, under one like
+the above, refuses: the check finds the geometry tables missing and changes nothing
+([ADR-193](adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md), amended). `graticula backup` needs
+nothing more, though the roles file is only written when the maintenance connection can read them.
+
+**An existing deployment** was almost certainly built by a superuser, and everything the server made is that
+role's. [`tools/serving-role.sql`](../tools/serving-role.sql) hands the server's own schemas — `gisserver`,
+`hosted`, `hosted_*`, `graticula_recycle` — to the new role, in one transaction, and touches nothing else:
+
+```bash
+graticula backup                       # first
+psql -d gis -c "CREATE ROLE graticula LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…'"
+PGOPTIONS="-c graticula.serving_role=graticula" psql -d gis -v ON_ERROR_STOP=1 -f tools/serving-role.sql
+# then Graticula__PlatformStore's Username and Password become the new role's, and the server is restarted
+```
+
+**Not `REASSIGN OWNED`**, which also hands over every database the old role owns in the cluster. Tables in other
+schemas — a registered source's, the organisation's own — keep their owners; grant the new role what it reads.
+Measured on a deployment built entirely as a superuser and then handed over: the same 853 and the same 10.
+
+**`compose.yaml` still connects as the datastore image's superuser.** A volume made before the image creates a
+serving role has none, so changing the default would stop every existing deployment that pulls the new image; the
+switch is waiting on that decision, recorded in ADR-204 condition 9.
+
 ---
 
 ## 1. Running more than one node
@@ -254,7 +303,8 @@ cp .env graticula-env-$(date +%F)                      # holds Graticula__Secret
 docker compose cp server:/var/lib/graticula/serving-certificate.pfx .
 tar -czf graticula-geoparquet-$(date +%F).tgz geoparquet/
 
-# Restore, into an empty database in a cluster that has the roles.
+# Restore, into an empty database in a cluster that has the roles. Or `graticula restore`, which
+# does all of this and, served as a role that is not a superuser, needs §0.3's maintenance connection.
 psql --file=graticula-roles-2026-09-16.sql
 pg_restore --dbname="$GRATICULA_DB" --jobs=4 graticula-2026-09-16.dump
 ```

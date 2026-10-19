@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ADR-204 condition 1: what a row-level tenant floor costs on the real catalogue statements, and whether
+       a pooled connection can carry one tenant's setting into another's request.
+       Usage: see RESULTS.md -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnableNETAnalyzers>false</EnableNETAnalyzers>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Graticula.Platform.Postgres\Graticula.Platform.Postgres.csproj" />
+  </ItemGroup>
+</Project>

@@ -10,6 +10,15 @@
 
 ---
 
+> **Amended 2026-10-19 — [ADR-204](ADR-204-one-deployment-holds-several-organisations.md) condition 9.** A server
+> that connects as a role row-level security binds — neither a superuser nor `BYPASSRLS` — could not restore: it
+> may not create the new database, and the dump's `create extension postgis` needs a superuser, so every geometry
+> table failed and the check refused (*8 hosted layer(s) name a table that is not in it*). **`Graticula:MaintenanceStore`**,
+> optional, is a connection to the same server as a role that may: when it is set, the database-level steps go
+> through it — the new database created owned by the serving role, PostGIS put in first — and `pg_restore` still
+> runs as the serving role; the roles file is read through it too, which the serving role may not. Unset, nothing
+> changes. Measured in [benchmarks/tenant-floor/ROLES.md](../../benchmarks/tenant-floor/ROLES.md).
+
 ## 1. Context
 
 [ADR-016](ADR-016-packaging-deployment-upgrade.md) §4b promised that `migrate` *"takes a backup first"* and §6 that

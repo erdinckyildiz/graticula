@@ -747,4 +747,14 @@ internal static partial class Log
         Message = "The overviews of the uploaded image {Path} could not be built, so it is served without them and a "
                 + "zoomed-out picture of it reads every pixel: {Why}. ADR-139.")]
     public static partial void PyramidNotBuilt(ILogger logger, string path, string why);
+
+    [LoggerMessage(
+        EventId = 1094,
+        Level = LogLevel.Warning,
+        Message = "The platform store is reached as '{Role}', which {Why}, so row-level security does not bind it: a policy "
+                + "on a catalogue table is not applied to this server's own reads. Nothing depends on that while this "
+                + "deployment holds one organisation; ADR-204 refuses to serve a second over this connection. Connect as "
+                + "a role that is neither a superuser nor BYPASSRLS and owns the database -- docs/deployment.md, "
+                + "'The role the server connects as'. ADR-204 condition 9.")]
+    public static partial void PlatformStoreRoleIsNotBound(ILogger logger, string role, string why);
 }

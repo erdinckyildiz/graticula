@@ -53,6 +53,7 @@ internal sealed class Backups
     private readonly string _keyFingerprint;
     private readonly string _stateDirectory;
     private readonly string? _toolDirectory;
+    private readonly NpgsqlConnectionStringBuilder? _maintenance;
 
     /// <summary>Creates the service over one deployment.</summary>
     /// <param name="platformStore">The platform store's connection string.</param>
@@ -60,13 +61,35 @@ internal sealed class Backups
     /// <param name="stateDirectory">The server's state directory.</param>
     /// <param name="directory">Where backups are written.</param>
     /// <param name="toolDirectory">Where <c>pg_dump</c> and <c>pg_restore</c> are, or null for the path.</param>
-    public Backups(string platformStore, string secretKeyBase64, string stateDirectory, string directory, string? toolDirectory = null)
+    /// <param name="maintenanceStore">
+    /// A connection to the same server as a role that may create databases and extensions, or null when the
+    /// platform store's own role may — <c>Graticula:MaintenanceStore</c>, ADR-204 condition 9.
+    /// </param>
+    /// <remarks>
+    /// <b>Why there can be two credentials.</b> A server that serves as a role row-level security binds — neither a
+    /// superuser nor <c>BYPASSRLS</c> — cannot restore by itself: it may not create the new database, and the dump's
+    /// <c>create extension postgis</c> needs a superuser, so every hosted table with a geometry column fails to
+    /// restore. Measured 2026-10-19: restored as that role alone, <i>8 hosted layer(s) name a table that is not in
+    /// it</i>, and the check refused it. With a maintenance connection the database-level steps go through it — the
+    /// new database is created owned by the serving role, with PostGIS in it — and <c>pg_restore</c> still runs as
+    /// the serving role, so everything it creates is that role's, as before.
+    /// </remarks>
+    public Backups(
+        string platformStore,
+        string secretKeyBase64,
+        string stateDirectory,
+        string directory,
+        string? toolDirectory = null,
+        string? maintenanceStore = null)
     {
         _store = new NpgsqlConnectionStringBuilder(platformStore);
         _keyFingerprint = KeyFingerprint(secretKeyBase64);
         _stateDirectory = stateDirectory;
         Location = directory;
         _toolDirectory = toolDirectory;
+        _maintenance = maintenanceStore is { Length: > 0 }
+            ? new NpgsqlConnectionStringBuilder(maintenanceStore) { Database = "postgres", SearchPath = null }
+            : null;
     }
 
     /// <summary>Where backups are written.</summary>
@@ -144,7 +167,10 @@ internal sealed class Backups
 
             try
             {
-                await RunAsync("pg_dumpall", ["--roles-only", "--file", Path.Combine(partial, Roles)], null, cancellation)
+                // The roles are the cluster's, read through the maintenance connection when there is one: the serving
+                // role is not allowed to read pg_authid, and a backup taken by it alone has none.
+                await RunAsync("pg_dumpall", ["--roles-only", "--file", Path.Combine(partial, Roles)], null, cancellation,
+                        credentials: _maintenance)
                     .ConfigureAwait(false);
             }
             catch (InvalidOperationException roles)
@@ -220,7 +246,8 @@ internal sealed class Backups
         }
 
         string current = _store.Database ?? throw new InvalidOperationException("The platform store names no database.");
-        NpgsqlConnectionStringBuilder maintenance = new(_store.ConnectionString) { Database = "postgres", SearchPath = null };
+        NpgsqlConnectionStringBuilder maintenance =
+            _maintenance ?? new(_store.ConnectionString) { Database = "postgres", SearchPath = null };
 
         await using (NpgsqlConnection admin = new(maintenance.ConnectionString))
         {
@@ -244,8 +271,30 @@ internal sealed class Backups
         string restored = $"{current}_restore_{stamp}";
         string kept = $"{current}_before_restore_{stamp}";
 
-        await ExecuteAsync(maintenance.ConnectionString, $"create database {Quote(restored)} template template0", cancellation)
-            .ConfigureAwait(false);
+        if (_maintenance is null)
+        {
+            await ExecuteAsync(maintenance.ConnectionString, $"create database {Quote(restored)} template template0", cancellation)
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            // Owned by the serving role, so the rename below and everything pg_restore creates are its; PostGIS put in
+            // by the role that may, so the dump's own `create extension` is a warning rather than the loss of every
+            // geometry table.
+            string owner = _store.Username ?? throw new InvalidOperationException("The platform store names no user.");
+            await ExecuteAsync(
+                    maintenance.ConnectionString,
+                    $"create database {Quote(restored)} owner {Quote(owner)} template template0",
+                    cancellation)
+                .ConfigureAwait(false);
+
+            if (manifest.PostGis is not null)
+            {
+                NpgsqlConnectionStringBuilder inside = new(maintenance.ConnectionString) { Database = restored };
+                await ExecuteAsync(inside.ConnectionString, "create extension if not exists postgis", cancellation)
+                    .ConfigureAwait(false);
+            }
+        }
 
         try
         {
@@ -366,8 +415,15 @@ internal sealed class Backups
     }
 
     /// <summary>Runs a PostgreSQL client tool against the platform store's server, the password in its environment.</summary>
-    private async Task RunAsync(string tool, string[] arguments, string? database, CancellationToken cancellation, bool tolerateWarnings = false)
+    private async Task RunAsync(
+        string tool,
+        string[] arguments,
+        string? database,
+        CancellationToken cancellation,
+        bool tolerateWarnings = false,
+        NpgsqlConnectionStringBuilder? credentials = null)
     {
+        NpgsqlConnectionStringBuilder login = credentials ?? _store;
         string executable = _toolDirectory is { Length: > 0 } directory
             ? Path.Combine(directory, OperatingSystem.IsWindows() ? tool + ".exe" : tool)
             : tool;
@@ -378,12 +434,12 @@ internal sealed class Backups
             start.ArgumentList.Add(argument);
         }
 
-        start.Environment["PGHOST"] = _store.Host ?? "localhost";
-        start.Environment["PGPORT"] = _store.Port.ToString(CultureInfo.InvariantCulture);
-        start.Environment["PGUSER"] = _store.Username ?? string.Empty;
-        start.Environment["PGPASSWORD"] = _store.Password ?? string.Empty;
+        start.Environment["PGHOST"] = login.Host ?? "localhost";
+        start.Environment["PGPORT"] = login.Port.ToString(CultureInfo.InvariantCulture);
+        start.Environment["PGUSER"] = login.Username ?? string.Empty;
+        start.Environment["PGPASSWORD"] = login.Password ?? string.Empty;
         start.Environment["PGDATABASE"] = database ?? "postgres";
-        start.Environment["PGSSLMODE"] = _store.SslMode switch
+        start.Environment["PGSSLMODE"] = login.SslMode switch
         {
             SslMode.Disable => "disable",
             SslMode.Require => "require",

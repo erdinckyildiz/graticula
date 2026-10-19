@@ -1907,7 +1907,8 @@ public static class Program
         settings.SecretKeyBase64,
         settings.StatePath,
         configuration["Graticula:BackupPath"] is { Length: > 0 } path ? path : Path.Combine(settings.StatePath, "backups"),
-        configuration["Graticula:PostgresTools"]);
+        configuration["Graticula:PostgresTools"],
+        configuration["Graticula:MaintenanceStore"]);
 
     /// <summary>The backup <c>migrate</c> takes first, or none when <c>--no-backup</c> was given — ADR-193 §5.7.</summary>
     internal static Backups? BackupBeforeMigration(string[] args, Func<Backups> backups) =>
@@ -2144,6 +2145,10 @@ public static class Program
         // handshake is the one place that has read from the store before anything is serving.
         await ConnectionCeilings.CompareAsync(
             dataSource, Ceiling(services), logger, CancellationToken.None).ConfigureAwait(false);
+
+        // ADR-204 condition 9: whether the role this server reads as is one row-level security binds. Said here
+        // for the same reason as the ceiling -- the connection has just been used, and nothing is serving yet.
+        await PlatformStoreRole.ReportAsync(dataSource, logger, CancellationToken.None).ConfigureAwait(false);
 
         return true;
     }
