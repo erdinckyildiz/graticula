@@ -245,6 +245,11 @@ Oracle connection pool per registered source, inside the same admission budget t
    `NotAFileIsNotPostGisTests` holds the count per file, fails on a new call, and was falsified by adding one.
 3. **CI runs the Oracle provider's tests against Oracle Free on amd64** (`gvenzl/oracle-free` as a service container),
    and the fixture recipe seeds the same tables there as on the VPS.
+   **DISCHARGED 2026-10-20** — the `oracle` job runs `gvenzl/oracle-free:23-full-faststart` (the slim flavour
+   uninstalls Oracle Spatial) and seeds it with `tools/oracle-test-seed.py`: not the VPS's rows, which came from the
+   showcase and are not this repository's to redistribute, but synthetic ones in their shape, the seed checking its
+   own result. First run, `ci` 39328058768 on the branch: 1,421 places, the larger polygon refused by Oracle with
+   13356 on amd64 as on arm64, and the 15 `Needs=Oracle` tests passed.
 4. **Oracle tiles through the datastore are timed** against the same layer registered from PostGIS, at the
    scale target's largest layer the test server can hold.
 5. **ArcGIS Pro opens a table Graticula publishes**, through an Oracle database connection, and draws and identifies
