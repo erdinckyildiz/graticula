@@ -151,9 +151,8 @@ jobs:
       - name: geoparquet
         run: dotnet test tests/Graticula.Providers.DuckDb.Tests -c Release --no-build
 
-      # ADR-205: a registered Oracle database. What reads a real Oracle carries Needs=Oracle and waits on
-      # condition 3 — Oracle Free on amd64 as a service container, seeded as the VPS's TRDATA is; until
-      # then the tests that need no database run here, and the rest are named below.
+      # ADR-205: a registered Oracle database. The tests that need no database run here; the ones that read
+      # a real Oracle (Needs=Oracle) run in the `oracle` job, against Oracle Free.
       - name: oracle
         run: |
           dotnet test tests/Graticula.Providers.Oracle.Tests -c Release --no-build \
@@ -163,6 +162,57 @@ jobs:
         run: |
           dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build \
             --filter 'Needs!=QuietMachine'
+
+  # <b>ADR-205 condition 3: the Oracle provider against a real Oracle, on every push.</b> Oracle Free on amd64
+  # as a service container — the `full` flavour, because the `slim` one uninstalls Oracle Spatial and the
+  # regular one is documented by what it removes rather than by what it keeps. Seeded by
+  # tools/oracle-test-seed.py: synthetic, deterministic tables in the shape of the VPS's TRDATA, including the
+  # polygon Oracle calls invalid (condition 8). The seed checks its own result and fails the job if Oracle
+  # Spatial is missing or the rows are not what the tests were written against.
+  oracle:
+    name: oracle
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      oracle:
+        image: gvenzl/oracle-free:23-full-faststart
+        env:
+          ORACLE_PASSWORD: ci-system-oracle-1
+          APP_USER: TRCI
+          APP_USER_PASSWORD: ci-trci-oracle-1
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd healthcheck.sh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      GRATICULA_TEST_ORACLE: 'oracle:{"host":"127.0.0.1","port":1521,"service":"FREEPDB1","user":"TRCI","password":"ci-trci-oracle-1"}'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: seed
+        run: |
+          python -m pip install --quiet oracledb
+          python tools/oracle-test-seed.py
+
+      - name: build
+        run: dotnet build tests/Graticula.Providers.Oracle.Tests -c Release
+
+      - name: oracle
+        run: dotnet test tests/Graticula.Providers.Oracle.Tests -c Release --no-build --filter 'Needs=Oracle'
 
   datastore:
     name: datastore
@@ -248,15 +298,14 @@ jobs:
           echo "             neighbours, so these run nowhere here either."
           echo "RunningHost  needs a server, not just a database. NOT skipped —"
           echo "             run in the conformance job, which starts one."
-          echo "Oracle       reads a real Oracle database (ADR-205). Not run here"
-          echo "             until condition 3 adds Oracle Free as a service; run"
-          echo "             against the VPS's through an SSH tunnel meanwhile."
+          echo "Oracle       reads a real Oracle database (ADR-205). NOT skipped —"
+          echo "             run in the oracle job, against Oracle Free seeded by"
+          echo "             tools/oracle-test-seed.py."
           echo
           echo "Run the two that CI cannot, on a machine that can:"
           echo
           echo "  dotnet test <project> --filter 'Needs=RealCorpus'"
           echo "  dotnet test <project> --filter 'Needs=QuietMachine'"
-          echo "  GRATICULA_TEST_ORACLE=oracle:{...} dotnet test <project> --filter 'Needs=Oracle'"
           echo
           echo
           echo "ADR-048 §5b and Q-117."
