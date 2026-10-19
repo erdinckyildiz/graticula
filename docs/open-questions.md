@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-182 | **A registered Oracle database — what [ADR-205](adr/ADR-205-a-registered-oracle-database-is-served-like-postgis.md) infers and the owner has not confirmed.** Raised 2026-10-19 after *"Registered database evet. Şu anda öncelik graticula."* Three things: **(a)** geometry is `SDO_GEOMETRY`, Oracle's own type, not Esri's `ST_GEOMETRY` — *SDE kurmuyoruz* rules out Esri's library, and `SDO_GEOMETRY` is what ArcGIS Pro reads from an Oracle database with no geodatabase; **(b)** read first, editing second, versioning not at all until the owner returns to it; **(c)** tiles drawn through the PostGIS datastore, as DuckDB-read layers are. Recommendation: yes to all three. | Owner | ADR-205 condition 7; phase 1 is not merged before this is answered |
 
 ## Answered
 
