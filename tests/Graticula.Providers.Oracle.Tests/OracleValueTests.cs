@@ -30,6 +30,7 @@ public sealed class OracleValueTests
         Assert.Equal(9_999_999_999L, OracleFeatureSource.Normalise(9_999_999_999m, FieldType.Integer));
         Assert.Equal(1312L, OracleFeatureSource.Normalise(1312m, FieldType.BigInteger));
         Assert.Equal(1312L, OracleFeatureSource.Normalise(1312d, FieldType.BigInteger));
+        Assert.IsType<int>(OracleFeatureSource.Normalise(1421L, FieldType.Integer));
         Assert.Equal(7.5d, OracleFeatureSource.Normalise(7.5m, FieldType.Double));
         Assert.Null(OracleFeatureSource.Normalise(DBNull.Value, FieldType.Text));
     }

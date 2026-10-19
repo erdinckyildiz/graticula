@@ -9705,16 +9705,17 @@ internal static partial class AdminEndpoints
             }
         }
 
-        // <b>ADR-205 phase 1: an Oracle table is listed and not yet read.</b> Refused here, before a row is written,
-        // because the publish otherwise succeeded — measured on the fixture, 201 — and left a service whose every query
-        // refuses. The refusal goes when OracleFeatureSource does.
-        if (await IsOracleAsync(catalog, publication.DataSourceId, cancellation).ConfigureAwait(false))
+        // <b>ADR-205: an Oracle table's validity is not measured</b>, for condition 8's reason — Oracle's rules are not
+        // PostGIS's, and the reader serves what Oracle calls invalid — so a publish that asks for it is refused as a
+        // file's is. Its reference is the one its spatial metadata declares (OracleDataSourceProbe).
+        if (request.RequireValidGeometry
+            && await IsOracleAsync(catalog, publication.DataSourceId, cancellation).ConfigureAwait(false))
         {
             await Refuse(
                 context, 422,
-                $"'{publication.SchemaName}.{publication.TableName}' is in an Oracle database. This build registers "
-                + "Oracle databases and lists their tables, and does not yet read them (ADR-205 phase 1), so it was "
-                + "not published.")
+                $"'{publication.SchemaName}.{publication.TableName}' was not published because requireValidGeometry "
+                + "was asked for, and validity is measured by PostGIS over a table in the datastore — an Oracle table "
+                + "is read in place and its geometry is not scanned. Publish without that flag.")
                 .ConfigureAwait(false);
             return;
         }

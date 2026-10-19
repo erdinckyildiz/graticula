@@ -98,6 +98,22 @@ public sealed class OracleFeatureSourceTests
         Assert.Equal(expected, page.Select(f => f.Id));
     }
 
+    /// <summary>The FeatureServer asks for the object id among the fields; Oracle refused that once (ORA-00960).</summary>
+    [Fact]
+    public async Task The_identity_may_be_asked_for_as_a_field_and_ordered_by()
+    {
+        List<Feature> page = await AllAsync(
+            Places(), new FeatureQuery(3, fields: ["OBJECTID", "AD"], orderBy: [new SortKey("OBJECTID", Descending: true)]));
+
+        Assert.Equal(["1421", "1420", "1419"], page.Select(f => f.Id));
+        Assert.Equal(1421, Assert.IsType<int>(page[0][0]));
+
+        List<Feature> distinct = await AllAsync(
+            Places(), new FeatureQuery(5, fields: ["OBJECTID", "TUR"], distinct: true, orderBy: [new SortKey("OBJECTID", Descending: false)]));
+
+        Assert.Equal(5, distinct.Count);
+    }
+
     [Fact]
     public async Task A_box_selects_what_lies_in_it()
     {

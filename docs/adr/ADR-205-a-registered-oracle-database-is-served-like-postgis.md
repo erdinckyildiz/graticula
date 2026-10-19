@@ -144,6 +144,18 @@ the other providers implement, with Oracle's types nowhere in a Core signature. 
   WKB (`SDO_UTIL.TO_WKBGEOMETRY`) and in the same way.
 - The FeatureServer, OGC API Features, WFS and WMS faces answer for it as they do for registered PostGIS.
 
+**Amended 2026-10-20, as built — the spatial filter is not `SDO_RELATE`.** `OracleFeatureSource` has
+GeoParquetFeatureSource's shape rather than PostGisFeatureSource's: `SDO_FILTER` asks the spatial index for the rows
+whose boxes meet the filter, `GeometryPredicates.Intersects` decides here which shapes do, and order, paging,
+distinct, counts and statistics run in Oracle over the identities kept. The reason is condition 8: Oracle's exact
+operators apply Oracle's validity rules, and the customer-shaped land table fails them while PostGIS serves it. So
+phase 1 answers intersects, envelope-intersects and index-intersects, and refuses distance and the other relations
+before anything is read, with *ADR-205 phase 1* in the sentence; the layer document says so
+(`supportsQueryWithDistance: false`). Also as built: the probe skips a column with no spatial index (`SDO_FILTER`
+needs one) and reports the EPSG code where Oracle numbers a reference its own way (`8307` is `4326`); a distinct query
+returns no geometry, as ArcGIS's does; whole numbers are typed as ArcGIS types them — `NUMBER(5)` short,
+`NUMBER(10)` long, wider big. Measured end to end through the FeatureServer on the fixture, 2026-10-20.
+
 ### 5b. Phase 2 — editing
 
 `OracleFeatureWriter : IFeatureWriter`: `applyEdits` and the OGC writes, in one transaction, with the domain, subtype
@@ -232,6 +244,10 @@ Oracle connection pool per registered source, inside the same admission budget t
 8. **A geometry Oracle calls invalid is still served.** `TRDATA.TR_KARA`'s two polygons (13356) come back as
    features and tiles, and a spatial relation Oracle refuses on them answers with a refusal that says why — tested
    against them as they are, never against a repaired copy.
+   **PARTLY DISCHARGED 2026-10-20** — as features: both polygons are read through the FeatureServer, and the larger
+   filters TR_YER's 1,421 places exactly as the same test over every place read unfiltered does
+   (`OracleFeatureSourceTests.Land_oracle_calls_invalid_is_served_and_filters_exactly`); a relation phase 1 does not
+   answer is refused before Oracle is asked. **Still owed:** as tiles, with §5c.
 
 ## 11. Dissent
 

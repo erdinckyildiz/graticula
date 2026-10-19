@@ -8,6 +8,7 @@ using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Providers.DuckDb;
+using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Npgsql;
@@ -243,7 +244,29 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
-        RefuseIfOracle(layer);
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            // <b>ADR-205 — a GeoParquet layer's gates, for the same reasons.</b> The driver keeps its own pool per
+            // connection string; the budget, breaker and quiesce are this server's statements about its work.
+            if (_quiesce?.Holding(layer.ConnectionString) is { } oracleHeld)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(oracleHeld), oracleHeld.Until);
+            }
+
+            if (_projector is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    + "the projector it moves coordinates with.");
+            }
+
+            return new BudgetedFeatureSource(
+                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer)),
+                _budget,
+                layer.ConnectionString,
+                _breaker,
+                _quiesce);
+        }
 
         if (GeoParquetLocator.Is(layer.ConnectionString))
         {
@@ -264,10 +287,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             }
 
             // The same statement bound as a database layer's, lowered and never raised by the service.
-            TimeSpan? lowered = layer.StatementTimeout is { } fileWanted
-                && fileWanted > TimeSpan.Zero && fileWanted < StatementTimeout
-                    ? fileWanted
-                    : StatementTimeout;
+            TimeSpan? lowered = Lowered(layer);
 
             return new BudgetedFeatureSource(
                 new GeoParquetFeatureSource(
@@ -680,10 +700,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                     + "server was started without a vector tile encoder for it.");
             }
 
-            TimeSpan? lowered = layer.StatementTimeout is { } fileWanted
-                && fileWanted > TimeSpan.Zero && fileWanted < StatementTimeout
-                    ? fileWanted
-                    : StatementTimeout;
+            TimeSpan? lowered = Lowered(layer);
 
             GeoParquetFeatureSource reader = new(
                 _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered);
@@ -933,13 +950,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// Refuses an Oracle layer by name until its reader exists — ADR-205 phase 1 — rather than letting it fall through
     /// to the PostGIS source, whose pool would be built from a locator that is not a PostgreSQL connection string.
     /// </summary>
+    /// <summary>
+    /// A file's or an Oracle table's statement bound: the database layer's, lowered and never raised by the service.
+    /// </summary>
+    private static TimeSpan Lowered(PublishedLayer layer) =>
+        layer.StatementTimeout is { } wanted && wanted > TimeSpan.Zero && wanted < StatementTimeout
+            ? wanted
+            : StatementTimeout;
+
     private static void RefuseIfOracle(PublishedLayer layer)
     {
         if (OracleLocator.Is(layer.ConnectionString))
         {
             throw new QueryNotSupportedException(
-                $"Layer '{layer.Definition.Name}' is in an Oracle database, and this build registers Oracle databases "
-                + "and lists their tables but does not yet read them (ADR-205 phase 1).");
+                $"Layer '{layer.Definition.Name}' is in an Oracle database, and this build queries Oracle tables but "
+                + "does not yet draw them as vector tiles (ADR-205 phase 1). Query the layer's FeatureServer instead.");
         }
     }
 

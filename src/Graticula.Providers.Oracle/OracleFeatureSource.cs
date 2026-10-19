@@ -167,23 +167,22 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         // <b>Oracle has no `distinct on`.</b> A distinct query is grouped by its fields and answers each group with its
         // lowest identity and no shape — ArcGIS returns no geometry with returnDistinctValues either.
+        // <b>Every selected column has its own alias</b>, because the faces ask for the identity among the fields as
+        // well, and a select list naming a column twice makes Oracle's `order by` on it ambiguous (ORA-00960 — found
+        // through the FeatureServer, which every query of it did).
+        string selected = string.Concat(schema.Names.Select(
+            (field, i) => $", {LayerDefinition.Quote(field)} as c{i.ToString(CultureInfo.InvariantCulture)}"));
+
         if (distinct)
         {
-            string fields = string.Join(", ", schema.Names.Select(LayerDefinition.Quote));
-            sql.Append("select min(").Append(Id).Append("), ").Append(fields).Append(", null from ").Append(From);
+            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(From);
             statement.AppendWhere();
-            sql.Append(" group by ").Append(fields);
+            sql.Append(" group by ").Append(string.Join(", ", schema.Names.Distinct(StringComparer.Ordinal).Select(LayerDefinition.Quote)));
         }
         else
         {
-            sql.Append("select ").Append(Id);
-
-            foreach (string field in schema.Names)
-            {
-                sql.Append(", ").Append(LayerDefinition.Quote(field));
-            }
-
-            sql.Append(query.IncludeGeometry ? $", sdo_util.to_wkbgeometry({Shape})" : ", null");
+            sql.Append("select ").Append(Id).Append(" as i").Append(selected);
+            sql.Append(query.IncludeGeometry ? $", sdo_util.to_wkbgeometry({Shape}) as g" : ", null as g");
             sql.Append(" from ").Append(From);
             statement.AppendWhere();
         }
@@ -1176,6 +1175,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     internal static object? Normalise(object? value, FieldType type) => value switch
     {
         null or DBNull => null,
+
+        // The driver answers a NUMBER(10) as a long rather than a decimal (measured), so every whole number takes the
+        // decimal's road to the type its column promises.
+        short or int or long => Normalise(Convert.ToDecimal(value, CultureInfo.InvariantCulture), type),
         decimal number => type switch
         {
             FieldType.SmallInteger when number is >= short.MinValue and <= short.MaxValue => (object)(short)number,
