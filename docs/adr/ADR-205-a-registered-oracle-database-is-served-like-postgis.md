@@ -104,6 +104,13 @@ opens from an Oracle database connection — the owner's prize, at no extra cost
   server to PostGIS. Fine for a city's parcels, unmeasured for a country's.
 - **The arm64 test server is not what customers run.** Oracle Free has a 2 GB memory ceiling and 12 GB of user data;
   a plan or a timing measured there says little about an Exadata. CI on amd64 (condition 3) narrows it, not closes it.
+- **Oracle's idea of a valid geometry is not PostGIS's**, measured the day this was written. The showcase's Türkiye
+  land, copied unchanged from PostGIS into Oracle, is invalid there: both polygons fail
+  `SDO_GEOM.VALIDATE_GEOMETRY_WITH_CONTEXT` with **13356** — adjacent points closer than the tolerance — which PostGIS
+  does not object to. `SDO_UTIL.RECTIFY_GEOMETRY` makes them valid and **changes the larger one's area by 1.2 %**
+  (846,425 to 856,333 km²), so repairing on the way in is not free either. A customer's table will hold such rows:
+  the provider reads WKB whatever the validity, and an exact relation that Oracle refuses on an invalid geometry is
+  answered or refused deliberately, not as a 500 (condition 8).
 
 ## 4. Evidence
 
@@ -111,6 +118,8 @@ opens from an Oracle database connection — the owner's prize, at no extra cost
 |---|---|---|
 | Oracle runs natively on the VPS | `container-registry.oracle.com/database/free` publishes arm64; Oracle AI Database 26ai Free 23.26.3 up in 30 s | measured 2026-10-19 |
 | Oracle Spatial works there | `dba_registry` SDO `VALID`; an `SDO_GEOMETRY` table, `spatial_index_v2`, an `SDO_FILTER` window query that found Istanbul and not Ankara, `SDO_UTIL.TO_WKTGEOMETRY` and `TO_GEOJSON` | measured 2026-10-19 |
+| A customer-shaped Oracle table exists to build against | schema `TRDATA` in FREEPDB1: `TR_KARA` (2 polygons, 72,919 vertices in the larger, ~1.1 MB of WKB) and `TR_YER` (1,421 points with three text fields), copied from the showcase's PostGIS layers through WKB, spatial metadata registered, `spatial_index_v2`; an `SDO_FILTER` window over Istanbul finds 41 places | measured 2026-10-19 |
+| Oracle and PostGIS disagree on validity | both land polygons: 13356 in Oracle, valid enough for PostGIS; rectifying moves the area 1.2 % | measured 2026-10-19, §3 |
 | SQL Server cannot run there | `mcr.microsoft.com/mssql/server` 2022 and 2025: amd64 only; under QEMU both exit 139 | measured 2026-10-19 |
 | Esri supports Oracle 26ai for geodatabases | Esri's Oracle database requirements list 26ai (23.26.1+) on Linux, and 19c | [doc.esri.com](https://doc.esri.com/en/arcgis-pro/latest/help/data/databases/database-requirements-oracle.html) |
 | An Oracle provider's seams exist | dialect, WKB boundary, datastore tile route | §1c |
@@ -220,6 +229,9 @@ Oracle connection pool per registered source, inside the same admission budget t
    editing (ADR-115), one transaction — before editing is offered on an Oracle layer.
 7. **[Q-182](../open-questions.md) is answered** — `SDO_GEOMETRY`, the phasing, and the tile route — before phase 1 is
    merged. **DISCHARGED 2026-10-19** — the owner answered *"evet"* to all three.
+8. **A geometry Oracle calls invalid is still served.** `TRDATA.TR_KARA`'s two polygons (13356) come back as
+   features and tiles, and a spatial relation Oracle refuses on them answers with a refusal that says why — tested
+   against them as they are, never against a repaired copy.
 
 ## 11. Dissent
 

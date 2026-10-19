@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>672eda16</code> · 2026-10-19 21:31</p>
+<p class="stamp">Şu commit’ten üretildi: <code>57951b4f</code> · 2026-10-19 21:32</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">203</div><div class="kpi-l">ADR</div><div class="kpi-n">78 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">395/474</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">71 canlı · 8 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">395/475</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">72 canlı · 8 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">189 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">açık borç</div><div class="kpi-n">283 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,14 +126,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">89 madde</span></div><p><b>71 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">90 madde</span></div><p><b>72 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">11</div></div>
+<div class="bar"><div class="bar-l">ADR-205 · A registered Oracle database is se</div><div class="bar-t"><div class="bar-f" style="width:64%"></div></div><div class="bar-n">7</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:55%"></div></div><div class="bar-n">6</div></div>
-<div class="bar"><div class="bar-l">ADR-205 · A registered Oracle database is se</div><div class="bar-t"><div class="bar-f" style="width:55%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
@@ -393,7 +393,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">202</td><td>An item has terms of use and categories, and a member keeps favourites</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 <tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">2/13</td></tr>
-<tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">1/7</td></tr>
+<tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">1/8</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -537,6 +537,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>57951b4f</code><time>2026-10-19</time><span>The Oracle managed driver may be shipped: its licence read from the package (ADR-205 condition 1, partly)</span></li>
 <li><code>672eda16</code><time>2026-10-19</time><span>Q-182 answered: SDO_GEOMETRY, read then edit, tiles through the datastore (ADR-205 condition 7)</span></li>
 <li><code>1f0f4abf</code><time>2026-10-19</time><span>A registered Oracle database is served as a registered PostGIS database is (ADR-205, Q-182, A-087; v1-scope amended)</span></li>
 <li><code>b4b5eb77</code><time>2026-10-19</time><span>Several organisations in one deployment, designed and prototyped; the server runs as a role row-level security binds (ADR-204, ADR-193 amended, Q-181, A-086)</span></li>
@@ -550,7 +551,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1b944d9e</code><time>2026-10-18</time><span>A layer Pro publishes keeps its table-of-contents name, and its item gets Pro&#x27;s summary and tags (ADR-191 §5.7)</span></li>
 <li><code>e47b6a09</code><time>2026-10-18</time><span>A service&#x27;s name in the item page&#x27;s title wraps, so the page fits a narrow phone</span></li>
 <li><code>223d3852</code><time>2026-10-18</time><span>The item id on an item&#x27;s Overview wraps, so the page fits a phone</span></li>
-<li><code>450bb100</code><time>2026-10-18</time><span>ArcGIS addresses, Share As Web Map, the veteran review&#x27;s small findings, and items addressed by id (ADR-194, 195, 196)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
