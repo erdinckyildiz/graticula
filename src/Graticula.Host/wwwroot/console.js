@@ -23836,6 +23836,10 @@ async function loadSettings() {
   settingsSay("");
   groundSay("");
 
+  // Where sign-in went (ADR-189): shown to the reader who can act on it there, before the read below so a slow or
+  // failed answer does not hide it.
+  $("securityPointer").hidden = !may("admin:manageSecurity");
+
   const settings = await api("/admin/settings") || {};
   drawSettings(settings);
 

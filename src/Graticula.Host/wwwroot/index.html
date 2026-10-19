@@ -875,7 +875,8 @@
       <div>
         <h2>General</h2>
         <p>What this whole server does unless a service sets its own. What a map offers — basemaps, the ground
-          under them, the geometry service clients use — is Studio's, under Organization › Settings.</p>
+          under them, the geometry service clients use — and how people sign in are Studio's, under Organization ›
+          Settings.</p>
       </div>
     </div>
 
@@ -925,6 +926,23 @@
       </div>
 
       <p class="hint" id="styleOriginsSays" aria-live="polite"></p>
+    </div>
+
+    <!--
+      <b>A pointer, not a setting — owner's request of 2026-10-19.</b> Since ADR-189 sign-in and two-step sign-in are
+      Studio's, as a federated ArcGIS Server leaves security to Portal, and an administrator who knows Server Manager
+      comes here looking for its Security tab and finds nothing. This card says where it went and links there. It has
+      no control of its own because there is one setting, and it covers Server too: both surfaces share one sign-in.
+      Drawn only for a reader with admin:manageSecurity (`loadSettings`), the reader the Security page is for; every
+      other Server administrator has the page head's sentence, which says where it is without a link to a page that
+      has nothing for them. Last on the page, because the settings above are what the page is for.
+    -->
+    <div class="panel pad settingcard" id="securityPointer" hidden>
+      <h4>Sign-in and security</h4>
+      <p class="hint">How people sign in, and whether they also need a code from an authenticator app, is set once
+        for the whole organization in Studio, under Organization › Settings › Security. Server uses the same sign-in,
+        so it has no security settings of its own.</p>
+      <p class="pointerlink"><a id="securityPointerGo" href="/studio/signin">Open Security in Studio</a></p>
     </div>
 
   </section>
@@ -1490,8 +1508,13 @@
     client reads — because a second admin route returning the same list would be a second place
     for it to be wrong.
   -->
-  <!-- ------------------------------------------------- SERVER · members -->
+  <!-- ------------------------------------- STUDIO · roles, security and members (Organization) -->
   <!--
+    <b>Studio's, not Server's, since ADR-189 (2026-10-17)</b>: the organization — who its members are, what their roles
+    allow, how they sign in — is Portal's in ArcGIS Enterprise, and Studio's here. This header said SERVER until
+    2026-10-19, from before the move. Roles come first below, then Security (`view-signin`), then the members list
+    (`view-members`), which is the screen the next paragraph describes.
+
     <b>The screen D-56 was about.</b> Until 2026-08-17 a deployment had exactly one account for
     ever: first-run setup made the administrator and nothing made a second, so `admin:manageMembers`
     was a privilege with nothing behind it and Studio was a surface with no possible occupant.

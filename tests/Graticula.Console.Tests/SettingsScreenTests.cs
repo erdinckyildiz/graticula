@@ -262,4 +262,60 @@ public sealed class SettingsScreenTests : ConsoleTest
 
         NothingWentWrong(await PageErrorsAsync());
     }
+
+    /// <summary>
+    /// Server › General says where sign-in and two-step sign-in went, and takes the administrator there — ADR-189.
+    /// </summary>
+    /// <remarks>
+    /// <b>The owner's request of 2026-10-19.</b> Security moved to Studio with members and roles, as a federated ArcGIS
+    /// Server leaves it to Portal, and an administrator who knows Server Manager looks for it in Server. The card is a
+    /// pointer and holds no control, so what is asserted is that its reader sees it, that the link opens Studio's
+    /// Security page with the two-step card on it, and that a Server administrator who cannot manage security is not
+    /// sent to a page that has nothing for them. A <c>user</c>-role member never reaches Server at all
+    /// (<see cref="SurfaceTests"/>).
+    /// </remarks>
+    [Fact]
+    public async Task General_points_an_administrator_who_manages_security_to_Studio_and_nobody_else()
+    {
+        (string token, _) = await SignInAsync();
+
+        await OpenAsync("/server/settings", token);
+        await WaitForAsync(Shown("#securityPointer"), "Server › General does not say where sign-in is set.");
+
+        Assert.Contains(
+            "Organization › Settings › Security",
+            await Browser.EvaluateAsync<string>("document.getElementById('securityPointer').textContent.replace(/\\s+/g, ' ')") ?? string.Empty,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "/studio/signin",
+            await Browser.EvaluateAsync<string>("new URL(document.getElementById('securityPointerGo').href).pathname"));
+
+        // It is a pointer: nothing on the card can be typed into or pressed but the link.
+        Assert.Equal(
+            0,
+            await Browser.EvaluateAsync<int>("document.querySelectorAll('#securityPointer input, #securityPointer button, #securityPointer textarea').length"));
+
+        await ClickAsync("#securityPointerGo");
+        await WaitForAsync(
+            "location.pathname === '/studio/signin'",
+            "The link did not open Studio's Security page.");
+        await WaitForAsync(Shown("#sfRequireCard"), "Studio's Security page opened without its two-step sign-in card.");
+
+        NothingWentWrong(await PageErrorsAsync());
+
+        // ---- a Server administrator without admin:manageSecurity: the page is drawn, the pointer is not ----
+        await OpenAsync("/server/settings", token, cookie: null, "admin:manageSecurity");
+        await WaitForAsync(
+            "/In force: [0-9]/.test(document.getElementById('setPageSizeSource')?.textContent || '')",
+            "Server › General did not draw for an administrator who cannot manage security.");
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(Shown("#securityPointer")),
+            "A reader who cannot manage security was pointed to the Security page.");
+        Assert.Contains(
+            "how people sign in are Studio's",
+            await Browser.EvaluateAsync<string>("document.querySelector('#view-settings .pagehead p').textContent.replace(/\\s+/g, ' ')") ?? string.Empty,
+            StringComparison.Ordinal);
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
 }

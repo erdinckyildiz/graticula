@@ -4274,6 +4274,8 @@ table.logs-server tr.logrow td:last-child code { overflow-wrap: anywhere; white-
 /* <b>The Settings screen's card — V-70.</b> A setting row stops at its own width, so a card as wide as
    the page left 424 pixels between a label and its box (design review 2026-09-24). */
 .settingcard { max-width: 760px; }
+/* Server › General's pointer to Studio's Security (ADR-189): a link, not a button, because nothing is set here. */
+.settingcard .pointerlink { margin: var(--gap-3) 0 0; }
 /* ADR-184 review: the gallery card's two lists one width, and never past the card on a phone. */
 #basemapGallery { width: min(100%, 28rem); box-sizing: border-box; }
 /* The Map page since the UX sweep of 2026-10-19: the default basemap as radio rows, the ground card's state as a
