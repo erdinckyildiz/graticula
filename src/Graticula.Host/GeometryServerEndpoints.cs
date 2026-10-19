@@ -329,21 +329,24 @@ internal static partial class GeometryServerEndpoints
         }
     }
 
+    private const string RefusalMessage =
+        "No service 'Utilities/Geometry/GeometryServer' is visible to you. It may not "
+        + "exist, or it may not be shared with you — this response is deliberately the "
+        + "same for both. An administrator can change its sharing with "
+        + "PUT /admin/services/Geometry/sharing.";
+
     private static readonly IResult Refusal = Results.Json(
-        new
-        {
-            error = new
-            {
-                code = 404,
-                message =
-                    "No service 'Utilities/Geometry/GeometryServer' is visible to you. It may not "
-                    + "exist, or it may not be shared with you — this response is deliberately the "
-                    + "same for both. An administrator can change its sharing with "
-                    + "PUT /admin/services/Geometry/sharing.",
-                details = Array.Empty<string>(),
-            },
-        },
+        new { error = new { code = 404, message = RefusalMessage, details = Array.Empty<string>() } },
         statusCode: StatusCodes.Status404NotFound);
+
+    /// <summary>The refusal, as a page for a browser in the directory and as JSON otherwise.</summary>
+    private static IResult RefusalFor(HttpContext context) =>
+        RestDirectory.RefusesAsPage(context.Request)
+            ? Results.Content(
+                RestDirectory.Refusal(context.Request.Path, "Not found", RefusalMessage),
+                "text/html; charset=utf-8",
+                statusCode: StatusCodes.Status404NotFound)
+            : Refusal;
 
     /// <summary>
     /// What a stopped service answers.
@@ -430,7 +433,7 @@ internal static partial class GeometryServerEndpoints
         // rather than sending the 404 — the client saw "the response ended
         // prematurely", which is a worse answer than any status code. Handing
         // the result back lets the framework finish the request properly.
-        return Refusal;
+        return RefusalFor(context);
     }
 
     /// <summary>
@@ -514,14 +517,18 @@ internal static partial class GeometryServerEndpoints
         // long.</b> The two are separate budgets and a caller told only the work's deadline would
         // size its own timeout wrongly by exactly this much.
         queueWaitSeconds = (wait ?? pool.EnforcedWait).TotalSeconds,
+
+        // <b>One plain sentence about the limits — UX sweep 2026-10-19.</b> This named a benchmark
+        // directory and a question number, which are this repository's and not the reader's. The
+        // measurement behind it stands: benchmarks/geometry-overlay found a 6,408-vertex input
+        // costing 153 seconds and 16.7 GB where a real 72,919-vertex polygon cost 312 ms, so the
+        // bound is the worker's deadline and heap and not anything about the input; and the
+        // pre-flight was measured under-predicting by fourteen times, which is why it is optional
+        // and off by default (Q-97).
         note = $"{string.Join(", ", Engine)} run in a separate worker process with a "
              + $"{(deadline ?? pool.EnforcedDeadline).TotalSeconds:0}-second deadline and a "
-             + "1 GB heap ceiling. That, and nothing about the input, is the bound: measurement "
-             + "(benchmarks/geometry-overlay) found a 6,408-vertex input costing 153 seconds and "
-             + "16.7 GB where a real 72,919-vertex polygon cost 312 ms. maximumCandidatePairs is "
-             + "an optional pre-flight, zero here meaning off — it was measured "
-             + "under-predicting by fourteen times, and the server does not decide on the "
-             + "caller's behalf what is worth attempting. Q-97.",
+             + "1 GB memory ceiling; those, not the vertex count, decide what completes. "
+             + "maximumCandidatePairs is an optional pre-flight check, and zero turns it off.",
         };
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -542,7 +549,10 @@ internal static partial class GeometryServerEndpoints
                     "Geometry (GeometryServer)",
                     document,
                     links,
-                    "Supported operations"),
+                    "Supported operations",
+
+                    // The operations are the links above; the table would list them a second time.
+                    omit: ["supportedOperations"]),
                 "text/html; charset=utf-8");
         }
 

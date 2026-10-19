@@ -280,26 +280,21 @@ internal static class ServiceLookup
             // Answering "no layer 1" about an index the service document
             // advertises sends somebody hunting for a routing bug; naming what
             // is actually there ends the search in one read.
+            // <b>As a directory page for a browser and as JSON for everybody else</b> — UX sweep
+            // 2026-10-19, round 2: a missing service already answered a browser with a page, and a
+            // missing layer of a real one still answered it with raw JSON. Same sentences, same status.
             if (service.Group(layerId) is { } group)
             {
-                await Results.Json(
-                    new
-                    {
-                        error = new
-                        {
-                            code = 400,
-                            message =
-                                $"Layer {layerId} of '{serviceName}' is the group layer "
-                                + $"'{group.Name}'. A group organises other layers and holds no "
-                                + "data of its own, so it has nothing to query or edit. Its "
-                                + "children are listed in subLayerIds on "
-                                + $"/rest/services/{service.QualifiedName}/FeatureServer"
-                                + $"/{layerId}.",
-                            details = Array.Empty<string>(),
-                        },
-                    },
-                    statusCode: StatusCodes.Status400BadRequest)
-                    .ExecuteAsync(context)
+                await RestDirectory.RefuseAsync(
+                        context,
+                        StatusCodes.Status400BadRequest,
+                        "A group layer",
+                        $"Layer {layerId} of '{serviceName}' is the group layer "
+                        + $"'{group.Name}'. A group organises other layers and holds no "
+                        + "data of its own, so it has nothing to query or edit. Its "
+                        + "children are listed in subLayerIds on "
+                        + $"/rest/services/{service.QualifiedName}/FeatureServer"
+                        + $"/{layerId}.")
                     .ConfigureAwait(false);
 
                 return null;
@@ -310,26 +305,18 @@ internal static class ServiceLookup
             // is not something they can learn by guessing — and a client that
             // asked for layer 3 of a two-layer service is usually holding a URL
             // from a different server.
-            await Results.Json(
-                new
-                {
-                    error = new
-                    {
-                        code = 404,
-                        message =
-                            $"The service '{serviceName}' has no layer {layerId}. It has "
-                            + (service.Layers.Count == 0
-                                ? "no layers yet."
-                                : $"{service.Layers.Count}: "
-                                  + string.Join(
-                                      ", ",
-                                      service.Layers.Select(
-                                          l => $"{l.LayerIndex} ({l.Definition.Name})"))),
-                        details = Array.Empty<string>(),
-                    },
-                },
-                statusCode: StatusCodes.Status404NotFound)
-                .ExecuteAsync(context)
+            await RestDirectory.RefuseAsync(
+                    context,
+                    StatusCodes.Status404NotFound,
+                    "Not found",
+                    $"The service '{serviceName}' has no layer {layerId}. It has "
+                    + (service.Layers.Count == 0
+                        ? "no layers yet."
+                        : $"{service.Layers.Count}: "
+                          + string.Join(
+                              ", ",
+                              service.Layers.Select(
+                                  l => $"{l.LayerIndex} ({l.Definition.Name})"))))
                 .ConfigureAwait(false);
 
             return null;

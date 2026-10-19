@@ -141,9 +141,11 @@ internal static class LogEndpoints
     /// read of the request log already kept. <c>minutes</c> is the window (60 unless said, a week at most);
     /// <c>service</c> narrows to one name as the log files it (<c>folder/name</c> on the ArcGIS face, the layer on the
     /// OGC ones). The privilege is the logs': the answer names services an operator may not otherwise see listed.
+    /// <c>limit</c> is how many services (50 unless said, 1,000 at most): the console asks for every one, because a
+    /// service that fails fast sorts last by the 95th percentile and would fall off a short list.
     /// </remarks>
     private static async Task ServicesHealthAsync(
-        HttpContext context, ILogReader logs, string? service, int? minutes, CancellationToken cancellation)
+        HttpContext context, ILogReader logs, string? service, int? minutes, int? limit, CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageServer).ConfigureAwait(false))
         {
@@ -154,7 +156,7 @@ internal static class LogEndpoints
         DateTimeOffset since = DateTimeOffset.UtcNow.AddMinutes(-window);
 
         IReadOnlyList<ServiceRequests> found = await logs
-            .ServicesAsync(since, string.IsNullOrWhiteSpace(service) ? null : service.Trim(), 50, cancellation)
+            .ServicesAsync(since, string.IsNullOrWhiteSpace(service) ? null : service.Trim(), Math.Clamp(limit ?? 50, 1, 1000), cancellation)
             .ConfigureAwait(false);
 
         await Results.Json(new

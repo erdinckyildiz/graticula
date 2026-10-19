@@ -326,34 +326,41 @@ internal static class GeometryPage
 
         // GET, so the result has a URL somebody can keep, paste into a ticket, or
         // hand to curl. That is most of the value of a form page like this one.
-        body.Append(Html.Markup("<form method=\"get\" class=\"query\"><table class=\"form\">"));
+        // <b>Labels above full-width fields, as the query form has them since 2026-10-19</b>: this
+        // was the same label-beside-box table with `size` and `cols`, the same overflow on a phone,
+        // and the same missing `<label for>` (UX sweep 2026-10-19 — what else carries this).
+        body.Append(Html.Markup("<form method=\"get\" class=\"query ops\"><fieldset><legend>Parameters</legend>"));
 
         foreach (Parameter parameter in operation.Parameters)
         {
             string current = query[parameter.Name].ToString();
             string value = current.Length > 0 ? current : parameter.Default ?? string.Empty;
+            string id = "g-" + parameter.Name;
 
             Html control = parameter.Rows > 0
-                ? Html.Of($"<textarea name=\"{parameter.Name}\" rows=\""
-                  + $"{parameter.Rows}\" cols=\"78\">{value}</textarea>")
-                : Html.Of($"<input type=\"text\" name=\"{parameter.Name}\" size=\"24\""
-                  + $" value=\"{value}\">");
+                ? Html.Of($"<textarea name=\"{parameter.Name}\" id=\"{id}\" rows=\""
+                  + $"{parameter.Rows}\" aria-describedby=\"{id}-hint\">{value}</textarea>")
+                : Html.Of($"<input type=\"text\" name=\"{parameter.Name}\" id=\"{id}\""
+                  + $" value=\"{value}\" aria-describedby=\"{id}-hint\">");
 
-            body.Append($"<tr><th>{parameter.Label}:</th><td>{control}"
-                + $"<div class=\"hint\">{Html.Markup(parameter.Hint)}</div></td></tr>");
+            body.Append($"<div class=\"f{(parameter.Rows > 0 ? " wide" : string.Empty)}\">"
+                + $"<label for=\"{id}\">{parameter.Label}</label>{control}"
+                + $"<p class=\"hint\" id=\"{id}-hint\">{Html.Markup(parameter.Hint)}</p></div>");
         }
+
+        body.Append(Html.Markup("</fieldset>"));
 
         string format = query["f"].ToString();
 
         body.Append(
-            $"<tr><th>Format:</th><td><select name=\"f\">"
+            $"<div class=\"run\"><div class=\"f\"><label for=\"g-f\">Format</label><select name=\"f\" id=\"g-f\">"
             + $"<option value=\"html\"{Selected(format, "html", true)}>HTML</option>"
             + $"<option value=\"json\"{Selected(format, "json", false)}>JSON</option>"
-            + $"</select></td></tr>");
+            + $"</select></div>");
 
-        body.Append($"<tr><th></th><td><button type=\"submit\">{operation.Name}</button></td></tr>");
+        body.Append($"<button type=\"submit\">{operation.Name}</button></div>");
 
-        body.Append(Html.Markup("</table></form>"));
+        body.Append(Html.Markup("</form>"));
 
         body.Append(Html.Markup(
             "<p class=\"hint\">The same operation accepts a form-encoded POST with a "

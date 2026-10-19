@@ -121,19 +121,26 @@ internal static class QueryPage
         FeatureSchema schema = source.SchemaFor(query);
 
         HtmlBuilder head = new();
-        AppendForm(head, context, layer, description);
 
-        head.Append(Html.Markup("<h3>Results:</h3>"));
-        head.Append(Html.Markup("<div class=\"scroll\"><table class=\"grid\"><thead><tr>"));
+        // <b>No count here, and that is the price of streaming.</b> The rows are written as they
+        // arrive, so how many there were is known only at the end — where the paging line says it.
+        // What this line owes the reader is that the button did something.
+        // <b>Neutral, because it may be zero</b>: "its rows are below" over an empty table was a
+        // promise the page then broke (UX sweep 2026-10-19, round 2). The end of the table says
+        // how many there were, or that none matched.
+        AppendForm(head, context, layer, description, Outcome(
+            Html.Markup("The query ran. The results are below the form.")));
+
+        head.Append(Html.Markup(ResultsOpen + Scroll + "<table class=\"grid\"><thead><tr>"));
 
         if (query.IncludeGeometry)
         {
-            head.Append(Html.Markup("<th>Geometry</th>"));
+            head.Append(Html.Markup("<th scope=\"col\">Geometry</th>"));
         }
 
         foreach (string field in schema.Names)
         {
-            head.Append($"<th>{field}</th>");
+            head.Append($"<th scope=\"col\">{field}</th>");
         }
 
         head.Append(Html.Markup("</tr></thead><tbody>"));
@@ -175,12 +182,12 @@ internal static class QueryPage
 
             if (written == 0)
             {
-                tail.Append(Html.Markup("<p><i>No features matched.</i></p>"));
+                tail.Append(Html.Markup("<p><i>No rows matched.</i></p>"));
             }
 
             AppendPaging(tail, context, query, written);
 
-            tail.Append(Html.Markup("</main></body></html>"));
+            tail.Append(Html.Markup("</section></main></body></html>"));
 
             await context.Response.WriteAsync(tail.ToHtml().ToString(), cancellation).ConfigureAwait(false);
         }
@@ -189,6 +196,38 @@ internal static class QueryPage
             await features.DisposeAsync().ConfigureAwait(false);
         }
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Writes the form again with the reason the query was refused, keeping what the reader typed.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="layer">The layer being queried.</param>
+    /// <param name="description">Its fields, for the form.</param>
+    /// <param name="message">The sentence the JSON answer would carry.</param>
+    /// <param name="cancellation">Cancellation.</param>
+    /// <returns>The write.</returns>
+    /// <remarks>
+    /// <b>A 400 still, and a page.</b> A where clause with a typo replaced this page with
+    /// <c>{"error":{"code":400,…}}</c> — the form and everything typed into it gone, and the way
+    /// back the browser's Back button (UX sweep 2026-10-19). The status stays what the JSON says,
+    /// so a script that asked for HTML still learns it failed; the sentence is the JSON's own.
+    /// </remarks>
+    public static Task WriteRefusalAsync(
+        HttpContext context,
+        PublishedLayer layer,
+        LayerDescription description,
+        string message,
+        CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+
+        HtmlBuilder body = new();
+        AppendForm(body, context, layer, description, refusal: message);
+
+        return WritePageAsync(context, body.ToHtml(), cancellation);
     }
 
     /// <summary>Writes a count-only answer as a page.</summary>
@@ -212,10 +251,12 @@ internal static class QueryPage
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        HtmlBuilder body = new();
-        AppendForm(body, context, layer, description);
+        string many = count.ToString("N0", CultureInfo.InvariantCulture);
 
-        body.Append($"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
+        HtmlBuilder body = new();
+        AppendForm(body, context, layer, description, Outcome(Html.Of($"<b>{many}</b> {(count == 1 ? "feature matches" : "features match")}.")));
+
+        body.Append($"{Html.Markup(ResultsOpen)}<p><b>Count:</b> {many}</p></section>");
 
         return WritePageAsync(context, body.ToHtml(), cancellation);
     }
@@ -234,19 +275,19 @@ internal static class QueryPage
         IReadOnlyList<long> ids,
         CancellationToken cancellation)
     {
-        HtmlBuilder body = new();
-        AppendForm(body, context, layer, description);
-
         string many = ids.Count.ToString("N0", CultureInfo.InvariantCulture);
 
-        body.Append($"<h3>Results:</h3><p><b>{many}</b> object id(s):</p>");
+        HtmlBuilder body = new();
+        AppendForm(body, context, layer, description, Outcome(Html.Of($"<b>{many}</b> object id(s) matched.")));
+
+        body.Append($"{Html.Markup(ResultsOpen)}<p><b>{many}</b> object id(s):</p>");
 
         // <b>Comma-separated in one block, not a table.</b> Somebody looking at
         // this is about to paste it into an objectIds parameter, and a table of
         // ten thousand single-cell rows is unusable for that and slow to render.
-        body.Append(Html.Markup("<div class=\"scroll\"><code>"))
+        body.Append(Html.Markup(Scroll + "<code>"))
             .Append(Html.Text(string.Join(", ", ids)))
-            .Append(Html.Markup("</code></div>"));
+            .Append(Html.Markup("</code></div></section>"));
 
         return WritePageAsync(context, body.ToHtml(), cancellation);
     }
@@ -267,10 +308,13 @@ internal static class QueryPage
         long count,
         CancellationToken cancellation)
     {
-        HtmlBuilder body = new();
-        AppendForm(body, context, layer, description);
+        string many = count.ToString("N0", CultureInfo.InvariantCulture);
 
-        body.Append($"<h3>Results:</h3><p><b>Count:</b> {count.ToString("N0", CultureInfo.InvariantCulture)}</p>");
+        HtmlBuilder body = new();
+        AppendForm(body, context, layer, description, Outcome(
+            Html.Of($"<b>{many}</b> {(count == 1 ? "feature matches" : "features match")}; the extent is below.")));
+
+        body.Append($"{Html.Markup(ResultsOpen)}<p><b>Count:</b> {many}</p>");
 
         if (extent is { } box)
         {
@@ -283,6 +327,8 @@ internal static class QueryPage
         {
             body.Append(Html.Markup("<p><i>No extent: nothing matched, or every match has no geometry.</i></p>"));
         }
+
+        body.Append(Html.Markup("</section>"));
 
         return WritePageAsync(context, body.ToHtml(), cancellation);
     }
@@ -302,21 +348,22 @@ internal static class QueryPage
         CancellationToken cancellation)
     {
         HtmlBuilder body = new();
-        AppendForm(body, context, layer, description);
+        AppendForm(body, context, layer, description, Outcome(Html.Of(
+            $"<b>{rows.Count.ToString("N0", CultureInfo.InvariantCulture)}</b> {(rows.Count == 1 ? "row" : "rows")} of statistics.")));
 
-        body.Append(Html.Markup("<h3>Results:</h3>"));
+        body.Append(Html.Markup(ResultsOpen));
 
         if (rows.Count == 0)
         {
-            body.Append(Html.Markup("<p><i>Nothing matched, so there was nothing to compute.</i></p>"));
+            body.Append(Html.Markup("<p><i>Nothing matched, so there was nothing to compute.</i></p></section>"));
             return WritePageAsync(context, body.ToHtml(), cancellation);
         }
 
-        body.Append(Html.Markup("<div class=\"scroll\"><table class=\"grid\"><thead><tr>"));
+        body.Append(Html.Markup(Scroll + "<table class=\"grid\"><thead><tr>"));
 
         foreach (string column in rows[0].Keys)
         {
-            body.Append($"<th>{column}</th>");
+            body.Append($"<th scope=\"col\">{column}</th>");
         }
 
         body.Append(Html.Markup("</tr></thead><tbody>"));
@@ -337,10 +384,34 @@ internal static class QueryPage
             body.Append(Html.Markup("</tr>"));
         }
 
-        body.Append(Html.Markup("</tbody></table></div>"));
+        body.Append(Html.Markup("</tbody></table></div></section>"));
 
         return WritePageAsync(context, body.ToHtml(), cancellation);
     }
+
+    /// <summary>Where the results begin, which the outcome line above the form links to.</summary>
+    /// <remarks>
+    /// <b>The heading is the one the conformance suite looks for</b>, so it stays as it was; the
+    /// section around it is what the jump link lands on.
+    /// </remarks>
+    /// <summary>The box the results scroll in, which a keyboard can reach.</summary>
+    /// <remarks>
+    /// <b>Focusable and named, because a box that scrolls and cannot take focus is one a keyboard
+    /// user cannot read past its first screen</b> (UX sweep 2026-10-19, round 2: axe
+    /// <c>scrollable-region-focusable</c>).
+    /// </remarks>
+    private const string Scroll = "<div class=\"scroll\" tabindex=\"0\" role=\"region\" aria-label=\"Results\">";
+
+    private const string ResultsOpen = "<section id=\"results\" aria-label=\"Results\"><h3>Results:</h3>";
+
+    /// <summary>The line above the form that says what a run produced, with the way down to it.</summary>
+    /// <remarks>
+    /// <b>Above the form because the form is two thousand pixels tall.</b> At 1280 by 800 the
+    /// results began below the fold, so pressing the button changed nothing a reader could see
+    /// (UX sweep 2026-10-19). <c>role="status"</c> so a screen reader hears it on arrival.
+    /// </remarks>
+    private static Html Outcome(Html said) =>
+        Html.Of($"<div class=\"outcome\" role=\"status\"><p>{said}</p><a href=\"#results\">Jump to the results</a></div>");
 
     /// <summary>One result row.</summary>
     /// <remarks>
@@ -403,6 +474,18 @@ internal static class QueryPage
         int offset = query.Offset;
         int limit = query.Limit;
 
+        // <b>No "Rows 1–0".</b> An empty page has said so above this line; what is left to offer is
+        // the way back, when there is one.
+        if (written == 0)
+        {
+            if (offset > 0)
+            {
+                body.Append($"<p class=\"paging\"><a href=\"{WithOffset(context, Math.Max(0, offset - limit))}\">« Previous</a></p>");
+            }
+
+            return;
+        }
+
         body.Append($"<p class=\"paging\">Rows {offset + 1}–{offset + written} "
             + $"(page size {limit}). ");
 
@@ -444,11 +527,21 @@ internal static class QueryPage
     }
 
     /// <summary>The form itself.</summary>
+    /// <param name="body">Where to write it.</param>
+    /// <param name="context">The request, whose values the form keeps.</param>
+    /// <param name="layer">The layer being queried.</param>
+    /// <param name="description">Its fields.</param>
+    /// <param name="outcome">What a run produced, said above the form; empty before a run.</param>
+    /// <param name="refusal">Why the last run was refused, or null.</param>
     /// <remarks>
     /// <para>
-    /// <b>Every parameter ArcGIS's page has, in ArcGIS's order.</b> An
-    /// administrator who knows that page should not have to re-learn this one,
-    /// and a screenshot of the two should differ only in what is greyed out.
+    /// <b>Every parameter ArcGIS's page has, grouped the way a reader looks for them.</b> An
+    /// administrator who knows that page should not have to re-learn this one. Until 2026-10-19
+    /// the controls were one table in ArcGIS's order with the label beside each box; forty of
+    /// them in a column, at 634 pixels wide on a phone and with not one <c>&lt;label for&gt;</c>,
+    /// so a screen reader could not tell Distance from Geometry Precision (UX sweep 2026-10-19).
+    /// They are now in fieldsets — filter, spatial filter, output, statistics, paging — each
+    /// control with its own label, and ArcGIS's order is kept inside each group.
     /// </para>
     /// <para>
     /// <b>What this server cannot honour is present and disabled, not
@@ -463,36 +556,78 @@ internal static class QueryPage
         HtmlBuilder body,
         HttpContext context,
         PublishedLayer layer,
-        LayerDescription description)
+        LayerDescription description,
+        Html outcome = default,
+        string? refusal = null)
     {
         IQueryCollection q = context.Request.Query;
 
         body.Append($"<h1>Query: {layer.ServiceName} - {layer.Definition.Name} "
             + $"(ID: {layer.LayerIndex})</h1>");
 
-        body.Append($"<form action=\"{context.Request.Path}\" method=\"get\"><table class=\"form\">");
+        body.Append(outcome);
 
-        Text(body, "Where:", "where", q["where"], "objectid > 0 and address like 'High%'", 80);
+        /*
+          <b>A refusal sits beside the field it is about when this page can tell which one.</b>
+          Nearly every refusal a reader meets here is a where clause, and the sentence names
+          `where` when it is; the rest — an unknown reference, a moment before the kept history —
+          go above the form, where they are read before any field.
+        */
+        bool aboutWhere = refusal is not null
+            && refusal.Contains("where", StringComparison.OrdinalIgnoreCase);
 
-        Area(body, "Full Text Search:", "fullText", q["fullText"],
+        if (refusal is not null && !aboutWhere)
+        {
+            body.Append($"<p class=\"refused\" role=\"alert\">The query was not run. {refusal}</p>");
+        }
+
+        // Names from this layer, so every example on the form is one the reader can run (UX sweep
+        // 2026-10-19: the Where example named an `address` field no layer here has).
+        string id = layer.Definition.IntegerIdentityColumn ?? "objectid";
+        string? text = description.Fields
+            .Where(f => f.Type == FieldType.Text && !string.Equals(f.Name, id, StringComparison.OrdinalIgnoreCase))
+            .Select(f => f.Name)
+            .FirstOrDefault();
+        string other = text ?? description.Fields
+            .Select(f => f.Name)
+            .FirstOrDefault(n => !string.Equals(n, id, StringComparison.OrdinalIgnoreCase)) ?? id;
+
+        body.Append($"<form class=\"ops\" action=\"{context.Request.Path}\" method=\"get\">");
+
+        // ---------- filter ----------
+        body.Append(Html.Markup("<fieldset><legend>Filter</legend>"));
+
+        Text(body, "Where", "where", q["where"],
+            text is null ? $"{id} > 0" : $"{id} > 0 AND {text} LIKE 'A%'",
+            wide: true,
+            hint: "SQL on this layer's fields, which are listed under Out fields.",
+            invalid: aboutWhere ? refusal : null);
+
+        Area(body, "Full text search", "fullText", q["fullText"],
             "Needs a tsvector column and an index on your table, which this server will not "
             + "create on data it does not own.");
 
-        Text(body, "Object IDs:", "objectIds", q["objectIds"], "1, 2, 3", 80);
+        Text(body, "Object IDs", "objectIds", q["objectIds"], "1, 2, 3");
 
-        Text(body, "Unique Ids:", "uniqueIds", q["uniqueIds"], string.Empty, 80,
+        Text(body, "Unique IDs", "uniqueIds", q["uniqueIds"], string.Empty,
             disabled: "An ArcGIS 12.1 concept with no counterpart in this server.");
 
         // <b>Enabled where the layer has a time field — 2026-09-15</b>, the same field the layer
         // document reports as `timeInfo` and the query filters on.
-        Text(body, "Time:", "time", q["time"], string.Empty, 40,
+        Text(body, "Time", "time", q["time"], string.Empty,
             disabled: Graticula.Api.Wms.TimeDimension.FieldOf(description.Fields, layer.TimeField) is null
                 ? "This layer has no time field, so there is nothing to filter on."
                 : null);
 
-        Area(body, "Input Geometry:", "geometry", q["geometry"], null);
+        body.Append(Html.Markup("</fieldset>"));
 
-        Select(body, "Geometry Type:", "geometryType", q["geometryType"],
+        // ---------- spatial filter ----------
+        body.Append(Html.Markup("<fieldset><legend>Spatial filter</legend>"));
+
+        Area(body, "Input geometry", "geometry", q["geometry"], null,
+            hint: "An envelope as xmin,ymin,xmax,ymax, or a geometry as Esri JSON.");
+
+        Select(body, "Geometry type", "geometryType", q["geometryType"],
         [
             ("esriGeometryEnvelope", "Envelope"),
             ("esriGeometryPoint", "Point"),
@@ -501,12 +636,12 @@ internal static class QueryPage
             ("esriGeometryPolygon", "Polygon"),
         ]);
 
-        Text(body, "Input Spatial Reference:", "inSR", q["inSR"],
-            layer.Definition.Srid.ToString(CultureInfo.InvariantCulture), 20);
+        Text(body, "Input spatial reference", "inSR", q["inSR"],
+            layer.Definition.Srid.ToString(CultureInfo.InvariantCulture));
 
-        Text(body, "Default Spatial Reference:", "defaultSR", q["defaultSR"], string.Empty, 20);
+        Text(body, "Default spatial reference", "defaultSR", q["defaultSR"], string.Empty);
 
-        Select(body, "Spatial Relationship:", "spatialRel", q["spatialRel"],
+        Select(body, "Spatial relationship", "spatialRel", q["spatialRel"],
         [
             ("esriSpatialRelIntersects", "Intersects"),
             ("esriSpatialRelContains", "Contains"),
@@ -519,9 +654,9 @@ internal static class QueryPage
             ("esriSpatialRelRelation", "Relation"),
         ]);
 
-        Text(body, "Distance:", "distance", q["distance"], string.Empty, 20);
+        Text(body, "Distance", "distance", q["distance"], string.Empty);
 
-        Select(body, "Units:", "units", q["units"],
+        Select(body, "Units", "units", q["units"],
         [
             ("", "(default: metres)"),
             ("esriSRUnit_Meter", "Meter"),
@@ -532,95 +667,127 @@ internal static class QueryPage
             ("esriSRUnit_USNauticalMile", "US Nautical Mile"),
         ]);
 
-        Text(body, "Relation:", "relationParam", q["relationParam"], "FFFTTT***", 20);
+        Text(body, "Relation", "relationParam", q["relationParam"], "FFFTTT***");
 
-        Text(body, "Out Fields:", "outFields", q["outFields"], "*", 80);
+        body.Append(Html.Markup("</fieldset>"));
 
-        body.Append($"<tr><th></th><td class=\"hint\">{string.Join(", ", description.Fields.Select(f => f.Name))}</td></tr>");
+        // ---------- output ----------
+        body.Append(Html.Markup("<fieldset><legend>Output</legend>"));
 
-        Radio(body, "Return Geometry:", "returnGeometry", q["returnGeometry"], defaultTrue: true);
+        Text(body, "Out fields", "outFields", q["outFields"], "*", wide: true,
+            hint: "* for all, or some of: " + string.Join(", ", description.Fields.Select(f => f.Name)));
 
-        Text(body, "Max Allowable Offset:", "maxAllowableOffset", q["maxAllowableOffset"],
-            string.Empty, 20);
+        Radio(body, "Return geometry", "returnGeometry", q["returnGeometry"], defaultTrue: true);
 
-        Text(body, "Geometry Precision:", "geometryPrecision", q["geometryPrecision"],
-            string.Empty, 20);
+        Text(body, "Output spatial reference", "outSR", q["outSR"], string.Empty);
 
-        Text(body, "Output Spatial Reference:", "outSR", q["outSR"], string.Empty, 20);
+        Text(body, "Max allowable offset", "maxAllowableOffset", q["maxAllowableOffset"], string.Empty);
 
-        // <b>No Having Clause box from 2026-08-16 to 2026-10-17</b>, while the parameter was refused: its contents had
-        // gone into the SQL statement unparsed (D-41). It is drawn below the statistics again now that HavingClause
-        // parses it (Q-109).
+        Text(body, "Geometry precision", "geometryPrecision", q["geometryPrecision"], string.Empty);
 
-        Text(body, "Order By Fields:", "orderByFields", q["orderByFields"],
-            "field ASC, field DESC", 80);
-
-        Text(body, "Group By Fields For Statistics:", "groupByFieldsForStatistics",
-            q["groupByFieldsForStatistics"], "field1, field2", 80);
-
-        Area(body, "Output Statistics:", "outStatistics", q["outStatistics"], null,
-            "[{\"statisticType\":\"count\",\"onStatisticField\":\"objectid\","
-            + "\"outStatisticFieldName\":\"n\"}]");
-
-        // <b>The Having Clause box is back with its parser — Q-109, 2026-10-17</b>, on the layers that answer it.
-        if (description.AnswersHaving)
-        {
-            Text(body, "Having Clause:", "havingClause", q["havingClause"], "COUNT(objectid) > 5", 80);
-        }
+        Text(body, "Order by fields", "orderByFields", q["orderByFields"], $"{other} ASC, {id} DESC");
 
         // <b>The layer's answer, not the server's — ADR-077, step 3</b>, as `time` became above: `query`
         // returns an elevation and a measure where the column declares them, so the control is offered
         // there and greyed out, with the reason, where it does not.
-        Radio(body, "Return Z:", "returnZ", q["returnZ"], defaultTrue: false,
+        Radio(body, "Return Z", "returnZ", q["returnZ"], defaultTrue: false,
             disabled: (description.StoredOrdinates & Graticula.Geometries.GeometryOrdinates.Z) != 0
                 ? null
                 : "This layer's geometry is stored without z values.");
 
-        Radio(body, "Return M:", "returnM", q["returnM"], defaultTrue: false,
+        Radio(body, "Return M", "returnM", q["returnM"], defaultTrue: false,
             disabled: (description.StoredOrdinates & Graticula.Geometries.GeometryOrdinates.M) != 0
                 ? null
                 : "This layer's geometry is stored without m values.");
 
-        Text(body, "gdbVersion:", "gdbVersion", q["gdbVersion"], string.Empty, 20,
+        Radio(body, "Return distinct values", "returnDistinctValues", q["returnDistinctValues"],
+            defaultTrue: false);
+
+        Text(body, "gdbVersion", "gdbVersion", q["gdbVersion"], string.Empty,
             disabled: "There is no version tree.");
 
         // The layer's answer too since 2026-09-19 — ADR-078: a hosted layer whose owner turned its
         // history on answers a moment in the past, and every other layer refuses one.
-        Text(body, "Historic Moment:", "historicMoment", q["historicMoment"], string.Empty, 20,
+        Text(body, "Historic moment", "historicMoment", q["historicMoment"], string.Empty,
             disabled: description.Archived
                 ? null
                 : "This layer does not keep its history.");
 
-        Radio(body, "Return Distinct Values:", "returnDistinctValues", q["returnDistinctValues"],
-            defaultTrue: false);
-
-        Text(body, "Result Offset:", "resultOffset", q["resultOffset"], "0", 20);
-
-        Text(body, "Result Record Count:", "resultRecordCount", q["resultRecordCount"], "1000", 20);
-
-        Radio(body, "Return Extent Only:", "returnExtentOnly", q["returnExtentOnly"],
-            defaultTrue: false);
-
-        Radio(body, "Return Count Only:", "returnCountOnly", q["returnCountOnly"],
-            defaultTrue: false);
-
-        Radio(body, "Return IDs Only:", "returnIdsOnly", q["returnIdsOnly"], defaultTrue: false);
-
-        Select(body, "SQL Format:", "sqlFormat", q["sqlFormat"],
+        Select(body, "SQL format", "sqlFormat", q["sqlFormat"],
             [("none", "none"), ("standard", "standard")]);
+
+        body.Append(Html.Markup("</fieldset>"));
+
+        // ---------- statistics ----------
+        body.Append(Html.Markup("<fieldset><legend>Statistics</legend>"));
+
+        Text(body, "Group by fields for statistics", "groupByFieldsForStatistics",
+            q["groupByFieldsForStatistics"], other);
+
+        Area(body, "Output statistics", "outStatistics", q["outStatistics"], null,
+            placeholder: $"[{{\"statisticType\":\"count\",\"onStatisticField\":\"{id}\","
+            + "\"outStatisticFieldName\":\"n\"}]");
+
+        // <b>No Having Clause box from 2026-08-16 to 2026-10-17</b>, while the parameter was refused: its
+        // contents had gone into the SQL statement unparsed (D-41). It is back with its parser — Q-109 —
+        // on the layers that answer it.
+        if (description.AnswersHaving)
+        {
+            Text(body, "Having clause", "havingClause", q["havingClause"], $"COUNT({id}) > 5");
+        }
+
+        body.Append(Html.Markup("</fieldset>"));
+
+        // ---------- paging and the shape of the answer ----------
+        body.Append(Html.Markup("<fieldset><legend>Paging and answer</legend>"));
+
+        Text(body, "Result offset", "resultOffset", q["resultOffset"], "0");
+
+        Text(body, "Result record count", "resultRecordCount", q["resultRecordCount"], "1000");
+
+        Radio(body, "Return extent only", "returnExtentOnly", q["returnExtentOnly"],
+            defaultTrue: false);
+
+        Radio(body, "Return count only", "returnCountOnly", q["returnCountOnly"],
+            defaultTrue: false);
+
+        Radio(body, "Return IDs only", "returnIdsOnly", q["returnIdsOnly"], defaultTrue: false);
+
+        body.Append(Html.Markup("</fieldset>"));
 
         // <b>Two, and the labels say what each one is.</b> "HTML" and "JSON"
         // are format names; a person choosing between them is choosing between
         // reading a table and copying a document into a client, and the labels
         // may as well say that.
-        Select(body, "Format:", "f", string.IsNullOrEmpty(q["f"]) ? "html" : q["f"],
+        body.Append(Html.Markup("<div class=\"run\">"));
+
+        Select(body, "Format", "f", string.IsNullOrEmpty(q["f"]) ? "html" : q["f"],
             [("html", "HTML (table)"), ("json", "JSON")]);
 
-        body.Append(Html.Markup(
-            "<tr><th></th><td><button type=\"submit\">Query (GET)</button></td></tr>"));
-
-        body.Append(Html.Markup("</table></form>"));
+        body.Append(Html.Markup("<button type=\"submit\">Query (GET)</button></div></form>"));
     }
+
+    /// <summary>The id a control is given, so its label can name it.</summary>
+    private static string Id(string name) => "q-" + name;
+
+    /// <summary>The <c>aria-describedby</c> attribute for the notes under a control, or nothing.</summary>
+    private static Html Described(string name, bool hint, bool why, bool refused) =>
+        hint || why || refused
+            ? Html.Of($" aria-describedby=\"{string.Join(' ', new[]
+                {
+                    refused ? Id(name) + "-refused" : null,
+                    hint ? Id(name) + "-hint" : null,
+                    why ? Id(name) + "-why" : null,
+                }.Where(x => x is not null))}\"")
+            : Html.Empty;
+
+    /// <summary>A note under a control.</summary>
+    private static Html Hint(string name, string? hint) =>
+        hint is null ? Html.Empty : Html.Of($"<p class=\"hint\" id=\"{Id(name)}-hint\">{hint}</p>");
+
+    /// <summary>The wrapper's classes: wide, and greyed out when the server cannot honour it.</summary>
+    private static string Classes(bool wide, string? disabled) =>
+        "f" + (wide ? " wide" : string.Empty) + (disabled is null ? string.Empty : " off");
 
     /// <summary>A multi-line input, for the parameters that take JSON.</summary>
     private static void Area(
@@ -629,14 +796,22 @@ internal static class QueryPage
         string name,
         string? value,
         string? disabled,
-        string placeholder = "")
+        string placeholder = "",
+        string? hint = null)
     {
-        body.Append($"<tr><th>{label}</th><td><textarea name=\"{name}\" rows=\"4\" cols=\"78\" "
-            + $"placeholder=\"{placeholder}\"{Off(disabled)}>{value}</textarea>"
-            + $"{Why(disabled)}</td></tr>");
+        body.Append($"<div class=\"{Classes(true, disabled)}\"><label for=\"{Id(name)}\">{label}</label>"
+            + $"<textarea name=\"{name}\" id=\"{Id(name)}\" rows=\"4\" "
+            + $"placeholder=\"{placeholder}\"{Described(name, hint is not null, disabled is not null, false)}"
+            + $"{Off(disabled)}>{value}</textarea>"
+            + $"{Hint(name, hint)}{Why(name, disabled)}</div>");
     }
 
     /// <summary>A true/false pair, which is how ArcGIS renders these.</summary>
+    /// <remarks>
+    /// <b>A fieldset whose legend is the label</b>, because the two radios are one control with
+    /// one name, and a label can name only one of them. The attribute order of each input is
+    /// relied on by the conformance test that submits this form as a browser would.
+    /// </remarks>
     private static void Radio(
         HtmlBuilder body,
         string label,
@@ -647,12 +822,13 @@ internal static class QueryPage
     {
         bool on = string.IsNullOrEmpty(value) ? defaultTrue : value == "true";
 
-        body.Append($"<tr><th>{label}</th><td>"
+        body.Append($"<fieldset class=\"{Classes(false, disabled) + " pair"}\"{Described(name, false, disabled is not null, false)}>"
+            + $"<legend>{label}</legend>"
             + $"<label><input type=\"radio\" name=\"{name}\" value=\"true\""
-            + $"{(on ? " checked" : string.Empty)}{Off(disabled)}> True</label> "
+            + $"{(on ? " checked" : string.Empty)}{Off(disabled)}> True</label>"
             + $"<label><input type=\"radio\" name=\"{name}\" value=\"false\""
             + $"{(on ? string.Empty : " checked")}{Off(disabled)}> False</label>"
-            + $"{Why(disabled)}</td></tr>");
+            + $"{Why(name, disabled)}</fieldset>");
     }
 
     /// <summary>The disabled attribute, or nothing.</summary>
@@ -664,24 +840,38 @@ internal static class QueryPage
     /// <b>The reason is the point.</b> A greyed-out box with no explanation is
     /// the same dead end as a missing one, one step later.
     /// </remarks>
-    private static Html Why(string? disabled) =>
+    private static Html Why(string name, string? disabled) =>
         disabled is null
             ? Html.Empty
-            : Html.Of($"<div class=\"hint\">Not supported: {disabled}</div>");
+            : Html.Of($"<p class=\"hint\" id=\"{Id(name)}-why\">Not supported: {disabled}</p>");
 
+    /// <summary>A one-line input.</summary>
+    /// <remarks>
+    /// <b>No <c>size</c>, and the box is as wide as its group</b> — a <c>size="80"</c> box is
+    /// eighty characters wide whatever the screen is. <c>name</c> and <c>value</c> come first
+    /// and in that order: the conformance test that submits this form reads them that way.
+    /// </remarks>
     private static void Text(
         HtmlBuilder body,
         string label,
         string name,
         string? value,
         string placeholder,
-        int size,
-        string? disabled = null)
+        string? disabled = null,
+        bool wide = false,
+        string? hint = null,
+        string? invalid = null)
     {
-        body.Append($"<tr><th>{label}</th><td><input type=\"text\" name=\"{name}\" "
-            + $"value=\"{value}\" placeholder=\"{placeholder}\" "
-            + $"size=\"{size.ToString(CultureInfo.InvariantCulture)}\"{Off(disabled)}>"
-            + $"{Why(disabled)}</td></tr>");
+        Html refused = invalid is null
+            ? Html.Empty
+            : Html.Of($"<p class=\"refused\" id=\"{Id(name)}-refused\" role=\"alert\">The query was not run. {invalid}</p>");
+
+        body.Append($"<div class=\"{Classes(wide, disabled)}\"><label for=\"{Id(name)}\">{label}</label>"
+            + $"<input type=\"text\" name=\"{name}\" value=\"{value}\" id=\"{Id(name)}\" "
+            + $"placeholder=\"{placeholder}\""
+            + $"{(invalid is null ? Html.Empty : Html.Markup(" aria-invalid=\"true\""))}"
+            + $"{Described(name, hint is not null, disabled is not null, invalid is not null)}{Off(disabled)}>"
+            + $"{refused}{Hint(name, hint)}{Why(name, disabled)}</div>");
     }
 
     private static void Select(
@@ -691,7 +881,8 @@ internal static class QueryPage
         string? value,
         IReadOnlyList<(string Value, string Label)> options)
     {
-        body.Append($"<tr><th>{label}</th><td><select name=\"{name}\">");
+        body.Append($"<div class=\"f\"><label for=\"{Id(name)}\">{label}</label>"
+            + $"<select name=\"{name}\" id=\"{Id(name)}\">");
 
         foreach ((string option, string text) in options)
         {
@@ -701,7 +892,7 @@ internal static class QueryPage
                 + $"{text}</option>");
         }
 
-        body.Append(Html.Markup("</select></td></tr>"));
+        body.Append(Html.Markup("</select></div>"));
     }
 
     private static Task WritePageAsync(HttpContext context, Html body, CancellationToken ct)

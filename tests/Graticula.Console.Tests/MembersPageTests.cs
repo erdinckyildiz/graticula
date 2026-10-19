@@ -70,7 +70,7 @@ public sealed class MembersPageTests : ConsoleTest
     [InlineData("members", "memberNew", "memberDialog", "mName")]
     [InlineData("roles", "roleNew", "roleDialog", "newRoleName")]
     [InlineData("signin", "appNew", "appDialog", "appTitle")]
-    [InlineData("groups", "groupNew", "groupNewDialog", "newGroupName")]
+    [InlineData("groups", "groupNew", "groupNewDialog", "newGroupTitle")]
     public async Task A_new_thing_is_asked_in_a_dialog_that_escape_puts_away(string screen, string opener, string dialog, string first)
     {
         (string token, _) = await SignInAsync();

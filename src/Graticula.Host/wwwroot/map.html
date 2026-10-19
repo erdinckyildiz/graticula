@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graticula — ArcGIS Maps SDK</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <!--
   The ArcGIS Maps SDK for JavaScript, pointed at this server.
@@ -38,37 +39,115 @@
   with nothing in the server's log. map.js loads the library from this value and waits for it.
 -->
 <script src="surface.js"></script>
+<!-- The remembered theme, set before the first paint exactly as the console sets it (ADR-187 step 4). -->
+<script src="session.js"></script>
 
 <style>
-  html, body { margin: 0; height: 100%; font: 15px/1.5 system-ui, sans-serif; }
-  #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
-  header { padding: 11px 18px; background: #f5f8f6; border-bottom: 1px solid #d7e0dc; color: #0f1e1b; }
-  header h1 { margin: 0; font-size: 15px; font-weight: 600; }
-  header p { margin: 2px 0 0; font-size: 12.5px; color: #576a66; }
-  header code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
-  #view { width: 100%; height: 100%; }
-  #facts { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; margin-top: 6px;
-           font-size: 12.5px; color: #576a66; }
-  #facts:empty { display: none; }
-  #facts code { font-size: 11.5px; }
-  #facts button { font: inherit; font-size: 12px; padding: 2px 9px; cursor: pointer;
-                  border: 1px solid #0b6157; border-radius: 3px; background: #0b6157;
-                  color: #fff; }
-  #picker { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
-  #picker:empty { display: none; }
-  #picker button { font: inherit; font-size: 12.5px; padding: 3px 9px; cursor: pointer;
-                   border: 1px solid #d7e0dc; border-radius: 3px; background: #fff;
-                   color: #0f1e1b; }
-  #picker button:hover { border-color: #0b6157; color: #0b6157; }
-  #picker button.on { background: #0b6157; border-color: #0b6157; color: #fff; }
-  #note {
-    position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 74px;
-    background: #fff; border: 1px solid #d7e0dc; border-left: 3px solid #a63a2b;
-    border-radius: 3px; padding: 12px 16px; max-width: 560px; font-size: 13.5px;
-    box-shadow: 0 10px 28px -14px rgba(0,0,0,.4); display: none;
+  /* TOKENS-FROM: console.css. Every --name here that console.css also declares is a copy of its :root (light) and
+     :root[data-theme="dark"] value, made by hand because these pages are outside the console's stylesheet; the rest
+     (--veil, --map-bg, --float, --ol-*) are the map pages' own. The copies are
+     webmap.html, view.html and map.html; this line, the same in each, is what a test finds them by. */
+  :root {
+    --paper: #f4f6f9; --surface: #ffffff; --surface-2: #f1f4f8; --ink: #101826; --muted: #566275;
+    --rule: #e3e8ef; --rule-strong: #cfd7e3;
+    --accent: #1565d8; --accent-soft: #e8f0fe; --accent-ink: #1257c2; --accent-line: #bcd2fa; --on-accent: #ffffff;
+    --alert: #a5342a; --alert-line: #edc4c0; --warn: #8a5a08;
+    --lift: 0 1px 2px rgba(16, 24, 38, .05); --float: 0 8px 24px -12px rgba(16, 24, 38, .35);
+    --round: 5px; --round-lg: 8px;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  #note.on { display: block; }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0a1120; --surface: #0f1828; --surface-2: #142034; --ink: #e6ebf4; --muted: #9aa7bd;
+    --rule: #1f2b40; --rule-strong: #2b3a55;
+    --accent: #2563eb; --accent-soft: #11264a; --accent-ink: #6aa6ff; --accent-line: #24497f;
+    --alert: #f58a7f; --alert-line: #6a2a24; --warn: #f0bd5c;
+    --lift: 0 1px 2px rgba(0, 0, 0, .4); --float: 0 8px 24px -10px rgba(0, 0, 0, .7);
+  }
+  html, body { margin: 0; height: 100%; font: 15px/1.5 var(--sans); color: var(--ink); background: var(--paper); }
+  a { color: var(--accent-ink); }
+  #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  /*
+    <b>One row on a desktop, and it was three</b> (UX sweep m1, 2026-10-19): about 96 pixels at 1,280 and 240 — 28 % of
+    the screen — at 390. The name and the probe it is, then the facts, then what can be done, wrapping on a phone.
+  */
+  /* Round 2: still three rows (148 px at 1,280 on the 3D scene). One row now: the facts give up width, the controls
+     do not, and the ground and the gestures are said on the map rather than in the header. */
+  header { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px 14px; padding: 8px 16px; min-height: 56px;
+           background: var(--surface); border-bottom: 1px solid var(--rule); color: var(--ink); }
+  header h1 { margin: 0; font-size: 16px; font-weight: 650; display: flex; flex-wrap: wrap; align-items: baseline;
+              gap: 4px 10px; min-width: 0; overflow-wrap: anywhere; flex: 0 1 auto; }
+  #back { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; color: var(--ink);
+          border: 1px solid var(--rule-strong); border-radius: var(--round); }
+  #back:hover { border-color: var(--accent); color: var(--accent-ink); }
+  #back svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;
+              stroke-linejoin: round; }
+  #main { position: relative; min-height: 0; }
+  /* What the ground is and how to move, on the map's foot: a caption of the picture, not a header line. */
+  #mapnote { position: absolute; z-index: 5; left: 12px; bottom: 28px; max-width: calc(100% - 24px);
+             display: flex; flex-direction: column; gap: 2px; padding: 5px 10px; border-radius: var(--round);
+             background: var(--surface); border: 1px solid var(--rule-strong); box-shadow: var(--lift);
+             font-size: 12.5px; color: var(--muted); pointer-events: none; }
+  #mapnote span:empty { display: none; }
+  #mapnote:not(:has(span:not(:empty))) { display: none; }
+  header h1 .tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+                   background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line); }
+  header code { font-family: var(--mono); font-size: 12px; }
+  #view { position: absolute; inset: 0; }
+  #facts { display: flex; gap: 6px 12px; flex-wrap: nowrap; align-items: center; flex: 1 1 0;
+           font-size: 13px; color: var(--muted); min-width: 0; }
+  #facts > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto; }
+  #facts:empty { display: none; }
+  #facts code { font-size: 12px; }
+  #facts .refused { color: var(--warn); }
+  /* Actions are secondary buttons, and links that look like them; a sublayer chosen below is a selection. */
+  #facts button, #facts a { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; flex: none;
+                            font: inherit; font-size: 13px; cursor: pointer; text-decoration: none; white-space: nowrap;
+                            border: 1px solid var(--rule-strong); border-radius: var(--round);
+                            background: var(--surface); color: var(--ink); }
+  #facts button:hover, #facts a:hover { border-color: var(--accent); color: var(--accent-ink); }
+  #picker { display: flex; gap: 6px; flex-wrap: nowrap; flex: 0 1 auto; min-width: 0; overflow-x: auto;
+            scrollbar-width: none; }
+  #picker button { flex: none; }
+  #picker:empty { display: none; }
+  #picker button { font: inherit; font-size: 13px; min-height: 32px; padding: 3px 10px; cursor: pointer;
+                   border: 1px solid var(--rule-strong); border-radius: var(--round); background: var(--surface);
+                   color: var(--ink); }
+  #picker button:hover { border-color: var(--accent); color: var(--accent-ink); }
+  #picker button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  /*
+    <b>A not-found or not-shared service, said in the server's words with the two ways on</b> — UX sweep M6. A full
+    hairline and an icon, not the one-sided red bar it had.
+  */
+  #note {
+    position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 12px;
+    width: min(560px, calc(100% - 24px)); gap: 10px; box-sizing: border-box;
+    background: var(--surface); border: 1px solid var(--alert-line); border-radius: var(--round-lg);
+    padding: 12px 14px; font-size: 14px; color: var(--ink); box-shadow: var(--float); display: none;
+  }
+  #note.on { display: flex; }
+  #note > svg { width: 18px; height: 18px; flex: none; margin-top: 2px; fill: none; stroke: var(--alert);
+                stroke-width: 1.8; stroke-linecap: round; }
+  #note .body { min-width: 0; overflow-wrap: anywhere; }
   #note b { display: block; margin-bottom: 4px; }
+  #note .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  #note .acts a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; text-decoration: none;
+                  border: 1px solid var(--rule-strong); border-radius: var(--round); color: var(--ink); }
+  #note .acts a.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  /* A phone: the way back and the name on the first row, the actions and the layers on the second; the facts are in
+     the service's document, which the Service link opens. */
+  @media (max-width: 760px) {
+    header { padding: 8px 12px; flex-wrap: wrap; gap: 8px 10px; }
+    header h1 { flex: 1 1 calc(100% - 60px); }
+    #facts { flex: 1 1 100%; flex-wrap: wrap; order: 2; }
+    #facts > span { display: none; }
+    #picker { order: 3; flex: 1 1 0; }
+    #back, #facts button, #facts a, #picker button { min-height: 40px; }
+    #back { width: 40px; }
+    header h1 .tag { display: none; }
+  }
 
   /*
     <b>A focus ring, because there was none anywhere on this page.</b> [D-140](../../../docs/architecture-debt.md).
@@ -87,7 +166,7 @@
   .esri-widget--button:focus-visible,
   .esri-view-surface:focus-visible,
   .esri-view-surface--inset-outline:focus-visible {
-    outline: 2px solid #0b6157 !important;
+    outline: 2px solid var(--accent) !important;
     outline-offset: 2px;
   }
 
@@ -105,8 +184,10 @@
 <body>
 <div id="frame">
   <header>
-    <h1>Graticula — read by the ArcGIS Maps SDK for JavaScript</h1>
-    <p>Layer <code id="which"></code>. <span id="ground"></span></p>
+    <!-- The way back to the service's page in the directory; map.js points it there. -->
+    <a id="back" href="/rest/services" aria-label="Back to the services directory"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></a>
+    <!-- What is drawn, and by what: this page is the ArcGIS Maps SDK pointed at this server. -->
+    <h1><span id="which"></span> <span class="tag">ArcGIS Maps SDK</span></h1>
     <!--
       What is drawn and where, with a way back to it.
 
@@ -119,9 +200,13 @@
     <div id="facts"></div>
     <div id="picker"></div>
   </header>
-  <div id="view"></div>
+  <div id="main">
+    <div id="view"></div>
+    <div id="note" role="status" aria-live="polite"></div>
+    <!-- Which ground is drawn, and in 3D how to move: said on the map, not in the header (UX sweep round 2, m1). -->
+    <div id="mapnote"><span id="ground"></span><span id="howto"></span></div>
+  </div>
 </div>
-<div id="note" role="status" aria-live="polite"></div>
 
 <!-- First, so it is listening before anything else can throw. ADR-045. -->
 <script src="report.js"></script>

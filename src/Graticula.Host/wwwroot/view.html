@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graticula — layer</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <!--
   The layer viewer, on OpenLayers.
@@ -29,194 +30,206 @@
   jobs are visible as two jobs.
 -->
 
+<!-- The remembered theme, set before the first paint exactly as the console sets it (ADR-187 step 4). -->
+<script src="session.js"></script>
 <link rel="stylesheet" href="ol.css">
 <script src="ol.js"></script>
 
 <style>
+  /* TOKENS-FROM: console.css. Every --name here that console.css also declares is a copy of its :root (light) and
+     :root[data-theme="dark"] value, made by hand because these pages are outside the console's stylesheet; the rest
+     (--veil, --map-bg, --float, --ol-*) are the map pages' own. The copies are
+     webmap.html, view.html and map.html; this line, the same in each, is what a test finds them by. */
   :root {
-    --paper: #f5f8f6; --surface: #fff; --ink: #0f1e1b; --muted: #576a66;
-    --faint: #7d8f8b; --rule: #d7e0dc; --accent: #0b6157; --water: #dce7ec;
+    --paper: #f4f6f9; --surface: #ffffff; --surface-2: #f1f4f8; --ink: #101826; --muted: #566275; --faint: #616b7a;
+    --rule: #e3e8ef; --rule-strong: #cfd7e3;
+    --accent: #1565d8; --accent-soft: #e8f0fe; --accent-ink: #1257c2; --accent-line: #bcd2fa; --on-accent: #ffffff;
+    --alert: #a5342a; --alert-soft: #fceceb; --alert-line: #edc4c0;
+    --veil: rgba(255, 255, 255, .94);
+    --lift: 0 1px 2px rgba(16, 24, 38, .05); --float: 0 8px 24px -12px rgba(16, 24, 38, .35);
+    --round: 5px; --round-lg: 8px;
     --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --ol-background-color: var(--surface); --ol-accent-background-color: var(--surface-2);
+    --ol-partial-background-color: var(--veil); --ol-foreground-color: var(--ink);
+    --ol-subtle-foreground-color: var(--muted); --ol-subtle-background-color: transparent;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0a1120; --surface: #0f1828; --surface-2: #142034; --ink: #e6ebf4; --muted: #9aa7bd; --faint: #8592aa;
+    --rule: #1f2b40; --rule-strong: #2b3a55;
+    --accent: #2563eb; --accent-soft: #11264a; --accent-ink: #6aa6ff; --accent-line: #24497f;
+    --alert: #f58a7f; --alert-soft: #3a1714; --alert-line: #6a2a24;
+    --veil: rgba(15, 24, 40, .94);
+    --lift: 0 1px 2px rgba(0, 0, 0, .4); --float: 0 8px 24px -10px rgba(0, 0, 0, .7);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+  /* As the console has it: an element given `hidden` stays hidden whatever display its own rule gives it. */
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; font: 15px/1.5 var(--sans); color: var(--ink); background: var(--paper); }
+  a { color: var(--accent-ink); }
   #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+          stroke-linecap: round; stroke-linejoin: round; }
   /*
-    <b>One row, and it was four.</b> Handoff 2026-09-04. The header stacked a title, a line of
-    facts, a picker and the ground chips, which came to about 110 pixels of chrome over a map —
-    on the one page whose whole subject is the map. The facts sit beside the name now, the
-    picker and the way out sit at the right, and the grounds move onto the picture where the
-    thing they change is.
-
-    <b>A fixed height, because two things are positioned under it.</b> The attribute card and
-    the explanation are placed by an offset from the top of the window; with a header that grew
-    a line whenever a layer had a long name, that offset was a guess. 54 is the console's own
-    top bar less its four pixels of padding.
+    <b>A header that wraps, and it was one fixed row of 54 pixels.</b> Handoff 2026-09-04 put the
+    facts beside the name to keep chrome off the map, and fixed the height because the card and the
+    explanation were placed by an offset from the top of the window. They are placed inside the map
+    now (`#mapWrap`), so the header may take a second row — and at 390 pixels it has to: the facts,
+    Frame layer and the way back were cut off by `overflow: hidden` (UX sweep M4, 2026-10-19).
   */
-  header { display: flex; align-items: center; gap: 14px; height: 54px; padding: 0 16px;
-           overflow: hidden;
-           background: var(--surface); border-bottom: 1px solid var(--rule);
-           color: var(--ink); flex: none; }
-  header h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em;
-              white-space: nowrap; }
-  header h1 a { color: var(--accent); text-decoration: none; font-weight: 400; font-size: 13px; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; min-height: 54px; padding: 8px 16px;
+           background: var(--surface); border-bottom: 1px solid var(--rule); color: var(--ink); min-width: 0; }
+  .title { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+  /* The way back to the service in the directory, on every width. */
+  #back { display: inline-grid; place-items: center; width: 36px; height: 36px; flex: none; color: var(--ink);
+          border: 1px solid var(--rule-strong); border-radius: var(--round); }
+  #back:hover { border-color: var(--accent); color: var(--accent-ink); }
+  header h1 { margin: 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; min-width: 0;
+              overflow-wrap: anywhere; line-height: 1.25; }
 
-  /* The mark, two letters and a gradient — the console's own, so the viewer reads as part of
-     the same product rather than as a page that happens to draw a map. */
-  .mark { width: 24px; height: 24px; flex: none; border-radius: 6px; display: grid;
-          place-items: center; color: #fff; font: 700 11px/1 system-ui, sans-serif;
-          background: #0b6157; }
-
-  /* <b>The facts give up the width, and the two controls beside them do not.</b> Measured at
-     1280 on a three-layer service: the row wanted more than the window, and what broke was
-     *Frame layer* and *Services directory* — a verb wrapped in half and a link off the right
-     edge. A fact can be clipped and read from the layer document; a control cannot. */
-  #facts { display: flex; gap: 14px; flex-wrap: nowrap; align-items: center;
-           font-size: 12.5px; color: var(--muted); min-width: 0; overflow: hidden;
-           /* <b>Basis nought, so this takes what is left rather than what it wants.</b> With
-              `auto` the facts asked for their full width and every flex child then shrank in
-              proportion — which still overflowed, because a button and a link inside them do
-              not shrink. Nought means the controls are measured first and the facts fill the
-              gap, which is the order they should be read in anyway. */
-           flex: 1 1 0; }
+  /* <b>The facts wrap rather than clip.</b> Clipped, they cut "service document" to "service dc" at 1,280 (UX sweep
+     m9); a fact can wait for a second line where a control could not wait off the edge. */
+  #facts { display: flex; gap: 4px 14px; flex-wrap: wrap; align-items: center;
+           font-size: 13px; color: var(--muted); min-width: 0; flex: 1 1 320px; }
   #facts > span { white-space: nowrap; }
   #facts button, #facts a { white-space: nowrap; flex: none; }
-  #facts code { font-family: var(--mono); font-size: 11.5px; }
-  #facts b { color: var(--ink); }
-  #directory { margin-left: auto; flex: none; font-size: 12.5px; color: var(--accent);
-               text-decoration: none; padding: 5px 12px; border: 1px solid var(--rule);
-               border-radius: 3px; white-space: nowrap; }
-  #directory:hover { border-color: var(--accent); }
-  button { font: inherit; font-size: 12px; padding: 3px 9px; cursor: pointer;
-           border: 1px solid var(--rule); border-radius: 3px; background: var(--surface);
+  #facts code { font-family: var(--mono); font-size: 12px; }
+  #facts b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  #directory { flex: none; font-size: 13px; color: var(--ink); text-decoration: none; display: inline-flex;
+               align-items: center; min-height: 34px; padding: 0 12px; border: 1px solid var(--rule-strong);
+               border-radius: var(--round); white-space: nowrap; background: var(--surface); }
+  #directory:hover { border-color: var(--accent); color: var(--accent-ink); }
+  button { font: inherit; font-size: 13px; min-height: 30px; padding: 3px 10px; cursor: pointer;
+           border: 1px solid var(--rule-strong); border-radius: var(--round); background: var(--surface);
            color: var(--ink); }
-  button:hover { border-color: var(--accent); color: var(--accent); }
-  button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:hover { border-color: var(--accent); color: var(--accent-ink); }
+  /* A chosen layer or ground is a selection: the accent's soft fill, not the solid one an action would carry. */
+  button.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   /* The two faces, as one control rather than two buttons: they are alternatives. */
-  #faces { display: inline-flex; flex: none; gap: 2px; padding: 2px; border-radius: 5px;
-           background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--rule); }
-  #faces a { padding: 4px 11px; border-radius: 4px; font-size: 12.5px; font-weight: 500;
-             color: var(--muted); text-decoration: none; white-space: nowrap; }
-  #faces a[aria-current] { background: var(--surface); color: var(--ink); font-weight: 600;
-                           box-shadow: 0 1px 2px rgba(16, 24, 38, .12); }
+  #faces { display: inline-flex; flex: none; gap: 2px; padding: 3px; border-radius: 7px;
+           background: var(--surface-2); border: 1px solid var(--rule); }
+  #faces a { display: inline-flex; align-items: center; min-height: 30px; padding: 0 12px; border-radius: var(--round);
+             font-size: 13px; font-weight: 500; color: var(--muted); text-decoration: none; white-space: nowrap; }
+  #faces a[aria-current] { background: var(--surface); color: var(--ink); font-weight: 650; box-shadow: var(--lift);
+                           outline: 1px solid var(--rule-strong); }
 
   #picker { display: flex; gap: 6px; flex-wrap: nowrap; flex: 0 1 auto; min-width: 0;
-            margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+            overflow-x: auto; scrollbar-width: none; }
   #picker::-webkit-scrollbar { height: 0; }
   #picker button { flex: none; }
   #picker:empty { display: none; }
-  #picker + #directory { margin-left: 0; }
+
+  /* The map and everything placed on it; OpenLayers owns `#map`, so the controls are its siblings in here. */
+  #mapWrap { position: relative; min-height: 0; min-width: 0; }
+  #map { position: absolute; inset: 0; background: #bfd6e2; }
+  #map:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   /*
     <b>The grounds are on the map, not above it.</b> They change what is drawn under the data,
     so they belong where the reader is looking when they want one — and in the header they were
     a fourth row of chrome for a control most people press once.
   */
-  #grounds { position: absolute; z-index: 40; left: 12px; top: 66px;
+  #grounds { position: absolute; z-index: 40; left: 64px; top: 12px;
              display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
-             padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, .94);
-             box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 0 0 1px var(--rule);
-             font-size: 12px; color: var(--faint); max-width: calc(100% - 340px); }
+             padding: 6px 8px; border-radius: var(--round); background: var(--veil);
+             border: 1px solid var(--rule-strong); box-shadow: var(--lift);
+             font-size: 12.5px; color: var(--muted); max-width: calc(100% - 400px); }
   #grounds:empty { display: none; }
-  #grounds > span:first-child { text-transform: uppercase; letter-spacing: .04em;
-                               font-weight: 600; padding: 0 2px; }
-  #map { width: 100%; height: 100%; background: #bfd6e2; }
+  #grounds > span:first-child { text-transform: uppercase; letter-spacing: .05em; font-weight: 650; padding: 0 2px; }
 
-  /*
-    Both of these are positioned explicitly, and that is a fix rather than a
-    preference. Overriding OpenLayers' scale line with a background but no
-    `position` left it as a full-width white band across the middle of the map —
-    which is what it looked like: a mysterious white line. A control has to be
-    told where it lives.
-  */
-  /*
-    The strip the handoff asks for. It spans the bottom because the three things on it are
-    read together — a distance, a source and a position are one sentence about the picture
-    above them — and a bar is the shape that says so.
-  */
+  /* On a phone the grounds and the legend open on demand from these two buttons (UX sweep M4). */
+  #onmap { display: none; }
+
+  /* The strip: scale, which face drew this, and where. */
   #strip { position: absolute; z-index: 40; left: 12px; right: 12px; bottom: 12px;
            display: flex; align-items: center; gap: 14px;
-           padding: 6px 12px; border-radius: 4px;
-           background: rgba(255, 255, 255, .92); box-shadow: 0 0 0 1px var(--rule);
-           font-size: 11.5px; color: var(--muted); }
-  #stripMode { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-               white-space: nowrap; }
-  #stripWhere { font-family: var(--mono); white-space: nowrap; }
+           padding: 6px 12px; border-radius: var(--round);
+           background: var(--veil); border: 1px solid var(--rule-strong);
+           font-size: 12.5px; color: var(--ink); }
+  #stripMode { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  #stripWhere { font-family: var(--mono); white-space: nowrap; color: var(--muted);
+                flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   /* <b>The other half of *where am I*.</b> A pair of coordinates without a zoom says which
      patch of the world and not how much of it, and the two are read as one figure. */
-  #stripZoom { font-family: var(--mono); white-space: nowrap; color: var(--faint); }
+  #stripZoom { font-family: var(--mono); white-space: nowrap; color: var(--muted); }
   #stripScale { flex: none; }
+  /* A finger leaves no pointer to report (UX sweep m4). */
+  @media (hover: none) { #stripWhere { display: none; } }
 
   /*
     Bottom right, above the strip, and it collapses when it has nothing to say — an empty box in
     the corner of a map reads as a panel that failed to load.
   */
-  #legend { position: absolute; z-index: 40; right: 12px; bottom: 52px; max-width: 260px;
+  #legend { position: absolute; z-index: 40; right: 12px; bottom: 92px; max-width: 280px;
             max-height: 46%; overflow: auto;
-            padding: 9px 11px; border-radius: 4px;
-            background: rgba(255, 255, 255, .93); box-shadow: 0 0 0 1px var(--rule);
-            font-size: 11.5px; color: var(--ink); }
+            padding: 10px 12px; border-radius: var(--round-lg);
+            background: var(--surface); border: 1px solid var(--rule-strong); box-shadow: var(--float);
+            font-size: 13px; color: var(--ink); }
   #legend:empty { display: none; }
-  #legend b { display: block; font-size: 11px; text-transform: uppercase;
-              letter-spacing: .04em; color: var(--faint); margin-bottom: 5px; }
+  /* Not in capitals: a legend's heading is a layer's name, and names are data (round 2, N5: tr_il read TR_IL). */
+  #legend b { display: block; font-size: 12.5px; font-weight: 650; color: var(--muted); margin-bottom: 5px; }
   #legend .row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
   #legend img { width: 16px; height: 16px; flex: none; }
   #legend .swatch { width: 14px; height: 14px; flex: none; border-radius: 2px;
                     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .25); }
-  #legend .said { display: block; margin-top: 6px; color: var(--faint); line-height: 1.45; }
+  /* The legend's explanation is read, so it is body text in --muted: --faint #7d8f8b was 3.4:1 (UX sweep M3). */
+  #legend .said { display: block; margin-top: 6px; color: var(--muted); line-height: 1.45; }
 
   /* Inside the strip the two controls are content, so they give up their own corners. */
   #strip .ol-scale-line, #strip .ol-mouse-position {
     position: static; background: none; padding: 0; margin: 0; }
-  #strip .ol-scale-line-inner { margin: 0; }
+  #strip .ol-scale-line-inner { margin: 0; color: var(--ink); border-color: var(--ink); font-size: 11px; }
 
-  .ol-scale-line { position: absolute; left: 10px; bottom: 10px; width: auto;
-                   background: rgba(255,255,255,.82); padding: 2px 4px; border-radius: 3px; }
-  .ol-scale-line-inner { color: var(--ink); border-color: var(--muted); font-size: 11px;
-                         margin: 0; }
-  .ol-mouse-position { position: absolute; top: auto; bottom: 10px; right: 10px;
-                       background: rgba(255,255,255,.82); padding: 2px 7px; border-radius: 3px;
-                       font-family: var(--mono); font-size: 11px; color: var(--muted); }
-  #note { position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 66px;
-          background: var(--surface); border: 1px solid var(--rule);
-          border-left: 3px solid #a63a2b; border-radius: 3px; padding: 11px 15px;
-          max-width: 560px; font-size: 13.5px; display: none;
-          box-shadow: 0 10px 28px -14px rgba(0,0,0,.4); }
-  #note.on { display: block; }
+  /* The map's own buttons, 40 px at every width (UX sweep M2: they were 21 by 21, the attribution 15 by 15). */
+  .ol-zoom { top: 12px; left: 12px; padding: 0; background: var(--surface); border: 1px solid var(--rule-strong);
+             border-radius: var(--round); box-shadow: var(--lift); overflow: hidden; }
+  .ol-zoom button { width: 40px; height: 40px; margin: 0; font-size: 22px; font-weight: 400; line-height: 1;
+                    border-radius: 0; background: var(--surface); color: var(--ink); border: 0; min-height: 0; }
+  .ol-zoom button + button { border-top: 1px solid var(--rule); }
+  .ol-zoom button:hover, .ol-zoom button:focus { background: var(--surface-2); color: var(--ink); outline: 0; }
+  .ol-zoom button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ol-control button { min-width: 28px; min-height: 28px; }
+  .ol-attribution { font-size: 11px; bottom: 56px; background: var(--veil); color: var(--muted); }
+  .ol-attribution a { color: var(--accent-ink); }
+
+  /*
+    <b>A not-found or not-shared service, said in the server's words with the two ways on</b> — UX sweep M6. It said
+    "Nothing to draw. This service lists no feature layers." for a service that does not exist, which named the wrong
+    cause and offered no next step, under a one-sided red bar.
+  */
+  #note { position: absolute; z-index: 50; left: 50%; transform: translateX(-50%); top: 12px;
+          width: min(560px, calc(100% - 24px)); display: none; gap: 10px;
+          background: var(--surface); border: 1px solid var(--alert-line); border-radius: var(--round-lg);
+          padding: 12px 14px; font-size: 14px; box-shadow: var(--float); }
+  #note.on { display: flex; }
+  #note > svg { color: var(--alert); margin-top: 2px; }
+  #note .body { min-width: 0; overflow-wrap: anywhere; }
   #note b { display: block; margin-bottom: 3px; }
-  #attrs { position: absolute; z-index: 40; right: 12px; top: 66px; width: 300px;
+  #note .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  #note .acts a { display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px; text-decoration: none;
+                  border: 1px solid var(--rule-strong); border-radius: var(--round); color: var(--ink); }
+  #note .acts a.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+
+  #attrs { position: absolute; z-index: 40; right: 12px; top: 12px; width: 300px; max-width: calc(100% - 24px);
            max-height: 60%; overflow: auto; background: var(--surface);
-           border: 1px solid var(--rule); border-radius: 3px; font-size: 12.5px;
-           display: none; box-shadow: 0 10px 28px -18px rgba(0,0,0,.4); }
+           border: 1px solid var(--rule-strong); border-radius: var(--round-lg); font-size: 13px;
+           display: none; box-shadow: var(--float); }
   #attrs.on { display: block; }
   #attrs table { border-collapse: collapse; width: 100%; }
   #attrs th, #attrs td { text-align: left; padding: 5px 10px; border-top: 1px solid var(--rule);
                          vertical-align: top; }
-  #attrs th { color: var(--faint); font-weight: 600; white-space: nowrap; }
-  #attrs td { font-family: var(--mono); font-size: 11.5px; word-break: break-word; }
+  #attrs th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  #attrs td { font-variant-numeric: tabular-nums; word-break: break-word; }
   #attrs tr:first-child th, #attrs tr:first-child td { border-top: 0; }
-  .ol-attribution { font-size: 11px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
   /*
     <b>A focus ring, because there was none anywhere on this page.</b> [D-140](../../../docs/architecture-debt.md).
     The *Frame layer* button and the attribution link showed the browser's own ring; the map
-    surface and the SDK's zoom widget did not, because the Calcite theme this page loads sets
-    `outline: none` on them. A keyboard reader could tab into the map and have no idea they
-    were there — and the gap looked like a rendering fault rather than a missing style, which
-    is why it survived a review that checked everything else.
-
-    <b>Declared here rather than fought for in the SDK's own stylesheet.</b> The theme arrives
-    from a CDN and its selectors are its own; a rule of ours on the elements it renders is the
-    part we control, and `:focus-visible` means a mouse click does not draw one.
+    surface did not. Since 2026-10-19 the map takes focus (UX sweep M7), so it has one too.
   */
-  :focus-visible,
-  #view:focus-visible,
-  .esri-widget--button:focus-visible,
-  .esri-view-surface:focus-visible,
-  .esri-view-surface--inset-outline:focus-visible {
-    outline: 2px solid #0b6157 !important;
-    outline-offset: 2px;
-  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /*
     <b>The note is announced, not just displayed.</b> It is the only thing on the page that
@@ -227,13 +240,55 @@
 
     The attributes are on the element in the markup; this rule only exists to say why.
   */
+
+  /* A phone: the header takes the rows it needs; the grounds and the legend wait behind two buttons on the map. */
+  /*
+    <b>Two rows on a phone, and it was four</b> (UX sweep round 2, M4: 209 to 233 of 844 pixels): the way back, the name
+    and the layer document on the first; the faces, Frame layer and any layers to choose on the second. The facts are
+    read in the layer document there. `display: contents` lets the two controls inside the facts take their own places.
+  */
+  @media (max-width: 760px) {
+    header { padding: 8px 12px; gap: 8px 10px; }
+    .title { flex: 1 1 160px; order: 0; }
+    header h1 { font-size: 15px; }
+    #back { width: 40px; height: 40px; }
+    #facts { display: contents; }
+    #facts > span { display: none; }
+    #facts > a { order: 1; flex: none; font-size: 13px; }
+    #faces { order: 2; }
+    #facts > button { order: 3; }
+    #picker { order: 4; flex: 1 1 0; }
+    /* One layer is nothing to choose between, and was a row of its own. */
+    #picker:has(> button:only-child) { display: none; }
+    #directory { display: none; }
+    #onmap { display: flex; position: absolute; z-index: 41; top: 12px; right: 12px; flex-direction: column;
+             align-items: flex-end; gap: 8px; }
+    #onmap button { min-height: 40px; display: inline-flex; align-items: center; gap: 6px; box-shadow: var(--lift); }
+    #grounds, #legend { display: none; }
+    #grounds.open, #legend.open { display: flex; }
+    #legend.open { display: block; }
+    #grounds { left: 12px; right: 12px; top: 112px; max-width: none; }
+    #legend { left: 12px; right: 12px; max-width: none; }
+    /* The card sits at the foot of the map, where the Ground panel at the head cannot cover it (round 2, N3). */
+    #attrs { top: auto; bottom: 56px; left: 12px; right: 12px; width: auto; max-height: 45%; }
+    button, #faces a { min-height: 40px; }
+  }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></symbol>
+</svg>
 <div id="frame">
   <header>
-    <span class="mark" aria-hidden="true">Gr</span>
-    <h1 id="title">layer</h1>
+    <div class="title">
+      <!-- The way back to the service's own page in the directory; view.js points it there. -->
+      <a id="back" href="/rest/services" aria-label="Back to the services directory"><svg class="i" aria-hidden="true"><use href="#i-back"/></svg></a>
+      <h1 id="title">layer</h1>
+    </div>
     <div id="facts"></div>
     <!--
       <b>The 1c handoff's face switch, and it makes a feature reachable rather than adding one.</b>
@@ -252,49 +307,52 @@
     <div id="picker"></div>
     <a id="directory" href="/rest/services">Services directory</a>
   </header>
-  <div id="map"></div>
-</div>
-<!--
-  The grounds this server can draw under the data — its own tile services.
-  This was a `?ground=` query parameter, which is the same as not existing:
-  the answer to "can we use OpenStreetMap data" is *import it and serve your
-  own tiles*, and it has to be visible for that to be an answer.
+  <div id="mapWrap">
+    <!-- Focusable, as Map Viewer's map is: the arrows pan, + and - zoom, Enter reads what is at the centre (UX sweep M7). -->
+    <div id="map" tabindex="0" aria-label="Map. Arrow keys pan, plus and minus zoom, Enter shows the attributes of the feature at the centre."></div>
+    <!--
+      The grounds this server can draw under the data — its own tile services.
+      This was a `?ground=` query parameter, which is the same as not existing:
+      the answer to "can we use OpenStreetMap data" is *import it and serve your
+      own tiles*, and it has to be visible for that to be an answer.
 
-  <b>A sibling of the frame, not a child of the map.</b> OpenLayers owns everything inside its
-  target element; a control placed in there is a control the next redraw may remove. The
-  attribute card and the explanation below are outside for the same reason and always were.
--->
-<div id="grounds"></div>
-<!--
-  <b>The 1c handoff's status strip: the scale bar, what is drawing, and where the pointer is.</b>
-  The scale bar sat bottom-left and the coordinates bottom-right, two controls the eye had to
-  find separately, and neither said which of the two faces had produced the pixels between them —
-  which is the one question this viewer exists to answer, because having both against one layer is
-  the whole point of the page.
-
-  <b>The OpenLayers controls move into it rather than being reimplemented.</b> A control takes a
-  `target`, so `ScaleLine` and `MousePosition` render inside these spans and stay OpenLayers'
-  — a hand-drawn scale bar is a second answer to *how far is that*, and the two would drift the
-  first time a projection changed.
--->
-<!--
-  <b>The 1c handoff's legend, and what it may say depends on who drew the picture.</b> On the map
-  image face the server draws from the layer's stored symbology and answers
-  `MapServer/legend` with a swatch per class — so the legend is the server's own account of what
-  it painted, which is the rule ADR-051 states: a picture's explanation must come from whatever
-  made the picture. On the feature face this browser draws, in one colour chosen in this file and
-  not the layer's, and the legend says exactly that rather than borrowing the server's classes to
-  describe pixels the server did not produce.
--->
-<div id="legend"></div>
-<div id="strip">
-  <span id="stripScale"></span>
-  <span id="stripMode"></span>
-  <span id="stripWhere"></span>
-  <span id="stripZoom"></span>
+      <b>A sibling of the map, not a child of it.</b> OpenLayers owns everything inside its
+      target element; a control placed in there is a control the next redraw may remove. The
+      attribute card and the explanation below are outside for the same reason and always were.
+    -->
+    <div id="onmap">
+      <button type="button" id="groundsOpen" aria-expanded="false" aria-controls="grounds"><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg>Ground</button>
+      <button type="button" id="legendOpen" aria-expanded="false" aria-controls="legend"><svg class="i" aria-hidden="true"><use href="#i-list"/></svg>Legend</button>
+    </div>
+    <div id="grounds"></div>
+    <!--
+      <b>The 1c handoff's legend, and what it may say depends on who drew the picture.</b> On the map
+      image face the server draws from the layer's stored symbology and answers
+      `MapServer/legend` with a swatch per class — so the legend is the server's own account of what
+      it painted, which is the rule ADR-051 states: a picture's explanation must come from whatever
+      made the picture. On the feature face this browser draws, in one colour chosen in this file and
+      not the layer's, and the legend says exactly that rather than borrowing the server's classes to
+      describe pixels the server did not produce.
+    -->
+    <!-- Focusable, because a long legend scrolls and a keyboard has to be able to scroll it (round 2, N4). -->
+    <div id="legend" tabindex="0" role="region" aria-label="Legend"></div>
+    <!--
+      <b>The 1c handoff's status strip: the scale bar, what is drawing, and where the pointer is.</b>
+      The OpenLayers controls render into it rather than being reimplemented: a control takes a
+      `target`, so `ScaleLine` and `MousePosition` stay OpenLayers'.
+    -->
+    <div id="strip">
+      <span id="stripScale"></span>
+      <span id="stripMode"></span>
+      <span id="stripWhere"></span>
+      <span id="stripZoom"></span>
+    </div>
+    <div id="note" role="status" aria-live="polite"></div>
+    <div id="attrs" role="region" aria-label="Attributes"></div>
+    <!-- What Enter on the map found, or did not: said for the keyboard reader the card alone would not tell. -->
+    <span class="sr" id="said" role="status" aria-live="polite"></span>
+  </div>
 </div>
-<div id="note" role="status" aria-live="polite"></div>
-<div id="attrs"></div>
 
 <!--
   ground.js for one constant: which tiles are the ground. It builds ArcGIS layers,

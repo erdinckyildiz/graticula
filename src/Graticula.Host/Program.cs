@@ -1310,7 +1310,10 @@ public static class Program
             PathString path = context.Request.Path;
             int status = context.Response.StatusCode;
 
+            // A body already composed but still buffered — f=pjson's indented answer — has not *started*, yet it is
+            // there; a content type is what says so. Without this a pjson 404 came back as two JSON documents in a row.
             if (context.Response.HasStarted
+                || context.Response.ContentType is not null
                 || status is not (StatusCodes.Status404NotFound or StatusCodes.Status405MethodNotAllowed)
                 || !(path.StartsWithSegments("/rest/services") || path.StartsWithSegments("/sharing/rest")))
             {
@@ -2310,6 +2313,13 @@ public static class Program
                     "text/html; charset=utf-8")
                 : Results.Redirect("/rest/services?f=html", permanent: false));
 
+        // <b>The site's icon, at the address every browser asks for unprompted</b> — UX sweep 2026-10-19:
+        // `/favicon.ico` answered 404 on every page, a console error each time. The directory names
+        // `/favicon.svg` in its head; `/favicon.ico` serves the same SVG, which current browsers draw by
+        // its type rather than its extension.
+        app.MapGet("/favicon.svg", () => Results.Text(RestDirectory.Favicon, "image/svg+xml"));
+        app.MapGet("/favicon.ico", () => Results.Text(RestDirectory.Favicon, "image/svg+xml"));
+
         // The root: registered services, the folders, and the system services.
         app.MapMethods("/rest/services", ["GET", "POST"], (
             HttpContext context,
@@ -2792,6 +2802,82 @@ public static class Program
         return [.. names];
     }
 
+    /// <summary>How many services each folder holds that this caller can see, for the root page's cards.</summary>
+    /// <remarks>
+    /// <b>The folder page's own filters, applied to every folder at once.</b> A service counts when it
+    /// would be listed there: in that folder, running or seen by an administrator, readable by this
+    /// caller, and answering on at least one face. A count that disagreed with the page behind the
+    /// card would be worse than no count. Only what the caller can see is counted, so it says nothing
+    /// about what is hidden from them.
+    /// </remarks>
+    private static async Task<IReadOnlyDictionary<string, int>> FolderCountsAsync(
+        IReadOnlyList<PublishedService> services,
+        PostgresSystemServices system,
+        ICoverageCatalog coverages,
+        RequestPrincipal current,
+        bool seesStopped,
+        CancellationToken cancellation)
+    {
+        Dictionary<string, HashSet<string>> named = new(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? folder, string name)
+        {
+            if (folder is not { Length: > 0 })
+            {
+                return;
+            }
+
+            if (!named.TryGetValue(folder, out HashSet<string>? held))
+            {
+                held = new(StringComparer.Ordinal);
+                named[folder] = held;
+            }
+
+            held.Add(name);
+        }
+
+        foreach (PublishedService service in services)
+        {
+            if ((service.IsRunning || seesStopped)
+                && (ServiceFaces.AnswersFeatures(service) || ServiceFaces.AnswersMap(service)
+                    || ServiceFaces.AnswersTiles(service))
+                && LayerAccess
+                    .Evaluate(service.Sharing, service.Owner, current.Principal, current.Authorization, service.SharedWith)
+                    .IsAllowed())
+            {
+                Add(service.Folder, service.QualifiedName);
+            }
+        }
+
+        foreach (SystemService service in await system.ListAsync(cancellation).ConfigureAwait(false))
+        {
+            if (LayerAccess.Evaluate(service.Sharing, null, current.Principal, current.Authorization).IsAllowed())
+            {
+                Add(service.Folder, service.Name);
+            }
+        }
+
+        foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
+        {
+            if ((seesStopped || coverage.Status == ServiceStatus.Started)
+                && LayerAccess
+                    .Evaluate(coverage.Sharing, coverage.Owner, current.Principal, current.Authorization, coverage.SharedWith)
+                    .IsAllowed())
+            {
+                Add(coverage.Folder, coverage.QualifiedName);
+            }
+        }
+
+        Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach ((string folder, HashSet<string> held) in named)
+        {
+            counts[folder] = held.Count;
+        }
+
+        return counts;
+    }
+
     private static async Task<IResult> CatalogueAsync(
         HttpContext context,
         CatalogFallback catalog,
@@ -2942,18 +3028,17 @@ public static class Program
             && !await FolderExistsAsync(catalog.Catalog!, folder, cancellation)
                 .ConfigureAwait(false))
         {
-            return Results.Json(
-                new
-                {
-                    error = new
-                    {
-                        code = 404,
-                        message = $"No folder '{folder}'. A folder is created by publishing "
-                                + "into it, or through POST /admin/folders.",
-                        details = Array.Empty<string>(),
-                    },
-                },
-                statusCode: 404);
+            string missing = $"No folder '{folder}'. A folder is created by publishing "
+                + "into it, or through POST /admin/folders.";
+
+            return RestDirectory.RefusesAsPage(context.Request)
+                ? Results.Content(
+                    RestDirectory.Refusal(context.Request.Path, "Not found", missing),
+                    "text/html; charset=utf-8",
+                    statusCode: 404)
+                : Results.Json(
+                    new { error = new { code = 404, message = missing, details = Array.Empty<string>() } },
+                    statusCode: 404);
         }
 
         // <b>The tile face's own rule, not a copy of it.</b> This read `IsHosted` until 2026-09-13,
@@ -3019,6 +3104,17 @@ public static class Program
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
         {
+            // <b>How many services each folder holds, for the root's folder cards</b> — UX sweep
+            // 2026-10-19: an empty folder looked the same as a full one. Counted by the rules the
+            // folder page lists by, so a card never promises more than the folder shows this reader.
+            // Not counted while blind: the system and image catalogues are not read then, and a count
+            // missing them would be a wrong number rather than an absent one.
+            IReadOnlyDictionary<string, int>? counts = folder is null && !blind
+                ? await FolderCountsAsync(
+                        services, system, coverages, current, seesStopped, cancellation)
+                    .ConfigureAwait(false)
+                : null;
+
             return Results.Content(
                 RestDirectory.Folder(
                     context.Request.Path,
@@ -3051,7 +3147,8 @@ public static class Program
                             // ADR-177: the catalogue of everything above, for a client that searches.
                             OgcRecordsEndpoints.DirectoryLink(),
                         ]
-                        : null),
+                        : null,
+                    counts),
                 "text/html; charset=utf-8");
         }
 
@@ -6043,6 +6140,15 @@ public static class Program
                 context.Items.ContainsKey(TopFeaturesKey),
                 described.AnswersCentroid && layer.GeometryType is GeometryKind.Polygon or GeometryKind.MultiPolygon))
         {
+            // <b>A browser gets its form back with the sentence beside it</b> — UX sweep 2026-10-19. A
+            // typo in a where clause replaced the page with raw JSON, and the reader's input went with it.
+            if (html)
+            {
+                await QueryPage.WriteRefusalAsync(context, layer, described, error!, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             await Results.Json(
                 new { error = new { code = 400, message = error, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
@@ -6057,19 +6163,20 @@ public static class Program
             && described.ArchivedSince is { } keptFrom
             && moment < keptFrom)
         {
+            string before = $"'historicMoment' is before {keptFrom.ToUnixTimeMilliseconds()} "
+                + $"({keptFrom:yyyy-MM-dd HH:mm} UTC): this layer keeps {keepDays} days of its history, and "
+                + "what it was before then has been deleted. Its document's archivingInfo.startArchivingMoment "
+                + "is the earliest moment it answers for.";
+
+            if (html)
+            {
+                await QueryPage.WriteRefusalAsync(context, layer, described, before, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             await Results.Json(
-                new
-                {
-                    error = new
-                    {
-                        code = 400,
-                        message = $"'historicMoment' is before {keptFrom.ToUnixTimeMilliseconds()} "
-                            + $"({keptFrom:yyyy-MM-dd HH:mm} UTC): this layer keeps {keepDays} days of its history, and "
-                            + "what it was before then has been deleted. Its document's archivingInfo.startArchivingMoment "
-                            + "is the earliest moment it answers for.",
-                        details = Array.Empty<string>(),
-                    },
-                },
+                new { error = new { code = 400, message = before, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -6192,18 +6299,19 @@ public static class Program
 
         if (unusable is not null)
         {
+            const string unknownReference = "A coordinate reference system in this request is not one "
+                + "this server can use. The server is healthy; check the outSR, "
+                + "inSR or bboxSR you sent.";
+
+            if (html)
+            {
+                await QueryPage.WriteRefusalAsync(context, layer, described, unknownReference, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
             await Results.Json(
-                new
-                {
-                    error = new
-                    {
-                        code = 400,
-                        message = "A coordinate reference system in this request is not one "
-                            + "this server can use. The server is healthy; check the outSR, "
-                            + "inSR or bboxSR you sent.",
-                        details = Array.Empty<string>(),
-                    },
-                },
+                new { error = new { code = 400, message = unknownReference, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context)
                 .ConfigureAwait(false);
 

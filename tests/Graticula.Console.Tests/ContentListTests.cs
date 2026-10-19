@@ -103,13 +103,17 @@ public sealed class ContentListTests : ConsoleTest
 
             Assert.False(second, "A second maps table is still drawn below the content list.");
 
+            // The type is chosen by its tick in the left column, the one type filter the list has (UX sweep 2026-10-19).
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('contentType')"),
+                "A Type select is still drawn beside the type ticks, and the two filter together.");
+
             await Browser.EvaluateAsync<bool>(
-                "(() => { const s = document.getElementById('contentType'); s.value = 'Web map';"
-                + " s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+                "(() => { const b = document.querySelector('[data-kind-facet=\"Web map\"]'); b.checked = true;"
+                + " b.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
 
             await WaitForAsync(
                 "[...document.querySelectorAll('#contentRows .type')].every(m => m.textContent.trim() === 'Web map')",
-                "With the type set to Web map, rows of another type are still listed.");
+                "With the Web map type ticked, rows of another type are still listed.");
 
             NothingWentWrong(await PageErrorsAsync());
         }

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graticula — map</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <!--
   The web map viewer — ADR-079.
@@ -18,27 +19,76 @@
   `No_console_page_carries_an_inline_script` enforces it. The style block is allowed.
 -->
 
+<!-- The remembered theme, set before the first paint exactly as the console sets it (ADR-187 step 4). -->
+<script src="session.js"></script>
 <link rel="stylesheet" href="ol.css">
 <script src="ol.js"></script>
 
 <style>
+  /* TOKENS-FROM: console.css. Every --name here that console.css also declares is a copy of its :root (light) and
+     :root[data-theme="dark"] value, made by hand because these pages are outside the console's stylesheet; the rest
+     (--veil, --map-bg, --float, --ol-*) are the map pages' own. The copies are
+     webmap.html, view.html and map.html; this line, the same in each, is what a test finds them by. */
   :root {
-    --paper: #f5f8f6; --surface: #fff; --surface-2: #eef3f1; --ink: #0f1e1b; --muted: #576a66;
-    --faint: #5f716d; --rule: #d7e0dc; --accent: #0b6157; --alert: #a63a2b; --warn: #92620d;
+    --paper: #f4f6f9; --surface: #ffffff; --surface-2: #f1f4f8; --surface-3: #e7ecf3;
+    --ink: #101826; --muted: #566275; --faint: #616b7a;
+    --rule: #e3e8ef; --rule-strong: #cfd7e3; --control-edge: #7e889a;
+    --accent: #1565d8; --accent-soft: #e8f0fe; --accent-ink: #1257c2; --accent-line: #bcd2fa; --on-accent: #ffffff;
+    --alert: #a5342a; --alert-soft: #fceceb; --alert-line: #edc4c0;
+    --warn: #8a5a08; --warn-soft: #fdf2e0; --warn-line: #e8d3a8;
+    --veil: rgba(255, 255, 255, .94); --map-bg: #dce7ec;
+    --lift: 0 1px 2px rgba(16, 24, 38, .05); --float: 0 8px 24px -12px rgba(16, 24, 38, .35);
+    --round: 5px; --round-lg: 8px;
     --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --ol-background-color: var(--surface); --ol-accent-background-color: var(--surface-2);
+    --ol-partial-background-color: var(--veil); --ol-foreground-color: var(--ink);
+    --ol-subtle-foreground-color: var(--muted); --ol-subtle-background-color: transparent;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0a1120; --surface: #0f1828; --surface-2: #142034; --surface-3: #1b2840;
+    --ink: #e6ebf4; --muted: #9aa7bd; --faint: #8592aa;
+    --rule: #1f2b40; --rule-strong: #2b3a55; --control-edge: #62739a;
+    --accent: #2563eb; --accent-soft: #11264a; --accent-ink: #6aa6ff; --accent-line: #24497f;
+    --alert: #f58a7f; --alert-soft: #3a1714; --alert-line: #6a2a24;
+    --warn: #f0bd5c; --warn-soft: #33260c; --warn-line: #5a4416;
+    --veil: rgba(15, 24, 40, .94); --map-bg: #13233a;
+    --lift: 0 1px 2px rgba(0, 0, 0, .4); --float: 0 8px 24px -10px rgba(0, 0, 0, .7);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; font: 14px/1.45 system-ui, -apple-system, sans-serif;
+  /* As the console has it: an element given `hidden` stays hidden whatever display its own rule gives it. */
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; font: 14px/1.45 var(--sans);
                color: var(--ink); background: var(--paper); }
-  #frame { display: grid; grid-template-rows: auto 1fr; height: 100%; }
+  #frame { display: grid; grid-template-rows: auto auto 1fr; height: 100%; }
+  svg.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+          stroke-linecap: round; stroke-linejoin: round; }
 
-  header { display: flex; align-items: center; gap: 12px; padding: 0 16px; min-width: 0; min-height: 54px;
-           background: var(--surface); border-bottom: 1px solid var(--rule); }
-  header h1 { margin: 0; font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden;
-              text-overflow: ellipsis; min-width: 0; }
-  .mark { width: 24px; height: 24px; flex: none; border-radius: 6px; display: grid;
-          place-items: center; color: #fff; font: 700 11px/1 system-ui, sans-serif;
-          background: #0b6157; }
+  /* Studio's own bar — the console's, drawn here because this page is outside the console's router. */
+  #studioBar { display: flex; align-items: stretch; gap: 12px; padding: 0 20px; min-height: 52px; min-width: 0;
+               background: var(--surface); border-bottom: 1px solid var(--rule); }
+  #brand { display: flex; align-items: center; gap: 10px; flex: none; color: var(--ink); text-decoration: none; }
+  #brand .mark { width: 28px; height: 28px; flex: none; border-radius: 50%; background: var(--accent);
+                 display: grid; place-items: center; }
+  :root[data-theme="dark"] #brand .mark { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .22); }
+  #brand .mark svg { width: 16px; height: 16px; display: block; }
+  #brand .name { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+  #brand .surf { font-size: 14px; font-weight: 500; color: var(--muted); }
+  #studioNav { display: flex; gap: 2px; margin-left: 12px; min-width: 0; }
+  #studioNav a { display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: 15px;
+                 font-weight: 500; text-decoration: none; white-space: nowrap;
+                 border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  #studioNav a:hover { color: var(--ink); }
+  #studioNav a[aria-current="page"] { color: var(--accent-ink); border-bottom-color: var(--accent); font-weight: 600; }
+  #studioNav a:focus-visible { outline-offset: -4px; }
+  #studioBar .end { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+
+  /* The map's own line: what it is, whether it is saved, and what the last action did. */
+  #maphead { display: flex; align-items: center; gap: 4px 12px; padding: 8px 20px; min-width: 0; min-height: 50px;
+             background: var(--surface); border-bottom: 1px solid var(--rule); }
+  #maphead h1 { margin: 0; font-size: 18px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
   #saved { font-size: 12px; color: var(--muted); white-space: nowrap; }
   #saved.dirty { color: var(--warn); }
   #headSave { flex: none; padding: 5px 14px; }
@@ -56,26 +106,46 @@
   #headSave[aria-disabled="true"] { opacity: .45; cursor: default; }
   #headSave[aria-disabled="true"]:hover { filter: none; }
   #frameAll[aria-disabled="true"] { opacity: .45; cursor: default; }
-  a { color: var(--accent); }
-  #status { font-size: 12.5px; color: var(--muted); flex: 1 1 0; min-width: 0; overflow: hidden;
-            text-overflow: ellipsis; white-space: nowrap; }
-  #studio { flex: none; font-size: 12.5px; color: var(--accent); text-decoration: none;
-            padding: 5px 12px; border: 1px solid var(--rule); border-radius: 3px; white-space: nowrap; }
-  #studio:hover { border-color: var(--accent); }
+  a { color: var(--accent-ink); }
+  #status { font-size: 13px; color: var(--muted); flex: 1 1 0; min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  #studio { flex: none; display: inline-flex; align-items: center; min-height: 36px; font-size: 14px;
+            color: var(--ink); text-decoration: none; padding: 0 14px; border: 1px solid var(--rule-strong);
+            border-radius: var(--round); white-space: nowrap; background: var(--surface); }
+  #studio:hover { border-color: var(--accent); color: var(--accent-ink); }
 
-  #body { display: grid; grid-template-columns: 340px 1fr; min-height: 0; }
+  /* A rail of tools, the panel they open, and the map (UX sweep 2026-10-19: six tools no longer share a 340 px strip). */
+  #body { position: relative; display: grid; grid-template-columns: 76px 320px minmax(0, 1fr); min-height: 0; }
+  #tabs { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; background: var(--surface);
+          border-right: 1px solid var(--rule); min-height: 0; overflow: auto; }
+  #tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+                 min-height: 62px; padding: 6px 2px; border: 0; border-radius: 0; background: none;
+                 font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; }
+  #tabs button:hover:not(:disabled) { color: var(--ink); border: 0; }
+  #tabs button[aria-selected="true"] { color: var(--accent-ink); font-weight: 600; background: var(--accent-soft);
+                                       box-shadow: inset 3px 0 0 var(--accent); }
+  #tabs button:focus-visible { outline-offset: -3px; }
   #panel { display: flex; flex-direction: column; min-height: 0; background: var(--surface);
            border-right: 1px solid var(--rule); }
-  #tabs { display: flex; border-bottom: 1px solid var(--rule); flex: none; }
-  #tabs button { flex: 1; border: 0; border-bottom: 2px solid transparent; background: none;
-                 padding: 10px 4px 8px; font: inherit; font-size: 13px; color: var(--muted);
-                 cursor: pointer; border-radius: 0; }
-  #tabs button[aria-selected="true"] { color: var(--ink); font-weight: 600;
-                                       border-bottom-color: var(--accent); }
-  .tabpanel { padding: 12px 14px 18px; overflow: auto; flex: 1; min-height: 0; }
+  /* Placed, not flowed: a map that is not there hides the rail, and the panel must not slide into its column. */
+  #tabs { grid-column: 1; grid-row: 1; } #panel { grid-column: 2; grid-row: 1; } #mapWrap { grid-column: 3; grid-row: 1; }
+  #sheetClose { display: none; }
+  #notFound { overflow-wrap: anywhere; }
+  .tabpanel { padding: 14px 16px 18px; overflow: auto; flex: 1; min-height: 0; }
   .tabpanel[hidden] { display: none; }
-  .tabpanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--faint);
-                 margin: 4px 0 8px; font-weight: 600; }
+  .tabpanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+                 margin: 4px 0 8px; font-weight: 650; }
+  /* C1 of the UX sweep: what a map's basemap draws is listed, under its own heading. */
+  /* Data is never set in capitals ("Türkiye" became TÜRKIYE, UX sweep N5): only the fixed English word is. */
+  .lgroup { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 650;
+            color: var(--muted); margin: 16px 0 6px; }
+  .lgroup .count { font-weight: 500; flex: none; }
+  .lgroup .cap { text-transform: uppercase; letter-spacing: .05em; }
+  .lgroup + .hint { margin-top: 0; }
+  #baseLayerList { list-style: none; margin: 0; padding: 0; }
+  #baseLayerList > li { border: 1px solid var(--rule); border-radius: 4px; padding: 7px 9px; margin-bottom: 7px; }
+  #baseLayerList > li.off { background: var(--surface-2); }
+  #baseLayerList .lkind { white-space: normal; }
   .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 10px; }
   .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
   .said.bad { color: var(--alert); }
@@ -83,10 +153,10 @@
   button, select, input, textarea { font: inherit; font-size: 13px; }
   button { padding: 4px 10px; cursor: pointer; border: 1px solid var(--rule); border-radius: 3px;
            background: var(--surface); color: var(--ink); }
-  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); }
   button:disabled { opacity: .45; cursor: default; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  button.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  button.primary:hover:not(:disabled) { color: var(--on-accent); filter: brightness(1.1); }
   button.danger { color: var(--alert); }
   button.tiny { padding: 1px 7px; font-size: 12px; }
   input[type="text"], input[type="search"], textarea, select {
@@ -97,11 +167,11 @@
 
   /* The layer list: top of the list is top of the map. */
   #layerList { list-style: none; margin: 0; padding: 0; }
-  .lstyle { margin-top: 8px; padding: 8px; border: 1px solid var(--rule, #ddd); border-radius: 6px; }
+  .lstyle { margin-top: 8px; padding: 8px; border: 1px solid var(--rule); border-radius: 6px; }
   .lstyle .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
   .lstyle select { max-width: 100%; }
   .lstyle .lsnote { margin: 0 0 6px; font-size: 13px; }
-  .lstyle .lsdefault { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule, #ddd); }
+  .lstyle .lsdefault { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rule); }
   .lstyle .lsdefault .lkind { margin: 4px 0 0; }
   .ruleargs { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 6px; }
   .ruleargs label { display: flex; flex-direction: column; gap: 2px; }
@@ -109,7 +179,7 @@
   .ruleargs input[type=text] { min-width: 12rem; font-family: ui-monospace, monospace; }
   .lslegend { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; flex-basis: 100%; order: 10; }
   .popfields { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 12px; }
-  .popfields th, .popfields td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--rule, #ddd); }
+  .popfields th, .popfields td { text-align: left; padding: 3px 4px; border-bottom: 1px solid var(--rule); }
   .popfields input[type=text] { width: 100%; box-sizing: border-box; }
   /* ADR-118: a field's format sits under its label, so the label keeps the cell's width (design review 2026-10-01). */
   .popfields th:nth-child(2) { width: 35%; }
@@ -117,7 +187,7 @@
   .popfields .popfmt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
   /* ADR-122: a pop-up's text and image. */
   .popcontent { border: 0; padding: 0; margin: 6px 0; display: flex; gap: 12px; flex-wrap: wrap; }
-  .popcontent legend { padding: 0; font-size: 12px; color: var(--muted, #555); }
+  .popcontent legend { padding: 0; font-size: 12px; color: var(--muted); }
   .ptext { margin: 4px 0 8px; line-height: 1.45; }
   .pimage { display: block; max-width: 100%; max-height: 220px; margin-top: 6px; border-radius: 4px; }
   .popmode-fields .poptextpart, .popmode-fields .poptexthead { display: none; }
@@ -166,7 +236,7 @@
   .lctl input[type="range"] { width: 90px; }
   .lfilter { margin: 7px 0 0 22px; }
   .lfilter input { font-family: var(--mono); font-size: 12px; }
-  .lfilter .active { font-family: var(--mono); font-size: 11.5px; color: var(--accent);
+  .lfilter .active { font-family: var(--mono); font-size: 11.5px; color: var(--accent-ink);
                      overflow-wrap: anywhere; }
 
   #addBox { border: 1px solid var(--rule); border-radius: 4px; padding: 9px; margin: 8px 0 12px;
@@ -177,23 +247,23 @@
   #addList li:first-child { border-top: 0; }
   #addList .svcrow { display: flex; gap: 8px; align-items: center; }
   #addList .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-  #addList .onmap { font-size: 12px; color: var(--accent); white-space: nowrap; padding: 1px 4px; }
+  #addList .onmap { font-size: 12px; color: var(--accent-ink); white-space: nowrap; padding: 1px 4px; }
   #addList details.kinds { margin: 2px 0 2px 12px; font-size: 12.5px; }
   #addList details.kinds summary { color: var(--muted); cursor: pointer; }
   #addList details.kinds .svcrow { padding: 2px 0; }
   #addList .type { font-size: 11px; color: var(--faint); white-space: nowrap; }
 
   #searchResults, #measureList { list-style: none; margin: 8px 0 0; padding: 0; }
-  #searchResults li.group { font-size: 11.5px; color: var(--faint); text-transform: uppercase;
+  #searchResults li.group { font-size: 12px; color: var(--muted); font-weight: 650;
                             letter-spacing: .03em; margin: 10px 0 3px; }
   #searchResults button { width: 100%; text-align: left; border-color: transparent; padding: 4px 6px; }
   #searchResults button:hover { border-color: var(--rule); }
-  #measureList li { font-family: var(--mono); font-size: 12.5px; padding: 3px 0;
+  #measureList li { font-size: 13px; font-variant-numeric: tabular-nums; padding: 3px 0;
                     border-top: 1px solid var(--rule); }
-  .tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
   #mapWrap { position: relative; min-width: 0; min-height: 0; }
-  #map { position: absolute; inset: 0; background: #dce7ec; }
+  #map { position: absolute; inset: 0; background: var(--map-bg); }
   /* ADR-130: with the table open the map gives it the bottom of the frame. */
   #mapWrap.withtable #map { bottom: 40%; }
   #timeBar { position: absolute; z-index: 32; left: 50%; transform: translateX(-50%); bottom: 44px; display: flex;
@@ -235,9 +305,9 @@
     white-space: nowrap; }
   #tableGrid thead th { position: sticky; top: 0; background: var(--surface); }
   #tableGrid tbody tr { cursor: pointer; }
-  #tableGrid tbody tr:hover { background: rgba(0, 0, 0, .05); }
+  #tableGrid tbody tr:hover { background: var(--surface-2); }
   #tableGrid tbody tr:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
-  #tableGrid tbody tr[aria-selected="true"] { background: rgba(11, 97, 87, .14); }
+  #tableGrid tbody tr[aria-selected="true"] { background: var(--accent-soft); }
   #tableGrid td { max-width: 24em; overflow: hidden; text-overflow: ellipsis; }
   #tablePanel .tablehead button { min-width: 32px; min-height: 32px; }
   #tableByExtent { width: 18px; height: 18px; }
@@ -245,8 +315,8 @@
   #tableGrid td.celledit { padding: 2px 4px; }
   #tableGrid td.celledit input, #tableGrid td.celledit select { width: 100%; min-width: 7em; box-sizing: border-box;
     font: inherit; padding: 2px 4px; }
-  #tableGrid td.changed { background: #fdf2e0; box-shadow: inset 4px 0 0 var(--warn); }
-  #tableGrid td.changed input, #tableGrid td.changed select { background: #fdf2e0; }
+  #tableGrid td.changed { background: var(--warn-soft); box-shadow: inset 4px 0 0 var(--warn); }
+  #tableGrid td.changed input, #tableGrid td.changed select { background: var(--warn-soft); }
   #tableGrid td.num, #tableGrid th.num, #tableGrid td.num input { text-align: right; font-variant-numeric: tabular-nums; }
   @media (max-width: 600px) {
     /* The title and the page buttons share the first row; the rest wrap below it, so the grid keeps its height. */
@@ -257,7 +327,7 @@
     #tablePanel .tablehead label.check, #tableStatus, #tableEdit, #tableSave, #tableDiscard { order: 2; }
   }
   #tableGrid [aria-invalid="true"] { border-color: var(--alert); }
-  #tableEdit[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #tableEdit[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   .bookmarks { border: 0; padding: 0; margin: 12px 0 0; }
   /* ADR-136: an imagery layer's raster function, on a row of its own, with its key. */
   .lrule { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -271,7 +341,7 @@
     background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 2px 6px rgba(0, 0, 0, .15); }
   #sketchBar[hidden] { display: none; }
   #sketchSays { font-size: 13px; flex: 1 1 100%; }
-  .lctl [data-act="addFeature"][aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .lctl [data-act="addFeature"][aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   /* Where "Place at map centre" places: a crosshair at the centre while drawing (design review 2026-10-01). */
   #mapWrap.sketching::after { content: ""; position: absolute; z-index: 34; left: 50%; top: 50%; width: 28px; height: 28px;
     transform: translate(-50%, -50%); pointer-events: none;
@@ -302,7 +372,7 @@
   }
   .lrange { border: 0; padding: 0; margin: 6px 0 0; }
   .lrange legend { padding: 0; }
-  .linkbtn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font: inherit; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--accent-ink); text-decoration: underline; cursor: pointer; font: inherit; }
   .bookmarks ul { list-style: none; padding: 0; margin: 4px 0 8px; }
   .bookmarks li { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
   #map:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
@@ -315,25 +385,71 @@
   #identify .top { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
                    border-bottom: 1px solid var(--rule); position: sticky; top: 0; background: var(--surface); }
   #identify .top b { flex: 1; }
-  #identify h3 { font-size: 12px; margin: 10px 10px 4px; color: var(--accent); }
+  #identify h3 { font-size: 12px; margin: 10px 10px 4px; color: var(--accent-ink); }
   #identify table { border-collapse: collapse; width: 100%; margin-bottom: 4px; }
   #identify th, #identify td { text-align: left; padding: 3px 10px; border-top: 1px solid var(--rule);
                                vertical-align: top; }
-  #identify th { color: var(--faint); font-weight: 600; white-space: nowrap; width: 38%; }
-  #identify td { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+  #identify th { color: var(--muted); font-weight: 600; white-space: nowrap; width: 38%; }
+  /* Values in the reading face; a code or an id reads as well in it (UX sweep m3). */
+  #identify td { font-size: 12.5px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   #identify .feature { border-top: 2px solid var(--surface-2); }
   #identify p { margin: 8px 10px; color: var(--muted); }
 
   #strip { position: absolute; z-index: 30; left: 12px; bottom: 12px; display: flex; gap: 12px;
-           align-items: center; padding: 4px 10px; border-radius: 4px; background: rgba(255,255,255,.92);
-           box-shadow: 0 0 0 1px var(--rule); font-size: 11.5px; color: var(--muted); }
+           align-items: center; padding: 5px 10px; border-radius: var(--round); background: var(--veil);
+           border: 1px solid var(--rule-strong); font-size: 12px; color: var(--ink); }
   #strip .ol-scale-line, #strip .ol-mouse-position { position: static; background: none; padding: 0; margin: 0; }
-  #strip .ol-scale-line-inner { margin: 0; color: var(--ink); border-color: var(--muted); font-size: 11px; }
-  #stripWhere { font-family: var(--mono); }
+  #strip .ol-scale-line-inner { margin: 0; color: var(--ink); border-color: var(--ink); font-size: 11px; }
+  #stripWhere { font-family: var(--mono); color: var(--muted); }
+  #stripWhere:empty { display: none; }
+  /* A finger leaves no pointer to report (UX sweep m4): on a touch screen the strip is the scale only. */
+  @media (hover: none) { #stripWhere { display: none; } }
+
+  /* The map's own buttons, at least 40 px whatever the width (UX sweep M2: they were 19 by 19). */
+  .ol-zoom { top: 12px; left: 12px; padding: 0; background: var(--surface); border: 1px solid var(--rule-strong);
+             border-radius: var(--round); box-shadow: var(--lift); overflow: hidden; }
+  .ol-zoom button { width: 40px; height: 40px; margin: 0; font-size: 22px; font-weight: 400; line-height: 1;
+                    border-radius: 0; background: var(--surface); color: var(--ink); }
+  .ol-zoom button + button { border-top: 1px solid var(--rule); }
+  .ol-zoom button:hover, .ol-zoom button:focus { background: var(--surface-2); color: var(--ink); outline: 0; }
+  .ol-zoom button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .ol-control button { min-width: 28px; min-height: 28px; }
+  .ol-attribution { background: var(--veil); color: var(--muted); }
+  .ol-attribution a { color: var(--accent-ink); }
 
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
+  /* A narrow screen: the Studio sections give way to the brand, which leads to Content. */
+  @media (max-width: 900px) {
+    #studioNav { display: none; }
+    #studioBar { padding: 0 12px; }
+    #maphead { flex-wrap: wrap; padding: 8px 12px; }
+    #status { order: 10; flex: 1 0 100%; text-align: left; white-space: normal; }
+  }
+
+  /*
+    <b>A phone: the map first, the tools in a bar along the bottom, and the panel a sheet over the lower half</b>
+    (UX sweep M5). The panel took the top 46 % of the screen even when it was empty, so a visitor to a public map
+    saw a blank panel before the map. The sheet opens from the tool and closes from itself or from the same tool.
+  */
   @media (max-width: 760px) {
+    #body { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+    #mapWrap { grid-row: 1; grid-column: 1; }
+    #tabs { grid-row: 2; grid-column: 1; flex-direction: row; padding: 0; border-right: 0;
+            border-top: 1px solid var(--rule); overflow: visible; }
+    #tabs button { flex: 1 1 0; min-width: 0; min-height: 56px; font-size: 11.5px; }
+    #tabs button[aria-selected="true"] { box-shadow: inset 0 3px 0 var(--accent); }
+    body:not(.sheet) #tabs button[aria-selected="true"] { background: none; box-shadow: none; color: var(--muted);
+                                                           font-weight: 500; }
+    #panel { position: absolute; z-index: 60; left: 0; right: 0; bottom: 57px; max-height: 55%; grid-column: auto; grid-row: auto;
+             border-right: 0; border-top: 1px solid var(--rule-strong); border-radius: 12px 12px 0 0;
+             box-shadow: var(--float); }
+    body:not(.sheet) #panel { display: none; }
+    /* The sheet is as tall as what it holds, up to its limit: a panel of basis nought had no height at all. */
+    #panel .tabpanel { flex: 0 1 auto; }
+    #sheetClose { display: inline-flex; align-self: flex-end; align-items: center; justify-content: center;
+                  margin: 6px 8px -6px 0; width: 44px; height: 44px; padding: 0; border: 0; background: none;
+                  color: var(--muted); font-size: 22px; flex: none; }
     #timeBar { left: 8px; right: 8px; transform: none; bottom: 36px; gap: 4px; padding: 4px 6px; }
     #timeBar .timetrack, #timeBar .timetrack input[type="range"] { height: 44px; }
     #timeBar button { min-width: 44px; min-height: 44px; }
@@ -344,43 +460,66 @@
     #mapWrap.withtable #strip { bottom: calc(60% + 12px); }
     #tablePanel { height: 60%; }
     #mapWrap.withtable #identify { max-height: calc(40% - 24px); }
-    #body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 46%) 1fr; }
-    #panel { border-right: 0; border-bottom: 1px solid var(--rule); }
+    #identify { left: 12px; width: auto; }
     /* The status line stays, on a row of its own: it is where every result on this page is said. */
-    header { flex-wrap: wrap; height: auto; padding: 6px 12px; row-gap: 2px; }
-    #status { order: 10; flex: 1 0 100%; }
-    #frame { grid-template-rows: auto 1fr; }
-    #studio { padding: 5px 8px; display: inline-flex; align-items: center; }
+    #maphead h1 { font-size: 16px; }
+    #brand .name { font-size: 14px; }
     /* Touch targets of at least 44 px where a finger is the pointer (WCAG 2.5.5). */
-    button.tiny, #identify [data-close], .ol-zoom button, #tabs button, #headSave, #studio {
+    button.tiny, #identify [data-close], .ol-zoom button, #headSave, #studio {
       min-height: 44px; min-width: 44px; }
+    .ol-zoom button { width: 44px; }
     .lctl input[type="range"] { min-height: 44px; }
   }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21l-4-4Z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4V3Z"/></symbol>
+  <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M7 14h10v7H7z"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
+</svg>
 <div id="frame">
-  <header>
-    <span class="mark" aria-hidden="true">Gr</span>
+  <!-- Studio's bar (UX sweep M1): this page is Studio's Map, so it carries Studio's sections as the console draws them. -->
+  <header id="studioBar">
+    <a id="brand" href="/studio/content" aria-label="Graticula Studio, Content">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 16 16" focusable="false"><g fill="#fff"><rect x="1" y="1" width="4" height="4"/><rect x="6" y="1" width="4" height="4"/><rect x="11" y="1" width="4" height="4"/><rect x="1" y="6" width="4" height="4"/><rect x="6" y="6" width="4" height="4"/><rect x="11" y="6" width="4" height="4"/><rect x="1" y="11" width="4" height="4"/><rect x="6" y="11" width="4" height="4"/><rect x="11" y="11" width="4" height="4"/></g></svg></span>
+      <span class="name">Graticula</span>
+      <span class="surf">Studio</span>
+    </a>
+    <nav id="studioNav" aria-label="Studio">
+      <a href="/studio/content">Content</a>
+      <a href="/studio/webmap.html" aria-current="page">Map</a>
+      <a href="/studio/groups">Groups</a>
+      <!-- Shown to the same readers the console shows it to; see wmStart. -->
+      <a href="/studio/members" id="navOrganization" hidden>Organization</a>
+    </nav>
+    <span class="end"><a id="studio" href="/studio/" hidden>Sign in</a></span>
+  </header>
+
+  <div id="maphead">
     <h1 id="title">Map</h1>
     <span id="saved"></span>
     <button class="primary" id="headSave" hidden>Save</button>
     <!-- Every asynchronous sentence on the page is spoken as well as shown. -->
     <span id="status" role="status" aria-live="polite">Loading the map&hellip;</span>
-    <a id="studio" href="/studio/content">My content</a>
-  </header>
+  </div>
 
   <div id="body">
+    <div id="tabs" role="tablist" aria-label="Map tools">
+      <button role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg><span class="tl">Layers</span></button>
+      <button role="tab" id="tab-search" aria-controls="pane-search" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><span class="tl">Search</span></button>
+      <button role="tab" id="tab-measure" aria-controls="pane-measure" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-ruler"/></svg><span class="tl">Measure</span></button>
+      <button role="tab" id="tab-bookmarks" aria-controls="pane-bookmarks" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-bookmark"/></svg><span class="tl">Bookmarks</span></button>
+      <button role="tab" id="tab-print" aria-controls="pane-print" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-print"/></svg><span class="tl">Print</span></button>
+      <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span class="tl">Map</span></button>
+    </div>
+
     <aside id="panel" aria-label="Map panel">
+      <button type="button" id="sheetClose" aria-label="Close the panel">&times;</button>
       <div class="tabpanel" id="notFound" hidden></div>
-      <div id="tabs" role="tablist" aria-label="Map tools">
-        <button role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true">Layers</button>
-        <button role="tab" id="tab-search" aria-controls="pane-search" aria-selected="false" tabindex="-1">Search</button>
-        <button role="tab" id="tab-measure" aria-controls="pane-measure" aria-selected="false" tabindex="-1">Measure</button>
-        <button role="tab" id="tab-bookmarks" aria-controls="pane-bookmarks" aria-selected="false" tabindex="-1">Bookmarks</button>
-        <button role="tab" id="tab-print" aria-controls="pane-print" aria-selected="false" tabindex="-1">Print</button>
-        <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1">Map</button>
-      </div>
 
       <section class="tabpanel" id="pane-layers" role="tabpanel" aria-labelledby="tab-layers">
         <div class="row">
@@ -394,7 +533,13 @@
           <ul id="addList"></ul>
         </div>
         <p class="said" id="layersStatus" role="status" aria-live="polite"></p>
+        <h3 class="lgroup" id="opsHead" hidden><span class="cap">Operational layers</span></h3>
         <ul id="layerList" aria-label="Layers, top of the map first"></ul>
+        <!-- C1 of the UX sweep: the basemap's own layers, drawn and switchable, but not clicked, searched or filtered. -->
+        <div id="baseList" hidden>
+          <h3 class="lgroup" id="baseHead"></h3>
+          <ul id="baseLayerList" aria-labelledby="baseHead"></ul>
+        </div>
       </section>
 
       <section class="tabpanel" id="pane-search" role="tabpanel" aria-labelledby="tab-search" hidden>
@@ -418,6 +563,7 @@
         <!-- The running figure while drawing: shown, not announced. The result is announced below. -->
         <p id="measureLive"></p>
         <p class="said" id="measureStatus" role="status" aria-live="polite"></p>
+        <span class="sr" id="measureSaid" role="status" aria-live="polite"></span>
         <ul id="measureList" aria-label="Measurements"></ul>
       </section>
 

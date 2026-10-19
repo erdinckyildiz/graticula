@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.Linq;
 using Graticula.Host;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Graticula.Host.Tests;
@@ -170,6 +172,220 @@ public sealed class RestDirectoryTests
         Assert.Contains("/rest/services/hosted?f=json", page, System.StringComparison.Ordinal);
     }
 
+    // ---------- numbers, colours and what the chrome offers (UX sweep 2026-10-19) ----------
+
+    private static readonly int[] Blue = [68, 119, 170, 255];
+    private static readonly int[] Box = [1, 2, 3, 4];
+    private static readonly string[] Project = ["project"];
+
+    [Fact]
+    public void An_identifier_prints_as_the_digits_a_client_accepts()
+    {
+        // `102,100` is not a reference any client takes, and it is what a developer copied.
+        string page = RestDirectory.Document(
+            "/rest/services/x/FeatureServer/0",
+            "x",
+            new
+            {
+                extent = new { spatialReference = new { wkid = 102100, latestWkid = 3857 } },
+                fields = new[] { new { name = "note", length = 1073741822 } },
+            });
+
+        Assert.Contains(">102100<", page, System.StringComparison.Ordinal);
+        Assert.Contains(">3857<", page, System.StringComparison.Ordinal);
+        Assert.Contains(">1073741822<", page, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("102,100", page, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("3,857", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_amount_meant_for_reading_keeps_its_separators()
+    {
+        string page = RestDirectory.Document(
+            "/rest/services/x/FeatureServer/0", "x", new { maxRecordCount = 50000 });
+
+        Assert.Contains(">50,000<", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_colour_is_a_swatch_and_its_text_rather_than_four_bullets()
+    {
+        string page = RestDirectory.Document(
+            "/rest/services/x/FeatureServer/0",
+            "x",
+            new { drawingInfo = new { renderer = new { symbol = new { color = Blue } } } });
+
+        Assert.Contains("class=\"swatch\"", page, System.StringComparison.Ordinal);
+        Assert.Contains("<code>rgba(68,119,170,255)</code>", page, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("<li><span class=\"v\">68</span></li>", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Four_numbers_under_another_key_are_not_a_colour()
+    {
+        // A bounding box is four numbers too; a swatch for one would be a lie with a colour.
+        string page = RestDirectory.Document(
+            "/rest/services/x/FeatureServer/0", "x", new { bbox = Box });
+
+        Assert.DoesNotContain("class=\"swatch\"", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_header_offers_Studio_as_well_as_Server()
+    {
+        string page = RestDirectory.Folder(
+            "/rest/services", folder: null, version: 12.1, folders: ["hosted"], services: []);
+
+        Assert.Contains("<a href=\"/studio/\">Studio</a>", page, System.StringComparison.Ordinal);
+        Assert.Contains("<a href=\"/server/\">Server</a>", page, System.StringComparison.Ordinal);
+        Assert.Contains("rel=\"icon\" href=\"/favicon.svg\"", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Many_formats_go_behind_one_disclosure_and_a_few_stay_on_the_line()
+    {
+        (string, string)[] ten = [.. Enumerable.Range(1, 9).Select(i => ($"F{i}", $"/f{i}"))];
+
+        string root = RestDirectory.Folder(
+            "/rest/services", null, 12.1, ["hosted"], [], formats: ten);
+
+        Assert.Contains("<summary>Other formats (9)</summary>", root, System.StringComparison.Ordinal);
+        Assert.Contains("href=\"/rest/services?f=json\">JSON</a><details", root, System.StringComparison.Ordinal);
+
+        string service = RestDirectory.Document(
+            "/rest/services/x/FeatureServer", "x", new { id = 0 }, formats: [("WFS", "/wfs")]);
+
+        Assert.DoesNotContain("<details class=\"more\">", service, System.StringComparison.Ordinal);
+        Assert.Contains(">WFS</a>", service, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_folder_card_says_how_many_services_it_holds()
+    {
+        string page = RestDirectory.Folder(
+            "/rest/services",
+            null,
+            12.1,
+            ["hosted", "empty", "Utilities"],
+            [],
+            folderCounts: new Dictionary<string, int> { ["hosted"] = 18, ["Utilities"] = 1 });
+
+        Assert.Contains("<span class=\"n\">18 services</span>", page, System.StringComparison.Ordinal);
+        Assert.Contains("<span class=\"n\">1 service</span>", page, System.StringComparison.Ordinal);
+        Assert.Contains("<span class=\"n\">0 services</span>", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_counts_a_folder_card_claims_none()
+    {
+        // Blind, the caller cannot count; a card saying 0 would be a wrong number, not an absent one.
+        string page = RestDirectory.Folder(
+            "/rest/services", null, 12.1, ["hosted"], []);
+
+        Assert.DoesNotContain("class=\"n\"", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_service_tree_is_not_followed_by_the_same_layers_again()
+    {
+        string page = RestDirectory.Document(
+            "/rest/services/x/FeatureServer",
+            "x",
+            new { layers = new[] { new { id = 0, name = "roads" } }, maxRecordCount = 1000 },
+            tree: [("roads (0)", "/x/0", 0)]);
+
+        Assert.Contains("roads (0)", page, System.StringComparison.Ordinal);
+        Assert.DoesNotContain(">Layers</th>", page, System.StringComparison.Ordinal);
+        Assert.Contains("Max Record Count", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_omitted_property_is_left_out_of_the_table()
+    {
+        string page = RestDirectory.Document(
+            "/rest/services/Utilities/Geometry/GeometryServer",
+            "Geometry",
+            new { supportedOperations = Project, maximumVertices = 10 },
+            links: [("project", "/p")],
+            linksLabel: "Supported operations",
+            omit: ["supportedOperations"]);
+
+        Assert.DoesNotContain("<li>project</li>", page, System.StringComparison.Ordinal);
+        Assert.Contains("href=\"/p\">project</a>", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_refusal_page_carries_the_sentence_encoded()
+    {
+        string page = RestDirectory.Refusal(
+            "/rest/services/hosted/nosuch/FeatureServer",
+            "Not found",
+            "No service '<script>alert(1)</script>' is visible to you.");
+
+        Assert.DoesNotContain("<script>", page, System.StringComparison.Ordinal);
+        Assert.Contains("&lt;script&gt;alert(1)", page, System.StringComparison.Ordinal);
+        Assert.Contains("<h1>Not found</h1>", page, System.StringComparison.Ordinal);
+        Assert.Contains("href=\"/rest/services/hosted\"", page, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_directory_does_not_carry_the_old_teal()
+    {
+        string page = RestDirectory.Folder("/rest/services", null, 12.1, [], []);
+
+        Assert.DoesNotContain("#0d7d70", page, System.StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("#10151b", page, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("--accent-ink: #1257c2", page, System.StringComparison.Ordinal);
+        Assert.Contains("--paper: #0a1120", page, System.StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("?f=html", null, "text/html")]
+    [InlineData("", "text/html,application/xhtml+xml", "text/html")]
+    [InlineData("?f=json", "text/html", "application/json")]
+    [InlineData("?f=pjson", null, "application/json")]
+    [InlineData("", null, "application/json")]
+    public async System.Threading.Tasks.Task A_refusal_is_a_page_only_for_a_browser_in_the_directory(
+        string query, string? accept, string media)
+    {
+        // Round 2: a missing layer of a real service still answered a browser with raw JSON.
+        Microsoft.AspNetCore.Http.DefaultHttpContext context = new();
+        context.RequestServices = new ServiceCollection()
+            .AddLogging().BuildServiceProvider();
+        context.Request.Path = "/rest/services/hosted/roads/FeatureServer/9";
+        context.Request.QueryString = new Microsoft.AspNetCore.Http.QueryString(query);
+
+        if (accept is not null)
+        {
+            context.Request.Headers.Accept = accept;
+        }
+
+        System.IO.MemoryStream body = new();
+        context.Response.Body = body;
+
+        await RestDirectory.RefuseAsync(context, 404, "Not found", "The service 'hosted/roads' has no layer 9.");
+
+        Assert.Equal(404, context.Response.StatusCode);
+        Assert.StartsWith(media, context.Response.ContentType, System.StringComparison.Ordinal);
+        Assert.Contains(
+            "has no layer 9.",
+            System.Text.Encoding.UTF8.GetString(body.ToArray()),
+            System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_table_that_scrolls_can_take_focus_and_has_a_name()
+    {
+        // axe scrollable-region-focusable: a keyboard user could not scroll past the first screen.
+        string page = RestDirectory.Document(
+            "/rest/services/x/FeatureServer/0", "x", new { fields = new[] { new { name = "il" } } });
+
+        Assert.Contains(
+            "<div class=\"scroll\" tabindex=\"0\" role=\"region\" aria-label=\"Fields\">",
+            page,
+            System.StringComparison.Ordinal);
+    }
+
     // ---------- the layer tree ----------
 
     /// <summary>
@@ -224,9 +440,11 @@ public sealed class RestDirectoryTests
         // This counted the literal `<li>` and so missed the breadcrumb's current item, which
         // is `<li aria-current="page">` — it saw the close and not the open and reported an
         // imbalance that was not there. Counting the tag name catches every spelling, and
-        // `</li>` cannot match it because of the slash.
+        // `</li>` cannot match it because of the slash. <b>And `"<li>"` plus `"<li "`, not `"<li"`,
+        // since the head gained `<link rel="icon">` on 2026-10-19</b>: a tag *name* is followed by
+        // `>` or a space, and `<link` is a different element that has no closing tag.
         Assert.Equal(Count(page, "<ul"), Count(page, "</ul>"));
-        Assert.Equal(Count(page, "<li"), Count(page, "</li>"));
+        Assert.Equal(Count(page, "<li>") + Count(page, "<li "), Count(page, "</li>"));
     }
 
     [Fact]

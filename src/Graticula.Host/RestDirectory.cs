@@ -40,6 +40,32 @@ namespace Graticula.Host;
 /// </remarks>
 internal static class RestDirectory
 {
+    /// <summary>The product's mark — a three-by-three grid in white — as the console draws it in its bar.</summary>
+    private const string MarkSvg =
+        "<svg viewBox=\"0 0 16 16\" focusable=\"false\"><g fill=\"#fff\">"
+        + "<rect x=\"1\" y=\"1\" width=\"4\" height=\"4\"/><rect x=\"6\" y=\"1\" width=\"4\" height=\"4\"/>"
+        + "<rect x=\"11\" y=\"1\" width=\"4\" height=\"4\"/><rect x=\"1\" y=\"6\" width=\"4\" height=\"4\"/>"
+        + "<rect x=\"6\" y=\"6\" width=\"4\" height=\"4\"/><rect x=\"11\" y=\"6\" width=\"4\" height=\"4\"/>"
+        + "<rect x=\"1\" y=\"11\" width=\"4\" height=\"4\"/><rect x=\"6\" y=\"11\" width=\"4\" height=\"4\"/>"
+        + "<rect x=\"11\" y=\"11\" width=\"4\" height=\"4\"/></g></svg>";
+
+    /// <summary>The site's icon: the mark on the accent disc, as a standalone SVG document.</summary>
+    /// <remarks>
+    /// <b>Served at <c>/favicon.svg</c> and <c>/favicon.ico</c></b> — UX sweep 2026-10-19: every
+    /// page cost a 404 in the browser's console for the icon nobody had served, and the tab showed
+    /// a blank page glyph. The disc is the console's light accent, which reads on a light and a
+    /// dark tab strip alike; an icon cannot follow the page's theme.
+    /// </remarks>
+    internal const string Favicon =
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\">"
+        + "<circle cx=\"16\" cy=\"16\" r=\"16\" fill=\"#1565d8\"/>"
+        + "<g fill=\"#fff\"><rect x=\"8\" y=\"8\" width=\"4.5\" height=\"4.5\"/>"
+        + "<rect x=\"13.75\" y=\"8\" width=\"4.5\" height=\"4.5\"/><rect x=\"19.5\" y=\"8\" width=\"4.5\" height=\"4.5\"/>"
+        + "<rect x=\"8\" y=\"13.75\" width=\"4.5\" height=\"4.5\"/><rect x=\"13.75\" y=\"13.75\" width=\"4.5\" height=\"4.5\"/>"
+        + "<rect x=\"19.5\" y=\"13.75\" width=\"4.5\" height=\"4.5\"/><rect x=\"8\" y=\"19.5\" width=\"4.5\" height=\"4.5\"/>"
+        + "<rect x=\"13.75\" y=\"19.5\" width=\"4.5\" height=\"4.5\"/><rect x=\"19.5\" y=\"19.5\" width=\"4.5\" height=\"4.5\"/>"
+        + "</g></svg>";
+
     /// <summary>Segments that name a service type rather than a resource.</summary>
     private static readonly HashSet<string> ServiceTypes = new(StringComparer.Ordinal)
         { "FeatureServer", "VectorTileServer", "GeometryServer", "MapServer" };
@@ -105,7 +131,7 @@ internal static class RestDirectory
             body.Append($"<p class=\"where\">{host}</p>");
         }
 
-        body.Append(Html.Markup("</div><span class=\"mark\" aria-hidden=\"true\">Gr</span></div><div class=\"card-body\">"));
+        body.Append(Html.Markup("</div><span class=\"mark\" aria-hidden=\"true\">" + MarkSvg + "</span></div><div class=\"card-body\">"));
 
         // <b>A provider first, when there is one</b>: an organisation that configured one expects its people to
         // use it, and the password form below is for the accounts that live here.
@@ -184,7 +210,7 @@ internal static class RestDirectory
         body.Append(Html.Markup(
             "<details><summary>Forgot password?</summary><p>Ask an administrator of this server to reset "
             + "it. They pass you a new password, and you choose your own the first time you use it. If you "
-            + "sign in with your organisation's account, your organisation resets it.</p></details>"));
+            + "sign in with your organization's account, your organization resets it.</p></details>"));
 
         body.Append(Html.Markup("</div></div>"));
 
@@ -200,6 +226,58 @@ internal static class RestDirectory
         Page("/rest/login",
             Html.Of($"<h1>{heading}</h1><p class=\"warn\">{sentence}</p><p><a href=\"{back}\">Back to sign in</a></p>"));
 
+    /// <summary>A refusal — a missing service, a stopped one, a bad query — as a directory page.</summary>
+    /// <param name="path">The request path, for the breadcrumb.</param>
+    /// <param name="heading">What happened, in a few words.</param>
+    /// <param name="message">The same sentence the JSON answer carries.</param>
+    /// <returns>The page.</returns>
+    /// <remarks>
+    /// <b>A browser that asked for a page gets one, saying what the JSON says</b> — UX sweep
+    /// 2026-10-19. A mistyped service name in the directory replaced the page with a raw
+    /// <c>{"error":…}</c> blob: no breadcrumb back, no styling, in the one surface built for
+    /// browsing. The sentence is not reworded here, so the two answers cannot drift apart.
+    /// </remarks>
+    public static string Refusal(string path, string heading, string message) =>
+        Page(path, Html.Of(
+            $"<h1>{heading}</h1><p class=\"refused\" role=\"alert\">{message}</p>"
+            + $"<p><a href=\"/rest/services\">Back to the services directory</a></p>"));
+
+    /// <summary>Writes a refusal as a directory page for a browser in <c>/rest/</c>, and as ArcGIS JSON otherwise.</summary>
+    /// <param name="context">The request.</param>
+    /// <param name="status">The status, which both forms carry.</param>
+    /// <param name="heading">The page's heading.</param>
+    /// <param name="message">The sentence, the same in both forms.</param>
+    /// <returns>The write.</returns>
+    internal static System.Threading.Tasks.Task RefuseAsync(
+        Microsoft.AspNetCore.Http.HttpContext context, int status, string heading, string message)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return RefusesAsPage(context.Request)
+            ? Microsoft.AspNetCore.Http.Results.Content(
+                Refusal(context.Request.Path, heading, message), "text/html; charset=utf-8", statusCode: status)
+                .ExecuteAsync(context)
+            : Microsoft.AspNetCore.Http.Results.Json(
+                new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)
+                .ExecuteAsync(context);
+    }
+
+    /// <summary>Whether a refusal for this request should be a page rather than JSON.</summary>
+    /// <param name="request">The request.</param>
+    /// <returns>True for a browser reading the REST directory.</returns>
+    /// <remarks>
+    /// <b>Under <c>/rest/</c> only.</b> The OGC faces negotiate their own HTML and the WMS and WFS
+    /// faces refuse in XML envelopes their clients parse; a browser's Accept header must not turn
+    /// one of those into this page.
+    /// </remarks>
+    internal static bool RefusesAsPage(Microsoft.AspNetCore.Http.HttpRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return request.Path.StartsWithSegments("/rest", StringComparison.OrdinalIgnoreCase)
+            && WantsHtml(request.Query["f"], request.Headers.Accept);
+    }
+
     /// <summary>A folder listing: its folders and its services.</summary>
     /// <param name="path">The request path, for the breadcrumb.</param>
     /// <param name="folder">The folder being listed, or null for the root.</param>
@@ -214,6 +292,10 @@ internal static class RestDirectory
     /// `/` redirects here — so the first page an anonymous reader sees advertised one protocol
     /// out of four. A stranger cannot ask a question whose vocabulary they have not been given.
     /// </param>
+    /// <param name="folderCounts">
+    /// How many services in each folder this reader can see, by folder name, or null when the
+    /// caller could not count them. A folder missing from it shows no count.
+    /// </param>
     /// <returns>An HTML document.</returns>
     public static string Folder(
         string path,
@@ -221,7 +303,8 @@ internal static class RestDirectory
         double version,
         IEnumerable<string> folders,
         IEnumerable<(string Name, string Type)> services,
-        IEnumerable<(string Label, string Href)>? formats = null)
+        IEnumerable<(string Label, string Href)>? formats = null,
+        IReadOnlyDictionary<string, int>? folderCounts = null)
     {
         HtmlBuilder body = new();
 
@@ -255,9 +338,18 @@ internal static class RestDirectory
 
             foreach (string name in folderList)
             {
+                // <b>How many, so an empty folder does not look like a full one</b> — UX sweep
+                // 2026-10-19. The count is of what this reader can see, which the folder page
+                // itself would show them; it says nothing about what is hidden from them.
+                int many = folderCounts is not null && folderCounts.TryGetValue(name, out int held) ? held : 0;
+
+                Html count = folderCounts is not null
+                    ? Html.Of($"<span class=\"n\">{(many == 1 ? "1 service" : many.ToString(CultureInfo.InvariantCulture) + " services")}</span>")
+                    : Html.Empty;
+
                 body.Append(
-                    $"<li><a class=\"row\" href=\"/rest/services/{U(name)}\">"
-                    + $"<span class=\"id\">{name}</span></a></li>");
+                    $"<li><a class=\"row folder\" href=\"/rest/services/{U(name)}\">"
+                    + $"<span class=\"id\">{name}</span>{count}</a></li>");
             }
 
             body.Append(Html.Markup("</ul>"));
@@ -295,7 +387,7 @@ internal static class RestDirectory
             {
                 body.Append(
                     $"<p class=\"hint\">You are not signed in. Services shared with the "
-                    + $"organisation are not listed to a stranger — "
+                    + $"organization are not listed to a stranger — "
                     + $"<a href=\"/rest/login?return={U(path)}\">sign in</a> and look again.</p>");
             }
 
@@ -409,6 +501,11 @@ internal static class RestDirectory
     /// the format line — a WFS document for a feature service, for instance.
     /// </param>
     /// <param name="serviceItemId">The service's portal item, linked to Studio's item page; null for none.</param>
+    /// <param name="omit">
+    /// Properties left out of the table because the page already shows them above it — the
+    /// operations a GeometryServer links, for instance. A <paramref name="tree"/> leaves out
+    /// <c>layers</c> by itself.
+    /// </param>
     /// <returns>An HTML document.</returns>
     /// <remarks>
     /// <b>Rendered by walking the serialised JSON</b>, rather than by a template
@@ -423,7 +520,8 @@ internal static class RestDirectory
         string linksLabel = "View in",
         IEnumerable<(string Label, string Href, int Depth)>? tree = null,
         IEnumerable<(string Label, string Href)>? formats = null,
-        string? serviceItemId = null)
+        string? serviceItemId = null,
+        IEnumerable<string>? omit = null)
     {
         HtmlBuilder body = new();
 
@@ -455,8 +553,21 @@ internal static class RestDirectory
 
         using JsonDocument parsed = JsonDocument.Parse(JsonSerializer.Serialize(document));
 
+        /*
+          <b>Listed once.</b> A service's layers were a linked tree and then, two screens down, the
+          same layers again as a grid, and a GeometryServer's operations were links and then a
+          bulleted list of the same words (UX sweep 2026-10-19). The JSON keeps both — it is a
+          contract — and the page shows each thing in the form a reader can use.
+        */
+        HashSet<string> skipped = new(omit ?? [], StringComparer.Ordinal);
+
+        if (tree is not null)
+        {
+            skipped.Add("layers");
+        }
+
         body.Append(Html.Markup("<table class=\"props\">"));
-        Rows(body, parsed.RootElement, path);
+        Rows(body, parsed.RootElement, path, skipped);
         body.Append(Html.Markup("</table>"));
 
         return Page(path, body.ToHtml(), close: true, formats);
@@ -533,10 +644,15 @@ internal static class RestDirectory
     }
 
     /// <summary>Walks a JSON object into table rows.</summary>
-    private static void Rows(HtmlBuilder body, JsonElement element, string path)
+    private static void Rows(HtmlBuilder body, JsonElement element, string path, HashSet<string> skipped)
     {
         foreach (JsonProperty property in element.EnumerateObject())
         {
+            if (skipped.Contains(property.Name))
+            {
+                continue;
+            }
+
             /*
               <b>Fields get a real table, and they are the reason anybody opens this
               page.</b> Owner request 2026-08-15: *"we need the fields also be shown"*.
@@ -556,8 +672,8 @@ internal static class RestDirectory
             Html rendered = property.Value.ValueKind == JsonValueKind.Array
                     && property.Value.GetArrayLength() > 0
                     && property.Value[0].ValueKind == JsonValueKind.Object
-                ? Grid(property.Value, path)
-                : Value(property.Value, path);
+                ? Grid(property.Value, path, property.Name)
+                : Value(property.Value, path, property.Name);
 
             /*
               <b>A grid is its own row, spanning both columns, and that is a measured fix
@@ -600,7 +716,7 @@ internal static class RestDirectory
     /// dropping it is invisible, which is the worst way for a directory to be
     /// wrong.
     /// </remarks>
-    private static Html Grid(JsonElement array, string path)
+    private static Html Grid(JsonElement array, string path, string? key = null)
     {
         List<string> columns = [];
 
@@ -610,7 +726,7 @@ internal static class RestDirectory
             {
                 // Not a uniform array of objects, so a table would misrepresent
                 // it. Fall back rather than force it.
-                return Value(array, path);
+                return Value(array, path, null);
             }
 
             foreach (JsonProperty property in item.EnumerateObject())
@@ -623,7 +739,9 @@ internal static class RestDirectory
         }
 
         HtmlBuilder grid = new();
-        grid.Append(Html.Markup("<div class=\"scroll\"><table class=\"grid\"><thead><tr>"));
+        // Focusable and named, so a keyboard can scroll it — axe `scrollable-region-focusable`.
+        grid.Append($"<div class=\"scroll\" tabindex=\"0\" role=\"region\" aria-label=\"{(key is null ? "Table" : Humanise(key))}\">"
+            + $"<table class=\"grid\"><thead><tr>");
 
         foreach (string column in columns)
         {
@@ -640,7 +758,7 @@ internal static class RestDirectory
             {
                 grid.Append(
                     $"<td>{(item.TryGetProperty(column, out JsonElement cell)
-                        ? Value(cell, path)
+                        ? Value(cell, path, column)
                         : Html.Markup("<i>—</i>"))}</td>");
             }
 
@@ -650,9 +768,28 @@ internal static class RestDirectory
         return grid.Append(Html.Markup("</tbody></table></div>")).ToHtml();
     }
 
-    /// <summary>Renders one value, following the shapes these documents use.</summary>
+    /// <summary>
+    /// The integers that are amounts a person reads, and the only ones given group separators.
+    /// </summary>
+    /// <remarks>
+    /// <b>An allow-list, because the safe default is the raw digits.</b> Every integer on these
+    /// pages was printed with separators until 2026-10-19, so a developer copying a wkid out of
+    /// the page got <c>102,100</c> — not a reference any client accepts — and a field length read
+    /// <c>1,073,741,822</c>. An ArcGIS directory prints <c>4326</c>. A key missing from this list
+    /// prints as digits, which is never wrong; a key wrongly on it would print an identifier that
+    /// does not paste, which is.
+    /// </remarks>
+    private static readonly HashSet<string> Amounts = new(StringComparer.Ordinal)
+    {
+        "maxRecordCount", "standardMaxRecordCount", "tileMaxRecordCount", "maxSelectionCount",
+        "maxRecordCountFactor", "maximumVertices", "maximumRequestBytes", "maximumCandidatePairs",
+        "maxImageHeight", "maxImageWidth", "maxDownloadImageCount", "maxMosaicImageCount",
+        "count", "featureCount", "recordCount",
+    };
+
     /// <summary>A number, printed the way a person reads it.</summary>
     /// <param name="value">The number as it arrived.</param>
+    /// <param name="key">The property it is the value of, or null when it has none.</param>
     /// <returns>Its text.</returns>
     /// <remarks>
     /// <para>
@@ -663,10 +800,11 @@ internal static class RestDirectory
     /// `36978595.474481836` twenty-two times over.
     /// </para>
     /// <para>
-    /// <b>Integers are left exactly alone and given separators; only the fractional ones are
-    /// rounded.</b> An id, a pixel count, a wkid and a byte count are exact and must stay
-    /// exact — rounding 102100 would be a different reference. Twelve significant figures is
-    /// far more than any georeference carries and still short of where double's noise starts.
+    /// <b>Integers are left exactly alone; only the fractional ones are rounded.</b> An id, a
+    /// pixel count, a wkid and a byte count are exact and must stay exact — rounding 102100
+    /// would be a different reference. Twelve significant figures is far more than any
+    /// georeference carries and still short of where double's noise starts. Separators go only
+    /// on the amounts in <see cref="Amounts"/>.
     /// </para>
     /// <para>
     /// <b>The console rounds the same numbers to six figures and this rounds to twelve, and
@@ -675,11 +813,12 @@ internal static class RestDirectory
     /// really there.
     /// </para>
     /// </remarks>
-    private static string Number(JsonElement value)
+    private static string Number(JsonElement value, string? key)
     {
         if (value.TryGetInt64(out long whole))
         {
-            return whole.ToString("N0", CultureInfo.InvariantCulture);
+            return whole.ToString(
+                key is not null && Amounts.Contains(key) ? "N0" : "0", CultureInfo.InvariantCulture);
         }
 
         if (!value.TryGetDouble(out double real) || !double.IsFinite(real))
@@ -690,7 +829,53 @@ internal static class RestDirectory
         return Math.Round(real, 12).ToString("0.############", CultureInfo.InvariantCulture);
     }
 
-    private static Html Value(JsonElement value, string path)
+    /// <summary>
+    /// A colour array — <c>[r, g, b, a]</c> on 0–255, as a renderer's symbols carry it — drawn as a swatch.
+    /// </summary>
+    /// <param name="value">The array.</param>
+    /// <param name="key">The property it is the value of.</param>
+    /// <returns>The swatch and its text, or <see cref="Html.Empty"/> when this is not a colour.</returns>
+    /// <remarks>
+    /// <b>Decided by the key and the shape together.</b> A bounding box is four numbers too, and
+    /// a swatch for one would be a lie with a colour; every colour in these documents sits under
+    /// a key that ends in <c>color</c>. The text stays beside the swatch because it is what a
+    /// developer copies, and because a swatch alone is colour alone.
+    /// </remarks>
+    private static Html Colour(JsonElement value, string? key)
+    {
+        if (key is null
+            || !key.EndsWith("olor", StringComparison.Ordinal)
+            || value.GetArrayLength() is not (3 or 4))
+        {
+            return Html.Empty;
+        }
+
+        int[] parts = new int[4];
+        parts[3] = 255;
+        int at = 0;
+
+        foreach (JsonElement part in value.EnumerateArray())
+        {
+            if (!part.TryGetInt32(out int channel) || channel is < 0 or > 255)
+            {
+                return Html.Empty;
+            }
+
+            parts[at++] = channel;
+        }
+
+        string text = string.Create(
+            CultureInfo.InvariantCulture, $"rgba({parts[0]},{parts[1]},{parts[2]},{parts[3]})");
+
+        // CSS wants the alpha on 0–1; the text keeps Esri's 0–255, which is what the JSON says.
+        string css = string.Create(
+            CultureInfo.InvariantCulture,
+            $"background:rgba({parts[0]},{parts[1]},{parts[2]},{Math.Round(parts[3] / 255.0, 3)})");
+
+        return Html.Of($"<span class=\"swatch\" style=\"{css}\" aria-hidden=\"true\"></span><code>{text}</code>");
+    }
+
+    private static Html Value(JsonElement value, string path, string? key)
     {
         switch (value.ValueKind)
         {
@@ -706,7 +891,7 @@ internal static class RestDirectory
                     : Html.Markup("<span class=\"no\">no</span>");
 
             case JsonValueKind.Number:
-                return Html.Of($"<span class=\"v\">{Number(value)}</span>");
+                return Html.Of($"<span class=\"v\">{Number(value, key)}</span>");
 
             case JsonValueKind.String:
                 return Html.Text(value.ToString());
@@ -724,7 +909,13 @@ internal static class RestDirectory
                 // every depth.
                 if (value[0].ValueKind == JsonValueKind.Object)
                 {
-                    return Grid(value, path);
+                    return Grid(value, path, key);
+                }
+
+                // A renderer's colour was a bulleted column of four numbers — 2026-10-19.
+                if (Colour(value, key) is { IsEmpty: false } swatch)
+                {
+                    return swatch;
                 }
 
                 HtmlBuilder items = new();
@@ -732,7 +923,7 @@ internal static class RestDirectory
 
                 foreach (JsonElement item in value.EnumerateArray())
                 {
-                    items.Append($"<li>{Value(item, path)}</li>");
+                    items.Append($"<li>{Value(item, path, key)}</li>");
                 }
 
                 return items.Append(Html.Markup("</ul>")).ToHtml();
@@ -742,7 +933,7 @@ internal static class RestDirectory
                 // Rendered inline as name: value pairs, because a nested table
                 // per spatial reference makes a layer document unreadable.
                 return Html.Join(Html.Markup(", "), value.EnumerateObject()
-                    .Select(p => Html.Of($"<b>{Humanise(p.Name)}</b>: {Value(p.Value, path)}")));
+                    .Select(p => Html.Of($"<b>{Humanise(p.Name)}</b>: {Value(p.Value, path, p.Name)}")));
         }
     }
 
@@ -912,23 +1103,39 @@ internal static class RestDirectory
         HtmlBuilder faces = new();
         faces.Append($"<a href=\"{json}\">JSON</a>");
 
-        foreach ((string Label, string Href) face in formats ?? [])
+        List<(string Label, string Href)> others = [.. formats ?? []];
+
+        /*
+          <b>JSON on the line, and the rest behind one disclosure when there are many.</b> The
+          root names ten formats, and a row of ten chips that did not wrap made the page 651
+          pixels wide on a 390-pixel phone (UX sweep 2026-10-19). A service page names four and
+          keeps them inline — a disclosure there would hide the WFS link a reader looks for.
+          `<details>` because this page has no script, and it opens in place, wrapping.
+        */
+        Html Chip((string Label, string Href) face) => Html.Of($"<a href=\"{face.Href}\">{face.Label}</a>");
+
+        if (others.Count > 4)
+        {
+            faces.Append($"<details class=\"more\"><summary>Other formats ({others.Count})</summary><span class=\"list\">");
+            faces.Append(Html.Concat(others.Select(Chip)));
+            faces.Append(Html.Markup("</span></details>"));
+        }
+        else
         {
             // <b>No separator.</b> These were joined by " | " when they were bare links
             // on a line of their own; they are bordered chips in a flex row with a gap
             // now, so the pipe is a second separator drawn on top of the first.
-            faces.Append($"<a href=\"{face.Href}\">{face.Label}</a>");
+            faces.Append(Html.Concat(others.Select(Chip)));
         }
 
-        // Two dollars, so a single brace is CSS and a doubled one interpolates.
-        // The alternative is escaping every brace in the stylesheet.
         /*
-          <b>The project's own tokens, not a third palette.</b> These are `console.css`'s
-          values: `--ink`, `--muted`, `--faint`, `--accent` and the rules. They were chosen
-          by the owner, they carry their contrast measurements in that file's own comments,
-          and a directory page inventing a fourth blue is how a product comes to look like
-          four products. What is *not* borrowed is the console's navy rail: this page has one
-          surface, so it needs one family of ink.
+          <b>The console's tokens, since 2026-10-19 — blue and navy, not teal and grey-black.</b>
+          This page kept its own palette after the console moved to the Hybrid one: a teal
+          accent, a `#10151b` dark ground, and format chips at 4.36:1 at 12px — under the 4.5
+          small text needs (UX sweep 2026-10-19). The values below are `console.css`'s, copied
+          because this page loads nothing: `--accent-ink` on `--accent-soft` is the pair the
+          console's own chips use, 5.78:1 light and 6.08:1 dark. What is *not* borrowed is the
+          console's rail: this page has one surface, so it needs one family of ink.
 
           <b>Restyled 2026-08-22 because the owner said it plainly — *estetikten uzak*.</b>
           The page it replaced was three stacked strips at three different paddings, bulleted
@@ -951,15 +1158,20 @@ internal static class RestDirectory
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Graticula REST Services Directory</title>
+            <link rel="icon" href="/favicon.svg" type="image/svg+xml">
             <style>
               :root {
-                --paper: #f6f8fa; --panel: #fff;
+                --paper: #f4f6f9; --panel: #fff; --panel-2: #f1f4f8;
                 --ink: #101826; --muted: #566275; --faint: #616b7a;
-                --rule: #e3e8ef; --rule-strong: #cfd7e3;
-                --accent: #0d7d70; --accent-soft: #e3f2f0; --accent-line: #b8ded8;
+                --rule: #e3e8ef; --rule-strong: #cfd7e3; --control-edge: #7e889a;
+                --accent: #1565d8; --accent-ink: #1257c2; --accent-soft: #e8f0fe;
+                --accent-line: #bcd2fa; --on-accent: #fff;
+                --ok: #1c7d4d; --ok-soft: #e6f4ec; --ok-line: #b6ddc6;
                 --warn: #8a5a08; --warn-soft: #fdf2e0; --warn-line: #e8d3a8;
+                --alert: #a5342a; --alert-soft: #fceceb; --alert-line: #edc4c0;
                 --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
                 --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+                --gutter: 24px;
                 color-scheme: light dark;
                 /* Checkboxes and radios were browser-blue on a teal page — the one place
                    the palette did not reach, because nothing had told the browser. */
@@ -967,13 +1179,18 @@ internal static class RestDirectory
               }
               @media (prefers-color-scheme: dark) {
                 :root {
-                  --paper: #10151b; --panel: #161c24;
-                  --ink: #e7ecf2; --muted: #9aa7b6; --faint: #8b98a8;
-                  --rule: #263039; --rule-strong: #35424e;
-                  --accent: #58cfc0; --accent-soft: #14312e; --accent-line: #2a5a54;
-                  --warn: #f0c47a; --warn-soft: #2b2113; --warn-line: #5c4622;
+                  --paper: #0a1120; --panel: #0f1828; --panel-2: #142034;
+                  --ink: #e6ebf4; --muted: #9aa7bd; --faint: #8592aa;
+                  --rule: #1f2b40; --rule-strong: #2b3a55; --control-edge: #62739a;
+                  --accent: #2563eb; --accent-ink: #6aa6ff; --accent-soft: #11264a;
+                  --accent-line: #24497f;
+                  --ok: #5fd39a; --ok-soft: #10301f; --ok-line: #1f5236;
+                  --warn: #f0bd5c; --warn-soft: #33260c; --warn-line: #5a4416;
+                  --alert: #f58a7f; --alert-soft: #3a1714; --alert-line: #6a2a24;
                 }
               }
+              /* The page's sides at a phone's width: 24px each side of 280 left 232 for content. */
+              @media (max-width: 480px) { :root { --gutter: 16px; } }
 
               *, *::before, *::after { box-sizing: border-box; }
 
@@ -981,7 +1198,7 @@ internal static class RestDirectory
                      font: 15px/1.6 var(--sans);
                      -webkit-font-smoothing: antialiased; }
 
-              a { color: var(--accent); text-decoration-thickness: 1px;
+              a { color: var(--accent-ink); text-decoration-thickness: 1px;
                   text-underline-offset: 2px; }
               a:hover { text-decoration-thickness: 2px; }
 
@@ -998,7 +1215,7 @@ internal static class RestDirectory
                  a third of the viewport's first inch on chrome. */
               header.top { display: flex; flex-wrap: wrap; gap: 4px 16px;
                            align-items: baseline; justify-content: space-between;
-                           padding: 14px 24px; background: var(--panel);
+                           padding: 14px var(--gutter); background: var(--panel);
                            border-bottom: 1px solid var(--rule); }
               header.top .name { font-size: 15px; font-weight: 620; letter-spacing: -0.1px; }
               header.top .name span { color: var(--faint); font-weight: 450; }
@@ -1022,7 +1239,7 @@ internal static class RestDirectory
                  as the line of text it sits in. */
               .who form.out { display: inline; margin: 0; }
               .who form.out button { background: none; border: 0; padding: 0;
-                                     margin: 0; font: inherit; color: var(--accent);
+                                     margin: 0; font: inherit; color: var(--accent-ink);
                                      text-decoration: underline;
                                      text-underline-offset: 2px; cursor: pointer;
                                      vertical-align: baseline; }
@@ -1032,24 +1249,33 @@ internal static class RestDirectory
 
               .bar { display: flex; flex-wrap: wrap; gap: 4px 16px;
                      align-items: baseline; justify-content: space-between;
-                     padding: 9px 24px; background: var(--paper);
+                     padding: 9px var(--gutter); background: var(--paper);
                      border-bottom: 1px solid var(--rule); font-size: 13px; }
               .bar ol { display: flex; flex-wrap: wrap; align-items: baseline;
                         gap: 0 6px; margin: 0; padding: 0; list-style: none; }
               .bar li + li::before { content: "/"; color: var(--rule-strong);
                                      margin-right: 6px; }
               .bar li[aria-current] { color: var(--muted); }
-              .fmt { display: flex; gap: 10px; font-size: 12px; }
+              .fmt { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
+                     font-size: 12px; min-width: 0; }
               .fmt a { font-family: var(--mono); text-transform: uppercase;
                        letter-spacing: 0.4px; text-decoration: none;
+                       color: var(--accent-ink);
                        border: 1px solid var(--accent-line); border-radius: 5px;
                        padding: 2px 8px; background: var(--accent-soft); }
               .fmt a:hover { border-color: var(--accent); }
+              .fmt details.more[open] { flex-basis: 100%; }
+              .fmt details.more summary { display: inline-block; cursor: pointer; color: var(--muted);
+                                          border: 1px solid var(--rule-strong);
+                                          border-radius: 5px; padding: 2px 8px;
+                                          background: var(--panel); }
+              .fmt details.more[open] summary { margin-bottom: 8px; }
+              .fmt .list { display: flex; flex-wrap: wrap; gap: 8px; }
 
-              main { padding: 28px 24px 72px; max-width: 76rem; margin: 0 auto; }
+              main { padding: 28px var(--gutter) 72px; max-width: 76rem; margin: 0 auto; }
 
               h1 { font-size: 26px; line-height: 1.25; font-weight: 640;
-                   letter-spacing: -0.4px; margin: 0 0 4px; }
+                   letter-spacing: -0.4px; margin: 0 0 4px; overflow-wrap: anywhere; }
               h1 code { font-family: var(--mono); font-size: 0.82em; font-weight: 600; }
               h2 { font-size: 20px; font-weight: 620; letter-spacing: -0.2px;
                    margin: 32px 0 10px; }
@@ -1075,15 +1301,20 @@ internal static class RestDirectory
               ul.cards li:hover { border-color: var(--accent-line); }
               ul.cards a.row { display: block; padding: 9px 12px;
                                text-decoration: none; color: var(--ink); }
-              ul.cards a.row:hover { color: var(--accent); }
+              ul.cards a.row:hover { color: var(--accent-ink); }
+              ul.cards a.folder { display: flex; justify-content: space-between;
+                                  align-items: baseline; gap: 12px; }
+              ul.cards .n { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
               ul.cards .id { font-family: var(--mono); font-size: 13.5px;
                              font-weight: 600; word-break: break-word; }
               ul.cards .also { display: flex; flex-wrap: wrap; gap: 6px;
                                padding: 0 12px 9px; font-size: 11.5px; }
+              /* 24px high: WCAG 2.2's target size, which these failed at 19 (UX sweep round 2). */
               ul.cards .also a { font-family: var(--mono); text-decoration: none;
                                  color: var(--muted); border: 1px solid var(--rule);
-                                 border-radius: 4px; padding: 1px 6px; }
-              ul.cards .also a:hover { color: var(--accent);
+                                 border-radius: 4px; padding: 2px 7px; min-height: 24px;
+                                 display: inline-flex; align-items: center; }
+              ul.cards .also a:hover { color: var(--accent-ink);
                                        border-color: var(--accent-line); }
 
               /* A property table, which is what a service document is. */
@@ -1153,45 +1384,84 @@ internal static class RestDirectory
               table.grid tbody tr:last-child td { border-bottom: 0; }
               table.grid tbody tr:hover td { background: var(--accent-soft); }
 
-              /* The query form. Labels above their inputs at narrow widths and beside
-                 them when there is room, so a column of boxes reads as one control. */
-              table.form { border-collapse: collapse; max-width: 100%; }
-              table.form th { text-align: right; font-weight: 550; color: var(--muted);
-                              font-size: 13px; padding: 5px 12px 5px 0;
-                              white-space: nowrap; vertical-align: top; }
-              table.form td { padding: 5px 0; }
-              table.form input, table.form select, table.form textarea { max-width: 100%; }
               /*
-                <b>Labels above their inputs when there is no room beside them.</b> The query
-                form measured 842px inside a 380px viewport and clipped its text mid-word —
-                the same failure `table.props` had, in the one page the structural pass
-                missed. A label-beside-input table has a floor of *widest label plus widest
-                input*, and below that the only honest move is to stop putting them side by
-                side.
+                <b>The operation forms: labels above their fields, fields as wide as their
+                group, and groups in fieldsets — 2026-10-19.</b> This was a two-column table
+                with the label beside the input and `size="80"` on the inputs, so its floor was
+                *widest label plus widest input*: 634px inside a 390px phone, and below 640px a
+                media query unstacked the table cells. A label above a full-width field has no
+                floor at all, which is the whole fix; the two columns at 760px are groups of
+                short fields sitting side by side, not labels beside boxes.
               */
-              @media (max-width: 640px) {
-                table.form th, table.form td { display: block; text-align: left;
-                                               white-space: normal; padding: 2px 0; }
-                table.form th { padding-top: 8px; }
-                table.form textarea { min-width: 0; width: 100%; }
+              form.ops { display: grid; gap: 14px; margin: 18px 0 8px; }
+              form.ops fieldset { margin: 0; min-width: 0; padding: 10px 14px 14px;
+                                  background: var(--panel); border: 1px solid var(--rule);
+                                  border-radius: 8px; display: grid; gap: 12px;
+                                  grid-template-columns: minmax(0, 1fr); }
+              form.ops legend { font-size: 12.5px; font-weight: 650; text-transform: uppercase;
+                                letter-spacing: 0.6px; color: var(--muted); padding: 0 4px; }
+              .f { display: grid; gap: 4px; min-width: 0; align-content: start; }
+              .f > label, .f > .lab { font-size: 13.5px; font-weight: 600; }
+              .f input[type=text], .f textarea, .f select { width: 100%; min-width: 0; }
+              .f .hint { margin: 0; font-size: 12.5px; }
+              /* A pair of radios is one control with one name, so it is a fieldset of its own
+                 whose legend is the label. */
+              .f.pair { display: block; border: 0; padding: 0; margin: 0; min-width: 0; }
+              .f.pair legend { font-size: 13.5px; font-weight: 600; padding: 0; margin-bottom: 4px;
+                               text-transform: none; letter-spacing: 0; color: var(--ink); }
+              .f.pair label { display: inline-flex; align-items: center; gap: 6px;
+                              min-height: 28px; margin-right: 16px; }
+              /*
+                <b>A control this server cannot honour looks like one.</b> They were white boxes
+                with the same edge as the live ones, so the reason under each was the only sign,
+                and a reader scanning the form read it as forty working fields (UX sweep
+                2026-10-19). Present, greyed and explained; still in the order a reader of
+                ArcGIS's page expects to find them.
+              */
+              .f.off > label, .f.off > legend { color: var(--faint); font-weight: 500; }
+              input:disabled, textarea:disabled, select:disabled {
+                background: var(--panel-2); color: var(--faint); border-style: dashed;
+                cursor: not-allowed; }
+              @media (min-width: 760px) {
+                form.ops fieldset { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                form.ops .f.wide { grid-column: 1 / -1; }
               }
+              form.ops .run { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+              form.ops .run .f { min-width: 12rem; }
+              form.ops .run button { margin-top: 0; }
+              /* The outcome of a run, above the form, so pressing the button visibly does
+                 something at 1280x800 — the results start below a form two thousand pixels
+                 tall. */
+              .outcome { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px;
+                         margin: 8px 0 18px; padding: 10px 14px; font-size: 14px;
+                         border-radius: 8px; border: 1px solid var(--ok-line);
+                         background: var(--ok-soft); }
+              .outcome p { margin: 0; }
+              .refused { margin: 4px 0 0; padding: 8px 12px; font-size: 13.5px;
+                         color: var(--alert); background: var(--alert-soft);
+                         border: 1px solid var(--alert-line); border-radius: 7px; }
+              input[aria-invalid=true] { border-color: var(--alert); }
               input, select, textarea, button {
                 font: inherit; color: var(--ink); background: var(--panel);
-                border: 1px solid var(--rule-strong); border-radius: 5px;
-                padding: 5px 8px;
+                border: 1px solid var(--control-edge); border-radius: 5px;
+                padding: 6px 8px;
               }
-              textarea { font: 13px/1.5 var(--mono); min-width: 22rem; }
+              textarea { font: 13px/1.5 var(--mono); resize: vertical; }
+              /* White on the accent in both themes: 5.41:1 on #1565d8 and 5.17:1 on the dark
+                 theme's #2563eb. The old dark accent was a light teal, which is why the label
+                 used to switch to the page's ground there. */
               button { background: var(--accent); border-color: var(--accent);
-                       color: #fff; font-weight: 550; padding: 6px 16px;
+                       color: var(--on-accent); font-weight: 550; padding: 6px 16px;
                        cursor: pointer; margin-top: 8px; }
               button:hover { filter: brightness(1.08); }
-              /* Dark lightens the accent and the white label stayed white: 1.89:1 on the sign-in
-                 button and the query form's alike. The page's own dark ground reads 9.69:1. */
-              @media (prefers-color-scheme: dark) { button { color: var(--paper); } }
+              /* A colour from a renderer, beside the text that says it. */
+              .swatch { display: inline-block; width: 14px; height: 14px; margin-right: 6px;
+                        vertical-align: -2px; border-radius: 3px;
+                        border: 1px solid var(--control-edge); }
 
               /* The word still carries the meaning; the colour only makes a column of
                  them scannable. Never colour alone. */
-              .yes { color: var(--accent); font-weight: 600; }
+              .yes { color: var(--ok); font-weight: 600; }
               .no { color: var(--faint); }
               .hint { font-size: 13px; color: var(--faint); max-width: 62ch; }
               .lede { font-size: 15px; color: var(--muted); max-width: 68ch;
@@ -1222,9 +1492,9 @@ internal static class RestDirectory
                            padding: 18px 22px; border-bottom: 1px solid var(--rule); }
               .card-head h1 { margin: 0; font-size: 20px; font-weight: 600; }
               .card-head .where { margin: 2px 0 0; font-size: 13.5px; color: var(--muted); overflow-wrap: anywhere; }
-              .card-head .mark { width: 34px; height: 34px; flex: none; border-radius: 8px; display: grid;
-                                 place-items: center; color: #fff; font-weight: 700; font-size: 15px;
-                                 background: linear-gradient(148deg, #2ad3c4, #0fb3ba 55%, #2a5fb0); }
+              .card-head .mark { width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid;
+                                 place-items: center; background: var(--accent); }
+              .card-head .mark svg { width: 18px; height: 18px; display: block; }
               .card-body { padding: 16px 22px 22px; }
               .card-body .hint { margin: 0 0 12px; }
               .card-body ul.providers { max-width: none; }
@@ -1233,12 +1503,8 @@ internal static class RestDirectory
               .card-body label.keep { display: inline-flex; align-items: center; gap: 8px; margin: 12px 0 0; cursor: pointer; }
               .card-body label.keep input { width: 18px; height: 18px; margin: 0; }
               .card-body button { display: block; width: 100%; margin-top: 16px; padding: 10px 16px; }
-              /* The console's sign-in button, so the two doors read as one product. */
-              @media (prefers-color-scheme: light) {
-                .card-body button { background: linear-gradient(96deg, #0d7d70, #2f6fd0 62%, #5a49c4); border-color: transparent; }
-              }
               .card-body details { margin-top: 14px; text-align: center; font-size: 13.5px; }
-              .card-body summary { color: var(--accent); cursor: pointer; text-decoration: underline;
+              .card-body summary { color: var(--accent-ink); cursor: pointer; text-decoration: underline;
                                    text-underline-offset: 3px; display: inline-block; padding: 4px; }
               .card-body details p { margin: 6px 0 0; color: var(--muted); }
 
@@ -1280,7 +1546,10 @@ internal static class RestDirectory
 
         // Server rather than Console: the application was renamed with ADR-034 and a link
         // that says otherwise teaches the wrong word.
-        Html console = Html.Markup("<a href=\"/server/\">Server</a> &middot; ");
+        // <b>Studio first, since 2026-10-19</b> (UX sweep): `/` redirects here, so this line is the
+        // first one a stranger reads, and Studio is where they can see a map. Server is the
+        // administrator's door.
+        Html console = Html.Markup("<a href=\"/studio/\">Studio</a> &middot; <a href=\"/server/\">Server</a> &middot; ");
 
         /*
           <b>Sign out was a link, and the route is `MapPost`, so it answered 405 with an

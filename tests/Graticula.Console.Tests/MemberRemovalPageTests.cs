@@ -18,16 +18,14 @@ namespace Graticula.Console.Tests;
 public sealed class MemberRemovalPageTests : ConsoleTest
 {
     /// <summary>
-    /// The user type is a control on the row, and it reaches the endpoint that changes one.
+    /// The user type is read in the row and changed from its menu, and the change reaches the endpoint.
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>It was a word.</b> The Members table drew the role as a select and the user type as
-    /// plain text, so the column that decides the ceiling on everything a role grants looked like
-    /// a property of the account rather than a decision somebody makes. The owner read it and
-    /// asked how to change one; there was no answer, because until 2026-09-05 nothing in this
-    /// product could — not the console, not the API — while ADR-018's privilege table has always
-    /// said <c>admin:manageRoles</c> covers roles *and user types*.
+    /// <b>It was a select in the row that saved on change</b>, and before that a word with no way to change
+    /// it at all (until 2026-09-05). The UX sweep of 2026-10-19 measured the select: Tab onto it, one arrow
+    /// key, and the new value was sent with no question. So the row reads now, and Change user type… opens
+    /// a dialog that offers every type, says what the chosen one takes away, and sends only on its button.
     /// </para>
     /// <para>
     /// <b>`offsetParent`, because a control that exists and cannot be seen is this console's most
@@ -36,61 +34,71 @@ public sealed class MemberRemovalPageTests : ConsoleTest
     /// </para>
     /// </remarks>
     [Fact]
-    public async Task A_members_user_type_is_a_control_and_changing_it_reaches_the_server()
+    public async Task A_members_user_type_is_changed_from_the_row_menu_and_reaches_the_server()
     {
         (string token, _) = await SignInAsync();
 
         await OpenAsync("/studio/#/members", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#members select[data-member-type]').length > 0",
-            "No member row offers a user type control, so the ceiling cannot be changed from the "
-            + "screen that shows it.");
+            "document.querySelectorAll('#members [data-member-change-type]').length > 0",
+            "No member row offers Change user type, so the ceiling cannot be changed from the screen "
+            + "that shows it.");
 
-        await WaitForAsync(
-            Shown("#members select[data-member-type]"),
-            "The user type control is in the markup and not on screen.");
-
-        // <b>Every type the server names, in the server's order.</b> A short list here would be a
-        // ceiling an administrator cannot reach from the console and can reach from curl.
-        string[] offered = await Browser.EvaluateAsync<string[]>(
-            "[...document.querySelector('#members select[data-member-type]').options]"
-            + ".map(o => o.value)") ?? [];
-
-        Assert.Equal(["viewer", "editor", "creator", "unrestricted"], offered);
+        Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#members select').length"));
 
         // <b>Lowered, because every seeded member is unrestricted and raising one would be a
         // change to nothing.</b> `tools/seed-conformance.py` creates them all at the top of the
         // ladder, so a test that looked for somebody below it would fail on a fresh fixture and
-        // pass on a machine where an earlier run happened to leave one — which is a test that
-        // reports the machine rather than the product.
-        //
-        // The harness answers `confirm` with true and records the question, so the warning this
-        // raises is asserted below rather than stepped around.
+        // pass on a machine where an earlier run happened to leave one.
         string who = await Browser.EvaluateAsync<string>(
-            """
-            (() => {
-              const pick = [...document.querySelectorAll('#members select[data-member-type]')]
-                .find(s => s.dataset.wasType === 'unrestricted');
-              if (!pick) return '';
-              pick.value = 'viewer';
-              pick.dispatchEvent(new Event('change', { bubbles: true }));
-              return pick.dataset.memberType;
-            })()
-            """) ?? string.Empty;
+            "(() => { const m = [...memberRowsBy.values()].find(m => m.userType === 'unrestricted'); "
+            + "return m ? m.name : ''; })()") ?? string.Empty;
 
         Assert.False(
             string.IsNullOrEmpty(who),
             "No member on this server is unrestricted, so there is nothing to lower. The seed "
             + "creates every member at the top of the ladder.");
 
-        // <b>Lowering asks first, and the question is the point.</b> A ceiling withdraws
-        // privileges from every role the member holds at once — silently, and with the roles
-        // still reading as though they work — so this is the one direction that must stop.
+        await ClickAsync($"#members details.rowmenu summary[aria-label=\"Actions for {who}\"]");
         await WaitForAsync(
-            "(window.__confirmed || []).some(q => /ceiling/i.test(q))",
-            "Lowering a user type did not ask. It takes privileges away from every role at once, "
-            + "which is exactly the change that should not happen on a stray click.");
+            Shown($"#members [data-member-change-type=\"{who}\"]"),
+            "The row menu opened without Change user type in it.");
+        await ClickAsync($"#members [data-member-change-type=\"{who}\"]");
+
+        await WaitForAsync(
+            Shown("#memberChangeDialog input[name=memberChangePick]"),
+            "Change user type opened no dialog, or a dialog with nothing to choose.");
+
+        // <b>Every type the server names, in the server's order.</b> A short list here would be a
+        // ceiling an administrator cannot reach from the console and can reach from curl.
+        string[] offered = await Browser.EvaluateAsync<string[]>(
+            "[...document.querySelectorAll('#memberChangeDialog input[name=memberChangePick]')].map(i => i.value)")
+            ?? [];
+
+        Assert.Equal(["viewer", "editor", "creator", "unrestricted"], offered);
+
+        Assert.True(
+            await Browser.EvaluateAsync<bool>("document.getElementById('memberChangeSave').disabled"),
+            "The dialog's button was ready before anything was chosen, so it would send the current value.");
+
+        await Browser.EvaluateAsync<bool>(
+            "(() => { document.querySelector('#memberChangeDialog input[value=viewer]').click(); return true; })()");
+
+        // <b>Lowering says what it takes away, and the saying is the point.</b> A ceiling withdraws
+        // privileges from every role the member holds at once — silently, and with the roles still
+        // reading as though they work.
+        await WaitForAsync(
+            "(() => { const p = document.getElementById('memberChangeSays'); "
+            + "return /ceiling/i.test(p.textContent) && p.classList.contains('lowers'); })()",
+            "Choosing a lower user type did not say that it takes privileges away.");
+
+        Assert.False(
+            await Browser.EvaluateAsync<bool>(
+                $"(window.__writes || []).some(w => w.includes('/admin/members/{who}/usertype'))"),
+            "Choosing an answer sent it. Only the dialog's button may.");
+
+        await ClickAsync("#memberChangeSave");
 
         // <b>Read from the harness's trap rather than from the server.</b> Non-GET requests never
         // leave the page here, so *click then read the API back* passes against a dead control —
@@ -98,7 +106,7 @@ public sealed class MemberRemovalPageTests : ConsoleTest
         await WaitForAsync(
             $"(window.__writes || []).some(w => w.includes('/admin/members/{who}/usertype'))",
             $"Changing {who}'s user type sent nothing to /admin/members/{who}/usertype. The "
-            + "control moves and the server never hears about it.");
+            + "dialog closes and the server never hears about it.");
     }
 
     /// <summary>

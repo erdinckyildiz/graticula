@@ -458,9 +458,9 @@ public sealed class LogsScreenTests : ConsoleTest
         // <b>Moved twice, and counted rather than cleared between.</b> The first version reset
         // the recording after each move and waited again, which is three moving parts where one
         // will do: what is being asserted is that a changed window asks again, so counting the
-        // asks is the assertion. The default is *Last day*, so the walk starts elsewhere — a
-        // select set to the value it already holds fires no change the screen can act on.
-        foreach (string hours in new[] { "", "24", "168" })
+        // asks is the assertion. The default is *All of it* since the UX sweep of 2026-10-19, so the
+        // walk starts elsewhere — a select set to the value it already holds asks nothing new.
+        foreach (string hours in new[] { "24", "", "168" })
         {
             await Browser.EvaluateAsync<bool>($$"""
             (() => {

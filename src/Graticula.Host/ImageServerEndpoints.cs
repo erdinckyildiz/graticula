@@ -2271,7 +2271,15 @@ internal static partial class ImageServerEndpoints
     /// of a successful response.
     /// </remarks>
     private static Task RefuseAsync(HttpContext context, int code, string message) =>
-        Results.Ok(new
+
+        // A browser in the directory asking for a service it cannot see gets the sentence as a page
+        // (UX sweep 2026-10-19); every client that reads `error.code` still gets the JSON.
+        code == StatusCodes.Status404NotFound && RestDirectory.RefusesAsPage(context.Request)
+            ? Results.Content(
+                RestDirectory.Refusal(context.Request.Path, "Not found", message),
+                "text/html; charset=utf-8",
+                statusCode: code).ExecuteAsync(context)
+            : Results.Ok(new
         {
             error = new
             {

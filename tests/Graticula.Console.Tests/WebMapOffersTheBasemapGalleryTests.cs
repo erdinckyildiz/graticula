@@ -76,7 +76,7 @@ public sealed class WebMapOffersTheBasemapGalleryTests : ConsoleTest
             // ---- Settings: the gallery and the default as stored ----
             await OpenAsync("/studio/#/orgsettings", token);
             await WaitForAsync(
-                $"document.getElementById('basemapGallery')?.value === '{groupId}' && document.getElementById('basemapDefault')?.value === '{entry}'",
+                $"document.getElementById('basemapGallery')?.value === '{groupId}' && document.querySelector('#basemapDefault input:checked')?.value === '{entry}'",
                 "The Settings screen does not show the stored gallery and default.");
             Assert.Contains(name, await Browser.EvaluateAsync<string>("document.getElementById('basemapEntries').textContent") ?? "",
                 StringComparison.Ordinal);

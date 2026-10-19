@@ -78,7 +78,7 @@ public sealed class ServiceRowTests : ConsoleTest
         await OpenFolderHoldingAsync(ticks, token);
 
         int ticked = await Browser.EvaluateAsync<int>(
-            "(() => { window.confirm = () => true; const boxes = [...document.querySelectorAll("
+            "(() => { const boxes = [...document.querySelectorAll("
             + JsonSerializer.Serialize(ticks) + ")].slice(0, 2);"
             + " for (const b of boxes) b.click(); return boxes.length; })()");
 
@@ -88,6 +88,11 @@ public sealed class ServiceRowTests : ConsoleTest
             "Ticking services drew no Stop in the selection bar.");
 
         await ClickAsync("#svcBulkStop");
+
+        // The console's own confirmation since the 2026-10-19 UX sweep, not `confirm()`.
+        await WaitForAsync("document.getElementById('serverConfirm').open",
+            "Stop in the selection bar did not ask before stopping.");
+        await ClickAsync("#serverConfirmGo");
 
         await WaitForAsync(
             $"window.__writes.filter(w => w.includes('/admin/layers/') && w.includes('/stop?service=')).length >= {ticked}",

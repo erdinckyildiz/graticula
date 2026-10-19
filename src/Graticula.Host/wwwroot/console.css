@@ -129,6 +129,8 @@
   /* Accent text on the soft accent ground: `--accent` is 4.72:1 there; this is 5.78:1 on it and
      6.94:1 on white (re-measured for blue, 2026-10-16). */
   --accent-ink: #1257c2;
+  /* Text in the accent hue. --accent is a fill; on navy it is 3.4:1 as text, so text never uses it. */
+  --link: var(--accent-ink);
   --accent-line: #bcd2fa;
 
   --blue: #2f56c8;
@@ -249,7 +251,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 /*
@@ -314,7 +316,7 @@ a:hover { text-decoration: underline; }
 }
 #tabs a[data-tab]:hover, #tabs a[data-link]:hover { color: var(--ink); text-decoration: none; }
 #tabs a[data-tab][aria-current="page"] {
-  color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+  color: var(--link); border-bottom-color: var(--accent); font-weight: 600;
 }
 
 /*
@@ -567,7 +569,7 @@ tr:last-child td { border-bottom: 0; }
   their badges are wide, which is what `width: 1%` on a nowrap cell asks for.
 */
 #services .rowmeta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-#services td:nth-child(n+3) { width: 1%; white-space: nowrap; }
+#services td:nth-child(n+3):not(.svcbody) { width: 1%; white-space: nowrap; }
 
 /*
   <b>The row is clickable and says so once, on hover.</b> Not a cursor change plus a colour plus an
@@ -683,7 +685,8 @@ button.danger:hover { background: var(--alert-soft); border-color: var(--alert-l
 
 /*
   The overflow menu: `<details>` rather than a script-driven popover, because the element already
-  does the open/close state and the Escape key, and a menu is not worth a state machine.
+  keeps the open/close state. It does not close on Escape or on a press outside; console.js does both
+  for every menu (sweep 2026-10-19).
 */
 .menu { position: relative; display: inline-block; }
 .menu > summary {
@@ -721,6 +724,15 @@ button.danger:hover { background: var(--alert-soft); border-color: var(--alert-l
   padding: 8px 10px; border-radius: 3px; font-weight: 400;
 }
 .menu .sheet button:hover { background: var(--surface-2); }
+/* A link in a menu is one of its items, not a link in a sentence: the buttons' block, padding and ink. It was blue,
+   larger and flush left above 760 pixels (UX sweep 2026-10-19). */
+.menu .sheet a {
+  display: block; padding: 8px 10px; border-radius: 3px; color: var(--ink);
+  font: 400 var(--t-small) var(--sans); text-decoration: none;
+}
+.menu .sheet a:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
+.menu .sheet a.danger { color: var(--alert); }
+.menu .sheet a.danger:hover { background: var(--alert-soft); color: var(--alert); }
 .menu .sheet .note { padding: 6px 10px 8px; color: var(--faint); font-size: 11.5px; }
 
 /* -------------------------------------------------------------------- controls */
@@ -780,6 +792,15 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 }
 /* The .sr-only header of the provider list escaped the card at 390 px: its absolute box needs a positioned card. */
 #view-signin .panel { position: relative; }
+/* An empty list is a sentence, not column headings over one (sweep 2026-10-19). */
+#view-signin table:has(td.empty) thead { display: none; }
+#view-signin td.empty { padding: var(--gap-5); }
+#appRows button.danger { border-color: var(--alert-line); }
+@media (max-width: 719px) {
+  #view-signin .panel table.rowblocks { min-width: 0; }
+  #idpRows td.idpacts { grid-column: 1 / -1; grid-row: auto; text-align: left; }
+  #view-signin table.rowblocks code { overflow-wrap: anywhere; }
+}
 
 /* At a phone's width the list scrolls inside its card, as the Domains screen's does. */
 @media (max-width: 760px) {
@@ -808,11 +829,15 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .groundpick { border: 0; padding: 0; margin: var(--gap-3) 0 0; max-width: 620px; }
 .groundpick legend { padding: 0; margin-bottom: var(--gap-2); font-size: var(--t-body); }
 .groundopt {
-  display: grid; grid-template-columns: auto 1fr; column-gap: var(--gap-2);
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--gap-2);
   align-items: center; min-height: 44px;
 }
 .groundopt input { width: 18px; height: 18px; margin: 0; }
+.groundopt label { overflow-wrap: anywhere; }
 .groundopt .warn-inline { grid-column: 2; }
+.pill.groundpill { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
+.pill.groundpill::before { display: none; }
+.groundcount { font-weight: 400; color: var(--muted); margin-left: var(--gap-2); font-size: var(--t-small); }
 .groundstack { margin: var(--gap-2) 0 0; padding: 0; list-style: none; max-width: 620px; }
 .groundstack li {
   display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--gap-2);
@@ -832,11 +857,28 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .setting input:not([type=checkbox]), .setting select {
   width: 116px; text-align: right; font-family: var(--mono); }
 .setting .u { width: 68px; color: var(--muted); font-size: var(--t-small); }
+/* Under a limit's box: whether it is set here or inherited, and what is in force (UX sweep 2026-10-19, finding 6). */
+.hint.inherit { margin: 0 0 var(--gap-3); max-width: 620px; }
+.inheritstate { display: block; color: var(--ink); }
+.inheritstate .tag {
+  display: inline-block; margin-right: 8px; padding: 0 6px; border: 1px solid var(--rule-strong); border-radius: 4px;
+  color: var(--muted); font-size: 11.5px; font-weight: 600; line-height: 18px; vertical-align: 1px;
+}
+.inheritstate .tag.set { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
+.inheritstate:empty { display: none; }
+/* Links in running text are underlined, not told apart by colour alone (UX sweep 2026-10-19, finding 15). */
+:root[data-surface="server"] #view-service p a:not(.btn),
+:root[data-surface="server"] #view-service dd a:not(.btn), #view-operations p a:not(.btn), #view-sources p a:not(.btn),
+#view-settings p a:not(.btn), #view-logs p a:not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px var(--gap-5); max-width: 580px; }
 .grid2 label { display: flex; align-items: center; gap: var(--gap-2); padding: 5px 0;
                font-size: var(--t-body); }
 .grid2 label.off { color: var(--faint); }
+/* One option a line, with its note under it rather than squeezed into a grid cell (UX sweep 2026-10-19, finding 20). */
+.checklist { display: grid; gap: 2px; max-width: 580px; }
+.checklist label { display: flex; align-items: center; gap: var(--gap-2); padding: 5px 0; font-size: var(--t-body); }
+.checklist .hint { margin: -4px 0 4px 26px; }
 
 .toolbar {
   display: flex; align-items: center; gap: var(--gap-3);
@@ -932,6 +974,8 @@ button:hover .ico { opacity: 1; }
 }
 .pill.p-unusable, .pill.p-delete { background: var(--alert-soft); border-color: var(--alert-line);
                                    color: var(--alert); }
+/* Started and failing: requests reach it and get a server error (UX sweep 2026-10-19, finding 1). */
+.pill.p-failing { background: var(--alert-soft); border-color: var(--alert-line); color: var(--alert); }
 
 /* <b>Running and refusing, which is a state and not a status — D-232.</b> It sits *beside* the
    started pill rather than replacing it, so it is deliberately the quieter of the two: amber
@@ -1007,7 +1051,7 @@ button:hover .ico { opacity: 1; }
   it anywhere*, and giving it the same icon as `turkiye` would say it is one folder among four.
 */
 .rail-item svg { width: 15px; height: 15px; flex: none; color: var(--faint); }
-.rail-item.on svg { color: var(--accent); }
+.rail-item.on svg { color: var(--link); }
 .rail-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rail-count { margin-left: auto; font: var(--t-small)/1 var(--sans); font-variant-numeric: tabular-nums; color: var(--muted); }
 .rail-item.on .rail-count { color: var(--accent-ink); }
@@ -1026,75 +1070,37 @@ button:hover .ico { opacity: 1; }
                    gap: var(--gap-2); }
 
 /*
-  <b>A paragraph of caveats became one glyph with a tooltip.</b> Owner polish pass: *"the long
-  explanatory paragraph makes the widget feel like a debug panel. Move detailed explanations into an
-  info tooltip or compact help affordance."* The text is unchanged and still one hover away — these
-  numbers genuinely need it, since CPU is a ratio since start and the lines are the page's own
-  samples — but a widget is not the place to read three sentences.
+  <b>Site › Status leads with a verdict</b> (UX sweep 2026-10-19, finding 10): one sentence, the counts behind it, and
+  the services that need attention. It replaced a donut and its legend, which could not show a failing service.
 */
-.widget .why {
-  margin-left: auto; width: 17px; height: 17px; flex: none;
-  border-radius: 50%; border: 1px solid var(--control-edge);
-  color: var(--faint); background: var(--surface);
-  font: 600 11px/15px var(--sans); text-align: center; text-transform: none; letter-spacing: 0;
-  cursor: help;
-}
-.widget .why:hover { color: var(--accent); border-color: var(--accent-line);
-                     background: var(--accent-soft); }
-
-/*
-  <b>A ring, because a proportion reads faster as an arc than as a column of percentages.</b> Owner
-  refinement pass: *"use a compact donut/ring visualization… this should look like an operational
-  monitoring widget, not a statistics table."* One `conic-gradient` and a hole punched with a
-  pseudo-element: no SVG, no library, no canvas, and the arc lengths are the real counts.
-*/
-.donutrow { display: flex; align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-4); }
-
-.donut {
-  width: 84px; height: 84px; flex: none; border-radius: 50%;
-  position: relative;
-  background: conic-gradient(var(--ok-dot) 0turn var(--started),
-                             var(--warn-dot) var(--started) 1turn);
-}
-
-/*
-  <b>The reference draws a sliver of amber and red at nine-of-nine started, and this does not.</b>
-  Its data is 9/0/0 too, so those arcs are decoration — a ring that shows a fault where there is
-  none is the same lie as a sparkline with no history behind it, and the whole point of the arc is
-  that its length is the count.
-*/
-.donut::after {
-  content: ""; position: absolute; inset: 11px; border-radius: 50%;
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--rule);
-}
-.donut.none { background: var(--surface-3); }
-
-.tally b { display: block; font-size: 33px; font-weight: 650; letter-spacing: -.03em; line-height: 1; }
-.tally span { font-size: var(--t-small); color: var(--muted); }
-
-/*
-  A legend row: a coloured dot, a name, the count in tabular figures, then the share. Four columns of
-  different weight, which is the hierarchy the brief asked for at this scale — the count is the
-  answer and the percentage is context.
-*/
-.legendrow { display: flex; align-items: center; gap: var(--gap-2); font-size: var(--t-small);
-             padding: 5px 0; border-top: 1px solid var(--rule); }
-.legendrow:first-child { border-top: 0; }
-.legendrow .key { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.legendrow .key::before { content: ""; width: 8px; height: 8px; border-radius: 50%;
-                          background: var(--faint); }
-.legendrow.ok .key::before { background: var(--ok-dot); }
-.legendrow.warn .key::before { background: var(--warn-dot); }
-.legendrow.alert .key::before { background: var(--alert-dot); }
-.legendrow b { margin-left: auto; font: 600 var(--t-body)/1 var(--sans); font-variant-numeric: tabular-nums; color: var(--ink);
-               font-variant-numeric: tabular-nums; }
-.legendrow em { font-style: normal; color: var(--faint); width: 42px; text-align: right;
-                font-variant-numeric: tabular-nums; }
-
-/* A state this server cannot enter is dimmed rather than dropped — see drawHealthWidget. */
-.legendrow.impossible { color: var(--faint); }
-.legendrow.impossible b { color: var(--faint); font-weight: 400; }
+.verdict { margin-bottom: var(--gap-5); }
+.verdict h3 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; margin: 0 0 var(--gap-4);
+  font-size: 22px; font-weight: 650; color: var(--ink); text-transform: none; letter-spacing: 0; }
+.verdict h3 .big { font-size: 34px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.verdict.bad h3 .big { color: var(--alert); }
+.verdictcounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--gap-3); margin: 0; }
+.verdictcounts > div { border: 1px solid var(--rule); border-radius: var(--round-lg); padding: var(--gap-3);
+  background: var(--surface-2); min-width: 0; }
+.verdictcounts dt { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--t-small); }
+.verdictcounts dt svg { width: 13px; height: 13px; flex: none; }
+.verdictcounts dd { margin: 4px 0 0; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.verdictcounts .bad { background: var(--alert-soft); border-color: var(--alert-line); }
+.verdictcounts .bad dt, .verdictcounts .bad dd { color: var(--alert); }
+.verdictcounts .warn { background: var(--warn-soft); border-color: var(--warn-line); }
+.verdictcounts .warn dt { color: var(--warn); }
+.verdictissues { list-style: none; margin: var(--gap-4) 0 0; padding: 0; border-top: 1px solid var(--rule); }
+.verdictissues[hidden] { display: none; }
+.verdictissues li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-4);
+  padding: var(--gap-3) 0; border-bottom: 1px solid var(--rule); }
+.verdictissues li p { flex: 1 1 220px; min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.verdictissues a:not(.btn) { text-decoration: underline; }
+.widget #rwWhy { margin: var(--gap-3) 0 0; }
+/* Every route, behind a disclosure: a summary line that opens a table that scrolls inside itself. */
+.routelist { margin: 0 0 var(--gap-5); }
+.routelist > summary { cursor: pointer; padding: var(--gap-2) 0; font-weight: 600; color: var(--ink); }
+.routelist > summary .val { margin-left: 4px; font-weight: 400; }
+.routelist .routetable { max-height: 70vh; overflow: auto; margin-top: var(--gap-3); }
+.routelist .routetable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /*
   <b>A resource row: name, sparkline, value.</b> The brief asked for the reference's sparklines and,
@@ -1229,18 +1235,36 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
                      font-size: var(--t-small); }
 #legend { display: flex; flex-wrap: wrap; gap: var(--gap-3); padding: var(--gap-3) 0 0;
           font-size: var(--t-small); color: var(--muted); }
-#basemapBar { display: flex; align-items: center; gap: var(--gap-2); padding: 0 0 var(--gap-3); }
+#basemapBar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+  padding: var(--gap-3) var(--gap-4); border-bottom: 1px solid var(--rule);
+}
 #basemapBar .lbl { font-size: var(--t-label); letter-spacing: .05em; text-transform: uppercase;
                    color: var(--faint); font-weight: 600; }
-#basemapBar .val { color: var(--muted); }
+#basemapBar .val { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+#basemapBar .basemapown { margin-left: auto; }
+#basemapBar .basemapown > summary { cursor: pointer; color: var(--link); font-size: var(--t-small); }
+#basemapBar .basemapown[open] { flex: 1 1 100%; margin-left: 0; }
+#basemapBar .basemapform { display: flex; flex-wrap: wrap; gap: var(--gap-2); margin-top: var(--gap-2); }
+#basemapBar .basemapform input { flex: 1 1 260px; min-width: 0; }
+/* The layer's drawing range, when the map is outside it: neutral, across the map's top edge. */
+.visrangenote {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+  padding: var(--gap-2) var(--gap-4); background: var(--surface-2); border-bottom: 1px solid var(--rule);
+  color: var(--ink); font-size: var(--t-small);
+}
+.visrangenote[hidden] { display: none; }
+#mapPanel #legend { padding: var(--gap-3) var(--gap-4); }
 
 /* ------------------------------------------------------------- the layer editor */
 
 #editHead { display: flex; align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-4); }
-#editHead .crumbs { font-size: var(--t-body); color: var(--muted); }
-#editHead .crumbs a { color: var(--muted); }
-#editHead .crumbs a:hover { color: var(--accent); }
-#editHead .crumbs b { color: var(--ink); font-weight: 600; }
+#editHead .crumbs, #mapCrumb { font-size: var(--t-body); color: var(--muted); }
+#editHead .crumbs a, #mapCrumb a { color: var(--muted); }
+#editHead .crumbs a:hover, #mapCrumb a:hover { color: var(--link); text-decoration: underline; }
+#editHead .crumbs b, #mapCrumb b { color: var(--ink); font-weight: 600; }
+/* The web map's crumb is the layer item's: muted, the place in ink, so it is not told apart by colour (round 2). */
+#mapCrumb { margin-bottom: var(--gap-4); }
 #editHead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-3); }
 
 #editDirty { font-size: 11.5px; font-weight: 600; color: var(--warn);
@@ -1332,11 +1356,11 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
   display: flex; gap: var(--gap-3); align-items: flex-start;
   margin: var(--gap-4) 0 0; padding: var(--gap-3) var(--gap-4);
   background: var(--accent-soft);
-  border: 1px solid var(--accent-line); border-left-width: 3px;
+  border: 1px solid var(--accent-line);
   border-radius: var(--round);
   color: var(--muted); max-width: none;
 }
-#serviceNote::before { content: "ⓘ"; color: var(--accent); font-size: 14px; line-height: 1.3;
+#serviceNote::before { content: "ⓘ"; color: var(--link); font-size: 14px; line-height: 1.3;
                        flex: none; }
 #serviceNote:empty { display: none; }
 
@@ -1386,6 +1410,46 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
 .widetable table { min-width: 640px; }
 /* A panel that scrolls keeps its own padding rather than losing it to the scroll box. */
 .panel.widetable { padding-bottom: 0; }
+
+/*
+  <b>Below 720 pixels a row is a block, not a strip you scroll sideways.</b> The UX sweep of 2026-10-19 measured
+  every Studio table at 390: Groups hid Members and Services, Members hid User type, Role and the ⋯, and nothing
+  said the columns were there. A `table.rowblocks` row becomes its name first, the ⋯ beside it, and each other
+  cell as a labelled line underneath — the label is the cell's `data-l`, so the heading it lost is said again.
+  The name cell is `td.name` or `td.lead`, the actions cell `td.act`, a selection box `td.tick`.
+*/
+@media (max-width: 719px) {
+  table.rowblocks, .widetable table.rowblocks, #view-roles .panel table.rowblocks,
+  #view-groups .panel table.rowblocks { min-width: 0; }
+  .widetable:has(> table.rowblocks), .panel:has(> table.rowblocks) { overflow-x: visible; }
+  table.rowblocks thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  table.rowblocks tbody { display: block; }
+  table.rowblocks tr { display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+                       gap: 4px var(--gap-3); padding: var(--gap-3) var(--gap-4);
+                       border-bottom: 1px solid var(--rule); }
+  table.rowblocks tr:last-child { border-bottom: 0; }
+  table.rowblocks td { display: block; padding: 0; border: 0; min-width: 0; text-align: left; }
+  table.rowblocks td:is(.name, .lead) { grid-column: 1 / -2; grid-row: 1; }
+  table.rowblocks td:is(.tick, .thumbcell) { grid-column: 1; grid-row: 1; width: auto; }
+  table.rowblocks td:is(.tick, .thumbcell) + td:is(.name, .lead) { grid-column: 2 / -2; }
+  /* An unbroken login, an e-mail address from a provider, wraps inside its block rather than pushing the page wide. */
+  table.rowblocks td:is(.name, .lead), table.rowblocks td:is(.name, .lead) * { overflow-wrap: anywhere; }
+  table.rowblocks .whorow > span { min-width: 0; }
+  table.rowblocks td.tick input { width: 24px; height: 24px; margin: 0; }
+  table.rowblocks td.thumbcell .thumb { width: 72px; height: 48px; }
+  table.rowblocks td[data-l] { grid-column: 1 / -1; display: flex; gap: var(--gap-2); align-items: baseline;
+                               font-size: var(--t-small); }
+  table.rowblocks td[data-l]::before { content: attr(data-l); flex: 0 0 96px; color: var(--muted); }
+  table.rowblocks td[data-l] > * { min-width: 0; }
+  table.rowblocks td.empty, table.rowblocks tr.groupband > td { grid-column: 1 / -1; }
+  /* The ⋯ or the row's button keeps the top right, and is not the sticky pinned column the wide rule makes. */
+  table.rowblocks td.act, .widetable table.rowblocks td.act:last-child {
+    grid-column: -2 / -1; grid-row: 1; align-self: start; position: static; box-shadow: none;
+    background: transparent; text-align: right;
+  }
+  :root[data-theme="dark"] .widetable table.rowblocks td.act:last-child { background: transparent; }
+  table.rowblocks td:empty { display: none; }
+}
 
 /*
   The route table's two problems: a pattern that cannot wrap because it has no spaces, and a last
@@ -1502,22 +1566,41 @@ tr.pick td.name a { color: inherit; text-decoration: none; }
 tr.pick td.name a:hover { text-decoration: underline; }
 
 /* And everywhere else a link in a name cell looks like one. */
-td.name a { color: var(--accent); text-decoration: none; }
+td.name a { color: var(--link); text-decoration: none; }
 td.name a:hover { text-decoration: underline; }
 
 .dialoghead { display: flex; align-items: center; justify-content: space-between;
               gap: var(--gap-4); padding: var(--gap-4) var(--gap-5);
               border-bottom: 1px solid var(--rule); }
-.dialoghead h3 { font-size: var(--t-head); margin: 0; }
+.dialoghead h3 { font-size: var(--t-head); margin: 0; min-width: 0; }
+/* A long title wraps beside the close x, never pushing it to a line of its own (verification round, 2026-10-19). */
+.dialoghead { flex-wrap: nowrap; height: auto; }
+.dialoghead > button { flex: none; }
+/* The close control is one drawn x in the muted ink, on every step: it was a dingbat, blue on one step of New item and
+   rust on the next (UX sweep 2026-10-19). */
+.dialoghead > button[aria-label="Close"] { color: var(--muted); }
+.dialoghead > button[aria-label="Close"]:hover { color: var(--ink); }
+.dialoghead > button:has(> .closex) { padding: 5px; line-height: 0; }
+.dialoghead .closex { width: 16px; height: 16px; display: block; }
 
 /* Capped rather than tall: the dialog must not grow past the viewport on a laptop, and their
    screen 2 is already 900 pixels of options. */
 .dialogbody { padding: var(--gap-5); max-height: min(68vh, 620px); overflow-y: auto; }
+#serviceFacts, #resourceWidget { min-width: 0; overflow-wrap: anywhere; }
+/* The body is what gives way when the foot grows: a consequence sentence in the foot pushed Cancel and the
+   button below the dialog's edge (sweep 2026-10-19, round 3). The dialog keeps the browser's own height cap. */
+dialog[open]:has(> .dialogbody) { display: flex; flex-direction: column; }
+dialog > .dialogbody { flex: 0 1 auto; min-height: 0; }
+dialog > .dialoghead, dialog > .dialogfoot { flex: none; }
 
 .dialogfoot { display: flex; align-items: center; gap: var(--gap-2);
               padding: var(--gap-4) var(--gap-5); border-top: 1px solid var(--rule);
               background: var(--surface-2); border-radius: 0 0 var(--round-lg) var(--round-lg); }
 .dialogfoot .fill { flex: 1; }
+/* A footer that says what its button does: the sentence takes the first line, the buttons the next. */
+.dialogfoot.withsays { flex-wrap: wrap; }
+.dialogfoot.withsays > .consequence, .dialogfoot.withsays > .bad-inline { flex: 1 1 100%; margin: 0 0 var(--gap-2); }
+.dialogfoot.withsays > .bad-inline[hidden] { display: none; }
 /* Empty on the first screen, where the only way out is the close button — theirs is the same. */
 .dialogfoot:empty { display: none; }
 
@@ -1533,7 +1616,7 @@ td.name a:hover { text-decoration: underline; }
 .dropzone svg { width: 30px; height: 30px; color: var(--faint); }
 /* Only while a file is over it: the affordance has to answer, or a drag ends in a guess. */
 .dropzone.over { border-color: var(--accent); background: var(--accent-soft); }
-.dropzone.over svg { color: var(--accent); }
+.dropzone.over svg { color: var(--link); }
 
 /* Two columns, as theirs, collapsing rather than squeezing — a 48px icon beside two lines of prose
    has no room to give at 520px. */
@@ -1584,8 +1667,10 @@ td.name a:hover { text-decoration: underline; }
            margin-top: var(--gap-2); cursor: pointer; }
 .pickrow:first-of-type { margin-top: 0; }
 .pickrow:hover { border-color: var(--rule-strong); }
-.pickrow.on { border-color: var(--accent); background: var(--accent-soft); }
+.pickrow.on, .pickrow:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 .pickrow input { margin: 3px 0 0; accent-color: var(--accent); }
+.pickrow input[type="radio"] { width: 18px; height: 18px; }
+.pickrow:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .pickrow b { display: block; font-weight: 600; }
 
 /*
@@ -1603,7 +1688,10 @@ td.name a:hover { text-decoration: underline; }
   rendered at the same 13.5px in the same muted grey — no hierarchy between *what you are choosing* and
   *what it means*. The same markup is New item's route picker, so both were affected.
 */
-.pickrow .lede { display: block; margin-top: 3px; font-size: var(--t-small); color: var(--muted); }
+.pickrow .lede { display: block; margin: 3px 0 0; font-size: var(--t-small); color: var(--muted); }
+/* The global `.lede` gives a paragraph 16 pixels under it, which left every card bottom-heavy; and in a dialog the
+   cards are a step tighter so the choices fit above the fold (verification round, 2026-10-19). */
+dialog .pickrow { padding: var(--gap-3) var(--gap-4); }
 
 /* Dialog text is `--ink`, not the browser's default black. Nothing was overriding the UA rule, so every
    dialog's base colour was a coincidence rather than the token. */
@@ -1688,7 +1776,7 @@ dialog { color: var(--ink); }
      wide in a 334-pixel column, so `#who` and Sign out sat off the right edge — and the page scrolled
      98 pixels sideways to reach them, which drags the rail off with it. The health line takes its own
      row and truncates rather than wrapping to five lines over the breadcrumb. */
-  header { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 4px;
+  header:not(.dialoghead) { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 4px;
            padding: var(--gap-2) var(--gap-3); gap: var(--gap-3); }
   #healthLine { flex: 1 1 100%; order: 3; min-width: 0;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1712,8 +1800,9 @@ dialog { color: var(--ink); }
   #view-roles .panel table, #view-sources .panel table { min-width: 460px; }
 
   /* The basemap bar: Use and None were off the edge, so a basemap could be neither set nor cleared. */
-  #basemapBar { flex-wrap: wrap; }
-  #basemapBar .val, #basemapInput { flex: 1 1 100%; min-width: 0; }
+  #basemapBar .val { flex: 1 1 100%; }
+  #basemapBar .basemapown { margin-left: 0; }
+  #basemapInput { flex: 1 1 100%; min-width: 0; }
   #basemapSet, #basemapClear { flex: 1 1 auto; }
 
   /* <b>Forty pixels for anything a finger presses.</b> Every row control was 20 to 28 pixels tall. This
@@ -1767,7 +1856,8 @@ dialog { color: var(--ink); }
   /* Two more scope strips that are not `.segmented`, and two more tables that are not in `.widetable`. */
   .tabstrip { overflow-x: auto; scrollbar-width: none; }
   .tabstrip a { flex: 0 0 auto; white-space: nowrap; min-height: 40px;
-                display: inline-flex; align-items: center; }
+                display: inline-flex; align-items: center; gap: 6px; }
+  /* A flex row drops the space before the count, which read "Content1" (sweep 2026-10-19); the gap puts it back. */
   #view-groups .panel { overflow-x: auto; }
   #view-groups .panel table { min-width: 460px; }
 
@@ -1819,13 +1909,20 @@ html[data-session="none"] #main > header { display: none; }
 #signin .signin-head h2 { margin: 0; font-size: 20px; }
 #signin .signin-where { margin: 2px 0 0; font-size: var(--t-small); color: var(--muted);
                         overflow-wrap: anywhere; }
+/* The header's mark, the same blue circle: it was the old navy square (UX sweep 2026-10-19). */
 #signin .signin-head .mark {
-  width: 34px; height: 34px; flex: none; border-radius: 8px;
-  background: #171b49;
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  background: var(--accent);
   display: grid; place-items: center; color: #fff; font-size: 15px; font-weight: 700;
 }
 #signin .signin-head .mark svg { width: 18px; height: 18px; display: block; }
 #signin .signin-body { padding: var(--gap-2) var(--gap-5) var(--gap-5); }
+#signin .signin-for { margin: var(--gap-3) 0 0; font-size: var(--t-small); color: var(--ink); overflow-wrap: break-word; }
+#signin .signin-stranger a { text-decoration: underline; text-underline-offset: 2px; }
+#signin .signin-stranger {
+  margin: 0; padding: var(--gap-3) var(--gap-5); border-top: 1px solid var(--rule); background: var(--surface-2);
+  font-size: var(--t-small); color: var(--muted); text-align: center;
+}
 #signin #u, #signin #p { font-size: 15px; min-height: 42px; padding: 8px 10px; }
 #signin #p { padding-right: 68px; }
 #signin .signin-refused {
@@ -1839,7 +1936,7 @@ html[data-session="none"] #main > header { display: none; }
 #signin .reveal-toggle {
   position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
   width: auto; margin: 0; padding: 6px 10px; min-height: 32px;
-  background: none; border: 0; color: var(--accent); font-weight: 600; font-size: var(--t-small);
+  background: none; border: 0; color: var(--link); font-weight: 600; font-size: var(--t-small);
 }
 #signin .reveal-toggle:hover { text-decoration: underline; }
 
@@ -1851,7 +1948,7 @@ html[data-session="none"] #main > header { display: none; }
 
 #signin .forgot {
   display: block; width: auto; margin: var(--gap-3) auto 0; padding: 6px 4px; min-height: 32px;
-  background: none; border: 0; color: var(--accent); font-size: var(--t-small);
+  background: none; border: 0; color: var(--link); font-size: var(--t-small);
   text-decoration: underline; text-underline-offset: 3px;
 }
 #signin #forgotHint { margin: var(--gap-2) 0 0; text-align: center; }
@@ -1938,16 +2035,24 @@ pre.doc {
              padding: var(--gap-3); margin-bottom: var(--gap-3); background: var(--surface); }
 .rolegrouphead { display: flex; align-items: center; gap: var(--gap-3);
                  font-weight: 600; font-size: var(--t-small); margin-bottom: 6px; }
-.roleprivilege { display: flex; align-items: baseline; gap: var(--gap-3); padding: 3px 0; }
-.roleprivilege .mono { min-width: 22em; }
-.roleprivilege input[disabled] + .privilegetext .mono { color: var(--muted); }
+/* One privilege, one row (UX sweep 2026-10-19): an 18-pixel box, its name in words, the identifier small, the
+   user-type pill, and the sentence underneath. The whole row is the label, so the target is the row. */
+.roleprivilege { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: var(--gap-3); align-items: start;
+                 padding: var(--gap-2) var(--gap-2); border-radius: var(--round); cursor: pointer; }
+.roleprivilege:hover { background: var(--surface-2); }
+.roleprivilege input[type="checkbox"] { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--accent); }
+.roleprivilege .privilegename { font-weight: 600; }
+.roleprivilege code.mono { font: 12px/1.3 var(--mono); color: var(--faint); background: none; padding: 0; }
+.roleprivilege .tierpill::before { display: none; }
+.roleprivilege .tierpill.cappednote { background: var(--warn-soft); border-color: var(--warn-line); color: var(--warn); }
+.roleprivilege input[disabled] + .privilegetext .privilegename { color: var(--muted); }
 
 /* <b>Capped by a user type: muted, not disabled.</b> The 1c handoff asks for these greyed with a
    note, and the prototype greys the *text* and leaves the control — which is the honest reading.
    The role does carry the privilege and it does work, for a member whose type has no ceiling in
    the way; ADR-018 §1's intersection is what the note names. A disabled box would say *you cannot
    grant this*, and that is a different and false sentence. */
-.roleprivilege.capped .mono { color: var(--muted); }
+.roleprivilege.capped .privilegename { color: var(--muted); }
 
 /* Amber rather than the neutral chip colour, because this one is a caution and the two beside it
    — `needs` and `includes` — are facts about the privilege rather than about who it reaches. */
@@ -1957,8 +2062,29 @@ pre.doc {
    does is a sentence, and a sentence in a row of chips is a chip nobody reads. The wrapper
    exists so the checkbox stays aligned with the name rather than with the middle of a
    two-line block. */
-.privilegetext { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--gap-3); }
-.privilegewhat { flex-basis: 100%; color: var(--muted); font-size: 0.92em; max-width: 62em; }
+.privilegetext { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--gap-2); min-width: 0; }
+.privilegewhat { flex-basis: 100%; color: var(--muted); font-size: var(--t-small); max-width: 70ch; }
+
+/* The Member roles page: the list is 300 pixels and keeps its place while the editor, which takes the rest,
+   scrolls; the editor has room inside its edge, and its Save bar is the `.savebar` the group Settings use. */
+.pickpair.rolepair { grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); }
+.rolepair .rolelistcol { position: sticky; top: 96px; }
+.rolepair #roleEditor { padding: var(--gap-5) var(--gap-5) 0; }
+.rolepair #roleEditor .editorhead { align-items: flex-start; flex-wrap: wrap; }
+.rolepair #roleEditor .editorhead h3 { font-size: var(--t-head); }
+.rolepair #roleEditor .editorhead .hint { margin: 2px 0 0; max-width: 60ch; }
+.rolepair #roleEditor .savebar { margin: var(--gap-4) calc(-1 * var(--gap-5)) 0; }
+.rolepair .rowmeta { display: block; font-size: var(--t-small); color: var(--muted); font-weight: 400; }
+#roleRows button.rowname { font-weight: 600; }
+@media (max-width: 900px) {
+  /* One column on a phone: this rule's two-class selector outweighed the shared one-column rule (0,2,0 over 0,1,0),
+     so at 390 the editor kept 50 pixels (verification round, 2026-10-19). */
+  .pickpair.rolepair { grid-template-columns: minmax(0, 1fr); }
+  .rolepair .rolelistcol { position: static; }
+  .rolepair #roleEditor { padding: var(--gap-4) var(--gap-4) 0; }
+  .rolepair #roleEditor .savebar { margin: var(--gap-4) calc(-1 * var(--gap-4)) 0; }
+}
+.roleprivilege code.mono, .roleprivilege .privilegename { overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- the selected row
 
@@ -2069,10 +2195,13 @@ tr.groupband > td {
 
 /* The facts, which were two paragraphs of grey hint carrying one word each. A label/value pair is
    the reference's Details block reduced to what we have: the standing and what the group confers. */
-.facts2 { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--gap-4);
+/* `minmax(0, 1fr)` and `min-width: 0`, because an address field in a value set the column's width and the web map's
+   item scrolled sideways at 320 (UX sweep 2026-10-19). Baseline, so a label stays on its value's line when the value
+   carries a button, as Owner's Change owner… does. */
+.facts2 { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px var(--gap-4); align-items: baseline;
           font-size: var(--t-small); margin: var(--gap-3) 0; }
 .facts2 dt { color: var(--muted); }
-.facts2 dd { margin: 0; font-weight: 600; }
+.facts2 dd { margin: 0; font-weight: 600; min-width: 0; }
 .facts2 dd .val { font-weight: 400; }
 
 /* ---------------------------------------------------------------- the tab strip
@@ -2103,6 +2232,12 @@ tr.groupband > td {
   color: var(--ink); font-weight: 600; border-bottom-color: var(--accent);
 }
 .tabstrip .count { color: var(--muted); font-variant-numeric: tabular-nums; font-size: var(--t-small); }
+
+/* A link inside a sentence is underlined, so it is not told apart by colour alone (axe link-in-text-block,
+   sweep 2026-10-19). */
+#groupCrumb a, #groupSummary a, #groupAbout a, #groupRecent a, #groupSettings p a {
+  text-decoration: underline; text-underline-offset: 2px;
+}
 .tabstrip a[aria-current="page"] .count { color: var(--muted); }
 
 /* Overview's reachability sentence: a comparison of two numbers, so prose with the numbers set
@@ -2145,6 +2280,56 @@ tr.groupband > td {
 .setting.wide label { display: inline-flex; align-items: center; gap: var(--gap-2); }
 .setting.wide .u { width: auto; flex: 0 0 auto; }
 .setting.wide .q { max-width: 400px; }
+/* A name or a sentence is prose, not a number: `.setting`'s monospace was set for figures with units, and a
+   wide row inherited it — "Planning Group" in Consolas (UX sweep 2026-10-19). */
+.setting.wide select, .setting.wide input:not([type=checkbox]) { font-family: inherit; font-size: var(--t-body); }
+
+/* ---------------------------------------------------------------- a group's Settings tab, 2026-10-19
+
+   Three sections with headings larger than the labels under them, one column of full-width fields, radio
+   rows for each either/or, a Save bar that stays at the bottom of the window while the form scrolls, and
+   deletion in its own card after the form, bordered all round in the alert hue. */
+.gsform { max-width: 720px; border: 1px solid var(--rule); border-radius: var(--round-lg); background: var(--surface); }
+.gsec { padding: var(--gap-5); }
+.gsec + .gsec { border-top: 1px solid var(--rule); }
+.gsec h3 { font-size: var(--t-head); margin: 0 0 var(--gap-1); }
+.gsec > .hint { margin: 0 0 var(--gap-4); }
+.gfield { display: grid; gap: 6px; margin-bottom: var(--gap-4); }
+.gfield:last-child { margin-bottom: 0; }
+.gfield label { font-weight: 600; }
+.gfield input, .gfield textarea { width: 100%; font-family: inherit; font-size: var(--t-body); }
+.gfield .hint { margin: 0; }
+.gsec fieldset.pickset { margin-bottom: var(--gap-5); }
+.gsec fieldset.pickset:last-child { margin-bottom: 0; }
+.gsec .pickrow { padding: var(--gap-3) var(--gap-4); }
+.gsec .pickrow:has(input:disabled) { cursor: not-allowed; color: var(--muted); }
+.gfixed { margin: 0; padding: var(--gap-3) var(--gap-4); border: 1px solid var(--rule); border-radius: var(--round);
+          background: var(--surface-2); }
+.gfixed .hint { display: block; margin: 2px 0 0; }
+.savebar { position: sticky; bottom: 0; z-index: 2; display: flex; flex-wrap: wrap; align-items: center;
+           justify-content: flex-end; gap: var(--gap-2); padding: var(--gap-3) var(--gap-5);
+           border-top: 1px solid var(--rule); background: var(--surface);
+           border-radius: 0 0 var(--round-lg) var(--round-lg); }
+.savebar > .val { margin-right: auto; }
+/* Pinned only while there is something to save; with nothing changed it sits where it is and takes no screen.
+   On a phone it is always one line (verification round, 2026-10-19). */
+.savebar:not(.dirty) { position: static; }
+@media (max-width: 600px) {
+  .savebar { flex-wrap: nowrap; padding: var(--gap-2) var(--gap-3); }
+  .savebar > .val { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .savebar > button { flex: none; }
+}
+.dangercard { max-width: 720px; margin-top: var(--gap-5); border: 1px solid var(--alert-line);
+              border-radius: var(--round-lg); background: var(--surface); }
+.dangercard h3 { font-size: var(--t-head); margin: 0; padding: var(--gap-4) var(--gap-5) 0; color: var(--alert); }
+.dangerrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+             gap: var(--gap-3) var(--gap-5); padding: var(--gap-4) var(--gap-5); }
+.dangerrow + .dangerrow { border-top: 1px solid var(--rule); }
+.dangerrow > div { flex: 1 1 280px; min-width: 0; }
+.dangerrow .hint { margin: 2px 0 0; }
+.dangerrow button.danger { border-color: var(--alert-line); }
+.dangerswitch { display: inline-flex; align-items: center; gap: var(--gap-2); font-weight: 600; }
+.dangerswitch input { width: 18px; height: 18px; accent-color: var(--accent); }
 
 /* ---------------------------------------------------------------- the add page
 
@@ -2165,7 +2350,7 @@ tr.groupband > td {
 
 .pubroot { display: flex; align-items: center; gap: 8px; padding: 8px 10px;
   border-bottom: 1px solid var(--rule); font-weight: 600; }
-.pubroot .pubglyph { color: var(--accent); }
+.pubroot .pubglyph { color: var(--link); }
 
 /* <b>The map's reference, and it is a label rather than a second name.</b> The per-layer badge
    is styled as `.pubrow .pubsr`, and `.pubroot` is a different ancestor — so the root's badge
@@ -2191,7 +2376,7 @@ tr.groupband > td {
 /* <b>The reprojection mark, and only where there is one.</b> An arrow beside every layer is
    decoration; beside the three whose tables are stored in something else it is the answer to
    *what is this service doing to my data*. */
-.pubwarp { color: var(--accent); font-size: 13px; flex: none; cursor: help; }
+.pubwarp { color: var(--link); font-size: 13px; flex: none; cursor: help; }
 
 /* The symbol, under the layer it belongs to — the row the disclosure triangle reveals. */
 .pubsym { display: flex; align-items: center; gap: 9px; width: 100%;
@@ -2470,7 +2655,7 @@ html[data-session="held"] #app { display: block !important; }
 
 .symstrip .crumbs { white-space: nowrap; }
 .symstrip .crumbs a { color: var(--muted); }
-.symstrip .crumbs a:hover { color: var(--accent); }
+.symstrip .crumbs a:hover { color: var(--link); }
 .symstrip .crumbs b { color: var(--ink); font-weight: 600; }
 
 .symstrip .symdo { margin-left: auto; display: flex; align-items: center; gap: var(--gap-2); }
@@ -2651,7 +2836,7 @@ html[data-session="held"] #app { display: block !important; }
 }
 .insptabs a:hover { color: var(--ink); text-decoration: none; }
 .insptabs a[aria-current] {
-  color: var(--accent); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent);
+  color: var(--link); font-weight: 600; box-shadow: inset 0 -2px 0 var(--accent);
 }
 .insptabs .badge {
   min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
@@ -3296,7 +3481,7 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
    off, and *why can this client not edit* is the question somebody has. The greyed pill keeps
    `--faint`, which is 4.54:1 on the palest surface it sits on — a state that cannot be read is
    not a lighter version of one that can. */
-.pill.p-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
+.pill.p-on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--link); }
 .pill.p-off { background: var(--surface-2); border-color: var(--rule); color: var(--faint); }
 .pill.p-off::before { opacity: .45; }
 
@@ -3308,8 +3493,13 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
   text-align: right; vertical-align: middle;
 }
 #serviceLayerRows .lsw { width: 44px; vertical-align: middle; }
+/* Three narrow columns fit their card: the shared 640-pixel floor made a 384-pixel card scroll sideways, and a
+   scrolling region nobody can focus (round 2). The name wraps instead. */
+#serviceLayersPanel.widetable { overflow-x: visible; }
+#serviceLayersPanel.widetable table { min-width: 0; width: 100%; }
+#serviceLayerRows td.name { overflow-wrap: anywhere; }
 #serviceLayerRows .lstate { width: 160px; vertical-align: middle; }
-#serviceLayerRows .lstate .authored { color: var(--accent); font-weight: 600; }
+#serviceLayerRows .lstate .authored { color: var(--link); font-weight: 600; }
 
 .geoswatch {
   display: grid; place-items: center; height: 30px; border-radius: 4px;
@@ -3332,7 +3522,7 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
   border: 1px solid var(--rule); background: var(--surface); border-radius: 4px;
   padding: 3px 9px; margin-left: 6px; color: var(--ink); font-size: 12.5px;
 }
-#serviceLayerRows .acts .tiny:hover { border-color: var(--accent); color: var(--accent); }
+#serviceLayerRows .acts .tiny:hover { border-color: var(--accent); color: var(--link); }
 
 /* <b>A blank cover explains itself.</b> The picture arrived and is empty, which is not the same
    as a picture that failed — and a white rectangle where a map should be reads as the second. */
@@ -3457,16 +3647,25 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
   font: 600 11.5px/1 var(--sans); color: #33404f; letter-spacing: .02em;
 }
 
-/* <b>The role select wears the pill's hue.</b> The handoff draws a pill — admin teal, publisher
-   violet, other grey — and a pill cannot be changed; this is the control that changes what
-   somebody may do, so it keeps being a control and takes the colour. */
-.rolepick { font-weight: 500; }
-.rolepick[data-role-is="administrator"] {
-  color: var(--accent-ink); border-color: var(--accent); background: var(--accent-soft);
+/* <b>The role is a pill again, as the handoff drew it</b> — admin blue, publisher violet, other grey.
+   It was a select that saved on an arrow key (UX sweep 2026-10-19); the change is in the row menu now,
+   so the row only reads. No dot: the word is the whole of it. */
+.pill.rolepill::before { display: none; }
+.pill.rolepill[data-role-is="administrator"] {
+  color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft);
 }
-.rolepick[data-role-is="publisher"] {
+.pill.rolepill[data-role-is="publisher"] {
   color: var(--violet); border-color: var(--violet-line); background: var(--violet-soft);
 }
+
+/* Change role… / Change user type…: the choices as radio rows, and what the chosen one does under them,
+   amber when it takes something away. A full border, never a side stripe. */
+fieldset.pickset { border: 0; padding: 0; margin: 0 0 var(--gap-4); min-width: 0; }
+fieldset.pickset legend { font-weight: 600; margin-bottom: var(--gap-2); padding: 0; }
+.consequence { margin: 0; padding: var(--gap-3) var(--gap-4); border: 1px solid var(--rule);
+               border-radius: var(--round); background: var(--surface-2); font-size: var(--t-small); }
+.consequence.lowers { border-color: var(--warn-line); background: var(--warn-soft); }
+.consequence b { color: var(--ink); }
 
 /* -------------------------------------------------------- the sharing scope, as cards
    <b>Three answers with a sentence each.</b> A select can carry a word, so the sentences were
@@ -3553,7 +3752,7 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
 }
 .symlayerpick.on .symlayerpickname { font-weight: 600; }
 .symlayerpick .rowmeta { display: block; font-size: 12px; color: var(--muted); }
-.symlayerpick .rowmeta.authored { color: var(--accent); font-weight: 600; }
+.symlayerpick .rowmeta.authored { color: var(--link); font-weight: 600; }
 .symlayerpick .geoswatch { height: 26px; }
 
 /* ------------------------------------------------------------- a fold, and its summary
@@ -3636,7 +3835,7 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
   box-shadow: 0 0 0 1px var(--rule); font: 600 15px/1 var(--sans); margin: 0 0 2px;
   width: 26px; height: 26px;
 }
-.sympreview .ol-zoom button:hover { background: var(--surface-2); color: var(--accent); }
+.sympreview .ol-zoom button:hover { background: var(--surface-2); color: var(--link); }
 /* The legend keeps the bottom-left corner, so it moves up out of the buttons' way. */
 .symlegend { bottom: 74px; }
 
@@ -3811,7 +4010,7 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
   margin: 18px 12px; padding: 26px 14px; text-align: center; color: var(--faint);
   border: 1px dashed var(--rule-strong); border-radius: 4px; font-size: var(--t-small);
 }
-#pubContents.dropping .pubempty { border-color: var(--accent); color: var(--accent); }
+#pubContents.dropping .pubempty { border-color: var(--accent); color: var(--link); }
 
 .pubnode { margin: 0 8px; border-radius: 3px; }
 .pubnode + .pubnode { margin-top: 1px; }
@@ -3886,6 +4085,18 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 @media (max-width: 1180px) {
   .composer { grid-template-columns: 1fr; }
 }
+/* UX sweep 2026-10-19, findings 16 and 17. Stacked, each pane was a third of a fixed height — a 114 px scroller
+   on a phone; it takes the height its contents need, the map a usable one. The map's zoom buttons and the
+   map row's menu are 28 px targets rather than 22 and 17. */
+@media (max-width: 1180px) {
+  .composer { height: auto; min-height: 0; }
+  .composer .composerbody { flex: none; max-height: 70vh; }
+  #pubSummary .composerbody.pubcanvas { height: 320px; max-height: none; }
+}
+#pubMap .ol-zoom button { width: 28px; height: 28px; font-size: 18px; line-height: 1; }
+.pubmenu { min-width: 28px; min-height: 28px; }
+.pubopenwhy { align-self: center; color: var(--muted); font-size: var(--t-small); }
+.pubopenwhy[hidden] { display: none; }
 
 /* ADR-063 — the layer's Fields page. The label box fills its cell so a long label is readable
    while it is typed; the orphaned overrides are a plain list with their Remove beside them. */
@@ -3985,6 +4196,25 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
    card. Below that the card goes under the table, and a phone scrolls the table sideways. */
 @media (max-width: 1500px) { #view-sources .pickpair { grid-template-columns: minmax(0, 1fr); } }
 #view-sources .pickpair > div > .panel { overflow-x: auto; }
+/* UX sweep 2026-10-19, finding 12. The side card only explains now — Register is in the page head — so it is
+   narrower and the table keeps its four buttons on one line. On a phone each source is a card: name and layer
+   count, the connection under them, and the actions on a line of their own instead of past the right edge. */
+@media (min-width: 1501px) { #view-sources .pickpair { grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); } }
+#sources .cardonly { display: none; }
+@media (max-width: 600px) {
+  #view-sources .panel table { min-width: 0; }
+  #view-sources .panel thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #sources tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px var(--gap-3);
+    padding: var(--gap-3); border-bottom: 1px solid var(--rule); }
+  #sources td { display: block; padding: 0; border: 0; }
+  #sources td.num { grid-column: 2; grid-row: 1; color: var(--muted); white-space: nowrap; }
+  #sources td.val { grid-column: 1 / -1; }
+  #sources td.acts { grid-column: 1 / -1; width: auto; white-space: normal; display: flex; flex-wrap: wrap;
+    gap: 6px; padding-top: 6px; }
+  #sources td.acts .danger { margin-left: 0; }
+  #sources td.acts .tiny { min-height: 36px; }
+  #sources .cardonly { display: inline; }
+}
 #dbconn #dcS3 summary { cursor: pointer; }
 .dcskipped { margin: var(--gap-2) 0 0; padding-left: 1.2em; }
 .dcskipped li { margin: 2px 0; }
@@ -3995,6 +4225,17 @@ table.logs-server th:nth-child(3), table.logs-server th:nth-child(4),
 table.logs-server tr.logrow td:nth-child(3), table.logs-server tr.logrow td:nth-child(4) { display: none; }
 td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; vertical-align: bottom; }
+/* Three columns, so no five-column minimum, and a long component name wraps inside its cell rather than past the
+   card's edge (UX sweep 2026-10-19, finding 22). */
+#view-logs .widetable table.logs-server { min-width: 0; }
+table.logs-server td.logmessage span[title] { max-width: min(60ch, 52vw); }
+table.logs-server tr.logrow td:last-child code { overflow-wrap: anywhere; white-space: normal; }
+/* A phone: each label over its control, not a label left at the end of one line and its box on the next. */
+@media (max-width: 600px) {
+  #view-logs #logFilters { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 4px; }
+  #view-logs #logFilters > label:not(:has(input[type=checkbox])) { margin-top: 6px; }
+  #view-logs #logOwn { display: grid; gap: 4px; }
+}
 
 /*
   <b>The History page — ADR-078.</b> The changes, and under or beside them the chosen feature's versions.
@@ -4034,7 +4275,16 @@ td.logmessage span[title] { display: inline-block; max-width: 60ch; overflow: hi
    the page left 424 pixels between a label and its box (design review 2026-09-24). */
 .settingcard { max-width: 760px; }
 /* ADR-184 review: the gallery card's two lists one width, and never past the card on a phone. */
-#basemapGallery, #basemapDefault { width: min(100%, 28rem); box-sizing: border-box; }
+#basemapGallery { width: min(100%, 28rem); box-sizing: border-box; }
+/* The Map page since the UX sweep of 2026-10-19: the default basemap as radio rows, the ground card's state as a
+   pill beside its heading, and one Save bar under both cards that stays at the bottom of the window. */
+#basemapDefault { margin-top: var(--gap-4); max-width: 36rem; }
+#basemapDefault + .hint { margin-top: var(--gap-2); }
+.cardhead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3); }
+.cardhead h4 { margin: 0; }
+#groundInUse::before { display: none; }
+#view-orgsettings .savebar { border: 1px solid var(--rule); border-radius: var(--round-lg); margin-top: var(--gap-4); }
+#mapDirty:focus { outline: none; }
 
 /* A label over its box at phone width, rather than a label broken over two lines beside it. */
 @media (max-width: 560px) {
@@ -4168,7 +4418,10 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 /* Server › service › Layers (owner decision 2026-10-01). */
 #page-layers .srvlayer { padding: var(--gap-3) 0; border-bottom: 1px solid var(--rule); }
 #page-layers .srvlayer .row { display: flex; align-items: center; gap: var(--gap-2); flex-wrap: wrap; }
-#page-layers .srvlayer.asked { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+/* The layer an address asked for: a full hairline and a tint, not a one-sided bar (UX sweep 2026-10-19, finding 21). */
+#page-layers .srvlayer.asked { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line);
+  border-radius: var(--round); }
+#page-layers .srvgroups { margin: var(--gap-3) 0 0; }
 #page-layers .srvlayer { scroll-margin-top: 160px; }
 #page-layers .srvlayer h4 { margin: 0; padding: 0; border: 0; text-transform: none; letter-spacing: 0;
   font-size: inherit; color: inherit; font-weight: 600; }
@@ -4204,8 +4457,40 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 @media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: minmax(0, 1fr); } }
 
 /* A web map's item page (2026-10-01): the main column and the actions beside it, as the layer item. */
-.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--gap-4); align-items: start; }
-.mapitem .mapmain > h4 { margin: var(--gap-4) 0 var(--gap-2); }
+/* Since the UX sweep of 2026-10-19 it is the layer's shell: a head card with the picture, the name and the actions,
+   the tabs under them, then the item's information beside its summary and layers. */
+#mapPagehead {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "thumb text actions" "tabs tabs tabs";
+  align-items: start; column-gap: 0; row-gap: var(--gap-4); margin-bottom: var(--gap-5);
+  padding: var(--gap-4) var(--gap-5) 0; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--round-lg); box-shadow: var(--lift);
+}
+/* The gaps ride on the picture and the actions, as the layer's head has them, so a tab without the picture does not
+   keep an empty column's gap in front of the title (round 2: 23 pixels deeper than a layer's). */
+#mapPagehead > #mapThumb { grid-area: thumb; margin-right: var(--gap-5); }
+#mapPagehead:not([data-tab="overview"]) > #mapThumb { display: none; }
+#mapPagehead > #mapThumb .thumb { width: 180px; height: 116px; max-width: none; border-radius: var(--round-lg); }
+#mapPagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
+#mapPagehead > .herotext h2 { margin: 0 0 4px; overflow-wrap: break-word; }
+#mapPagehead > .herotext p { margin: 0; color: var(--muted); }
+#mapPagehead > #mapActions {
+  grid-area: actions; max-width: 440px; margin-left: var(--gap-5); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gap-2);
+}
+#mapActions > button { padding: 6px 12px; }
+#mapPagehead > #mapTabs { grid-area: tabs; justify-self: start; align-self: end; }
+@media (max-width: 900px) {
+  #mapPagehead { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "thumb text" "actions actions" "tabs tabs"; }
+  #mapPagehead > #mapActions { max-width: none; justify-content: flex-start; margin-left: 0; }
+  #mapPagehead > #mapThumb .thumb { width: 120px; height: 78px; }
+}
+@media (max-width: 480px) { #mapPagehead > #mapThumb .thumb { width: 88px; height: 58px; } }
+#mapSettings h4:first-child { margin-top: 0; }
+#mapSettings #mapDelete { margin-top: var(--gap-2); }
+.maplayershead { margin: var(--gap-4) 0 var(--gap-1); font-size: var(--t-small); font-weight: 600; color: var(--muted); }
+.mapitem { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--gap-4); align-items: start; }
+.mapitem .mapmain { display: flex; flex-direction: column; gap: var(--gap-4); min-width: 0; }
+.mapitem h4:first-child { margin-top: 0; }
 .maplayers { list-style: none; margin: 0; padding: 0; }
 .maplayers li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .maplayers li:last-child { border-bottom: 0; }
@@ -4215,11 +4500,11 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #mapShare .check > span { display: inline-flex; flex-direction: column; }
 /* One column on a narrow screen, with the actions first: stacked after the description and the layers, Open in Map
    Viewer was below the fold at 390 px (ADR-079 condition 2's review, 2026-10-14). */
-@media (max-width: 900px) { .mapitem { grid-template-columns: 1fr; } .mapitem #mapSide { order: -1; } }
+@media (max-width: 900px) { .mapitem { grid-template-columns: minmax(0, 1fr); } }
 #mapAbout, #mapLayers { padding: var(--gap-3) var(--gap-4); }
 
 /* A button that reads as a link, beside a fact it changes (Change owner…). */
-.linkbtn { background: none; border: 0; padding: 0; margin-left: 6px; color: var(--accent); font: inherit; font-size: 13px;
+.linkbtn { background: none; border: 0; padding: 0; margin-left: 6px; color: var(--link); font: inherit; font-size: 13px;
   text-decoration: underline; cursor: pointer; }
 #changeOwner .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #changeOwner select { font: inherit; max-width: 100%; }
@@ -4315,12 +4600,15 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 .rampchoice select { flex: 1 1 auto; min-width: 0; }
 .rampswatch { flex: 0 0 48px; height: 12px; border-radius: 3px; border: 1px solid var(--rule); }
 
-/* A group's Content at phone width: kind and reach under the name rather than in columns scrolled out of view. */
+/* A group's Content at phone width: kind and reach under the name rather than in columns scrolled out of view —
+   from 720 down since the table became blocks there (sweep 2026-10-19). */
 .narrowonly { display: none; }
 h4.spaced { margin-top: 24px; }
-@media (max-width: 600px) {
+@media (max-width: 719px) {
   #groupItems .widecol, #view-group th.widecol, th.widecol { display: none; }
   #groupItems .narrowonly { display: inline; }
+  /* Two buttons do not fit beside a name at 390; they take their own line under it. */
+  #groupMembers td.groupmemberacts { grid-column: 1 / -1; grid-row: auto; text-align: left; }
 }
 
 /* ADR-129: My content's selection — a tick column and the bar of what can be done to every ticked item. */
@@ -4476,7 +4764,7 @@ h4.spaced { margin-top: 24px; }
   there.
 */
 @media (max-width: 1100px) {
-  header { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 0; padding-top: var(--gap-2); }
+  header:not(.dialoghead) { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 0; padding-top: var(--gap-2); }
   header .right { margin-left: auto; }
   #tabs { order: 4; flex: 1 1 100%; margin-left: 0; overflow-x: auto; scrollbar-width: none;
           border-top: 1px solid var(--rule); min-height: 44px; scroll-padding-inline: 12px;
@@ -4518,14 +4806,15 @@ h4.spaced { margin-top: 24px; }
   font-size: 14px; font-weight: 600; letter-spacing: 0; text-transform: none;
   color: var(--ink); margin: 0 0 6px 12px;
 }
+/* The chosen folder is told by its fill and weight, not by a border on one side (round 2). */
 #contentSide > #contentFolders .chip {
   display: flex; justify-content: space-between; align-items: center; gap: var(--gap-2);
-  text-align: left; border: 0; border-left: 3px solid transparent; border-radius: 0 var(--round) var(--round) 0;
-  background: none; padding: 7px 12px; font-size: var(--t-body); color: var(--ink);
+  text-align: left; border: 0; border-radius: var(--round);
+  background: none; padding: 7px 12px; margin: 0 var(--gap-2); font-size: var(--t-body); color: var(--ink);
 }
 #contentSide > #contentFolders .chip:hover { background: var(--surface-2); }
 #contentSide > #contentFolders .chip.on {
-  background: var(--accent-soft); border-left-color: var(--accent); color: var(--accent-ink); font-weight: 600;
+  background: var(--accent-soft); color: var(--accent-ink); font-weight: 600;
 }
 #contentSide > #contentFolders .foldersep { display: none; }
 #contentSide > #contentFolders #folderNew,
@@ -4543,18 +4832,31 @@ h4.spaced { margin-top: 24px; }
   border-bottom: 1px solid var(--rule); padding-bottom: 0;
 }
 #servicePagehead > .herotext { flex: 1 1 100%; }
-#serviceTabs.segmented {
+#serviceTabs.segmented, #mapTabs.segmented {
   order: 2; align-self: flex-end; background: none; border: 0; padding: 0; gap: 0;
   border-radius: 0; margin: 0;
 }
-#serviceTabs.segmented a {
+#serviceTabs.segmented a, #mapTabs.segmented a {
   padding: 10px 16px; margin-bottom: -1px; border-radius: 0; background: none; box-shadow: none;
   border-bottom: 2px solid transparent; color: var(--muted); font-size: var(--t-body); font-weight: 500;
 }
-#serviceTabs.segmented a:hover { color: var(--ink); }
-#serviceTabs.segmented a[aria-current] {
-  background: none; box-shadow: none; color: var(--accent); border-bottom-color: var(--accent); font-weight: 600;
+#serviceTabs.segmented a:hover, #mapTabs.segmented a:hover { color: var(--ink); }
+#serviceTabs.segmented a[aria-current], #mapTabs.segmented a[aria-current] {
+  background: none; box-shadow: none; color: var(--link); border-bottom-color: var(--accent); font-weight: 600;
 }
+/* A resting tab reads as unavailable, not as a quieter tab: half its ink and a dotted underline (round 2). */
+#serviceTabs.segmented a[aria-disabled="true"] {
+  color: var(--muted); opacity: .5; cursor: not-allowed; text-decoration: underline dotted; text-underline-offset: 4px;
+}
+#serviceTabs.segmented a[aria-disabled="true"]:hover { color: var(--muted); }
+
+/* The item's state, when it changes what the page can show: neutral, full border, one sentence and the way on. */
+.itemnotice {
+  margin: var(--gap-4) 0; padding: var(--gap-3) var(--gap-4); border: 1px solid var(--rule-strong);
+  border-radius: var(--round-lg); background: var(--surface-2); color: var(--ink); font-size: var(--t-small);
+  line-height: 1.5;
+}
+.itemnotice a { margin-left: var(--gap-2); font-weight: 600; }
 #servicePagehead #itemLayerField.itemlayer {
   order: 3; flex: 0 1 280px; width: auto; max-width: 280px; margin: 0 0 8px auto;
   display: flex; align-items: center; gap: var(--gap-2);
@@ -4565,7 +4867,7 @@ h4.spaced { margin-top: 24px; }
     position: static; flex-direction: row; flex-wrap: wrap; align-items: center; margin: 8px 0;
   }
   #contentSide > #contentFolders .chip {
-    border: 1px solid var(--rule); border-radius: 999px; padding: 6px 12px; font-size: 13px;
+    border: 1px solid var(--rule); border-radius: 999px; padding: 6px 12px; font-size: 13px; margin: 0;
   }
   #contentSide > #contentFolders .chip.on { border-color: var(--accent); }
   #serviceTabs.segmented { max-width: 100%; overflow-x: auto; flex-wrap: nowrap; }
@@ -4599,7 +4901,14 @@ h4.spaced { margin-top: 24px; }
 }
 /* The Layer field is a row, label beside its select, so the tab line does not drop on Data. */
 #servicePagehead #itemLayerField.itemlayer { flex-direction: row; align-items: center; gap: 8px; }
-#serviceTabs.segmented a:focus-visible { outline-offset: -2px; }
+#serviceTabs.segmented a:focus-visible, #mapTabs.segmented a:focus-visible { outline-offset: -2px; }
+/* On a phone the four tabs fit, and wrap rather than scroll out of sight: Settings, which holds sharing, the tile cache
+   and Delete, sat at 313–400 in a 320 box with no scrollbar to say it was there (UX sweep 2026-10-19). */
+@media (max-width: 600px) {
+  #serviceTabs.segmented, #mapTabs.segmented { flex-wrap: wrap; overflow-x: visible; white-space: normal; }
+  #serviceTabs.segmented a, #mapTabs.segmented a { padding: 12px 6px; font-size: 14px; }
+  #serviceTabs.segmented a + a, #mapTabs.segmented a + a { margin-left: var(--gap-3); }
+}
 
 /* Server's General page: an address wraps rather than running out of its panel. */
 #page-about dd code { overflow-wrap: anywhere; white-space: normal; }
@@ -4607,6 +4916,12 @@ h4.spaced { margin-top: 24px; }
 /* The folder column scrolls inside itself when it is longer than the window, so New folder stays reachable. */
 #contentSide > #contentFolders {
   max-height: calc(100vh - 112px); overflow-y: auto;
+}
+/* <b>A list, one folder a line, beside the results</b> (round 2): the shared `.folderbar` is a wrapping row, so with
+   one folder All sat on the label's line, the folders shared a row and New folder floated under them. Chips are for
+   the narrow layout, where the column lies above the list. */
+@media (min-width: 1101px) {
+  #contentSide > #contentFolders:has(.chip) { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; }
 }
 #contentSide > #contentFolders .folderlabel,
 #contentSide > #contentFolders .hint,
@@ -4648,9 +4963,9 @@ h4.spaced { margin-top: 24px; }
 /*
   <b>Dark is a choice the reader makes, and it is remembered.</b> The header's theme button sets
   `data-theme` on the root and keeps it in `localStorage`; `session.js` puts it back before the first
-  paint. It is not taken from the operating system's preference: the map pages (Map Viewer, the layer
-  viewer) carry their own light tokens, and a console that turned dark by itself in front of a light map
-  would be the half-finished theme the design handoff warned against. Every value below is a token the
+  paint. It is not taken from the operating system's preference, and since the 2026-10-19 sweep the map
+  pages (Map Viewer, the layer viewer, the SDK viewer) read the same choice through `session.js` and copy
+  these tokens, so a reader who chose dark gets a dark map page too. Every value below is a token the
   rest of the stylesheet already reads, so the theme is this block and not a second stylesheet.
 
   <b>Contrast is measured, not hoped.</b> Ink #e6ebf4 on paper #0a1120 is 15.8:1, muted #9aa7bd on the
@@ -4673,6 +4988,7 @@ h4.spaced { margin-top: 24px; }
   --accent-hot: #3b76f0;
   --accent-soft: #11264a;
   --accent-ink: #6aa6ff;
+  --link: var(--accent-ink);
   --accent-line: #24497f;
   --blue: #8fa8f5;
   --blue-soft: #1a2547;
@@ -4849,6 +5165,14 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
   .facets .folderlabel { margin: 0 4px 0 0; }
   .facets label.check { padding: 4px 10px; border: 1px solid var(--rule); border-radius: 999px; font-size: 13px; }
   .facets .linkbtn { margin: 0; }
+
+  /* The scopes wrap as chips, as the folders and the types beside them do. As a scrolling strip, Organization began
+     exactly at the edge of a phone's screen, with no fade or scrollbar to say there was more (UX sweep 2026-10-19). */
+  #contentSide > .sidelist { flex-wrap: wrap; overflow-x: visible; border-bottom: 0; gap: 6px; }
+  #contentSide > .sidelist a {
+    padding: 6px 12px; border: 1px solid var(--rule); border-radius: 999px; font-size: 13px; white-space: nowrap;
+  }
+  #contentSide > .sidelist a[aria-current="page"] { border-color: var(--accent); }
 }
 
 
@@ -4869,7 +5193,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #servicePagehead:not([data-tab="overview"]) > #itemThumb { display: none; }
 #servicePagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
 /* A service's name is one word — tur_admin_public — and it set a phone's page width: 308 in 285 (2026-10-18). */
-#servicePagehead > .herotext h2 { overflow-wrap: anywhere; }
+#servicePagehead > .herotext h2 { overflow-wrap: break-word; }
 #servicePagehead > #itemActions {
   grid-area: actions; margin-left: var(--gap-5); max-width: 440px;
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-content: flex-start; gap: var(--gap-2);
@@ -4894,6 +5218,11 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #serviceOverview #serviceLayersPanel { grid-column: 3; grid-row: 2; margin: 0; border-top: 0; border-radius: 0 0 var(--round-lg) var(--round-lg); }
 #serviceOverview h4 { margin-top: 0; }
 
+/* An image service has no Layers card, so its two cards share the row rather than leaving a third of it empty
+   (UX sweep 2026-10-19). */
+@media (min-width: 1241px) {
+  #serviceOverview.itemgrid:has(> .itemmain > #serviceLayersPanel[hidden]) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 1240px) {
   #serviceOverview.itemgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #serviceOverview #serviceLayersHead { grid-column: 1 / -1; grid-row: 3; }
@@ -4953,6 +5282,32 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 #serverHero .urlrow .key { font-size: var(--t-small); color: var(--muted); white-space: nowrap; }
 #serverHero .urlrow input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); }
 #serverHero .heroactions { display: flex; gap: var(--gap-2); flex-wrap: wrap; justify-content: flex-end; }
+/* UX sweep 2026-10-19, findings 7, 8 and 11: the name and the address wrap rather than widen the page, a failing
+   service says so under its name, and a stopped one gets a neutral line instead of a red toast. */
+#serverHero .herotext { min-width: 0; }
+#serverHero .herotext h2 { overflow-wrap: anywhere; }
+#serverHero .urlrow { flex-wrap: wrap; }
+#serverHero .urlrow code {
+  flex: 1 1 260px; min-width: 0; padding: 5px 8px; border: 1px solid var(--rule); border-radius: var(--round);
+  background: var(--surface-2); font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; color: var(--ink);
+}
+#serverHero:not(:has(.herothumb)) { grid-template-columns: minmax(0, 1fr) auto; }
+@media (max-width: 760px) {
+  #serverHero:not(:has(.herothumb)) { grid-template-columns: minmax(0, 1fr); }
+  #serverHero:not(:has(.herothumb)) .heroactions { grid-column: 1; }
+}
+#serverHero .herofail { color: var(--ink); }
+#serverHero .herofail a { text-decoration: underline; }
+#serverHero .thumb.empty { display: grid; place-items: center; color: var(--muted); font-size: var(--t-small); }
+#serverHero .heroactions .btn svg { width: 13px; height: 13px; margin-left: 6px; vertical-align: -1px; }
+.stoppednote {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-4); margin: 0 0 var(--gap-4);
+  padding: var(--gap-3) var(--gap-4); border: 1px solid var(--rule-strong); border-radius: var(--round-lg);
+  background: var(--surface-2); color: var(--ink);
+}
+.stoppednote[hidden] { display: none; }
+.stoppednote p { flex: 1 1 260px; margin: 0; }
+#serviceLimits .row { margin-top: var(--gap-4); }
 
 :root[data-surface="server"] #serviceEdit { display: block; }
 :root[data-surface="server"] #serviceNav {
@@ -4993,11 +5348,11 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 
 /* ── The design review of the restructured screens (2026-10-16) ── */
 
-/* Dark: blue text on navy needs the lighter blue — #2563eb is 3.4:1 there and is kept for fills behind white. */
-:root[data-theme="dark"] a:not(.btn),
-:root[data-theme="dark"] .linkbtn,
+/* Dark: the current place in the accent blue. Plain links take --link in both themes, so a component that sets its own
+   colour (a tab strip, a side list) keeps it; a blanket a:not(.btn) here painted every inactive tab blue (sweep 2026-10-19). */
 :root[data-theme="dark"] #tabs a[data-tab][aria-current="page"],
 :root[data-theme="dark"] #serviceTabs.segmented a[aria-current],
+:root[data-theme="dark"] #mapTabs.segmented a[aria-current],
 :root[data-theme="dark"] .sidelist a[aria-current="page"] { color: var(--accent-ink); }
 
 /* The heads are cards, as the reference draws them. */
@@ -5079,7 +5434,21 @@ header #tabs a[data-tab], header #tabs a[data-link] { padding-top: 0; padding-bo
 /* The health sentence is the dot's tooltip and label, not a line of its own (owner, 2026-10-16: *"platform store
    reachable bla bla'sı ne?"*). The dot turns red when something is wrong; hovering it says what. */
 #utilbar > #healthLine, :root[data-surface] #utilbar > #healthLine { display: none; }
-#utilbar > #healthDot { margin-right: auto; cursor: help; }
+#utilbar > #healthDot { margin-right: auto; }
+/* <b>The health in a word, linking to Site › Status</b> (UX sweep 2026-10-19, findings 1 and 14). The dot alone was
+   colour and hover only, and stayed green while a service failed. The word carries the state; the dot or the
+   triangle repeats it for the eye. */
+.healthpill {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 1px 9px; border: 1px solid var(--rule);
+  border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 600;
+  text-decoration: none; white-space: nowrap;
+}
+.healthpill #healthWord { display: inline-flex; align-items: center; gap: 6px; }
+.healthpill svg { width: 13px; height: 13px; flex: none; }
+.healthpill:hover { text-decoration: underline; }
+.healthpill.ok { color: var(--ok); border-color: var(--ok-line); background: var(--ok-soft); }
+.healthpill.failing, .healthpill.unusable { color: var(--alert); border-color: var(--alert-line); background: var(--alert-soft); }
+.healthpill[hidden] { display: none; }
 
 /* ═══════════════════════════════════════════ The account menu (owner, 2026-10-16) */
 #utilbar .usermenu > summary {
@@ -5272,13 +5641,14 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #contentSide > #contentFolders:not(:has(.chip)) #folderNew { margin: 0 0 0 auto; padding: 2px 8px; }
 
 /* The item's secondary actions, one menu (owner, 2026-10-17). It looks like the buttons beside it. */
-#itemActions .itemmore > summary {
+#itemActions .itemmore > summary, #mapActions .itemmore > summary {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: var(--t-small);
   color: var(--ink); border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface);
   font-weight: 500; line-height: 1.4;
 }
-#itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover { background: var(--surface-2); }
-#itemActions .itemmore .sheet { min-width: 200px; }
+#itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover,
+#mapActions .itemmore[open] > summary, #mapActions .itemmore > summary:hover { background: var(--surface-2); }
+#itemActions .itemmore .sheet, #mapActions .itemmore .sheet { min-width: 200px; }
 #itemActions .itemmore .sheet button { display: block; width: 100%; text-align: left; }
 
 /* Logs: the head sits over the log, beside its sources, as on every other page with a left column (2026-10-17);
@@ -5313,6 +5683,57 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
   #services td.acts { white-space: normal; }
   #services td.acts > .rowbtn { margin: 0 0 6px 0 !important; width: 100%; justify-content: flex-start; }
 }
+
+/* UX sweep 2026-10-19, findings 1-4 and 18: a verb only when it can act, the reason in words when it cannot, a link
+   that says it leaves for Studio, names that wrap rather than clip, and a failing service that reads as one. */
+#services .svctitle .name { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+#services .svcdesc { text-overflow: ellipsis; overflow-wrap: anywhere; }
+#services td.acts > * + * { margin-left: 6px; }
+.rowlink {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 0 2px;
+  color: var(--link); font-size: 13px; font-weight: 500; text-decoration: underline; text-underline-offset: 2px;
+}
+.rowlink svg { width: 13px; height: 13px; flex: none; }
+.rowwhy {
+  display: block; margin: 6px 0 0; white-space: normal; text-align: left;
+  color: var(--muted); font-size: 12.5px; line-height: 1.4;
+}
+.rowwhy a { text-decoration: underline; }
+#services tr.svcrow.failing td,
+:root[data-theme="dark"] #view-services .widetable #services tr.svcrow.failing td:last-child { background: var(--alert-soft); }
+#services .svcmeta .pill.p-failing { color: var(--alert); font-weight: 600; }
+#services .svcfail { margin: 8px 0 0; color: var(--ink); font-size: var(--t-small); line-height: 1.45; }
+#services .svcfail a { text-decoration: underline; }
+#services .thumb.empty { display: grid; place-items: center; color: var(--muted); font-size: 11.5px; }
+.svcsummary .failword { display: inline-flex; align-items: center; gap: 5px; color: var(--alert); font-weight: 600; }
+.svcsummary .failword svg { width: 13px; height: 13px; }
+.bulkbar .bulkwhy { color: var(--muted); font-size: 12.5px; }
+.systag {
+  display: inline-block; margin-left: 4px; padding: 0 5px; border: 1px solid var(--rule-strong); border-radius: 4px;
+  color: var(--muted); font-size: 11px; font-weight: 600; line-height: 16px; vertical-align: 1px;
+}
+/* A phone: the row is a card — tick, picture and name on top, the verbs on their own line under them. */
+@media (max-width: 600px) {
+  /* The table and its body flow as blocks: a grid row inside a table sized to its content gave the name 0 px. */
+  #view-services .widetable table, #services { display: block; width: 100%; }
+  #services tr.svcrow { display: grid; grid-template-columns: auto auto minmax(0, 1fr); }
+  #services tr.svcrow td { display: block; border-bottom: 0; }
+  #services tr.svcrow { border-bottom: 1px solid var(--rule); }
+  #services td.svcbody { max-width: none; width: auto; }
+  #services tr.svcrow td.acts { grid-column: 1 / -1; width: auto; padding-top: 0; text-align: left;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  #services td.acts > * + * { margin-left: 0; }
+  #services td.acts > .rowbtn { width: auto; margin: 0 !important; }
+}
+/* Folders as a row of chips under 1080px, so the first service is on the first screen of a phone. */
+@media (max-width: 1080px) {
+  #folders { display: flex; gap: 6px; overflow-x: auto; padding: var(--gap-3); scrollbar-width: thin; }
+  #folders .rail-item { flex: none; padding: 8px 12px; min-height: 40px; border: 1px solid var(--rule);
+    border-radius: var(--round); white-space: nowrap; }
+  #folders .rail-item.on { border-color: var(--accent-line); }
+  #folders .rail-name { overflow: visible; }
+  #folders .rail-count { margin-left: 6px; }
+}
 #view-services .widetable table tr.pick:hover td:last-child { background: var(--surface-2); }
 #view-services .widetable table tr.pick.on:hover td:last-child { background: var(--accent-soft); }
 /* The list of domains (ADR-087 §6, 2026-10-17): under the designed fields, and in the Fields page's dialog. */
@@ -5337,18 +5758,54 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 .memberslayout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--gap-5); align-items: start; }
 .memberfilters { position: sticky; top: 96px; }
 .memberfilters h4 { margin: 0 0 var(--gap-2); }
+/* The wrapper reads as the section's heading on a wide screen and as a button on a narrow one. */
+.memberfilters details.mfwrap { border-top: 0; padding: 0; }
+.memberfilters .mfwrap > summary { list-style: none; font-size: var(--t-body); padding: 0 0 var(--gap-2); }
+.memberfilters .mfwrap > summary::-webkit-details-marker { display: none; }
+.mfon { color: var(--muted); font-weight: 400; margin-left: 4px; }
+.mfon:empty { display: none; }
+@media (min-width: 1024px) { .memberfilters .mfwrap > summary { cursor: default; } }
+@media (max-width: 1023px) {
+  .memberfilters .mfwrap > summary {
+    display: inline-flex; align-items: center; min-height: 40px; padding: 0 var(--gap-4); margin-bottom: var(--gap-2);
+    border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface); cursor: pointer;
+  }
+  .memberfilters .mfwrap > summary::after { content: "\25BE"; margin-left: var(--gap-2); color: var(--muted); }
+  .memberfilters .mfwrap[open] > summary::after { content: "\25B4"; }
+}
 .memberfilters details { border-top: 1px solid var(--rule); padding: 8px 0; }
 .memberfilters summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 2px 0; }
 .memberfilters select, .memberfilters input[type=search] { width: 100%; margin-top: 6px; }
 .mflist { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; max-height: 220px; overflow-y: auto; }
 .mflist label { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
 #view-members .toolbar input[type=search] { flex: 0 1 360px; }
+/* Below 720 pixels the headings are not drawn and not in the Tab order; their two jobs are this bar. */
+.narrowbar { display: none; }
+@media (max-width: 719px) {
+  #view-members table.rowblocks thead { display: none; }
+  .narrowbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3); margin: 0 0 var(--gap-3); }
+  .narrowbar label.check { display: inline-flex; align-items: center; gap: var(--gap-2); min-height: 44px; margin-right: auto; }
+  .narrowbar input[type=checkbox] { width: 24px; height: 24px; margin: 0; }
+  .narrowbar select { min-height: 40px; }
+}
+/* A label and the control it names wrap as one, so "Order" never sits apart from its list. */
+.sortpair { display: inline-flex; align-items: center; gap: var(--gap-2); flex: none; }
 #view-members .sortbtn { all: unset; cursor: pointer; font: inherit; color: inherit; }
 #view-members .sortbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 #view-members th[aria-sort] .sortbtn { color: var(--accent-ink); }
 #view-members th[aria-sort="ascending"] .sortbtn::after { content: " \25B2"; font-size: 10px; }
 #view-members th[aria-sort="descending"] .sortbtn::after { content: " \25BC"; font-size: 10px; }
 #members tr.isoff td.name { opacity: .65; }
+/* Fixed columns, so Last login does not move 40 pixels between one filter and the next (sweep 2026-10-19). */
+@media (min-width: 720px) {
+  #view-members table.rowblocks { table-layout: fixed; }
+  #view-members table.rowblocks th:nth-child(1) { width: 44px; }
+  #view-members table.rowblocks th:nth-child(3) { width: 132px; }
+  #view-members table.rowblocks th:nth-child(4) { width: 120px; }
+  #view-members table.rowblocks th:nth-child(5) { width: 170px; }
+  #view-members table.rowblocks th:nth-child(6) { width: 60px; }
+  #members td.name { overflow-wrap: anywhere; }
+}
 details.rowmenu { display: inline-block; }
 details.rowmenu > summary {
   list-style: none; cursor: pointer; padding: 4px 10px; border-radius: var(--round); font-size: 18px; line-height: 1;
@@ -5365,8 +5822,8 @@ details.rowmenu > .rowmenubody button {
 details.rowmenu > .rowmenubody button:hover, details.rowmenu > .rowmenubody button:focus-visible { background: var(--surface-2); }
 details.rowmenu > .rowmenubody button.danger { color: var(--alert); }
 details.rowmenu > .rowmenubody .hint { padding: 8px 10px; }
-@media (max-width: 760px) {
-  .memberslayout { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 1023px) {
+  .memberslayout { grid-template-columns: minmax(0, 1fr); gap: var(--gap-3); }
   .memberfilters { position: static; }
 }
 
@@ -5397,6 +5854,9 @@ img.avatar.photo { object-fit: cover; padding: 0; }
 #view-user .profilefacts dt { color: var(--muted); }
 #view-user .profilefacts dd { margin: 0; }
 #view-user .profilebio { white-space: pre-wrap; }
+/* The name takes focus on arrival so a screen reader starts there; a ring round it read as an editable field
+   right above the real one (sweep 2026-10-19). */
+#profileName:focus { outline: none; }
 #photoDialog { width: min(560px, calc(100vw - 32px)); }
 #photoDialog #photoPreview { width: 120px; height: 120px; object-fit: cover; border-radius: 50%; }
 .usermenu .sheet a#myProfile { display: block; padding: 8px 12px; color: var(--ink); text-decoration: none; }
@@ -5411,6 +5871,10 @@ details.rowmenu > .rowmenubody a:hover { background: var(--surface-2); }
 #groupNewDialog .picker { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; background: none; }
 #groupNewDialog .picker label { margin-top: 6px; }
 #groupNewDialog select { font: inherit; }
+#groupNewDialog .picker .hint { margin: 0; }
+#groupNewDialog fieldset.pickset { margin-top: var(--gap-5); }
+/* A group's name in the list is a link and looks like one, in both themes (sweep 2026-10-19). */
+#groupRows td.name a { color: var(--link); }
 
 /* Every "new" is a dialog (2026-10-17). */
 dialog.formdialog { width: min(640px, calc(100vw - 32px)); }
@@ -5431,7 +5895,35 @@ header #globalSearch[hidden] { display: none; }
 @media (max-width: 760px) {
   header:has(#utilbar) { grid-template-areas: "util util util" "brand brand search" "tabs tabs tabs"; }
 }
+/* <b>Up to 900 the tabs take their own row when the search box is in the bar</b> (verification round, 2026-10-19):
+   at 768 the box left the tabs about 360 pixels and cut Organization off. The header's height token follows, since
+   the editors size themselves under it. */
+@media (min-width: 761px) and (max-width: 900px) {
+  :root:has(header #globalSearch:not([hidden])) { --header-h: 124px; }
+  header:has(#globalSearch:not([hidden])) {
+    grid-template-areas: "util util util" "brand brand search" "tabs tabs tabs"; grid-template-rows: 30px 44px 50px;
+  }
+  header:has(#globalSearch:not([hidden])) #tabs { border-top: 1px solid var(--rule); }
+}
 #view-search .toolbar input[type=search] { flex: 0 1 480px; }
 #view-search code.itemid { font-size: 12px; user-select: all; }
+/* A content hit is a Content row in small: the picture, the title and its type, one quiet line (UX sweep 2026-10-19). */
+#searchRows tr.mediarow td { padding: 12px 16px; vertical-align: top; border-bottom: 1px solid var(--rule); }
+#searchRows tr.mediarow:last-child td { border-bottom: 0; }
+#searchRows tr.mediarow td.thumbcell { width: 1%; padding-right: 0; }
+#searchRows tr.mediarow .thumb { width: 72px; height: 48px; border-radius: var(--round); display: block; }
+#searchRows tr.mediarow td.name { width: 100%; }
+#searchRows .svctitle { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 var(--gap-2); min-width: 0; }
+#searchRows .svctitle > a { font-weight: 600; overflow-wrap: break-word; min-width: 0; }
+#searchRows .svctype { color: var(--muted); font-size: var(--t-small); }
+#searchRows .svcmeta {
+  display: flex; flex-wrap: wrap; align-items: center; margin-top: 4px; color: var(--muted); font-size: 12.5px;
+}
+#searchRows .svcmeta .sep { margin: 0 8px; color: var(--faint); }
+#searchRows .svcmeta .pill {
+  background: none; border: 0; padding: 0; min-height: 0; font-size: 12.5px; color: var(--muted); font-weight: 500;
+}
+#searchRows .svcmeta .pill.p-stopped { color: var(--warn); }
+@media (max-width: 480px) { #searchRows td.thumbcell { display: none; } }
 @media (max-width: 760px) { #globalSearch input { width: 150px; max-width: 40vw; } }
-#svcFacts code.itemid { font-size: 12px; user-select: all; overflow-wrap: anywhere; } /* 32 unbroken characters set a narrow column's width: 386 in a 375 window on CI (2026-10-18) */
+#svcFacts code.itemid { font-size: 12px; user-select: all; overflow-wrap: normal; } /* 32 unbroken characters set a narrow column's width: 386 in a 375 window on CI (2026-10-18) */

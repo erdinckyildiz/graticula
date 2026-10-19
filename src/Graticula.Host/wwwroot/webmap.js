@@ -111,6 +111,9 @@ const wmRuntime = new WeakMap();
 /** How many times something has been said in the header — see wmOpen. */
 let wmSpoken = 0;
 
+/** wmSpoken when the summary was last said, so a late basemap failure can correct it and nothing newer. */
+let wmSummarySpoken = -1;
+
 function wmSay(text, bad = false) {
   // Every sentence counts, not only an action's summary: identify's "Asking 1 layer…" was written over by the
   // summary at the end of opening as surely as a removal's line was (CI on main, 2026-10-15).
@@ -309,11 +312,16 @@ const wmHighlight = new ol.layer.Vector({
 const wmMeasured = new ol.layer.Vector({
   zIndex: 1001,
   source: new ol.source.Vector(),
-  style: new ol.style.Style({
-    fill: new ol.style.Fill({ color: "rgba(11, 97, 87, 0.15)" }),
-    stroke: new ol.style.Stroke({ color: "#0b6157", width: 2.5, lineDash: [8, 5] }),
-    image: new ol.style.Circle({ radius: 4, fill: new ol.style.Fill({ color: "#0b6157" }) }),
-  }),
+  // A solid accent line on a white halo: the dashed teal one disappeared over a many-coloured basemap (UX sweep m2).
+  style: [
+    new ol.style.Style({ stroke: new ol.style.Stroke({ color: "#ffffff", width: 5 }) }),
+    new ol.style.Style({
+      fill: new ol.style.Fill({ color: "rgba(21, 101, 216, 0.15)" }),
+      stroke: new ol.style.Stroke({ color: "#1565d8", width: 3 }),
+      image: new ol.style.Circle({ radius: 5, fill: new ol.style.Fill({ color: "#1565d8" }),
+        stroke: new ol.style.Stroke({ color: "#ffffff", width: 1.5 }) }),
+    }),
+  ],
 });
 
 const wmMap = new ol.Map({
@@ -333,7 +341,8 @@ const wmMap = new ol.Map({
       projection: "EPSG:4326",
       className: "ol-mouse-position",
       target: wm$("stripWhere"),
-      coordinateFormat: c => (c ? `${c[0].toFixed(5)}, ${c[1].toFixed(5)}` : ""),
+      // Named and in the order people say them (UX sweep m4): "44.87372, 32.44375" was longitude first, unlabelled.
+      coordinateFormat: c => (c ? `lat ${c[1].toFixed(4)}, lon ${c[0].toFixed(4)}` : ""),
     }),
   ]),
 });
@@ -519,38 +528,198 @@ function wmDrawBaseMapChoices() {
   select.value = which;
 }
 
+/**
+ * What this page drew for each basemap layer, keyed by the layer's own JSON object: the OpenLayers layer, the
+ * service's address and the colours its style paints with — so the Layers panel can list the basemap's layers and
+ * switch them (UX sweep C1, 2026-10-19).
+ */
+const wmBaseDrawn = new WeakMap();
+
+/** A vector tile basemap layer's service address. */
+function wmBaseService(entry) {
+  return entry.styleUrl
+    ? entry.styleUrl.slice(0, entry.styleUrl.indexOf("/VectorTileServer") + "/VectorTileServer".length)
+    : `${location.origin}/rest/services/${entry.id}/VectorTileServer`;
+}
+
 /** Builds the ground layers named by a basemap once, from each service's own style. */
 function wmDrawGround(baseMapLayers) {
   const drawn = wmGround.getLayers();
   drawn.clear();
 
   for (const entry of baseMapLayers.filter(l => l.layerType === "VectorTileLayer")) {
-    const service = entry.styleUrl
-      ? entry.styleUrl.slice(0, entry.styleUrl.indexOf("/VectorTileServer") + "/VectorTileServer".length)
-      : `${location.origin}/rest/services/${entry.id}/VectorTileServer`;
+    const service = wmBaseService(entry);
 
     const tiles = new ol.layer.VectorTile({
       declutter: true,
+      visible: entry.visibility !== false,
       source: new ol.source.VectorTile({ format: new ol.format.MVT(), url: `${service}/tile/{z}/{y}/{x}.pbf`, maxZoom: 22 }),
       style: wmPlainStyle("#b8c2cc"),
     });
+    const held = { layer: tiles, service, swatches: [], failed: null, loaded: 0 };
+    wmBaseDrawn.set(entry, held);
+    wmWatchBaseTiles(held, tiles.getSource(), service);
 
-    wmFetch(entry.styleUrl || `${service}/resources/styles/root.json`)
-      .then(style => { if (style && Array.isArray(style.layers)) tiles.setStyle(wmGlStyle(style)); })
-      .catch(() => { /* a plain grey ground rather than none */ });
+    const styleUrl = entry.styleUrl || `${service}/resources/styles/root.json`;
+    wmFetch(styleUrl)
+      .then(style => {
+        if (!style || !Array.isArray(style.layers)) return;
+        tiles.setStyle(wmGlStyle(style));
+        // The legend swatch: the first plain colours the style paints with, as an operational layer's renderer gives its own.
+        const paints = style.layers.map(l => (l.paint || {})[`${l.type}-color`]).filter(c => typeof c === "string");
+        held.swatches = [...new Set(paints)].slice(0, 3);
+        wmDrawBaseList();
+      })
+      // A style that cannot be read is said on the layer's row, and the layer is not counted as drawn (UX sweep N1).
+      .catch(e => wmBaseFailed(held, styleUrl, e, true));
 
     drawn.push(tiles);
   }
+}
+
+/**
+ * Why a basemap layer is not drawn, kept on the layer and said on its row — UX sweep round 2, N1.
+ *
+ * <b>"5 basemap layers drawn" over an empty map</b> was what dev showed for a map whose basemap lives on another
+ * host: the page's own policy refuses every request to it, the style's failure was swallowed and tile failures were
+ * not watched, so the line counted the document rather than the picture.
+ */
+function wmBaseFailed(held, url, error, style = false) {
+  let host = "";
+  try { host = new URL(url, location.href).host; } catch { /* an address that is not one: said without a host */ }
+  const away = host && host !== location.host;
+  if (style) {
+    // A style that cannot be read leaves the tiles in plain grey: drawn, if they load, and said either way.
+    held.styleFailed = away
+      ? `Its style could not be read from ${host}: this page reads only from its own server.`
+      : `Its style could not be read${error && error.message ? `: ${error.message}` : "."}`;
+  } else {
+    if (held.failed) return;
+    held.failed = away
+      ? `Could not load from ${host}. This page reads only from its own server.`
+      : "Could not load: its tiles did not come back from this server.";
+  }
+  wmDrawBaseList();
+  if (wmSpoken === wmSummarySpoken) wmSaySummary();
+}
+
+/** Whether a basemap layer is on the map: its tiles did not fail, and its style either loaded or its tiles did. */
+function wmBaseNotDrawn(held) {
+  return !!held && (!!held.failed || (!!held.styleFailed && !held.loaded));
+}
+
+/** A tile source that has failed and never loaded a tile is a layer that could not load; one good tile clears it. */
+function wmWatchBaseTiles(held, source, url) {
+  let errors = 0;
+  source.on("tileloadend", () => {
+    // The first tile of a layer whose style failed turns "could not load" into "drawn in plain grey".
+    if (++held.loaded === 1 && held.styleFailed) {
+      wmDrawBaseList();
+      if (wmSpoken === wmSummarySpoken) wmSaySummary();
+    }
+  });
+  source.on("tileloaderror", () => {
+    errors++;
+    // Several, so one missing tile at the edge of a service is not a layer that failed; an empty tile is a 204, not one.
+    if (!held.loaded && errors >= 4) wmBaseFailed(held, url, null);
+  });
 }
 
 /** Shows the basemap a document asks for: its vector tile layers, OpenStreetMap, both, or nothing. */
 function wmShowBaseMap(doc) {
   const layers = (doc.baseMap && doc.baseMap.baseMapLayers) || [];
   const tiles = layers.some(l => l.layerType === "VectorTileLayer");
-  wmBase.setVisible(layers.some(l => l.layerType === "OpenStreetMap"));
+  const osm = layers.find(l => l.layerType === "OpenStreetMap");
+  wmOsmHeld = null;
+  if (osm) {
+    wmOsmHeld = { layer: wmBase, service: null, swatches: [], failed: null, loaded: 0, errors: 0 };
+    wmBaseDrawn.set(osm, wmOsmHeld);
+  }
+  wmBase.setVisible(!!osm && osm.visibility !== false);
   wmGround.setVisible(tiles);
   if (tiles) wmDrawGround(layers);
+  wmDrawBaseList();
+  wm$("frameAll")?.setAttribute("aria-disabled", String(!wmFramable()));
 }
+
+/** The OpenStreetMap entry's state; its one source is watched once, here, whichever basemap entry it now draws. */
+let wmOsmHeld = null;
+
+wmBase.getSource().on("tileloadend", () => { if (wmOsmHeld) wmOsmHeld.loaded++; });
+wmBase.getSource().on("tileloaderror", () => {
+  if (!wmOsmHeld || wmOsmHeld.loaded || ++wmOsmHeld.errors < 4) return;
+  wmBaseFailed(wmOsmHeld, typeof OSM_TILES === "string" ? OSM_TILES : "https://tile.openstreetmap.org/", null);
+});
+
+/** Whether Zoom to all has anything to zoom to: an operational layer, or a basemap tile service that says where it is. */
+function wmFramable() {
+  return wmLayers().length > 0 || wmBaseLayers().some(l => l.layerType === "VectorTileLayer");
+}
+
+/** The basemap's layers as the document lists them, bottom first. */
+function wmBaseLayers() {
+  if (!wmState.doc || !wmState.doc.baseMap || !Array.isArray(wmState.doc.baseMap.baseMapLayers)) return [];
+  return wmState.doc.baseMap.baseMapLayers;
+}
+
+/**
+ * The basemap's layers under their own heading — UX sweep C1, 2026-10-19.
+ *
+ * <b>The showcase's public map keeps all five of its layers in its basemap</b> and none as operational layers, and
+ * the panel listed only operational layers: it said the map had no layers over a map full of provinces and roads.
+ * A basemap layer is drawn and can be switched off; it is not clicked, searched or filtered, and the list says so.
+ */
+function wmDrawBaseList() {
+  const box = wm$("baseList");
+  if (!box) return;
+  const layers = wmBaseLayers();
+  wm$("opsHead").hidden = layers.length === 0;
+  if (layers.length === 0) {
+    box.hidden = true;
+    return;
+  }
+
+  const title = (wmState.doc.baseMap && wmState.doc.baseMap.title) || "";
+  box.hidden = false;
+  // Only the fixed word is set in capitals: CSS capitals made "Türkiye" TÜRKIYE (UX sweep N5).
+  wm$("baseHead").innerHTML = `<span><span class="cap">Basemap</span>${title ? `: ${wmEscape(title)}` : ""}</span> <span class="count">${
+    layers.length} layer${layers.length === 1 ? "" : "s"}</span>`;
+
+  const kinds = { VectorTileLayer: "Vector tiles", OpenStreetMap: "OpenStreetMap tiles" };
+  // Top of the list is top of the map, as in the operational list above it.
+  wmRedraw(wm$("baseLayerList"), layers.map((entry, index) => ({ entry, index })).reverse().map(({ entry, index }) => {
+    const on = entry.visibility !== false;
+    const held = wmBaseDrawn.get(entry);
+    const drawable = !!held;
+    const name = entry.title || (entry.id ? String(entry.id).split("/").pop() : "") || "Basemap layer";
+    const failed = held && (held.failed || (held.styleFailed && !held.loaded ? held.styleFailed : ""));
+    const greyed = held && !failed && held.styleFailed ? `${held.styleFailed} Drawn in plain grey.` : "";
+    return `<li class="${on && drawable && !failed ? "" : "off"}">
+      <div class="lhead">
+        <input type="checkbox" id="base-${index}" data-act="baseVisible" data-base="${index}" data-focus="base:${index}"
+          ${on ? "checked" : ""} ${drawable ? "" : "disabled"}>
+        ${wmSwatchMarkup(held)}
+        <label for="base-${index}">${wmEscape(name)}</label>
+        <span class="lkind">${wmEscape(kinds[entry.layerType] || entry.layerType || "")}</span>
+      </div>
+      ${drawable ? "" : `<div class="lstate">This viewer does not draw this kind of basemap layer.</div>`}
+      ${failed ? `<div class="lstate bad">${wmEscape(failed)}</div>` : ""}
+      ${greyed ? `<div class="lstate warn">${wmEscape(greyed)}</div>` : ""}
+    </li>`;
+  }).join(""));
+}
+
+wm$("baseLayerList").addEventListener("change", event => {
+  const t = event.target;
+  if (!wmState.doc || !t.dataset || t.dataset.act !== "baseVisible") return;
+  const entry = wmBaseLayers()[Number(t.dataset.base)];
+  const held = entry && wmBaseDrawn.get(entry);
+  if (!held) return;
+  entry.visibility = t.checked;
+  held.layer.setVisible(t.checked);
+  wmMarkDirty();
+  wmDrawBaseList();
+});
 
 function wmLayers() {
   // <b>Before the page has read its map, it has no layers — 2026-10-15.</b> The document is set after the sign-in
@@ -1400,12 +1569,22 @@ function wmDrawLayerList() {
   const layers = wmLayers();
 
   // Nothing to zoom to on an empty map (ADR-079's review); aria-disabled, so the button keeps its place in the tab order.
-  wm$("frameAll")?.setAttribute("aria-disabled", String(layers.length === 0));
+  wm$("frameAll")?.setAttribute("aria-disabled", String(!wmFramable()));
+  wmDrawBaseList();
+  wmDrawSearchState();
+  const opsHead = wm$("opsHead");
+  if (opsHead) opsHead.innerHTML = `<span class="cap">Operational layers</span> <span class="count">${layers.length ? layers.length : "none"}</span>`;
 
   if (layers.length === 0) {
-    // Said once: while Add layer is open its own line says what there is to add.
-    wmRedraw(list, wm$("addBox").hidden ? `<li class="hint" style="border:0;padding:0">This map has no layers yet.
-      <b>Add layer</b> lists the services you can read.</li>` : "");
+    // Said once: while Add layer is open its own line says what there is to add. Only to somebody who has the
+    // button: a reader of a public map was told to use one they were not shown (UX sweep C1).
+    const reader = document.body.classList.contains("reader");
+    const based = wmBaseLayers().length > 0;
+    const lead = based
+      ? "No operational layers yet. Clicking, searching and filtering work on those; the basemap below is drawn, not read."
+      : "This map has no layers yet.";
+    wmRedraw(list, wm$("addBox").hidden ? `<li class="hint" style="border:0;padding:0">${lead}${reader ? ""
+      : ` <b>Add layer</b> lists the services you can read.`}</li>` : "");
     return;
   }
 
@@ -2247,9 +2426,28 @@ wm$("layerList").addEventListener("click", event => {
   }
 });
 
-wm$("frameAll").addEventListener("click", () => {
-  if (wm$("frameAll").getAttribute("aria-disabled") === "true") return;
+wm$("frameAll").addEventListener("click", async () => {
+  if (wm$("frameAll").getAttribute("aria-disabled") === "true" || !wmState.doc) return;
   const boxes = wmLayers().map(wmExtentOf).filter(Boolean);
+
+  // A map whose layers are all in its basemap is framed on the basemap's tile services (UX sweep C1).
+  if (!boxes.length) {
+    const tiles = wmBaseLayers().filter(l => l.layerType === "VectorTileLayer" && l.visibility !== false);
+    const read = await Promise.all(tiles.map(entry => wmFetch(`${wmBaseService(entry)}?f=json`).catch(() => null)));
+    for (const doc of read) {
+      const box = doc && doc.fullExtent;
+      if (!box || !Number.isFinite(box.xmin)) continue;
+      const reference = box.spatialReference || {};
+      const wkid = reference.latestWkid || reference.wkid || 102100;
+      try {
+        boxes.push(ol.proj.transformExtent([box.xmin, box.ymin, box.xmax, box.ymax],
+          wkid === 102100 || wkid === 3857 ? WM_MERCATOR : `EPSG:${wkid}`, WM_MERCATOR));
+      } catch {
+        // A reference this page does not know frames nothing rather than the wrong place.
+      }
+    }
+  }
+
   if (!boxes.length) {
     wmSayIn("layersStatus", "No layer on this map says where it is.");
     return;
@@ -2617,7 +2815,10 @@ async function wmIdentify(coordinate) {
   card.hidden = true;
 
   if (layers.length === 0 && pixels.length === 0) {
-    wmSay("No feature or imagery layer is switched on, so a click has nothing to ask. Map image and tile layers are drawn, not identified.");
+    // "Switched on" told a reader of a map whose layers are all in its basemap to switch on something there was not.
+    wmSay(wmLayers().length === 0 && wmBaseLayers().length > 0
+      ? "No feature or imagery layer on this map to ask: its layers are all in the basemap, which is drawn, not identified."
+      : "No feature or imagery layer is switched on, so a click has nothing to ask. Map image and tile layers are drawn, not identified.");
     return;
   }
 
@@ -2693,7 +2894,10 @@ async function wmIdentify(coordinate) {
     return `<h3>${wmEscape(layer.title)} <span class="lkind">${features.length}${payload.exceededTransferLimit ? "+" : ""}</span></h3>`
       + features.map(f => {
         const key = wmRemember(layer, f);
-        return `<div class="feat" data-feat="${wmEscape(key)}">${wmPopupMarkup(layer, f.attributes, info)}${wmEditable(layer)
+        // Each record is headed by its name when the map's pop-up gives it no title of its own (UX sweep round 2, m3).
+        const named = count > 1 && !(layer.popupInfo && layer.popupInfo.title)
+          ? `<h4 class="ptitle">${wmEscape(wmFeatureTitle(wmIdentified.get(key)))}</h4>` : "";
+        return `<div class="feat" data-feat="${wmEscape(key)}">${named}${wmPopupMarkup(layer, f.attributes, info)}${wmEditable(layer)
           ? `<div class="row featacts"><button type="button" class="tiny" data-edit="${wmEscape(key)}"
               aria-label="Edit ${wmEscape(wmFeatureName(wmIdentified.get(key)))}">Edit</button>${wmEditable(layer, "Delete")
               ? `<button type="button" class="tiny danger" data-delete="${wmEscape(key)}"
@@ -2720,7 +2924,10 @@ async function wmIdentify(coordinate) {
   // Where the click was asked about, which a pixel has no outline to show.
   if (valued) wmHighlight.getSource().addFeature(new ol.Feature(new ol.geom.Point(coordinate)));
 
-  card.innerHTML = `<div class="top"><b>What is here</b>
+  // One feature is named by its display field, as an ArcGIS pop-up is titled (UX sweep m3); several are "what is here".
+  const single = count === 1 && !valued ? [...wmIdentified.values()][0] : null;
+  const heading = single ? wmFeatureTitle(single) : "What is here";
+  card.innerHTML = `<div class="top"><b>${wmEscape(heading)}</b>
       <button class="tiny" data-close aria-label="Close">&times;</button></div>${sections}`;
   card.hidden = false;
 
@@ -2834,7 +3041,9 @@ wm$("searchForm").addEventListener("submit", async event => {
   const layers = wmQueryable({ visibleOnly: false });
 
   if (!layers.length) {
-    wmSayIn("searchStatus", "This map has no feature layer you can read, so there is nothing to search.");
+    wmSayIn("searchStatus", wmLayers().length === 0 && wmBaseLayers().length > 0
+      ? "Search reads the map's feature layers, and this map has none: its layers are all in the basemap, which is drawn, not searched."
+      : "This map has no feature layer you can read, so there is nothing to search.");
     results.innerHTML = "";
     return;
   }
@@ -2919,12 +3128,15 @@ wm$("searchResults").addEventListener("click", event => {
 
 // ----------------------------------------------------------------------------- measure
 
+// Three significant figures from 10 km and 10 km² up: "825.979 km" claimed a metre on a line drawn by hand (UX sweep m2).
 function wmFormatLength(metres) {
-  return metres >= 1000 ? `${(metres / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })} km`
+  if (metres >= 10000) return `${(metres / 1000).toLocaleString(undefined, { maximumSignificantDigits: 3 })} km`;
+  return metres >= 1000 ? `${(metres / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 })} km`
     : `${metres.toLocaleString(undefined, { maximumFractionDigits: 1 })} m`;
 }
 
 function wmFormatArea(square) {
+  if (square >= 1e7) return `${(square / 1e6).toLocaleString(undefined, { maximumSignificantDigits: 3 })} km²`;
   if (square >= 1e6) return `${(square / 1e6).toLocaleString(undefined, { maximumFractionDigits: 3 })} km²`;
   if (square >= 1e4) return `${(square / 1e4).toLocaleString(undefined, { maximumFractionDigits: 2 })} ha`;
   return `${square.toLocaleString(undefined, { maximumFractionDigits: 1 })} m²`;
@@ -2971,9 +3183,12 @@ function wmStartMeasuring(type) {
   draw.on("drawend", event => {
     const said = wmMeasureOf(event.feature.getGeometry());
     wm$("measureLive").textContent = "";
-    wmSayIn("measureStatus", `${type === "Polygon" ? "Area" : "Distance"}: ${said}`);
+    // Shown once, in the list, and spoken once: the status line and the list both printed it (UX sweep round 2, m2).
+    const result = `${type === "Polygon" ? "Area" : "Distance"}: ${said}`;
+    wmSayIn("measureStatus", "");
+    wm$("measureSaid").textContent = result;
     const item = document.createElement("li");
-    item.textContent = `${type === "Polygon" ? "Area" : "Distance"} — ${said}`;
+    item.textContent = result;
     wm$("measureList").prepend(item);
   });
 
@@ -2994,11 +3209,30 @@ wm$("measureClear").addEventListener("click", () => {
   wmSayIn("measureStatus", "Measurements cleared.");
 });
 
+/**
+ * Search says before it is used when there is nothing it could search — UX sweep round 2, N7: a map whose layers are
+ * all in its basemap offered an empty box and said "none" only after a submit.
+ */
+function wmDrawSearchState() {
+  const empty = !!wmState.doc && wmLayers().length === 0 && wmBaseLayers().length > 0;
+  wm$("searchText").disabled = empty;
+  wm$("searchForm").querySelector("button[type=submit]").disabled = empty;
+  if (empty) {
+    wmSayIn("searchStatus", "Nothing to search on this map: search reads its operational feature layers, and its layers are all in the basemap.");
+  } else if (/^Nothing to search on this map/.test(wm$("searchStatus").textContent)) {
+    wmSayIn("searchStatus", "");
+  }
+}
+
 // ----------------------------------------------------------------------------- tabs
 
 const WM_TABS = ["layers", "search", "measure", "bookmarks", "print", "map"];
 
+/** The tool whose panel is shown, or would be when the phone's sheet opens. */
+let wmTabShown = "layers";
+
 function wmShowTab(name, focus = false) {
+  wmTabShown = name;
   for (const tab of WM_TABS) {
     const button = wm$(`tab-${tab}`);
     const on = tab === name;
@@ -3011,25 +3245,76 @@ function wmShowTab(name, focus = false) {
   // Measuring belongs to its tab; leaving it puts the map back to identifying.
   if (name !== "measure") wmStopMeasuring();
   if (name === "map") wmDrawMapForm();
+  if (name === "search") wmDrawSearchState();
   if (name === "print" && !wm$("printTitle").value) wm$("printTitle").value = wmState.meta.title || "";
+}
+
+/**
+ * On a phone the panel is a sheet over the map, opened by a tool and closed by the same tool or its own button — UX
+ * sweep M5, 2026-10-19. On a wider screen it is always open and these do nothing a reader can see.
+ */
+const WM_PHONE = window.matchMedia("(max-width: 760px)");
+
+function wmOpenSheet(open) {
+  document.body.classList.toggle("sheet", open);
+  // The control that opened a sheet says so; on a wide screen nothing opens or closes. <b>And no tool is selected
+  // while its sheet is closed</b> (UX sweep round 2, N6): a selected tab whose panel is not there is what a screen
+  // reader announced. The roving tabindex stays on the last one, so Tab still lands on it.
+  for (const tab of WM_TABS) {
+    const button = wm$(`tab-${tab}`);
+    const current = tab === wmTabShown;
+    if (WM_PHONE.matches) {
+      button.setAttribute("aria-selected", String(open && current));
+      button.setAttribute("aria-expanded", String(open && current));
+    } else {
+      button.setAttribute("aria-selected", String(current));
+      button.removeAttribute("aria-expanded");
+    }
+  }
 }
 
 wm$("tabs").addEventListener("click", event => {
   const tab = event.target.closest("[role=tab]");
-  if (tab) wmShowTab(tab.id.replace("tab-", ""));
+  if (!tab) return;
+  const name = tab.id.replace("tab-", "");
+  if (WM_PHONE.matches && document.body.classList.contains("sheet") && name === wmTabShown) {
+    wmOpenSheet(false);
+    return;
+  }
+  wmShowTab(name);
+  wmOpenSheet(true);
 });
 
+wm$("sheetClose").addEventListener("click", () => {
+  wmOpenSheet(false);
+  wm$(`tab-${wmTabShown}`).focus();
+});
+
+WM_PHONE.addEventListener("change", () => wmOpenSheet(document.body.classList.contains("sheet")));
+wmOpenSheet(false);
+
+// Left and right along the bottom bar, up and down along the rail.
 wm$("tabs").addEventListener("keydown", event => {
   const at = WM_TABS.indexOf((document.activeElement.id || "").replace("tab-", ""));
   if (at < 0) return;
-  const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+  const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 }[event.key];
   if (step) {
     event.preventDefault();
     wmShowTab(WM_TABS[(at + step + WM_TABS.length) % WM_TABS.length], true);
+    wmOpenSheet(document.body.classList.contains("sheet"));
   } else if (event.key === "Home" || event.key === "End") {
     event.preventDefault();
     wmShowTab(WM_TABS[event.key === "Home" ? 0 : WM_TABS.length - 1], true);
+    wmOpenSheet(document.body.classList.contains("sheet"));
   }
+});
+
+// Escape closes an open sheet when nothing over the map wants it first.
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || !WM_PHONE.matches || !document.body.classList.contains("sheet")) return;
+  if (!wm$("identify").hidden || wmAdding.draw) return;
+  wmOpenSheet(false);
+  wm$(`tab-${wmTabShown}`).focus();
 });
 
 // ----------------------------------------------------------------------------- the Map tab
@@ -3248,6 +3533,7 @@ async function wmSave(asNew, invoker = null) {
   const title = String(wmState.meta.title || "").trim();
   if (!title) {
     wmShowTab("map");
+    wmOpenSheet(true);
     wmSayIn("mapStatus", "A map needs a title.", true);
     wm$("mapTitle").focus();
     return;
@@ -3259,6 +3545,7 @@ async function wmSave(asNew, invoker = null) {
   if (!wmState.id && !asNew && title === "Untitled map" && !wmState.named) {
     wmState.named = true;
     wmShowTab("map");
+    wmOpenSheet(true);
     wmSayIn("mapStatus", "Give the map a name, then press Save again.");
     wm$("mapTitle").focus();
     wm$("mapTitle").select();
@@ -3438,10 +3725,41 @@ async function wmOpen(doc) {
 function wmSaySummary(lead = "") {
   const layers = wmLayers();
   const unavailable = layers.filter(l => (wmRuntime.get(l) || {}).status === "unavailable").length;
+  const based = wmBaseLayers().length;
+  // Drawn is what loaded, not what the document lists (UX sweep N1): a refused layer is counted apart.
+  const failed = wmBaseLayers().filter(l => wmBaseNotDrawn(wmBaseDrawn.get(l))).length;
+  const drawn = wmBaseLayers().filter(l => wmBaseDrawn.has(l) && !wmBaseNotDrawn(wmBaseDrawn.get(l))).length;
+  const baseSaid = failed
+    ? `${drawn} of ${based} basemap layer${based === 1 ? "" : "s"} drawn; ${failed} could not load`
+    : `${drawn} basemap layer${drawn === 1 ? "" : "s"} drawn`;
   wmSay((lead ? `${lead} ` : "") + (layers.length === 0
-    ? "This map has no layers yet."
+    ? based
+      // UX sweep C1: over a map full of basemap layers, "no layers" contradicted the picture.
+      ? `${baseSaid}. Clicking identifies operational layers; this map has none yet.`
+      : "This map has no layers yet."
     : `${layers.length} layer${layers.length === 1 ? "" : "s"}`
-      + (unavailable ? `, ${unavailable} not available to you.` : ".")));
+      + (unavailable ? `, ${unavailable} not available to you` : "")
+      + (failed ? `; ${failed} basemap layer${failed === 1 ? "" : "s"} could not load.` : ".")));
+  wmSummarySpoken = wmSpoken;
+}
+
+/**
+ * Nothing to work on, so no tools to work with: the map, or the service a new map was to start from, is not there.
+ * The tabs, Add layer and Save offered to edit a map that is not there. Said in the header, and in full in the panel
+ * with the ways on — the header is one line and cuts a long sentence short.
+ */
+function wmShowNotFound(title, said, markup) {
+  wmDrawSaved();
+  wm$("title").textContent = title;
+  wmSay(said, true);
+  wm$("tabs").hidden = true;
+  for (const tab of WM_TABS) wm$(`pane-${tab}`).hidden = true;
+  wm$("headSave").hidden = true;
+  wm$("saved").textContent = "";
+  const gone = wm$("notFound");
+  gone.hidden = false;
+  gone.innerHTML = markup;
+  wmOpenSheet(true);
 }
 
 async function wmStart() {
@@ -3473,8 +3791,11 @@ async function wmStart() {
   // reading. The Studio link becomes the way to sign in.
   document.body.classList.toggle("reader", !wmMe.authenticated);
   // The tab is named for what a reader finds in it before they open it (ADR-079 condition 2's review).
-  wm$("tab-map").textContent = wmMe.authenticated ? "Map" : "About";
-  if (!wmMe.authenticated && wm$("studio")) wm$("studio").textContent = "Sign in";
+  wm$("tab-map").querySelector(".tl").textContent = wmMe.authenticated ? "Map" : "About";
+  // Studio's bar: Sign in for a reader who is not, and Organization for the readers the console shows it to.
+  if (wm$("studio")) wm$("studio").hidden = !!wmMe.authenticated;
+  const organization = ["admin:manageMembers", "admin:manageRoles", "admin:manageSecurity", "admin:manageServer"];
+  if (wm$("navOrganization")) wm$("navOrganization").hidden = !organization.some(p => wmMe.privileges.has(p));
 
   const id = WM_QUERY.get("id");
   const service = WM_QUERY.get("service");
@@ -3496,27 +3817,14 @@ async function wmStart() {
       }
     } catch (e) {
       wmState.doc = wmEmptyDocument();
-      wmDrawSaved();
-      wm$("title").textContent = "Map not found";
-      wmSay(e.status === 404
+      wmShowNotFound("Map not found", e.status === 404
         ? "This map does not exist, or it is not shared with you."
-        : `The map could not be read: ${e.message}`, true);
-
-      // <b>Nothing to work on, so no tools to work with.</b> The tabs, Add layer and Save offered to
-      // edit a map that is not there. Studio's sign-in has no return address, so the sentence says to
-      // come back to this link rather than promising a redirect that does not exist.
-      wm$("tabs").hidden = true;
-      for (const tab of WM_TABS) wm$(`pane-${tab}`).hidden = true;
-      wm$("headSave").hidden = true;
-      wm$("saved").textContent = "";
-      const gone = wm$("notFound");
-      gone.hidden = false;
-      gone.innerHTML = e.status === 404
+        : `The map could not be read: ${e.message}`, e.status === 404
         ? `<p>No map <code>${wmEscape(id)}</code> that you can open.</p><p>${wmMe.authenticated
           ? "It may have been deleted, or its owner has not shared it with you."
-          : `If it is shared with your organization, <a href="/studio/">sign in to Studio</a>, then open this link again.`}</p>
+          : `If it is shared with your organization, it opens once you <a href="/studio/">sign in to Studio</a>.`}</p>
           <p><a href="/studio/content">Your maps</a></p>`
-        : `<p>${wmEscape(e.message)}</p>`;
+        : `<p>${wmEscape(e.message)}</p>`);
       return;
     }
     return;
@@ -3540,7 +3848,7 @@ async function wmStart() {
 
     const layer = WM_QUERY.get("layer");
     let added = 0;
-    let last = null;
+    const failures = [];
 
     // <b>The face the link came from, when it named one — 2026-10-10.</b> A service page's Map Viewer link opened
     // the FeatureServer whatever face it was on, so MapServer's showed features and VectorTileServer had no link.
@@ -3552,7 +3860,7 @@ async function wmStart() {
         added = await wmAddService(service, type, type === "FeatureServer" ? layer : null);
         if (added > 0) break;
       } catch (e) {
-        last = e;
+        failures.push(e);
       }
     }
 
@@ -3563,15 +3871,34 @@ async function wmStart() {
       requestAnimationFrame(() => wmCentreOn(lon, lat, level));
     }
 
-    wmSay(added > 0
-      ? `${added} layer${added === 1 ? "" : "s"} from ${service}. Not saved yet.`
-      : `${service} could not be added${last ? `: ${last.message}` : "."}`, added === 0);
+    if (added > 0) {
+      wmSay(`${added} layer${added === 1 ? "" : "s"} from ${service}. Not saved yet.`);
+      return;
+    }
+
+    // <b>A service that is not there is said as the map's own not-found is</b> — UX sweep round 2, N2. This said the
+    // last face tried ("No image service…") with the server's rationale, cut off in the one-line header, and offered
+    // nothing. Every face answering 404 is one answer; any other failure is the first face's, the one the link named.
+    const missing = failures.length > 0 && failures.every(e => e.status === 404);
+    const first = failures[0];
+    wmState.meta.title = service;
+    wmShowNotFound("Service not found", missing
+      ? `No service ${service} that you can open.`
+      : `${service} could not be opened.`, missing
+      ? `<p>No service <code>${wmEscape(service)}</code> that you can open.</p>
+          <p>It may not exist, or it may not be shared with you.${wmMe.authenticated ? ""
+            : ` If it is shared with your organization, it opens once you <a href="/studio/">sign in to Studio</a>.`}</p>
+          <p><a href="/rest/services">Services directory</a></p>`
+      : `<p>${wmEscape(first ? first.message : "No layer of it could be drawn here.")}</p>
+          <p><a href="/rest/services">Services directory</a></p>`);
     return;
   }
 
   wmDrawSaved();
   await wmOpen(wmState.doc);
-  wmSay("A new, empty map. Add layer lists the services you can read.");
+  wmSay(document.body.classList.contains("reader")
+    ? "A new, empty map. Sign in to Studio to add layers to it."
+    : "A new, empty map. Add layer lists the services you can read.");
 }
 
 wmStart().catch(e => wmSay(`The map could not start: ${e.message || e}`, true));
@@ -4149,6 +4476,21 @@ function wmRemember(layer, feature) {
   return key;
 }
 
+/**
+ * A feature's title in the card: its display field's value, else its first text attribute that is not bookkeeping,
+ * else "Feature <id>" — a pop-up titled "What is here" over one province named nothing (UX sweep m3).
+ */
+function wmFeatureTitle(held) {
+  const info = (wmRuntime.get(held.layer) || {}).info || {};
+  const attributes = held.feature.attributes || {};
+  const shown = info.displayField && attributes[info.displayField];
+  if (shown !== null && shown !== undefined && shown !== "") return String(shown);
+  const texts = new Set((info.fields || []).filter(f => f.type === "esriFieldTypeString").map(f => f.name));
+  const first = Object.keys(attributes).find(k => texts.has(k) && !wmSystemField(k, info)
+    && attributes[k] !== null && String(attributes[k]).trim() !== "");
+  return first ? String(attributes[first]) : `Feature ${held.oid}`;
+}
+
 /** A feature as a person names it: its display field's value, or its id. */
 function wmFeatureName(held) {
   const info = (wmRuntime.get(held.layer) || {}).info || {};
@@ -4419,9 +4761,9 @@ const wmSketch = new ol.layer.Vector({
   source: new ol.source.Vector(),
   zIndex: 1000,
   style: new ol.style.Style({
-    fill: new ol.style.Fill({ color: "rgba(11, 97, 87, .2)" }),
-    stroke: new ol.style.Stroke({ color: "#0b6157", width: 2, lineDash: [6, 4] }),
-    image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: "#0b6157" }), stroke: new ol.style.Stroke({ color: "#fff", width: 2 }) }),
+    fill: new ol.style.Fill({ color: "rgba(21, 101, 216, .2)" }),
+    stroke: new ol.style.Stroke({ color: "#1565d8", width: 2, lineDash: [6, 4] }),
+    image: new ol.style.Circle({ radius: 7, fill: new ol.style.Fill({ color: "#1565d8" }), stroke: new ol.style.Stroke({ color: "#fff", width: 2 }) }),
   }),
 });
 wmMap.addLayer(wmSketch);

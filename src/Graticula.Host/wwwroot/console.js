@@ -172,6 +172,12 @@ const ICONS = {
   // A picture: a frame with a hill and a sun, for an imagery layer — pixels rather than features.
   imagery: '<rect x="2.2" y="2.8" width="11.6" height="10.4" rx="1.1"/>'
          + '<path d="m2.6 11.4 3.6-3.8 2.6 2.6 1.6-1.6 3 3"/><circle cx="10.6" cy="5.8" r="1.2"/>',
+
+  // A warning triangle, for a started service whose requests are failing: the one state here that is red.
+  failing: '<path d="M8 2.2 14.2 13H1.8z"/><path d="M8 6.4v3.2"/><circle cx="8" cy="11.4" r=".5"/>',
+
+  // A box with an arrow leaving it, for a link that goes to the other surface.
+  external: '<path d="M9.4 2.4h4.2v4.2"/><path d="M13.6 2.4 7.6 8.4"/><path d="M11.8 9.6v3.8H2.6V4.2h3.8"/>',
 };
 
 /**
@@ -238,7 +244,8 @@ const pill = value => {
  * A sharing scope, said the one way the Share dialog says it — Portal's words (ADR-079 condition 2's review, 2026-10-14).
  * The same scope was *Only you (private)* in the map viewer, *Owner* in Share and *private* in this pill.
  */
-const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization", public: "Everyone (public)" };
+const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization", public: "Everyone (public)",
+  failing: "Started, failing" };
 
 /**
  * Which of the three tones a probe outcome wears.
@@ -331,9 +338,50 @@ let groupFilter = "";
 /** Who is signed in, set by `whoami` and read only by *Leave group*. */
 let signedInAs = "";
 
+/** The names the Groups list was given, so New group can say a name is taken before it is sent. */
+let groupNamesKnown = [];
+
+/**
+ * New group's address name, said as it is typed (UX sweep 2026-10-19): what it becomes, that it is for good, and
+ * whether it is taken. Until somebody types into it, it follows the title.
+ */
+function sayNewGroupName() {
+  const field = $("newGroupName");
+  const name = (field?.value || "").trim();
+  const taken = !!name && groupNamesKnown.some(g => g.toLowerCase() === name.toLowerCase());
+  // <b>The rule is said and kept here</b> (verification round, 2026-10-19): "Bad Name!" was accepted with an
+  // address of /studio/group/Bad%20Name!. Letters, digits, hyphens and underscores, starting with a letter or digit.
+  const shaped = !name || /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name);
+  const wrong = taken || !shaped;
+  $("newGroupNameHint").innerHTML = taken
+    ? `<b>${h(name)} is taken.</b> Each group has its own address name.`
+    : !shaped
+      ? `<b>Use letters, digits, hyphens and underscores only</b>, starting with a letter or a digit: no spaces.`
+      : `Letters, digits, hyphens and underscores. It becomes the group's address,
+         <span class="addr">/studio/group/${name ? h(name) : "<i>name</i>"}</span>, and cannot be changed later.`;
+  if (field) {
+    if (wrong) field.setAttribute("aria-invalid", "true"); else field.removeAttribute("aria-invalid");
+  }
+  if ($("newGroupSave")) $("newGroupSave").disabled = !name || wrong;
+}
+
+document.addEventListener("input", event => {
+  const t = event.target;
+  if (t.id === "newGroupTitle" && !$("newGroupName").dataset.typed) {
+    // Turkish dotless i has no decomposition, so it is mapped before the accents are dropped.
+    $("newGroupName").value = t.value.trim().toLowerCase().replace(/ı/g, "i").normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    sayNewGroupName();
+  } else if (t.id === "newGroupName") {
+    if (t.value) t.dataset.typed = "1"; else delete t.dataset.typed;
+    sayNewGroupName();
+  }
+});
+
 async function loadGroups() {
   const answer = await api("/admin/groups") || {};
   const groups = answer.groups || [];
+  groupNamesKnown = groups.map(g => g.name);
 
   if (!groups.some(g => g.name === groupOpen)) groupOpen = groups[0]?.name ?? null;
 
@@ -378,20 +426,22 @@ async function loadGroups() {
     : shown.length === 0
       ? `<tr><td colspan="6" class="empty">Nothing matches <b>${h(groupFilter)}</b>. The search reads
            a group's name, title, description and owner.</td></tr>`
+      // <b>No row is marked current</b> (UX sweep 2026-10-19): a row here opens a page, it selects nothing, and a
+      // tinted first row with a bar read as *the group you are in*. Hover is the whole of the affordance.
       : pageOf("groupRows", shown).map(g => `
-      <tr class="pick${g.name === groupOpen ? " on" : ""}" data-group="${h(g.name)}">
+      <tr class="pick" data-group="${h(g.name)}">
         <td class="name"><a href="#/group/${encodeURIComponent(g.name)}"
             >${h(g.title || g.name)}</a>${g.title && g.title !== g.name
           ? `<div class="val" style="font-weight:400">${h(g.name)}</div>` : ""}</td>
-        <td class="val">${g.itemUpdate === "allItems"
-          ? "edit all"
-          : g.itemUpdate === "ownItems" ? "edit own" : "read"}</td>
-        <td>${g.standing === "member"
+        <td class="val" data-l="Members may"><span>${g.itemUpdate === "allItems"
+          ? "edit every item"
+          : g.itemUpdate === "ownItems" ? "edit their own" : "read"}</span></td>
+        <td data-l="You are">${g.standing === "member"
           ? `<span class="val">member</span>`
           : `<b>${h(g.standing)}</b>`}</td>
-        <td class="val">${h(g.owner || "—")}</td>
-        <td class="num">${num(g.members)}</td>
-        <td class="num">${num(g.items)}</td>
+        <td class="val" data-l="Owner"><span>${h(g.owner || "—")}</span></td>
+        <td class="num" data-l="Members"><span>${num(g.members)}</span></td>
+        <td class="num" data-l="Items"><span>${num(g.items)}</span></td>
       </tr>`).join("");
 
   $("groupsPager").innerHTML = pagerFor("groupRows", shown.length);
@@ -490,6 +540,9 @@ async function showGroup(name, tab) {
   groupNow = one;
 
   $("groupTitle").textContent = one.title || one.name || name;
+  // The crumb names the group as the heading does (UX sweep 2026-10-19): it said the id beside a heading that
+  // said the title, two names for one page.
+  $("groupCrumb").innerHTML = `<a href="#/groups">Groups</a> › <b>${h(one.title || one.name || name)}</b>`;
 
   // The summary as the page's subtitle. Absent for everybody, invitingly absent for a manager only:
   // ADR-034 condition 1 — do not show a reader an absence they cannot fill.
@@ -498,8 +551,8 @@ async function showGroup(name, tab) {
   $("groupSummary").innerHTML = one.summary
     ? h(one.summary)
     : one.mayManage
-      ? `No summary yet — <a href="#/group/${encodeURIComponent(name)}/settings">Settings</a> takes
-         one. It is the line somebody reads while deciding whether to share into this group.`
+      ? `No summary yet. <a href="#/group/${encodeURIComponent(name)}/settings">Add one in Settings</a>: it
+         is the line somebody reads while deciding whether to share into this group.`
       : "";
 
   const items = one.items || [];
@@ -568,15 +621,18 @@ function drawGroupOverview(one) {
     : `<b>${num(items.length)}</b> item${items.length === 1 ? "" : "s"} shared here, read by the ${num(people)}
        ${people === 1 ? "person" : "people"} in this group.`;
 
+  // <b>One line that links, not two that repeat each other</b> (UX sweep 2026-10-19). The summary's empty state
+  // already sends a manager to Settings; this one does only when the summary is there and that one is not.
   $("groupAbout").innerHTML = one.description
     ? `<p class="lede">${h(one.description)}</p>`
     : one.mayManage
-      ? `<p class="hint">No description. Say what this group is for — it is what somebody deciding
-           whether to share into it reads. <b>Settings</b> takes one.</p>`
+      ? `<p class="hint">No description yet${one.summary
+          ? `. <a href="#/group/${encodeURIComponent(one.name)}/settings">Add one in Settings</a>.` : "."}</p>`
       : "";
 
   $("groupRecent").innerHTML = items.length === 0
-    ? `<p class="hint">Nothing yet. <b>Add item</b>, on Content, offers what you have published.</p>`
+    ? `<p class="hint">Nothing is shared with it yet.${one.mayManage
+        ? ` <a href="#/group/${encodeURIComponent(one.name)}/add">Add items</a> from what you have published.` : ""}</p>`
     : `<p class="hint">Every item shared here reaches its members, whatever its own sharing level — a private item
          is read by this group and its owner, an organization or public one by them as well.</p>`;
 
@@ -688,9 +744,9 @@ function drawGroupContent(one) {
               ? ` · service folder ${h(i.name.split("/")[0])}` : ""}<span class="narrowonly"> · ${h(i.sharing)}</span></div></td>
           <td class="val widecol">${h(i.kind ? itemTypeName(i.kind) : "service")}</td>
           <td class="widecol">${pill(i.sharing)}</td>
-          <td class="val">${day(i.shared)}${i.sharedBy
-            ? ` <span class="faint">by ${h(i.sharedBy)}</span>` : ""}</td>
-          <td style="text-align:right">${one.mayManage
+          <td class="val" data-l="Shared"><span>${day(i.shared)}${i.sharedBy
+            ? ` <span class="faint">by ${h(i.sharedBy)}</span>` : ""}</span></td>
+          <td class="act" style="text-align:right">${one.mayManage
             ? `<button class="tiny danger" ${i.mapId ? `data-group-unshare-map="${h(i.mapId)}"` : `data-group-unshare="${h(i.name)}"`}
                  title="Removes it from the group. Everybody in the group loses it; the service itself
                         keeps existing.">Stop sharing</button>`
@@ -752,18 +808,18 @@ function drawGroupMembers(one) {
         <tr>
           <td class="name">${h(m.displayName || m.name)}${m.displayName && m.displayName !== m.name
             ? `<div class="val" style="font-weight:400">${h(m.name)}</div>` : ""}</td>
-          <td>${m.standing === "member"
+          <td data-l="Standing">${m.standing === "member"
             ? `<span class="val">member</span>`
             : `<b>${h(m.standing)}</b>`}</td>
-          <td class="val">${day(m.joined)}${m.addedBy
-            ? ` <span class="faint">by ${h(m.addedBy)}</span>` : ""}</td>
-          <td style="text-align:right">${one.mayManage && m.standing !== "owner" ? `
+          <td class="val" data-l="Joined"><span>${day(m.joined)}${m.addedBy
+            ? ` <span class="faint">by ${h(m.addedBy)}</span>` : ""}</span></td>
+          <td class="act groupmemberacts" style="text-align:right">${one.mayManage && m.standing !== "owner" ? `
             <button class="tiny" data-group-grade="${h(m.name)}"
               data-to="${m.standing === "manager" ? "member" : "manager"}"
               title="${m.standing === "manager"
-                ? "A manager may add members and share services; make them a plain member"
+                ? "A manager may add members and share services; this makes them a plain member"
                 : "A manager may add members and share services, and may not delete the group"}"
-              >Make ${m.standing === "manager" ? "member" : "manager"}</button>
+              >${m.standing === "manager" ? "Remove manager role" : "Make manager"}</button>
             <button class="tiny danger" data-group-drop="${h(m.name)}">Remove</button>` : ""}</td>
         </tr>`;
       }).join("");
@@ -774,11 +830,10 @@ function drawGroupMembers(one) {
 /**
  * Settings: the four editable policies, and deletion.
  *
- * <b>Selects and not radios, and that is a house rule rather than a preference.</b> There is not one
- * radio input in this console; every either/or is a `.setting` row with a select, and the nearest
- * precedent is on this very subject — the create form's capability select carries the consequence in
- * each option's text. Three radio groups here would introduce a fifth visual dialect on the screen
- * most at risk of one.
+ * <b>Radio rows since the UX sweep of 2026-10-19.</b> This was selects by house rule, *one visual dialect*;
+ * the sweep found the selects' real cost elsewhere (one arrow key changed a member's role) and the dialect
+ * already exists — the Share dialog and New item choose with `.pickrow` radios — so every either/or here
+ * with three answers or fewer is laid out where it can be read before it is chosen.
  *
  * <b>Membership first, deletion last</b> — the opposite of the reference's order, and this console's
  * own rule about destructive controls.
@@ -807,138 +862,141 @@ function drawGroupSettings(one) {
     return;
   }
 
-  // <b>`<label for>`, because `<span class="q">` gives a combobox no accessible name.</b> A design
-  // review's snapshot read all four of this tab's selects as `combobox: ""` — the one tab that is
-  // nothing but form controls, and a screen reader got four unlabelled dropdowns.
-  const pick = (id, value, options) => `<select id="${id}">${options.map(([v, label, off]) =>
-    `<option value="${v}"${v === value ? " selected" : ""}${off ? " disabled" : ""}>${label}</option>`)
-    .join("")}</select>`;
-
-  // <b>Three text rows that existed nowhere in this console.</b> `title` and `description` were
-  // create-only and `summary` was unreachable altogether, while the endpoint accepted all three and
-  // the overlay already sent them — so the page's most persistent string, *"No summary. Settings takes
-  // one"*, pointed at a field that did not exist. A design review read it cold and called it a promise
-  // the page cannot keep. It can now.
+  // <b>Rebuilt after the UX sweep of 2026-10-19</b>, which read this tab as an engineering notebook: the fields
+  // were set in the monospace value font, the section headings were smaller than the labels under them, and the
+  // help was an essay with register citations in it. Now: three sections with real headings, one sentence of
+  // help where a field needs one, each either/or as radio rows (the selects' *house rule* above is retired here;
+  // two and three answers read faster laid out than folded), a Save bar that stays on screen, and deletion in
+  // its own card at the end.
   //
-  // <b>And this comment is out here rather than in the template, which is the third time today.</b>
-  // A backtick inside an HTML comment inside a template literal closes the literal (D-77). The rule is
-  // not *escape it* — it is that HTML comments do not go inside template literals at all.
+  // <b>Every control keeps its id</b> — a radio group's id is on its fieldset — so `groupSettingValue` reads
+  // either, and the Save handler builds the same body it always did.
+  const radios = (id, legend, value, options) => `
+    <fieldset class="pickset" id="${id}">
+      <legend>${legend}</legend>
+      ${options.map(([v, label, lede, off]) => `
+        <label class="pickrow"><input type="radio" name="${id}" value="${v}"${v === value ? " checked" : ""}${
+          off ? " disabled" : ""}>
+          <span><b>${label}</b>${lede ? `<span class="lede">${lede}</span>` : ""}</span></label>`).join("")}
+    </fieldset>`;
+
+  const items = (one.items || []).length;
+  const people = (one.members || []).length;
+
   $("groupSettings").innerHTML = `
-    <h4>What this group is</h4>
+    <div class="gsform" role="group" aria-label="Group settings">
+      <section class="gsec" aria-labelledby="gsAbout">
+        <h3 id="gsAbout">About this group</h3>
+        <p class="hint">Shown on the group's page and in the list of groups.</p>
+        <div class="gfield"><label for="gsTitle">Title</label>
+          <input id="gsTitle" type="text" autocomplete="off" value="${h(one.title || "")}"></div>
+        <div class="gfield"><label for="gsSummary">Summary</label>
+          <input id="gsSummary" type="text" autocomplete="off" value="${h(one.summary || "")}"
+            aria-describedby="gsSummaryHint">
+          <p class="hint" id="gsSummaryHint">One line under the title: what somebody reads while deciding whether to
+            share into this group.</p></div>
+        <div class="gfield"><label for="gsDescription">What it is for</label>
+          <textarea id="gsDescription" rows="3">${h(one.description || "")}</textarea></div>
+      </section>
 
-    <div class="setting wide"><label class="q" for="gsTitle">Its display title:</label>
-      <input id="gsTitle" type="text" autocomplete="off" value="${h(one.title || "")}">
-      <span class="u"></span></div>
+      <section class="gsec" aria-labelledby="gsMembership">
+        <h3 id="gsMembership">Membership</h3>
+        <p class="hint">None of these reach outside the group: what is shared with it stays readable by its members
+          and nobody else.</p>
+        ${radios("gsVisibility", "Who can see that this group exists", one.visibility || "members", [
+          ["members", "Only its members"],
+          ["organization", "Everyone signed in to this server"],
+        ])}
+        ${radios("gsJoin", "How people join", one.joinPolicy || "invitation", [
+          ["invitation", "An owner or manager adds them"],
+          ["self", "They add themselves"],
+          ["request", "They ask, and an owner or manager accepts", "Not available yet.", true],
+        ])}
+        ${radios("gsContribute", "Who may share items into it", one.contribute || "managers", [
+          ["managers", "The owner and its managers"],
+          ["members", "Any member"],
+        ])}
+        ${radios("gsMemberList", "Who can see who is in it", one.memberList || "members", [
+          ["members", "Any member", "An administrator can always see it."],
+          ["managers", "Only the owner and its managers"],
+        ])}
+        ${radios("gsLeave", "Leaving", one.membersMayLeave === false ? "no" : "yes", [
+          ["yes", "Members may leave on their own"],
+          ["no", "Only the owner or a manager removes members",
+            "ArcGIS calls this an administrative group. Nobody is trapped: the owner and managers can still remove anyone."],
+        ])}
+      </section>
 
-    <div class="setting wide"><label class="q" for="gsSummary">One line, shown under its name:</label>
-      <input id="gsSummary" type="text" autocomplete="off" value="${h(one.summary || "")}">
-      <span class="u"></span></div>
+      <section class="gsec" aria-labelledby="gsFixed">
+        <h3 id="gsFixed">Fixed when the group was made</h3>
+        <p class="gfixed"><b>${one.itemUpdate === "allItems"
+          ? "Members may edit every item shared with it"
+          : one.itemUpdate === "ownItems"
+            ? "Members may edit the items they shared themselves"
+            : "Members may read the items shared with it"}</b>
+          <span class="hint">This cannot be changed. To change it, make another group and move the shares.</span></p>
+      </section>
 
-    <div class="setting wide"><label class="q" for="gsDescription">What it is for:</label>
-      <input id="gsDescription" type="text" autocomplete="off"
-        value="${h(one.description || "")}"><span class="u"></span></div>
-
-    <h4>Group membership</h4>
-
-    <div class="setting wide"><label class="q" for="gsVisibility">Who can see that this group exists:</label>
-      ${pick("gsVisibility", one.visibility || "members", [
-        ["members", "Only its members"],
-        ["organization", "All signed-in members"],
-      ])}<span class="u"></span></div>
-    <p class="hint">Seeing that a group exists is not being able to read what is in it. What is shared
-      with this group stays readable by its members and nobody else, whatever this says.</p>
-
-    <div class="setting wide"><label class="q" for="gsJoin">How people come to be in it:</label>
-      ${pick("gsJoin", one.joinPolicy || "invitation", [
-        ["invitation", "An owner or manager adds them"],
-        ["request", "They ask — not built yet", true],
-        ["self", "They add themselves"],
-      ])}<span class="u"></span></div>
-    <p class="hint">Asking to join needs a queue somebody reviews, which is not built.</p>
-
-    <div class="setting wide"><label class="q" for="gsContribute">Who may share a service into it:</label>
-      ${pick("gsContribute", one.contribute || "managers", [
-        ["managers", "The owner and its managers"],
-        ["members", "Any member"],
-      ])}<span class="u"></span></div>
-    <p class="hint" id="gsVisNote"></p>
-
-    <div class="setting wide"><label class="q" for="gsMemberList">Who can see who is in it:</label>
-      ${pick("gsMemberList", one.memberList || "members", [
-        ["members", "Any member"],
-        ["managers", "The owner and its managers"],
-      ])}<span class="u"></span></div>
-    <p class="hint">Neither answer reaches outside the group, so this can only narrow what the first
-      setting on this tab allows. An administrator sees the list either way.</p>
-
-    <div class="setting wide"><label class="q" for="gsLeave">Whether a member may leave:</label>
-      ${pick("gsLeave", one.membersMayLeave === false ? "no" : "yes", [
-        ["yes", "They may leave on their own"],
-        ["no", "Only the owner or a manager removes them"],
-      ])}<span class="u"></span></div>
-    <p class="hint">The second is what ArcGIS calls an administrative group. Nobody is trapped by it:
-      the owner and its managers can still remove anyone.</p>
-
-    <div class="row" style="margin:var(--gap-4) 0">
-      <button class="primary" id="gsSave" disabled>Save</button>
-      <span class="val" id="gsDirty"></span>
+      <div class="savebar">
+        <span class="val" id="gsDirty" role="status" aria-live="polite">No unsaved changes</span>
+        <button type="button" class="ghost" id="gsDiscard" disabled>Discard</button>
+        <button type="button" class="primary" id="gsSave" disabled>Save changes</button>
+      </div>
     </div>
 
-    <h4>Fixed when the group was made</h4>
+    <section class="dangercard" aria-labelledby="gsDelete">
+      <h3 id="gsDelete">Deletion</h3>
+      <div class="dangerrow">
+        <div><b>Protect from deletion</b>
+          <p class="hint">While it is on, nobody can delete this group, an administrator included. It takes effect
+            the moment it is ticked, not on Save.</p></div>
+        <label class="dangerswitch"><input type="checkbox" id="gsLock"${one.deleteLocked ? " checked" : ""}>
+          Protected</label>
+      </div>
+      ${one.mayDelete ? `
+      <div class="dangerrow">
+        <div><b>Delete this group</b>
+          <p class="hint">${one.deleteLocked
+            ? "Turn the protection off first."
+            : `Removes its ${num(people)} membership${people === 1 ? "" : "s"} and ${num(items)} share${
+                items === 1 ? "" : "s"}. The items themselves are not touched.`}</p></div>
+        <button type="button" class="danger" id="groupDelete"${one.deleteLocked ? " disabled" : ""}>Delete group</button>
+      </div>` : ""}
+    </section>`;
 
-    <div class="setting wide"><span class="q">What members may do with what is already in it:</span>
-      <select disabled aria-label="What members may do with what is already in it"><option>${
-        one.itemUpdate === "allItems"
-          ? "Edit every service shared with it"
-          : one.itemUpdate === "ownItems"
-            ? "Edit the ones they shared themselves"
-            : "Read them"}</option></select><span class="u"></span></div>
-    <p class="hint">Fixed when the group was made. Widening it would make every service already shared
-      with the group editable by every member, retroactively — so there is no write path for it at all
-      (ADR-036 §4c). To change it, make another group and move the shares.</p>
-
-    <h4>Deletion</h4>
-
-    <div class="setting wide"><span class="q">Protect this group from being deleted:</span>
-      <label><input type="checkbox" id="gsLock"${one.deleteLocked ? " checked" : ""}
-        aria-label="Protect this group from being deleted">
-        ${one.deleteLocked ? "Locked" : "Not locked"}</label>
-      <span class="u"></span></div>
-    <p class="hint">Nobody can delete this group while this is on, <b>including an administrator</b>.
-      A confirmation is dismissed by habit; a lock has to be turned off deliberately, here, where what
-      the group holds is on the next tab. <b>Applied the moment it is ticked, not on Save</b> — the
-      same rule a service's sharing follows, and it is stated because a safety switch left unsaved is
-      believed-on and off.</p>
-
-    ${one.mayDelete ? `
-      <div class="row" style="margin-top:var(--gap-3)">
-        <button class="tiny danger" id="groupDelete"${one.deleteLocked ? " disabled" : ""}
-          >Delete group</button>
-        <span class="hint" style="margin:0">${one.deleteLocked
-          ? `Turn the protection off first — the switch is one row above.`
-          : `Its members and its shares go with it. The services themselves are untouched.`}</span>
-      </div>` : ""}`;
-
-  // Dirty tracking, so Save is disabled until there is something to save. The lock is deliberately
-  // not part of it: it writes on its own, because a safety switch left unsaved is believed-on and off.
+  // Dirty tracking, so Save and Discard wait until there is something to save. The lock is deliberately not part
+  // of it: it writes on its own, because a safety switch left unsaved is believed to be on when it is off.
   const watch = ["gsTitle", "gsSummary", "gsDescription",
                  "gsVisibility", "gsJoin", "gsContribute", "gsMemberList", "gsLeave"];
 
-  const reading = () => watch.map(id => $(id).value).join("\u0000");
+  const reading = () => watch.map(groupSettingValue).join("\u0000");
   const was = reading();
 
   const check = () => {
     const dirty = reading() !== was;
     $("gsSave").disabled = !dirty;
-    $("gsDirty").textContent = dirty ? "unsaved" : "";
+    $("gsDiscard").disabled = !dirty;
+    $("gsDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
+    $("gsDirty").closest(".savebar")?.classList.toggle("dirty", dirty);
   };
 
-  // The three text rows are `input`, the three selects are `change`; a text field that only reported
-  // on blur would leave Save disabled while somebody typed into it.
+  // Text is `input`, a radio is `change`, and both bubble to the fieldset or field they belong to.
   for (const id of watch) {
     $(id).onchange = check;
     $(id).oninput = check;
   }
+
+  $("gsDiscard").onclick = () => {
+    drawGroupSettings(one);
+    $("gsTitle").focus();
+  };
+}
+
+/** A group setting's value: a text field's text, or the chosen radio in a fieldset that carries the id. */
+function groupSettingValue(id) {
+  const control = $(id);
+  if (!control) return "";
+  return control.tagName === "FIELDSET" ? control.querySelector("input:checked")?.value || "" : control.value;
 }
 
 /**
@@ -1161,6 +1219,8 @@ const roleAdministrative = new Map();
 
 /** The user-type ladder, in the order the platform states it. */
 let memberUserTypes = [];
+/** The role names, as the Members answer lists them, for Change role…. */
+let memberRoleNames = [];
 const roleHolders = new Map();
 const roleIsAdministrative = new Set();
 
@@ -1266,13 +1326,9 @@ function recountRoleSections() {
     if (index === 1 && on > 0) anyAdmin = true;
   });
 
-  const line = $("roleCompatibility")?.querySelector("b");
-
-  if (line) {
-    line.textContent = anyAdmin
-      ? "Only the unrestricted user type can hold this role"
-      : "Any user type can hold this role";
-  }
+  const line = $("roleCompatibilityLine");
+  if (line) line.innerHTML = roleCompatibilityText(anyAdmin);
+  drawRoleDirty();
 }
 
 /**
@@ -1343,13 +1399,13 @@ function drawSignin() {
     : idpList.map((p, i) => `
       <tr>
         <td class="name"><b>${h(p.name)}</b>${p.enabled ? "" : ` <span class="hint">off: nobody can sign in with it</span>`}${samlExpiring(p)}</td>
-        <td class="val idpissuer"><span class="hint">${p.kind === "ldap" ? "Directory" : p.kind === "saml" ? "SAML" : "OpenID Connect"}</span>
-          <code>${h(p.issuer)}</code></td>
-        <td>${p.autoCreate
+        <td class="val idpissuer" data-l="Address"><span><span class="hint">${p.kind === "ldap" ? "Directory" : p.kind === "saml" ? "SAML" : "OpenID Connect"}</span>
+          <code>${h(p.issuer)}</code></span></td>
+        <td data-l="First sign-in"><span>${p.autoCreate
           ? `Anyone it signs in gets an account: ${h(p.defaultRole)}`
-          : "Only people added on Members"}</td>
-        <td class="num">${num(p.accounts)}</td>
-        <td class="actions">
+          : "Only people added on Members"}</span></td>
+        <td class="num" data-l="Accounts"><span>${num(p.accounts)}</span></td>
+        <td class="actions act idpacts">
           <button class="ghost tiny" data-idp-check="${i}" aria-describedby="idpSays">Check</button>
           <button class="ghost tiny" data-idp-edit="${i}" aria-expanded="${idpEditing === p.id}" aria-controls="idpForm">Edit</button>
           <button class="ghost tiny" data-idp-groups="${i}" aria-expanded="${idpGroupsOf === p.id}" aria-controls="idpGroups">Groups</button>
@@ -1829,6 +1885,7 @@ async function loadApps() {
 
   $("appCount").textContent = `${apps.length} app${apps.length === 1 ? "" : "s"}`;
 
+  // Remove is destructive and looks it (sweep 2026-10-19): removing ArcGIS Pro's registration ends Pro's sign-in.
   $("appRows").innerHTML = apps.length === 0
     ? `<tr><td colspan="4" class="empty">No app is registered, so nothing can sign people in through
         OAuth. Signing in with a name and password is unaffected.</td></tr>`
@@ -1836,9 +1893,10 @@ async function loadApps() {
       <tr>
         <td class="name"><b>${h(a.title)}</b>
           <div class="rowmeta">${a.builtin ? "Came registered with this server" : `Registered ${day(a.createdAt)}`}</div></td>
-        <td class="val"><code>${h(a.clientId)}</code></td>
-        <td class="val">${(a.redirectUris || []).map(u => `<div><code>${h(u)}</code></div>`).join("")}</td>
-        <td style="text-align:right"><button class="ghost tiny" data-app-remove="${h(a.clientId)}"
+        <td class="val" data-l="App ID"><span><code>${h(a.clientId)}</code></span></td>
+        <td class="val" data-l="Returns to"><span>${(a.redirectUris || []).map(u => `<div><code>${h(u)}</code></div>`).join("")}</span></td>
+        <td class="act" style="text-align:right"><button class="danger tiny" data-app-remove="${h(a.clientId)}"
+          aria-label="Remove ${h(a.title)}"
           data-app-title="${h(a.title)}" data-app-builtin="${a.builtin ? "1" : ""}"
           data-app-redirects="${h((a.redirectUris || []).join(", "))}">Remove</button></td>
       </tr>`).join("");
@@ -1854,16 +1912,17 @@ async function loadRoles() {
   const chosen = roles.find(r => r.name === roleOpen) || null;
 
   $("roleRows").innerHTML = roles.length === 0
-    ? `<tr><td colspan="5" class="empty">No roles, which cannot happen: the schema seeds five.</td></tr>`
+    ? `<tr><td colspan="2" class="empty">No roles, which cannot happen: the schema seeds five.</td></tr>`
+    // <b>A narrow list beside a wide editor</b> (UX sweep 2026-10-19): the editor is where the work is and it was
+    // the narrow column. The name, then one line of counts; the description is the editor's subtitle now.
     : pageOf("roleRows", roles).map(r => `
-      <tr class="pick${r.name === roleOpen ? " on" : ""}" data-role="${h(r.name)}">
+      <tr class="pick${r.name === roleOpen ? " on" : ""}" data-role="${h(r.name)}"
+          data-privileges="${r.privileges.length}">
         <td class="name"><button type="button" class="rowname"
-            data-role="${h(r.name)}">${h(r.name)}</button>${r.builtIn
-          ? ` <span class="val">built in</span>` : ""}</td>
-        <td class="val">${h(r.description || "")}</td>
-        <td class="num">${num(r.privileges.length)}</td>
-        <td class="num">${num(r.members)}</td>
-        <td style="text-align:right">${r.removable
+            data-role="${h(r.name)}"${r.name === roleOpen ? ' aria-current="true"' : ""}>${h(r.name)}</button>
+          <span class="rowmeta">${num(r.privileges.length)} privilege${r.privileges.length === 1 ? "" : "s"} ·
+            ${r.members ? `held by ${num(r.members)}` : "held by nobody"}${r.builtIn ? " · built in" : ""}</span></td>
+        <td class="act" style="text-align:right">${r.removable
           ? `<button class="tiny danger" data-role-delete="${h(r.name)}"
                ${r.members ? "disabled title='Members hold this role'" : ""}>Delete</button>`
           : ``}</td>
@@ -1901,18 +1960,21 @@ async function loadRoles() {
   // here — eighteen privilege rows earlier on a full page. A grant here is not a setting on a role, it
   // is a capability handed to N live accounts, and the number belongs beside the button that hands it
   // over. Design review 2026-08-19.
-  $("roleEditorName").innerHTML = `<b>${h(chosen.name)}</b>`
-    + (chosen.members
-      ? ` <span class="val">held by ${num(chosen.members)} `
-        + `member${chosen.members === 1 ? "" : "s"} — saving changes what they can do</span>`
-      : ` <span class="val">held by nobody, so saving changes nothing yet</span>`);
+  $("roleEditorName").innerHTML = h(chosen.name);
+  $("roleEditorSays").textContent = [
+    chosen.description || "",
+    chosen.members
+      ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"}: saving changes what they can do, at their next request.`
+      : "Held by nobody, so saving changes nothing yet.",
+  ].filter(Boolean).join(" ");
+  roleStored = new Set(chosen.privileges);
 
   // <b>Set from existing role.</b> Every other role is an option; choosing one copies its ticks
   // into this editor without saving, so the operator can then narrow it. Absent for the
   // administrator, which cannot be edited at all.
   $("roleFrom").innerHTML = chosen.editable
-    ? `<label>Set from existing role
-         <select id="roleFromPick"><option value="">choose a role…</option>${
+    ? `<label>Copy privileges from
+         <select id="roleFromPick"><option value="">a role…</option>${
            roles.filter(r => r.name !== chosen.name)
              .map(r => `<option value="${h(r.name)}">${h(r.name)} (${r.privileges.length})</option>`)
              .join("")}</select></label>`
@@ -1978,6 +2040,9 @@ async function loadRoles() {
             const least = c.leastUserType;
             const narrow = least === "unrestricted";
 
+            // <b>Named in words first, the identifier small beside it</b> (UX sweep 2026-10-19): the rows were
+            // labelled `content:publishFeatures`, which is what the server calls it and not what it does.
+            const named = name => PRIVILEGE_LABELS[name] || name;
             return `
             <label class="roleprivilege${narrow ? " capped" : ""}">
               <input type="checkbox" data-privilege="${h(c.name)}"
@@ -1985,20 +2050,19 @@ async function loadRoles() {
                 ${held.has(c.name) ? "checked" : ""}
                 ${chosen.editable ? "" : "disabled"}>
               <span class="privilegetext">
-                <span class="mono">${h(c.name)}</span>
+                <b class="privilegename">${h(named(c.name))}</b>
+                <code class="mono">${h(c.name)}</code>
                 ${least === undefined
                   ? ""
                   : least === null
-                    ? `<span class="val cappednote">no user type carries this</span>`
-                    : `<span class="val${narrow ? " cappednote" : ""}">${narrow
+                    ? `<span class="pill tierpill cappednote">no user type carries this</span>`
+                    : `<span class="pill tierpill${narrow ? " cappednote" : ""}">${narrow
                         ? "unrestricted only"
                         : `${h(least)} or above`}</span>`}
-                ${c.requires.length
-                  ? `<span class="val">needs ${c.requires.map(h).join(", ")}</span>` : ""}
-                ${c.includes.length
-                  ? `<span class="val">includes ${c.includes.map(h).join(", ")}</span>` : ""}
-                ${c.description
-                  ? `<span class="privilegewhat">${h(c.description)}</span>` : ""}
+                ${c.description || c.requires.length || c.includes.length
+                  ? `<span class="privilegewhat">${h(c.description || "")}${c.requires.length
+                      ? ` Needs ${c.requires.map(n => h(named(n))).join(", ")}.` : ""}${c.includes.length
+                      ? ` Includes ${c.includes.map(n => h(named(n))).join(", ")}.` : ""}</span>` : ""}
               </span>
             </label>`;
           }).join("")}
@@ -2014,20 +2078,63 @@ async function loadRoles() {
   const anyAdmin = catalogue.some(c => c.administrative && held.has(c.name));
 
   $("roleCompatibility").innerHTML = chosen.editable
-    ? `<p class="hint"><b>${anyAdmin
-        ? "Only the unrestricted user type can hold this role"
-        : "Any user type can hold this role"}</b> — ${anyAdmin
-        ? "it carries administrative privileges, and ADR-018 §3a's ceiling withholds those from "
-          + "viewer, editor and creator. A member with a lower type keeps the role and the "
-          + "privileges do nothing, which the refusal says in words."
-        : "nothing here is administrative, so each member's type narrows only what their own "
-          + "type withholds."}</p>`
+    ? `<p class="hint" id="roleCompatibilityLine">${roleCompatibilityText(anyAdmin)}</p>`
     : `<p class="hint"><b>This role cannot be edited or removed.</b> An administrator passes every
-         privilege check without consulting these rows (ADR-035 §4b), so the ticks are what it holds
-         and not what limits it. To take administrative power from somebody, change their role.</p>`;
+         privilege check whatever is ticked here, so the ticks are what it holds and not what limits it.
+         To take administrative power from somebody, change their role.</p>`;
 
+  $("roleSaveBar").hidden = !chosen.editable;
   $("roleSave").hidden = !chosen.editable;
+  drawRoleDirty();
 }
+
+/** Which user types may hold the role, as the ticks stand: a consequence of them, so said rather than asked. */
+function roleCompatibilityText(anyAdmin) {
+  return anyAdmin
+    ? "<b>Only the unrestricted user type can hold this role.</b> It carries administrative privileges, which "
+      + "every lower user type withholds: a member with a lower type keeps the role and those privileges do nothing."
+    : "<b>Any user type can hold this role.</b> Nothing here is administrative, so each member's user type "
+      + "narrows only what it withholds itself.";
+}
+
+/** The ticks as the server holds them, for the Save bar's *unsaved* and for Discard. */
+let roleStored = new Set();
+
+/** The Save bar says whether the ticks differ from what is stored, and Save and Discard wait until they do. */
+function drawRoleDirty() {
+  const ticked = [...document.querySelectorAll("#rolePrivileges input[data-privilege]")]
+    .filter(b => b.checked).map(b => b.dataset.privilege);
+  const dirty = ticked.length !== roleStored.size || ticked.some(p => !roleStored.has(p));
+  if ($("roleSave")) $("roleSave").disabled = !dirty;
+  if ($("roleDiscard")) $("roleDiscard").disabled = !dirty;
+  if ($("roleDirty")) $("roleDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
+  $("roleSaveBar")?.classList.toggle("dirty", dirty);
+}
+
+/**
+ * What each privilege is called in words. The server names them by identifier and describes them in a sentence;
+ * the screen needs a name between the two. A privilege missing here is shown by its identifier, which is still true.
+ */
+const PRIVILEGE_LABELS = {
+  "content:create": "Create content",
+  "content:publishFeatures": "Publish hosted feature layers",
+  "content:publishTiles": "Publish hosted tile layers",
+  "content:registerDataStore": "Register data stores",
+  "features:edit": "Edit features",
+  "features:fullEdit": "Edit any feature",
+  "sharing:shareToOrganization": "Share with the organization",
+  "sharing:shareToPublic": "Share publicly",
+  "groups:create": "Create groups",
+  "groups:deleteOwn": "Delete their own groups",
+  "groups:manageMembers": "Manage group members",
+  "groups:shareTo": "Share with groups",
+  "admin:manageMembers": "Manage members",
+  "admin:manageRoles": "Manage roles and user types",
+  "admin:viewAllContent": "View all content",
+  "admin:manageAllContent": "Manage all content",
+  "admin:manageSecurity": "Manage security",
+  "admin:manageServer": "Manage the server",
+};
 
 /**
  * Ten rows a page, on every Server listing, from one place.
@@ -2928,7 +3035,11 @@ function openScreen(surface, screen, folder) {
   if (screen === "content") {
     section("your content", loadMyContent, "contentRows").then(paintPreviews);
   }
-  if (screen === "members") section("members", loadMembers, "members");
+  if (screen === "members") {
+    memberFilterFromAddress();
+    pages.set("members", 0);
+    section("members", loadMembers, "members");
+  }
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "signin") {
     section("sign-in providers", loadSignin, "idpRows");
@@ -2944,7 +3055,17 @@ function openScreen(surface, screen, folder) {
   if (screen === "utilities") section("settings", loadGeometryService);
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
-  if (screen === "logs") section("logs", loadLogs, "logRows");
+  if (screen === "logs") {
+    // `?source=server&q=name` is where a failing service's *Read its warnings* lands: that log, filtered to it.
+    const asked = hashQuery.get("source");
+    if (asked && LOG_SOURCES.some(([key]) => key === asked)) {
+      logSource = asked;
+      logOwn = "";
+      logCursor = null;
+      if ($("logText")) $("logText").value = hashQuery.get("q") || "";
+    }
+    section("logs", loadLogs, "logRows");
+  }
 }
 
 // ---------------------------------------------------------------------- map
@@ -3294,7 +3415,8 @@ function drawLegend() {
   // about where in the world it is looking.
   $("legend").innerHTML = [...shown.entries()].map(([name, s]) =>
     `<span title="The colour the server publishes for this layer"><i class="swatch"
-       style="background:${h(s.colour)}"></i><b>${h(name)}</b></span>`).join("")
+       style="background:${h(s.colour)}"></i><b>${h(name)}</b>${s.outOfRange
+         ? ` <span class="val">not drawn at this scale</span>` : ""}</span>`).join("")
     + `<span style="margin-left:auto">EPSG:3857</span>`;
 }
 
@@ -3647,12 +3769,84 @@ async function show(name, doc) {
       toast(`${name} is shown, but its extent is unknown so the map did not move. `
         + "Run ANALYZE on the source table and reload.");
     }
+
+    followDrawnRange(mapView, name, doc).catch(() => {});
   } catch (e) {
     // The SDK reports a refused request here, and the server's message is the
     // useful part — a stopped service, a layer not shared, a parameter refused.
     hide(name);
     toast(`${name}: ${e.message || e}`);
   }
+}
+
+/** The watch on the map's scale that says when the layer shown is outside its drawing range, or null. */
+let drawnRangeWatch = null;
+
+/**
+ * Says so when the map is at a scale the layer does not draw at, and offers the way to where it does.
+ *
+ * <b>The extent and the drawing range disagree for most building layers.</b> The map opened at the service's extent,
+ * about 1:2.3M, on a layer whose `minScale` is 1:72,224: nothing was drawn, nothing said why, and the legend listed
+ * the layer as if it were on screen (UX sweep 2026-10-19). The extent is still where it opens, because it shows where
+ * the data is; this line says it is too far out, and the button goes to the scale it draws at.
+ */
+async function followDrawnRange(mapView, name, doc) {
+  drawnRangeWatch?.remove();
+  drawnRangeWatch = null;
+
+  const note = $("visRangeNote");
+  if (!note) return;
+  note.hidden = true;
+  note.innerHTML = "";
+  delete note.dataset.state;
+
+  const min = Number(doc?.minScale) || 0;
+  const max = Number(doc?.maxScale) || 0;
+  if (!min && !max) return;
+
+  const { reactiveUtils } = await loadEsri();
+
+  const say = () => {
+    const entry = shown.get(name);
+    const scale = mapView.scale;
+    const out = !entry ? null : min && scale > min ? "in" : max && scale < max ? "out" : null;
+
+    if (entry && entry.outOfRange !== !!out) {
+      entry.outOfRange = !!out;
+      drawLegend();
+    }
+
+    // Rewritten only when what it says changes, so a reader on its button keeps the focus while the map settles.
+    if ((note.dataset.state || "") === (out || "")) return;
+    note.dataset.state = out || "";
+    note.hidden = !out;
+    note.innerHTML = !out ? "" : `<span>${out === "in" ? "Zoom in" : "Zoom out"} to see <b>${h(name)}</b>. It draws ${
+      out === "in" ? `from 1:${num(Math.round(min))} in` : `down to 1:${num(Math.round(max))}`}.</span>
+      <button type="button" class="tiny" id="visRangeGo">Zoom to where it draws</button>`;
+  };
+
+  // <b>To where the features are, and the focus with it</b> (round 2). Zooming in on the extent's centre landed a
+  // building layer in the forest at the middle of its city, and the button left with the note, so the focus fell to
+  // the page. One feature is asked for and the map centres on it; the extent's centre only when none answers.
+  note.onclick = async event => {
+    if (!(event.target instanceof Element) || !event.target.closest("#visRangeGo")) return;
+    const scale = note.dataset.state === "in" ? min * 0.8 : max * 1.25;
+    let center = null;
+    try {
+      const one = await api(`${layerUrl(name).replace(location.origin, "")}/query?where=1%3D1&resultRecordCount=1`
+        + "&returnGeometry=true&outFields=&outSR=4326&f=json");
+      const g = one?.features?.[0]?.geometry;
+      const at = !g ? null : g.x !== undefined ? [g.x, g.y] : ((g.rings || g.paths)?.[0]?.[0] || g.points?.[0]);
+      if (at && Number.isFinite(at[0]) && Number.isFinite(at[1])) center = [at[0], at[1]];
+    } catch { /* the extent's centre, then */ }
+    await mapView.goTo(center ? { center, scale } : { scale }).catch(() => {});
+
+    // The map takes the focus, so a keyboard reader carries on from where the picture is.
+    if (typeof mapView.focus === "function") mapView.focus();
+    else $("view")?.focus();
+  };
+
+  drawnRangeWatch = reactiveUtils.watch(() => mapView.stationary && mapView.scale, say, { initial: true });
 }
 
 function hide(name) {
@@ -3842,9 +4036,6 @@ let myFolders = [];
 /** The folder chosen on the content list: "" for all, "root", or a folder's id. */
 let contentFolderPick = "";
 
-/** The type the content list is narrowed to, or "" for all of them. */
-let contentType = "";
-
 /** The order of the content list. */
 let contentSort = "modified";
 
@@ -3951,18 +4142,17 @@ function drawMyContent() {
 
   const needle = contentFilter.trim().toLowerCase();
 
-  // <b>The types offered are the ones present</b>, so the select never offers a filter that empties the list.
+  // <b>The types offered are the ones present</b>, so a tick never offers a filter that empties the list.
+  // <b>One type filter, the ticks</b> (UX sweep 2026-10-19). A Type select beside them filtered too, and the two
+  // combined: Imagery in the select and Feature layer ticked showed 0 of 29, with an empty message naming only the
+  // select. The ticks carry their counts and are what Portal's Content page has.
   const kinds = [...new Set(items.map(i => i.kind).filter(Boolean))].sort();
-  const typeBox = $("contentType");
-
-  if (typeBox) {
-    if (contentType && !kinds.includes(contentType)) contentType = "";
-    typeBox.innerHTML = `<option value="">All types</option>${kinds.map(k =>
-      `<option value="${h(k)}"${k === contentType ? " selected" : ""}>${h(itemTypeName(k))}</option>`).join("")}`;
-    typeBox.hidden = kinds.length < 2;
-  }
 
   drawContentFacets(inScope, kinds);
+
+  // Which types are ticked, as the empty messages name them.
+  const among = contentKinds.size === 0 ? ""
+    : ` among ${[...contentKinds].map(k => h(itemTypeName(k))).join(", ")} items`;
 
   const byName = (x, y) => bareOf(x).localeCompare(bareOf(y), undefined, { sensitivity: "base" });
 
@@ -3981,7 +4171,6 @@ function drawMyContent() {
   }[contentSort] || byName;
 
   const visible = inScope
-    .filter(i => !contentType || i.kind === contentType)
     .filter(i => contentKinds.size === 0 || contentKinds.has(i.kind))
     .filter(i => !contentIdle || idleItem(i))
     .filter(i => !needle || [i.name, bareOf(i), i.kind, i.description, i.owner, i.folder,
@@ -3994,7 +4183,7 @@ function drawMyContent() {
         ? "not in a folder" : `in ${myFolders.find(f => f.id === contentFolderPick)?.title || "this folder"}`}`
     : inScope.length === 0
     ? ""
-    : needle || contentType || contentKinds.size > 0
+    : needle || contentKinds.size > 0
       ? `showing ${num(visible.length)} of ${num(inScope.length)}`
       : `${num(inScope.length)} item${inScope.length === 1 ? "" : "s"}`;
 
@@ -4059,19 +4248,22 @@ function drawMyContent() {
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="4" class="empty">Nothing arrived this way.
+      ? `<tr><td colspan="4" class="empty">${contentScope === "administrative"
+             // It is a scope of other people's private items, not a channel things arrive by (UX sweep 2026-10-19).
+             ? "Nobody has kept anything private from you."
+             : "Nothing arrived this way."}
            ${contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0 && contentIdle && !contentFilter
         ? `<tr><td colspan="4" class="empty">${usageCountsAMonth()
-             ? `No idle services${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}. Everything published over
+             ? `No idle services${among}. Everything published over
                30 days ago has had a request since ${h(day(new Date(Date.now() - 30 * 86400000).toISOString()))}.`
              : `Nothing can be called idle yet: counting began ${usageSince ? h(day(usageSince)) : "with the first request"}, and
                thirty days of it are needed.`}</td></tr>`
       : visible.length === 0
         ? `<tr><td colspan="4" class="empty">Nothing matches${contentFilter
-             ? ` <b>${h(contentFilter)}</b>` : ""}${contentType ? ` among ${h(itemTypeName(contentType))} items` : ""}.
+             ? ` <b>${h(contentFilter)}</b>` : ""}${among}.
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
           if (i.map) return mapRow(i);
@@ -4079,7 +4271,6 @@ function drawMyContent() {
           // The map is driven per layer, and a service's cover layer is the one this row draws and
           // shows. A multi-layer service is opened from its own page for the rest.
           const key = i.cover ? i.cover.layer : null;
-          const isShown = key !== null && shown.has(key);
           const stopped = i.status === "stopped";
 
           // <b>The row opens the item, and the item lists its layers — owner correction, ADR-034
@@ -4135,42 +4326,16 @@ function drawMyContent() {
               ${i.description ? `<p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>` : ""}
               <div class="svcmeta">${facts}</div>
             </td>
-            <td class="acts">${i.kind === "ImageServer"
-              ? `<details class="menu">
-                  <summary title="More" aria-label="More actions">⋯</summary>
-                  <div class="sheet">
-                    ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}">Open in Map Viewer</a>`}
-                    ${i.scope === "mine" ? `<button data-move-service="${h(i.name)}"
-                      data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : ""}
-                  </div>
-                </details>`
-              : key === null
-              ? ""
-              : `${stopped
-                  ? ""
-                  : `<button class="iconbtn ${isShown ? "on" : ""}" data-show="${h(key)}"
-                       aria-label="${isShown ? "Hide the preview of" : "Preview"} ${h(bareOf(i))}" aria-pressed="${isShown}"
-                       title="${isShown ? "Hide the preview" : "Preview: a quick look at this layer — Open in Map Viewer is in ⋯"}"
-                       >${glyph("eye")}</button>`}
-                <details class="menu">
-                  <summary title="More" aria-label="More actions">⋯</summary>
-                  <div class="sheet">
-                    ${(content.get(key) || {}).tileable && !stopped
-                      ? `<button data-tiles="${h(key)}"
-                           title="A tile style belongs to the whole service, so this draws every layer in it"
-                           >${shown.has(tileKey(key))
-                             ? "Hide the service's tiles" : "Draw the whole service's tiles"}</button>` : ""}
-                    ${stopped ? "" : `<a href="/studio/webmap.html?service=${encodeURIComponent(i.name)}"
-                      >Open in Map Viewer</a>`}
-                    ${i.scope === "mine" ? `<button data-move-service="${h(i.name)}"
-                      data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : ""}
-                    <a href="${h(i.cover.url)}?f=json" target="_blank" rel="noreferrer"
-                      >The layer document</a>
-                    <div class="note">${stopped
-                      ? `Stopped, so there is nothing to draw — a stopped service answers 503.`
-                      : `The address is what any ArcGIS client would use.`}</div>
-                  </div>
-                </details>`}</td>
+            <td class="acts">${rowMenu(i, {
+              open: stopped ? "" : `/studio/webmap.html?service=${encodeURIComponent(i.name)}`,
+              tiles: key !== null && (content.get(key) || {}).tileable && !stopped ? key : null,
+              document: i.kind === "ImageServer" ? `/rest/services/${i.name}/ImageServer?f=json`
+                : i.cover ? `${i.cover.url}?f=json` : null,
+              documentLabel: i.kind === "ImageServer" ? "The service document" : "The layer document",
+              settings: `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=general`,
+              note: stopped ? "Stopped, so there is nothing to draw: a stopped service answers 503."
+                : "The address is what any ArcGIS client would use.",
+            })}</td>
           </tr>`;
         }).join("");
 
@@ -4370,9 +4535,13 @@ document.addEventListener("click", async e => {
 
   if (t.id === "bulkDelete") {
     const items = pickedItems();
-    if (!confirm(`Delete ${items.length} item${items.length === 1 ? "" : "s"}? ${items.map(i => `${i.title} (${i.what})`).join(", ")}.\n\n`
-      + "Services, image services and maps wait in the recycle bin for 14 days with their data, and can be restored (ADR-203). "
-      + "A registered layer's table and an image registered from a path are not touched.")) return;
+    if (!await askServerConfirm({
+      title: `Delete ${items.length} item${items.length === 1 ? "" : "s"}?`,
+      body: `${items.map(i => `${i.title} (${i.what})`).join(", ")}. Services, image services and maps wait in the `
+        + "recycle bin for 14 days with their data, and can be restored. A registered layer's table and an image "
+        + "registered from a path are not touched.",
+      action: `Delete ${items.length} item${items.length === 1 ? "" : "s"}`,
+    })) return;
     t.disabled = true;
     const failed = await eachPicked(items, item => {
       if (item.webmap) return api(`/content/webmaps/${encodeURIComponent(item.webmap)}`, { method: "DELETE" });
@@ -4579,8 +4748,17 @@ function serviceOfLayerUrl(url) {
   return match ? match[1] : null;
 }
 
+/** Which of the web map item's two tabs is showing — Overview, or Settings for whoever manages it. */
+let mapTab = "overview";
+
 async function showWebMapItem(id) {
+  // A tab is a place inside one map: the same map redrawn in place keeps it; arriving opens on Overview or where the
+  // address asks, as a layer's item does.
+  const again = mapOpen?.id === id && $("view-map").classList.contains("on");
+  if (!again) mapTab = hashQuery.get("tab") === "settings" ? "settings" : "overview";
+
   showView("view-map", "content");
+
   $("mapCrumb").innerHTML = `<a href="#/content">Content</a> › <b>…</b>`;
   $("mapTitle").textContent = "";
   $("mapSub").textContent = "";
@@ -4590,66 +4768,143 @@ async function showWebMapItem(id) {
     map = await api(`/content/webmaps/${encodeURIComponent(id)}`);
   } catch (e) {
     $("mapAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to Content</a></p>`;
-    $("mapLayers").innerHTML = "";
-    $("mapSide").innerHTML = "";
+    for (const one of ["mapLayers", "mapSide", "mapActions", "mapTabs", "mapThumb", "mapSettings"]) $(one).innerHTML = "";
+    $("mapSettings").hidden = true;
+    $("mapOverview").hidden = false;
     return;
   }
 
   mapOpen = map;
   const doc = typeof map.document === "string" ? JSON.parse(map.document) : (map.document || {});
   const layers = Array.isArray(doc.operationalLayers) ? doc.operationalLayers : [];
+
+  // <b>The basemap's layers are the map's layers too.</b> The page counted the operational layers alone, so a map
+  // drawn entirely from its five basemap layers read *0 layers* and *this map has no layers yet* under a picture of
+  // all five (UX sweep 2026-10-19).
+  const basemap = Array.isArray(doc.baseMap?.baseMapLayers) ? doc.baseMap.baseMapLayers : [];
   const open = `/studio/webmap.html?id=${encodeURIComponent(map.id)}`;
+  const plural = (n, word) => `${num(n)} ${word}${n === 1 ? "" : "s"}`;
 
   $("mapCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(map.title)}</b>`;
-  $("mapTitle").textContent = map.title;
+  $("mapTitle").innerHTML = nameWithBreaks(map.title);
   $("mapSub").textContent = [
-    "Web map", `${num(layers.length)} layer${layers.length === 1 ? "" : "s"}`, map.owner ? `owner ${map.owner}` : "",
+    "Web map",
+    layers.length || !basemap.length ? plural(layers.length, "layer") : "",
+    basemap.length ? plural(basemap.length, "basemap layer") : "",
+    map.owner ? `owner ${map.owner}` : "",
   ].filter(Boolean).join(" · ");
+
+  // ADR-119: the picture the Map Viewer took when the map was saved, in the head card as a layer's is.
+  $("mapThumb").innerHTML = map.thumbnail
+    ? `<img class="thumb mapitemthumb" data-thumb="${h(map.thumbnail)}" alt="Picture of ${h(map.title)}, taken when it was last saved">`
+    : `<div class="thumb empty mapitemthumb" data-note="No picture yet"
+         title="The picture is taken the first time the map is opened in the Map Viewer by somebody who can change it, and again whenever it is saved there."></div>`;
+
+  // Open in Map Viewer, Share, and the rest behind one More, as a layer's head card has them.
+  const more = [
+    map.mine ? `<button type="button" data-move-webmap="${h(map.id)}" data-move-folder="${h(map.contentFolder || "")}"
+      data-move-title="${h(map.title)}">Move to folder…</button>` : "",
+    map.manages ? `<button type="button" id="mapEditMore">Edit details</button>` : "",
+  ].filter(Boolean).join("");
+  $("mapActions").innerHTML = `
+    <a class="btn primary" href="${open}">Open in Map Viewer</a>
+    ${map.manages ? `<button type="button" id="mapShareOpen">Share</button>` : ""}
+    ${more ? `<details class="menu itemmore">
+      <summary aria-label="More actions for this map" title="More actions">More <span aria-hidden="true">▾</span></summary>
+      <div class="sheet">${more}</div>
+    </details>` : ""}`;
 
   drawMapAbout();
 
-  // Each layer with the way to its own item, when it is one of this server's services.
-  $("mapLayers").innerHTML = layers.length === 0
-    ? `<p class="hint">This map has no layers yet. Open it in the Map Viewer and add some.</p>`
-    : `<ul class="maplayers">${layers.slice().reverse().map(layer => {
-        const service = /\/rest\/services\/(.+?)\/(?:FeatureServer|MapServer|VectorTileServer)/.exec(layer.url || layer.styleUrl || "")?.[1];
-        const styled = layer.layerDefinition && layer.layerDefinition.drawingInfo;
-        return `<li><span class="kindtag">${h(WM_KIND[layer.layerType] || layer.layerType || "Layer")}</span>
-          <b>${service ? `<a href="#/service/${service}">${h(layer.title || service)}</a>` : h(layer.title || "Layer")}</b>
-          <span class="rowmeta">${styled ? "styled in this map" : ""}${styled && layer.layerDefinition.definitionExpression ? " · " : ""}${
-            layer.layerDefinition && layer.layerDefinition.definitionExpression ? "filtered" : ""}</span></li>`;
-      }).join("")}</ul>`;
+  // Each layer with the way to its own item, when it is one of this server's services; top first, the basemap last.
+  const row = layer => {
+    const service = serviceOfLayerUrl(layer.url || layer.styleUrl || "");
+    const styled = layer.layerDefinition && layer.layerDefinition.drawingInfo;
+    const filtered = layer.layerDefinition && layer.layerDefinition.definitionExpression;
+    const title = layer.title || layer.id || (service ? service.split("/").pop() : "Layer");
+    return `<li><span class="kindtag">${h(WM_KIND[layer.layerType] || layer.layerType || "Layer")}</span>
+      <b>${service ? `<a href="#/service/${service.split("/").map(encodeURIComponent).join("/")}">${h(title)}</a>` : h(title)}</b>
+      <span class="rowmeta">${[styled ? "styled in this map" : "", filtered ? "filtered" : "",
+        layer.isReference ? "drawn over the map" : ""].filter(Boolean).join(" · ")}</span></li>`;
+  };
+
+  $("mapLayers").innerHTML = `
+    <h4>Layers</h4>
+    ${layers.length === 0 && basemap.length === 0
+      ? `<p class="hint">This map has no layers yet. Open it in the Map Viewer and add some.</p>`
+      : `${layers.length
+          ? `<ul class="maplayers">${layers.slice().reverse().map(row).join("")}</ul>`
+          : `<p class="hint">Nothing is drawn above the basemap yet.</p>`}
+         ${basemap.length ? `<h5 class="maplayershead">Basemap${doc.baseMap?.title ? ` · ${h(doc.baseMap.title)}` : ""}, top first</h5>
+           <ul class="maplayers">${basemap.slice().reverse().map(row).join("")}</ul>` : ""}`}`;
 
   $("mapSide").innerHTML = `
-    <div class="itemactions">
-      <a class="btn primary" href="${open}">Open in Map Viewer</a>
-      ${map.manages ? `<button type="button" id="mapShareOpen">Share</button>` : ""}
-      ${map.manages ? `<button type="button" class="danger" id="mapDelete"${map.deleteProtected ? " disabled title=\"Protected from deletion\"" : ""}>Delete</button>` : ""}
-    </div>
-    ${map.manages ? `<label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
-      Protect from deletion</label>` : ""}
-    <h4>Link</h4>
-    <div class="row"><input type="text" id="mapLink" readonly value="${h(location.origin + open)}"
-      aria-label="The map's address" aria-describedby="mapLinkSays">
-      <button type="button" id="mapCopyLink">Copy link</button></div>
-    <p class="hint" id="mapLinkSays">${map.sharing === "private"
-      ? "Only you can open it until you share it."
-      : map.sharing === "public"
-        ? "Anyone with this link can open the map, signed in or not."
-        : "Whoever it is shared with opens it with this link."}</p>
-    <h4>Details</h4>
+    <h4>Item information</h4>
     <dl class="facts2">
       <dt>Type</dt><dd>Web map</dd>
       <dt>Owner</dt><dd>${h(map.owner || "—")}${may("admin:manageAllContent")
         ? ` <button type="button" class="linkbtn" data-change-owner="map">Change owner…</button>` : ""}</dd>
-      <dt>Sharing</dt><dd>${pill(map.sharing)}</dd>
-      <dt>Layers</dt><dd>${num(layers.length)}</dd>
+      <dt>Sharing</dt><dd>${map.manages
+        ? `<button type="button" class="pillbtn" data-map-share-pill title="Set who can open this map">${pill(map.sharing)}</button>`
+        : pill(map.sharing)}</dd>
+      <dt>Layers</dt><dd>${basemap.length
+        ? `${num(basemap.length)} in the basemap, ${num(layers.length)} on top`
+        : num(layers.length)}</dd>
       <dt>Created</dt><dd>${h(day(map.created))}</dd>
       <dt>Updated</dt><dd>${h(day(map.modified))}</dd>
+      <dt>Link</dt><dd><div class="urlrow"><input type="text" id="mapLink" readonly value="${h(location.origin + open)}"
+        title="${h(location.origin + open)}" aria-label="The map's address" aria-describedby="mapLinkSays">
+        <button type="button" class="tiny" id="mapCopyLink">Copy link</button></div>
+        <p class="hint" id="mapLinkSays">${map.sharing === "private"
+          ? "Only you can open it until you share it."
+          : map.sharing === "public"
+            ? "Anyone with this link can open the map, signed in or not."
+            : "Whoever it is shared with opens it with this link."}</p></dd>
     </dl>`;
+
+  // <b>Settings: what the owner sets, and Delete behind its lock</b> — as a layer's Settings › General has them.
+  $("mapSettings").innerHTML = map.manages ? `
+    <h4>Deleting</h4>
+    <label class="check"><input type="checkbox" id="mapProtect"${map.deleteProtected ? " checked" : ""}>
+      Protect from deletion</label>
+    <p class="hint">While it is protected, Delete does nothing, here or in Content.</p>
+    <p class="hint" id="mapDeleteNote">Deleting the map leaves its layers as they are. It waits in the recycle bin for
+      14 days, where it can be restored; until then nobody it was shared with can open it.</p>
+    <button type="button" class="danger" id="mapDelete"${map.deleteProtected
+      ? ` disabled title="Protected from deletion"` : ""}>Delete this map</button>` : "";
+
+  drawMapTabs();
+  paintPreviews();
 }
 
-const WM_KIND = { ArcGISFeatureLayer: "Features", ArcGISMapServiceLayer: "Map image", VectorTileLayer: "Vector tiles" };
+/** The web map item's tab strip, and which tab's panel shows. */
+function drawMapTabs() {
+  const map = mapOpen;
+  const strip = $("mapTabs");
+  if (!map || !strip) return;
+
+  const tabs = [["overview", "Overview"], ...(map.manages ? [["settings", "Settings"]] : [])];
+  if (!tabs.some(([key]) => key === mapTab)) mapTab = "overview";
+
+  // Redrawing the strip drops focus; the tab that had it gets it back.
+  const had = document.activeElement?.dataset?.mapTab;
+  strip.innerHTML = tabs.map(([key, label]) => `<a href="#" data-map-tab="${key}"${
+    key === mapTab ? ' aria-current="page"' : ""}>${label}</a>`).join("");
+  if (had) strip.querySelector(`[data-map-tab="${had}"]`)?.focus();
+
+  $("mapPagehead").dataset.tab = mapTab;
+  $("mapOverview").hidden = mapTab !== "overview";
+  $("mapSettings").hidden = mapTab !== "settings";
+
+  // The tab is in the address, as a layer item's is, so a reload or a shared link opens where the reader was.
+  const path = `#/item/${encodeURIComponent(map.id)}${mapTab === "settings" ? "?tab=settings" : ""}`;
+  if (surfaceOfPath() === "studio" && routeHash() !== path) history.replaceState(null, "", pathOf(path));
+}
+
+const WM_KIND = {
+  ArcGISFeatureLayer: "Features", ArcGISMapServiceLayer: "Map image", VectorTileLayer: "Vector tiles",
+  ArcGISTiledMapServiceLayer: "Tiles", WebTiledLayer: "Tiles", OpenStreetMap: "Tiles", ArcGISImageServiceLayer: "Imagery",
+};
 
 /** The map's summary, and editing it — the title and the one line, sent with the rest of the map unchanged. */
 function drawMapAbout(editing = false) {
@@ -4672,21 +4927,11 @@ function drawMapAbout(editing = false) {
     return;
   }
 
-  // ADR-119: the picture the Map Viewer took when the map was saved, and the description beside the summary.
+  // ADR-119: the summary and the description; the picture is in the head card, as a layer item's is.
   $("mapAbout").innerHTML = `
-    <div class="mapabout">
-      <figure class="mapfigure">
-        ${map.thumbnail
-          ? `<img class="thumb mapitemthumb" data-thumb="${h(map.thumbnail)}" alt="Picture of ${h(map.title)}, taken when it was last saved">`
-          : `<div class="thumb empty mapitemthumb" aria-hidden="true"></div>
-             <figcaption class="hint">No picture yet. It is taken the first time the map is opened in the Map Viewer by
-               somebody who can change it, and again whenever it is saved there.</figcaption>`}
-      </figure>
-      <div>
-        <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
-        ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
-      </div>
-    </div>
+    <h4>Summary</h4>
+    <p>${map.snippet ? h(map.snippet) : `<span class="hint">No summary yet. A line on what the map shows makes it easier to find.</span>`}</p>
+    ${(map.tags || []).length ? `<p class="tagline">${map.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
     <h4>Description</h4>
     ${map.description ? `<div class="mapdescription">${h(map.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet. What the map is for, where its data comes from and how current it is.</p>`}
@@ -4710,6 +4955,26 @@ async function saveMapItem(change) {
 document.addEventListener("click", async event => {
   const t = event.target instanceof Element ? event.target : null;
   if (!t || !mapOpen) return;
+
+  const tab = t.closest("[data-map-tab]");
+  if (tab) {
+    event.preventDefault();
+    mapTab = tab.dataset.mapTab;
+    drawMapTabs();
+    return;
+  }
+
+  // More › Edit details opens the same editor as the button under the description, on Overview.
+  if (t.id === "mapEditMore") {
+    t.closest("details")?.removeAttribute("open");
+    mapTab = "overview";
+    drawMapTabs();
+    drawMapAbout(true);
+    return;
+  }
+
+  // The sharing pill is the control that changes it, as on a layer's item.
+  if (t.closest("[data-map-share-pill]")) { $("mapShareOpen")?.click(); return; }
 
   if (t.id === "mapEditOpen") { drawMapAbout(true); return; }
   if (t.id === "mapEditCancel") { drawMapAbout(false); $("mapEditOpen")?.focus(); return; }
@@ -4819,7 +5084,12 @@ document.addEventListener("click", async event => {
   }
 
   if (t.id === "mapDelete") {
-    if (!confirm(`Delete the map '${mapOpen.title}'? Its layers are not touched; the map is gone for everybody.`)) return;
+    if (!await askServerConfirm({
+      title: `Delete the map ${mapOpen.title}?`,
+      body: "Its layers are not touched. It waits in the recycle bin for 14 days, and until it is restored nobody it "
+        + "was shared with can open it.",
+      action: "Delete this map",
+    })) return;
     try {
       await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}`, { method: "DELETE" });
       mapOpen = null;
@@ -4909,6 +5179,37 @@ document.addEventListener("click", async event => {
   }
 });
 
+/**
+ * A content row's one ⋯ menu, the same items in the same order whatever the type (UX sweep 2026-10-19).
+ *
+ * <b>Three shapes became one.</b> A feature row had an eye and a ⋯, a web map row three inline words with Delete in
+ * grey while the bulk Delete is red, and an imagery or stopped row a ⋯ alone. The eye was labelled *Preview* with
+ * `aria-pressed` and went to Visualization, where the thumbnail already goes. Delete is not here for any type: it is
+ * on the item's Settings, behind its lock, and *Delete…* goes there.
+ */
+function rowMenu(i, { open = "", tiles = null, document: doc = null, documentLabel = "", settings = null,
+  note = "", move } = {}) {
+  const moving = move === undefined
+    ? (i.scope === "mine" ? { service: i.name } : null)
+    : move;
+  const items = [
+    open ? `<a href="${h(open)}">Open in Map Viewer</a>` : "",
+    tiles ? `<button type="button" data-tiles="${h(tiles)}"
+      title="A tile style belongs to the whole service, so this draws every layer in it">${shown.has(tileKey(tiles))
+        ? "Hide the service's tiles" : "Draw the whole service's tiles"}</button>` : "",
+    moving ? `<button type="button" ${moving.webmap
+      ? `data-move-webmap="${h(moving.webmap)}" data-move-title="${h(i.name)}"`
+      : `data-move-service="${h(moving.service)}"`} data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : "",
+    doc ? `<a href="${h(doc)}" target="_blank" rel="noreferrer">${h(documentLabel)}</a>` : "",
+    settings && i.manages !== false ? `<a class="danger" href="${h(settings)}">Delete…</a>` : "",
+  ].filter(Boolean).join("");
+
+  return items ? `<details class="menu">
+      <summary title="More" aria-label="More actions for ${h(i.bare || i.name)}">⋯</summary>
+      <div class="sheet">${items}${note ? `<div class="note">${h(note)}</div>` : ""}</div>
+    </details>` : "";
+}
+
 function mapRow(i) {
   const m = i.map;
   const open = `/studio/webmap.html?id=${encodeURIComponent(m.id)}`;
@@ -4932,23 +5233,17 @@ function mapRow(i) {
       ${i.description ? `<p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>` : ""}
       <div class="svcmeta">${facts}</div>
     </td>
-    <td class="acts">
-      <a class="tiny" href="${open}" aria-label="Open ${h(i.name)}">Open</a>
-      ${i.scope === "mine"
-        ? `<button class="tiny ghost" data-move-webmap="${h(m.id)}" data-move-folder="${h(i.contentFolder || "")}"
-            data-move-title="${h(i.name)}"
-            aria-label="Move ${h(i.name)} to a folder">Move</button>`
-        : ""}
-      ${m.manages
-        ? `<button class="tiny ghost" data-map-delete="${h(m.id)}" data-map-title="${h(i.name)}"
-            aria-label="Delete ${h(i.name)}">Delete</button>`
-        : ""}
-    </td>
+    <td class="acts">${rowMenu(i, {
+      open,
+      document: `/sharing/rest/content/items/${encodeURIComponent(m.id)}/data?f=json`,
+      documentLabel: "The map document",
+      settings: m.manages ? `#/item/${encodeURIComponent(m.id)}?tab=settings` : null,
+      move: i.scope === "mine" ? { webmap: m.id } : null,
+    })}</td>
   </tr>`;
 }
 
-// <b>Delegated once, for the map rows `drawMyContent` redraws.</b> Deleting moves focus to the list's own
-// status line, because the button that had it is gone with its row.
+// <b>Delegated once, for the buttons `drawMyContent` redraws.</b>
 document.addEventListener("click", async event => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
@@ -4961,31 +5256,9 @@ document.addEventListener("click", async event => {
 
   if (target.closest("#newMap")) {
     location.href = "/studio/webmap.html";
-    return;
   }
 
-  const del = target.closest("[data-map-delete]");
-  if (!del) return;
-
-  const title = del.dataset.mapTitle || "this map";
-  if (!confirm(`Delete the map “${title}”? Anybody it is shared with loses it too. The layers in it are not touched.`)) {
-    return;
-  }
-
-  del.disabled = true;
-
-  try {
-    await api(`/content/webmaps/${encodeURIComponent(del.dataset.mapDelete)}`, { method: "DELETE" });
-    toast(`Deleted the map “${title}”.`, true);
-    await section("your content", loadMyContent, "contentRows");
-    paintPreviews();
-    $("contentNote").textContent = `Deleted the map “${title}”.`;
-    $("contentNote").tabIndex = -1;
-    $("contentNote").focus();
-  } catch (e) {
-    del.disabled = false;
-    toast(e.message || String(e));
-  }
+  // A map's Delete was a button on its row; it is on the map's Settings now, behind its lock, as a layer's is.
 });
 
 /**
@@ -5090,6 +5363,11 @@ async function showService(qualified) {
 
   serviceOpen = { qualified, folder, name };
   serviceOpenKind = null;
+  serviceUnread = false;
+  serviceCatalogue = null;
+  if ($("itemNotice")) { $("itemNotice").innerHTML = ""; $("itemNotice").hidden = true; }
+  systemServiceOpen = null;
+  if ($("serviceStoppedNote")) { $("serviceStoppedNote").hidden = true; $("serviceStoppedNote").innerHTML = ""; }
   // The previous service's layers are not this one's; Server's General page read them until these arrived.
   serviceLayers = [];
 
@@ -5151,7 +5429,7 @@ async function showService(qualified) {
   // <b>Named before anything is fetched.</b> The three requests below take a moment on a cold
   // service, and a page that says nothing while they are in flight is a page a reader cannot
   // tell from one that failed. The name is the one fact the address already carries.
-  $("serviceTitle").textContent = name;
+  $("serviceTitle").innerHTML = nameWithBreaks(name);
   $("serviceSub").textContent = folder ? `in ${folder}` : "in the site root";
   for (const id of ["itemThumb", "itemActions", "serverHero"]) {
     if ($(id)) { $(id).innerHTML = ""; $(id).hidden = true; }
@@ -5164,7 +5442,7 @@ async function showService(qualified) {
   const limits = await loadServiceLimits(name, folder);
 
   if (limits) {
-    $("serviceFacts").textContent = `${limits.kind} · no layers`;
+    $("serviceFacts").textContent = limits.kind;
 
     // <b>Only Settings, and the wrapper has to be revealed for it.</b> A system service has nothing to
     // list and no rows to read; its Limits page is the whole page. Without this the four-tab wrapper
@@ -5195,6 +5473,11 @@ async function showService(qualified) {
     $("servicePagesBody").innerHTML = "";
 
     drawServiceLayers([], qualified);
+
+    // <b>The same head card as every other service on Server</b> (UX sweep 2026-10-19, finding 11): name, kind,
+    // state, address with Copy, and Start or Stop — where this page had a breadcrumb row holding Save.
+    if (surfaceOfPath() === "server" && $("servicePagehead")) $("servicePagehead").hidden = true;
+    drawServerHero();
 
     return;
   }
@@ -5280,6 +5563,11 @@ async function showService(qualified) {
   serviceOpenKind = kind;
   refreshServerAbout();
 
+  // Whether it is failing is read with the services list; a page opened from an address reads it here.
+  if (surfaceOfPath() === "server") {
+    readServiceFailures().then(() => { if (serviceOpen?.qualified === qualified) drawServerHero(); });
+  }
+
   // <b>The image service's own document, which this branch never read (ux review 8).</b> Settings choose their pages
   // by its bands and pixel type, and the Overview offers Download by its capabilities (ADR-148): both read
   // `serviceDoc`, which only the feature branch set, so Classes never showed and a reader the service was shared
@@ -5352,8 +5640,115 @@ async function showService(qualified) {
     drawServiceLayers(layers, qualified);
   } catch (e) {
     $("serviceFacts").textContent = "";
-    toast(`${qualified}: ${e.message || e}`);
+    // A stopped service answers 503 by design: a state, said in a neutral line, never a red toast. Studio's item page
+    // says it in its own notice, drawn from the catalogue with the rest of the page; Server's in the stopped note.
+    const stopped = e.status === 503;
+    if (!stopped) toast(`${qualified}: ${e.message || e}`);
+    if (surfaceOfPath() === "studio") await drawServiceUnread(qualified);
+    else if (stopped) drawStoppedNote(true);
   }
+}
+
+/**
+ * Whether the open service's own document could not be read — a stopped one answers 503 — so the page is drawn from
+ * the catalogue instead.
+ */
+let serviceUnread = false;
+
+/**
+ * The open service's layers as the catalogue lists them, when its document could not be read: `[]` when the catalogue
+ * says it holds none, `null` when the catalogue could not be read either.
+ */
+let serviceCatalogue = null;
+
+/**
+ * A service's layers from the catalogue, which lists a stopped service as it lists a running one.
+ *
+ * <b>The administrative listing first, then the reader's own.</b> `known` covers every layer and is an
+ * administrator's; `/content/layers` covers what this reader may see, which is every item whose page they can open.
+ * Both say whether a layer is hosted, which is what the delete sentence turns on.
+ *
+ * @param {string} qualified the service's folder-and-name
+ * @returns {Promise<Array<{name: string, id: number, hosted: boolean, geometry: ?string, shown: ?string}>|null>}
+ */
+async function catalogueLayersOf(qualified) {
+  const { folder, name } = splitService(qualified);
+  const from = (rows, read) => rows.map(read).sort((a, b) => a.id - b.id);
+
+  const admin = known.filter(l => l.service === name && (l.folder || null) === (folder || null));
+  if (admin.length > 0) {
+    return from(admin, l => ({ name: l.name, id: Number(l.layerIndex ?? 0), hosted: !!l.hosted,
+      geometry: l.geometryType || l.geometry || null, shown: l.title || null }));
+  }
+
+  try {
+    const layers = await api("/content/layers");
+    const rows = [...(layers?.mine || []), ...(layers?.shared || []), ...(layers?.notShared || [])];
+    for (const e of rows) content.set(e.name, { ...(content.get(e.name) || {}), ...e });
+    return from(rows.filter(e => e.service === qualified), e => ({ name: e.name, id: Number(e.layerId ?? 0),
+      hosted: !!e.hosted, geometry: e.geometry || null, shown: e.title || null }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The item page of a service whose document could not be read, a stopped one above all.
+ *
+ * <b>Drawn from the catalogue entry, because that is where the facts are.</b> A stopped service answers 503 to its own
+ * document, and Overview was built from that document alone: three empty cards, no owner, no Share, and the only sign
+ * of the state a red message telling the administrator to ask an administrator (UX sweep 2026-10-19). The Content row
+ * shows the same item's description, sharing, owner and layer count, read from `/content/items`; this page reads the
+ * same listing, and its layers from the catalogue, so Settings can say truthfully what a delete takes.
+ */
+async function drawServiceUnread(qualified) {
+  if (surfaceOfPath() !== "studio" || !serviceOpen || serviceOpen.qualified !== qualified) return;
+  const at = serviceOpen;
+
+  serviceUnread = true;
+  serviceCatalogue = await catalogueLayersOf(qualified);
+  if (serviceOpen !== at) return;
+
+  await drawServiceDetails(qualified);
+  if (serviceOpen !== at) return;
+
+  const item = serviceItem && serviceItem.name === qualified ? serviceItem : null;
+  const stopped = item?.status === "stopped";
+  const notice = $("itemNotice");
+  if (notice) {
+    const server = `/server/service/${qualified.split("/").map(encodeURIComponent).join("/")}`;
+    notice.innerHTML = stopped
+      ? `<b>Stopped.</b> Clients get HTTP 503 until it is started. Its item, sharing and settings are kept; the Data
+         and Visualization tabs come back when it starts.${may("admin:manageServer")
+           ? ` <a href="${h(server)}">Start it in Server › Services</a>` : ""}`
+      : `<b>The service did not answer.</b> What is shown here comes from the catalogue; the Data and Visualization
+         tabs need the service itself.`;
+    notice.hidden = false;
+  }
+
+  const box = $("serviceLayerRows");
+  if (box) {
+    $("serviceLayersHead").hidden = false;
+    $("serviceLayersPanel").hidden = false;
+    const why = stopped ? "not served while stopped" : "not answering";
+    box.innerHTML = serviceCatalogue === null
+      ? `<tr><td colspan="3" class="empty">Its layers could not be read while the service does not answer.</td></tr>`
+      : serviceCatalogue.length === 0
+        ? `<tr><td colspan="3" class="empty">The catalogue lists no layers for this service.</td></tr>`
+        : serviceCatalogue.map(layer => {
+          const geometry = GEOMETRY_NAMES[layer.geometry] || (layer.geometry || "").replace(/^esriGeometry/, "") || null;
+          return `<tr>
+            <td class="lid">${num(layer.id)}</td>
+            <td class="lsw"><span class="rowicon">${icon("featurelayer")}</span></td>
+            <td class="name">${h(layer.shown || layer.name)}
+              <div class="rowmeta">${h([geometry ? `${geometry} layer` : "feature layer", `id ${num(layer.id)}`, why]
+                .join(" · "))}</div></td>
+          </tr>`;
+        }).join("");
+  }
+
+  drawServiceDelete();
+  drawServiceTabs();
 }
 
 /** The FeatureServer document the open service last answered with, or null. */
@@ -5479,7 +5874,9 @@ function drawServiceTabs() {
     // whose only content was a sentence saying there was nothing to draw. Two tabs under one
     // named rule applying it differently is the plainest way to look like two products.
     if (key === "data" || key === "visualization" || key === "symbology") {
-      return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
+      // A service that is not answering still has layers; its tabs stay in their place, disabled, below.
+      return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"))
+        || (serviceUnread && (serviceCatalogue || []).length > 0);
     }
 
     // A reader who does not manage it has nothing to set: no tab, and no refusals from pages it may not read (ux 10).
@@ -5504,8 +5901,16 @@ function drawServiceTabs() {
   const firstDrawable = serviceLayers.find(
     l => !(l.type || "").toLowerCase().includes("group"));
 
-  strip.innerHTML = mine.map(([key, label]) => false
-    ? ""
+  // <b>Disabled rather than gone while the service does not answer</b> (UX sweep 2026-10-19): a stopped service's
+  // rows and map come back when it starts, and tabs that vanish and reappear say the item changed shape. No
+  // `data-service-tab`, so the strip's click handler passes them by; the notice under the head says why.
+  const resting = key => serviceUnread && (key === "data" || key === "visualization")
+    && !serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"));
+  if (resting(serviceTab)) serviceTab = "overview";
+
+  strip.innerHTML = mine.map(([key, label]) => resting(key)
+    ? `<a aria-disabled="true" title="${key === "data" ? "No rows to show" : "Nothing to draw"} until the service answers"
+      >${label}</a>`
     : `<a href="#" data-service-tab="${key}"${key === serviceTab ? ' aria-current="page"' : ""}
       >${label}</a>`).join("");
 
@@ -6294,7 +6699,9 @@ async function drawServiceDetails(qualified, knownKind) {
     const rows = [
       ["Type", h(itemTypeName(item.kind) + (item.isView ? " (view)" : ""))],
       // ADR-196: the portal item's id, what Portal's item page and every ArcGIS client name it by.
-      ...(item.itemId ? [["Item ID", `<code class="itemid" title="Select to copy">${h(item.itemId)}</code>`]] : []),
+      // Breakable in the middle only, so a narrow column splits it in halves rather than leaving its last character alone.
+      ...(item.itemId ? [["Item ID", `<code class="itemid" title="Select to copy">${h(item.itemId.slice(0, 16))}<wbr>${
+        h(item.itemId.slice(16))}</code>`]] : []),
       ["Owner", `${h(item.owner || "—")}${may("admin:manageAllContent")
         ? ` <button type="button" class="linkbtn" data-change-owner="service">Change owner…</button>` : ""}`],
       // ADR-114: two kinds of folder, and each named for what it is — the service's is in its address.
@@ -7204,6 +7611,17 @@ async function saveShare() {
  * mechanism — and it is drawn from the layer's geometry and symbology rather than stored, which
  * is why a product with no thumbnail storage can still show a picture.
  */
+/**
+ * An item's name, escaped, with a break allowed after each underscore, slash, dot and hyphen.
+ *
+ * <b>A service's name is one long word</b> — istanbul_buildings_postgis — so a phone broke it wherever the line ran
+ * out, mid-word: *istanbul_buildin / gs_postgis* (UX sweep 2026-10-19). The separators are where a reader would break
+ * it; `overflow-wrap: break-word` stays as the last resort for a run with none.
+ */
+function nameWithBreaks(name) {
+  return h(String(name ?? "")).replace(/([_/.-])/g, "$1<wbr>");
+}
+
 /** An item's type as Portal names it, from the service's kind. */
 function itemTypeName(kind) {
   return ({ FeatureServer: "Feature layer", ImageServer: "Imagery layer", MapServer: "Map image layer",
@@ -7226,7 +7644,11 @@ function drawServiceHead(item) {
   const imagery = item.kind === "ImageServer";
   const thumb = $("itemThumb");
   thumb.innerHTML = `
-      ${imagery
+      ${item.status === "stopped"
+        // A stopped service draws nothing, so the box says why rather than waiting on a picture that will not come.
+        ? `<div class="thumb empty" data-note="Not drawn while stopped"
+             title="A stopped service draws nothing. Its picture comes back when it is started."></div>`
+        : imagery
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt=""
              data-thumb="${h(thumbnailFor(`/rest/services/${item.name}/ImageServer`))}&v=${Date.now()}"></div>`
         : item.cover
@@ -7800,6 +8222,35 @@ function toVisualization(name, mode) {
 }
 
 /**
+ * What deleting the open service takes with it: how many layers, and whether any is hosted.
+ *
+ * <b>One answer for the sentence under Delete and for the confirmation, which each worked it out.</b> Both read
+ * `serviceLayers`, which stays empty when the service answers 503, so both told the owner of a stopped service with one
+ * layer that it held none and no data would go (UX sweep 2026-10-19). When the document could not be read, the
+ * catalogue answers; when that could not be read either, `count` is null and nobody is told *no data*.
+ *
+ * @returns {{count: ?number, hosted: boolean}}
+ */
+function serviceDeleteTakes() {
+  if (serviceUnread && serviceLayers.length === 0) {
+    return serviceCatalogue
+      ? { count: serviceCatalogue.length, hosted: serviceCatalogue.some(one => one.hosted) }
+      : { count: null, hosted: false };
+  }
+
+  // Layers as the page head counts them — a group holds no table (design review 2026-10-01: *3 layers* above,
+  // *unpublishes 4 layers* here).
+  const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
+
+  // Hosted is the layers' own fact, not the folder's name — the one irreversible sentence on the page does not
+  // rest on a guess Overview's details refuse to make. The folder is only the fallback before layers are read.
+  const hosted = serviceLayers.some(one => layerNamed(one.name || "").hosted)
+    || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
+
+  return { count, hosted };
+}
+
+/**
  * Settings' delete, behind a lock that starts closed.
  *
  * <b>Two guards, both the owner's.</b> *"yanlışlıkla kullanıcının silme durumu engellensin. silerken de
@@ -7831,19 +8282,12 @@ function drawServiceDelete() {
 
   if (surfaceOfPath() !== "studio") return;
 
-  // Layers as the page head counts them — a group holds no table (design review 2026-10-01: *3 layers* above,
-  // *unpublishes 4 layers* here).
-  const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
+  const { count, hosted: hostedHere } = serviceDeleteTakes();
 
   // <b>What actually goes, per the owner's correction.</b> The old sentence said the tables are not
   // dropped, which was true of the server and wrong as a policy: *"servis hosted sa ve silindiyse,
   // datastore dan silinmesi lazım."* ADR-034 §5k. A hosted layer's table is ours and goes with it; a
   // registered layer points at somebody else's database and its table is never touched.
-  // Hosted is the layers' own fact, not the folder's name — the one irreversible sentence on the page does not
-  // rest on a guess Overview's details refuse to make. The folder is only the fallback before layers are read.
-  const hostedHere = serviceLayers.some(one => layerNamed(one.name || "").hosted)
-    || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
-
   // ADR-123: an image service holds a file rather than layers; whether the file goes is how it came.
   if (serviceOpenKind === "ImageServer" && serviceOpen) {
     note.textContent = "Reading what deleting it takes with it…";
@@ -7858,7 +8302,14 @@ function drawServiceDelete() {
           : "Deleting this service removes only the service. The image file on the server is not touched.";
       })
       .catch(() => { note.textContent = "Deleting this service removes it; an image uploaded for it goes with it."; });
-  } else note.innerHTML = count === 0
+  } else note.innerHTML = count === null
+    ? (serviceItem?.status === "stopped"
+      ? "Could not read its layers while it is stopped. Start it to see what deleting removes."
+      : "Could not read its layers, so this page cannot say what deleting removes.")
+    : !serviceUnread && !serviceDoc && !serviceIsSystem
+      // The service's document is still on its way; until it lands, nothing is claimed either way.
+      ? "Reading what deleting it takes with it…"
+    : count === 0
     ? `This service holds no layers, so deleting it removes the service and no data.`
     : hostedHere
       ? `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> and
@@ -7869,7 +8320,6 @@ function drawServiceDelete() {
          dropped</b> — the registration goes and the data stays exactly as it is.`;
 
   button.disabled = lock.checked || serviceStewardship?.manages === false;
-  $("svcLockState").textContent = lock.checked ? "Protected" : "Not protected";
 }
 
 /**
@@ -8160,7 +8610,7 @@ function drawServiceSettings(name, folder) {
     return;
   }
 
-  // Server still opens on Capabilities, the page its operators come for, though General is listed first.
+  // Server opens on Capabilities, the page its operators come for, which is also first in the strip.
   const page = SERVICE_PAGE_OPEN && mine.includes(SERVICE_PAGE_OPEN) ? SERVICE_PAGE_OPEN
     : mine.includes("capabilities") ? "capabilities" : mine[0];
 
@@ -9115,12 +9565,11 @@ function serviceSettingsMarkup(name, folder) {
       </div>
 
       <div id="featureSettings">
-      <h4>Faces this service offers</h4>
-      <div class="grid2">
+      <h4>What this service offers</h4>
+      <div class="checklist">
         <label><input type="checkbox" id="capFeatures"> Feature access</label>
-        <label title="A service offers tiles when its layers are in the datastore, or are GeoParquet">
-          <input type="checkbox" id="capTiles"> Vector tiles
-          <span class="val">datastore and GeoParquet layers</span></label>
+        <label><input type="checkbox" id="capTiles" aria-describedby="capTilesHint"> Vector tiles</label>
+        <p class="hint" id="capTilesHint">For layers in the datastore or in GeoParquet files.</p>
       </div>
 
       <label for="capTileScheme">Vector tiles are cut on</label>
@@ -9130,19 +9579,16 @@ function serviceSettingsMarkup(name, folder) {
       <p class="hint" id="capTileSchemeHint">The grid a client asks for tiles in. Web Mercator draws over every
         web basemap; a national grid such as TUREF / TM30 draws over a basemap in that grid, in ArcGIS Pro or
         a map in the same reference. Changing it empties this service's cached tiles, and clients load the
-        service again to follow — ADR-096.</p>
+        service again to follow.</p>
 
       <h4>Operations allowed</h4>
       <div class="grid2" id="ops">
         ${OPERATIONS.map(o =>
           `<label><input type="checkbox" data-op="${o}"> ${o}</label>`).join("")}
       </div>
-      <p class="hint">A tick is a ceiling, not a grant: what a caller may do is this narrowed by
-        their privileges and by what the data supports — ADR-031. Unticking is the only direction
-        that has an effect.</p>
-      <p class="hint"><b>One setting per service.</b> Every layer this service holds offers what is
-        ticked here; there is no per-layer version of this, and the console used to imply there
-        was — D-61.</p>
+      <p class="hint">A tick is a ceiling, not a grant: what a caller may do is this, narrowed by
+        their privileges and by what the data supports. Unticking is the only direction that has an
+        effect. Every layer in this service offers what is ticked here.</p>
           </div>
     </section>
 
@@ -9163,35 +9609,43 @@ function serviceSettingsMarkup(name, folder) {
     </section>
 
     <section class="page" id="page-limits">
+      <!--
+        <b>What is set here and what is inherited, said in words under each box</b> (UX sweep 2026-10-19, finding 6).
+        The inherited values were placeholders, which look like values; a reader could not tell a page size typed here
+        from the server's. The boxes are empty when nothing is set, and the line under each says which applies.
+      -->
+      <p class="hint">Leave a box empty to follow the server. A value typed here applies to every layer in this
+        service, and is held down to the server's own limit rather than refused.</p>
       <h4>Response</h4>
-      <div class="setting"><label class="q" for="capMaxRows">Page size:</label>
-        <input type="number" id="capMaxRows" min="1" step="1" inputmode="numeric" placeholder=""
+      <div class="setting"><label class="q" for="capMaxRows">Features per page:</label>
+        <input type="number" id="capMaxRows" min="1" step="1" inputmode="numeric"
           aria-describedby="capPageSays"><span class="u">features</span></div>
-      <p class="hint" id="capPageSays">What a query returns when it does not ask for a number, and the most
-        it returns when it does — ArcGIS's <code>maxRecordCount</code>. Empty uses the server's page
-        size<span id="capServerPage"></span>, set on <a href="#/settings">Site › General</a>.</p>
-      <div class="setting"><label class="q" for="capOutBytes">The most one response body may reach:</label>
-        <input type="number" id="capOutBytes" min="1" placeholder="67108864"><span class="u">bytes</span></div>
+      <p class="hint inherit" id="capPageSays"><span class="inheritstate" data-state-of="capMaxRows"></span>
+        What a query returns when it does not ask for a number, and the most it returns when it does. Empty follows
+        the server's page size<span id="capServerPage"></span>, set in <a href="#/settings">Site › General</a>.</p>
+      <div class="setting"><label class="q" for="capOutBytes">Largest response:</label>
+        <input type="number" id="capOutBytes" min="1" aria-describedby="capOutBytesSays"><span class="u">bytes</span></div>
+      <p class="hint inherit" id="capOutBytesSays"><span class="inheritstate" data-state-of="capOutBytes"></span></p>
 
       <h4>Request</h4>
-      <div class="setting"><label class="q" for="capInBytes">The most one request body may carry:</label>
-        <input type="number" id="capInBytes" min="1" placeholder="unset"><span class="u">bytes</span></div>
-      <div class="setting"><label class="q" for="capEdits">The most edits one call may apply:</label>
-        <input type="number" id="capEdits" min="1" placeholder="unset"><span class="u">edits</span></div>
+      <div class="setting"><label class="q" for="capInBytes">Largest request body:</label>
+        <input type="number" id="capInBytes" min="1" aria-describedby="capInBytesSays"><span class="u">bytes</span></div>
+      <p class="hint inherit" id="capInBytesSays"><span class="inheritstate" data-state-of="capInBytes"></span></p>
+      <div class="setting"><label class="q" for="capEdits">Edits per call:</label>
+        <input type="number" id="capEdits" min="1" aria-describedby="capEditsSays"><span class="u">edits</span></div>
+      <p class="hint inherit" id="capEditsSays"><span class="inheritstate" data-state-of="capEdits"></span></p>
 
       <h4>Time</h4>
-      <div class="setting"><label class="q" for="capDeadline">The longest a client may use this service:</label>
-        <input type="number" id="capDeadline" min="1" placeholder="600"><span class="u">seconds</span></div>
-      <div class="setting"><label class="q" for="capTimeout">The longest one database statement may run:</label>
-        <input type="number" id="capTimeout" min="1000" step="1000" placeholder="30000"><span class="u">ms</span></div>
-      <p class="hint"><b>The two time limits are not the same limit.</b> The first bounds the whole
-        request — reading it, querying, projecting, encoding and writing the answer. The second
-        bounds one database statement, and stops counting the moment the query returns. A request
-        that spends four minutes writing a million features exceeds the first and never touches the
-        second.</p>
-      <p class="hint">Empty means the server's own value. These are the service's, so they bound
-        every layer inside it. Neither can raise the server's limit: a value above it is held down
-        to it rather than refused.</p>
+      <div class="setting"><label class="q" for="capDeadline">The whole request:</label>
+        <input type="number" id="capDeadline" min="1" aria-describedby="capDeadlineSays"><span class="u">seconds</span></div>
+      <p class="hint inherit" id="capDeadlineSays"><span class="inheritstate" data-state-of="capDeadline"></span>
+        Reading it, querying, projecting, encoding and writing the answer, together.</p>
+      <div class="setting"><label class="q" for="capTimeout">One database statement:</label>
+        <input type="number" id="capTimeout" min="1000" step="1000" aria-describedby="capTimeoutSays"><span class="u">ms</span></div>
+      <p class="hint inherit" id="capTimeoutSays"><span class="inheritstate" data-state-of="capTimeout"></span>
+        Stops counting the moment the query returns, so a slow download never trips it.</p>
+      <p class="hint"><b>The two time limits are not the same limit.</b> A request that spends four minutes writing a
+        million features exceeds the whole-request limit and never touches the one database statement limit.</p>
     </section>`;
 }
 
@@ -9257,7 +9711,7 @@ async function loadEmptyServices() {
   const rows = r.empty || [];
 
   $("emptyRows").innerHTML = rows.length === 0
-    ? `<tr><td colspan="3" class="empty">${h(r.note)}</td></tr>`
+    ? `<tr><td colspan="3" class="empty">${h(withoutRefs(r.note))}</td></tr>`
     : rows.map(e => `<tr>
         <td><span class="name">${h(e.name)}</span></td>
         <td class="val">${h(e.folder || "Site (root)")}</td>
@@ -12698,6 +13152,10 @@ async function loadServiceLimits(name, folder) {
 
   if (!isSystem) return null;
 
+  systemServiceOpen = (system.services || []).find(y =>
+    (y.name || "").toLowerCase() === String(name).toLowerCase()
+    && (y.folder || "").toLowerCase() === String(folder || "").toLowerCase()) || null;
+
   let limits;
   try {
     // <b>The folder, because `/admin/services/{name}` used to mean two things.</b> D-39: a
@@ -12712,48 +13170,37 @@ async function loadServiceLimits(name, folder) {
     return null;
   }
 
-  const box = (id, stored, fallback) => {
-    $(id).value = stored ?? "";
-    $(id).placeholder = String(fallback);
+  // <b>Empty when nothing is set here, and the line under each box says what applies</b> (UX sweep 2026-10-19,
+  // finding 6): the defaults were placeholders, which read as values. Nought means *off* for the two that have one.
+  const box = (id, stored, fallback, unit, zeroIsOff = false) => {
+    const el = $(id);
+    el.value = stored ?? "";
+    el.placeholder = "";
+    el.dataset.unit = unit;
+    el.dataset.stored = el.value;
+    el.dataset.inherited = zeroIsOff && !fallback ? "none" : String(fallback ?? "");
+    drawLimitState(id);
   };
 
-  box("limDeadline", limits.deadlineSeconds, limits.defaultDeadlineSeconds);
-  box("limWait", limits.waitSeconds, limits.defaultWaitSeconds);
-  box("limPreflight", limits.preflightPairs, num(limits.defaultPreflightPairs));
-  box("limIdle", limits.idleSeconds, limits.defaultIdleSeconds);
+  box("limDeadline", limits.deadlineSeconds, limits.defaultDeadlineSeconds, "seconds");
+  box("limWait", limits.waitSeconds, limits.defaultWaitSeconds, "seconds");
+  box("limPreflight", limits.preflightPairs, limits.defaultPreflightPairs, "segment pairs", true);
+  box("limIdle", limits.idleSeconds, limits.defaultIdleSeconds, "seconds", true);
 
-  // The three an operator cannot set here, said with the reason each one is fixed. A number
-  // without its reason invites the question this list exists to answer.
-  // <b>The number in mono, the reason in prose.</b> `dl.facts` sets its values in the monospace
-  // face because they are usually table names and identities; a sentence rendered that way reads
-  // as output rather than as an explanation, which is what it looked like on the first attempt.
+  // The three an operator cannot set here, each with the reason it is fixed.
   const fixed = (value, why) =>
     `<dd><b class="mono">${value}</b> <span class="why">${why}</span></dd>`;
 
   $("limFixed").innerHTML =
     `<dt>Worker processes</dt>`
     + fixed(num(limits.workers),
-        "per server, from <code>Graticula:OverlayWorkers</code>. Total memory exposure is this "
-        + "times the heap below.")
+        "per server, from <code>Graticula:OverlayWorkers</code>. Memory exposure is this times the heap below.")
     + `<dt>Heap per worker</dt>`
-    + fixed("1 GB",
-        "the other half of the timeout: a request can exhaust memory well inside any deadline "
-        + "worth having, so the process has a ceiling and dies instead of the server.")
+    + fixed("1 GB", "a worker that runs out of memory stops on its own; the server stays up.")
     + `<dt>Vertices per request</dt>`
-    + fixed(num(limits.maximumVertices),
-        "every operation here is one pass over the coordinates, so input size bounds the work "
-        + "exactly — a cap is the right mechanism rather than a preference.");
+    + fixed(num(limits.maximumVertices), "input size bounds the work, so a cap is the right limit here.");
 
-  $("limNote").innerHTML =
-    `<b>In force now:</b> work is cut off after ${h(limits.effectiveDeadlineSeconds)} s, `
-    + `a request queues for at most ${h(limits.effectiveWaitSeconds)} s, `
-    + `${limits.effectivePreflightPairs
-        ? `work above ${num(limits.effectivePreflightPairs)} segment pairs is refused before it starts`
-        : "there is no pre-flight"}, and `
-    + `${limits.effectiveIdleSeconds
-        ? `an unused worker is reclaimed after ${h(limits.effectiveIdleSeconds)} s`
-        : "workers are kept for ever"}. `
-    + `A change applies from the next operation; nothing is restarted.`;
+  $("limNote").textContent = "";
 
   $("limSave").hidden = false;
   $("limClear").hidden = false;
@@ -12890,7 +13337,25 @@ function drawMemberFilters(roles, types) {
     : `<span class="hint">None yet.</span>`;
   $("mfClear").hidden = !(f.roles.size || f.types.size || f.status || f.signedIn || f.group || f.q.trim()
     || f.categories.size);
+  const on = f.roles.size + f.types.size + f.categories.size + [f.status, f.signedIn, f.group].filter(Boolean).length;
+  if ($("mfOn")) $("mfOn").textContent = on ? `(${num(on)} on)` : "";
+  if ($("memberSortNarrow")) $("memberSortNarrow").value = `${f.sort}:${f.order}`;
 }
+
+/**
+ * <b>The filters are a list beside the members on a wide screen and a button above them on a narrow one</b> (UX
+ * sweep 2026-10-19). Open from 1024 pixels and kept open there, closed below it until somebody asks.
+ */
+const memberFiltersWide = window.matchMedia("(min-width: 1024px)");
+function fitMemberFilters() {
+  const wrap = $("mfWrap");
+  if (wrap) wrap.open = memberFiltersWide.matches;
+}
+memberFiltersWide.addEventListener("change", fitMemberFilters);
+document.addEventListener("toggle", event => {
+  if (event.target?.id === "mfWrap" && !event.target.open && memberFiltersWide.matches) event.target.open = true;
+}, true);
+fitMemberFilters();
 
 /** Each sortable heading says which way it sorts, for the eye and for a screen reader. */
 function drawMemberSort() {
@@ -12940,8 +13405,8 @@ async function loadMembers() {
     try { memberGroups = ((await api("/admin/groups")) || {}).groups || []; } catch { memberGroups = []; }
     $("mfGroup").innerHTML = `<option value="">Any group</option>` + memberGroups.map(g =>
       `<option value="${h(g.name)}">${h(g.title || g.name)}</option>`).join("");
-    $("mfGroup").value = memberFilter.group;
   }
+  $("mfGroup").value = memberFilter.group;
 
   const fill = (id, values, chosen) => {
     $(id).innerHTML = values.map(v =>
@@ -12949,6 +13414,7 @@ async function loadMembers() {
   };
 
   fill("mRole", answer.roles || [], "publisher");
+  memberRoleNames = answer.roles || [];
   // <b>The ladder, in the server's order.</b> `UserTypes.All` is viewer, editor, creator,
   // unrestricted — each ceiling contains the one below — and the console needs the order to know
   // whether a change takes something away. Ranking the names here would be a second copy of a
@@ -12981,44 +13447,39 @@ async function loadMembers() {
           <span class="val" style="display:block;font-weight:400">${h(m.name)}${m.disabled ? " · disabled" : ""}</span>${m.signsInWith
           ? `<span class="hint" style="display:block">signs in with ${h(m.signsInWith)}</span>`
           : ""}</span></span></td>
-      <td class="val" title="${m.lastSignIn ? h(new Date(m.lastSignIn).toLocaleString()) : "Has never signed in"}">${h(lastSignInText(m.lastSignIn))}</td>
+      <td class="val" data-l="Last login" title="${m.lastSignIn ? h(new Date(m.lastSignIn).toLocaleString()) : "Has never signed in"}">${h(lastSignInText(m.lastSignIn))}</td>
       <!--
-        <b>User type and role stay controls in the row.</b> They are the two answers an administrator comes to
-        this page to change (ADR-018 §1: what somebody may do is the type's ceiling over the role's grants), and
-        a menu between them and the change would be a click that buys nothing.
+        <b>User type and role are read here and changed in the row menu.</b> They were selects that saved on
+        change, and a focused closed select changes on one arrow key: a keyboard user tabbing across the table
+        could demote an administrator with a keystroke, saved at once (UX sweep 2026-10-19, critical). Change
+        role… and Change user type… open a dialog that says what the change does and waits for a button.
       -->
-      <td><select class="rolepick" data-member-type="${h(m.name)}" aria-label="User type of ${h(m.name)}"
-        data-was-type="${h(m.userType)}">
-        ${(answer.userTypes || []).map(t =>
-          `<option value="${h(t)}"${t === m.userType ? " selected" : ""}>${h(t)}</option>`)
-          .join("")}
-      </select></td>
-      <td><select class="rolepick" data-role-is="${h((m.roles || [])[0] || "none")}"
-        data-member-role="${h(m.name)}" aria-label="Role of ${h(m.name)}"${m.roleManaged
-          ? ` disabled aria-describedby="roleFrom-${h(roleFromId(m.name))}"` : ""}>
-        ${(answer.roles || []).map(r =>
-          `<option value="${h(r)}"${m.roles.includes(r) ? " selected" : ""}>${h(r)}</option>`)
-          .join("")}
-        <option value=""${m.roles.length === 0 ? " selected" : ""}>— none —</option>
-      </select>${m.roleManaged
+      <td data-l="User type"><span>${h(m.userType || "")}</span></td>
+      <td data-l="Role"><span>${(m.roles || []).length
+        ? m.roles.map(r => `<span class="pill rolepill" data-role-is="${h(r)}">${h(r)}</span>`).join(" ")
+        : `<span class="val">none</span>`}${m.roleManaged
         // ADR-089, by owner decision: the mapping decides, and the row says where to change it.
         ? `<span class="hint" id="roleFrom-${h(roleFromId(m.name))}" style="display:block">Set by ${h(m.signsInWith)}'s groups —
             <a href="#/signin" data-open-groups="${h(m.signsInWith)}">change on Sign-in</a></span>`
-        : ""}</td>
-      <td class="acts">
+        : ""}</span></td>
+      <td class="acts act">
         <details class="rowmenu">
           <summary aria-label="Actions for ${h(m.name)}" title="Actions">&#8943;</summary>
-          <div class="rowmenubody" role="menu">
-            <a role="menuitem" href="#/user/${encodeURIComponent(m.name)}">View profile</a>
-            <button type="button" role="menuitem" data-member-categorize="${h(m.name)}">Categorize…</button>
+          <div class="rowmenubody">
+            <a href="#/user/${encodeURIComponent(m.name)}">View profile</a>
+            ${m.roleManaged
+              ? `<span class="hint">${h(m.signsInWith)}'s groups set their role</span>`
+              : `<button type="button" data-member-change-role="${h(m.name)}">Change role…</button>`}
+            <button type="button" data-member-change-type="${h(m.name)}">Change user type…</button>
+            <button type="button" data-member-categorize="${h(m.name)}">Categorize…</button>
             ${m.signsInWith
               // ADR-089, design review 2026-09-24 (B2): a password here would cut them off from their provider.
               ? `<span class="hint">${h(m.signsInWith)} keeps their password</span>`
-              : `<button type="button" role="menuitem" data-member-password="${h(m.name)}">Set password</button>`}
-            <button type="button" role="menuitem" class="${m.disabled ? "" : "danger"}"
+              : `<button type="button" data-member-password="${h(m.name)}">Set password</button>`}
+            <button type="button" class="${m.disabled ? "" : "danger"}"
               data-member-state="${h(m.name)}" data-to="${m.disabled ? "enable" : "disable"}"
               >${m.disabled ? "Enable account" : "Disable account"}</button>
-            <button type="button" role="menuitem" class="danger" data-member-remove="${h(m.name)}"
+            <button type="button" class="danger" data-member-remove="${h(m.name)}"
               title="Remove this member, and decide what happens to what they own">Remove member</button>
           </div>
         </details>
@@ -13027,6 +13488,228 @@ async function loadMembers() {
   drawMemberPicks();
   paintPhotos();
 }
+
+/**
+ * The Change role… / Change user type… dialog: who, which question, what they hold now, and what the roles grant.
+ *
+ * <b>A dialog with an explicit button, because the row's selects saved on an arrow key.</b> The UX sweep of
+ * 2026-10-19 measured it: Tab onto the role select, ArrowUp, and the change was sent with no question asked, and a
+ * question was put only when a role *added* administration. Here every change is read before it is made, and the
+ * paragraph under the choices says what it takes away as well as what it gives.
+ */
+let memberChange = null;
+
+/** One line per user type, in words; the count of what it withholds is worked out from the catalogue. */
+const USER_TYPE_SAYS = {
+  viewer: "Reads what is shared with them. No role can give them more.",
+  editor: "Can also edit data in layers shared with them.",
+  creator: "Can also create, publish and share their own content.",
+  unrestricted: "No ceiling: whatever their role grants works, administration included.",
+};
+
+async function openMemberChange(name, kind) {
+  const m = memberRowsBy.get(name);
+  if (!m) return;
+
+  // Read when asked rather than kept: the role editor may have changed a role since this page was drawn.
+  let roles = [], catalogue = [];
+  try {
+    const answer = await api("/admin/roles") || {};
+    roles = answer.roles || [];
+    catalogue = answer.catalogue || [];
+  } catch { /* the choice still works without the descriptions */ }
+
+  const current = kind === "role" ? ((m.roles || [])[0] || "") : (m.userType || "");
+  const options = kind === "role" ? [...memberRoleNames, ""] : [...memberUserTypes];
+  memberChange = { name, kind, current, roles, catalogue, userType: m.userType || "" };
+
+  const who = m.displayName && m.displayName !== m.name ? `${m.displayName} (${m.name})` : m.name;
+  $("memberChangeTitle").textContent = `${kind === "role" ? "Change role" : "Change user type"} for ${who}`;
+
+  const role = r => roles.find(x => x.name === r);
+  const withheld = type => {
+    const at = memberUserTypes.indexOf(type);
+    return catalogue.filter(c => c.leastUserType === null
+      || (c.leastUserType !== undefined && memberUserTypes.indexOf(c.leastUserType) > at)).length;
+  };
+  const lede = value => {
+    if (kind === "role") {
+      if (!value) return "No role: they read what is shared with them and hold no privilege.";
+      const r = role(value);
+      return r ? `${h(r.description || "")} <span class="val">${num(r.privileges.length)} privilege${
+        r.privileges.length === 1 ? "" : "s"}</span>` : "";
+    }
+    const n = catalogue.length ? withheld(value) : 0;
+    return `${h(USER_TYPE_SAYS[value] || "")}${catalogue.length
+      ? ` <span class="val">${n ? `withholds ${num(n)} of ${num(catalogue.length)} privileges` : "withholds nothing"}</span>`
+      : ""}`;
+  };
+
+  $("memberChangeBody").innerHTML = `
+    <p class="hint" style="margin-top:0">Now: role <b>${h(((m.roles || [])[0]) || "none")}</b>, user type
+      <b>${h(m.userType || "none")}</b>. The user type is a ceiling: a role cannot grant more than it allows.</p>
+    <fieldset class="pickset">
+      <legend>${kind === "role" ? "Role" : "User type"}</legend>
+      ${options.map(v => `
+        <label class="pickrow">
+          <input type="radio" name="memberChangePick" value="${h(v)}"${v === current ? " checked" : ""}>
+          <span><b>${h(v || "none")}${v === current ? ` <span class="val">current</span>` : ""}</b>
+            <span class="lede">${lede(v)}</span></span>
+        </label>`).join("")}
+    </fieldset>`;
+
+  // <b>In the footer, beside the button it explains</b> (verification round, 2026-10-19): at the end of the scrolling
+  // body it was 200 pixels below the fold once the button was ready, so it was heard and not seen.
+  const says = $("memberChangeSays");
+  says.className = "consequence";
+  says.textContent = `Choose another ${kind === "role" ? "role" : "user type"} to see what changes.`;
+
+  // <b>Your own row says so</b>: an administrator lowering themselves loses this page the moment it is saved, and
+  // the last-administrator check does not catch it while somebody else is one too.
+  memberChange.self = !!signedInAs && name === signedInAs;
+  $("memberChangeSave").textContent = memberChange.self
+    ? (kind === "role" ? "Change my role" : "Change my user type")
+    : (kind === "role" ? "Change role" : "Change user type");
+  $("memberChangeSave").disabled = true;
+  if (!$("memberChangeDialog").open) $("memberChangeDialog").showModal();
+  document.querySelector('#memberChangeBody input[name="memberChangePick"]:checked')?.focus();
+}
+
+/** What the chosen answer does, against what they hold now — in the dialog, before anything is sent. */
+function describeMemberChange() {
+  const c = memberChange;
+  const chosen = document.querySelector('#memberChangeBody input[name="memberChangePick"]:checked')?.value;
+  const says = $("memberChangeSays");
+  if (!c || chosen === undefined || !says) return;
+
+  $("memberChangeSave").disabled = chosen === c.current;
+  says.classList.remove("lowers");
+  const they = c.self ? "you" : "they", They = c.self ? "You" : "They", their = c.self ? "your" : "their";
+  if (chosen === c.current) {
+    says.textContent = `That is what ${they} hold now. Choose another ${c.kind === "role" ? "role" : "user type"} to see what changes.`;
+    return;
+  }
+
+  // Whether this page goes away for the person changing it: it is for those who may manage members.
+  const MANAGES = "admin:manageMembers";
+  const closesHere = " <b>This page closes for you as soon as you change it.</b>";
+
+  if (c.kind === "type") {
+    const lower = memberUserTypes.indexOf(chosen) < memberUserTypes.indexOf(c.current);
+    const entry = c.catalogue.find(x => x.name === MANAGES);
+    const losesPage = c.self && lower && !!entry && (entry.leastUserType === null
+      || memberUserTypes.indexOf(entry.leastUserType) > memberUserTypes.indexOf(chosen));
+    says.classList.toggle("lowers", lower || c.self);
+    says.innerHTML = (lower
+      ? `<b>This takes privileges away${c.self ? " from you" : ""}.</b> A user type is a ceiling: every privilege above
+         ${h(chosen)} stops working at once, for every role ${they} hold, and the roles themselves do not change.`
+      : `<b>This grants nothing by itself.</b> Raising the ceiling lets ${their} role's privileges work up to
+         ${h(chosen)}; ${their} role still decides what ${they} may do.`)
+      + (losesPage ? closesHere : "");
+    return;
+  }
+
+  const held = name => new Set((c.roles.find(r => r.name === name)?.privileges) || []);
+  const before = held(c.current), after = held(chosen);
+  const administrative = new Set(c.catalogue.filter(x => x.administrative).map(x => x.name));
+  const lost = [...before].filter(p => !after.has(p));
+  const gained = [...after].filter(p => !before.has(p));
+  const lostAdmin = lost.filter(p => administrative.has(p)).length;
+  const gainedAdmin = gained.filter(p => administrative.has(p)).length;
+  const n = (count, word) => `${num(count)} ${word}${count === 1 ? "" : "s"}`;
+  const ceiling = memberUserTypes.indexOf(c.userType);
+  const capped = [...after].filter(p => {
+    const entry = c.catalogue.find(x => x.name === p);
+    return entry && (entry.leastUserType === null
+      || (entry.leastUserType !== undefined && memberUserTypes.indexOf(entry.leastUserType) > ceiling));
+  }).length;
+
+  const gain = `${They} gain ${n(gained.length, "privilege")}${gainedAdmin
+    ? `, ${num(gainedAdmin)} of them administrative` : ""}.`;
+  const losesPage = c.self && (before.has(MANAGES) || c.current === "administrator")
+    && !after.has(MANAGES) && chosen !== "administrator";
+  const named = p => PRIVILEGE_LABELS[p] || p;
+
+  says.classList.toggle("lowers", lost.length > 0 || c.self);
+  says.innerHTML = [
+    lost.length ? `<b>${They} lose ${n(lost.length, "privilege")}${lostAdmin
+      ? `, ${num(lostAdmin)} of them administrative` : ""}${losesPage ? `, ${h(named(MANAGES))} among them` : ""},
+      at once.</b>` : "",
+    gained.length ? (lost.length ? gain : `<b>${gain}</b>`) : "",
+    !lost.length && !gained.length ? "<b>The two roles grant the same privileges.</b>" : "",
+    capped ? `${c.self ? "Your" : "Their"} user type, ${h(c.userType)}, keeps ${num(capped)} of the new role's privileges from working.` : "",
+    losesPage ? closesHere : `It takes effect on ${their} next request. What ${they} own stays ${c.self ? "yours" : "theirs"}.`,
+  ].filter(Boolean).join(" ");
+}
+
+async function saveMemberChange() {
+  const c = memberChange;
+  const chosen = document.querySelector('#memberChangeBody input[name="memberChangePick"]:checked')?.value;
+  if (!c || chosen === undefined || chosen === c.current) return;
+
+  const save = $("memberChangeSave");
+  save.disabled = true;
+  try {
+    if (c.kind === "type") {
+      const r = await api(`/admin/members/${encodeURIComponent(c.name)}/usertype`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userType: chosen }),
+      });
+      toast(`${r.name}: ${r.from} → ${r.to}. ${r.note}`, true);
+    } else {
+      // The last-administrator question is the server's, and it is still asked: `unlessLastLocalAdministrator`.
+      const r = await unlessLastLocalAdministrator(q =>
+        api(`/admin/members/${encodeURIComponent(c.name)}/role${q ? `?${q}` : ""}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: chosen || null }),
+        }));
+      if (!r) {
+        $("memberChangeSays").textContent = "Not changed.";
+        save.disabled = false;
+        return;
+      }
+      toast(`${r.name}: ${(r.from || []).join(", ") || "none"} → ${r.to || "none"}. ${r.note}`, true);
+    }
+  } catch (e) {
+    $("memberChangeSays").classList.add("lowers");
+    $("memberChangeSays").textContent = e.message || String(e);
+    save.disabled = false;
+    return;
+  }
+
+  memberChange = null;
+  $("memberChangeDialog").close();
+  await section("members", loadMembers, "members");
+  focusMemberMenu(c.name);
+}
+
+/** Back to the row's ⋯, which is where the change was asked for; redrawn rows put focus on the body. */
+function focusMemberMenu(name) {
+  const item = [...document.querySelectorAll("#members [data-member-change-type]")]
+    .find(b => b.dataset.memberChangeType === name);
+  item?.closest("details")?.querySelector("summary")?.focus();
+}
+
+// Its own listeners: the shared change listener returns early for other screens' state.
+document.addEventListener("change", event => {
+  if (event.target?.name === "memberChangePick") describeMemberChange();
+  // The narrow bar's Sort by: the headings are hidden below 720 pixels, so their sort is asked here.
+  if (event.target?.id === "memberSortNarrow") {
+    const [sort, order] = event.target.value.split(":");
+    Object.assign(memberFilter, { sort, order: order === "desc" ? "desc" : "asc" });
+    reloadMembers();
+  }
+});
+
+// Closed by Cancel, ✕ or Escape, focus goes back to the row's ⋯ rather than to a menu item that is hidden now.
+document.addEventListener("close", event => {
+  if (event.target?.id !== "memberChangeDialog" || !memberChange) return;
+  const name = memberChange.name;
+  memberChange = null;
+  focusMemberMenu(name);
+}, true);
 
 /** A member's square: their photo when they have one, their initials on their hue when not. */
 function memberAvatar(m, size = "") {
@@ -13068,8 +13751,8 @@ function drawMemberPicks() {
     button.textContent = `Categorize ${num(memberPicked.size)} selected`;
   }
   const boxes = [...document.querySelectorAll("[data-member-pick]")];
-  const all = $("memberPickAll");
-  if (all) {
+  for (const all of [$("memberPickAll"), $("memberPickAllNarrow")]) {
+    if (!all) continue;
     all.checked = boxes.length > 0 && boxes.every(b => b.checked);
     all.indeterminate = !all.checked && boxes.some(b => b.checked);
   }
@@ -13160,6 +13843,10 @@ document.addEventListener("click", async event => {
   const d = t.dataset || {};
 
   if (d.memberCategorize) { openCategorize([d.memberCategorize]); return; }
+  if (d.memberChangeRole) { openMemberChange(d.memberChangeRole, "role"); return; }
+  if (d.memberChangeType) { openMemberChange(d.memberChangeType, "type"); return; }
+  if (t.id === "memberChangeSave") { await saveMemberChange(); return; }
+  if (t.id === "memberChangeCancel" || t.id === "memberChangeClose") { $("memberChangeDialog").close(); return; }
   if (t.id === "memberCategorize") { openCategorize([...memberPicked]); return; }
   if (t.id === "mfCatEdit" || t.id === "catGoEdit") { openCategoryEditor(); return; }
   if (t.id === "catAssignSave") { await saveCategorize(); return; }
@@ -13222,7 +13909,7 @@ document.addEventListener("change", async event => {
   } else if (t.dataset?.memberPick !== undefined) {
     if (t.checked) memberPicked.add(t.dataset.memberPick); else memberPicked.delete(t.dataset.memberPick);
     drawMemberPicks();
-  } else if (t.id === "memberPickAll") {
+  } else if (t.id === "memberPickAll" || t.id === "memberPickAllNarrow") {
     for (const box of document.querySelectorAll("[data-member-pick]")) {
       box.checked = t.checked;
       if (t.checked) memberPicked.add(box.dataset.memberPick); else memberPicked.delete(box.dataset.memberPick);
@@ -13416,7 +14103,46 @@ document.addEventListener("close", event => {
 /** Asks the server again from the first page, which every change to the question must do. */
 function reloadMembers() {
   pages.set("members", 0);
+  memberFilterToAddress();
   section("members", loadMembers, "members");
+}
+
+/**
+ * <b>The question is in the address</b> (UX sweep 2026-10-19), so a filtered list can be bookmarked, sent to
+ * somebody, and come back on Back. The address is what is true: arriving at Members reads it, and every change
+ * writes it in place, without a step in the history per tick.
+ */
+function memberFilterFromAddress() {
+  const q = hashQuery || new URLSearchParams();
+  const into = (set, key) => {
+    set.clear();
+    for (const v of (q.get(key) || "").split(",").filter(Boolean)) set.add(v);
+  };
+  Object.assign(memberFilter, {
+    q: q.get("q") || "", status: q.get("status") || "", signedIn: q.get("signedIn") || "",
+    group: q.get("group") || "", sort: q.get("sort") || "name", order: q.get("order") === "desc" ? "desc" : "asc",
+  });
+  into(memberFilter.roles, "role");
+  into(memberFilter.types, "type");
+  into(memberFilter.categories, "category");
+  if ($("memberQ")) $("memberQ").value = memberFilter.q;
+}
+
+function memberFilterToAddress() {
+  if (!/\/members\/?$/.test(location.pathname)) return;
+  const f = memberFilter;
+  const q = new URLSearchParams();
+  if (f.q.trim()) q.set("q", f.q.trim());
+  if (f.roles.size) q.set("role", [...f.roles].join(","));
+  if (f.types.size) q.set("type", [...f.types].join(","));
+  if (f.status) q.set("status", f.status);
+  if (f.signedIn) q.set("signedIn", f.signedIn);
+  if (f.group) q.set("group", f.group);
+  if (f.categories.size) q.set("category", [...f.categories].join(","));
+  if (f.sort !== "name") q.set("sort", f.sort);
+  if (f.order === "desc") q.set("order", "desc");
+  const to = location.pathname + (q.toString() ? `?${q}` : "");
+  if (to !== location.pathname + location.search) history.replaceState(null, "", to);
 }
 
 let memberTyping = null;
@@ -13446,6 +14172,47 @@ document.addEventListener("change", event => {
   else return;
   reloadMembers();
 });
+
+/**
+ * <b>Every menu closes on Escape and on a press outside it</b> — the header's account menu, an item's More, a row's ⋯.
+ *
+ * `<details>` does neither by itself, whatever the stylesheet's old note said: the 2026-10-19 sweep measured the account
+ * menu still open after Escape and after a click elsewhere, and still open over the New group dialog. Its own listeners,
+ * so no early return in a shared one can silence it; Escape hands focus back to the menu's summary.
+ */
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape") return;
+  const open = [...document.querySelectorAll("details.menu[open], details.rowmenu[open]")];
+  if (!open.length) return;
+  for (const menu of open) menu.open = false;
+  const inside = open.find(menu => menu.contains(document.activeElement));
+  (inside || open[0]).querySelector("summary")?.focus();
+});
+
+document.addEventListener("pointerdown", event => {
+  const t = event.target;
+  for (const menu of document.querySelectorAll("details.menu[open], details.rowmenu[open]")) {
+    if (!(t instanceof Node) || !menu.contains(t)) menu.open = false;
+  }
+}, true);
+
+/**
+ * <b>And before any dialog opens.</b> A pointer press already closes them, but a keyboard reader who tabbed out of
+ * the open account menu to New group and pressed Enter got the dialog with the menu drawn over its backdrop. Every
+ * dialog here opens through `showModal`, so the one wrapper covers all thirty rather than thirty call sites.
+ */
+const showModalAsBuilt = HTMLDialogElement.prototype.showModal;
+HTMLDialogElement.prototype.showModal = function showModalWithMenusClosed() {
+  for (const menu of document.querySelectorAll("details.menu[open], details.rowmenu[open]")) menu.open = false;
+  return showModalAsBuilt.call(this);
+};
+
+// And on a change of screen, which a menu item that is a link causes without a press outside.
+for (const moved of ["popstate", "graticula:navigate"]) {
+  window.addEventListener(moved, () => {
+    for (const menu of document.querySelectorAll("details.menu[open], details.rowmenu[open]")) menu.open = false;
+  });
+}
 
 document.addEventListener("click", event => {
   const t = event.target;
@@ -13488,8 +14255,22 @@ document.addEventListener("toggle", event => {
   for (const other of document.querySelectorAll("details.rowmenu[open]")) if (other !== menu) other.open = false;
   const at = menu.querySelector("summary").getBoundingClientRect();
   const body = menu.querySelector(".rowmenubody");
+  body.style.maxHeight = "";
   body.style.top = `${Math.round(at.bottom + 4)}px`;
-  body.style.right = `${Math.round(window.innerWidth - at.right)}px`;
+  body.style.right = `${Math.max(8, Math.round(window.innerWidth - at.right))}px`;
+
+  // <b>Flipped above the row when there is no room below, and never past the window</b> (sweep round 3): on a
+  // 640-pixel phone six of seven items hung off the bottom, Change role among them — the only way to change one.
+  const box = body.getBoundingClientRect();
+  if (box.bottom > window.innerHeight - 8) {
+    const above = at.top - 4 - box.height;
+    if (above >= 8) body.style.top = `${Math.round(above)}px`;
+    else {
+      body.style.top = "8px";
+      body.style.maxHeight = `${window.innerHeight - 16}px`;
+      body.style.overflowY = "auto";
+    }
+  }
 }, true);
 
 /**
@@ -13533,93 +14314,58 @@ function describeRole() {
 }
 
 /**
- * The two operational widgets beside the folder rail.
+ * <b>Site › Status leads with a verdict</b> (UX sweep 2026-10-19, findings 1 and 10): how many services need attention,
+ * the counts behind it, and each one that does — failing first, then stopped and refusing — with where to look.
  *
- * <b>Both report what this server actually measures, which is not what the reference shows.</b> The
- * brief asked for *Service health* and *Server resources* and said plainly: do not fabricate backend
- * data. So:
+ * It replaces a donut drawn from `status`, which has two values, beside an *Error* row fixed at zero with a note that
+ * this server has no error state. A started service whose requests answer 500 is that state; the request log already
+ * counts it, so the verdict reads it rather than saying it cannot happen.
  *
- * - **Health is counted from the rows already on screen.** No request, no new endpoint, and it
- *   cannot disagree with the table beside it. It has two states and not three: `service.status` is
- *   `started` or `stopped` by a check constraint, so an *Error* row would be a state this server
- *   cannot be in — the reference has one because its services can fail to start, and ours cannot.
- * - **Resources come from `/admin/health`**, which reports process CPU time, managed heap bytes,
- *   tile-cache size and uptime. Two of the reference's three are percentages of a quota; this server
- *   has no memory limit and no disk quota, so those are shown as the figures they are. CPU *is* a
- *   ratio and is shown as one: process CPU time over wall-clock times cores, since start.
- *
- * <b>And no sparklines.</b> The reference draws three, and a sparkline claims a history — nothing
- * here keeps one, so drawing a wiggle from a single sample would be the most literal possible
- * version of inventing data.
+ * @param {Array<object>} rows every service, from {@link readServiceStates}
  */
-function drawHealthWidget(rows) {
-  const widget = $("healthWidget");
-  if (!widget) return;
+function drawStatusVerdict(rows) {
+  const head = $("statusVerdictHead");
+  if (!head) return;
 
-  const real = rows.filter(r => !r.system);
+  const failing = rows.filter(r => failingOf(r));
+  const stopped = rows.filter(r => r.status === "stopped");
+  const refusing = rows.filter(r => r.refusing && r.status !== "stopped");
+  const answering = rows.length - failing.length - stopped.length - refusing.length;
+  // A service an administrator stopped is a decision, not a fault: it is listed below, not counted as needing attention.
+  const attention = failing.length + refusing.length;
 
-  if (real.length === 0) {
-    widget.hidden = true;
-    return;
-  }
+  head.innerHTML = attention === 0
+    ? `<span class="dot ok" aria-hidden="true"></span>${stopped.length
+      ? `Every started service is answering; ${num(stopped.length)} stopped on purpose`
+      : "Every service is answering"}`
+    : `<span class="big">${num(attention)}</span> service${attention === 1 ? " needs" : "s need"} attention`;
+  $("statusVerdict").classList.toggle("bad", failing.length > 0);
 
-  const started = real.filter(r => r.status !== "stopped").length;
-  const stopped = real.length - started;
+  const count = (label, n, kind = "") =>
+    `<div class="${kind}"><dt>${label}</dt><dd>${num(n)}</dd></div>`;
+  $("statusCounts").innerHTML =
+    count("Services", rows.length)
+    + count("Started, answering", answering)
+    + count(`${icon("failing")}Started, failing`, failing.length, failing.length ? "bad" : "")
+    + count("Stopped", stopped.length, stopped.length ? "warn" : "")
+    + (refusing.length ? count("Refusing for now", refusing.length, "warn") : "");
 
-  // <b>D-232: how many of the started ones are answering.</b> The panel read 100% with every
-  // service refusing, which is the half-truth the row is about — the donut is drawn from
-  // `status`, and `status` was right. This counts the same rows for a different fact.
-  const refusing = real.filter(r => r.refusing).length;
+  const link = r => `<a href="#/service/${encodeURIComponent(r.qualified)}">${h(r.qualified)}</a>`;
+  $("statusIssues").innerHTML = [
+    ...failing.map(r => `<li>${pill("failing")}<p>${link(r)}: ${h(failingSays(failingOf(r)))}</p>
+      <a class="btn tiny" href="${failingLogHref(r.qualified)}">Read its warnings</a></li>`),
+    ...refusing.map(r => `<li>${refusingSays(r.refusing)}<p>${link(r)}: a data source it reads is paused, so its
+      requests are refused until the pause ends.</p></li>`),
+    ...(stopped.length ? [`<li>${pill("stopped")}<p>${stopped.map(link).join(", ")}: stopped by an administrator.
+      Clients get 503 until ${stopped.length === 1 ? "it is" : "they are"} started.</p></li>`] : []),
+  ].join("");
+  $("statusIssues").hidden = attention === 0 && stopped.length === 0;
+}
 
-  $("hwTotal").textContent = num(real.length);
-
-  // The arc is the real proportion: one custom property, and the conic-gradient does the geometry.
-  $("hwDonut").style.setProperty("--started", `${started / real.length}turn`);
-  $("hwDonut").classList.toggle("none", started === 0 && stopped === 0);
-
-  const share = n => `${Math.round((n / real.length) * 100)}%`;
-
-  const line = (kind, name, count, note) =>
-    `<div class="legendrow ${kind}"${note ? ` title="${h(note)}"` : ""}>`
-    + `<span class="key">${name}</span><b>${num(count)}</b><em>${share(count)}</em></div>`;
-
-  // <b>Three rows, and the third is a state this server cannot enter.</b> The owner asked for
-  // Started/Stopped/Error twice — in the reference and in the refinement brief — so it is here, at
-  // zero, dimmed, and with the reason on hover. `service.status` is `started` or `stopped` by a
-  // check constraint: a service that cannot be started is a service that was never created, and a
-  // request that fails is a request, not a service state. Showing it undimmed would imply a
-  // detection this server does not do; dropping it would ignore a direct instruction twice given.
-  // <b>A fourth row, and only when it is true — D-232.</b> The other three are a fixed set
-  // because the states are fixed; this one is an event, and a *Refusing 0* on every ordinary day
-  // would train the eye to skip the line on the day it says something. The deadline goes here
-  // rather than on the row, because a quiesce is per database: several services usually share
-  // one, and repeating a clock down the table would suggest they had each been done separately.
-  const soonest = real
-    .filter(r => r.refusing)
-    .map(r => new Date(r.refusing.until))
-    .filter(d => !Number.isNaN(d.valueOf()))
-    .sort((a, b) => b - a)[0];
-
-  $("hwRows").innerHTML =
-    line("ok", "Started", started)
-    + line("warn", "Stopped", stopped)
-    + (refusing > 0
-      // <b>Amber, the same tone the row's own pill wears, and not red.</b> Red is `Error`, two
-      // lines below and permanently zero; borrowing it would say something failed. Nothing has:
-      // an operator asked for this and it ends by itself. It shares `Stopped`'s tone because it
-      // shares its meaning to a client — not answering, on purpose.
-      ? line("warn", "Refusing", refusing,
-          "A data source these services read is out of service"
-          + (soonest
-            ? `, until ${soonest.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
-            : "")
-          + ". They are still started, and answer again when the window ends.")
-      : "")
-    + line("alert impossible", "Error", 0,
-        "This server has no error state: a service is started or stopped by a check constraint on "
-        + "the column. Shown at zero so the absence is visible rather than assumed.");
-
-  widget.hidden = false;
+/** Site › Status's verdict and the process's resources. */
+async function drawStatusWidgets() {
+  drawStatusVerdict(await readServiceStates(true));
+  await drawResourceWidget();
 }
 
 // ---------------------------------------------------------------- several services at once (owner, 2026-10-17)
@@ -13653,16 +14399,15 @@ function drawServiceBulk() {
   const deletable = picked.length > 0 && picked.every(r => !r.system && r.empty && r.kind !== "ImageServer");
 
   bar.hidden = n === 0 && !serviceBulkSaid;
+  // <b>Only the verbs that can act, and the reason for a missing Delete in words</b> (UX sweep 2026-10-19,
+  // finding 2): the three buttons were always drawn and disabled with the reason in a tooltip.
   bar.innerHTML = (serviceBulkSaid ? `<p class="bulksaid" role="status">${serviceBulkSaid}</p>` : "") + (n === 0 ? "" : `
     <b>${num(n)} selected${here < n ? ` · ${num(n - here)} not on this page` : ""}</b>
-    <button type="button" class="tiny" id="svcBulkStart"${canStart ? "" : " disabled"}
-      title="${canStart ? "Serve every ticked service that is stopped" : "Nothing ticked is stopped"}">${glyph("play")} Start</button>
-    <button type="button" class="tiny" id="svcBulkStop"${canStop ? "" : " disabled"}
-      title="${canStop ? "Answer 503 for every ticked service, without changing who may see it" : "Nothing ticked is started"}">${glyph("stop")} Stop</button>
-    <button type="button" class="tiny danger" id="svcBulkDelete"${deletable ? "" : " disabled"}
-      title="${deletable ? "Delete every ticked service; each holds nothing"
-        : "Only empty services can be deleted here — unpublish what a service holds first, and an image service is deleted from its own page"}"
-      >Delete…</button>
+    ${canStart ? `<button type="button" class="tiny" id="svcBulkStart">${glyph("play")} Start</button>` : ""}
+    ${canStop ? `<button type="button" class="tiny" id="svcBulkStop">${glyph("stop")} Stop</button>` : ""}
+    ${deletable ? `<button type="button" class="tiny danger" id="svcBulkDelete">${glyph("delete")} Delete…</button>`
+      : `<span class="bulkwhy">Delete is offered when every selected service is empty; an image service is deleted
+          in Studio.</span>`}
     <button type="button" class="tiny ghost" id="svcBulkClear">Clear selection</button>`);
 
   const all = $("servicePickAll");
@@ -13683,10 +14428,19 @@ async function serviceBulkGo(verb) {
 
   const names = targets.map(r => r.name);
   const list = names.length <= 5 ? names.join(", ") : `${names.slice(0, 5).join(", ")} and ${names.length - 5} more`;
-  if (verb === "stop" && !confirm(`Stop ${targets.length} service${targets.length === 1 ? "" : "s"} (${list})? `
-      + "Every client gets 503 until they are started again; who may see them does not change.")) return;
-  if (verb === "delete" && !confirm(`Delete ${targets.length} service${targets.length === 1 ? "" : "s"} (${list})? `
-      + "Each holds no layers, so nothing published goes with them.")) return;
+  const many = `${targets.length} service${targets.length === 1 ? "" : "s"}`;
+  if (verb === "stop" && !await askServerConfirm({
+    title: `Stop ${many}?`,
+    body: targets.length === 1
+      ? `${list}. Every client gets 503 until it is started again; who may see it does not change.`
+      : `${list}. Every client gets 503 until they are started again; who may see them does not change.`,
+    action: `Stop ${many}`,
+  })) return;
+  if (verb === "delete" && !await askServerConfirm({
+    title: `Delete ${many}?`,
+    body: `${list}. Each holds no layers, so nothing published goes with them. This cannot be undone.`,
+    action: `Delete ${many}`,
+  })) return;
 
   for (const id of ["svcBulkStart", "svcBulkStop", "svcBulkDelete"]) if ($(id)) $(id).disabled = true;
 
@@ -13751,29 +14505,85 @@ document.addEventListener("click", event => {
   }
 });
 
+/**
+ * <b>Which started services are failing — UX sweep 2026-10-19, finding 1.</b> `status` is started or stopped and
+ * nothing else, so a service whose every request answered 500 read *started* in green on every screen. The request
+ * log already files each request under its service, and `/admin/health/services` counts its 5xx; a started service
+ * with any in the last 15 minutes is *Started, failing* on the list, on Site › Status and in the header.
+ * Keyed by the qualified name in lower case: the log files `folder/name` as the request's path spelled it.
+ */
+let serviceFailing = new Map();
+let serviceFailingAt = 0;
+const FAILING_MINUTES = 15;
+
+/** Reads the failures again unless they were read in the last 30 seconds; keeps the last answer if refused. */
+async function readServiceFailures(force = false) {
+  if (!may("admin:manageServer")) return serviceFailing;
+  if (!force && Date.now() - serviceFailingAt < 30000) return serviceFailing;
+  try {
+    const r = await api(`/admin/health/services?minutes=${FAILING_MINUTES}&limit=1000`);
+    serviceFailing = new Map((r?.services || [])
+      .filter(s => s.service && s.serverErrors > 0)
+      .map(s => [String(s.service).toLowerCase(), s]));
+    serviceFailingAt = Date.now();
+  } catch { /* the last answer stands; a refusal here must not blank the list */ }
+  return serviceFailing;
+}
+
+/** The failure counts of a started service, or null when it is stopped or answering. */
+function failingOf(row) {
+  // Stopped and refusing services answer 503 on purpose, and the log counts those as server errors too.
+  if (!row || row.status === "stopped" || row.refusing) return null;
+  return serviceFailing.get(String(row.qualified || "").toLowerCase()) || null;
+}
+
+/** One sentence on what failed, for a row, a Status entry and the head card. */
+function failingSays(f) {
+  const errors = `${num(f.serverErrors)} of its last ${num(f.requests)} request${f.requests === 1 ? "" : "s"}`;
+  return `${errors} failed with a server error in the last ${FAILING_MINUTES} minutes. Clients reach it and get an error.`;
+}
+
+/**
+ * Every service with its state, system ones included, and the failures read beside them — for the header and for
+ * Site › Status, which have no list on screen to count from.
+ */
+async function readServiceStates(force = false) {
+  const [features, system] = await Promise.all([
+    api("/admin/featureservices").catch(() => ({ services: [] })),
+    api("/admin/services").catch(() => ({ services: [] })),
+    readServiceFailures(force),
+  ]);
+  return [
+    ...(features?.services || []).map(s => ({
+      qualified: s.qualified, name: s.name, folder: s.folder, kind: s.kind, status: s.status, refusing: s.refusing,
+      system: false,
+    })),
+    ...(system?.services || []).map(y => ({
+      qualified: y.folder ? `${y.folder}/${y.name}` : y.name, name: y.name, folder: y.folder, kind: y.kind,
+      status: y.status, system: true,
+    })),
+  ];
+}
+
+/** Where a failing service's warnings are read: Logs › Server warnings, filtered to it. */
+const failingLogHref = qualified => `#/logs?source=server&q=${encodeURIComponent(qualified.split("/").pop())}`;
+
 /** One line over the services list: how many, and how many of them are answering (owner, 2026-10-17). */
 function drawServiceSummary(rows) {
   const line = $("serviceSummary");
   if (!line) return;
-  const real = rows.filter(r => !r.system);
-  const stopped = real.filter(r => r.status === "stopped").length;
-  const refusing = real.filter(r => r.refusing).length;
-  line.innerHTML = real.length === 0 ? "" : [
-    `<b>${num(real.length)}</b> service${real.length === 1 ? "" : "s"} here`,
-    `<span class="dot ok" aria-hidden="true"></span>${num(real.length - stopped)} started`,
+  // Every row the list holds, system services included, so this and the toolbar's *N of M* count the same thing.
+  const stopped = rows.filter(r => r.status === "stopped").length;
+  const refusing = rows.filter(r => r.refusing).length;
+  const failing = rows.filter(r => failingOf(r)).length;
+  line.innerHTML = rows.length === 0 ? "" : [
+    `<b>${num(rows.length)}</b> service${rows.length === 1 ? "" : "s"}`,
+    `<span class="dot ok" aria-hidden="true"></span>${num(rows.length - stopped - failing)} started`,
+    ...(failing ? [`<span class="failword">${icon("failing")}${num(failing)} failing</span>`] : []),
     `<span class="dot ${stopped ? "degraded" : "unknown"}" aria-hidden="true"></span>${num(stopped)} stopped`,
     ...(refusing ? [`<span class="dot degraded" aria-hidden="true"></span>${num(refusing)} refusing`] : []),
   ].join(`<span class="sep" aria-hidden="true">·</span>`)
     + ` <a href="#/operations">Server status</a>`;
-}
-
-/** Site › Status shows the service health and the process's resources, which lived beside the services list. */
-async function drawStatusWidgets() {
-  try {
-    const { services } = await api("/admin/featureservices");
-    drawHealthWidget((services || []).map(s => ({ status: s.status, refusing: s.refusing, system: false })));
-  } catch { $("healthWidget").hidden = true; }
-  await drawResourceWidget();
 }
 
 /**
@@ -13814,15 +14624,10 @@ async function drawResourceWidget() {
     + `<div class="meter"><span class="k">Uptime</span><span></span>`
       + `<span class="t">${h(duration(runtime.uptimeMilliseconds).replace(/<[^>]+>/g, ""))}</span></div>`;
 
-  // <b>The caveats live on the glyph, not under the numbers.</b> Plain text rather than markup,
-  // because a `title` is plain text — and it has to stay complete: CPU being a ratio since start and
-  // the lines being the page's own samples are the two things that stop these numbers being
-  // misread, so shortening them to fit a tooltip would be the wrong economy.
-  $("rwWhy").title =
-    `CPU is process time since start, over ${runtime.cores} cores — not an instantaneous load. `
-    + `Heap and tiles are figures rather than percentages: this server has no memory limit and no `
-    + `disk quota for them to be a share of. The lines are samples this page has taken since you `
-    + `opened it, five seconds apart — not a history the server keeps, because it keeps none.`;
+  // Said under the figures rather than behind a hover-only glyph (UX sweep 2026-10-19, finding 14).
+  $("rwWhy").textContent =
+    `CPU is process time since start over ${runtime.cores} cores, not the load now. The lines are samples this page `
+    + `takes every five seconds while it is open; the server keeps no history.`;
 
   widget.hidden = false;
   keepSampling();
@@ -13969,8 +14774,8 @@ async function loadFolders() {
         f.name,
         f.name,
         num(f.services + f.systemServices),
-        f.reserved ? ' <span class="val" title="Reserved: this folder is where something the'
-          + ' server does lives">·</span>' : "")).join("");
+        // Said in a word, not a hover-only dot (UX sweep 2026-10-19, finding 14): the server keeps something here.
+        f.reserved ? ' <span class="systag">system</span>' : "")).join("");
 }
 
 /**
@@ -13994,6 +14799,7 @@ async function loadServices() {
   const [{ services }, system] = await Promise.all([
     api("/admin/featureservices"),
     api("/admin/services").catch(() => ({ services: [] })),
+    readServiceFailures(),
   ]);
 
   SERVICE_ROWS = services || [];
@@ -14107,16 +14913,25 @@ async function loadServices() {
     return values.includes(want) ? want : "";
   };
   const typePick = offer("serviceTypePick", [...new Set(rows.map(typeOf).filter(Boolean))].sort(), "All types");
-  const statusPick = offer("serviceStatusPick", [...new Set(rows.map(r => r.status).filter(Boolean))].sort(), "Any status");
+
+  // <b>Status is always offered, with its three states</b> (UX sweep 2026-10-19, finding 18): it appeared only in a
+  // folder that held a stopped service, so the filter a reader looks for on a quiet day was not there.
+  const statusOf = r => failingOf(r) ? "failing" : r.status === "stopped" ? "stopped" : "started";
+  const statusBox = $("serviceStatusPick");
+  const statusPick = statusBox && ["started", "failing", "stopped"].includes(statusBox.value) ? statusBox.value : "";
+  if (statusBox) {
+    statusBox.innerHTML = [["", "Any status"], ["started", "Started"], ["failing", "Started, failing"], ["stopped", "Stopped"]]
+      .map(([v, label]) => `<option value="${v}"${v === statusPick ? " selected" : ""}>${label}</option>`).join("");
+    statusBox.hidden = false;
+  }
 
   const shown_ = rows
     .filter(r => !needle || [r.qualified, r.kind, r.owner].some(v => (v || "").toLowerCase().includes(needle)))
     .filter(r => !typePick || typeOf(r) === typePick)
-    .filter(r => !statusPick || r.status === statusPick);
+    .filter(r => !statusPick || statusOf(r) === statusPick);
 
-  $("serviceCount").textContent = needle || typePick || statusPick
-    ? `${shown_.length} of ${rows.length}`
-    : `${rows.length} service${rows.length === 1 ? "" : "s"}`;
+  // Said only when something narrows the list; otherwise the summary above already counts it.
+  $("serviceCount").textContent = needle || typePick || statusPick ? `${num(shown_.length)} of ${num(rows.length)} shown` : "";
 
   // Ten a page. The slice is taken after the filter, so a narrowed list starts at its own
   // first page rather than wherever the unfiltered one was standing.
@@ -14124,13 +14939,14 @@ async function loadServices() {
   $("servicesPager").innerHTML = pagerFor("services", shown_.length);
 
   const where = selectedFolder ? `the ${selectedFolder} folder` : "the root";
+  const statusWords = { started: "started", failing: "failing", stopped: "stopped" };
 
   $("services").innerHTML = shown_.length === 0
     ? `<tr><td colspan="4" class="empty">${rows.length === 0
         ? `Nothing in ${h(where)}. Publishing a layer creates a service; a folder can hold none.`
         : needle
           ? `No service in any folder matches <b>${h(serviceFilter)}</b>.`
-          : `No service here is ${h([typePick, statusPick].filter(Boolean).join(" and "))}.`}</td></tr>`
+          : `No service here is ${h([typePick, statusWords[statusPick]].filter(Boolean).join(" and "))}.`}</td></tr>`
     : onPage.map(r => {
       const held = [
         r.layers ? `${r.layers} layer${r.layers === 1 ? "" : "s"}` : "",
@@ -14138,33 +14954,12 @@ async function loadServices() {
       ].filter(Boolean).join(", ");
 
       const stopped = r.status === "stopped";
+      const failing = failingOf(r);
+      const page = `#/service/${encodeURIComponent(r.qualified)}`;
 
-      // <b>The shortcut is gone, and its removal is the fix to a defect it caused.</b> A
-      // single-layer service used to open its layer directly, because the drill-in was then a
-      // one-row table whose only control was a *Settings* link (owner: *"this is a really
-      // meaningless page tbh"*). That page now holds the **service's** settings — so the shortcut
-      // meant eight of nine services had no reachable Capabilities or Limits at all, which is what
-      // *"tüm servislerden limits ler uçmuş"* was. A row opens its service; the service's list
-      // opens a layer.
-
-      // <b>A system row opens as well.</b> It used to be the one row on this screen that was
-      // not clickable, on the argument that there are no layers inside to list — true, and it
-      // also meant the geometry service's own bounds had nowhere to be edited from.
-      // <b>The name is the strongest thing in the row and its metadata is not.</b> Owner brief:
-      // *"Service names should be one of the strongest elements in each row. Secondary metadata
-      // should have lower visual emphasis. Do not turn every piece of metadata into a badge."* So
-      // the kind and the counts are one line of small muted text with a thin separator, and the
-      // only badges in the row are the two states.
-      // <b>One verb in the row, everything else behind the overflow.</b> Owner brief: *"Keep the
-      // Stop action available but visually secondary. Destructive actions such as Delete should NOT
-      // compete visually with normal actions. Put less frequently used actions inside an overflow
-      // menu where appropriate."* Start/Stop is the thing an operator does here, so it stays; Delete
-      // moves into the menu, where its refusal — a service that still holds layers cannot be
-      // removed — has room to be a sentence instead of a tooltip.
-      // <b>A media row, as Server Manager lists a service</b> (owner, 2026-10-17: *"estetik bir düzen istiyorum"*): the
-      // picture, the name with its kind, what it says about itself, and one quiet line of facts — the state, the
-      // folder, who can reach it, whose it is, what it holds. The verbs are icons on the right, with their words in
-      // the tooltip and the accessible name; Delete and the rest stay behind ⋯.
+      // <b>A row opens its service; the service's list opens a layer</b> (owner, 2026-08-17). A media row, as Server
+      // Manager lists a service (owner, 2026-10-17): the picture, the name with its kind, what it says about itself,
+      // and one quiet line of facts. The verbs are labelled buttons on the right (owner, 2026-10-17).
       const label = r.name;
       const stopVerb = stopped ? "Start" : "Stop";
       const sharingFact = r.system
@@ -14172,76 +14967,68 @@ async function loadServices() {
             `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
         : `<a href="${surfaceHref("studio",
                "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
-             title="Set on this service's Sharing page in Studio — a scope is its owner's decision">${pill(r.sharing)}</a>`;
+             title="Set on this service's Sharing page in Studio">${pill(r.sharing)}</a>`;
       const facts = [
-        `${pill(r.status)}${refusingSays(r.refusing)}`,
-        `<span title="Folder">${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
+        `${pill(failing ? "failing" : r.status)}${refusingSays(r.refusing)}`,
+        `<span>${icon(r.folder ? "folder" : "root")}${h(r.folder || "Site (root)")}</span>`,
         sharingFact,
-        r.owner ? `<span title="Owner">${h(r.owner)}</span>` : "",
+        r.owner ? `<span><span class="sr-only">Owner </span>${h(r.owner)}</span>` : "",
         r.system ? "" : `<span>${r.kind === "ImageServer" ? "1 image" : held || "empty"}</span>`,
       ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
 
-      return `<tr class="pick svcrow" data-service="${h(r.qualified)}">
+      // <b>No disabled destructive button, and no reason kept in a tooltip</b> (UX sweep 2026-10-19, findings 2 and 3).
+      // Delete was drawn on every row and disabled on every service that held a layer, with the reason in `title`,
+      // which touch and keyboard never see. A verb is drawn when it can act; otherwise the row says, in text, what to
+      // do instead and links to where it is done.
+      const stopControl = r.system || r.cover
+        ? `<button class="rowbtn" ${r.system
+              ? `data-system-status="${h(r.name)}" data-system-folder="${h(r.folder || "")}"`
+              : `data-service-status="${h(r.cover.name)}" data-service-qualified="${h(r.qualified || "")}"`}
+            data-to="${stopped ? "start" : "stop"}" aria-label="${stopVerb} ${h(label)}"
+            >${glyph(stopped ? "play" : "stop")}${stopVerb}</button>`
+        : "";
+      // An image service has no Stop anywhere yet, so the row offers none rather than a link to a page without one.
+      const studioPage = `/studio/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=general`;
+      const deleteControl = r.system ? ""
+        : r.kind === "ImageServer"
+          ? `<a class="rowlink" href="${studioPage}" aria-label="Delete ${h(label)} in Studio, where its owner decides whether the file goes too"
+              >Delete in Studio${icon("external")}</a>`
+          : r.empty
+            ? `<button class="rowbtn danger" data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
+                aria-label="Delete ${h(label)}">${glyph("delete")}Delete</button>`
+            : "";
+      // The reason sits with the facts, where it wraps; in the actions cell it ran past the card's edge.
+      const deleteWhy = !r.system && r.kind !== "ImageServer" && !r.empty
+        ? `<p class="rowwhy">To delete it, unpublish its ${h(held || "layers")} first.
+            <a href="${page}?tab=settings&amp;section=layers">Layers</a></p>` : "";
+
+      return `<tr class="pick svcrow${failing ? " failing" : ""}" data-service="${h(r.qualified)}">
         <td class="tick"><input type="checkbox" data-svc-pick="${h(r.qualified)}"${servicePicked.has(r.qualified) ? " checked" : ""}
           aria-label="Select ${h(label)}"></td>
-        <td class="thumbcell">${r.cover
+        <td class="thumbcell">${r.cover && !stopped
           ? `<img class="thumb" alt="" loading="lazy"
                data-thumb="${h(thumbnailFor(r.cover.url))}">`
-          : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</td>
+          : `<div class="thumb empty">${stopped ? "stopped" : r.cover ? "" : "no preview"}</div>`}</td>
 
         <td class="svcbody">
-          <div class="svctitle"><a class="name" href="#/service/${encodeURIComponent(r.qualified)}"
-              title="${h(r.name)}">${h(r.name)}</a>
+          <div class="svctitle"><a class="name" href="${page}">${h(r.name)}</a>
             <span class="svctype">${h(typeOf(r))}</span></div>
-          ${r.description ? `<p class="svcdesc" title="${h(r.description)}">${h(r.description)}</p>` : ""}
+          ${r.description ? `<p class="svcdesc">${h(r.description)}</p>` : ""}
           <div class="svcmeta">${facts}</div>
+          ${deleteWhy}
+          ${failing ? `<p class="svcfail">${h(failingSays(failing))}
+            <a href="${failingLogHref(r.qualified)}">Read its warnings</a></p>` : ""}
         </td>
 
-        <td class="acts">${r.system ? `
-          <button class="rowbtn" data-system-status="${h(r.name)}"
-            data-system-folder="${h(r.folder || "")}"
-            data-to="${stopped ? "start" : "stop"}"
-            aria-label="${stopVerb} ${h(label)}"
-            title="${stopped ? "Answer this service's operations again"
-              : "Answer 503 for every operation on this service, without changing who may call it"}"
-            >${glyph(stopped ? "play" : "stop")}${stopVerb}</button>` : `
-          <!--
-            <b>Words beside the icons</b> (owner, 2026-10-17: *"start stop delete nereye gitti?"*). The verbs were bare
-            icons with their names in the tooltip, and Delete was inside ⋯ — so a reader looking for them found
-            neither. Each is a labelled button now, and Delete sits in the row, as Server Manager's ✕ does: disabled,
-            with the reason, on a service that still holds layers.
-          -->
-          <button class="rowbtn" data-service-status="${h(r.cover ? r.cover.name : "")}"
-            data-service-qualified="${h(r.qualified || "")}"
-            data-to="${stopped ? "start" : "stop"}"
-            ${r.cover ? "" : "disabled"}
-            aria-label="${stopVerb} ${h(label)}"
-            title="${!r.cover ? "Started and stopped from its own page: this kind has no layer to stop here"
-              : stopped ? "Serve this again"
-              : "Answer 503 for this service, without changing who may see it"}"
-            >${glyph(stopped ? "play" : "stop")}${stopVerb}</button>
-
-          <!-- No Map here since 2026-10-17, by owner decision: *"server serverliğini bilsin, studio studioluğunu"*. -->
-          ${r.kind === "ImageServer"
-            ? `<a class="rowbtn" href="/studio/service/${r.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings"
-                 aria-label="Delete ${h(label)}, on its own page"
-                 title="An image service is deleted where its owner works, which says whether its file goes too"
-                 >${glyph("delete")}Delete</a>`
-            : `<button class="rowbtn danger" data-service-delete="${h(r.name)}" data-folder="${h(r.folder || "")}"
-                 ${r.empty ? "" : "disabled"} aria-label="Delete ${h(label)}"
-                 title="${r.empty ? "It holds nothing, so nothing is unpublished by removing it"
-                   : `It holds ${h(held)}. Unpublish them first — a service delete never removes what is in it`}"
-                 >${glyph("delete")}Delete</button>`}`}</td>
+        <td class="acts">${stopControl}${deleteControl}</td>
       </tr>`;
     }).join("");
 
   // What opening a service does, said once rather than per row.
   $("serviceNote").innerHTML = shown_.some(r => !r.system)
-    ? "Select a service to see its layers and set what it offers. A preview samples the "
-      + "service's first layer; hover it for how much."
+    ? "Open a service to see its layers and set what it offers. A preview draws the service's first layer."
     : "";
 
-  drawHealthWidget(rows);
   drawServiceSummary(rows);
   serviceRowsBy = new Map(rows.map(r => [r.qualified, r]));
   drawServiceBulk();
@@ -14586,12 +15373,13 @@ const EDIT_PAGES = Object.keys(LAYER_PAGES);
  * spend* is the server's business and *who may read it* is the publisher's.
  */
 const SERVICE_PAGES = {
-  // <b>Server Manager's order since ADR-187: General, Parameters, Capabilities, Layers.</b> `about` is the
+  // <b>Capabilities first, because it is the page Server opens on</b> (UX sweep 2026-10-19, finding 19): it was third
+  // in the strip while being the one selected on arrival. Then General, Parameters and Layers. `about` is the
   // service's identity and addresses, read-only; `limits` keeps its key — tests, links and `?section=limits`
   // use it — and is labelled Parameters, Server Manager's word for the same settings.
+  capabilities: "server",
   about: "server",
   limits: "server",
-  capabilities: "server",
 
   // <b>Layers — what the server knows about each layer, on the service's page (owner decision 2026-10-01).</b> It
   // was Server's layer page, which by ADR-102 step 10 held only this: state, identity, addresses and *forget the
@@ -17506,10 +18294,8 @@ async function loadServiceCapabilities(name, folderGiven) {
 
   set("capMaxRows", c.maxRecordCount);
 
-  // <b>The server's page size as the placeholder, and in the sentence under it</b> — V-70. The placeholder
-  // alone was the only place the number showed, and at phone width it was cut off.
+  // <b>The server's page size in the sentence under the box</b>, not as a placeholder that reads as a value.
   if ($("capMaxRows") && c.serverPageSize != null) {
-    $("capMaxRows").placeholder = String(c.serverPageSize);
     $("capMaxRows").dataset.ceiling = c.pageSizeCeiling != null ? String(c.pageSizeCeiling) : "";
     if ($("capServerPage")) {
       $("capServerPage").textContent = `, ${num(c.serverPageSize)}` + (c.pageSizeCeiling != null
@@ -17546,13 +18332,24 @@ async function loadServiceCapabilities(name, folderGiven) {
   }
   set("capDeadline", c.requestDeadlineSeconds);
 
-  // <b>The placeholder is read, not assumed.</b> 600 is this build's default and a deployment may
-  // have chosen otherwise, so the empty box shows what would actually apply to this request.
-  const box = $("capDeadline");
-  if (box) {
-    box.placeholder = c.serverRequestDeadlineSeconds != null
-      ? String(c.serverRequestDeadlineSeconds)
-      : "no bound";
+  // <b>Each box says whether its value is set here or inherited, and what is in force</b> (UX sweep 2026-10-19,
+  // finding 6). The server reports its page size and its request deadline; for the other three it reports only
+  // what this service sets, so an empty box says the server's own limit applies without inventing a figure.
+  const limitsFrom = {
+    capMaxRows: ["features", c.serverPageSize ?? ""],
+    capOutBytes: ["bytes", ""],
+    capInBytes: ["bytes", ""],
+    capEdits: ["edits", ""],
+    capDeadline: ["seconds", c.serverRequestDeadlineSeconds != null ? c.serverRequestDeadlineSeconds : "none"],
+    capTimeout: ["ms", ""],
+  };
+  for (const [id, [unit, inherited]] of Object.entries(limitsFrom)) {
+    const el = $(id);
+    if (!el) continue;
+    el.dataset.unit = unit;
+    el.dataset.inherited = String(inherited);
+    el.dataset.stored = el.value.trim();
+    drawLimitState(id);
   }
 
   // <b>The form holds the server's values from here</b>, and says so: a reader — or a test — that reads the boxes
@@ -17560,6 +18357,47 @@ async function loadServiceCapabilities(name, folderGiven) {
   const edit = $("serviceEdit");
   if (edit) edit.dataset.loaded = `${folder || ""}/${service}`;
 }
+
+/** A limit as a reader says it: *64 MB (67,108,864 bytes)*, *10 min (600 s)*, *30 s (30,000 ms)*, *1,000 features*. */
+function limitValueSays(unit, value) {
+  const n = Number(value);
+  if (unit === "bytes") return n >= 1024 ? `${bytesPlain(n)} (${num(n)} bytes)` : `${num(n)} bytes`;
+  if (unit === "seconds") return n >= 120 && n % 60 === 0 ? `${num(n / 60)} min (${num(n)} s)` : `${num(n)} s`;
+  if (unit === "ms") return n >= 1000 ? `${num(n / 1000)} s (${num(n)} ms)` : `${num(n)} ms`;
+  return `${num(n)} ${unit}`;
+}
+
+/**
+ * The line under a limit's box: *Set here*, *Server default* or *No limit*, and what is in force. Reads the box and
+ * its `data-unit`, `data-inherited` (a number, `none` for no bound, empty when the server does not say) and
+ * `data-stored`, so it can be drawn again as the reader types.
+ */
+function drawLimitState(id) {
+  const box = $(id);
+  const line = document.querySelector(`[data-state-of="${id}"]`);
+  if (!box || !line) return;
+
+  const unit = box.dataset.unit || "";
+  const typed = box.value.trim();
+  const inherited = box.dataset.inherited || "";
+  const valid = typed !== "" && Number.isFinite(Number(typed)) && Number(typed) > 0;
+
+  const saved = typed === box.dataset.stored;
+
+  line.innerHTML = valid
+    ? `<span class="tag set">${saved ? "Set here" : "Not saved yet"}</span>`
+      + `${saved ? "In force" : "In force once saved"}: <b>${h(limitValueSays(unit, typed))}</b>.`
+    : inherited === "none"
+      ? `<span class="tag">No limit</span>Neither this service nor the server sets one.`
+      : inherited
+        ? `<span class="tag">Server default</span>In force: <b>${h(limitValueSays(unit, inherited))}</b>.`
+        : `<span class="tag">Server default</span>Nothing is set here, so the server's own limit applies.`;
+}
+
+document.addEventListener("input", event => {
+  const box = event.target instanceof HTMLInputElement ? event.target : null;
+  if (box && box.dataset.unit !== undefined && document.querySelector(`[data-state-of="${box.id}"]`)) drawLimitState(box.id);
+});
 
 /**
  * Saves a service's capabilities and limits, which is what one Save means here.
@@ -17848,60 +18686,127 @@ function refreshServerAbout() {
 }
 
 /**
+ * A service name that can break after its underscores, so a long one wraps in a heading instead of widening the page
+ * (UX sweep 2026-10-19, finding 7: `istanbul_buildings_postgis` scrolled the page 67 px sideways at 390).
+ */
+const wrapName = name => h(name).replace(/_/g, "_<wbr>");
+
+/** The system service the open page is about — Geometry — as `/admin/services` listed it, or null. */
+let systemServiceOpen = null;
+
+/**
  * Server's head card for the open service: picture, name, kind and state, address, and Start or Stop. Read from the
- * services listing, which carries the state and the cover layer; a system service has neither and keeps the bar.
+ * services listing, which carries the state and the cover layer; a system service is read from its own listing and
+ * gets the same card without a picture (UX sweep 2026-10-19, finding 11).
  */
 function drawServerHero() {
   const hero = $("serverHero");
   if (!hero) return;
-  const row = serviceOpen && surfaceOfPath() === "server" && !serviceIsSystem
-    ? SERVICE_ROWS.find(s => s.qualified === serviceOpen.qualified) : null;
-  hero.hidden = !row;
-  if (!row) { hero.innerHTML = ""; return; }
+  const onServer = serviceOpen && surfaceOfPath() === "server";
+  const row = onServer && !serviceIsSystem ? SERVICE_ROWS.find(s => s.qualified === serviceOpen.qualified) : null;
+  const system = onServer && serviceIsSystem ? systemServiceOpen : null;
+  hero.hidden = !row && !system;
+  if (!row && !system) { hero.innerHTML = ""; drawStoppedNote(); return; }
 
-  const face = serviceOpenKind === "ImageServer" ? "ImageServer" : "FeatureServer";
-  const url = `${location.origin}/rest/services/${row.qualified.split("/").map(encodeURIComponent).join("/")}/${face}`;
-  const cover = row.cover ? `/rest/services/${row.qualified}/FeatureServer/${row.cover.layerIndex}` : null;
-  const stopped = row.status === "stopped";
+  const kind = system ? system.kind || "GeometryServer" : serviceOpenKind === "ImageServer" ? "ImageServer" : "FeatureServer";
+  const words = { FeatureServer: "Feature service", ImageServer: "Image service", GeometryServer: "Geometry service" };
+  const qualified = row ? row.qualified : serviceOpen.qualified;
+  const url = `${location.origin}/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/${kind}`;
+  const status = (row || system).status;
+  const stopped = status === "stopped";
+  const failing = row ? failingOf({ ...row, qualified }) : failingOf({ ...system, qualified });
+  const cover = row?.cover ? `/rest/services/${row.qualified}/FeatureServer/${row.cover.layerIndex}` : null;
+
+  // <b>No picture is fetched for a stopped service</b> (finding 8): it answers 503, and the grey box said nothing.
+  const picture = system ? ""
+    : `<div class="herothumb">${stopped ? `<div class="thumb empty">Stopped</div>`
+      : kind === "ImageServer"
+        ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(`/rest/services/${row.qualified}/ImageServer`))}">`
+        : cover ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(cover))}">`
+        : `<div class="thumb empty">No layer to draw</div>`}</div>`;
+
+  const toggle = system
+    ? `<button type="button" class="${stopped ? "primary" : ""}" data-system-status="${h(system.name)}"
+        data-system-folder="${h(system.folder || "")}" data-to="${stopped ? "start" : "stop"}"
+        >${glyph(stopped ? "play" : "stop")} ${stopped ? "Start service" : "Stop service"}</button>`
+    : row.cover
+      ? `<button type="button" class="${stopped ? "primary" : ""}" data-service-status="${h(row.cover.name)}"
+          data-service-qualified="${h(row.qualified)}" data-to="${stopped ? "start" : "stop"}"
+          >${glyph(stopped ? "play" : "stop")} ${stopped ? "Start service" : "Stop service"}</button>`
+      : "";
 
   hero.innerHTML = `
-    <div class="herothumb">${serviceOpenKind === "ImageServer"
-      ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(`/rest/services/${row.qualified}/ImageServer`))}">`
-      : cover ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(cover))}">`
-      : `<div class="thumb empty" title="This service has no layer to draw, so there is no map to show."></div>`}</div>
+    ${picture}
     <div class="herotext">
-      <h2>${h(row.name)}</h2>
-      <p>${serviceOpenKind === "ImageServer" ? "Image service" : "Feature service"} ${pill(row.status)}${refusingSays(row.refusing)}</p>
+      <h2>${wrapName(system ? system.name : row.name)}</h2>
+      <p>${words[kind] || kind}${(row?.folder || system?.folder) ? ` in ${h(row?.folder || system?.folder)}` : ""}
+        ${pill(failing ? "failing" : status)}${row ? refusingSays(row.refusing) : ""}${system ? ` <span class="rowmeta">no layers</span>` : ""}</p>
+      ${failing ? `<p class="herofail">${h(failingSays(failing))} <a href="${failingLogHref(qualified)}">Read its warnings</a></p>` : ""}
       <div class="urlrow">
-        <label class="sr-only" for="heroUrl">Service URL</label>
-        <span class="key" aria-hidden="true">Service URL</span>
-        <input type="text" id="heroUrl" readonly value="${h(url)}" title="${h(url)}">
-        <button type="button" class="tiny" data-copy="${h(url)}">Copy</button>
+        <span class="key" id="heroUrlKey">Service URL</span>
+        <code id="heroUrl" aria-labelledby="heroUrlKey">${h(url)}</code>
+        <button type="button" class="tiny" data-copy="${h(url)}">Copy URL</button>
       </div>
     </div>
     <div class="heroactions">
-      <button type="button" class="${stopped ? "primary" : ""}" data-service-status="${h(row.cover ? row.cover.name : "")}"
-        data-service-qualified="${h(row.qualified)}" data-to="${stopped ? "start" : "stop"}"${row.cover ? "" : " disabled"}
-        title="${stopped ? "Serve this again" : "Answer 503 for this service, without changing who may see it"}"
-        ><span class="ico" aria-hidden="true">${stopped ? "▶" : "■"}</span> ${stopped ? "Start service" : "Stop service"}</button>
-      <a class="btn" href="/studio/service/${row.qualified.split("/").map(encodeURIComponent).join("/")}">Open in Studio</a>
+      ${toggle}
+      ${row ? `<a class="btn" href="/studio/service/${row.qualified.split("/").map(encodeURIComponent).join("/")}"
+        >Open in Studio${icon("external")}</a>` : ""}
     </div>`;
+  drawStoppedNote();
   paintPreviews();
+}
+
+/**
+ * <b>A stopped service is a state, said in a neutral line on its page, not a red toast</b> (UX sweep 2026-10-19,
+ * finding 8). Opening one raised *ask an administrator to start it* in red — to the administrator, beside the Start
+ * button. On Server the head card holds Start; on Studio the line offers it to whoever may press it.
+ */
+function drawStoppedNote(stoppedAnyway = false) {
+  const note = $("serviceStoppedNote");
+  if (!note) return;
+  // Studio's item page says it in #itemNotice, from the catalogue; two notes for one state would be one too many.
+  if (surfaceOfPath() === "studio") { note.hidden = true; note.innerHTML = ""; return; }
+
+  const row = serviceOpen ? SERVICE_ROWS.find(s => s.qualified === serviceOpen.qualified) : null;
+  const system = serviceIsSystem ? systemServiceOpen : null;
+  const stopped = stoppedAnyway || (row || system)?.status === "stopped";
+
+  note.hidden = !stopped;
+  if (!stopped) { note.innerHTML = ""; return; }
+
+  const onServer = surfaceOfPath() === "server";
+  const startHere = !onServer && row?.cover && may("admin:manageServer")
+    ? `<button type="button" class="primary tiny" data-service-status="${h(row.cover.name)}"
+        data-service-qualified="${h(row.qualified)}" data-to="start">${glyph("play")} Start service</button>` : "";
+
+  note.innerHTML = `<p><b>Stopped.</b> Clients get 503 until ${onServer || may("admin:manageServer")
+    ? `it is started${onServer ? " with Start service above" : ""}` : "an administrator starts it"}.
+    Its settings can still be changed.</p>${startHere}`;
 }
 
 function serverLayersMarkup() {
   const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
+  const groups = serviceLayers.filter(one => (one.type || "").toLowerCase().includes("group"));
   if (drawable.length === 0) return `<p class="hint">This service holds no layers.</p>`;
 
   const item = serviceOpen
     ? `/studio/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}` : null;
 
+  // <b>The facts every layer shares are said once</b> (UX sweep 2026-10-19, finding 21): each block repeated its
+  // owner and the service's own addresses, which General already lists. A block keeps what is the layer's own.
+  const owners = [...new Set(drawable.map(one => layerNamed(one.name || "").owner).filter(Boolean))];
+
   return `
-    <p class="hint">What the server knows about each layer. Its fields, style, time column and visible range are
-      the publisher's, set in ${item ? `<a href="${h(item)}">the item in Studio</a>` : "the item in Studio"}.</p>
+    <p class="hint">What the server knows about each layer${owners.length === 1 ? `, all owned by ${h(owners[0])}` : ""}.
+      Its fields, style, time column and visible range are the publisher's, set in
+      ${item ? `<a href="${h(item)}">the item in Studio</a>` : "the item in Studio"}. The service's own addresses are
+      on General.</p>
     ${drawable.map(one => {
       const name = one.name || "";
       const l = layerNamed(name);
+      const place = placeOf(name);
+      const service = place ? `${location.origin}/rest/services/${place.service}` : null;
       return `
       <div class="srvlayer" id="srvLayer-${h(String(one.id ?? 0))}" tabindex="-1">
         <div class="row">
@@ -17909,17 +18814,23 @@ function serverLayersMarkup() {
           ${pill(l.hosted ? "hosted" : "registered")}
           <span style="flex:1"></span>
           <button type="button" class="tiny" data-show="${h(name)}">Show on map</button>
-          <button type="button" class="tiny" data-refresh="${h(name)}"
-            title="After the table was changed outside this server">Re-read columns and extent</button>
+          <button type="button" class="tiny" data-refresh="${h(name)}">Re-read columns and extent</button>
         </div>
         <dl class="facts2">
           <dt>Source table</dt><dd><code>${h(l.table || "—")}</code></dd>
           <dt>Data source</dt><dd>${h(l.dataSource || "—")}</dd>
-          <dt>Owner</dt><dd>${h(l.owner || "—")}</dd>
-          ${endpointsMarkup(name, l, placeOf(name))}
+          ${owners.length > 1 ? `<dt>Owner</dt><dd>${h(l.owner || "—")}</dd>` : ""}
+          <dt>Address</dt><dd>${service
+            ? `<a href="${h(service)}/FeatureServer/${place.id}?f=json" target="_blank" rel="noreferrer"
+                >FeatureServer/${place.id}</a>`
+            : "Not in the services directory while the service is stopped."}</dd>
         </dl>
       </div>`;
-    }).join("")}`;
+    }).join("")}
+    ${groups.length ? `<p class="hint srvgroups"><b>Group layer${groups.length === 1 ? "" : "s"}:</b> ${groups.map(g =>
+      `${h(g.name || "")} <span style="color: var(--muted)">id ${num(g.id ?? 0)}${Array.isArray(g.subLayerIds)
+        ? `, holding ${num(g.subLayerIds.length)} layer${g.subLayerIds.length === 1 ? "" : "s"}` : ""}</span>`).join("; ")}.
+      A group arranges layers for a client and has no data of its own.</p>` : ""}`;
 }
 
 /** Brings the layer an old address asked for (`layer=`) into view in Server's Layers section, and focuses it. */
@@ -18967,7 +19878,10 @@ function pubFreeName(wanted) {
  * <b>One dialog for the service's name and a layer's</b>, because they are the same question about
  * a different row. Two would be two places for the rule about what a name may be.
  *
- * @param {{title: string, label: string, value: string,
+ * <b>And for a new folder's name</b> (UX sweep 2026-10-19, finding 5), which names its own button and shows the
+ * address the name will make while it is typed — `action` and `preview`, both optional.
+ *
+ * @param {{title: string, label: string, value: string, action: ?string, preview: ?function(string): string,
  *          check: ?function(string): ?string, then: function(string): void}} asked
  *   what to put on the dialog, what makes a name unacceptable, and what to do with a good one
  * @returns {void}
@@ -18982,6 +19896,7 @@ function askName(asked) {
 
   $("renameTitle").textContent = asked.title;
   $("renameWhat").textContent = asked.label;
+  done.textContent = asked.action || "Rename";
   box.value = asked.value || "";
 
   const judge = () => {
@@ -18991,7 +19906,7 @@ function askName(asked) {
     // the dialog opens in when a name is being replaced rather than edited.
     const why = !wanted ? "" : (asked.check ? asked.check(wanted) : null);
 
-    says.textContent = why || "";
+    says.textContent = why || (asked.preview ? asked.preview(wanted) : "");
     says.classList.toggle("bad-inline", Boolean(why));
     done.disabled = !wanted || Boolean(why);
   };
@@ -19032,6 +19947,53 @@ function askName(asked) {
   dialog.showModal();
   box.focus();
   box.select();
+}
+
+/**
+ * Asks Server's yes-or-no question in the product's own dialog, and answers true only for the confirm button.
+ *
+ * <b>Replaces `confirm()` on the Services screen</b> (UX sweep 2026-10-19, finding 5): a native confirm is unthemed,
+ * cannot mark the destructive button, and blocks the page. Escape, Close and Cancel all answer false; focus returns to
+ * whatever had it.
+ *
+ * @param {{title: string, body: string, action: string, danger: ?boolean}} asked plain text, never markup
+ * @returns {Promise<boolean>} whether the reader went on
+ */
+function askServerConfirm(asked) {
+  const dialog = $("serverConfirm");
+  if (!dialog) return Promise.resolve(false);
+
+  const back = document.activeElement;
+  const go = $("serverConfirmGo");
+
+  $("serverConfirmTitle").textContent = asked.title;
+  $("serverConfirmBody").textContent = asked.body;
+  go.textContent = asked.action;
+  go.className = asked.danger === false ? "primary" : "danger";
+
+  return new Promise(resolve => {
+    let answered = false;
+    const end = yes => {
+      if (answered) return;
+      answered = true;
+      go.onclick = null;
+      $("serverConfirmCancel").onclick = null;
+      $("serverConfirmClose").onclick = null;
+      dialog.removeEventListener("close", onClose);
+      if (dialog.open) dialog.close();
+      if (back instanceof HTMLElement && back.isConnected) back.focus();
+      resolve(yes);
+    };
+    const onClose = () => end(false);
+
+    go.onclick = () => end(true);
+    $("serverConfirmCancel").onclick = () => end(false);
+    $("serverConfirmClose").onclick = () => end(false);
+    dialog.addEventListener("close", onClose);
+
+    dialog.showModal();
+    $("serverConfirmCancel").focus();
+  });
 }
 
 /**
@@ -20594,7 +21556,7 @@ function pubDraw() {
 
   tree.innerHTML = pubTree.length
     ? root + pubTree.map(n => pubNode(n, false)).join("")
-    : root + `<div class="pubempty">Drag a table here from Databases.<br>
+    : root + `<div class="pubempty">Click or drag a table here from Databases.<br>
         <span style="font-size:11.5px">The order you build is the order it is served in —
         the top is drawn on top. Select two and right-click to group them. Right-click <b>Map</b>,
         above, for the coordinate system everything is served in.</span></div>`;
@@ -20649,7 +21611,7 @@ function pubDraw() {
         html += `<div class="pubtable ${can ? "" : "no"}"
             ${can ? `draggable="true" tabindex="0" role="button"` : ""}
             data-pubtable="${h(db.id)}|${h(schema.name)}|${h(t.tableName)}"
-            title="${can ? "drag into Contents" : "cannot be published"}">
+            title="${can ? "Click or drag into Contents" : "cannot be published"}">
           <!--
             <b>The shape, not a status light — owner instruction 2026-09-06:</b> *tabloların
             point mi line mı poligon mu olduğunu bir simge ile gösterir misin.* This was a dot
@@ -20693,6 +21655,8 @@ function pubDraw() {
   const layers = pubLayers();
 
   $("pubOpen").disabled = layers.length === 0;
+  // Why Publish is not offered yet, in words beside it rather than a dead button (UX sweep 2026-10-19).
+  if ($("pubOpenWhy")) $("pubOpenWhy").hidden = layers.length > 0;
 
   // <b>Last, once both panes have been rewritten.</b> Restoring before the Databases pane is
   // redrawn would put the cursor on a row about to be replaced, which is the fault this is for.
@@ -20744,9 +21708,9 @@ async function loadSources() {
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
           : breakAtSeparators(d.summary || "—")}</td>
-        <td class="num">${num(d.layerCount)}</td>
+        <td class="num">${num(d.layerCount)}<span class="cardonly"> layer${d.layerCount === 1 ? "" : "s"}</span></td>
         <td class="acts"><button class="tiny" data-probe="${h(d.id)}"
-            data-probe-name="${h(d.name)}">Probe</button>
+            data-probe-name="${h(d.name)}">Test connection</button>
           ${d.quiesced
             ? ` <button class="tiny primary" data-source-resume="${h(d.id)}"
                   data-source-name="${h(d.name)}">Resume</button>`
@@ -21923,7 +22887,7 @@ function renderProbe(name, r) {
   const files = String(r.serverVersion || "").startsWith("DuckDB");
 
   $("probe").innerHTML = `
-    <h2 id="probeHead" tabindex="-1">${h(name)} — probed</h2>
+    <h2 id="probeHead" tabindex="-1">${h(name)}: connection tested</h2>
     <div class="panel pad">
       <div class="row" style="margin-bottom:10px">
         ${pill(r.outcome)}
@@ -22100,7 +23064,7 @@ function openDomainsDialog(id) {
     dialog.setAttribute("aria-labelledby", "domainsTitle");
     dialog.innerHTML = `
       <header class="dialoghead"><span></span>
-        <button type="button" class="tiny ghost" id="domainsDialogClose" aria-label="Close">&#10005;</button></header>
+        <button type="button" class="tiny ghost" id="domainsDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></header>
       <div class="dialogbody" id="domainsDialogBody"></div>`;
     document.body.append(dialog);
     dialog.querySelector("#domainsDialogClose").addEventListener("click", () => dialog.close());
@@ -22424,7 +23388,6 @@ async function loadBasemaps(preview = undefined) {
   basemapSay("");
   // The gallery list stays usable while a preview loads: arrowing through it fires a change per key.
   $("basemapDefault").disabled = true;
-  $("basemapSave").disabled = true;
 
   if (preview === "" && basemapsSaved) {
     drawBasemaps({ ...basemapsSaved, gallery: null, entries: [], galleryMissing: false, defaultMissing: false }, "");
@@ -22469,31 +23432,42 @@ function drawBasemaps(r, preview = undefined) {
         + (maps ? ` ${maps === 1 ? "One is a web map" : `${maps} are web maps`}.` : "")
         + (unshared.length ? ` People who are not signed in do not see ${unshared.join(", ")}.` : ""));
 
-  // The default: one of the entries, OpenStreetMap, or what this server did before a gallery — its ground.
-  const chosen = galleryId !== savedGallery ? "" : (saved.default || "");
-  $("basemapDefault").innerHTML = [
-    `<option value="">Map ground (set below)</option>`,
-    `<option value="osm">OpenStreetMap</option>`,
-    ...entries.map(e => `<option value="${h(e.id)}">${h(e.title)}</option>`),
+  // The default: OpenStreetMap, one of the entries, or this server's own tile services — the map ground.
+  const wanted = galleryId !== savedGallery ? "" : (saved.default || "");
+  const values = ["osm", ...entries.map(e => e.id), ""];
+  const chosen = values.includes(wanted) ? wanted : "";
+  const answer = (value, label, lede) => `
+    <label class="pickrow"><input type="radio" name="basemapDefault" value="${h(value)}"${value === chosen ? " checked" : ""}>
+      <span><b>${label}</b><span class="lede">${lede}</span></span></label>`;
+  $("basemapDefault").innerHTML = `<legend>Default basemap</legend>` + [
+    answer("osm", "OpenStreetMap", "Its public tiles. Nothing to set up."),
+    ...entries.map(e => answer(e.id, h(e.title),
+      e.kind === "map" ? "A web map in the basemap gallery." : "A tile service in the basemap gallery.")),
+    answer("", "Your own tile services", "The services chosen under Map ground below, or OpenStreetMap while none are."),
   ].join("");
-  $("basemapDefault").value = [...$("basemapDefault").options].some(o => o.value === chosen) ? chosen : "";
   drawBasemapDefaultSays(saved.defaultMissing && galleryId === savedGallery);
 
   $("basemapDefault").disabled = false;
-  $("basemapSave").disabled = false;
   drawGroundInUse();
+  drawMapDirty();
+}
+
+/** The default basemap as it stands on the page: "osm", a gallery entry's id, or "" for the map ground. */
+function basemapDefaultValue() {
+  return document.querySelector("#basemapDefault input:checked")?.value ?? "";
 }
 
 /** What a new map starts on with the default as it stands in the list, said as a result. */
 function drawBasemapDefaultSays(missing = false) {
-  const value = $("basemapDefault").value;
-  const ground = typeof groundSaved !== "undefined" && Array.isArray(groundSaved) ? groundSaved : [];
+  const value = basemapDefaultValue();
+  const ground = typeof groundChosen !== "undefined" && Array.isArray(groundChosen) ? groundChosen : [];
+  const title = document.querySelector("#basemapDefault input:checked")?.closest("label")?.querySelector("b")?.textContent;
   $("basemapDefaultSays").textContent = missing
-    ? "The default that was saved is no longer in the gallery, so new maps start on the map ground or OpenStreetMap."
+    ? "The default that was saved is no longer in the gallery, so new maps start on your own tile services or OpenStreetMap."
     : value === "osm" ? "New maps start on OpenStreetMap."
-      : value ? `New maps start on ${$("basemapDefault").selectedOptions[0]?.textContent || "this basemap"}.`
-        : ground.length ? `New maps start on the map ground: ${ground.join(", ")}.`
-          : "New maps start on OpenStreetMap: no map ground is chosen.";
+      : value ? `New maps start on ${title || "this basemap"}.`
+        : ground.length ? `New maps start on your own tile services: ${[...ground].reverse().join(", ")}.`
+          : "New maps start on OpenStreetMap until a tile service is chosen below.";
 }
 
 /** Whether the Map ground card below is what new maps start on, said on that card. */
@@ -22501,12 +23475,13 @@ function drawGroundInUse() {
   const saved = basemapsSaved || {};
   const note = $("groundInUse");
   if (!note) return;
-  const title = saved.default === "osm" ? "OpenStreetMap"
-    : saved.default ? (saved.entries || []).find(e => e.id === saved.default)?.title : null;
+  // What is chosen above, saved or not: the pill answers *does this card matter right now*.
+  const value = document.querySelector("#basemapDefault input:checked") ? basemapDefaultValue() : (saved.default || "");
+  const title = value === "osm" ? "OpenStreetMap"
+    : value ? (saved.entries || []).find(e => e.id === value)?.title
+      || document.querySelector("#basemapDefault input:checked")?.closest("label")?.querySelector("b")?.textContent : null;
   note.hidden = !title;
-  note.textContent = title
-    ? `Not in use: new maps start on ${title}, the basemap gallery's default. Choose "Map ground (set below)" as the default basemap above to use this.`
-    : "";
+  note.textContent = title ? `Not in use: the default is ${title}` : "";
 }
 
 function basemapSay(text, refusal = false) {
@@ -22519,30 +23494,68 @@ function basemapSay(text, refusal = false) {
 
 $("basemapGallery").addEventListener("change", () => loadBasemaps($("basemapGallery").value));
 
-$("basemapDefault").addEventListener("change", () => { basemapSay(""); drawBasemapDefaultSays(); });
-
-$("basemapSave").addEventListener("click", async () => {
-  const gallery = $("basemapGallery").value || null;
-  const chosen = $("basemapDefault").value || null;
-  $("basemapSave").disabled = true;
-
-  try {
-    const r = await api("/admin/settings/basemaps", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gallery, default: chosen }),
-    }) || {};
-    drawBasemaps(r);
-    const offered = gallery
-      ? `Maps offer the ${r.entries?.length || 0} basemap${r.entries?.length === 1 ? "" : "s"} in ${r.gallery?.title || "the group"}.`
-      : "No gallery: maps offer OpenStreetMap and the map ground.";
-    basemapSay(`Saved. ${offered} ${$("basemapDefaultSays").textContent} Maps already open keep their basemap.`);
-  } catch (e) {
-    basemapSay(e.message, true);
-    $("basemapSave").disabled = false;
-  }
-  $("basemapSave").focus();
+$("basemapDefault").addEventListener("change", () => {
+  basemapSay("");
+  drawBasemapDefaultSays();
+  drawGroundInUse();
+  drawMapDirty();
 });
+
+/** Whether the basemap choice on the page differs from what is saved. */
+function basemapsChanged() {
+  const saved = basemapsSaved || {};
+  return ($("basemapGallery").value || "") !== ((saved.gallery && saved.gallery.id) || "")
+    || basemapDefaultValue() !== (saved.default || "");
+}
+
+/** The page's one Save bar: whether anything on it differs from what is saved, basemaps or ground. */
+function drawMapDirty() {
+  if (!$("mapSave")) return;
+  const dirty = (!!basemapsSaved && basemapsChanged())
+    || groundChosen.join("\n") !== groundSaved.join("\n");
+  $("mapSave").disabled = !dirty;
+  $("mapDiscard").disabled = !dirty;
+  $("mapDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
+  $("mapSaveBar")?.classList.toggle("dirty", dirty);
+}
+
+/**
+ * <b>One Save for the page</b> (UX sweep 2026-10-19): the default basemap and the ground are one decision about
+ * what a new map starts on. Each half is sent only when it changed, to the endpoint it always went to, and each says
+ * what it did under its own card.
+ */
+async function saveMapSettings() {
+  const sendBasemaps = !!basemapsSaved && basemapsChanged();
+  const sendGround = groundChosen.join("\n") !== groundSaved.join("\n");
+  if (!sendBasemaps && !sendGround) return;
+  $("mapSave").disabled = true;
+
+  if (sendBasemaps) {
+    const gallery = $("basemapGallery").value || null;
+    const chosen = basemapDefaultValue() || null;
+    try {
+      const r = await api("/admin/settings/basemaps", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gallery, default: chosen }),
+      }) || {};
+      drawBasemaps(r);
+      const offered = gallery
+        ? `Maps offer the ${r.entries?.length || 0} basemap${r.entries?.length === 1 ? "" : "s"} in ${r.gallery?.title || "the group"}.`
+        : "No gallery: maps offer OpenStreetMap and your own tile services.";
+      basemapSay(`Saved. ${offered} ${$("basemapDefaultSays").textContent} Maps already open keep their basemap.`);
+    } catch (e) {
+      basemapSay(e.message, true);
+    }
+  }
+
+  if (sendGround) await saveGround(groundChosen);
+
+  drawMapDirty();
+  $("mapDirty").textContent = $("mapSave").disabled ? "Saved" : "Some of it was not saved: see the card that says why";
+  $("mapDirty").setAttribute("tabindex", "-1");
+  $("mapDirty").focus();
+}
 
 /** Settings' Geometry service — ADR-149: this server's own, or another the portal names to its clients. */
 async function loadGeometryService() {
@@ -22626,17 +23639,21 @@ function drawSettings(settings) {
 
   box.value = p.source === "stored" ? (p.stored ?? "") : "";
   box.max = p.ceiling ?? "";
-  box.placeholder = p.configured != null ? String(p.configured) : "";
+  // No placeholder: an inherited figure in the box reads as a value set here (UX sweep 2026-10-19, finding 6).
+  // The line under it says which applies, with a tag a reader can scan for.
+  box.placeholder = "";
   box.dataset.stored = p.source === "stored" ? "yes" : "";
 
   const ceiling = p.ceiling != null ? ` No page can be larger than ${num(p.ceiling)}, this server's ceiling.` : "";
   const on = p.changedAt ? ` on ${day(p.changedAt)}` : "";
 
-  $("setPageSizeSource").textContent = p.source === "stored"
-    ? (p.clamped
-      ? `Set here to ${num(p.stored)}${on}, and held at ${num(p.value)} because the ceiling has come down since. The default is ${num(p.configured)}.${ceiling}`
-      : `Set here${on}. The default is ${num(p.configured)}.${ceiling}`)
-    : `Not set here, so the server uses its default, ${num(p.configured)}, from its configuration.${ceiling}`;
+  $("setPageSizeSource").innerHTML = `<span class="inheritstate"><span class="tag${p.source === "stored" ? " set" : ""}">${
+    p.source === "stored" ? "Set here" : "Server default"}</span>In force: <b>${num(p.value ?? p.configured)} features</b>.</span>`
+    + h(p.source === "stored"
+      ? (p.clamped
+        ? `Set here to ${num(p.stored)}${on}, and held at ${num(p.value)} because the ceiling has come down since. The default is ${num(p.configured)}.${ceiling}`
+        : `Set here${on}. The default is ${num(p.configured)}.${ceiling}`)
+      : `Not set here, so the server uses its default, ${num(p.configured)}, from its configuration.${ceiling}`);
 
   $("setReset").hidden = p.source !== "stored";
   $("setReset").textContent = p.configured != null
@@ -22670,6 +23687,20 @@ function groundCaution(row) {
   return "";
 }
 
+/**
+ * The same caution as a pill of two or three words, with the rest of the sentence kept for a screen reader (UX
+ * sweep 2026-10-19): the full sentence on every row of a twenty-five-row list was a wall of amber, and the legend
+ * under the list says it once for the eye.
+ */
+function groundCautionPill(row, id) {
+  const said = groundCaution(row);
+  if (!said) return "";
+  const short = !row.exists ? "Gone" : !row.running ? "Stopped"
+    : row.sharing === "group" ? "Group only" : row.sharing === "organization" ? "Organization only" : "Owner only";
+  const rest = said.slice(said.indexOf(":"));
+  return `<span class="pill groundpill"${id ? ` id="${id}"` : ""}>${short}<span class="sr-only">${h(rest)}</span></span>`;
+}
+
 async function drawGround(ground) {
   groundSaved = (ground.services || []).map(s => s.name);
   groundChosen = [...groundSaved];
@@ -22695,7 +23726,7 @@ function drawGroundLists(focusAfter = null) {
         <input type="checkbox" id="${id}" value="${h(name)}"${on ? " checked" : ""}${!on && full ? " disabled" : ""}
           ${caution ? `aria-describedby="${id}-note"` : ""}>
         <label for="${id}">${h(name)}</label>
-        ${caution ? `<span class="warn-inline" id="${id}-note">${h(caution)}</span>` : ""}
+        ${caution ? groundCautionPill(groundRows.get(name), `${id}-note`) : ""}
       </div>`;
     }).join("")
     : `<span class="hint">This server has no vector tile service yet. Import data — an OpenStreetMap
@@ -22721,7 +23752,7 @@ function drawGroundLists(focusAfter = null) {
     return `<li>
       <span class="groundname">${h(name)}</span>
       ${position ? `<span class="hint">${position}</span>` : ""}
-      ${caution ? `<span class="warn-inline">${h(caution)}</span>` : ""}
+      ${caution ? groundCautionPill(groundRows.get(name)) : ""}
       <span class="groundmove">
         <button class="tiny" data-ground-move="up" data-ground="${h(name)}" aria-label="Move ${h(name)} up"${i === 0 ? " disabled" : ""}>↑</button>
         <button class="tiny" data-ground-move="down" data-ground="${h(name)}" aria-label="Move ${h(name)} down"${i === top.length - 1 ? " disabled" : ""}>↓</button>
@@ -22738,14 +23769,20 @@ function drawGroundLists(focusAfter = null) {
     : "Nothing chosen: OpenStreetMap's public tiles are the ground.")
     + (changed ? " Not saved yet." : "");
 
+  // The limit before the list rather than after it, as a count (UX sweep 2026-10-19).
   $("groundCap").textContent = full
-    ? `A ground is at most ${groundMost} services — each one is a request for every tile on screen. Untick one to choose another.`
-    : `Up to ${groundMost}.`;
+    ? `${groundChosen.length} of ${groundMost} chosen, the most a ground can be: each one is a request for every tile on screen. Untick one to choose another.`
+    : `${groundChosen.length} of ${groundMost} chosen`;
 
-  $("groundSave").hidden = names.length === 0;
-  $("groundSave").classList.toggle("primary", changed);
-  $("groundUndo").hidden = !changed;
-  $("groundClear").hidden = groundSaved.length === 0;
+  const kinds = names.map(n => groundRows.get(n)).filter(r => groundCaution(r));
+  $("groundLegend").hidden = kinds.length === 0;
+  $("groundLegend").textContent = kinds.length
+    ? "Stopped: nobody sees it until it is started. Owner, group or organization only: people who cannot see it get the ground without it."
+    : "";
+
+  $("groundClear").hidden = groundChosen.length === 0;
+  drawBasemapDefaultSays();
+  drawMapDirty();
 
   if (focusAfter) document.querySelector(focusAfter)?.focus();
 }
@@ -22803,14 +23840,11 @@ async function saveGround(services) {
             : ` ${hidden.join(", ")} ${hidden.length === 1 ? "is" : "are"} not shared with everybody or not running, so people who cannot see ${hidden.length === 1 ? "it" : "them"} get the rest of the ground without ${hidden.length === 1 ? "it" : "them"}.`)
         + later);
 
-    // Clear hides the button that was pressed; focus goes to Save, which stays where it was.
-    if (services.length === 0) $("groundSave").focus();
   } catch (e) {
     const gone = /There is no service '([^']+)'/.exec(e.message || "");
     groundSay(gone
       ? `Untick ${gone[1]}: it is no longer on this server, so it cannot be saved as part of the ground.`
       : e.message, true);
-    $("groundSave").focus();
   }
 }
 
@@ -22937,9 +23971,9 @@ async function loadOperations() {
   }
 
   $("storeMetrics").innerHTML =
-    metric("Status", h(health.status === "ok" ? "ok" : "degraded")) +
-    metric("Reachable", store.reachable ? "yes" : "no", store.error || "") +
-    metric("Layers", num(store.layers)) +
+    metric("Status", h(health.status === "ok" ? "Healthy" : "Degraded")) +
+    metric("Reachable", store.reachable ? "Yes" : "No", store.error || "") +
+    metric("Layers in the catalogue", num(store.layers)) +
     metric("Version", h(health.version || "—"));
 
   const r = health.runtime || {};
@@ -22949,10 +23983,10 @@ async function loadOperations() {
     metric("Uptime", duration(r.uptimeMilliseconds)) +
     metric("Managed heap", bytes(r.heapBytes)) +
     metric("Allocated since start", bytes(r.allocatedBytes)) +
-    metric("GC pause", `${pause.toFixed(pause < 1 ? 2 : 1)}<small>% of wall-clock</small>`) +
+    metric("Time in garbage collection", `${pause.toFixed(pause < 1 ? 2 : 1)}<small>%</small>`) +
     metric("Collections", `${num(r.gen0)}<small>/</small>${num(r.gen1)}<small>/</small>${num(r.gen2)}`,
-           "gen0 / gen1 / gen2") +
-    metric("Cores", `${num(r.cores)}${r.serverGc ? "" : ""}`, r.serverGc ? "server GC" : "workstation GC");
+           "young / middle / old generation") +
+    metric("Cores", num(r.cores));
 
   const tiles = health.tileCache || {};
   const shapes = health.describedShapes || {};
@@ -22960,9 +23994,7 @@ async function loadOperations() {
     metric("Tiles cached", num(tiles.entries)) +
     metric("On disk", `${num(tiles.megabytes)}<small>MB</small>`) +
     metric("Building now", num(tiles.building)) +
-    metric("Shapes remembered", num(shapes.count)) +
-    metric("Shape lifetime", `${num(shapes.lifetimeSeconds)}<small>s</small>`);
-  $("cacheNotes").textContent = [tiles.note, shapes.note].filter(Boolean).join(" ");
+    metric("Table shapes remembered", `${num(shapes.count)}<small>, each for ${num(shapes.lifetimeSeconds)} s</small>`);
 
   // <b>How large the store is, and whose layers fill it — D-237.</b> The server holds this for a
   // minute, so when it was measured is said beside it rather than implied by this page's clock.
@@ -23005,24 +24037,22 @@ async function loadOperations() {
 
   const { routes, ungoverned, crossOrigin } = await api("/admin/routes");
 
-  // ADR-018 condition 5 is a number that is zero or is not, which is exactly what a dot can say.
+  // Every route governed is a number that is zero or is not, which is exactly what a dot can say.
   const routeDot = $("routeDot");
 
   if (routeDot) {
     routeDot.className = "dot " + (ungoverned === 0 ? "ok" : "unusable");
-    routeDot.title = ungoverned === 0
-      ? "Every route is governed — ADR-018 condition 5 holds."
-      : `${ungoverned} route(s) are ungoverned — ADR-018 condition 5 is failing.`;
   }
 
   $("routeMetrics").innerHTML =
-    metric("Routes", num(routes.length)) +
-    metric("Ungoverned", num(ungoverned),
-           ungoverned === 0 ? "ADR-018 condition 5 holds" : "ADR-018 condition 5 is failing") +
+    metric("Routes this server answers", num(routes.length)) +
+    metric("Without an access rule", num(ungoverned),
+           ungoverned === 0 ? "as it should be" : "each of these is reachable without a check") +
 
-    // ADR-072, Q-151: which origins may read, beside the audit of who may reach what.
+    // Which origins may read, beside the audit of who may reach what.
     metric("Cross-origin reads", crossOrigin ? crossOrigin.allows : "—",
            crossOrigin ? `set by ${crossOrigin.setting}` : "");
+  if ($("routeCount")) $("routeCount").textContent = ` (${num(routes.length)})`;
 
   const corsSays = $("corsSays");
 
@@ -23032,20 +24062,33 @@ async function loadOperations() {
           ? "Every origin may read this server's services"
           : crossOrigin.on
             ? `Only ${crossOrigin.allows} may read this server's services`
-            : "No other origin may read this server's services"}; this console's sign-in never counts across origins (Q-169). `
-        + crossOrigin.note
+            : "No other origin may read this server's services"}; this console's sign-in never counts across origins. `
+        + withoutRefs(crossOrigin.note)
       : "";
   }
   $("routes").innerHTML = routes.map(route => `<tr>
       <td class="val">${h(route.pattern)}</td>
       <td class="val">${h((route.methods || []).join(", "))}</td>
-      <td>${route.governed ? h(route.by || "") : pill("ungoverned")}</td>
+      <td>${route.governed ? h(withoutRefs(route.by || "")) : pill("ungoverned")}</td>
     </tr>`).join("");
 
   // Stamped, because a runtime figure with no time on it is read as "now" for as
   // long as the tab stays open — and uptime and GC pause are exactly the numbers
   // somebody compares across a few minutes.
-  $("opsWhen").textContent = "read at " + new Date().toLocaleTimeString();
+  $("opsWhen").textContent = "Read at " + new Date().toLocaleTimeString();
+}
+
+/**
+ * A server sentence without the register references it carries for API readers — *(ADR-021)*, *— ADR-072*, *D-17* —
+ * which say nothing to an operator (UX sweep 2026-10-19, finding 9).
+ */
+function withoutRefs(text) {
+  return String(text || "")
+    .replace(/\s*\((?:(?:ADR|D|Q|V)-\d+[a-z]?(?:\s*§[\w.]+)?(?:,\s*)?)+\)/g, "")
+    .replace(/\s*[—-]+\s*(?:(?:ADR|D|Q|V)-\d+[a-z]?(?:\s*§[\w.]+)?(?:,\s*|\s+and\s+)?)+(?=[.;,]|$)/g, "")
+    .replace(/\b(?:ADR|D|Q|V)-\d+[a-z]?(?:\s*§[\w.]+)?\s*/g, "")
+    .replace(/\s+([.;,])/g, "$1")
+    .trim();
 }
 
 /**
@@ -23091,30 +24134,43 @@ function consoleBuildSays(served) {
     : ` · console${stamp}`;
 }
 
+/**
+ * The header's health, as a word and an icon that link to Site › Status (UX sweep 2026-10-19, findings 1 and 14).
+ *
+ * It was an eight-pixel green dot whose meaning was only in its tooltip, and it stayed green while a service failed:
+ * it reported the platform store and nothing else. It now says the worst of three things — the store unreachable,
+ * started services failing, or healthy — and the whole sentence stays in `#healthLine` and the link's name.
+ */
 async function refreshHealth() {
-  try {
-    const health = await api("/admin/health");
-    const ok = health.status === "ok";
-    // `.dot` names ok / degraded / unusable / unknown; "bad" was no class at all (2026-09-25).
-    $("healthDot").className = "dot " + (ok ? "ok" : "degraded");
-    const build = consoleBuildSays(health.console);
+  const pill = $("healthDot");
+  const say = (state, word, line) => {
+    pill.className = `healthpill ${state}`;
+    pill.href = surfaceHref("server", "operations");
+    $("healthWord").innerHTML = (state === "failing" || state === "unusable" ? icon("failing") : `<span class="dot ${state}" aria-hidden="true"></span>`)
+      + h(word);
+    $("healthLine").textContent = line;
+    $("healthLine").title = line;
+    pill.title = line;
+    pill.setAttribute("aria-label", `Server health: ${line}. Open Site status.`);
+  };
 
-    $("healthLine").textContent = ok
-      ? `platform store reachable · ${health.platformStore.layers} layers${build}`
-      : `DEGRADED — platform store unreachable${build}`;
-    // The line can be cut short by the section bar beside it (ADR-187); the whole of it is the title.
-    $("healthLine").title = $("healthLine").textContent;
-    // And on the dot, because the line is hidden where the bar needs its width: the state is then the
-    // dot's colour, and a colour alone says nothing to whoever cannot tell green from amber.
-    $("healthDot").title = $("healthLine").textContent;
-    $("healthDot").setAttribute("role", "img");
-    $("healthDot").setAttribute("aria-label", $("healthLine").textContent);
+  try {
+    const [health, states] = await Promise.all([api("/admin/health"), readServiceStates(true)]);
+    const ok = health.status === "ok";
+    const build = consoleBuildSays(health.console);
+    const failing = states.filter(r => failingOf(r)).length;
+
+    if (!ok) {
+      say("unusable", "Store unreachable", `Degraded: platform store unreachable${build}`);
+    } else if (failing > 0) {
+      const many = `${num(failing)} service${failing === 1 ? "" : "s"} failing`;
+      say("failing", many, `${many} in the last ${FAILING_MINUTES} minutes · platform store reachable · `
+        + `${health.platformStore.layers} layers${build}`);
+    } else {
+      say("ok", "Healthy", `platform store reachable · ${health.platformStore.layers} layers${build}`);
+    }
   } catch {
-    $("healthDot").className = "dot unknown";
-    $("healthLine").textContent = "health unreachable";
-    $("healthDot").title = "health unreachable";
-    $("healthDot").setAttribute("role", "img");
-    $("healthDot").setAttribute("aria-label", "health unreachable");
+    say("unknown", "Health unknown", "health unreachable");
   }
 }
 
@@ -23256,7 +24312,8 @@ function drawItemKinds() {
     <div class="dropzone" id="dropzone">
       ${icon("upload")}
       <p>Drag and drop files here</p>
-      <button type="button" class="ghost" id="fromDevice" autofocus>${icon("device")} Your device</button>
+      <!-- A framed button, not a ghost: borderless on the tinted drop zone it read as a caption (UX sweep 2026-10-19). -->
+      <button type="button" id="fromDevice" autofocus>${icon("device")} Your device</button>
       <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoPackage, KML or KMZ, a GeoJSON
         FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF — or all the tiles of one image</span>
       <p class="bad-inline" id="dropSays" role="alert" hidden></p>
@@ -24933,19 +25990,35 @@ async function handleClick(event) {
     return;
   }
 
+  // <b>The product's own dialog, not `prompt()`</b> (UX sweep 2026-10-19, finding 5): the name is checked as it is
+  // typed by the server's own rule, and the address it will make is shown under it.
   if (t.id === "newFolder") {
-    const name = prompt("A folder to publish into. It becomes part of the URL: "
-      + "/rest/services/<folder>/<service>/FeatureServer");
-    if (!name) return;
-    try {
-      const r = await api("/admin/folders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      toast(r.note, true);
-      await section("folders", loadFolders);
-    } catch (e) { toast(e.message); }
+    const taken = new Set([...document.querySelectorAll("#folders .rail-name")]
+      .map(n => n.firstChild?.textContent.trim().toLowerCase()).filter(Boolean));
+    askName({
+      title: "New folder",
+      label: "Folder name",
+      action: "Create folder",
+      value: "",
+      check: name => /[\/\\?#%]/.test(name) ? "A folder is one part of a web address, so it cannot hold / \\ ? # or %."
+        : name.length > 128 ? "A folder name is at most 128 characters."
+        : taken.has(name.toLowerCase()) ? `There is already a folder called ${name}.`
+        : null,
+      preview: name => name ? `Services in it answer at /rest/services/${name}/<service>/FeatureServer.`
+        : "Services published into it answer at /rest/services/<folder>/<service>/FeatureServer.",
+      then: async name => {
+        try {
+          const r = await api("/admin/folders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+          });
+          toast(r.note || `Folder ${name} created.`, true);
+          await section("folders", loadFolders);
+          $("newFolder")?.focus();
+        } catch (e) { toast(e.message); }
+      },
+    });
     return;
   }
   if (t.id === "drawerClose") { closeDrawer(); return; }
@@ -24980,7 +26053,9 @@ async function handleClick(event) {
     t.disabled = true;
     await section("operations", loadOperations);
     await section("health", refreshHealth);
+    await section("resources", drawStatusWidgets);
     t.disabled = false;
+    t.focus();
     return;
   }
 
@@ -25334,6 +26409,7 @@ async function handleClick(event) {
 
   if (t.id === "emptyRead") {
     t.disabled = true;
+    $("emptyWhen").textContent = "Reading…";
     await section("the empty services", loadEmptyServices, "emptyRows");
     t.disabled = false;
     return;
@@ -25712,6 +26788,9 @@ async function handleClick(event) {
         { method: "POST" });
       if (r.to === "stopped") hide(d.serviceStatus);
       toast(`${d.serviceStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
+      // The open page's row says what it was until the listing is read again; the move is known now.
+      const open = SERVICE_ROWS.find(x => x.qualified === d.serviceQualified);
+      if (open && r.to) open.status = r.to;
     } catch (e) { toast(e.message); }
     await loadLayers();   // which redraws the service list, since the status it shows moved
     drawServerHero();
@@ -25769,10 +26848,12 @@ async function handleClick(event) {
   if (t.id === "groupNew") {
     // A fresh question each time: what was typed into a group that was not made does not wait for the next one.
     for (const id of ["newGroupName", "newGroupTitle", "newGroupWhy"]) $(id).value = "";
-    $("newGroupUpdate").value = "none";
+    delete $("newGroupName").dataset.typed;
+    document.querySelector('#newGroupUpdate input[value="none"]').checked = true;
     $("newGroupSays").hidden = true;
+    sayNewGroupName();
     $("groupNewDialog").showModal();
-    $("newGroupName").focus();
+    $("newGroupTitle").focus();
     return;
   }
 
@@ -25802,7 +26883,7 @@ async function handleClick(event) {
           // when they are not the same.
           title: ($("newGroupTitle")?.value || "").trim() || null,
           description: ($("newGroupWhy")?.value || "").trim() || null,
-          itemUpdate: $("newGroupUpdate")?.value || "none",
+          itemUpdate: document.querySelector("#newGroupUpdate input:checked")?.value || "none",
         }),
       });
       groupOpen = name;
@@ -25965,12 +27046,14 @@ async function handleClick(event) {
       title: $("gsTitle").value.trim() || null,
       summary: $("gsSummary").value.trim() || null,
       description: $("gsDescription").value.trim() || null,
-      visibility: $("gsVisibility").value,
-      joinPolicy: $("gsJoin").value,
-      contribute: $("gsContribute").value,
-      memberList: $("gsMemberList").value,
-      membersMayLeave: $("gsLeave").value === "yes",
+      visibility: groupSettingValue("gsVisibility"),
+      joinPolicy: groupSettingValue("gsJoin"),
+      contribute: groupSettingValue("gsContribute"),
+      memberList: groupSettingValue("gsMemberList"),
+      membersMayLeave: groupSettingValue("gsLeave") === "yes",
     }, "Saved.");
+    // The tab is redrawn and Save is disabled again, so focus goes to the first field rather than to the body.
+    $("gsTitle")?.focus();
     return;
   }
 
@@ -26171,6 +27254,15 @@ async function handleClick(event) {
     roleOpen = roleRow.dataset.role;
     await section("roles", loadRoles, "roleRows");
     $("roleEditor")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    // The list was redrawn, so the chosen row's button takes focus back from the body.
+    [...document.querySelectorAll("#roleRows button.rowname")].find(b => b.dataset.role === roleOpen)?.focus();
+    return;
+  }
+
+  // Discard reads the role again, which puts back the ticks the server holds.
+  if (t.id === "roleDiscard") {
+    await section("roles", loadRoles, "roleRows");
+    document.querySelector("#rolePrivileges input[data-privilege]:not([disabled])")?.focus();
     return;
   }
 
@@ -26265,6 +27357,8 @@ async function handleClick(event) {
     } catch (e) { toast(e.message); }
 
     await section("roles", loadRoles, "roleRows");
+    // Save is disabled again after the redraw, so focus goes to the first tick rather than to the body.
+    document.querySelector("#rolePrivileges input[data-privilege]:not([disabled])")?.focus();
     return;
   }
 
@@ -26319,10 +27413,19 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.id === "groundUndo") {
+  // Discard puts both halves of the page back as they are saved; nothing is sent.
+  if (t.id === "mapDiscard") {
     groundChosen = [...groundSaved];
-    groundSay("Back to the saved ground. Nothing was changed on the server.");
-    drawGroundLists("#groundSave");
+    if (basemapsSaved) drawBasemaps(basemapsSaved);
+    drawGroundLists();
+    groundSay("Back to what is saved. Nothing was changed on the server.");
+    $("mapDirty").setAttribute("tabindex", "-1");
+    $("mapDirty").focus();
+    return;
+  }
+
+  if (t.id === "mapSave") {
+    await saveMapSettings();
     return;
   }
 
@@ -26377,20 +27480,12 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.id === "groundSave") {
-    if (groundChosen.join("\n") === groundSaved.join("\n")) {
-      groundSay(groundSaved.length
-        ? "That is the ground already saved. Nothing was changed."
-        : "Nothing is chosen and nothing was saved: OpenStreetMap's tiles are already the ground.");
-      return;
-    }
-
-    await saveGround(groundChosen);
-    return;
-  }
-
+  // Unticks every service, which Save then stores; the button hides, so focus goes to the list.
   if (t.id === "groundClear") {
-    await saveGround([]);
+    groundChosen = [];
+    groundSay("Every service unticked. Save to draw OpenStreetMap's tiles under the data.");
+    drawGroundLists();
+    document.querySelector("#groundList input")?.focus();
     return;
   }
 
@@ -27076,9 +28171,14 @@ async function handleClick(event) {
     if (serviceOpenKind === "ImageServer") {
       const style = await api(`/admin/coverages/${encodeURIComponent(serviceOpen.name)}/style`
         + `?folder=${encodeURIComponent(serviceOpen.folder || "")}`).catch(() => null);
-      if (!confirm(`Delete ${serviceOpen.name}? ` + (style && style.uploaded
-        ? "The uploaded image is deleted with it and cannot be recovered."
-        : "The image file on the server is not touched; only the service goes."))) {
+      // The product's own dialog, not `confirm()`: themed, the destructive button marked, Cancel first (round 2).
+      if (!await askServerConfirm({
+        title: `Delete ${serviceOpen.name}?`,
+        body: style && style.uploaded
+          ? "The uploaded image goes with it into the recycle bin, where it waits 14 days and can be restored."
+          : "The image file on the server is not touched; only the service goes.",
+        action: "Delete this service",
+      })) {
         return;
       }
       try {
@@ -27090,23 +28190,23 @@ async function handleClick(event) {
       return;
     }
 
-    const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
-
     // <b>The confirmation names the tables, because that is the irreversible part.</b> *Are you sure*
     // in front of a drop has not said anything; *drops 55 tables* has.
-    const hosted = serviceLayers.some(one => layerNamed(one.name || "").hosted)
-    || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
+    const { count, hosted } = serviceDeleteTakes();
 
-    if (!confirm(
-      `Delete '${serviceOpen.qualified}'`
-      + (count ? ` and its ${count} layer${count === 1 ? "" : "s"}` : "")
-      + "? "
-      + (count === 0
+    if (!await askServerConfirm({
+      title: `Delete ${serviceOpen.name}${count ? ` and its ${count} layer${count === 1 ? "" : "s"}` : ""}?`,
+      body: count === null
+        ? "Its layers could not be read, so this cannot say whether any data goes with it."
+        : count === 0
         ? "It holds no layers, so no data goes with it."
         : hosted
-          ? `This drops ${count} table${count === 1 ? "" : "s"} from the datastore and cannot be undone.`
-          : "These are registered layers, so their tables are not touched — only the registration "
-            + "goes."))) {
+          ? `Its ${count === 1 ? "table leaves" : `${count} tables leave`} the datastore with it and `
+            + `${count === 1 ? "waits" : "wait"} in the recycle bin `
+            + "for 14 days, where it can be restored."
+          : "These are registered layers, so their tables are not touched; only the registration goes.",
+      action: "Delete this service",
+    })) {
       return;
     }
 
@@ -27245,14 +28345,21 @@ async function handleClick(event) {
         + `?folder=${encodeURIComponent(d.systemFolder || "")}`,
         { method: "POST" });
       toast(`${d.systemStatus}: ${r.from} → ${r.to}. ${r.note}`, true);
+      if (systemServiceOpen && systemServiceOpen.name === d.systemStatus) {
+        systemServiceOpen.status = r.to;
+        drawServerHero();
+      }
     } catch (e) { toast(e.message); }
     await section("services", loadServices, "services");
     return;
   }
 
   if (d.serviceDelete) {
-    if (!confirm(`Delete the service "${d.serviceDelete}"? It holds no layers, so nothing `
-        + `published goes with it.`)) return;
+    if (!await askServerConfirm({
+      title: `Delete ${d.serviceDelete}?`,
+      body: "It holds no layers, so nothing published goes with it. This cannot be undone.",
+      action: "Delete service",
+    })) return;
     try {
       const r = await api(`/admin/featureservices/${encodeURIComponent(d.serviceDelete)}`
         + `?folder=${encodeURIComponent(d.folder || "")}`, { method: "DELETE" });
@@ -27556,6 +28663,7 @@ document.addEventListener("change", async event => {
       event.target.checked
         ? "Locked. Nobody can delete this group, including an administrator."
         : "Unlocked. It can be deleted again.");
+    $("gsLock")?.focus();
     return;
   }
 
@@ -27670,9 +28778,8 @@ document.addEventListener("change", async event => {
     return;
   }
 
-  if (event.target?.id === "contentType" || event.target?.id === "contentSort" || event.target?.id === "contentIdle") {
-    if (event.target.id === "contentType") contentType = event.target.value;
-    else if (event.target.id === "contentIdle") contentIdle = event.target.checked;
+  if (event.target?.id === "contentSort" || event.target?.id === "contentIdle") {
+    if (event.target.id === "contentIdle") contentIdle = event.target.checked;
     else contentSort = event.target.value;
     resetPage("contentRows");
     drawMyContent();
@@ -27718,72 +28825,6 @@ document.addEventListener("change", async event => {
     }
     drawServiceDelete();
     event.target.focus();
-    return;
-  }
-
-  if (d.memberType) {
-    // <b>Confirmed when it takes something away, and instant when it does not.</b> Same rule as
-    // the role beside it: raising a ceiling grants nothing by itself — the roles still decide —
-    // and lowering one withdraws privileges from every role the member holds at once, which is
-    // the half worth stopping to read. The ladder is the server's, so the console asks it rather
-    // than ranking the names itself.
-    const becoming = event.target.value;
-    const order = memberUserTypes;
-    const from = order.indexOf(event.target.dataset.wasType || "");
-    const to = order.indexOf(becoming);
-
-    if (from >= 0 && to >= 0 && to < from) {
-      if (!confirm(
-        `Lower '${d.memberType}' from '${event.target.dataset.wasType}' to '${becoming}'? `
-        + "A user type is a ceiling: every privilege above it stops working at once, for every "
-        + "role they hold, and the roles themselves do not change.")) {
-        await section("members", loadMembers, "members");
-        return;
-      }
-    }
-
-    try {
-      const r = await api(`/admin/members/${encodeURIComponent(d.memberType)}/usertype`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userType: becoming }),
-      });
-
-      toast(`${r.name}: ${r.from} → ${r.to}. ${r.note}`, true);
-    } catch (e) { toast(e.message); }
-
-    await section("members", loadMembers, "members");
-    return;
-  }
-
-  if (d.memberRole) {
-    // <b>Instant and unconfirmed, which is right for a sharing toggle and not for handing out
-    // administration.</b> Same reasoning as *Save privileges* above, and the same narrow trigger: only
-    // when the role being given is one that carries administrative capability. Design review
-    // 2026-08-19.
-    const becoming = event.target.value || "";
-
-    if (becoming && (roleAdministrative.get(becoming) || []).length > 0) {
-      if (!confirm(
-        `Make '${d.memberRole}' a '${becoming}'? That role carries `
-        + `${(roleAdministrative.get(becoming) || []).length} administrative `
-        + `privilege${(roleAdministrative.get(becoming) || []).length === 1 ? "" : "s"}, `
-        + "and it takes effect at once.")) {
-        await section("members", loadMembers, "members");
-        return;
-      }
-    }
-
-    try {
-      const r = await unlessLastLocalAdministrator(q =>
-        api(`/admin/members/${encodeURIComponent(d.memberRole)}/role${q ? `?${q}` : ""}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role: event.target.value || null }),
-        }));
-      if (r) toast(`${r.name}: ${(r.from || []).join(", ") || "none"} → ${r.to || "none"}. ${r.note}`, true);
-    } catch (e) { toast(e.message); }
-    await section("members", loadMembers, "members");
     return;
   }
 
@@ -28278,6 +29319,46 @@ async function exchangeSession() {
   }
 }
 
+/**
+ * The sign-in card's context line: what the address was opening (UX sweep 2026-10-19).
+ *
+ * <b>The address is the answer, and it is kept.</b> Signing in runs `start` and then `route` on the address as it
+ * stands, so the reader lands on what they asked for; this only says so. An item's id is asked of the portal's item
+ * document, which answers a public item without a session; anything it cannot name is called by its place.
+ */
+async function drawSigninFor() {
+  const line = $("signinFor");
+  if (!line) return;
+
+  const parts = routeHash().replace(/^#\/?/, "").split("?")[0].split("/").filter(Boolean).map(one => {
+    try { return decodeURIComponent(one); } catch { return one; }
+  });
+  const say = what => {
+    line.innerHTML = what ? `Sign in to open <b>${h(what)}</b>. You land on it once you are signed in.` : "";
+    line.hidden = !what;
+  };
+
+  const surface = surfaceOfPath() === "server" ? "Server" : "Studio";
+  const [screen, ...rest] = parts;
+
+  if ((screen === "service" || screen === "layer") && rest.length) { say(rest[rest.length - 1]); return; }
+  if (screen === "group" && rest[0]) { say(`the group ${rest[0]}`); return; }
+  if (screen === "search") { say(`${surface} search`); return; }
+  if (screen === "content") { say("your content"); return; }
+
+  if ((screen === "item" || screen === "map") && rest[0]) {
+    say("this item");
+    const asked = location.href;
+    try {
+      const item = await api(`/sharing/rest/content/items/${encodeURIComponent(rest[0])}?f=json`);
+      if (location.href === asked && item && !item.error && item.title) say(item.title);
+    } catch { /* not public, or not there: "this item" stands */ }
+    return;
+  }
+
+  say(screen ? surface : "");
+}
+
 async function start() {
   let me = await whoami();
 
@@ -28314,6 +29395,9 @@ async function start() {
 
     // ADR-088: a way in through each provider, back to where this page was.
     drawSigninProviders();
+
+    // What the address was opening, which is where signing in lands.
+    drawSigninFor();
 
     const cookieOnly = $("signinCookie");
     if (me.authenticated && !token) {
@@ -29134,8 +30218,15 @@ function drawFolderBar() {
   if (!bar) return;
 
   const relevant = contentScope === "all" || contentScope === "mine";
-  bar.hidden = !relevant;
-  if (!relevant) return;
+
+  // <b>Kept in place where folders do not apply, and says why</b> (UX sweep 2026-10-19): it vanished in the other
+  // scopes, so the column under the scopes jumped as the reader moved between them.
+  bar.hidden = false;
+  if (!relevant) {
+    bar.innerHTML = `<span class="folderlabel">Folders</span>
+      <span class="hint">Your folders sort your own items. They show under Everything and Mine.</span>`;
+    return;
+  }
 
   if (contentFolderPick && contentFolderPick !== "root" && !myFolders.some(f => f.id === contentFolderPick)) {
     contentFolderPick = "";
@@ -31074,11 +32165,18 @@ async function readSearchable() {
     ...(items.items || []).map(i => ({
       id: i.itemId || "", title: i.bare || i.name, kind: itemTypeName(i.kind), owner: i.owner || "",
       sharing: i.sharing, words: [i.name, i.description, ...(i.tags || [])].join(" "),
+      // Said as the Content row says it (round 2).
+      stopped: i.status === "stopped",
+      // The picture the Content row shows for the same item.
+      thumb: i.status === "stopped" ? null
+        : i.kind === "ImageServer" ? thumbnailFor(`/rest/services/${i.name}/ImageServer`)
+        : i.cover ? thumbnailFor(i.cover.url) : null,
       href: i.itemId ? `#/item/${i.itemId}` : `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`,
     })),
     ...(maps.webMaps || []).map(m => ({
       id: m.id, title: m.title || m.id, kind: "Web map", owner: m.owner || "", sharing: m.sharing,
       words: [m.snippet, m.description, ...(m.tags || [])].join(" "), href: `#/item/${m.id}`,
+      thumb: m.thumbnail || null,
     })),
   ];
   return { content, groups: groups.groups || [] };
@@ -31092,7 +32190,9 @@ function matchesAll(words, ...about) {
 
 async function showSearch(q) {
   showView("view-search", "");
-  $("gq").value = q;
+  // The page's own box carries the question; the bar's is cleared, so one query is not shown twice (UX sweep
+  // 2026-10-19).
+  $("gq").value = "";
   $("searchQ").value = q;
   $("searchRows").innerHTML = `<tr><td class="empty">Searching…</td></tr>`;
   searchRead = await readSearchable();
@@ -31138,24 +32238,35 @@ async function drawSearch() {
   if (!q) { $("searchRows").innerHTML = empty("Type what you are looking for: a title, a tag, an owner, or an item id."); return; }
 
   if (searchTab === "content") {
-    $("searchRows").innerHTML = content.map(c => `<tr>
-      <td class="name"><a href="${h(c.href)}">${h(c.title)}</a>
-        <span class="val" style="display:block">${h(c.kind)}${c.owner ? ` · ${h(c.owner)}` : ""}</span></td>
-      <td>${c.sharing ? pill(c.sharing) : ""}</td>
-      <td class="val">${c.id ? `<code class="itemid" title="Item id">${h(c.id)}</code>` : ""}</td>
-    </tr>`).join("") || empty(id ? `No item ${h(id)} that you can see.` : "No content matches.");
+    // <b>A hit reads as a Content row does</b> (UX sweep 2026-10-19): the picture, the title and its type, then one
+    // quiet line with who may read it and whose it is. The pill had a column of its own, centred, and an item with no
+    // portal id left an empty cell.
+    $("searchRows").innerHTML = content.map(c => `<tr class="mediarow">
+      <td class="thumbcell"><a class="thumblink" href="${h(c.href)}" tabindex="-1" aria-hidden="true">${c.thumb
+        ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(c.thumb)}">`
+        : `<div class="thumb empty"></div>`}</a></td>
+      <td class="name"><div class="svctitle"><a href="${h(c.href)}">${h(c.title)}</a>
+        <span class="svctype">${h(c.kind)}</span></div>
+        <div class="svcmeta">${[c.stopped ? pill("stopped") : "", c.sharing ? pill(c.sharing) : "", c.owner ? `<span>${h(c.owner)}</span>` : "",
+          c.id ? `<code class="itemid" title="Item id: select to copy">${h(c.id)}</code>` : ""]
+          .filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`)}</div></td>
+    </tr>`).join("") || empty(id
+      ? `No item ${h(id)} that you can see.`
+      : `Nothing matches <b>${h(q)}</b>. Check the spelling, or try fewer words: every word has to appear.
+         <a href="#/content">Content</a> lists everything you can see, by scope and type.`);
+    paintPreviews();
   } else if (searchTab === "groups") {
     $("searchRows").innerHTML = groups.map(g => `<tr>
       <td class="name"><a href="#/group/${encodeURIComponent(g.name)}">${h(g.title || g.name)}</a>
         <span class="val" style="display:block">${h(g.name)}${g.owner ? ` · ${h(g.owner)}` : ""}</span></td>
-      <td colspan="2" class="val">${h(g.description || "")}</td>
-    </tr>`).join("") || empty("No group matches.");
+      <td class="val">${h(g.description || "")}</td>
+    </tr>`).join("") || empty(`No group matches <b>${h(q)}</b>. Check the spelling, or try fewer words.`);
   } else {
     $("searchRows").innerHTML = members.map(m => `<tr>
       <td class="name"><a href="#/user/${encodeURIComponent(m.name)}">${h(m.displayName || m.name)}</a>
         <span class="val" style="display:block">${h(m.name)}${m.email ? ` · ${h(m.email)}` : ""}</span></td>
-      <td colspan="2" class="val">${h((m.roles || []).join(", "))}</td>
-    </tr>`).join("") || empty("No member matches.");
+      <td class="val">${h((m.roles || []).join(", "))}</td>
+    </tr>`).join("") || empty(`No member matches <b>${h(q)}</b>. Check the spelling, or try fewer words.`);
   }
 }
 

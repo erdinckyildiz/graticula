@@ -555,7 +555,7 @@ public sealed class RolesPageTests : ConsoleTest
 
         int stored = await Browser.EvaluateAsync<int>(
             "Number(document.querySelector("
-            + "'#roleRows tr[data-role=viewer] .num')?.textContent || '-1')");
+            + "'#roleRows tr[data-role=viewer]')?.dataset.privileges ?? '-1')");
 
         Assert.Equal(
             0,

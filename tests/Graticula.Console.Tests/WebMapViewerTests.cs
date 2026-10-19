@@ -376,7 +376,7 @@ public sealed class WebMapViewerTests : ConsoleTest
             await WaitForAsync(
                 "document.getElementById('mapTitle').textContent === 'Item page test'"
                 + " && !!document.querySelector('#mapLayers a[href*=\"/service/\"]')"
-                + " && !!document.querySelector('#mapSide a[href*=\"webmap.html?id=\"]')",
+                + " && !!document.querySelector('#mapActions a[href*=\"webmap.html?id=\"]')",
                 "The map's item page did not show its title, its layer with the way to that layer's item, and Open in Map Viewer.");
 
             await ClickAsync("#mapShareOpen");
@@ -391,8 +391,10 @@ public sealed class WebMapViewerTests : ConsoleTest
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}'))",
                 "Saving the map's sharing sent nothing.");
 
-            // Delete protection, as a service has it: the box sends the protection, and Delete waits for it.
-            await WaitForAsync("!!document.getElementById('mapProtect')", "The map's page offers no delete protection.");
+            // Delete protection, as a service has it, on the map's Settings tab: the box sends the protection, and Delete
+            // waits for it.
+            await ClickAsync("#mapTabs a[data-map-tab=\"settings\"]");
+            await WaitForAsync(Shown("#mapProtect"), "The map's Settings tab offers no delete protection.");
             await ClickAsync("#mapProtect");
             await WaitForAsync(
                 $"(window.__writes || []).some(w => w.startsWith('PUT') && w.includes('/content/webmaps/{id}/protection'))",

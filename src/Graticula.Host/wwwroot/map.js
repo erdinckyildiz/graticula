@@ -67,9 +67,18 @@
     ? `${service} / ${layerId ?? 0}`
     : (layerId || "landmarks");
 
+  // The way back: the service's own page in the directory, which is where its "View in" link was (round 2, m1).
+  if (service) {
+    const back = document.getElementById("back");
+    back.href = `/rest/services/${service.split("/").map(encodeURIComponent).join("/")}/${face}`;
+    back.setAttribute("aria-label", `Back to ${service} in the services directory`);
+  }
+
   const note = document.getElementById("note");
-  function problem(title, detail) {
-    note.innerHTML = `<b>${title}</b>${detail}`;
+  function problem(title, detail, actions = "") {
+    // A full hairline and an icon rather than a one-sided red bar (UX sweep M6); the ways on, when there are any, under it.
+    note.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/></svg>`
+      + `<div class="body"><b>${title}</b>${detail}${actions ? `<div class="acts">${actions}</div>` : ""}</div>`;
     note.className = "on";
 
     /*
@@ -88,6 +97,39 @@
     } catch (ignored) {
       // The page is already telling the reader. Nothing more to do.
     }
+  }
+
+  /**
+   * A service this reader cannot open, said as the server and Studio say it, with the two ways on — UX sweep M6.
+   * Not-there and not-shared are one 404 on purpose, so they are one sentence here too; a reader who is not signed
+   * in is offered Sign in, because a service shared with the organization opens after it.
+   */
+  async function refusedService(name, error) {
+    const plain = String(name).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const directory = `<a href="/rest/services">Services directory</a>`;
+    document.getElementById("which").textContent = name;
+    // Its own page is the same 404, so the way back is the directory.
+    document.getElementById("back").href = "/rest/services";
+    document.getElementById("back").setAttribute("aria-label", "Back to the services directory");
+    if (!error || error.code !== 404) {
+      problem("The service could not be opened.",
+        String((error && error.message) || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])),
+        directory);
+      return;
+    }
+
+    let signedIn = false;
+    try {
+      const me = await (await fetch("/rest/whoami", { headers: { Accept: "application/json" } })).json();
+      signedIn = !!(me && me.authenticated);
+    } catch {
+      // Unknown is treated as signed out: offering Sign in to somebody who is costs one click.
+    }
+
+    problem(`No service ${plain} that you can open.`,
+            // Studio's sign-in takes no address to come back to, so the sentence promises no return (round 2, N9).
+      `It may not exist, or it may not be shared with you.${signedIn ? "" : " If it is shared with your organization, it opens once you sign in to Studio."}`,
+      (signedIn ? "" : `<a class="primary" href="/studio/">Sign in</a>`) + directory);
   }
 
   /*
@@ -117,7 +159,8 @@
 
       const css = document.createElement("link");
       css.rel = "stylesheet";
-      css.href = url + "esri/themes/light/main.css";
+      // The SDK's own dark theme under Studio's, so its widgets are not white squares on a navy page (UX sweep M1).
+      css.href = url + `esri/themes/${document.documentElement.dataset.theme === "dark" ? "dark" : "light"}/main.css`;
       document.head.append(css);
 
       const script = document.createElement("script");
@@ -197,10 +240,10 @@
         : own.length
           ? `Ground is ${own.join(", ")}, served by this server.`
           : osm
-          ? "Ground is OpenStreetMap. The console's map panel takes a tile template if you "
-            + "have one."
+          // The tile template hint was jargon in a header (UX sweep m1); Settings is where a ground is chosen.
+          ? "Ground is OpenStreetMap."
           : "Ground is Natural Earth 1:110m — countries and lakes — public domain and served "
-            + "from here. The console's map panel takes a tile template if you have one.";
+            + "from here.";
 
       /*
         Web Mercator, named rather than inherited — hosted data is stored in 3857
@@ -241,6 +284,7 @@
         // "Ground" is the heights in 3D, as ArcGIS uses the word; what lies on them is said as draped (the ux review,
         // 2026-10-13: the 2D sentence about a tile template said "Ground is OpenStreetMap" one line above this one).
         const draped = template ? "Your basemap" : osm ? "OpenStreetMap" : own.length ? own.join(", ") : "Natural Earth";
+        document.getElementById("howto").textContent = "Drag to pan, right-drag to tilt and turn, scroll to zoom.";
         document.getElementById("ground").textContent =
           `Ground heights come from ${service}, read as an elevation layer. ${draped} is draped over it so you can tell where you are.`;
 
@@ -253,7 +297,7 @@
             const flat = `${location.pathname}${location.search.replace(/[?&]scene=1/, "").replace(/^&/, "?")}`;
             document.getElementById("facts").innerHTML =
               (Number.isFinite(low) && Number.isFinite(high) ? `<span>Heights ${metres(low)} to ${metres(high)}, not exaggerated</span>` : "")
-              + `<span>Drag to pan, right-drag to tilt and turn, scroll to zoom</span>`
+
               + `<a href="${flat.replace(/"/g, "&quot;")}">2D map</a> <a href="${at}">Service</a> `
               + `<button id="frameLayer">Frame highest ground</button>`;
 
@@ -404,7 +448,7 @@
           (drawn !== null
             ? `<span>${drawn}</span>`
             : count === null
-              ? `<span style="color:#92620d">feature count refused${
+              ? `<span class="refused">feature count refused${
                 refusal ? ` — ${refusal}` : ""}</span>`
               : `<span>${count.toLocaleString()} feature${count === 1 ? "" : "s"}</span>`)
           + (box
@@ -565,7 +609,9 @@
               problem("The view could not move to the layer.", String(error.message || error));
             }
           },
-          error => problem(
+          error => (error?.details?.httpStatus === 404 || /is visible to you/.test(String(error?.message || ""))) && service
+            ? refusedService(service, { code: 404 })
+            : problem(
             "The SDK could not load a layer.",
             `${at}<br><br>${error.message || error}<br><br>If this mentions a network or certificate ` +
             `problem, open <a href="/healthz/live" target="_blank">/healthz/live</a>, accept the ` +
@@ -589,6 +635,12 @@
           { headers: { Accept: "application/json" } })
           .then(response => response.json())
           .then(doc => {
+            // A refusal is said as one (UX sweep M6): it used to read as "Nothing to draw", the wrong cause.
+            if (doc && doc.error) {
+              refusedService(service, doc.error);
+              return;
+            }
+
             const drawable = (doc.layers || []).filter(l => l.type !== "Group Layer");
 
             if (drawable.length === 0) {

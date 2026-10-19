@@ -807,9 +807,11 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
             submitted.Add($"{match.Groups[1].Value}={Uri.EscapeDataString(match.Groups[2].Value)}");
         }
 
-        // Selects send whichever option is selected, or the first.
+        // Selects send whichever option is selected, or the first. `[^>]*` after the name because
+        // each select carries an id for its label since 2026-10-19; this matched `name="…">` exactly
+        // and would have found none.
         foreach (Match match in Regex.Matches(
-            form, "<select name=\"([^\"]*)\">(.*?)</select>", RegexOptions.Singleline))
+            form, "<select name=\"([^\"]*)\"[^>]*>(.*?)</select>", RegexOptions.Singleline))
         {
             Match option = Regex.Match(match.Groups[2].Value, "<option value=\"([^\"]*)\" selected>");
 

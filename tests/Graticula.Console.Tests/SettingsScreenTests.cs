@@ -36,10 +36,11 @@ public sealed class SettingsScreenTests : ConsoleTest
 
         await OpenAsync("/server/#/settings", token);
 
+        // The default is said in the line under the box, not as a placeholder (UX sweep 2026-10-19).
         await WaitForAsync(
-            $"/^[0-9]+$/.test({Box}?.placeholder || '')"
-            + " && (document.getElementById('setPageSizeSource')?.textContent || '').length > 0",
+            "/In force: [0-9]/.test(document.getElementById('setPageSizeSource')?.textContent || '')",
             "The Settings screen drew no default, or did not say where the page size comes from.");
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>($"{Box}.placeholder"));
 
         // ---- where it lives: General, in Site's list, under the Site tab — ADR-187 ----
         Assert.Equal(
@@ -124,14 +125,17 @@ public sealed class SettingsScreenTests : ConsoleTest
         // ---- the first run: nothing chosen, said in words, nothing to undo or clear ----
         Assert.Empty(await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
         Assert.Contains("OpenStreetMap", await Browser.EvaluateAsync<string>("document.getElementById('groundOrder').textContent") ?? string.Empty, StringComparison.Ordinal);
-        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundClear').hidden"), "Use OpenStreetMap is offered when it is already the ground.");
-        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundUndo').hidden"), "Undo is offered with nothing changed.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundClear').hidden"), "Untick all is offered with nothing ticked.");
+        // <b>One Save for the page since the UX sweep of 2026-10-19</b>, and Discard beside it: neither is ready
+        // with nothing changed.
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('mapDiscard').disabled"), "Discard is offered with nothing changed.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('mapSave').disabled"), "Save is offered with nothing changed.");
 
         // Every box is named by its own label.
         Assert.Equal(0, await Browser.EvaluateAsync<int>("[...document.querySelectorAll('#groundList input')].filter(i => !document.querySelector(`label[for=\"${i.id}\"]`)).length"));
 
         // ---- Save with nothing chosen stores nothing ----
-        await ClickAsync("#groundSave");
+        await ClickAsync("#mapSave");
         Assert.DoesNotContain(await WritesAsync(), w => w.Contains("/admin/settings/ground", StringComparison.Ordinal));
 
         // ---- ticking adds on top; the available list does not move ----
@@ -141,7 +145,7 @@ public sealed class SettingsScreenTests : ConsoleTest
         Assert.Equal([names[0], names[1]], await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
         Assert.Equal(names, await Browser.EvaluateAsync<string[]>(Available));
         Assert.Contains("Not saved yet", await Browser.EvaluateAsync<string>("document.getElementById('groundOrder').textContent") ?? string.Empty, StringComparison.Ordinal);
-        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('groundUndo').hidden"), "A change that is not saved offers no way back.");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('mapDiscard').disabled"), "A change that is not saved offers no way back.");
 
         // ---- moving: the order changes, focus stays with the service, the move is announced ----
         await ClickAsync($"#groundStack [data-ground=\"{names[1]}\"][data-ground-move=up]");
@@ -156,7 +160,7 @@ public sealed class SettingsScreenTests : ConsoleTest
         Assert.Equal($"Move {names[0]} up", await Browser.EvaluateAsync<string>($"document.querySelector('#groundStack [data-ground=\"{names[0]}\"][data-ground-move=up]').getAttribute('aria-label')"));
 
         // ---- Save sends the ground and announces it, first at the bottom ----
-        await ClickAsync("#groundSave");
+        await ClickAsync("#mapSave");
 
         await WaitForAsync(
             "document.getElementById('groundSays').textContent.startsWith('Saved')",
@@ -224,11 +228,15 @@ public sealed class SettingsScreenTests : ConsoleTest
 
         await WaitForAsync(Shown("#capMaxRows"), "The page size box is not on the screen after opening Limits.");
 
-        // <b>Waiting for what only the `GET` can set</b> — the markup's placeholder is empty.
+        // <b>Waiting for what only the `GET` can set</b> — the line under the box is empty in the markup. Not the
+        // placeholder since the UX sweep of 2026-10-19: an inherited value in a placeholder reads as a value.
         await WaitForAsync(
-            "/^[0-9]+$/.test(document.getElementById('capMaxRows')?.placeholder || '')"
+            "/Server default|Set here/.test(document.querySelector('[data-state-of=\"capMaxRows\"]')?.textContent || '')"
+            + " && /[0-9]/.test(document.querySelector('[data-state-of=\"capMaxRows\"]')?.textContent || '')"
             + " && /[0-9]/.test(document.getElementById('capServerPage')?.textContent || '')",
-            "The empty page size box never showed the server's page size, in its placeholder and in the sentence under it.");
+            "The page size box never said whether its value is the server's or this service's, and what is in force.");
+
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('capMaxRows').placeholder"));
 
         Assert.False(
             await Browser.EvaluateAsync<bool>("!!document.getElementById('capDefRows')"),

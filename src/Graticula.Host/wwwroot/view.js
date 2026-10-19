@@ -27,8 +27,10 @@ const FACE = (QUERY.get("face") || "").toLowerCase() === "mapserver"
 
 const $ = id => document.getElementById(id);
 
-function problem(title, detail) {
-  $("note").innerHTML = `<b>${escape(title)}</b>${detail}`;
+function problem(title, detail, actions = "") {
+  // A full hairline and an icon rather than a one-sided red bar (UX sweep M6); the ways on, when there are any, under it.
+  $("note").innerHTML = `<svg class="i" aria-hidden="true"><use href="#i-alert"/></svg><div class="body"><b>${
+    escape(title)}</b>${detail}${actions ? `<div class="acts">${actions}</div>` : ""}</div>`;
   $("note").className = "on";
 
   /*
@@ -672,6 +674,9 @@ const map = new ol.Map({
     center: [0, 0],
     zoom: 2,
   }),
+  // <b>The wheel zooms whether or not the map has focus</b>, as in Map Viewer: `#map` takes focus for the keyboard
+  // since 2026-10-19, and OpenLayers' focus-only default would then ignore the wheel until the map was clicked.
+  interactions: ol.interaction.defaults.defaults({ onFocusOnly: false }),
   controls: ol.control.defaults.defaults({ attribution: true }).extend([
     // A scale bar and a readout of where the pointer is. Both are how a map says
     // what it is showing; without them a screen of shapes carries no units.
@@ -685,8 +690,9 @@ const map = new ol.Map({
       projection: "EPSG:4326",
       className: "ol-mouse-position",
       target: $("stripWhere"),
+      // Named, latitude first (UX sweep m4): "44.8737, 32.4437" was longitude first and unlabelled.
       coordinateFormat: coordinate => coordinate
-        ? `${coordinate[0].toFixed(4)}, ${coordinate[1].toFixed(4)}` : "",
+        ? `lat ${coordinate[1].toFixed(4)}, lon ${coordinate[0].toFixed(4)}` : "",
     }),
   ]),
 });
@@ -971,8 +977,7 @@ function loadMap(document_) {
       : `<span>no extent in the service document</span>`)
     + `<span><code>EPSG:3857</code></span>`
     + (mapExtent ? `<button id="frameLayer">Frame layer</button>` : "")
-    + `<a href="${escape(serviceUrl())}/MapServer?f=html" style="color:var(--accent)">`
-    + `service document</a>`;
+    + `<a href="${escape(serviceUrl())}/MapServer?f=html">Service document</a>`;
 
   $("title").textContent = `${SERVICE} (MapServer)`;
 
@@ -1052,7 +1057,7 @@ async function readView() {
       + `<span>${count.toLocaleString()} in the layer, read for the view</span>`
       + `<span><code>EPSG:3857</code></span>`
       + (extent ? `<button id="frameLayer">Frame layer</button>` : "")
-      + `<a href="${escape(at)}?f=html" style="color:var(--accent)">layer document</a>`;
+      + `<a href="${escape(at)}?f=html">Layer document</a>`;
 
     const frame = $("frameLayer");
     if (frame && extent) frame.onclick = () => fitWhenSized(extent);
@@ -1157,6 +1162,10 @@ async function load(layerId, name) {
         { headers: { Accept: "application/json" } }).then(r => r.json()),
     ]);
 
+    if (described.error && described.error.code === 404) {
+      await refused(404, described.error);
+      return;
+    }
     if (described.error || total.error) {
       throw new Error((described.error || total.error).message || "refused");
     }
@@ -1233,7 +1242,7 @@ async function load(layerId, name) {
         extent.map(v => Math.round(v)).join(", ")}</code></span>`)
     + `<span><code>EPSG:3857</code></span>`
     + (empty ? "" : `<button id="frameLayer">Frame layer</button>`)
-    + `<a href="${escape(at)}?f=html" style="color:var(--accent)">layer document</a>`;
+    + `<a href="${escape(at)}?f=html">Layer document</a>`;
 
   drawLegend();
 
@@ -1253,14 +1262,25 @@ async function load(layerId, name) {
 
 // ------------------------------------------------------------------ attributes
 
-map.on("singleclick", event => {
-  const hit = map.getFeaturesAtPixel(event.pixel, {
+/**
+ * The attributes of the feature at a pixel, in the card; from a click, or from Enter at the map's centre.
+ *
+ * @param {number[]} pixel where to look.
+ * @param {boolean} spoken whether to say the outcome as well, for a reader who asked from the keyboard.
+ */
+function identifyAt(pixel, spoken) {
+  const hit = map.getFeaturesAtPixel(pixel, {
     layerFilter: layer => layer === dataLayer,
     hitTolerance: 4,
   })[0];
 
   if (!hit) {
     $("attrs").className = "";
+    if (spoken) {
+      $("said").textContent = FACE === "MapServer"
+        ? "The map image is one picture, drawn by this server, so it has no features to read here. Features reads them."
+        : "No feature of this layer at the centre of the map.";
+    }
     return;
   }
 
@@ -1272,7 +1292,69 @@ map.on("singleclick", event => {
 
   $("attrs").innerHTML = `<table>${rows || "<tr><td>no attributes</td></tr>"}</table>`;
   $("attrs").className = "on";
+  if (spoken) $("said").textContent = "The feature at the centre: its attributes are in the card.";
+}
+
+map.on("singleclick", event => identifyAt(event.pixel, false));
+
+// <b>And from the keyboard, as Map Viewer does</b> (UX sweep M7, 2026-10-19): the map takes focus, the arrows pan
+// it, and Enter or Space reads what is at its centre. Escape puts the card away.
+$("map").addEventListener("keydown", event => {
+  if (event.target !== $("map") || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  const centre = map.getView().getCenter();
+  if (centre) identifyAt(map.getPixelFromCoordinate(centre), true);
 });
+
+document.addEventListener("keydown", event => {
+  if (event.key !== "Escape" || $("attrs").className !== "on") return;
+  $("attrs").className = "";
+  $("map").focus();
+});
+
+/** On a phone the grounds and the legend open from two buttons on the map rather than covering a third of it (M4). */
+function toggleOnMap(button, box) {
+  const open = !box.classList.contains("open");
+  box.classList.toggle("open", open);
+  button.setAttribute("aria-expanded", String(open));
+}
+
+$("groundsOpen").addEventListener("click", () => toggleOnMap($("groundsOpen"), $("grounds")));
+$("legendOpen").addEventListener("click", () => toggleOnMap($("legendOpen"), $("legend")));
+
+/**
+ * A service this reader cannot open, said as the server and Studio say it, with the two ways on — UX sweep M6.
+ *
+ * <b>Not-there and not-shared are one answer on purpose</b> (the server's 404 is the same for both, so names cannot be
+ * found by guessing), and so is this sentence. A reader who is not signed in is offered Sign in, because a service
+ * shared with the organization is one they could open after it.
+ */
+async function refused(status, error) {
+  $("title").textContent = SERVICE;
+  document.title = `${SERVICE} — Graticula`;
+  // The service's own page is the same 404, so the way back is the directory (UX sweep round 2, N9).
+  $("back").href = "/rest/services";
+  $("back").setAttribute("aria-label", "Back to the services directory");
+  const directory = `<a href="/rest/services">Services directory</a>`;
+
+  if (status !== 404 && error.code !== 404) {
+    problem("The service could not be opened.", escape(error.message || String(status)), directory);
+    return;
+  }
+
+  let signedIn = false;
+  try {
+    const me = await (await fetch("/rest/whoami", { headers: { Accept: "application/json" } })).json();
+    signedIn = !!(me && me.authenticated);
+  } catch {
+    // Unknown is treated as signed out: offering Sign in to somebody who is costs one click.
+  }
+
+  problem(`No service ${SERVICE} that you can open.`,
+        // Studio's sign-in takes no address to come back to, so the sentence promises no return (round 2, N9).
+    `It may not exist, or it may not be shared with you.${signedIn ? "" : " If it is shared with your organization, it opens once you sign in to Studio."}`,
+    (signedIn ? "" : `<a class="primary" href="/studio/">Sign in</a>`) + directory);
+}
 
 // ------------------------------------------------------------------------ boot
 
@@ -1285,6 +1367,9 @@ map.on("singleclick", event => {
   }
 
   $("directory").href = `/rest/services/${SERVICE.split("/")[0] || ""}`;
+  // The way back is the service's own page, which is where the directory's "View in" link came from.
+  $("back").href = `/rest/services/${SERVICE.split("/").map(encodeURIComponent).join("/")}/${FACE}`;
+  $("back").setAttribute("aria-label", `Back to ${SERVICE} in the services directory`);
 
   // Named layer: draw it. Unnamed: the service's layers become a picker, because
   // "view the service" means choosing, not stacking.
@@ -1299,19 +1384,31 @@ map.on("singleclick", event => {
   }
 
   let document_;
+  let status = 0;
   try {
     const response = await fetch(`${serviceUrl()}/${FACE}?f=json`,
       { headers: { Accept: "application/json" } });
+    status = response.status;
     document_ = await response.json();
   } catch (e) {
     problem("The service document could not be read.", escape(e.message || e));
     return;
   }
 
+  // <b>A service that is not there, or not shared, is said as the server says it</b> — UX sweep M6. This read the
+  // refusal's empty layer list and answered "Nothing to draw. This service lists no feature layers.": the wrong cause,
+  // and no way on.
+  if (document_ && document_.error) {
+    await refused(status, document_.error);
+    return;
+  }
+
   const drawable = (document_.layers || []).filter(l => l.type !== "Group Layer");
 
   if (!drawable.length) {
-    problem("Nothing to draw.", "This service lists no feature layers.");
+    problem("Nothing to draw.", FACE === "MapServer"
+      ? "This map service lists no layers."
+      : "This service lists no feature layers.");
     return;
   }
 

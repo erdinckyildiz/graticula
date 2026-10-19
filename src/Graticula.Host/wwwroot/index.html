@@ -8,6 +8,7 @@
 <base href="/studio/">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graticula console</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 
 <!--
   <b>Which screen this page is, before anything is painted. See `session.js`.</b>
@@ -130,7 +131,9 @@
         their words; an item's id opens the item.
       -->
       <form id="globalSearch" role="search" hidden>
-        <input type="search" id="gq" placeholder="Search Studio, or paste an item id" aria-label="Search Studio"
+        <!-- Short, because at 390 the longer one was cut to "Search Studio, or pa" (sweep 2026-10-19); the id is in the title. -->
+        <input type="search" id="gq" placeholder="Search Studio" aria-label="Search Studio"
+          title="Search content, groups and members, or paste an item id to open it"
           autocomplete="off" spellcheck="false">
       </form>
       <!--
@@ -144,7 +147,9 @@
         <a data-surface="server">Server</a>
         <a data-surface="studio">Studio</a>
       </nav>
-      <span class="dot unknown" id="healthDot"></span>
+      <!-- The server's health in a word, linking to Site › Status (UX sweep 2026-10-19). Filled by refreshHealth. -->
+      <a class="healthpill unknown" id="healthDot" href="/server/operations"><span id="healthWord"><span
+        class="dot unknown" aria-hidden="true"></span>Checking</span></a>
       <span id="healthLine">checking&hellip;</span>
       <!--
         <b>One menu for what is about the reader</b>, as Portal keeps it (owner, 2026-10-16): who is signed in and
@@ -212,6 +217,12 @@
       to the password, so without the role a screen reader reads the field and never the reason.
     -->
     <p class="signin-refused" id="signinError" role="alert" hidden></p>
+    <!--
+      <b>What the reader was opening, and that they land on it afterwards</b> (UX sweep 2026-10-19). Every Studio
+      address, a public item's included, arrived at a bare card that did not say what it was in the way of. Filled
+      from the address; the address is kept, so signing in opens it.
+    -->
+    <p class="signin-for" id="signinFor" role="status" aria-live="polite" hidden></p>
     <!-- ADR-088: a way in through each provider the operator configured, filled in when this panel is shown. -->
     <div id="signinProviders" hidden></div>
     <label for="u">Name</label>
@@ -255,6 +266,12 @@
     -->
     <p class="hint" id="signinCookie" style="margin-top:14px" hidden></p>
     </div>
+    <!--
+      <b>A way forward that needs no account.</b> A stranger who followed a link here has nothing to type into the
+      fields; what this server shares with everybody is in its services directory, which needs no sign-in.
+    -->
+    <p class="signin-stranger" id="signinStranger">No account? What this server shares publicly is in its
+      <a href="/rest/services?f=html">services directory</a>, open without signing in.</p>
   </form>
 </div>
 
@@ -324,9 +341,9 @@
         <div id="folderRail">
           <div class="rail-head">
             Folders
-            <button class="tiny ghost" id="newFolder" title="Make a folder to publish into">+</button>
+            <button class="tiny ghost" id="newFolder" type="button">New folder</button>
           </div>
-          <div id="folders"></div>
+          <nav id="folders" aria-label="Folders"></nav>
         </div>
 
         <!--
@@ -374,7 +391,7 @@
             something that does not exist yet.
           -->
           <button class="tiny ghost" id="newService">Group layers&#8230;</button>
-          <button class="tiny ghost" id="serviceRefresh" title="Read the listings again">&#8635;</button>
+          <button class="tiny ghost" id="serviceRefresh" type="button" aria-label="Refresh the list">&#8635; Refresh</button>
         </div>
 
         <!--
@@ -485,7 +502,7 @@
     <div class="toolbar">
       <input type="search" id="contentFilter" placeholder="Search by name, tag, owner or folder&hellip;"
              autocomplete="off" aria-label="Search your content">
-      <select id="contentType" aria-label="Type"><option value="">All types</option></select>
+      <!-- The type is chosen by the ticks in the left column; a Type select here filtered too, and the two combined. -->
       <select id="contentSort" aria-label="Order">
         <option value="modified">Newest first</option>
         <option value="title">Name A&ndash;Z</option>
@@ -555,7 +572,8 @@
         -->
         <button id="pubRedraw" class="ghost">Preview</button>
         <button id="pubClear" class="ghost">Clear</button>
-        <button id="pubOpen" class="primary" disabled>Publish&hellip;</button>
+        <span class="pubopenwhy" id="pubOpenWhy">Add a table to publish</span>
+        <button id="pubOpen" class="primary" disabled aria-describedby="pubOpenWhy">Publish&hellip;</button>
       </div>
     </div>
 
@@ -621,8 +639,11 @@
     <div class="pagehead">
       <div>
         <h2>Data sources</h2>
-        <p>Where layers read from. Only an administrator registers one — ADR-018, and the reason is that a source is a credential for somebody else's database.</p>
+        <p>Databases and folders this server reads layers from. Only administrators register one, because a source
+          holds the credentials to someone else's database.</p>
       </div>
+      <!-- The page's one action, in its head (UX sweep 2026-10-19, finding 12): it sat at the foot of the page. -->
+      <div class="right"><button class="primary" id="sAdd" type="button">Register a source&hellip;</button></div>
     </div>
 
     <!--
@@ -655,14 +676,12 @@
         never done it needs before they press anything.
       -->
       <div class="panel pad" id="sourceForm">
-        <div class="label" style="margin-top:0">Register a source</div>
+        <div class="label" style="margin-top:0">What registering does</div>
         <p class="hint">A PostGIS database this server reads from, or a folder of GeoParquet files
           it reads in place. Registering a database stores the credential, sealed, because the
           server connects again every time somebody opens a map on it; a folder stores only its
-          path. Nothing is published by registering — you choose the tables or files afterwards.</p>
-        <div class="row" style="margin-bottom:0">
-          <button class="primary" id="sAdd" type="button">Add a source&hellip;</button>
-        </div>
+          path. Nothing is published by registering: you choose the tables or files afterwards, in
+          <a href="#/publish">Publish a service</a>.</p>
       </div>
     </div>
   </section>
@@ -680,7 +699,7 @@
     <div class="pagehead">
       <div>
         <h2>Map</h2>
-        <p>What every map in this organization starts on: the basemaps it offers, and the ground under them.</p>
+        <p>What every new map in this organization starts on, and the basemaps it offers.</p>
       </div>
     </div>
 
@@ -698,13 +717,15 @@
       <select id="basemapGallery" disabled aria-describedby="basemapEntries"></select>
       <p class="hint" id="basemapEntries" role="status" aria-live="polite"></p>
 
-      <label class="q" for="basemapDefault">Default basemap</label>
-      <select id="basemapDefault" disabled aria-describedby="basemapDefaultSays"></select>
+      <!--
+        <b>One decision, three kinds of answer, since the UX sweep of 2026-10-19:</b> OpenStreetMap, a basemap in the
+        gallery, or this server's own tile services. The last was a list entry reading "Map ground (set below)" and a
+        paragraph telling the reader to choose it to switch on the card below; it is an answer like the others now.
+      -->
+      <fieldset class="pickset" id="basemapDefault" disabled aria-describedby="basemapDefaultSays">
+        <legend>Default basemap</legend>
+      </fieldset>
       <p class="hint" id="basemapDefaultSays">What a new map starts on.</p>
-
-      <div class="row">
-        <button class="primary" id="basemapSave" disabled>Save basemaps</button>
-      </div>
 
       <p class="hint" id="basemapSays" role="status" aria-live="polite"></p>
     </div>
@@ -715,13 +736,10 @@
       picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.
     -->
     <div class="panel pad settingcard">
-      <h4>Map ground</h4>
-      <p class="hint">The basemap under the data on every map this server shows: the console, the viewer,
-        and ArcGIS clients that use the portal's default basemap. Choose your own vector tile services, such
-        as an OpenStreetMap extract you imported. With none chosen, maps use OpenStreetMap's public tiles. A default
-        chosen in the basemap gallery above is used instead of this.</p>
-      <p class="hint">People who chose their own ground in the viewer keep it.</p>
-      <p class="warnnote" id="groundInUse" hidden></p>
+      <div class="cardhead"><h4>Map ground</h4><span class="pill" id="groundInUse" hidden></span></div>
+      <p class="hint">Your own vector tile services, such as an OpenStreetMap extract you imported, drawn under the data
+        when the default basemap is <b>Your own tile services</b>. With none chosen, OpenStreetMap's public tiles are
+        drawn. People who chose their own ground in the viewer keep it.</p>
 
       <!--
         <b>Two lists, because the design review of 2026-09-24 found one list doing two jobs.</b> The first
@@ -735,18 +753,25 @@
       <p class="hint" id="groundOrder"></p>
 
       <fieldset class="groundpick" aria-describedby="groundCap">
-        <legend class="q">Tile services on this server</legend>
+        <legend class="q">Tile services on this server <span class="groundcount" id="groundCap"
+          aria-live="polite"></span></legend>
         <div id="groundList"><span class="hint">Reading this server's tile services…</span></div>
       </fieldset>
-      <p class="hint" id="groundCap"></p>
+      <p class="hint" id="groundLegend" hidden></p>
 
       <div class="row">
-        <button class="primary" id="groundSave">Save ground</button>
-        <button class="tiny" id="groundUndo" hidden>Undo changes</button>
-        <button class="tiny" id="groundClear" hidden>Use OpenStreetMap</button>
+        <button class="tiny" id="groundClear" hidden>Untick all</button>
       </div>
 
       <p class="hint" id="groundSays" aria-live="polite"></p>
+    </div>
+
+    <!-- One Save for the page (sweep 2026-10-19): the default basemap and the ground are one decision, and two
+         Save buttons for it left the reader wondering which of them they had pressed. -->
+    <div class="savebar settingcard" id="mapSaveBar">
+      <span class="val" id="mapDirty" role="status" aria-live="polite">No unsaved changes</span>
+      <button type="button" class="ghost" id="mapDiscard" disabled>Discard</button>
+      <button type="button" class="primary" id="mapSave" disabled>Save map settings</button>
     </div>
 
   </section>
@@ -806,7 +831,7 @@
       <p class="hint">How many features a query returns when it does not ask for a number, and the
         most it returns when it does — ArcGIS's <code>maxRecordCount</code>, which every service
         document gives. Larger pages mean fewer requests and heavier responses. A service that sets
-        its own page size on its Limits page keeps it; empty here means the server's default.</p>
+        its own page size in its Parameters tab keeps it; empty here means the server's default.</p>
 
       <div class="setting">
         <label class="q" for="setPageSize">Page size:</label>
@@ -853,160 +878,94 @@
 
   <section class="view" id="view-operations">
     <!--
-      Every screen names itself the same way, which is the brief's *same Graticula
-      product* applied below the shell: a page whose only identifier is which table is
-      on it is a page somebody arrives at and has to deduce.
+      <b>A verdict first, then the figures, and the route list behind a disclosure</b> (UX sweep 2026-10-19, finding
+      10). The page was 18,000 pixels tall: every route inline and a paragraph of prose under every card, while the
+      question an operator opens it with — is anything wrong, and where — was answered by a donut that could not show
+      a failing service. The verdict counts started, failing and stopped services and lists the ones that need
+      attention; the cards keep one line each.
     -->
     <div class="pagehead">
       <div>
         <h2>Status</h2>
-        <p>The store, the runtime, the caches, and which routes are governed.</p>
+        <p>Whether anything is wrong with this server right now, and where.</p>
       </div>
     </div>
 
     <div class="toolbar">
-      <button id="opsRefresh">Read again</button>
-      <span class="val" id="opsWhen"></span>
+      <button id="opsRefresh" type="button">Read again</button>
+      <span class="val" id="opsWhen" role="status" aria-live="polite"></span>
     </div>
 
-    <!-- The services' health and the process's resources, moved here from beside the services list (2026-10-17). -->
+    <section class="panel pad verdict" id="statusVerdict" aria-labelledby="statusVerdictHead" aria-live="polite">
+      <h3 id="statusVerdictHead">Reading the services&hellip;</h3>
+      <dl class="verdictcounts" id="statusCounts"></dl>
+      <ul class="verdictissues" id="statusIssues" aria-label="Services that need attention"></ul>
+    </section>
+
     <div class="widgetrow">
-        <div class="widget" id="healthWidget" hidden>
-          <div class="label">Service health</div>
-          <!--
-            <b>A ring and a count, then the breakdown.</b> The arc lengths are the real counts — one
-            custom property set from the listing, and `conic-gradient` does the geometry, so there is
-            no chart library and no second copy of the numbers.
-          -->
-          <div class="donutrow">
-            <div class="donut" id="hwDonut"></div>
-            <div class="tally"><b id="hwTotal">&mdash;</b><span>Total services</span></div>
-          </div>
-          <div id="hwRows"></div>
-        </div>
-
         <div class="widget" id="resourceWidget" hidden>
-          <!--
-            <b>The caveats are one glyph now.</b> They were three sentences under the numbers, which
-            the owner read as a debug panel — right, and the text still earns its place: CPU is a
-            ratio since start and the lines are this page's own samples, so somebody reading the
-            widget for the first time needs both facts. One hover away rather than always on screen.
-          -->
-          <div class="label">Server resources<span class="why" id="rwWhy" role="img"
-            aria-label="About these numbers" title="">?</span></div>
+          <div class="label">Server resources</div>
           <div id="rwRows"></div>
+          <p class="hint" id="rwWhy"></p>
         </div>
     </div>
 
-    <!--
-      <b>Three cards across, and they were three sections down.</b> Handoff 2026-09-04. Each
-      section was a label, a paragraph of explanation and a panel of figures, stacked — so an
-      operator reading *is the store reachable* scrolled past six hundred pixels of prose about
-      garbage collection to reach the caches. The figures are what the page is for; the prose
-      that explains each one goes under it, at the size an explanation should be.
-
-      <b>A dot only where there is something that can be wrong.</b> The store has a reachable
-      flag and route governance has ADR-018 condition 5 ungoverned count, and both are real. The
-      runtime and the caches have no failure state to report — a dot on them would be a signal
-      invented to fill a shape, which is the thing this stylesheet header warns about.
-    -->
+    <!-- A dot only where something can be wrong: the store can be unreachable; the runtime and caches cannot fail. -->
     <div class="opscards">
       <div class="panel pad opscard">
         <h4><span class="dot unknown" id="storeDot"></span>Platform store</h4>
         <dl class="metrics" id="storeMetrics"></dl>
-        <!--
-          This paragraph said "if this is unreachable the server refuses queries rather
-          than serving a stale catalogue" until 2026-08-16, and that stopped being true
-          when Q-95 was answered and CatalogFallback was built. Operator-facing text
-          about a failure mode is worth more than most documentation and goes stale the
-          same way.
-        -->
-        <p class="hint">The store holding the catalogue, and the first thing to read when
-          nothing works. While it is unreachable the server keeps serving layers that were
-          shared <code>public</code> in its last answer, for a bounded window, and refuses
-          everything else — so a store outage looks like every private layer disappearing at
-          once, not like the server being down.</p>
+        <p class="hint">If the store goes down, layers shared with everyone keep answering for a while and everything
+          else is refused.</p>
       </div>
 
       <div class="panel pad opscard">
         <h4>Runtime</h4>
         <dl class="metrics" id="runtimeMetrics"></dl>
-        <p class="hint">This process, now. GC pause as a share of wall-clock is the number the
-          performance gate found decisive — it stays invisible at concurrency 1 and it is what
-          sets the ceiling.</p>
+        <p class="hint">This process, now. Time in garbage collection is the figure that limits how much load it
+          takes.</p>
       </div>
 
       <div class="panel pad opscard">
         <h4>Caches</h4>
         <dl class="metrics" id="cacheMetrics"></dl>
-        <p class="hint">Tiles held on disk, and table shapes remembered from the data source.
-          Sharing and started/stopped are deliberately never cached.</p>
-        <p class="hint" id="cacheNotes"></p>
+        <p class="hint">Who may read a service, and whether it is started, are never cached.</p>
       </div>
 
-      <!--
-        <b>D-237: how large the store is, and whose layers fill it.</b> The failure this answers
-        is the one nobody watches — a publisher uploading through the night — and until this card
-        there was no number anywhere in the product that would have shown it coming.
-      -->
+      <!-- How large the store is, and whose layers fill it: the growth nobody watches until the disk is full. -->
       <div class="panel pad opscard">
         <h4>Datastore</h4>
         <dl class="metrics" id="datastoreMetrics"></dl>
-        <!--
-          <b>A line before the owners, because without it they read as more totals</b> — design
-          review 2026-09-11: `ci 608 KB 8 tables` sat in the same list as Hosted data and
-          Database on disk, styled the same, and nothing said a list of people had begun. Two
-          lists rather than a paragraph inside one, since a <p> is not allowed in a <dl>.
-        -->
         <p class="hint" id="datastoreOwnersHead" hidden>By owner, largest first</p>
         <dl class="metrics" id="datastoreOwners"></dl>
-        <p class="hint">Sizes as PostgreSQL reports them. No quota is set: this is what is on
-          disk, not a limit.</p>
+        <p class="hint">Sizes as PostgreSQL reports them. No quota is set.</p>
         <p class="hint" id="datastoreNote"></p>
       </div>
     </div>
 
-    <!--
-      <b>Side by side, because neither is long.</b> Handoff 2026-09-04. Route governance is two
-      numbers and Empty services is a short list and two buttons; stacked, a 67-row route table
-      sat between the operator and a button they had come to press.
-    -->
     <div class="opspair">
       <div>
         <div class="label"><span class="dot unknown" id="routeDot"></span>Route governance</div>
-        <p class="lede">Every route this server answers, and what decides who may reach it.
-          <b>The number that matters is ungoverned</b>: ADR-018 condition 5 says it is zero, and
-          this is where that claim is checked rather than asserted.</p>
+        <p class="lede">Every address this server answers has a rule that decides who may reach it. The figure to
+          watch is <b>without a rule</b>, which should be zero.</p>
         <div class="panel pad"><dl class="metrics" id="routeMetrics"></dl></div>
 
-        <!--
-          <b>Who may read this server from somebody else's web page — ADR-072, Q-151.</b>
-          Read-only by owner decision: every origin may read by default, which is what ArcGIS
-          Server does, and narrowing it is a deployment's decision made where the deployment is
-          configured. What was missing was any way to see which policy a server is running
-          without sending a cross-origin request and reading the headers.
-        -->
+        <!-- Read-only: which origins may read is a deployment setting, set where the deployment is configured. -->
         <p class="lede" id="corsSays"></p>
       </div>
 
       <!--
-        <b>D-54: the containers a publish-and-unpublish cycle leaves behind.</b> On
-        Operations rather than on Services, because it is maintenance on the estate rather
-        than an act on one service — and because it reads before it writes. Nothing records
-        which services were created deliberately, so the names are listed and the operator
-        decides; a container somebody meant to keep is kept by not pressing the button.
+        The containers a publish-and-unpublish cycle leaves behind. It reads before it writes: nothing records which
+        services were made on purpose, so the names are listed and the operator decides.
       -->
       <div>
         <div class="label">Empty services</div>
-        <p class="lede">Publishing a layer creates the service that holds it, and unpublishing
-          the last one leaves the container — so an estate accumulates services with nothing in
-          them, each advertised in the directory as a FeatureServer with no layers.
-          <b>Nothing records which were made on purpose</b>, which is why this is a list and a
-          button rather than something that happens by itself.</p>
+        <p class="lede">Services left with no layers after their last layer was removed. Nothing records which were
+          made on purpose, so this is a list you check, not an automatic clean-up.</p>
         <div class="toolbar">
-          <button id="emptyRead">Look for them</button>
-          <button id="emptySweep" class="danger" disabled>Remove them</button>
-          <span class="val" id="emptyWhen"></span>
+          <button id="emptyRead" type="button">Look for them</button>
+          <button id="emptySweep" class="danger" type="button" disabled>Remove them</button>
+          <span class="val" id="emptyWhen">Look for them first</span>
         </div>
         <div class="panel">
           <table>
@@ -1017,21 +976,16 @@
       </div>
     </div>
 
-    <div class="label">Every route</div>
-    <!--
-      <b>`widetable` and `routetable`, because this one failed twice over.</b> 1407 pixels against a
-      1024 viewport, so Methods and *Governed by* were invisible until you scrolled; and the auto
-      layout gave Route up to 1290 pixels — route patterns contain no spaces, only slashes, so nothing
-      wraps — while starving *Governed by* to 118, where its three sentences wrapped to three lines
-      each and took a 67-row table to about 9,700 pixels tall. Measured 2026-08-19. `routetable`
-      breaks the pattern at its slashes and keeps the last column on one line.
-    -->
-    <div class="panel widetable routetable" style="margin-top:14px">
-      <table>
-        <thead><tr><th>Route</th><th>Methods</th><th>Governed by</th></tr></thead>
-        <tbody id="routes"></tbody>
-      </table>
-    </div>
+    <!-- Every route, behind a disclosure: 235 rows on the page were most of its height and rarely the reason to come. -->
+    <details class="routelist" id="routeList">
+      <summary>Every route this server answers<span class="val" id="routeCount"></span></summary>
+      <div class="panel widetable routetable" tabindex="0" role="region" aria-label="Every route">
+        <table>
+          <thead><tr><th>Route</th><th>Methods</th><th>Who may reach it</th></tr></thead>
+          <tbody id="routes"></tbody>
+        </table>
+      </div>
+    </details>
   </section>
 
   <!-- Groups — ADR-036. Studio's, because a group is about who may read somebody's content. -->
@@ -1079,7 +1033,9 @@
       <button class="tiny ghost" id="logRefresh" title="Read the log again">&#8635;</button>
     </div>
 
-    <div class="toolbar">
+    <!-- Opens on the latest entries of any age, not the last day (UX sweep 2026-10-19, finding 22): a quiet day
+         showed an empty Administration log while its last entry was two days old. -->
+    <div class="toolbar" id="logFilters">
       <!--
         <b>Real labels, not placeholders alone.</b> A placeholder vanishes the moment somebody
         types, so the only thing telling them what the box means is gone exactly when they have
@@ -1094,11 +1050,11 @@
 
       <label for="logSince">Since</label>
       <select id="logSince">
+        <option value="">Latest, any age</option>
         <option value="1">Last hour</option>
-        <option value="24" selected>Last day</option>
+        <option value="24">Last day</option>
         <option value="168">Last week</option>
         <option value="720">Last 30 days</option>
-        <option value="">All of it</option>
       </select>
       <!-- Filled per source: an action for the audit trail, a status for requests, a kind for
            studio events, a level for server warnings. Empty for a source that has none. -->
@@ -1140,7 +1096,7 @@
     </div>
 
     <div class="toolbar">
-      <input type="search" id="groupFilter" placeholder="Search groups&hellip;" autocomplete="off">
+      <input type="search" id="groupFilter" placeholder="Search groups by name, title or owner" aria-label="Search groups" autocomplete="off">
       <span class="val" id="groupCount"></span>
       <span style="flex:1"></span>
       <button class="primary" id="groupNew">New group</button>
@@ -1161,34 +1117,41 @@
     <dialog id="groupNewDialog" aria-labelledby="groupNewTitle">
       <header class="dialoghead">
         <h3 id="groupNewTitle">New group</h3>
-        <button type="button" class="tiny ghost" id="groupNewClose" aria-label="Close">&#10005;</button>
+        <button type="button" class="tiny ghost" id="groupNewClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </header>
       <div class="dialogbody">
+        <!--
+          <b>In plain words, title first</b> (UX sweep 2026-10-19). The choice that cannot be undone printed the
+          server's own values (none, ownItems, allItems) in a select, the placeholders read as values already
+          typed, and nothing said that the name becomes the group's address.
+        -->
         <div class="picker">
-          <label for="newGroupName">Name</label>
-          <input id="newGroupName" type="text" placeholder="planning" autocomplete="off">
+          <label for="newGroupTitle">Title</label>
+          <input id="newGroupTitle" type="text" autocomplete="off" aria-describedby="newGroupTitleHint">
+          <p class="hint" id="newGroupTitleHint">What people see in lists, for example Flood response team.</p>
 
-          <label for="newGroupTitle">Title <span class="val">shown in the list</span></label>
-          <input id="newGroupTitle" type="text" placeholder="Planning team" autocomplete="off">
+          <label for="newGroupName">Address name</label>
+          <input id="newGroupName" type="text" autocomplete="off" spellcheck="false" aria-describedby="newGroupNameHint">
+          <p class="hint" id="newGroupNameHint" role="status" aria-live="polite"></p>
 
-          <label for="newGroupWhy">What it is for</label>
+          <label for="newGroupWhy">What it is for <span class="val">optional</span></label>
           <input id="newGroupWhy" type="text" autocomplete="off">
-
-          <label for="newGroupUpdate">What members may do with the services shared into it</label>
-          <select id="newGroupUpdate">
-            <option value="none">none — read them</option>
-            <option value="ownItems">ownItems — edit the ones they shared themselves</option>
-            <option value="allItems">allItems — edit every service shared with the group</option>
-          </select>
-
-          <p class="hint"><b>This one cannot be changed afterwards.</b> Widening it would make every
-            service already shared with the group editable by every member, retroactively — so the
-            server has no way to change it and neither does this screen (ADR-036 §4c). To change it,
-            make another group and move the shares.</p>
-          <p class="bad-inline" id="newGroupSays" role="alert" hidden></p>
         </div>
+
+        <fieldset class="pickset" id="newGroupUpdate">
+          <legend>What members may do with items shared into it</legend>
+          <label class="pickrow"><input type="radio" name="newGroupUpdate" value="none" checked>
+            <span><b>Read them</b><span class="lede">Members open and query what is shared. The usual choice.</span></span></label>
+          <label class="pickrow"><input type="radio" name="newGroupUpdate" value="ownItems">
+            <span><b>Edit the items they shared themselves</b><span class="lede">Each member edits only what they put in.</span></span></label>
+          <label class="pickrow"><input type="radio" name="newGroupUpdate" value="allItems">
+            <span><b>Edit every item in the group</b><span class="lede">Any member edits any layer shared here.</span></span></label>
+        </fieldset>
       </div>
-      <footer class="dialogfoot">
+      <footer class="dialogfoot withsays">
+        <p class="consequence lowers"><b>This choice is permanent.</b> To change it later, make another group and
+          move the shares to it.</p>
+        <p class="bad-inline" id="newGroupSays" role="alert" hidden></p>
         <span class="fill"></span>
         <button type="button" class="ghost" id="groupNewCancel">Cancel</button>
         <button type="button" class="primary" id="newGroupSave">Create group</button>
@@ -1196,10 +1159,10 @@
     </dialog>
 
     <div class="panel">
-      <table>
+      <table class="rowblocks">
         <thead><tr>
-          <th>Group</th><th>Confers</th><th>You are</th><th>Owner</th>
-          <th class="num">Members</th><th class="num">Services</th>
+          <th>Group</th><th>Members may</th><th>You are</th><th>Owner</th>
+          <th class="num">Members</th><th class="num">Items</th>
         </tr></thead>
         <tbody id="groupRows"></tbody>
       </table>
@@ -1225,22 +1188,31 @@
     and its sharing was set inside the map; Portal gives a web map the same item page a layer has. Overview only:
     what it is, what it holds, who may open it, and the ways on.
   -->
+  <!--
+    <b>The same item shell as a layer's, 2026-10-19.</b> The map had a page of its own shape — no head card, no tabs,
+    the actions in a right rail with Delete a full-width button beside Share — and on a phone Delete was the third
+    control under the title (UX sweep 2026-10-19; ADR-102 asks for one item page). The head card carries the picture,
+    the name and Open in Map Viewer / Share / More; Delete is on Settings, as it is for a layer.
+  -->
   <section class="view" id="view-map">
     <div class="crumbs" id="mapCrumb"></div>
-    <div class="pagehead">
-      <div>
+    <div class="pagehead" id="mapPagehead" data-tab="overview">
+      <div id="mapThumb"></div>
+      <div class="herotext">
         <h2 id="mapTitle"></h2>
-        <p id="mapSub" class="hint"></p>
+        <p id="mapSub"></p>
       </div>
+      <div class="itemactions" id="mapActions"></div>
+      <nav class="segmented solid" id="mapTabs" aria-label="Item"></nav>
     </div>
-    <div class="mapitem">
+    <div class="mapitem" id="mapOverview">
+      <aside class="panel" id="mapSide"></aside>
       <div class="mapmain">
         <div class="panel" id="mapAbout"></div>
-        <h4>Layers</h4>
         <div class="panel" id="mapLayers"></div>
       </div>
-      <aside class="panel" id="mapSide"></aside>
     </div>
+    <div class="panel pad" id="mapSettings" hidden></div>
   </section>
 
   <section class="view" id="view-group">
@@ -1329,16 +1301,17 @@
           middle-click and copy-link for free — the same argument the tab strip makes one level up. The
           `href` is set per group when the page renders.
         -->
-        <a class="tiny primary" id="groupShare" hidden>Add item</a>
+        <!-- A bordered button, as Add member is on the next tab: the two parallel verbs look alike (sweep 2026-10-19). -->
+        <a class="btn" id="groupShare" hidden>Add item</a>
         <input type="search" id="groupItemFilter" placeholder="Search shared services&hellip;"
                autocomplete="off" hidden>
         <span class="val" id="groupItemCount"></span>
         <span style="flex:1"></span>
-        <label class="q" for="groupItemSort">Order</label>
+        <span class="sortpair"><label class="q" for="groupItemSort">Order</label>
         <select id="groupItemSort">
           <option value="shared">Most recently shared</option>
           <option value="name">Name</option>
-        </select>
+        </select></span>
       </div>
       <!--
         <b>`widetable`, because this one measured 1042 pixels against a 1024 viewport</b> and the page
@@ -1349,7 +1322,7 @@
         that is written down rather than left as an oversight.
       -->
       <div class="panel widetable">
-        <table>
+        <table class="rowblocks">
           <thead><tr>
             <th colspan="2">Service</th><th class="widecol">Kind</th><th class="widecol">Its sharing</th><th>Shared</th><th></th>
           </tr></thead>
@@ -1362,7 +1335,7 @@
     <!-- ─── Members ──────────────────────────────────────────────────────────────────────── -->
     <div class="grouptab" id="tab-members" hidden>
       <div class="toolbar">
-        <button class="tiny primary" id="groupAdd" hidden>Add member</button>
+        <button id="groupAdd" hidden>Add member</button>
         <input type="search" id="groupMemberFilter" placeholder="Search members&hellip;"
                autocomplete="off" hidden>
         <span class="val" id="groupMemberCount"></span>
@@ -1375,8 +1348,8 @@
         the whole value of the filter without the chrome.
       -->
       <div class="panel">
-        <table>
-          <thead><tr><th>Member</th><th>Standing</th><th>Joined</th><th></th></tr></thead>
+        <table class="rowblocks">
+          <thead><tr><th>Member</th><th>Standing</th><th>Joined</th><th><span class="sr-only">Actions</span></th></tr></thead>
           <tbody id="groupMembers"></tbody>
         </table>
       </div>
@@ -1497,7 +1470,7 @@
     <dialog id="roleDialog" class="formdialog" aria-labelledby="roleDialogTitle">
       <header class="dialoghead">
         <h3 id="roleDialogTitle">New role</h3>
-        <button type="button" class="tiny ghost" id="roleDialogClose" aria-label="Close">&#10005;</button>
+        <button type="button" class="tiny ghost" id="roleDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </header>
       <div class="dialogbody">
         <div class="picker">
@@ -1517,13 +1490,17 @@
       </footer>
     </dialog>
 
-    <div class="pickpair">
-      <div>
+    <!--
+      <b>The list narrow and the editor wide, since the UX sweep of 2026-10-19.</b> It was the other way round:
+      the part you work in was the narrow column, each privilege took three lines, and Save sat 3,200 pixels
+      down. The list now keeps its place while the editor scrolls, and the Save bar stays at the bottom.
+    -->
+    <div class="pickpair rolepair">
+      <div class="rolelistcol">
         <div class="panel">
-          <table>
+          <table class="rowblocks">
             <thead><tr>
-              <th>Role</th><th>Description</th><th class="num">Privileges</th>
-              <th class="num">Members</th><th></th>
+              <th>Role</th><th><span class="sr-only">Actions</span></th>
             </tr></thead>
             <tbody id="roleRows"></tbody>
           </table>
@@ -1533,13 +1510,15 @@
 
       <div class="panel" id="roleEditor" hidden>
         <div class="editorhead">
-          <div><h3 id="roleEditorName"></h3></div>
+          <div><h3 id="roleEditorName"></h3><p class="hint" id="roleEditorSays"></p></div>
           <div id="roleFrom"></div>
         </div>
         <div id="roleCompatibility"></div>
         <div id="rolePrivileges"></div>
-        <div class="row" style="margin-top:18px">
-          <button class="primary" id="roleSave">Save privileges</button>
+        <div class="savebar" id="roleSaveBar">
+          <span class="val" id="roleDirty" role="status" aria-live="polite">No unsaved changes</span>
+          <button type="button" class="ghost" id="roleDiscard" disabled>Discard</button>
+          <button type="button" class="primary" id="roleSave" disabled>Save privileges</button>
         </div>
       </div>
     </div>
@@ -1573,7 +1552,7 @@
     <dialog id="idpDialog" class="formdialog" aria-labelledby="idpDialogTitle">
       <header class="dialoghead">
         <h3 id="idpDialogTitle">Add a provider</h3>
-        <button type="button" class="tiny ghost" id="idpDialogClose" aria-label="Close">&#10005;</button>
+        <button type="button" class="tiny ghost" id="idpDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </header>
       <div class="dialogbody"><div id="idpForm"></div></div>
     </dialog>
@@ -1581,7 +1560,7 @@
     <div id="idpGroups" hidden></div>
     <p class="hint" id="idpSays" aria-live="polite"></p>
     <div class="panel"><div class="tablewrap">
-      <table>
+      <table class="rowblocks">
         <thead><tr>
           <th>Provider</th><th>Address</th><th>First sign-in</th><th class="num">Accounts</th>
           <th><span class="sr-only">Actions</span></th>
@@ -1613,7 +1592,7 @@
     <dialog id="appDialog" class="formdialog" aria-labelledby="appDialogTitle">
       <header class="dialoghead">
         <h3 id="appDialogTitle">Register an app</h3>
-        <button type="button" class="tiny ghost" id="appDialogClose" aria-label="Close">&#10005;</button>
+        <button type="button" class="tiny ghost" id="appDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </header>
       <div class="dialogbody" id="appForm">
       <div class="picker">
@@ -1643,9 +1622,9 @@
     <p class="hint" id="appSays" role="status" aria-live="polite"></p>
 
     <div class="panel widetable">
-      <table>
+      <table class="rowblocks">
         <thead><tr>
-          <th>App</th><th>App ID</th><th>Returns to</th><th></th>
+          <th>App</th><th>App ID</th><th>Returns to</th><th><span class="sr-only">Actions</span></th>
         </tr></thead>
         <tbody id="appRows"></tbody>
       </table>
@@ -1669,7 +1648,7 @@
     <dialog id="memberDialog" class="formdialog" aria-labelledby="memberDialogTitle">
       <header class="dialoghead">
         <h3 id="memberDialogTitle">New member</h3>
-        <button type="button" class="tiny ghost" id="memberDialogClose" aria-label="Close">&#10005;</button>
+        <button type="button" class="tiny ghost" id="memberDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
       </header>
       <div class="dialogbody" id="memberForm">
       <div class="page on" id="memberPages">
@@ -1718,12 +1697,15 @@
       <b>Portal's Members page, 2026-10-17, by owner decision</b> — *"n tane kullanıcı olursa sorgulaması vs
       olmayacak mı?"*, then a Portal screenshot. Search, filters down the left, columns that sort, and a page at a
       time, all done by the server (`/admin/members?num=…`): a list that reads every account to show twenty-five
-      is a list that stops working at the size it is for. The row's verbs are behind ⋯, as Portal's are, and the
-      role and the user type stay controls in the row because they are the two answers somebody comes to change.
+      is a list that stops working at the size it is for. The row's verbs are behind ⋯, as Portal's are — since the
+      UX sweep of 2026-10-19 the role and the user type too, which were selects that saved on one arrow key.
     -->
     <div class="memberslayout">
       <aside class="memberfilters" aria-label="Filters">
-        <h4>Filters</h4>
+        <!-- Open beside the list on a wide screen; below 1024 pixels a button above it, with how many are on
+             (UX sweep 2026-10-19: at 390 the eight sections put the first member 1,250 pixels down). -->
+        <details class="mfwrap" id="mfWrap" open>
+        <summary><span>Filters</span><span class="mfon" id="mfOn"></span></summary>
         <details open><summary>Categories</summary>
           <button type="button" class="tiny ghost mfedit" id="mfCatEdit" title="Add, rename or delete categories">Edit categories</button>
           <div id="mfCats" class="mflist"></div></details>
@@ -1747,6 +1729,7 @@
         <details open><summary>Group</summary>
           <select id="mfGroup" aria-label="Group"><option value="">Any group</option></select></details>
         <button type="button" class="tiny ghost" id="mfClear" hidden>Clear filters</button>
+        </details>
       </aside>
 
       <div class="membersmain">
@@ -1759,8 +1742,24 @@
           <button class="primary" id="memberNew">New member</button>
         </div>
 
+        <!--
+          Below 720 pixels the table's headings are not drawn, so what they did is here: select every member on the
+          page, and sort (verification round, 2026-10-19 — the clipped headings were still taking Tab, invisibly).
+        -->
+        <div class="narrowbar" id="memberNarrowBar">
+          <label class="check"><input type="checkbox" id="memberPickAllNarrow"> Select all</label>
+          <label class="q" for="memberSortNarrow">Sort by</label>
+          <select id="memberSortNarrow">
+            <option value="name:asc">Name, A to Z</option>
+            <option value="name:desc">Name, Z to A</option>
+            <option value="lastSignIn:desc">Last login, newest first</option>
+            <option value="lastSignIn:asc">Last login, oldest first</option>
+            <option value="userType:asc">User type</option>
+            <option value="role:asc">Role</option>
+          </select>
+        </div>
         <div class="panel widetable">
-          <table>
+          <table class="rowblocks">
             <thead><tr>
               <th class="tick"><input type="checkbox" id="memberPickAll" aria-label="Select every member on this page"></th>
               <th data-sort-col="name"><button type="button" class="sortbtn" data-member-sort="name">Name</button></th>
@@ -1802,7 +1801,7 @@
   <dialog id="domainEditDialog" class="formdialog" aria-labelledby="domEditTitle">
     <header class="dialoghead">
       <h3 id="domEditTitle">New domain</h3>
-      <button type="button" class="tiny ghost" id="domainEditClose" aria-label="Close">&#10005;</button>
+      <button type="button" class="tiny ghost" id="domainEditClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </header>
     <div class="dialogbody" id="domainEditBody"></div>
   </dialog>
@@ -1810,7 +1809,7 @@
   <dialog id="photoDialog" aria-labelledby="photoDialogTitle">
     <header class="dialoghead">
       <h3 id="photoDialogTitle">Profile photo</h3>
-      <button type="button" class="tiny ghost" id="photoDialogClose" aria-label="Close">&#10005;</button>
+      <button type="button" class="tiny ghost" id="photoDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </header>
     <div class="dialogbody">
       <div class="dropzone" id="photoDrop">
@@ -1834,10 +1833,29 @@
   <dialog id="catDialog" aria-labelledby="catDialogTitle">
     <header class="dialoghead">
       <h3 id="catDialogTitle">Categories</h3>
-      <button type="button" class="tiny ghost" id="catDialogClose" aria-label="Close">&#10005;</button>
+      <button type="button" class="tiny ghost" id="catDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
     </header>
     <div class="dialogbody" id="catDialogBody"></div>
     <footer class="dialogfoot" id="catDialogFoot"></footer>
+  </dialog>
+
+  <!--
+    <b>A member's role or user type, changed on purpose</b> (UX sweep 2026-10-19). Both were selects in the row
+    that saved on change, and one arrow key changed them. Opened from the row's ⋯; filled by console.js.
+  -->
+  <dialog id="memberChangeDialog" class="formdialog" aria-labelledby="memberChangeTitle">
+    <header class="dialoghead">
+      <h3 id="memberChangeTitle">Change role</h3>
+      <button type="button" class="tiny ghost" id="memberChangeClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </header>
+    <div class="dialogbody" id="memberChangeBody"></div>
+    <!-- What the chosen answer does sits over the button that does it, outside the scrolling body. -->
+    <footer class="dialogfoot withsays">
+      <p class="consequence" id="memberChangeSays" role="status" aria-live="polite"></p>
+      <span class="fill"></span>
+      <button type="button" class="ghost" id="memberChangeCancel">Cancel</button>
+      <button type="button" class="primary" id="memberChangeSave" disabled>Change role</button>
+    </footer>
   </dialog>
 
   <!-- Studio's search results — ADR-196. `/studio/search?q=…`. -->
@@ -1877,8 +1895,6 @@
           was inventing a second shape for a settings page while the layer editor's shape sat one
           section below in this file. D-46 is the register entry for exactly that.
         -->
-        <button class="tiny" id="limClear" hidden>Use the defaults</button>
-        <button class="primary" id="limSave" hidden>Save</button>
       </div>
     </div>
 
@@ -1912,6 +1928,8 @@
       its address with Copy, and Start or Stop — what Server Manager shows above a service's tabs.
     -->
     <div class="pagehead" id="serverHero" hidden></div>
+    <!-- A stopped service, said as a state on the page rather than as an error toast (UX sweep 2026-10-19). -->
+    <div class="stoppednote" id="serviceStoppedNote" role="status" hidden></div>
     <div class="pagehead" id="servicePagehead">
       <div id="itemThumb" hidden></div>
       <div class="herotext">
@@ -1928,6 +1946,13 @@
       <label class="field itemlayer" id="itemLayerField" hidden>Layer
         <select id="itemLayer"></select></label>
     </div>
+
+    <!--
+      <b>What state the item is in, when that state changes what the page can show.</b> A stopped service answers 503
+      to its own document, so Data and Visualization have nothing to read; the notice says so once, under the head,
+      rather than leaving a red message to say it (UX sweep 2026-10-19).
+    -->
+    <div class="itemnotice" id="itemNotice" role="status" aria-live="polite" hidden></div>
 
     <!--
       <b>The layer list the owner removed on 2026-08-18 and asked for again on 2026-08-19</b>, and the
@@ -2081,15 +2106,27 @@
     <!-- Visualization's Style panel: the layer's style editor, drawn here by drawVisStyle (ADR-102). -->
     <div id="visStyleHost" class="stylehost" hidden></div>
     <div class="panel" id="mapPanel">
+      <!--
+        <b>The ground is named; changing it is folded away</b> (UX sweep 2026-10-19). The address box and its two
+        buttons stood open above every map, and on a phone they pushed the map below the fold for a setting almost
+        nobody changes.
+      -->
       <div id="basemapBar">
         <span class="lbl">Basemap</span>
         <span class="val" id="basemapState"></span>
-        <input type="text" id="basemapInput" spellcheck="false"
-          placeholder="https://tiles.example.org/{level}/{col}/{row}.png">
-        <button class="tiny" id="basemapSet">Use</button>
-        <button class="tiny ghost" id="basemapClear">None</button>
+        <details class="basemapown">
+          <summary>Use your own tiles</summary>
+          <div class="basemapform">
+            <input type="text" id="basemapInput" spellcheck="false" aria-label="Tile address, with {level}, {col} and {row}"
+              placeholder="https://tiles.example.org/{level}/{col}/{row}.png">
+            <button class="tiny" id="basemapSet">Use</button>
+            <button class="tiny ghost" id="basemapClear">None</button>
+          </div>
+        </details>
       </div>
-      <div id="view"></div>
+      <!-- When the layer does not draw at the scale the map is at, which the map alone cannot say (UX sweep 2026-10-19). -->
+      <div class="visrangenote" id="visRangeNote" role="status" aria-live="polite" hidden></div>
+      <div id="view" tabindex="-1"></div>
       <div id="legend" role="status" aria-live="polite"></div>
       <!--
         <b>This comment used to say OpenStreetMap "returned 403 for every tile",
@@ -2139,32 +2176,38 @@
     -->
     <div class="panel" id="serviceLimits" hidden>
       <div class="page on" id="servicePages">
+        <!--
+          Leave a box empty to follow the server; the line under each says which applies and what is in force
+          (UX sweep 2026-10-19, findings 6 and 11). Save is at the end of the form, not in the breadcrumb row.
+        -->
+        <p class="hint">Leave a box empty to follow the server's configured value. A change applies from the next
+          operation; nothing restarts.</p>
         <h4>Service timeouts</h4>
-        <div class="setting"><span class="q">The longest one operation may run:</span>
-          <input type="number" id="limDeadline" min="1" max="3600"><span class="u">seconds</span></div>
-        <div class="setting"><span class="q">The longest a request may wait for a free worker:</span>
-          <input type="number" id="limWait" min="1" max="3600"><span class="u">seconds</span></div>
+        <div class="setting"><label class="q" for="limDeadline">The longest one operation may run:</label>
+          <input type="number" id="limDeadline" min="1" max="3600" aria-describedby="limDeadlineSays"><span class="u">seconds</span></div>
+        <p class="hint inherit" id="limDeadlineSays"><span class="inheritstate" data-state-of="limDeadline"></span></p>
+        <div class="setting"><label class="q" for="limWait">The longest a request may wait for a free worker:</label>
+          <input type="number" id="limWait" min="1" max="3600" aria-describedby="limWaitSays"><span class="u">seconds</span></div>
+        <p class="hint inherit" id="limWaitSays"><span class="inheritstate" data-state-of="limWait"></span></p>
 
         <h4>Worker processes</h4>
-        <div class="setting"><span class="q">Refuse work above this many candidate segment pairs:</span>
-          <input type="number" id="limPreflight" min="0"><span class="u">pairs</span></div>
-        <div class="setting"><span class="q">Reclaim a worker left unused for longer than:</span>
-          <input type="number" id="limIdle" min="0" max="86400"><span class="u">seconds</span></div>
+        <div class="setting"><label class="q" for="limPreflight">Refuse work above this many candidate segment pairs:</label>
+          <input type="number" id="limPreflight" min="0" aria-describedby="limPreflightSays"><span class="u">pairs</span></div>
+        <p class="hint inherit" id="limPreflightSays"><span class="inheritstate" data-state-of="limPreflight"></span></p>
+        <div class="setting"><label class="q" for="limIdle">Reclaim a worker left unused for longer than:</label>
+          <input type="number" id="limIdle" min="0" max="86400" aria-describedby="limIdleSays"><span class="u">seconds</span></div>
+        <p class="hint inherit" id="limIdleSays"><span class="inheritstate" data-state-of="limIdle"></span></p>
 
-        <p class="hint">An empty box takes the server's configured default, shown as the
-          placeholder. That is not the same as typing the default in: a typed copy stops tracking
-          the setting.</p>
-
-        <!--
-          <b>Read-only, and separated for that reason.</b> Three numbers govern this service and
-          cannot be set here — two because they are per server rather than per service, one because
-          a cap is the right mechanism for that half of the surface (ADR-022 §3). Mixing them in
-          with the boxes would invite somebody to try.
-        -->
-        <h4>Fixed, and not editable here</h4>
+        <!-- Read-only, and apart from the boxes for that reason: per server, or a cap rather than a preference. -->
+        <h4>Set in the server's configuration, not here</h4>
         <dl class="facts" id="limFixed"></dl>
 
         <p class="hint" id="limNote"></p>
+
+        <div class="row">
+          <button class="primary" id="limSave" type="button" hidden>Save parameters</button>
+          <button class="tiny" id="limClear" type="button" hidden>Use the server's values</button>
+        </div>
       </div>
     </div>
 
@@ -2202,11 +2245,9 @@
     -->
     <div id="serviceDangerHome"><div class="panel" id="serviceDanger">
       <h4>Deleting this service</h4>
-      <div class="setting wide"><span class="q">Protect this service from being deleted:</span>
-        <label><input type="checkbox" id="svcLock"
-          aria-label="Protect this service from being deleted">
-          <span id="svcLockState">Not protected</span></label>
-        <span class="u"></span></div>
+      <!-- One label, the action, beside its box, as the web map's says it: the question sat about 400 pixels from its
+           box, and the box was labelled with the state rather than the action (UX sweep 2026-10-19). -->
+      <label class="check"><input type="checkbox" id="svcLock"> Protect from deletion</label>
       <p class="hint" id="svcDeleteNote"></p>
       <button class="danger" id="svcDelete" disabled>Delete this service</button>
     </div></div>
@@ -2269,7 +2310,7 @@
 <dialog id="updateData" aria-labelledby="updateDataTitle">
   <header class="dialoghead">
     <h3 id="updateDataTitle" tabindex="-1">Update data</h3>
-    <button class="tiny ghost" id="updateDataClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="updateDataClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="updateDataBody"></div>
   <footer class="dialogfoot" id="updateDataFoot"></footer>
@@ -2278,7 +2319,7 @@
 <dialog id="createView" aria-labelledby="createViewTitle">
   <header class="dialoghead">
     <h3 id="createViewTitle" tabindex="-1">Create view</h3>
-    <button class="tiny ghost" id="createViewClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="createViewClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="createViewBody"></div>
   <footer class="dialogfoot" id="createViewFoot"></footer>
@@ -2287,7 +2328,7 @@
 <dialog id="contentFolderDialog" aria-labelledby="contentFolderTitle">
   <header class="dialoghead">
     <h3 id="contentFolderTitle" tabindex="-1">Folder</h3>
-    <button class="tiny ghost" id="contentFolderClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="contentFolderClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="contentFolderBody"></div>
   <footer class="dialogfoot" id="contentFolderFoot"></footer>
@@ -2296,7 +2337,7 @@
 <dialog id="changeOwner" aria-labelledby="changeOwnerTitle">
   <header class="dialoghead">
     <h3 id="changeOwnerTitle" tabindex="-1">Change owner</h3>
-    <button class="tiny ghost" id="changeOwnerClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="changeOwnerClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="changeOwnerBody"></div>
   <footer class="dialogfoot" id="changeOwnerFoot"></footer>
@@ -2305,7 +2346,7 @@
 <dialog id="mapShare" aria-labelledby="mapShareTitle">
   <header class="dialoghead">
     <h3 id="mapShareTitle" tabindex="-1">Share</h3>
-    <button class="tiny ghost" id="mapShareClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="mapShareClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="mapShareBody"></div>
   <footer class="dialogfoot" id="mapShareFoot"></footer>
@@ -2314,7 +2355,7 @@
 <dialog id="exportData" aria-labelledby="exportDataTitle">
   <header class="dialoghead">
     <h3 id="exportDataTitle" tabindex="-1">Export data</h3>
-    <button class="tiny ghost" id="exportDataClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="exportDataClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="exportDataBody"></div>
   <footer class="dialogfoot" id="exportDataFoot"></footer>
@@ -2323,7 +2364,7 @@
 <dialog id="share" aria-labelledby="shareTitle">
   <header class="dialoghead">
     <h3 id="shareTitle" tabindex="-1">Share</h3>
-    <button class="tiny ghost" id="shareClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="shareClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="shareBody"></div>
   <footer class="dialogfoot" id="shareFoot"></footer>
@@ -2361,7 +2402,7 @@
 <dialog id="addItem" aria-labelledby="addItemTitle">
   <header class="dialoghead">
     <h3 id="addItemTitle" tabindex="-1">New item</h3>
-    <button class="tiny ghost" id="addItemClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="addItemClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="addItemBody"></div>
   <footer class="dialogfoot" id="addItemFoot"></footer>
@@ -2379,7 +2420,7 @@
 <dialog id="publish" aria-labelledby="publishTitle">
   <header class="dialoghead">
     <h3 id="publishTitle" tabindex="-1">Publish</h3>
-    <button class="tiny ghost" id="publishClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="publishClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="publishBody"></div>
   <footer class="dialogfoot" id="publishFoot"></footer>
@@ -2426,7 +2467,7 @@
 <dialog id="pubsymbol" aria-labelledby="pubsymTitle">
   <header class="dialoghead">
     <h3 id="pubsymTitle" tabindex="-1">Symbol</h3>
-    <button class="tiny ghost" id="pubsymClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="pubsymClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="pubsymBody"></div>
   <footer class="dialogfoot" id="pubsymFoot"></footer>
@@ -2454,7 +2495,7 @@
 <dialog id="mapprops" aria-labelledby="mappropsTitle">
   <header class="dialoghead">
     <h3 id="mappropsTitle" tabindex="-1">Map properties</h3>
-    <button class="tiny ghost" id="mappropsClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="mappropsClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody">
     <div class="row">
@@ -2506,7 +2547,7 @@
 <dialog id="quiesce" aria-labelledby="quiesceTitle">
   <header class="dialoghead">
     <h3 id="quiesceTitle" tabindex="-1">Pause a database</h3>
-    <button class="tiny ghost" id="quiesceClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="quiesceClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody">
     <p class="hint" id="quiesceWhat"></p>
@@ -2531,7 +2572,7 @@
 <dialog id="rename" aria-labelledby="renameTitle">
   <header class="dialoghead">
     <h3 id="renameTitle" tabindex="-1">Rename</h3>
-    <button class="tiny ghost" id="renameClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="renameClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody">
     <div class="row">
@@ -2546,10 +2587,29 @@
   </footer>
 </dialog>
 
+<!--
+  <b>Server's confirmation, in the product's own dialog</b> (UX sweep 2026-10-19, finding 5). Stopping or deleting
+  several services asked through `confirm()`, which is unthemed, cannot say which button is the destructive one, and
+  blocks the page. Nothing is preselected but Cancel.
+-->
+<dialog id="serverConfirm" aria-labelledby="serverConfirmTitle" aria-describedby="serverConfirmBody">
+  <header class="dialoghead">
+    <h3 id="serverConfirmTitle" tabindex="-1">Are you sure?</h3>
+    <button class="tiny ghost" id="serverConfirmClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+  <div class="dialogbody">
+    <p id="serverConfirmBody"></p>
+  </div>
+  <footer class="dialogfoot">
+    <button class="ghost" id="serverConfirmCancel">Cancel</button>
+    <button class="danger" id="serverConfirmGo">Go on</button>
+  </footer>
+</dialog>
+
 <dialog id="dbconn" aria-labelledby="dbconnTitle">
   <header class="dialoghead">
     <h3 id="dbconnTitle" tabindex="-1">Database connection</h3>
-    <button class="tiny ghost" id="dbconnClose" aria-label="Close">&#10005;</button>
+    <button class="tiny ghost" id="dbconnClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
   </header>
   <div class="dialogbody" id="dbconnBody"></div>
   <footer class="dialogfoot" id="dbconnFoot"></footer>

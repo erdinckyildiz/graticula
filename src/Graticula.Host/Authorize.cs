@@ -153,23 +153,33 @@ internal static class Authorize
     /// published on the server. For a privilege there is nothing to enumerate;
     /// for an item name there is.
     /// </remarks>
-    public static Task RefuseReadAsync(HttpContext context, string layerName)
+    public static Task RefuseReadAsync(HttpContext context, string serviceName)
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        // <b>"No service", since 2026-10-19 (UX sweep round 2)</b>: every caller passes a service's
+        // name, and the sentence said *layer* — on the page a reader sees after mistyping one, and
+        // in the JSON alike. The deliberate sameness for absent and unshared is unchanged.
+        string message =
+            $"No service '{serviceName}' is visible to you. It may not exist, or it may "
+            + "not be shared with you — this response is deliberately the same for "
+            + "both, so that service names cannot be discovered by guessing.";
+
+        // The same sentence as a page for a browser in the directory (UX sweep 2026-10-19).
+        if (RestDirectory.RefusesAsPage(context.Request))
+        {
+            return Results.Content(
+                    RestDirectory.Refusal(
+                        context.Request.Path,
+                        "Not found",
+                        $"No service '{serviceName}' that you can open. It may not exist, or it may not be shared with you."),
+                    "text/html; charset=utf-8",
+                    statusCode: StatusCodes.Status404NotFound)
+                .ExecuteAsync(context);
+        }
+
         return Results.Json(
-            new
-            {
-                error = new
-                {
-                    code = 404,
-                    message =
-                        $"No layer '{layerName}' is visible to you. It may not exist, or it may "
-                        + "not be shared with you — this response is deliberately the same for "
-                        + "both, so that layer names cannot be discovered by guessing.",
-                    details = Array.Empty<string>(),
-                },
-            },
+            new { error = new { code = 404, message, details = Array.Empty<string>() } },
             statusCode: StatusCodes.Status404NotFound).ExecuteAsync(context);
     }
 
@@ -187,20 +197,23 @@ internal static class Authorize
     {
         ArgumentNullException.ThrowIfNull(context);
 
+        string message =
+            $"The service '{layerName}' is stopped. It is registered and deliberately "
+            + "unavailable — an operator took it out of rotation. This is not a "
+            + "transient failure and retrying will not help; ask an administrator to "
+            + "start it.";
+
+        if (RestDirectory.RefusesAsPage(context.Request))
+        {
+            return Results.Content(
+                    RestDirectory.Refusal(context.Request.Path, "Service stopped", message),
+                    "text/html; charset=utf-8",
+                    statusCode: StatusCodes.Status503ServiceUnavailable)
+                .ExecuteAsync(context);
+        }
+
         return Results.Json(
-            new
-            {
-                error = new
-                {
-                    code = 503,
-                    message =
-                        $"The service '{layerName}' is stopped. It is registered and deliberately "
-                        + "unavailable — an operator took it out of rotation. This is not a "
-                        + "transient failure and retrying will not help; ask an administrator to "
-                        + "start it.",
-                    details = Array.Empty<string>(),
-                },
-            },
+            new { error = new { code = 503, message, details = Array.Empty<string>() } },
             statusCode: StatusCodes.Status503ServiceUnavailable).ExecuteAsync(context);
     }
 

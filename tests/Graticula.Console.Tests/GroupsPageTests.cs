@@ -324,15 +324,21 @@ public sealed class GroupsPageTests : ConsoleTest
                 + " && !!document.getElementById('newGroupWhy')"
                 + " && !!document.getElementById('newGroupUpdate')",
                 "New group did not open an in-page form with a name, a description and a capability "
-                + "select. It used to be two chained prompts, which could not set the description at "
+                + "choice. It used to be two chained prompts, which could not set the description at "
                 + "all.");
 
-            // The capability is a select over the three values the server accepts, not free text
-            // against a case-sensitive enum.
-            int capabilities = await Browser.EvaluateAsync<int>(
-                "document.getElementById('newGroupUpdate')?.options.length || 0");
+            // The capability is three radio answers over the values the server accepts, not free text
+            // against a case-sensitive enum — and since the UX sweep of 2026-10-19 not those values
+            // either: the labels are words, and the enum names are only the inputs' values.
+            string[] capabilities = await Browser.EvaluateAsync<string[]>(
+                "[...document.querySelectorAll('#newGroupUpdate input[type=radio]')].map(i => i.value)") ?? [];
 
-            Assert.Equal(3, capabilities);
+            Assert.Equal(["none", "ownItems", "allItems"], capabilities);
+
+            bool enumShown = await Browser.EvaluateAsync<bool>(
+                "/ownItems|allItems/.test(document.getElementById('newGroupUpdate').textContent)");
+
+            Assert.False(enumShown, "New group prints the server's enum names to the reader.");
 
             // The standing is shown, because *which of these am I responsible for* is the first
             // question somebody has about a list of groups.

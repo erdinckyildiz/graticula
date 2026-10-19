@@ -24,10 +24,10 @@ namespace Graticula.Console.Tests;
 public sealed class ServiceLimitsPageTests : ConsoleTest
 {
     /// <summary>
-    /// Both time bounds are on the page, and the request deadline's placeholder is read.
+    /// Both time bounds are on the page, and the request deadline's inherited value is read.
     /// </summary>
     /// <remarks>
-    /// <b>The placeholder is the assertion with teeth.</b> <c>console.js</c>'s own rule is that a
+    /// <b>The line under the box is the assertion with teeth.</b> <c>console.js</c>'s own rule is that a
     /// control displaying a figure it did not read is a control that lies the moment somebody
     /// changes the setting — so the empty box must show the server's actual
     /// <c>Graticula:RequestDeadlineSeconds</c>, which arrives from the `GET`. A hard-coded 600
@@ -78,26 +78,24 @@ public sealed class ServiceLimitsPageTests : ConsoleTest
             "The Limits page has no request-deadline control on screen, so the owner's *every service needs "
             + "a timeout* has no place on the screen where limits are set.");
 
-        // <b>Waiting for the placeholder, not for the element.</b> The element is in the markup
-        // from the first paint; the placeholder is only right once the `GET` has answered, so this
-        // is what proves the console read the server's bound instead of assuming it.
-        await WaitForAsync(
-            "(document.getElementById('capDeadline')?.placeholder || '') !== '600'"
-            + " || (document.getElementById('capDeadline')?.dataset.read === 'yes')"
-            + " || /^[0-9]+$|^no bound$/.test("
-            + "document.getElementById('capDeadline')?.placeholder || '')",
-            "The request-deadline box never took a placeholder that could have come from the "
-            + "server.");
+        // <b>Waiting for the line under the box, not for the element.</b> The element is in the markup from the first
+        // paint; the line is filled only once the `GET` has answered, so this is what proves the console read the
+        // server's bound instead of assuming it. It was the placeholder until the UX sweep of 2026-10-19, which found
+        // that an inherited value in a placeholder reads as a value set here.
+        const string state = "(document.querySelector('[data-state-of=\"capDeadline\"]')?.textContent || '')";
 
-        string placeholder = await Browser.EvaluateAsync<string>(
-            "document.getElementById('capDeadline')?.placeholder || ''") ?? string.Empty;
+        await WaitForAsync(
+            state + ".trim().length > 0",
+            "The request-deadline box never said what applies when it is empty.");
+
+        string says = await Browser.EvaluateAsync<string>(state) ?? string.Empty;
 
         Assert.True(
-            placeholder == "no bound"
-            || (int.TryParse(placeholder, out int seconds) && seconds > 0),
-            $"The empty deadline box shows '{placeholder}', which is neither a number of seconds "
-            + "nor the words for a deployment that chose no bound. An operator reading it cannot "
-            + "tell what would actually apply to their request.");
+            says.Contains("No limit", StringComparison.Ordinal)
+            || System.Text.RegularExpressions.Regex.IsMatch(says, @"In force: \d"),
+            $"The empty deadline box says '{says}', which is neither a number of seconds nor the words for a "
+            + "deployment that chose no bound. An operator reading it cannot tell what would actually apply to "
+            + "their request.");
 
         // <b>The statement timeout is still there and is still a different control.</b> The two
         // were put side by side under one heading precisely because they are confusable; a page

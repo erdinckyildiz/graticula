@@ -206,7 +206,7 @@ public sealed class AddItemDialogTests : ConsoleTest
         await ClickAsync("#kindFeatureLayer");
 
         await WaitForAsync(
-            "document.querySelectorAll('.pickrow').length === 3",
+            "document.querySelectorAll('#addItemBody .pickrow').length === 3",
             "The Create a feature layer screen never drew its options.");
 
         await AssertFocusIsInsideAsync("after the Feature layer tile");
