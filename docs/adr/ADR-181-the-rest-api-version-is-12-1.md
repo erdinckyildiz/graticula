@@ -82,7 +82,14 @@ version between 10.81 and 13 was read.
 
 Every ArcGIS REST server document reports `currentVersion: 12.1` and `/rest/info` reports
 `fullVersion: "12.1.0"`, from the one constant `FeatureServerMetadataWriter.CurrentVersion`. ImageServer
-wrote its own literal `10.81` and now reads the constant. The portal surface keeps its own version.
+wrote its own literal `10.81` and now reads the constant. ~~The portal surface keeps its own version.~~
+**Amended 2026-10-19 by owner decision** (*"12.1'de kalalım. hem server hem studio 12.1 olsun"*, V-58): the portal
+surface names the same release — `currentVersion "2026.1"`, `enterpriseVersion "12.1.0"`, `enterpriseBuild
+"786"`, the pair two public Enterprise 12.1 portals answered at `/sharing/rest` that day, beside hosting servers
+answering `12.1`. It was `11.2` (and `2025.1` / `11.5.0` while Pro published), so the server was newer than its
+portal, which no Enterprise ships. The owner also asked for 12.2, for Survey123 Mobile, and kept 12.1 once it was
+found that 12.2 is not released: a version number is a promise of that release's behaviour, and the Survey123
+Mobile registration is a registered app, not a version. `OneEnterpriseReleaseTests` holds the two together.
 
 ## 6. Consequences
 

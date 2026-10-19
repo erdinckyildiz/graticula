@@ -63,8 +63,16 @@ internal static partial class PortalEndpoints
     /// Pro decides which operations to attempt from it, so it names the portal API
     /// level this surface implements rather than the product's own version, which
     /// would mean nothing to the reader.
+    /// <para>
+    /// <b>ArcGIS Enterprise 12.1's, with the server's 12.1 — owner decision 2026-10-19</b> (<i>"12.1'de kalalım. hem
+    /// server hem studio 12.1 olsun"</i>, V-58). Measured that day on two public Enterprise 12.1 portals, whose
+    /// <c>/sharing/rest</c> both answer <c>currentVersion "2026.1"</c>, <c>enterpriseVersion "12.1.0"</c>,
+    /// <c>enterpriseBuild "786"</c>, and whose hosting servers answer <c>12.1</c>. It was 11.2 for the portal and 12.1
+    /// for the server, a pair no Enterprise ever shipped, and 2025.1 / 11.5.0 while Pro published (ADR-191), which
+    /// put a server newer than its portal.
+    /// </para>
     /// </remarks>
-    public const string PortalVersion = "11.2";
+    public const string PortalVersion = "2026.1";
 
     /// <summary>
     /// The ArcGIS Enterprise release this server answers as, beside <see cref="PortalVersion"/>.
@@ -77,6 +85,9 @@ internal static partial class PortalEndpoints
     /// </remarks>
     public const string EnterpriseVersion = "12.1.0";
 
+    /// <summary>The build an Enterprise 12.1 portal names beside <see cref="EnterpriseVersion"/> (measured 2026-10-19).</summary>
+    public const string EnterpriseBuild = "786";
+
     /// <summary>
     /// The portal API level said to a client — a real Enterprise's pair while Pro's publishing is measured.
     /// </summary>
@@ -87,9 +98,11 @@ internal static partial class PortalEndpoints
     /// the real pair the analyzer passed. Where Pro may publish (ADR-191) that pair is sent; a deployment that turns
     /// publishing off keeps the old one.
     /// </remarks>
-    private static string PortalVersionOf(HttpContext context) => Publishing(context) ? "2025.1" : PortalVersion;
+    // One pair whether or not Pro may publish — 2026-10-19: the 11.5 pair Pro was measured with is one the 12.1 pair
+    // follows, and a server newer than its portal is not a deployment Enterprise ships.
+    private static string PortalVersionOf(HttpContext context) => PortalVersion;
 
-    private static string EnterpriseVersionOf(HttpContext context) => Publishing(context) ? "11.5.0" : EnterpriseVersion;
+    private static string EnterpriseVersionOf(HttpContext context) => EnterpriseVersion;
 
     /// <summary>Maps the surface.</summary>
     /// <param name="app">The application.</param>
@@ -371,6 +384,7 @@ internal static partial class PortalEndpoints
     {
         currentVersion = PortalVersionOf(context),
         enterpriseVersion = EnterpriseVersionOf(context),
+        enterpriseBuild = EnterpriseBuild,
         authInfo = new
         {
             isTokenBasedSecurity = true,
@@ -648,6 +662,7 @@ internal static partial class PortalEndpoints
             httpsPort = PortOf(context, https: true),
             currentVersion = PortalVersionOf(context),
             enterpriseVersion = EnterpriseVersionOf(context),
+            enterpriseBuild = EnterpriseBuild,
             access = "public",
 
             // <b>What every ArcGIS Enterprise portal says about itself and this one did not — 2026-10-13.</b> Pro's

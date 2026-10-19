@@ -145,11 +145,11 @@ No implementation has been measured yet; §6's conditions carry what must be.
    with a title is named by it on the ArcGIS faces, not only Pro's** — the CITE fixture's `cite:*` layers among them;
    asked of the owner in those terms and released on their word the same day (*"maine çık"*).
 8. **Publishing from Pro is on by default** — owner decision 2026-10-17, *"bence bunu main'e artık geçirebiliriz"*.
-   `Graticula:PublishFromPro` (default `true`) carries the portal's `/studio` and `/portal` addresses, the Enterprise
-   version pair, ~~the hosting server under `/arcgis`~~ the hosting server's admin API under `/arcgis/admin` *(the rest
+   `Graticula:PublishFromPro` (default `true`) carries the portal's `/studio` and `/portal` addresses, ~~the Enterprise
+   version pair~~ *(one pair whatever publishing says since 2026-10-19: Enterprise 12.1's — ADR-181 §5)*, ~~the hosting server under `/arcgis`~~ the hosting server's admin API under `/arcgis/admin` *(the rest
    of `/arcgis`, and `/server/rest`, answer always since 2026-10-17 —
    [ADR-194](ADR-194-an-arcgis-shop-s-addresses-answer.md))*, the publish and share routes and the privileges; a deployment
-   sets it to `false` to keep the read-only portal of ADR-040 §5, with its old version pair. Recording Pro's calls —
+   sets it to `false` to keep the read-only portal of ADR-040 §5. Recording Pro's calls —
    the wire log, the unknown-call recorder and the share forms — stays on `Graticula:ProPublishCapture`, which only
    dev.graticula.com sets: it is a measuring tool, and it once wrote a sign-in's password in clear.
 9. **Share As Web Map keeps the map** — 2026-10-17, from Pro's own `SharingJobLog.log` read by another session: the
