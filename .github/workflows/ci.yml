@@ -151,6 +151,14 @@ jobs:
       - name: geoparquet
         run: dotnet test tests/Graticula.Providers.DuckDb.Tests -c Release --no-build
 
+      # ADR-205: a registered Oracle database. What reads a real Oracle carries Needs=Oracle and waits on
+      # condition 3 — Oracle Free on amd64 as a service container, seeded as the VPS's TRDATA is; until
+      # then the tests that need no database run here, and the rest are named below.
+      - name: oracle
+        run: |
+          dotnet test tests/Graticula.Providers.Oracle.Tests -c Release --no-build \
+            --filter 'Needs!=Oracle'
+
       - name: argon2
         run: |
           dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build \
@@ -240,11 +248,15 @@ jobs:
           echo "             neighbours, so these run nowhere here either."
           echo "RunningHost  needs a server, not just a database. NOT skipped —"
           echo "             run in the conformance job, which starts one."
+          echo "Oracle       reads a real Oracle database (ADR-205). Not run here"
+          echo "             until condition 3 adds Oracle Free as a service; run"
+          echo "             against the VPS's through an SSH tunnel meanwhile."
           echo
           echo "Run the two that CI cannot, on a machine that can:"
           echo
           echo "  dotnet test <project> --filter 'Needs=RealCorpus'"
           echo "  dotnet test <project> --filter 'Needs=QuietMachine'"
+          echo "  GRATICULA_TEST_ORACLE=oracle:{...} dotnet test <project> --filter 'Needs=Oracle'"
           echo
           echo
           echo "ADR-048 §5b and Q-117."
