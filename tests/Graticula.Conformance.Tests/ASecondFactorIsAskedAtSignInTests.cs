@@ -94,7 +94,7 @@ public sealed class ASecondFactorIsAskedAtSignInTests : ArcGisClient
     }
 
     /// <summary>RFC 6238's code for the step <paramref name="ahead"/> steps after now.</summary>
-    private static string Code(byte[] secret, int ahead)
+    internal static string Code(byte[] secret, int ahead)
     {
         Span<byte> counter = stackalloc byte[8];
         BinaryPrimitives.WriteInt64BigEndian(counter, (DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 30) + ahead);
@@ -106,7 +106,7 @@ public sealed class ASecondFactorIsAskedAtSignInTests : ArcGisClient
         return (binary % 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
     }
 
-    private static byte[] FromBase32(string text)
+    internal static byte[] FromBase32(string text)
     {
         const string Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
         List<byte> bytes = [];

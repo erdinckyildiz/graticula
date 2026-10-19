@@ -5927,3 +5927,130 @@ header #globalSearch[hidden] { display: none; }
 @media (max-width: 480px) { #searchRows td.thumbcell { display: none; } }
 @media (max-width: 760px) { #globalSearch input { width: 150px; max-width: 40vw; } }
 #svcFacts code.itemid { font-size: 12px; user-select: all; overflow-wrap: normal; } /* 32 unbroken characters set a narrow column's width: 386 in a 375 window on CI (2026-10-18) */
+
+/* ------------------------------------------------------------- two-step sign-in (ADR-201)
+   <b>One look for the three places it is set up</b> — the sign-in card, My profile, and the requirement on
+   Organization › Settings › Security. Base rules are the phone; nothing here needs a wider screen to fit. The key and
+   the codes are set in the mono face at body size, on the quiet ground `code` already uses, because they are read
+   character by character and typed into another device. Full hairline borders only. */
+.sfstep-title { margin: var(--gap-4) 0 var(--gap-2); font-size: 16px; font-weight: 600; color: var(--ink); }
+.sfstep-title:focus { outline: none; }
+.sflede { margin: 0 0 var(--gap-3); font-size: var(--t-body); color: var(--ink); }
+ol.sfsteps { list-style: none; margin: 0; padding: 0; }
+ol.sfsteps > li > b { display: block; font-weight: 600; color: var(--ink); }
+ol.sfsteps .lede { display: block; margin: 2px 0 var(--gap-2); font-size: var(--t-small); }
+a.sfopen {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--gap-4); margin: var(--gap-1) 0 var(--gap-2);
+  border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface);
+  color: var(--link); font-weight: 600; font-size: var(--t-small); text-decoration: none;
+}
+a.sfopen:hover { background: var(--surface-2); text-decoration: underline; }
+a.sfopen:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sfkey {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+  padding: var(--gap-3); margin: 0 0 var(--gap-2);
+  border: 1px solid var(--rule-strong); border-radius: var(--round); background: var(--surface-2);
+}
+.sfkey code {
+  flex: 1 1 100%; min-width: 0; padding: 0; background: none; color: var(--ink);
+  font-size: 16px; line-height: 1.6; letter-spacing: .06em; word-spacing: .2em;
+}
+.sfkey code span { display: inline-block; white-space: nowrap; }
+.sfkey button, .sfrow button { min-height: 32px; }
+.sfsaid:empty { display: none; }
+ol.sfcodes {
+  list-style: none; margin: 0 0 var(--gap-3); padding: var(--gap-3) var(--gap-4);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap-2) var(--gap-4);
+  border: 1px solid var(--rule-strong); border-radius: var(--round); background: var(--surface-2);
+}
+ol.sfcodes code {
+  padding: 0; background: none; color: var(--ink); font-size: 15px; letter-spacing: .03em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sfrow, .sfactions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2); }
+.sfactions { margin-top: var(--gap-3); }
+label.sfsaved {
+  display: flex; align-items: flex-start; gap: var(--gap-2); margin: var(--gap-4) 0 0;
+  font-size: var(--t-body); color: var(--ink); cursor: pointer;
+}
+label.sfsaved input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+
+/* The sign-in card: its own rules make every label a muted caption and every input full width. */
+#signin label.sfsaved { display: flex; margin: var(--gap-4) 0 0; color: var(--ink); font-size: var(--t-body); }
+#signin label.sfsaved input { width: 18px; }
+#signin #signinSetupCode, #signin #signinCode {
+  font-size: 18px; min-height: 44px; padding: 8px 10px; letter-spacing: .12em; font-variant-numeric: tabular-nums;
+}
+#signin #signinSetupCode + .hint, #signin #signinCodeHint { margin: var(--gap-1) 0 0; }
+#signin #signinSetupError { margin-top: var(--gap-3); }
+#signin .sflede { font-size: var(--t-small); }
+#signin .sfstep-title { margin-top: var(--gap-3); }
+
+/* My profile › Security. */
+#view-user .profilesec { margin-top: var(--gap-5); padding-top: var(--gap-4); border-top: 1px solid var(--rule); }
+#view-user .profilesec > h3 { margin: 0 0 var(--gap-3); font-size: 16px; }
+#view-user .profilesec > h3:focus { outline: none; }
+#view-user .profilesec label:not(.sfsaved) { display: block; font-weight: 600; font-size: 14px; margin: var(--gap-3) 0 var(--gap-1); }
+#view-user .profilesec p { margin: 0 0 var(--gap-2); }
+#view-user .profilesec .consequence { margin: var(--gap-3) 0 0; }
+#view-user .profilesec .bad-inline { margin: var(--gap-2) 0 0; }
+#pfSfCode { width: 100%; max-width: 16rem; min-height: 44px; font-size: 16px; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.sfhead { display: flex; align-items: center; gap: var(--gap-2); margin: 0 0 var(--gap-2); }
+.sfhead b { font-weight: 600; }
+.sfdone:empty { display: none; }
+.sfdone { display: block; margin: var(--gap-3) 0 0; color: var(--ink); }
+
+/* Organization › Settings › Security: the requirement. */
+#sfRequireCard .consequence { margin: var(--gap-2) 0 0; max-width: 46rem; }
+#sfRequireCard .consequence ul { margin: var(--gap-2) 0 0; padding-left: 1.2em; }
+#sfRequireCard .consequence li + li { margin-top: var(--gap-1); }
+#sfRequireCard fieldset.pickset { max-width: 36rem; }
+#sfAsked { margin-top: var(--gap-5); padding-top: var(--gap-4); border-top: 1px solid var(--rule); }
+#sfAsked h4 { margin-bottom: var(--gap-2); }
+ul.sfasked { list-style: none; margin: var(--gap-2) 0 0; padding: 0; columns: 12rem 3; column-gap: var(--gap-5); }
+ul.sfasked li { padding: 3px 0; break-inside: avoid; overflow-wrap: anywhere; }
+#sfRequireDialog { width: min(560px, calc(100vw - 32px)); }
+#sfRequireDialogBody .consequence { margin: var(--gap-3) 0; }
+
+/* The administrator's notice: one line over the page, amber because it is a risk rather than a fault. */
+.factornotice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-3);
+  margin: 0 0 var(--gap-4); padding: var(--gap-2) var(--gap-3);
+  border: 1px solid var(--warn-line); border-radius: var(--round); background: var(--warn-soft);
+  color: var(--ink); font-size: var(--t-small);
+}
+.factornotice > .ico { width: 18px; height: 18px; flex: none; color: var(--warn); }
+.factornotice > p { flex: 1 1 16rem; margin: 0; }
+.factornotice > a { font-weight: 600; color: var(--link); text-decoration: underline; text-underline-offset: 2px;
+                    min-height: 24px; display: inline-flex; align-items: center; }
+.factornotice > button { min-height: 32px; color: var(--ink); }
+#app.symfull > .factornotice { display: none; }
+/* The two steps of a setup are numbered alike: the first is a list item, the second is the code field's label. */
+.sfnum {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: var(--gap-2); flex: none;
+  border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line);
+  font-size: 12px; font-weight: 700; vertical-align: 1px;
+}
+ol.sfsteps > li > b, label.sfsteplabel { display: flex; align-items: center; }
+#signin label.sfsteplabel, #view-user .profilesec label.sfsteplabel {
+  display: flex; margin: var(--gap-4) 0 var(--gap-2); color: var(--ink); font-size: var(--t-body); font-weight: 600;
+}
+/* The step's body hangs under its title, past the number: padding on the item, the title pulled back over it. */
+ol.sfsteps > li { padding-left: 30px; }
+ol.sfsteps > li > b { margin-left: -30px; }
+/* A pointer that can hover is a computer, where the app link usually does nothing: a quiet link, and the key leads. */
+@media (hover: hover) and (pointer: fine) {
+  a.sfopen { min-height: 24px; padding: 0; border: 0; background: none; text-decoration: underline;
+             text-underline-offset: 2px; font-weight: 500; }
+  a.sfopen:hover { background: none; }
+}
+#view-user .profilesec p.sfafter { margin-top: var(--gap-3); }
+
+/* The key's QR code — owner decision 2026-10-19. Black on white in either theme, since that is what a camera reads;
+   hidden where the pointer is coarse, because a phone cannot scan its own screen and its link opens the app. */
+.sfqr { margin: 10px 0 4px; padding: 0; line-height: 0; }
+.sfqr svg { display: block; max-width: 100%; height: auto; border-radius: 4px; }
+.sfqr[hidden] + .sfqr-said { display: none; }
+@media (pointer: coarse) {
+  .sfqr, .sfqr-said { display: none; }
+}

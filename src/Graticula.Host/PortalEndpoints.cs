@@ -450,7 +450,7 @@ internal static partial class PortalEndpoints
                     "Too many failed sign-in attempts. Wait and try again."),
                 // ADR-201: the password was right and the account asks for a second step, which a token request
                 // cannot carry. Said only after the password is proven.
-                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid => (
+                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid or LoginFailure.SecondFactorSetupRequired => (
                     StatusCodes.Status401Unauthorized,
                     "Unable to generate token. This account signs in with a second step, which a token request cannot carry. Sign in "
                     + "through the portal's sign-in page (OAuth), as ArcGIS Pro and the ArcGIS API for Python do; a "

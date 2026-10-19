@@ -65,15 +65,15 @@ reason; the tile cache is rebuilt from the data; an uploaded image is moved by p
 
 **Positive.** A mistaken delete is undone in seconds, with every address that named the item still working.
 
-**Negative.** Data waits for fourteen days in the datastore and counts against its size. A removed member's maps and
-documents are still deleted for good with the account (D-306). No screen yet (D-305).
+**Negative.** Data waits for fourteen days in the datastore and counts against its size. A removed member's content is
+transferred or deleted for good, never kept in the bin (condition 1, owner decision 2026-10-19). No screen yet (D-305).
 
 **State.** `recycle_entry` and `recycle_row` (migration 94) in the catalogue, shared by every node; the moved
 relations in the datastore's `graticula_recycle` schema. Nothing is held at runtime.
 
 ## 6. Conditions
 
-1. **D-306**: image services, a removed member's content and Pro's delete go through the bin, or are decided not to. *(Partly discharged 2026-10-18: image services do, with their uploaded files; Pro's portal delete deletes nothing. A removed member's content is left.)*
+1. **D-306**: image services, a removed member's content and Pro's delete go through the bin, or are decided not to. *(Partly discharged 2026-10-18: image services do, with their uploaded files; Pro's portal delete deletes nothing. A removed member's content is left.)* **DISCHARGED 2026-10-19 by owner decision:** *"sahipsiz nesne olamaz. Ya birisine move edilmeli, ya da silinmeli, başka çare yok."* A removed member's content does not wait in the bin, because nobody would be left who may restore it, and a restore would bring back an item owned by nobody. Removal still asks (ADR-015 §6c), and the bin is now among what it asks about: **a transfer hands the member's bin entries to the receiver**, the owner inside their kept rows with them, so the receiver may restore them; **a delete goes through the bin and empties it at once** — each service set aside with its hosted tables and uploaded images and then purged, and the member's own entries purged — so a service's belongings are described in one place. Measured before the change, a delete left the hosted table in the datastore and a member whose only content was in the bin was removed with *"they owned nothing"*. Kept rows that still name the removed member — a favourite of somebody else's deleted map, a share they made — are treated as the database treats live ones: a cascading reference takes the row, a nulling one is nulled, read from the catalogue's own keys. `ARemovedMemberLeavesNothingOwnerlessTests`.
 2. **A screen** in the redesigned Studio — D-305.
 3. **A restore of every kind is tested against a catalogue of the showcase's size**, to see the walk's cost there. *(Partly discharged 2026-10-18 on dev.graticula.com, a copy of the showcase's catalogue: a new hosted service deleted in 0.61 s and restored in 0.31 s, a web map in 0.29 s and 0.24 s, each read back and then emptied. **Left:** a document, and a service with years of usage rows, whose walk reads more.)*
 

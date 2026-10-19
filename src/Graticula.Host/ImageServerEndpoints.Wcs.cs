@@ -205,7 +205,7 @@ internal static partial class ImageServerEndpoints
 
             await w.WriteElementStringAsync("ows", "Fees", Ows2, own?.OgcFees is { Length: > 0 } fees ? fees : "NONE").ConfigureAwait(false);
             await w.WriteElementStringAsync("ows", "AccessConstraints", Ows2,
-                own?.OgcAccessConstraints is { Length: > 0 } constraints ? constraints : "NONE").ConfigureAwait(false);
+                (own is null ? null : OgcTerms.AccessConstraints(context, own.ServiceId, own.OgcAccessConstraints)) ?? "NONE").ConfigureAwait(false);
             await w.WriteEndElementAsync().ConfigureAwait(false);
 
             await w.WriteStartElementAsync("ows", "ServiceProvider", Ows2).ConfigureAwait(false);

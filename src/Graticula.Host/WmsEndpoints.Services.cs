@@ -113,7 +113,8 @@ internal static partial class WmsEndpoints
         if (scope.Kind == "ImageServer")
         {
             return await coverages.FindAsync(scope.Folder, scope.Name, cancellation).ConfigureAwait(false) is { } coverage
-                ? new Graticula.Catalog.OgcServiceMetadata(coverage.Description, coverage.Tags, coverage.OgcFees, coverage.OgcAccessConstraints) { Inspire = coverage.Inspire }
+                ? new Graticula.Catalog.OgcServiceMetadata(coverage.Description, coverage.Tags, coverage.OgcFees,
+                    OgcTerms.AccessConstraints(context, coverage.ServiceId, coverage.OgcAccessConstraints)) { Inspire = coverage.Inspire }
                 : null;
         }
 
@@ -121,7 +122,8 @@ internal static partial class WmsEndpoints
             .FirstOrDefault(s => InScope(scope, s.Folder, s.Name, "FeatureServer"));
         return service is null
             ? null
-            : new Graticula.Catalog.OgcServiceMetadata(service.Description, service.Tags, service.OgcFees, service.OgcAccessConstraints) { Inspire = service.Inspire };
+            : new Graticula.Catalog.OgcServiceMetadata(service.Description, service.Tags, service.OgcFees,
+                OgcTerms.AccessConstraints(context, service.Id, service.OgcAccessConstraints)) { Inspire = service.Inspire };
     }
 
     private static PublishedCoverage? FindCoverage(IReadOnlyList<PublishedCoverage> coverages, string name) =>

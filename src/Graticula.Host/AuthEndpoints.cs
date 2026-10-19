@@ -196,7 +196,7 @@ internal static partial class AuthEndpoints
                     "Too many failed sign-in attempts. Wait and try again."),
                 // ADR-201: the password was right and the account asks for a second step, which a token request
                 // cannot carry. Said only after the password is proven.
-                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid => (
+                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid or LoginFailure.SecondFactorSetupRequired => (
                     StatusCodes.Status401Unauthorized,
                     "This account signs in with a second step, which a token request cannot carry. Sign in "
                     + "through the portal's sign-in page (OAuth), as ArcGIS Pro and the ArcGIS API for Python do; a "
@@ -305,7 +305,8 @@ internal static partial class AuthEndpoints
         }
 
         LoginResult result = await login
-            .AuthenticateAsync(request.Name, request.Password, RemoteAddress(context), cancellation, code: request.Code)
+            .AuthenticateAsync(request.Name, request.Password, RemoteAddress(context), cancellation, code: request.Code,
+                issuer: SecondFactorIssuer(context))
             .ConfigureAwait(false);
 
         if (!result.Succeeded)
@@ -329,10 +330,21 @@ internal static partial class AuthEndpoints
                 LoginFailure.SecondFactorRequired => (
                     StatusCodes.Status401Unauthorized,
                     "This account asks for a code from its authenticator app, or a recovery code. Send it as 'code'."),
+                // Being set up, there are no recovery codes yet to offer as the way round.
+                LoginFailure.SecondFactorInvalid when result.Setup is not null => (
+                    StatusCodes.Status401Unauthorized,
+                    "The code does not match the key. Use the code the authenticator app shows now; if it still fails, "
+                    + "check the phone's clock."),
                 LoginFailure.SecondFactorInvalid => (
                     StatusCodes.Status401Unauthorized,
                     "The code is incorrect or has been used. Use the code your authenticator app shows now, or a "
                     + "recovery code."),
+
+                // ADR-201 condition 2: the organisation requires one and there is none yet. The secret is in the answer.
+                LoginFailure.SecondFactorSetupRequired => (
+                    StatusCodes.Status401Unauthorized,
+                    "Your organisation requires a second factor. Add the secret to an authenticator app, then send the "
+                    + "code it shows as 'code' with the same name and password."),
                 _ => (
                     StatusCodes.Status401Unauthorized,
 
@@ -349,7 +361,8 @@ internal static partial class AuthEndpoints
                 // for every failure — see the message above.
                 context.Response.Redirect(
                     "/rest/login?failed="
-                    + (result.Failure is LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid ? "code" : "1")
+                    + (result.Setup is not null ? "setup"
+                        : result.Failure is LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid ? "code" : "1")
                     + "&return="
                     + Uri.EscapeDataString(Safe(returnTo)));
                 return;
@@ -363,10 +376,17 @@ internal static partial class AuthEndpoints
                         {
                             code = status,
                             message,
-                            details = result.Failure is LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid
-                                ? SecondFactorDetail
-                                : Array.Empty<string>(),
+                            details = result.Setup is not null
+                                ? SecondFactorSetupDetail
+                                : result.Failure is LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid
+                                    ? SecondFactorDetail
+                                    : Array.Empty<string>(),
                         },
+
+                        // Sent only after the password is proven, and only for an account with none on yet.
+                        secondFactorSetup = result.Setup is { } setup
+                            ? new { secret = setup.Secret, address = setup.Address }
+                            : null,
                     },
                     statusCode: status)
                 .ExecuteAsync(context).ConfigureAwait(false);
@@ -402,6 +422,9 @@ internal static partial class AuthEndpoints
             // second mitigation is that the header form is preferred and
             // advertised, and advertising it only in a manual is not advertising.
             usage = "Send this as 'Authorization: Bearer <token>'. Do not put it in a URL.",
+
+            // ADR-201 condition 2: when this sign-in set a second factor up, its recovery codes — once, here.
+            recoveryCodes = result.RecoveryCodes,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -1068,6 +1091,12 @@ internal static partial class AuthEndpoints
 
     /// <summary>The word in a refused sign-in's <c>details</c> that says the next try needs a code — ADR-201.</summary>
     private static readonly string[] SecondFactorDetail = ["secondFactor"];
+
+    /// <summary>What a client reads, in <c>details</c>, to know it is to set a second factor up — ADR-201 condition 2.</summary>
+    private static readonly string[] SecondFactorSetupDetail = ["secondFactorSetup"];
+
+    /// <summary>How an authenticator app names this server.</summary>
+    internal static string SecondFactorIssuer(HttpContext context) => $"Graticula ({context.Request.Host.Host})";
 
     private static Task Refuse(HttpContext context, int status, string message) =>
         Results.Json(new { error = new { code = status, message, details = Array.Empty<string>() } }, statusCode: status)

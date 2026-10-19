@@ -291,7 +291,10 @@ internal static class OgcRecordsEndpoints
             PortalQuery.Field(item, "tags") is IEnumerable<string> tags ? [.. tags] : [],
             Epoch(PortalQuery.Field(item, "created")),
             Epoch(PortalQuery.Field(item, "modified")),
-            entry.Service?.OgcAccessConstraints ?? entry.Coverage?.OgcAccessConstraints,
+            // The service's own OGC text, else the item's terms of use (owner decision 2026-10-19, OgcTerms).
+            (entry.Service?.OgcAccessConstraints ?? entry.Coverage?.OgcAccessConstraints) is { Length: > 0 } own
+                ? own
+                : Text(PortalQuery.Field(item, "licenseInfo")) is { } terms ? OgcTerms.AsText(terms) : null,
             links);
     }
 

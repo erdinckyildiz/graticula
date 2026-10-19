@@ -105,15 +105,24 @@ public sealed record MemberPage(IReadOnlyList<MemberListing> Members, int Total)
 /// a transfer moves the maps, a delete takes them with the account.
 /// </param>
 /// <param name="Documents">How many documents they own — ADR-188, held to the same two dispositions as a map.</param>
+/// <param name="RecycledEntries">
+/// Which of their deleted items wait in the recycle bin — ADR-203, owner decision 2026-10-19: nothing may be left
+/// owned by nobody, so the bin is held to the same two dispositions. A transfer hands it to the receiver, who may restore
+/// it; a delete empties it for good.
+/// </param>
 public readonly record struct MemberHoldings(
     IReadOnlyList<string> Services,
     IReadOnlyList<string> Folders,
     int Groups,
     int WebMaps = 0,
-    int Documents = 0)
+    int Documents = 0,
+    IReadOnlyList<Guid>? RecycledEntries = null)
 {
+    /// <summary>How many of their deleted items wait in the recycle bin.</summary>
+    public int Recycled => RecycledEntries?.Count ?? 0;
+
     /// <summary>Whether a removal has to ask what to do.</summary>
-    public bool Any => Services.Count > 0 || Folders.Count > 0 || Groups > 0 || WebMaps > 0 || Documents > 0;
+    public bool Any => Services.Count > 0 || Folders.Count > 0 || Groups > 0 || WebMaps > 0 || Documents > 0 || Recycled > 0;
 
     /// <summary>A sentence naming what is attached, for the refusal.</summary>
     public string Explanation
@@ -145,6 +154,11 @@ public readonly record struct MemberHoldings(
             if (Documents > 0)
             {
                 parts.Add($"{Documents} document(s)");
+            }
+
+            if (Recycled > 0)
+            {
+                parts.Add($"{Recycled} item(s) in the recycle bin");
             }
 
             return parts.Count == 0 ? "nothing" : string.Join("; ", parts);

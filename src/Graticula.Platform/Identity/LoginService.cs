@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Threading;
@@ -38,14 +40,35 @@ public enum LoginFailure
 
     /// <summary>The password was right and the second step was wrong, spent, or not this account's — ADR-201.</summary>
     SecondFactorInvalid,
+
+    /// <summary>
+    /// The password was right, the organisation requires a second factor of this member and they have none — ADR-201
+    /// condition 2. The result carries the secret to set one up with; the same request with a code from it signs in.
+    /// </summary>
+    SecondFactorSetupRequired,
 }
+
+/// <summary>A second factor being set up at sign-in: the secret, as text to type and as an <c>otpauth://</c> address.</summary>
+/// <param name="Secret">The secret, base32.</param>
+/// <param name="Address">The <c>otpauth://</c> address an authenticator app reads from a QR code.</param>
+public sealed record SecondFactorSetup(string Secret, string Address);
+
+/// <summary>The second step's outcome — ADR-201.</summary>
+/// <param name="Failure">Why it failed, or <see cref="LoginFailure.None"/>.</param>
+/// <param name="Setup">The secret to set one up with, when the organisation requires one and there is none yet.</param>
+/// <param name="RecoveryCodes">The recovery codes, once, when this sign-in completed setting one up.</param>
+public sealed record SecondStep(
+    LoginFailure Failure, SecondFactorSetup? Setup = null, IReadOnlyList<string>? RecoveryCodes = null);
 
 /// <summary>The outcome of a login attempt.</summary>
 /// <param name="Failure">Why it failed, or <see cref="LoginFailure.None"/>.</param>
 /// <param name="Token">The session token, on success. Returned once and never retrievable again.</param>
 /// <param name="Session">The session, on success.</param>
+/// <param name="Setup">The secret to set a second factor up with — <see cref="LoginFailure.SecondFactorSetupRequired"/>.</param>
+/// <param name="RecoveryCodes">The recovery codes, once, when this sign-in set a second factor up.</param>
 public readonly record struct LoginResult(
-    LoginFailure Failure, string? Token, AuthenticatedSession? Session)
+    LoginFailure Failure, string? Token, AuthenticatedSession? Session,
+    SecondFactorSetup? Setup = null, IReadOnlyList<string>? RecoveryCodes = null)
 {
     /// <summary>Whether it worked.</summary>
     public bool Succeeded => Failure == LoginFailure.None;
@@ -102,6 +125,9 @@ public sealed class LoginService
     /// <summary>The second step at sign-in — ADR-201; null where the store has none.</summary>
     private readonly SecondFactors? _secondFactors;
 
+    /// <summary>Whom the organisation requires a second factor of — ADR-201 condition 2; null for nobody.</summary>
+    private readonly SecondFactorPolicy? _secondFactorPolicy;
+
     /// <summary>Creates the service.</summary>
     /// <param name="store">Where identity lives.</param>
     /// <param name="hasher">The password hasher.</param>
@@ -110,6 +136,7 @@ public sealed class LoginService
     /// <param name="time">The clock. Injected so expiry is testable without waiting.</param>
     /// <param name="directory">The directories to ask for a name with no password here — ADR-089 — or null.</param>
     /// <param name="secondFactors">The second step at sign-in — ADR-201. Optional: without it nobody is asked for one.</param>
+    /// <param name="secondFactorPolicy">Whom the organisation requires one of — ADR-201 condition 2. Optional: nobody.</param>
     public LoginService(
         IIdentityStore store,
         IPasswordHasher hasher,
@@ -117,7 +144,8 @@ public sealed class LoginService
         TimeSpan sessionLifetime,
         TimeProvider time,
         IDirectorySignIn? directory = null,
-        SecondFactors? secondFactors = null)
+        SecondFactors? secondFactors = null,
+        SecondFactorPolicy? secondFactorPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(hasher);
@@ -132,6 +160,7 @@ public sealed class LoginService
         _time = time;
         _directory = directory;
         _secondFactors = secondFactors;
+        _secondFactorPolicy = secondFactorPolicy;
 
         // <b>A password nobody has and nobody can guess</b>, so the decoy can never accidentally
         // be the one somebody typed. Thirty-two random bytes; what matters is only that the
@@ -152,6 +181,7 @@ public sealed class LoginService
     /// </param>
     /// <param name="scope">
     /// <param name="code">The second step — a code from the app or a recovery code — for an account that has one (ADR-201).</param>
+    /// <param name="issuer">How an authenticator app names this server, when a second factor is set up at sign-in.</param>
     /// What the session may be used for — <see cref="SessionScopes"/> — or null for every surface.
     /// </param>
     /// <param name="boundTo">
@@ -193,7 +223,8 @@ public sealed class LoginService
         TimeSpan? lifetime = null,
         string? boundTo = null,
         string? scope = null,
-        string? code = null)
+        string? code = null,
+        string? issuer = null)
     {
         (LoginFailure failure, Principal? principal) =
             await VerifyAsync(name, password, address, cancellationToken).ConfigureAwait(false);
@@ -204,44 +235,65 @@ public sealed class LoginService
         }
 
         // ADR-201: the second step, after the password and before anything is issued.
-        failure = await SecondStepAsync(principal!, name, code, address, cancellationToken).ConfigureAwait(false);
+        SecondStep second = await SecondStepAsync(principal!, name, code, address, cancellationToken, issuer).ConfigureAwait(false);
 
-        if (failure != LoginFailure.None)
+        if (second.Failure != LoginFailure.None)
         {
-            return new LoginResult(failure, null, null);
+            return new LoginResult(second.Failure, null, null, second.Setup);
         }
 
         (string token, AuthenticatedSession session) = await IssueAsync(
             principal!, address, cancellationToken, lifetime, boundTo, scope).ConfigureAwait(false);
 
-        return new LoginResult(LoginFailure.None, token, session);
+        return new LoginResult(LoginFailure.None, token, session, RecoveryCodes: second.RecoveryCodes);
     }
 
     /// <summary>
-    /// The second step for a principal whose password was just proven — ADR-201: none when it has no second factor,
-    /// <see cref="LoginFailure.SecondFactorRequired"/> when it has one and no code was given, and a wrong code recorded
-    /// as a failed attempt, so the account and address limits that slow password guessing slow code guessing too.
+    /// The second step for a principal whose password was just proven — ADR-201: none when it has no second factor and
+    /// the organisation requires none of it; <see cref="LoginFailure.SecondFactorRequired"/> when it has one and no code
+    /// was given; <see cref="LoginFailure.SecondFactorSetupRequired"/>, with the secret, when the organisation requires one
+    /// it has not set up — and a code from that secret sets it up and signs in. A wrong code is recorded as a failed
+    /// attempt either way, so the account and address limits that slow password guessing slow code guessing too.
     /// </summary>
     /// <param name="principal">Who proved the password.</param>
     /// <param name="name">The name signed in with, under which attempts are counted.</param>
     /// <param name="code">The code, or null.</param>
     /// <param name="address">Where from.</param>
     /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>The failure, or none.</returns>
-    public async Task<LoginFailure> SecondStepAsync(
-        Principal principal, string name, string? code, IPAddress? address, CancellationToken cancellationToken)
+    /// <param name="issuer">How an authenticator app names this server, when one is set up here.</param>
+    /// <returns>The outcome.</returns>
+    public async Task<SecondStep> SecondStepAsync(
+        Principal principal, string name, string? code, IPAddress? address, CancellationToken cancellationToken,
+        string? issuer = null)
     {
         ArgumentNullException.ThrowIfNull(principal);
 
-        if (_secondFactors is null
-            || !await _secondFactors.RequiredAsync(principal.Id, cancellationToken).ConfigureAwait(false))
+        if (_secondFactors is null)
         {
-            return LoginFailure.None;
+            return new SecondStep(LoginFailure.None);
+        }
+
+        bool has = await _secondFactors.RequiredAsync(principal.Id, cancellationToken).ConfigureAwait(false);
+
+        if (!has && !await MustSetUpAsync(principal, name, cancellationToken).ConfigureAwait(false))
+        {
+            return new SecondStep(LoginFailure.None);
+        }
+
+        SecondFactorSetup? setup = null;
+
+        if (!has
+            && await _secondFactors.PendingOrBeginAsync(principal, issuer ?? "Graticula", cancellationToken).ConfigureAwait(false)
+                is { } pending)
+        {
+            setup = new SecondFactorSetup(pending.Secret, pending.Address);
         }
 
         if (string.IsNullOrWhiteSpace(code))
         {
-            return LoginFailure.SecondFactorRequired;
+            return has
+                ? new SecondStep(LoginFailure.SecondFactorRequired)
+                : new SecondStep(LoginFailure.SecondFactorSetupRequired, setup);
         }
 
         DateTimeOffset now = _time.GetUtcNow();
@@ -251,17 +303,51 @@ public sealed class LoginService
 
         if (_throttle.RefuseBeforeVerifying(counts))
         {
-            return LoginFailure.AddressThrottled;
+            return new SecondStep(LoginFailure.AddressThrottled, setup);
         }
 
-        if (await _secondFactors.VerifyAsync(principal.Id, code, cancellationToken).ConfigureAwait(false))
+        if (has)
         {
-            return LoginFailure.None;
+            if (await _secondFactors.VerifyAsync(principal.Id, code, cancellationToken).ConfigureAwait(false))
+            {
+                return new SecondStep(LoginFailure.None);
+            }
+        }
+        else if (await _secondFactors.ConfirmAsync(principal.Id, code, cancellationToken).ConfigureAwait(false) is { } recovery)
+        {
+            return new SecondStep(LoginFailure.None, RecoveryCodes: recovery);
         }
 
         await _store.RecordAttemptAsync(name, address, succeeded: false, cancellationToken).ConfigureAwait(false);
 
-        return _throttle.ThrottleAfterFailure(counts) ? LoginFailure.AccountThrottled : LoginFailure.SecondFactorInvalid;
+        return _throttle.ThrottleAfterFailure(counts)
+            ? new SecondStep(LoginFailure.AccountThrottled)
+            : new SecondStep(LoginFailure.SecondFactorInvalid, setup);
+    }
+
+    /// <summary>
+    /// Whether the organisation requires a second factor of this member — ADR-201 condition 2: a member with a password
+    /// here, when the requirement covers everyone, or covers administrators and they hold the role.
+    /// </summary>
+    private async Task<bool> MustSetUpAsync(Principal principal, string name, CancellationToken cancellationToken)
+    {
+        if (_secondFactorPolicy is null || principal.Kind != PrincipalKind.User)
+        {
+            return false;
+        }
+
+        SecondFactorRequirement requirement = await _secondFactorPolicy.ReadAsync(cancellationToken).ConfigureAwait(false);
+
+        if (requirement == SecondFactorRequirement.Off
+            || await _store.FindForLoginAsync(name, cancellationToken).ConfigureAwait(false) is not { Credential: not null })
+        {
+            return false;
+        }
+
+        return SecondFactorPolicy.Covers(requirement,
+            requirement == SecondFactorRequirement.Administrators
+            && (await _store.RolesOfAsync(principal.Id, cancellationToken).ConfigureAwait(false))
+                .Contains(Roles.Administrator, StringComparer.Ordinal));
     }
 
     /// <summary>

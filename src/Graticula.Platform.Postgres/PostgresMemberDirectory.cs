@@ -456,7 +456,9 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                    (select count(*) from item m
                      where m.owner_principal_id = p.id and m.kind = 'web map'),
                    (select count(*) from item d
-                     where d.owner_principal_id = p.id and d.kind = 'document')
+                     where d.owner_principal_id = p.id and d.kind = 'document'),
+                   coalesce((select array_agg(r.id) from recycle_entry r
+                              where r.owner_principal_id = p.id), '{}')
               from principal p
              where lower(p.name) = lower(@name)
             """;
@@ -477,7 +479,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             reader.GetFieldValue<string[]>(2),
             (int)reader.GetInt64(3),
             (int)reader.GetInt64(4),
-            (int)reader.GetInt64(5));
+            (int)reader.GetInt64(5),
+            reader.GetFieldValue<Guid[]>(6));
     }
 
     /// <inheritdoc/>
@@ -582,6 +585,10 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                         where lower(p.name) = lower(@name) and s.kind = 'service')
                      + (select count(*) from folder f
                          join principal p on p.id = f.owner_principal_id
+                        where lower(p.name) = lower(@name))
+                     -- The recycle bin is emptied by the caller, through the path that drops its tables and files.
+                     + (select count(*) from recycle_entry r
+                         join principal p on p.id = r.owner_principal_id
                         where lower(p.name) = lower(@name))
                 """;
 
@@ -728,16 +735,27 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                         returning 1),
 
                  -- <b>Saved web maps — ADR-079.</b> Their scope is untouched, so whoever could open
-                 -- one still can; only who may change it moves. The row cascades on the principal's
-                 -- delete, so a transfer that forgot this would have deleted them.
+                 -- one still can; only who may change it moves. The principal's delete takes the
+                 -- giver's maps with it (DeletePrincipalAsync), so a transfer that forgot this would
+                 -- have deleted them.
                  m as (update item set owner_principal_id = (select id from taker)
                         where owner_principal_id = (select id from giver) and kind = 'web map' returning 1),
 
                  -- <b>Documents — ADR-188</b>, as maps: their scope and groups are untouched.
                  d as (update item set owner_principal_id = (select id from taker)
-                        where owner_principal_id = (select id from giver) and kind = 'document' returning 1)
+                        where owner_principal_id = (select id from giver) and kind = 'document' returning 1),
+
+                 -- <b>What waits in the recycle bin — ADR-203, owner decision 2026-10-19</b>: nothing may be left owned
+                 -- by nobody. The entry changes hands so the receiver may see and restore it, and so does the owner kept
+                 -- inside its rows, which is what a restore writes back: left as the giver, it would point at nobody.
+                 r as (update recycle_entry set owner_principal_id = (select id from taker)
+                        where owner_principal_id = (select id from giver) returning 1),
+                 k as (update recycle_row
+                          set row = jsonb_set(row, '{owner_principal_id}', to_jsonb((select id from taker)))
+                        where row->>'owner_principal_id' = (select id from giver)::text returning 1)
             select (select count(*) from s) + (select count(*) from f)
                  + (select count(*) from g) + (select count(*) from m) + (select count(*) from d)
+                 + (select count(*) from r)
             """;
 
         // <b>The content folders first, so an item stays filed — 2026-10-16.</b> The items moved below and their
@@ -758,6 +776,21 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             select count(*) from s
             """;
 
+        // An item waiting in the recycle bin is filed too, in a folder whose id it keeps: one of the giver's copies about to
+        // go below would leave it filed nowhere, and its restore refused. It is refiled in the taker's folder of that title.
+        const string KeptFolders = """
+            with giver as (select id from principal where lower(name) = lower(@from)),
+                 taker as (select id from principal where lower(name) = lower(@to)),
+                 pairs as (select g.id as was, t.id as now
+                             from content_folder g
+                             join content_folder t on lower(t.title) = lower(g.title)
+                              and t.owner_principal_id = (select id from taker)
+                            where g.owner_principal_id = (select id from giver))
+            update recycle_row k set row = jsonb_set(k.row, '{content_folder_id}', to_jsonb(pairs.now))
+              from pairs
+             where k.row->>'content_folder_id' = pairs.was::text
+            """;
+
         // Then the giver's copies of those, now empty, and the giver's other folders change hands. Two statements:
         // a delete and an update of one table in one statement would see the same snapshot.
         const string Merged = """
@@ -773,7 +806,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
              where owner_principal_id = (select id from principal where lower(name) = lower(@from))
             """;
 
-        foreach (string step in new[] { Folders, Merged, Remaining })
+        foreach (string step in new[] { Folders, KeptFolders, Merged, Remaining })
         {
             await using NpgsqlCommand folders = connection.CreateCommand();
             folders.Transaction = transaction;
@@ -856,12 +889,73 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             await documents.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        await ForgetInRecycleBinAsync(connection, transaction, name, cancellationToken).ConfigureAwait(false);
+
         await using NpgsqlCommand command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "delete from principal where lower(name) = lower(@name)";
         command.Parameters.AddWithValue("name", name);
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Does to the recycle bin's kept rows what deleting the principal does to live ones — ADR-203, 2026-10-19.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>A kept row is a row the database cannot see.</b> Somebody else's deleted map keeps the removed member's
+    /// favourite of it (<c>item_favorite</c>, cascading) and the share they made (<c>item_group.shared_by</c>, set
+    /// null); restored as they were, each points at a principal that no longer exists, the foreign key refuses, and the
+    /// whole restore with it. So each is treated as the database would have treated it live: a cascading reference takes
+    /// its row, a nulling one is nulled.
+    /// </para>
+    /// <para>
+    /// <b>Read from the catalogue's own keys</b>, as the bin reads them, so a reference a later migration adds is
+    /// carried without anybody remembering it. The owner's references are gone by now: a transfer moved them and a delete
+    /// emptied the member's own entries first.
+    /// </para>
+    /// </remarks>
+    private static async Task ForgetInRecycleBinAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, string name, CancellationToken cancellationToken)
+    {
+        List<(string Table, string Column, char OnDelete)> references = [];
+
+        await using (NpgsqlCommand keys = connection.CreateCommand())
+        {
+            keys.Transaction = transaction;
+            keys.CommandText = """
+                select c.conrelid::regclass::text, a.attname::text, c.confdeltype::text
+                  from pg_constraint c
+                  join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+                 where c.contype = 'f' and c.confrelid = 'principal'::regclass and cardinality(c.conkey) = 1
+                   and c.confdeltype in ('c', 'n')
+                """;
+
+            await using NpgsqlDataReader reader = await keys.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                references.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2)[0]));
+            }
+        }
+
+        foreach ((string table, string column, char onDelete) in references)
+        {
+            await using NpgsqlCommand forget = connection.CreateCommand();
+            forget.Transaction = transaction;
+            forget.CommandText = (onDelete == 'c'
+                ? "delete from recycle_row k"
+                : "update recycle_row k set row = jsonb_set(k.row, array[@column], 'null'::jsonb)")
+                + """
+                 where k.table_name = @table
+                   and k.row->>@column = (select id::text from principal where lower(name) = lower(@name))
+                """;
+            forget.Parameters.AddWithValue("table", table);
+            forget.Parameters.AddWithValue("column", column);
+            forget.Parameters.AddWithValue("name", name);
+            await forget.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     /// <inheritdoc/>

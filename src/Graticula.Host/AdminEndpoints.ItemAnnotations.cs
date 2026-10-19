@@ -8,6 +8,7 @@ using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -48,6 +49,27 @@ internal static partial class AdminEndpoints
         app.MapDelete("/admin/item-categories/{id:guid}", DeleteItemCategoryAsync);
     }
 
+    /// <summary>
+    /// The catalogue item an id names: an image service's portal id as its service's item, otherwise the id itself.
+    /// </summary>
+    /// <remarks>
+    /// <b>An image service's portal id is derived from its coverage</b> (<see cref="PortalEndpoints.CoverageItemId"/>), and
+    /// is what a client holds — while its terms, categories and favourites are kept against its service's item, as the
+    /// portal's own JSON reads them. Asked first, because the derived id is 32 hex digits and parses as a GUID too. Found
+    /// 2026-10-19 by setting an image service's terms of use through the id its own document gives: 404.
+    /// </remarks>
+    private static async Task<Guid?> ItemIdOfAsync(HttpContext context, string id, CancellationToken cancellation)
+    {
+        if (context.RequestServices.GetService<ICoverageCatalog>() is { } coverages
+            && (await coverages.ListAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(c => string.Equals(PortalEndpoints.CoverageItemId(c), id, StringComparison.OrdinalIgnoreCase)) is { } image)
+        {
+            return image.ServiceId;
+        }
+
+        return Guid.TryParse(id, out Guid item) ? item : null;
+    }
+
     /// <summary>The item, when the caller may change it; otherwise refused, and null.</summary>
     private static async Task<Guid?> ManagedItemAsync(
         HttpContext context, string id, IItemAnnotationStore store, CancellationToken cancellation)
@@ -61,7 +83,7 @@ internal static partial class AdminEndpoints
         }
 
         // A 404 for an item that does not exist and for one the caller may not change alike, as elsewhere.
-        if (!Guid.TryParse(id, out Guid item)
+        if (await ItemIdOfAsync(context, id, cancellation).ConfigureAwait(false) is not { } item
             || await store.FindAsync(item, cancellation).ConfigureAwait(false) is not { } found
             || (found.Owner != current.Principal.Id && !current.Authorization.Allows(Privilege.AdminManageAllContent)))
         {
@@ -148,7 +170,7 @@ internal static partial class AdminEndpoints
         }
 
         // Marking is not reading: the item itself is still read through its own route, which applies its sharing.
-        if (!Guid.TryParse(id, out Guid item)
+        if (await ItemIdOfAsync(context, id, cancellation).ConfigureAwait(false) is not { } item
             || !await store.SetFavoriteAsync(current.Principal.Id, item, favorite, cancellation).ConfigureAwait(false))
         {
             await Refuse(context, 404, $"No item '{id}'.").ConfigureAwait(false);
@@ -171,10 +193,21 @@ internal static partial class AdminEndpoints
         IReadOnlyList<(Guid Item, string Kind, DateTimeOffset Added)> favorites =
             await store.FavoritesAsync(current.Principal.Id, cancellation).ConfigureAwait(false);
 
+        // An image service by the portal id a client holds, not its service's item (ItemIdOfAsync).
+        Dictionary<Guid, string> images = context.RequestServices.GetService<ICoverageCatalog>() is { } coverages
+            ? (await coverages.ListAsync(cancellation).ConfigureAwait(false))
+                .GroupBy(c => c.ServiceId).ToDictionary(g => g.Key, g => PortalEndpoints.CoverageItemId(g.First()))
+            : [];
+
         // Ids and kinds, not titles: an item whose sharing has since narrowed is read, or refused, by its own route.
         await Results.Json(new
         {
-            favorites = favorites.Select(f => new { id = f.Item.ToString("N"), kind = f.Kind, added = f.Added }),
+            favorites = favorites.Select(f => new
+            {
+                id = images.TryGetValue(f.Item, out string? image) ? image : f.Item.ToString("N"),
+                kind = f.Kind,
+                added = f.Added,
+            }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

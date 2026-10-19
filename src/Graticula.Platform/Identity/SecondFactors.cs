@@ -100,6 +100,34 @@ public sealed class SecondFactors
     }
 
     /// <summary>
+    /// The enrolment already under way, or a new one — for sign-in, where a member the organisation requires a second
+    /// factor of sets one up (ADR-201 §6 condition 2). Null when one is already on.
+    /// </summary>
+    /// <remarks>
+    /// <b>The same secret on every attempt until it is confirmed.</b> A fresh one per attempt would turn the code a
+    /// member's app shows into a wrong one each time the page is sent again — after a typo, or a reload — and the app
+    /// would hold a secret nothing accepts.
+    /// </remarks>
+    public async Task<(string Secret, string Address)?> PendingOrBeginAsync(
+        Principal principal, string issuer, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(principal);
+
+        if (await _store.FindAsync(principal.Id, cancellationToken).ConfigureAwait(false) is { } factor)
+        {
+            if (factor.Enabled)
+            {
+                return null;
+            }
+
+            string text = _protector.Unprotect(factor.SealedSecret, factor.KeyVersion);
+            return (text, Totp.Address(issuer, principal.Name, Base32Bytes(text)));
+        }
+
+        return await BeginAsync(principal, issuer, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Starts enrolling: the secret, as text to type and as an <c>otpauth://</c> address; null when a second factor is
     /// already on, which has to be removed first.
     /// </summary>

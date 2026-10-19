@@ -230,8 +230,9 @@ internal static class OAuthEndpoints
 
         // ADR-201: the second step, after the password and before a code is issued. The person is sent back to the form
         // with their name kept and told what is missing; the password is typed again, never carried in the page.
-        LoginFailure second = await login.SecondStepAsync(
-            principal!, name, form["code"].FirstOrDefault(), CallerAddress.Of(context), cancellation).ConfigureAwait(false);
+        LoginFailure second = (await login.SecondStepAsync(
+            principal!, name, form["code"].FirstOrDefault(), CallerAddress.Of(context), cancellation,
+            AuthEndpoints.SecondFactorIssuer(context)).ConfigureAwait(false)).Failure;
 
         if (second != LoginFailure.None)
         {
@@ -244,7 +245,10 @@ internal static class OAuthEndpoints
                     slowed ? "Too many failed sign-in attempts. Wait and try again."
                         : second == LoginFailure.SecondFactorRequired
                             ? "This account also asks for a code from its authenticator app, or a recovery code. Type your password again with the code."
-                            : "The code is incorrect or has been used. Type your password again with the code your app shows now.",
+                            // ADR-201 condition 2: a secret is set up where it can be shown, not in an application's window.
+                            : second == LoginFailure.SecondFactorSetupRequired
+                                ? "Your organisation requires a second factor, and this account has none yet. Sign in to Graticula in a browser once to set one up, then sign in here again."
+                                : "The code is incorrect or has been used. Type your password again with the code your app shows now.",
                     slowed ? 429 : 401,
                     typedName: name,
                     said: slowed ? "Too many invalid attempts. Please try again later." : "A verification code is required.")

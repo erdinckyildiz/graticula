@@ -2065,14 +2065,7 @@ internal static partial class AdminEndpoints
                 }
             }
 
-            // A table another service still publishes stays where it is: that service still reads it.
-            List<(string Table, bool View)> tables = [.. held
-                .Where(l => l.Definition.IsHosted && !all.Any(other => other.ServiceId != l.ServiceId
-                    && string.Equals(other.Definition.SchemaName, l.Definition.SchemaName, StringComparison.Ordinal)
-                    && string.Equals(other.Definition.TableName, l.Definition.TableName, StringComparison.Ordinal)
-                    && string.Equals(other.ConnectionString, l.ConnectionString, StringComparison.Ordinal)))
-                .Select(l => (l.Definition.TableName, isView))
-                .Distinct()];
+            List<(string Table, bool View)> tables = TablesOnlyItHolds(all, target.Id, isView);
 
             (Guid? entry, string? refused) = await recycle.RecycleServiceAsync(
                 target.Id, target.Name, target.Owner, context.Features.Get<RequestPrincipal>()!.Principal.Id, tables, cancellation)
@@ -7144,7 +7137,7 @@ internal static partial class AdminEndpoints
                     "Token not generated. Too many failed sign-in attempts. Wait and try again."),
                 // ADR-201: the password was right and the account asks for a second step, which a token request
                 // cannot carry. Said only after the password is proven.
-                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid => (
+                LoginFailure.SecondFactorRequired or LoginFailure.SecondFactorInvalid or LoginFailure.SecondFactorSetupRequired => (
                     StatusCodes.Status401Unauthorized,
                     "Token not generated. This account signs in with a second step, which a token request cannot carry. Sign in "
                     + "through the portal's sign-in page (OAuth), as ArcGIS Pro and the ArcGIS API for Python do; a "
@@ -10913,12 +10906,13 @@ internal static partial class AdminEndpoints
             groups = holdings.Groups,
             webMaps = holdings.WebMaps,
             documents = holdings.Documents,
+            recycled = holdings.Recycled,
             owns = holdings.Any,
             note = holdings.Any
                 ? $"This member owns {holdings.Explanation}. Removing them needs a decision: "
-                    + "transfer these to another member, and nothing stops serving; or delete them, "
-                    + "which unpublishes the layers and removes the services and folders with the "
-                    + "account."
+                    + "transfer these to another member, and nothing stops serving; or delete them for good, "
+                    + "which removes the services with their hosted tables and uploaded images, the folders "
+                    + "and what waits in their recycle bin, with the account."
                 : "This member owns nothing, so removing them takes nothing with it.",
 
             // <b>Named even at zero.</b> Groups are ADR-018's deferred sharing scope and have no
@@ -11011,10 +11005,13 @@ internal static partial class AdminEndpoints
     /// <c>?transferTo=x</c> moves it; <c>?deleteOwned=true</c> takes it along.
     /// </para>
     /// <para>
-    /// <b>The delete disposition goes through the unpublish path, not through SQL.</b> That path
-    /// purges a layer's tiles (a republished layer would otherwise serve the previous one's
-    /// pyramid) and it is the only place that knows to. Reaching for `delete from layer` here would
-    /// be the same behaviour in a second place, which is what D-46 is about.
+    /// <b>The delete disposition goes through the recycle bin and empties it at once, not through SQL</b> — owner
+    /// decision 2026-10-19: *"sahipsiz nesne olamaz"*. Until then it unpublished the layers and deleted the services, and
+    /// measured, that left a hosted layer's table in the datastore and an image service's uploaded files on disk, published
+    /// by nothing and owned by nobody. The bin's path is the one that knows what a service takes with it — its hosted
+    /// tables, its uploaded images, every row its keys reach — so deleting for good is setting aside and emptying, and
+    /// there is one description of a service's belongings rather than two. Tiles are purged here, as the service delete
+    /// does (D-46).
     /// </para>
     /// </remarks>
     private static async Task RemoveMemberAsync(
@@ -11023,7 +11020,12 @@ internal static partial class AdminEndpoints
         IMemberDirectory members,
         IAdminCatalog catalog,
         PostgresLayerCatalog layers,
+        ICoverageCatalog coverages,
+        ServiceContexts contexts,
         ITileCache tiles,
+        SourceQuiesce quiesce,
+        RecycleBinService recycle,
+        HostSettings settings,
         IAuditLog audit,
         IIdentityStore identity,
         CancellationToken cancellation)
@@ -11114,8 +11116,9 @@ internal static partial class AdminEndpoints
                 context, 409,
                 $"'{name}' owns {holdings.Explanation}, so this request did not say enough to be "
                 + "carried out. Either transfer it — DELETE with ?transferTo=<member>, and nothing "
-                + "stops serving — or take it along, with ?deleteOwned=true, which unpublishes the "
-                + "layers and removes the services and folders.").ConfigureAwait(false);
+                + "stops serving — or delete it for good, with ?deleteOwned=true, which removes the "
+                + "services with their hosted tables and uploaded images, the folders, and what waits "
+                + "in their recycle bin.").ConfigureAwait(false);
 
             return;
         }
@@ -11138,28 +11141,89 @@ internal static partial class AdminEndpoints
         }
         else if (deleteOwned && holdings.Any)
         {
-            // <b>Layers first, then services, then folders.</b> `layer.service_id` is `no action`,
-            // so a service still holding a layer refuses to go — which is the same refusal
-            // DeleteServiceAsync reports as Occupied, and the reason the order is not arbitrary.
-            foreach (string qualified in holdings.Services)
+            IReadOnlyList<PublishedLayer> all = await layers.ListAsync(cancellation).ConfigureAwait(false);
+            IReadOnlyList<PublishedService> services = await layers.ListServicesAsync(cancellation).ConfigureAwait(false);
+            HashSet<string> theirs = new(holdings.Services, StringComparer.Ordinal);
+
+            static string Qualified(PublishedService s) => string.IsNullOrEmpty(s.Folder) ? s.Name : $"{s.Folder}/{s.Name}";
+
+            // <b>Asked before anything goes.</b> A view another member owns reads one of these through PostgreSQL, and a
+            // hosted table on a quiesced database cannot be moved; either found halfway would leave half a removal.
+            foreach (PublishedService source in services.Where(s => s.HasViews && theirs.Contains(Qualified(s))))
+            {
+                string[] others = [.. services
+                    .Where(v => v.ViewOf == source.Id && !theirs.Contains(Qualified(v))).Select(v => $"'{Qualified(v)}'")];
+
+                if (others.Length > 0)
+                {
+                    await Refuse(context, 409,
+                        $"'{Qualified(source)}' has views other members own ({string.Join(", ", others)}). Delete or transfer "
+                        + "those first; nothing was removed.").ConfigureAwait(false);
+                    return;
+                }
+            }
+
+            foreach (PublishedLayer held in all.Where(l => l.Definition.IsHosted
+                && services.Any(s => s.Id == l.ServiceId && theirs.Contains(Qualified(s)))))
+            {
+                if (quiesce.Holding(held.ConnectionString) is { } outOfService)
+                {
+                    throw new SourceQuiescedException(SourceQuiesce.Says(outOfService), outOfService.Until);
+                }
+            }
+
+            Guid by = current.Principal.Id;
+
+            // Views before their sources: a source's restricting key holds while a view of it is there.
+            foreach (string qualified in holdings.Services
+                .OrderBy(q => services.FirstOrDefault(s => Qualified(s) == q)?.ViewOf is null ? 1 : 0))
             {
                 (string? folder, string bare) = SplitQualified(qualified);
+                (Guid? entry, string? refused) = (null, null);
 
-                if (await layers.FindServiceAsync(folder, bare, cancellation)
-                        .ConfigureAwait(false) is { } service)
+                if (await coverages.FindAsync(folder, bare, cancellation).ConfigureAwait(false) is { } coverage)
                 {
-                    foreach (PublishedLayer held in service.Layers)
+                    List<string> files = CoverageAdminEndpoints.Uploaded(settings, coverage.Path)
+                        ? CoverageAdminEndpoints.UploadedFilesOf(coverage.Path)
+                        : [];
+                    (entry, refused) = await recycle.RecycleCoverageAsync(
+                        coverage.ServiceId, qualified, coverage.Owner, by, files, cancellation).ConfigureAwait(false);
+                }
+                else if (services.FirstOrDefault(s => Qualified(s) == qualified) is { } service)
+                {
+                    (entry, refused) = await recycle.RecycleServiceAsync(
+                        service.Id, qualified, service.Owner, by, TablesOnlyItHolds(all, service.Id, service.ViewOf is not null),
+                        cancellation).ConfigureAwait(false);
+
+                    foreach (PublishedLayer held in all.Where(l => l.ServiceId == service.Id && entry is not null))
                     {
-                        if (await catalog.UnpublishLayerAsync(held.Id, cancellation)
-                                .ConfigureAwait(false))
-                        {
-                            tiles.Purge(held.Id);
-                            unpublished++;
-                        }
+                        contexts.Forget(held);
+                        tiles.Purge(held.Id);
+                        unpublished++;
                     }
                 }
+                else
+                {
+                    // A service of a kind neither catalogue lists has no tables or files of its own: its rows are all.
+                    await catalog.DeleteServiceAsync(bare, folder, cancellation).ConfigureAwait(false);
+                    continue;
+                }
 
-                await catalog.DeleteServiceAsync(bare, folder, cancellation).ConfigureAwait(false);
+                if (entry is null)
+                {
+                    await Refuse(context, 409,
+                        $"'{qualified}' could not be deleted, so '{name}' was kept: {refused} Any service listed before it "
+                        + "in the member's holdings is already gone.").ConfigureAwait(false);
+                    return;
+                }
+
+                await EmptyFromRecycleBinAsync(recycle, entry.Value, cancellation).ConfigureAwait(false);
+            }
+
+            // And what was already waiting in their bin: nobody would be left who may restore it.
+            foreach (Guid waiting in holdings.RecycledEntries ?? [])
+            {
+                await EmptyFromRecycleBinAsync(recycle, waiting, cancellation).ConfigureAwait(false);
             }
 
             foreach (string folder in holdings.Folders)
@@ -11210,6 +11274,7 @@ internal static partial class AdminEndpoints
                 folders = holdings.Folders.Count,
                 webMaps = holdings.WebMaps,
                 documents = holdings.Documents,
+                recycled = holdings.Recycled,
                 unpublished,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
@@ -11225,9 +11290,32 @@ internal static partial class AdminEndpoints
                 : holdings.Any
                     ? $"'{name}' is gone, with {unpublished} layer(s) unpublished and "
                         + $"{holdings.Services.Count} service(s), {holdings.Folders.Count} "
-                        + $"folder(s), {holdings.WebMaps} web map(s) and {holdings.Documents} document(s) removed."
+                        + $"folder(s), {holdings.WebMaps} web map(s), {holdings.Documents} document(s) and "
+                        + $"{holdings.Recycled} recycle bin item(s) removed for good."
                     : $"'{name}' is gone. They owned nothing.",
         }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The hosted tables a service alone publishes — what deleting it takes from the datastore. A table another service
+    /// still publishes stays where it is: that service still reads it.
+    /// </summary>
+    private static List<(string Table, bool View)> TablesOnlyItHolds(IReadOnlyList<PublishedLayer> all, Guid serviceId, bool isView) =>
+        [.. all
+            .Where(l => l.ServiceId == serviceId && l.Definition.IsHosted && !all.Any(other => other.ServiceId != serviceId
+                && string.Equals(other.Definition.SchemaName, l.Definition.SchemaName, StringComparison.Ordinal)
+                && string.Equals(other.Definition.TableName, l.Definition.TableName, StringComparison.Ordinal)
+                && string.Equals(other.ConnectionString, l.ConnectionString, StringComparison.Ordinal)))
+            .Select(l => (l.Definition.TableName, isView))
+            .Distinct()];
+
+    /// <summary>Empties one entry from the recycle bin for good, if it is still there.</summary>
+    private static async Task EmptyFromRecycleBinAsync(RecycleBinService recycle, Guid entry, CancellationToken cancellation)
+    {
+        if (await recycle.Bin.FindAsync(entry, cancellation).ConfigureAwait(false) is { } waiting)
+        {
+            await recycle.PurgeAsync(waiting, cancellation).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Splits a qualified service name into its folder and its name.</summary>

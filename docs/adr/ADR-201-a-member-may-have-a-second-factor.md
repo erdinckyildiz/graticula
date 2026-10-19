@@ -71,8 +71,8 @@ they need a key. The rollback cost above.
 ## 6. Conditions
 
 1. **ArcGIS Pro signs a member with a second factor in** through this server's OAuth page, in its own window.
-2. **An organisation may require it** — for administrators at least — as a setting; not built ([D-304](../architecture-debt.md)).
-3. **A screen to turn it on** in the redesigned Studio profile — D-304.
+2. **An organisation may require it** — for administrators at least — as a setting; not built ([D-304](../architecture-debt.md)). **DISCHARGED 2026-10-19**, the same day as its screens. *(The setting and its enforcement are built — `/admin/security/second-factor`, `off`, `administrators` or `everyone`, **off unless an administrator turns it on, by owner decision of the same day**, because it ends sign-in by password alone for whoever it covers and an API key cannot administer. A covered member with a password here and no factor is answered `secondFactorSetup` with the secret after the password, the same secret on every attempt, and the same request with a code from it sets one up and signs in, answering the recovery codes once; the HTML sign-in page and the OAuth page, which cannot show a secret, send them to the console once. Nobody is signed out by turning it on. `AnOrganisationMayRequireASecondFactorTests`. **Left:** the screens — the setting under Organization, the setup step in the console's sign-in, a profile page to turn one on — which the owner gave to the `ux-designer` agent, D-304 — built the same day: the setup step at the console's sign-in, the requirement under Organization › Settings › Security, and a notice for an administrator without one. `SecondFactorScreensTests`.)*
+3. **A screen to turn it on** in the redesigned Studio profile — D-304. **DISCHARGED 2026-10-19:** My profile › Security turns it on and off, by the `ux-designer` agent at the owner's request (`SecondFactorScreensTests`).
 
 ## 7. Dependencies
 

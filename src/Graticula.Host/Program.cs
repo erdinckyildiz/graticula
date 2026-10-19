@@ -870,11 +870,15 @@ public static class Program
             settings.SessionLifetime,
             services.GetRequiredService<TimeProvider>(),
             services.GetRequiredService<Graticula.Host.Ldap.LdapDirectory>(),
-            services.GetRequiredService<SecondFactors>()));
+            services.GetRequiredService<SecondFactors>(),
+            services.GetRequiredService<SecondFactorPolicy>()));
+
+        // ADR-201 condition 2: whom the organisation requires one of — nobody unless an administrator says so.
+        builder.Services.AddSingleton(services => new SecondFactorPolicy(services.GetRequiredService<IServerSettingStore>()));
 
         // ADR-201: a second step at sign-in for a member who turned one on.
-        builder.Services.AddSingleton<ISecondFactorStore>(services =>
-            new PostgresSecondFactorStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => new PostgresSecondFactorStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<ISecondFactorStore>(services => services.GetRequiredService<PostgresSecondFactorStore>());
         builder.Services.AddSingleton(services => new SecondFactors(
             services.GetRequiredService<ISecondFactorStore>(),
             services.GetRequiredService<SecretProtector>(),
@@ -2628,6 +2632,10 @@ public static class Program
                         // ADR-201: the password was right, and the account asks for a code.
                         "code" => "Your name and password were right. This account also asks for a code from its "
                             + "authenticator app, or a recovery code: type the password again with the code.",
+                        // ADR-201 condition 2: required and not set up. A secret is never put in an address, so it is set
+                        // up where the page keeps the password while the app is scanned.
+                        "setup" => "Your name and password were right. Your organisation requires a second factor, and "
+                            + "this account has none yet: sign in to the console once (/) to set one up, then come back.",
                         _ => "The name or password is incorrect.",
                     },
 

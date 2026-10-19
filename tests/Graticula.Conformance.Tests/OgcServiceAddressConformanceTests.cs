@@ -173,6 +173,28 @@ public sealed class OgcServiceAddressConformanceTests : ArcGisClient
             (_, _, byte[] back) = await GetAsync(root, token!, "/wms?service=WMS&request=GetCapabilities&version=1.3.0");
             Assert.Contains($"hosted/{name}", LayerNames(back));
 
+            // Owner decision 2026-10-19: with no OGC text of its own, a service's documents carry its item's terms of use,
+            // as text. Until then they said nothing, and a QGIS reader was never told what the portal showed.
+            (_, _, byte[] about) = await GetAsync(root, token!, $"/rest/services/hosted/{name}/ImageServer?f=json");
+            string item = JsonDocument.Parse(about).RootElement.GetProperty("serviceItemId").GetString()!;
+            using (HttpRequestMessage license = new(HttpMethod.Put, $"{root}/content/items/{item}/license")
+            {
+                Content = new StringContent("""{"licenseInfo":"<p>Internal use <b>only</b></p>"}""", System.Text.Encoding.UTF8, "application/json"),
+            })
+            {
+                license.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using HttpResponseMessage set = await Http.SendAsync(license);
+                Assert.Equal(HttpStatusCode.OK, set.StatusCode);
+            }
+
+            (_, _, byte[] inherited) = await GetAsync(root, token!, $"{own}?service=WMS&request=GetCapabilities&version=1.3.0");
+            Assert.Equal("Internal use only", XDocument.Parse(System.Text.Encoding.UTF8.GetString(inherited)).Descendants()
+                .First(e => e.Name.LocalName == "AccessConstraints").Value);
+            (_, _, byte[] wcs10) = await GetAsync(root, token!,
+                $"/rest/services/hosted/{name}/ImageServer/WCSServer?service=WCS&request=GetCapabilities&version=1.0.0");
+            Assert.Equal("Internal use only", XDocument.Parse(System.Text.Encoding.UTF8.GetString(wcs10)).Descendants()
+                .First(e => e.Name.LocalName == "accessConstraints").Value);
+
             // ADR-167: the fees and access constraints its owner states are in its own WMS document, and nowhere else.
             using (HttpRequestMessage terms = new(HttpMethod.Put, $"{root}/admin/services/{name}/ogc/terms?folder=hosted")
             {

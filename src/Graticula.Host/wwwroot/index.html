@@ -223,6 +223,12 @@
       from the address; the address is kept, so signing in opens it.
     -->
     <p class="signin-for" id="signinFor" role="status" aria-live="polite" hidden></p>
+    <!--
+      <b>The first step's fields, in one box so the two steps after it can stand in their place</b> (ADR-201
+      condition 2). They are hidden, not emptied, while a second factor is being set up: the setup is finished by
+      sending the same name and password again with a code, which is what this form already did for a code.
+    -->
+    <div id="signinCreds">
     <!-- ADR-088: a way in through each provider the operator configured, filled in when this panel is shown. -->
     <div id="signinProviders" hidden></div>
     <label for="u">Name</label>
@@ -241,7 +247,10 @@
     <!-- ADR-201: shown when the server says this account asks for a second step. -->
     <div id="signinCodeRow" hidden>
       <label for="signinCode">Code from your authenticator app</label>
-      <input id="signinCode" type="text" inputmode="numeric" autocomplete="one-time-code">
+      <input id="signinCode" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false"
+        aria-describedby="signinCodeHint">
+      <!-- A recovery code is the way in without the phone, and the field takes one; it has to say so. -->
+      <p class="hint" id="signinCodeHint">The 6 digits the app shows now, or one of your recovery codes.</p>
     </div>
     <label class="keep"><input type="checkbox" id="keep"> Keep me signed in</label>
     <button class="primary" id="go" type="submit">Sign in</button>
@@ -265,6 +274,35 @@
       a sign-in form for no stated reason.
     -->
     <p class="hint" id="signinCookie" style="margin-top:14px" hidden></p>
+    </div>
+    <!--
+      <b>The second step, when the organisation requires one and this account has none</b> — ADR-201 condition 2.
+      The server answered the right password with a secret instead of a session; a code from it, sent with the same
+      name and password, sets the factor up and signs in. Filled by console.js (`signinSetupShow`), because the
+      secret arrives with the answer. The secret is never put in an address: the otpauth link is the app's own.
+    -->
+    <div id="signinSetup" hidden>
+      <h3 class="sfstep-title" id="signinSetupTitle" tabindex="-1">Set up two-step sign-in</h3>
+      <p class="sflede" id="signinSetupWho"></p>
+      <div id="signinSetupKey"></div>
+      <label class="sfsteplabel" for="signinSetupCode"><span class="sfnum" aria-hidden="true">2</span>Enter the 6-digit
+        code the app shows</label>
+      <input id="signinSetupCode" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false"
+        maxlength="9" aria-describedby="signinSetupError signinSetupCodeHint">
+      <p class="hint" id="signinSetupCodeHint">It changes every 30 seconds; use the one showing now.</p>
+      <p class="signin-refused" id="signinSetupError" role="alert" hidden></p>
+      <button class="primary" id="signinSetupGo" type="submit">Verify and sign in</button>
+      <button type="button" class="forgot" id="signinSetupBack">Sign in as somebody else</button>
+    </div>
+    <!--
+      <b>The recovery codes, once.</b> The session already exists when these are shown; the console opens only when
+      the reader says they have kept them, because nothing will show them again.
+    -->
+    <div id="signinRecovery" hidden>
+      <h3 class="sfstep-title" id="signinRecoveryTitle" tabindex="-1">Save your recovery codes</h3>
+      <div id="signinRecoveryCodes"></div>
+      <button class="primary" id="signinRecoveryGo" type="button" disabled>Continue to Graticula</button>
+    </div>
     </div>
     <!--
       <b>A way forward that needs no account.</b> A stranger who followed a link here has nothing to type into the
@@ -303,6 +341,21 @@
 <!-- tabindex="-1" so it can be given focus when a panel closes and the control that opened
      it has gone with the redraw. Not reachable by Tab; reachable by script. D-93. -->
 <main class="wrap" id="app" tabindex="-1" style="display:none">
+
+  <!--
+    <b>An administrator who signs in with a password alone is told, once per session, on every screen</b> — ADR-201,
+    promised to the owner with the requirement left off by default. One line above the page rather than a dialog or a
+    toast: it must not stand between an administrator and the work they came to do, and a toast is gone before it is
+    read. Dismissed for the session only, so the next sign-in asks again. Shown by `drawFactorNotice` to an
+    administrator whose own account could have a factor here and has none; nobody else ever sees it.
+  -->
+  <div class="factornotice" id="factorNotice" role="note" aria-label="Two-step sign-in" hidden>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3z"/><path d="M12 8v5M12 16.5v.01"/></svg>
+    <p id="factorNoticeText"></p>
+    <a id="factorNoticeGo" href="/studio/">Set it up</a>
+    <button type="button" class="tiny ghost" id="factorNoticeHide">Not now</button>
+  </div>
 
   <!-- ------------------------------------------------------------ services -->
   <!-- ------------------------------------------------- SERVER · services -->
@@ -1537,6 +1590,44 @@
         <p>How people sign in to this organization, and which apps may sign them in.</p>
       </div>
     </div>
+    <!--
+      <b>ADR-201 condition 2: whom the organisation requires a second factor of.</b> Off by the owner's decision of
+      2026-10-19, and turning it on is asked about first, because it ends signing in by password alone for everyone it
+      covers — scripts included — and that is the part an administrator does not see from a sign-in page. Drawn only
+      for a reader with admin:manageSecurity (`loadSecondFactorRequirement`); the server refuses anybody else.
+    -->
+    <div id="sfRequireCard" hidden>
+      <div class="pagehead sub">
+        <div>
+          <h3 id="sfRequireTitle" tabindex="-1">Two-step sign-in</h3>
+          <p>Whether members must enter a code from an authenticator app, as well as their password, to sign in.</p>
+        </div>
+        <div class="right"><span class="pill" id="sfRequireNow"></span></div>
+      </div>
+      <div class="panel pad settingcard" id="sfRequireBody">
+        <fieldset class="pickset" id="sfRequirePick" aria-describedby="sfRequireCost">
+          <legend>Require it of</legend>
+        </fieldset>
+        <div class="consequence" id="sfRequireCost"></div>
+        <div class="sfactions">
+          <button type="button" class="primary" id="sfRequireSave" disabled>Save</button>
+          <span class="val" id="sfRequireSays" role="status" aria-live="polite"></span>
+        </div>
+        <div id="sfAsked" role="region" aria-labelledby="sfAskedTitle" hidden></div>
+      </div>
+    </div>
+    <dialog id="sfRequireDialog" class="formdialog" aria-labelledby="sfRequireDialogTitle">
+      <header class="dialoghead">
+        <h3 id="sfRequireDialogTitle">Require two-step sign-in?</h3>
+        <button type="button" class="tiny ghost" id="sfRequireDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody" id="sfRequireDialogBody"></div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="sfRequireCancel">Cancel</button>
+        <button type="button" class="primary" id="sfRequireConfirm">Require it</button>
+      </footer>
+    </dialog>
     <div class="pagehead sub">
       <div>
         <h3 id="idpTitle" tabindex="-1">Sign-in</h3>
@@ -1794,6 +1885,17 @@
         <p class="val" id="profileSub"></p>
       </div>
       <div id="profileBody"></div>
+      <!--
+        <b>Security — ADR-201: a member's own second factor</b>, and for whoever manages members, removing somebody
+        else's who lost it. Its own box rather than part of #profileBody, because Save profile redraws that one and
+        would take a setup in progress with it.
+      -->
+      <section class="profilesec" id="profileSecurity" aria-labelledby="pfSecTitle" hidden>
+        <h3 id="pfSecTitle" tabindex="-1">Security</h3>
+        <div id="pfSecond"></div>
+        <!-- Outside the redrawn box, so what just happened is still said after the box is drawn again. -->
+        <p class="val sfdone" id="pfSecondSays" role="status" aria-live="polite"></p>
+      </section>
     </div>
   </section>
 

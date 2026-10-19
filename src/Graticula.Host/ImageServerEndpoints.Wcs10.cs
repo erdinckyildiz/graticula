@@ -101,6 +101,9 @@ internal static partial class ImageServerEndpoints
             .InWgs84Async(projector, [.. visible.Select(c => (c.Info.Srid, (Envelope?)c.Info.Extent))], cancellation).ConfigureAwait(false);
         string endpoint = WcsEndpoint(context);
 
+        // At a service's own address, what it says of itself, as 2.0's document does (ADR-167); "NONE" at /wcs.
+        PublishedCoverage? own = context.Items.ContainsKey(WcsScopeKey) ? visible.FirstOrDefault() : null;
+
         await WcsXmlAsync(context, async w =>
         {
             await w.WriteStartDocumentAsync().ConfigureAwait(false);
@@ -115,8 +118,9 @@ internal static partial class ImageServerEndpoints
             w.WriteStartElement("Service", Wcs10);
             w.WriteElementString("name", Wcs10, "WCS");
             w.WriteElementString("label", Wcs10, "Graticula");
-            w.WriteElementString("fees", Wcs10, "NONE");
-            w.WriteElementString("accessConstraints", Wcs10, "NONE");
+            w.WriteElementString("fees", Wcs10, own?.OgcFees is { Length: > 0 } fees ? fees : "NONE");
+            w.WriteElementString("accessConstraints", Wcs10,
+                (own is null ? null : OgcTerms.AccessConstraints(context, own.ServiceId, own.OgcAccessConstraints)) ?? "NONE");
             w.WriteEndElement();
 
             w.WriteStartElement("Capability", Wcs10);

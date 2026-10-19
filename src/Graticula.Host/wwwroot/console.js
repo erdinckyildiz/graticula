@@ -91,6 +91,10 @@ async function api(path, options = {}) {
     // a mistake with one fix.
     failure.status = response.status;
     failure.details = (body && body.error && body.error.details) || [];
+
+    // <b>The rest of the answer, for a refusal that carries more than a sentence.</b> ADR-201 condition 2: a sign-in
+    // the organisation requires a second factor of is refused *with the secret to set one up*, beside the error.
+    failure.body = body;
     throw failure;
   }
   return body;
@@ -337,6 +341,9 @@ let groupFilter = "";
 
 /** Who is signed in, set by `whoami` and read only by *Leave group*. */
 let signedInAs = "";
+
+/** The whole of `whoami`'s last answer — its roles decide whether the second-factor notice is drawn (ADR-201). */
+let whoNow = null;
 
 /** The names the Groups list was given, so New group can say a name is taken before it is sent. */
 let groupNamesKnown = [];
@@ -1364,6 +1371,180 @@ let idpMappingsInvalid = null;
 
 /** A provider whose Groups open when Sign-in is next drawn — from a member's "change on Sign-in". */
 let idpGroupsOpenName = null;
+
+/* ------------------------------------------- Organization › Settings › Security: two-step sign-in (ADR-201) */
+
+/** The requirement as the server last said it, and the signed-in administrator's own factor, for the dialog. */
+let sfRequirement = null;
+let sfRequirementMine = null;
+
+/** The three answers, in order of how much they ask; the order is what tells tightening from loosening. */
+const SF_CHOICES = [
+  ["off", "Nobody", "Members choose for themselves, on their profile. Signing in with a password alone keeps working."],
+  ["administrators", "Administrators", "Every member with the administrator role signs in with a code."],
+  ["everyone", "Everyone", "Every member with a password on this server signs in with a code."],
+];
+const sfRank = value => SF_CHOICES.findIndex(([v]) => v === value);
+const sfLabel = value => (SF_CHOICES.find(([v]) => v === value) || [, value])[1];
+
+/** Drawn only for a reader with admin:manageSecurity; the server refuses anybody else, so nobody else is asked. */
+async function loadSecondFactorRequirement() {
+  const card = $("sfRequireCard");
+  card.hidden = !may("admin:manageSecurity");
+  if (card.hidden) return;
+
+  [sfRequirement, sfRequirementMine] = await Promise.all([
+    api("/admin/security/second-factor"),
+    api("/rest/auth/second-factor").catch(() => null),
+  ]);
+  drawSecondFactorRequirement();
+}
+
+function drawSecondFactorRequirement(focus) {
+  const now = sfRequirement.required;
+  const pill = $("sfRequireNow");
+  pill.className = `pill ${now === "off" ? "p-off" : "p-on"}`;
+  pill.textContent = now === "off" ? "Not required" : `Required: ${sfLabel(now).toLowerCase()}`;
+
+  $("sfRequirePick").innerHTML = `<legend>Require it of</legend>` + SF_CHOICES.map(([v, label, lede]) => `
+    <label class="pickrow"><input type="radio" name="sfRequirePick" value="${v}"${v === now ? " checked" : ""}>
+      <span><b>${h(label)}${v === now ? ` <span class="val">current</span>` : ""}</b>
+        <span class="lede">${h(lede)}</span></span></label>`).join("");
+
+  drawSecondFactorCost();
+  drawSecondFactorAsked();
+  if (focus) $(focus)?.focus();
+}
+
+/** The value the radio rows hold now. */
+const sfPicked = () => document.querySelector('input[name="sfRequirePick"]:checked')?.value || sfRequirement?.required;
+
+/** What the chosen answer costs, under the choices and over Save — and whether there is anything to save. */
+function drawSecondFactorCost() {
+  const picked = sfPicked();
+  const cost = $("sfRequireCost");
+  $("sfRequireSave").disabled = picked === sfRequirement.required;
+
+  if (picked === "off") {
+    cost.className = "consequence";
+    cost.innerHTML = "Nobody is required to use it. A member can still turn it on for themselves from their profile.";
+    return;
+  }
+
+  cost.className = "consequence lowers";
+  // Before saving it is what will change; once saved, the same list is what holds now.
+  cost.innerHTML = `<b>${picked === sfRequirement.required ? "What this means" : "What changes"} for ${
+    picked === "everyone" ? "every member" : "every administrator"} it covers</b>
+    <ul>
+      <li>Signing in asks for a code from an authenticator app. Anybody without one sets it up at their next sign-in,
+        in this console.</li>
+      <li>Signing in with a password alone stops: scripts, <code>generateToken</code> and HTTP Basic requests made as
+        them are refused. Scripts need an API key instead.</li>
+      <li>An API key cannot administer, so administering always takes a person who signed in with a code.</li>
+      <li>Nobody is signed out now; sessions already open run to their end. Members who sign in through an identity
+        provider or a directory are not covered: their second step is set there.</li>
+    </ul>`;
+}
+
+/** Who will be asked to set one up at their next sign-in — the answer's `askedAtNextSignIn`, as links to them. */
+function drawSecondFactorAsked() {
+  const box = $("sfAsked");
+  const now = sfRequirement.required;
+  if (now === "off") { box.hidden = true; box.innerHTML = ""; return; }
+
+  const names = sfRequirement.askedAtNextSignIn || [];
+  const shown = names.slice(0, 60);
+  box.hidden = false;
+  box.innerHTML = names.length === 0
+    ? `<h4 id="sfAskedTitle">Asked to set it up at their next sign-in</h4>
+       <p class="hint">Nobody. Every ${now === "everyone" ? "member" : "administrator"} it covers already has two-step
+         sign-in.</p>`
+    : `<h4 id="sfAskedTitle">Asked to set it up at their next sign-in <span class="val">${num(names.length)}</span></h4>
+       <p class="hint">They have no second factor yet. Signing in by password alone already stopped for them; their next
+         sign-in in this console walks them through setting one up. Tell them to have their phone ready.</p>
+       <ul class="sfasked">${shown.map(n => `<li><a href="/studio/user/${encodeURIComponent(n)}">${h(n)}</a>${
+         n === signedInAs ? ` <span class="val">you</span>` : ""}</li>`).join("")}</ul>
+       ${names.length > shown.length ? `<p class="hint">And ${num(names.length - shown.length)} more.</p>` : ""}`;
+}
+
+/** Sends the choice, and says what it did. */
+async function saveSecondFactorRequirement(required) {
+  const save = $("sfRequireSave");
+  save.disabled = true;
+  save.setAttribute("aria-busy", "true");
+  $("sfRequireSays").textContent = "Saving…";
+  try {
+    sfRequirement = await api("/admin/security/second-factor", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ required }),
+    });
+    drawSecondFactorRequirement();
+    const n = (sfRequirement.askedAtNextSignIn || []).length;
+    $("sfRequireSays").textContent = required === "off"
+      ? "Saved. Nobody is required to use two-step sign-in."
+      : `Saved. ${sfLabel(required)} now sign in with a code${n ? `; ${num(n)} will be asked to set one up` : ""}.`;
+    drawFactorNotice();
+
+    // Focus stays on the control that was used; the rows were redrawn under it.
+    document.querySelector('input[name="sfRequirePick"]:checked')?.focus();
+  } catch (e) {
+    $("sfRequireSays").textContent = e.message || String(e);
+    save.disabled = false;
+  } finally {
+    save.removeAttribute("aria-busy");
+  }
+}
+
+/** Tightening is asked about first, in a dialog that says what stops; loosening is saved as it is. */
+function askSecondFactorRequirement() {
+  const picked = sfPicked();
+  if (sfRank(picked) <= sfRank(sfRequirement.required)) {
+    saveSecondFactorRequirement(picked);
+    return;
+  }
+
+  const who = picked === "everyone" ? "every member" : "every administrator";
+  const mine = sfRequirementMine;
+  $("sfRequireDialogTitle").textContent = `Require two-step sign-in of ${picked === "everyone" ? "everyone" : "administrators"}?`;
+  $("sfRequireDialogBody").innerHTML = `
+    <p style="margin-top:0">From now on, ${who} with a password on this server signs in with a code from an
+      authenticator app as well.</p>
+    <p class="consequence lowers"><b>Scripts and integrations that sign in as them with a password alone stop working
+      now</b> — <code>generateToken</code>, HTTP Basic, and anything else that sends a name and password. Move them to
+      an API key before you go on.</p>
+    ${mine && mine.available && !mine.enabled ? `<p><b>You do not have two-step sign-in yet.</b> This session keeps
+      working; your next sign-in asks you to set it up, so have your phone ready. Or set it up now on
+      <a href="/studio/user/${encodeURIComponent(signedInAs)}?security">your profile</a>.</p>` : ""}`;
+  $("sfRequireConfirm").textContent = `Require it of ${picked === "everyone" ? "everyone" : "administrators"}`;
+  $("sfRequireDialog").dataset.picked = picked;
+  $("sfRequireDialog").showModal();
+
+  // Cancel takes the focus: the dialog exists to make the reader read before they confirm.
+  $("sfRequireCancel").focus();
+}
+
+document.addEventListener("change", event => {
+  if (event.target instanceof HTMLInputElement && event.target.name === "sfRequirePick") {
+    $("sfRequireSays").textContent = "";
+    drawSecondFactorCost();
+  }
+});
+
+document.addEventListener("click", event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t) return;
+  if (t.id === "sfRequireSave") askSecondFactorRequirement();
+  if (t.id === "sfRequireCancel" || t.id === "sfRequireDialogClose") $("sfRequireDialog").close();
+  if (t.id === "sfRequireConfirm") {
+    const picked = $("sfRequireDialog").dataset.picked;
+    $("sfRequireDialog").close();
+    saveSecondFactorRequirement(picked);
+  }
+});
+
+/** Closing the dialog, by any of its ways, gives the focus back to Save, which opened it. */
+$("sfRequireDialog")?.addEventListener("close", () => {
+  if (!$("sfRequireSave").disabled) $("sfRequireSave").focus();
+});
 
 async function loadSignin() {
   idpSay("");
@@ -3042,6 +3223,7 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "signin") {
+    section("two-step sign-in", loadSecondFactorRequirement);
     section("sign-in providers", loadSignin, "idpRows");
     section("apps", loadApps, "appRows").then(() => { if (appsAsked) $("appsTitle")?.scrollIntoView(); });
   }
@@ -9671,6 +9853,9 @@ function showRemoveMember(name, held) {
   if (held.groups) list.push(`<li><b>${num(held.groups)}</b> group(s)</li>`);
   // ADR-079: saved web maps are a fourth owned thing — moved by a transfer, deleted with the account.
   if (held.webMaps) list.push(`<li><b>${num(held.webMaps)}</b> web map(s)</li>`);
+  if (held.documents) list.push(`<li><b>${num(held.documents)}</b> document(s)</li>`);
+  // ADR-203: what waits in their recycle bin is theirs too — handed over by a transfer, emptied by a delete.
+  if (held.recycled) list.push(`<li><b>${num(held.recycled)}</b> item(s) in the recycle bin</li>`);
 
   $("removeHolds").innerHTML = list.join("");
 
@@ -13949,7 +14134,314 @@ async function showProfile(name) {
   profileNow = p;
   drawProfile();
   $("profileName").focus({ preventScroll: true });
+  await loadProfileSecurity(p);
+
+  // `?security` is where the administrator's notice and the requirement's dialog send a reader (ADR-201).
+  if (hashQuery.has("security") && !$("profileSecurity").hidden) {
+    $("pfSecTitle").scrollIntoView({ block: "start" });
+    $("pfSecTitle").focus({ preventScroll: true });
+  }
 }
+
+/* ------------------------------------------------------------- My profile › Security (ADR-201) */
+
+/** The reader's own second factor, as `/rest/auth/second-factor` last said it, and which step of it is on screen. */
+let sfMine = null;
+let sfMineStep = "idle";
+
+/**
+ * The Security part of a profile: one's own second factor, or — for whoever manages members, on somebody else's
+ * profile — removing theirs. Nobody else is shown the section at all.
+ */
+async function loadProfileSecurity(p) {
+  const section = $("profileSecurity");
+  const own = !!signedInAs && p.name === signedInAs;
+  const manages = !own && may("admin:manageMembers");
+
+  section.hidden = !own && !manages;
+  $("pfSecondSays").textContent = "";
+  sfMineStep = "idle";
+  if (section.hidden) return;
+
+  if (manages) {
+    drawMemberFactor(p);
+    return;
+  }
+
+  $("pfSecond").innerHTML = `<p class="hint">Reading how you sign in…</p>`;
+  try {
+    sfMine = await api("/rest/auth/second-factor");
+  } catch (e) {
+    $("pfSecond").innerHTML = `<p class="bad-inline">Could not read how you sign in: ${h(e.message)}</p>`;
+    return;
+  }
+
+  // The profile may have been left while that was asked.
+  if (profileNow !== p) return;
+  drawOwnFactor();
+}
+
+/**
+ * Draws one's own second factor in its current step, and puts the focus on `focus` (an id) afterwards, because
+ * replacing the box takes the focused control with it.
+ */
+function drawOwnFactor(focus, refused = "") {
+  const s = sfMine || {};
+  const box = $("pfSecond");
+  const pill = on => `<span class="pill ${on ? "p-on" : "p-off"}">${on ? "On" : "Off"}</span>`;
+  const head = `<div class="sfhead"><b>Two-step sign-in</b>${s.available ? pill(s.enabled) : ""}</div>`;
+  const error = `<p class="bad-inline" id="pfSfError" role="alert"${refused ? "" : " hidden"}>${h(refused)}</p>`;
+
+  if (!s.available) {
+    box.innerHTML = `${head}
+      <p class="hint">You sign in through your organization's identity provider or directory, and its second step is
+        set there. Nothing on this page changes it.</p>`;
+    return;
+  }
+
+  if (sfMineStep === "setup") {
+    box.innerHTML = `${head}
+      <h4 class="sfstep-title" id="pfSfStepTitle" tabindex="-1">Set up two-step sign-in</h4>
+      ${sfKeyMarkup("pfSfKey", sfMine.setup)}
+      <label class="sfsteplabel" for="pfSfCode"><span class="sfnum" aria-hidden="true">2</span>Enter the 6-digit code the
+        app shows</label>
+      <input id="pfSfCode" type="text" inputmode="numeric" autocomplete="one-time-code" spellcheck="false"
+        maxlength="9" aria-describedby="pfSfError pfSfCodeHint"${refused ? ' aria-invalid="true"' : ""}>
+      <p class="hint" id="pfSfCodeHint">It changes every 30 seconds; use the one showing now.</p>
+      ${error}
+      <div class="sfactions">
+        <button type="button" class="primary" id="pfSfConfirm">Turn on</button>
+        <button type="button" class="ghost" id="pfSfCancel">Cancel</button>
+      </div>`;
+    sfDrawQrs();
+  } else if (sfMineStep === "recovery") {
+    box.innerHTML = `${head}
+      <h4 class="sfstep-title" id="pfSfStepTitle" tabindex="-1">Save your recovery codes</h4>
+      ${sfRecoveryMarkup("pfSfCodes", sfMine.recoveryCodes || [], "pfSfDone")}
+      <div class="sfactions"><button type="button" class="primary" id="pfSfDone" disabled>Done</button></div>
+      <p class="hint sfafter">Scripts that signed in as you with your password alone stop working now; an administrator
+        can give them an API key instead.</p>`;
+  } else if (sfMineStep === "remove") {
+    box.innerHTML = `${head}
+      <h4 class="sfstep-title" id="pfSfStepTitle" tabindex="-1">Turn off two-step sign-in</h4>
+      <label for="pfSfCode">Code from your authenticator app, or a recovery code</label>
+      <input id="pfSfCode" type="text" autocomplete="one-time-code" spellcheck="false"
+        aria-describedby="pfSfError pfSfCodeHint"${refused ? ' aria-invalid="true"' : ""}>
+      <p class="hint" id="pfSfCodeHint">A code proves it is you, so a session left open is not enough to turn it off.
+        Lost both the app and the codes? An administrator can remove it for you.</p>
+      <p class="consequence${s.required ? " lowers" : ""}">${s.required
+        ? "<b>Your organization requires two-step sign-in.</b> You will be asked to set it up again the next time you sign in."
+        : "Signing in will ask for your password only."}</p>
+      ${error}
+      <div class="sfactions">
+        <button type="button" class="danger" id="pfSfRemove">Turn off</button>
+        <button type="button" class="ghost" id="pfSfCancel">Cancel</button>
+      </div>`;
+  } else if (s.enabled) {
+    box.innerHTML = `${head}
+      <p>Signing in asks for your password and a code from your authenticator app.${s.required
+        ? " Your organization requires it." : ""}</p>
+      <div class="sfactions"><button type="button" id="pfSfOff">Turn off…</button></div>`;
+  } else {
+    box.innerHTML = `${head}
+      <p>Signing in asks for your password only. Turn this on to also ask for a code from an authenticator app on your
+        phone, so a stolen password is not enough to get in.</p>
+      ${s.required ? `<p class="consequence lowers"><b>Your organization requires it.</b> If you do not set it up here,
+        you will be asked to at your next sign-in.</p>` : ""}
+      <p class="hint">Once it is on, scripts that sign in as you with your password alone stop working.</p>
+      <div class="sfactions"><button type="button" class="primary" id="pfSfOn">Turn on two-step sign-in</button></div>
+      ${error}`;
+  }
+
+  const target = focus && $(focus);
+  if (target) {
+    target.focus();
+    if (refused && target.select) target.select();
+  }
+}
+
+/** Somebody else's profile, for whoever manages members: removing a factor they can no longer use. */
+function drawMemberFactor(p) {
+  $("pfSecond").innerHTML = `
+    <div class="sfhead"><b>Two-step sign-in</b></div>
+    <p class="hint">If ${h(p.name)} has lost both their authenticator app and their recovery codes, remove their second
+      factor so they can sign in with their password again. If the organization requires one, they set up a new one as
+      they sign in.</p>
+    <div class="sfactions"><button type="button" class="danger" id="pfSfReset">Remove their second factor…</button></div>`;
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t || !t.closest("#profileSecurity")) return;
+  const says = $("pfSecondSays");
+
+  if (t.id === "pfSfOn") {
+    says.textContent = "";
+    t.disabled = true;
+    t.setAttribute("aria-busy", "true");
+    try {
+      sfMine.setup = await api("/rest/auth/second-factor", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      sfMineStep = "setup";
+      drawOwnFactor("pfSfStepTitle");
+    } catch (e) {
+      drawOwnFactor("pfSfOn", e.message);
+    }
+    return;
+  }
+
+  if (t.id === "pfSfConfirm") {
+    const code = sfCode($("pfSfCode").value);
+    if (!code) { drawOwnFactor("pfSfCode", "Enter the 6-digit code the app shows for this account."); return; }
+    t.disabled = true;
+    t.setAttribute("aria-busy", "true");
+    t.textContent = "Checking the code…";
+    try {
+      const done = await api("/rest/auth/second-factor/confirm", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+      });
+      sfMine = { ...sfMine, enabled: true, setup: null, recoveryCodes: done.recoveryCodes || [] };
+      sfSecrets.delete("pfSfKey");
+      sfMineStep = "recovery";
+      window.addEventListener("beforeunload", signinRecoveryGuard);
+      drawOwnFactor("pfSfStepTitle");
+      hideFactorNotice();
+    } catch (e) {
+      // The server's sentence names an endpoint and the device's clock; the clock is the useful half.
+      drawOwnFactor("pfSfCode", e.status === 400
+        ? "That code did not match. Enter the code the app shows now. If it keeps failing, check that the phone sets "
+          + "its clock automatically."
+        : e.message);
+    }
+    return;
+  }
+
+  if (t.id === "pfSfDone") {
+    if (!$("pfSfCodesSaved")?.checked) return;
+    window.removeEventListener("beforeunload", signinRecoveryGuard);
+    sfCodes.delete("pfSfCodes");
+    sfMine.recoveryCodes = null;
+    sfMineStep = "idle";
+    drawOwnFactor("pfSfOff");
+    says.textContent = "Two-step sign-in is on. Your next sign-in asks for a code.";
+    return;
+  }
+
+  if (t.id === "pfSfOff") {
+    says.textContent = "";
+    sfMineStep = "remove";
+    drawOwnFactor("pfSfCode");
+    return;
+  }
+
+  if (t.id === "pfSfCancel") {
+    const wasSetup = sfMineStep === "setup";
+    sfSecrets.delete("pfSfKey");
+    sfMineStep = "idle";
+    drawOwnFactor(wasSetup ? "pfSfOn" : "pfSfOff");
+    return;
+  }
+
+  if (t.id === "pfSfRemove") {
+    const code = sfCode($("pfSfCode").value);
+    if (!code) { drawOwnFactor("pfSfCode", "Enter a code from the app, or one of your recovery codes."); return; }
+    t.disabled = true;
+    t.setAttribute("aria-busy", "true");
+    try {
+      await api("/rest/auth/second-factor/remove", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }),
+      });
+      sfMine = { ...sfMine, enabled: false };
+      sfMineStep = "idle";
+      drawOwnFactor("pfSfOn");
+      says.textContent = sfMine.required
+        ? "Two-step sign-in is off. Your organization requires it, so your next sign-in asks you to set it up again."
+        : "Two-step sign-in is off. Signing in asks for your password only.";
+      drawFactorNotice();
+    } catch (e) {
+      drawOwnFactor("pfSfCode", e.status === 400
+        ? "That code did not match. Use the code the app shows now, or a recovery code you have not used."
+        : e.message);
+    }
+    return;
+  }
+
+  if (t.id === "pfSfReset" && profileNow) {
+    const name = profileNow.name;
+    if (!confirm(`Remove ${name}'s second factor?\n\nThey will sign in with their password alone until they set one `
+        + "up again. Do this only when you are sure the request came from them.")) return;
+    t.disabled = true;
+    try {
+      await api(`/admin/members/${encodeURIComponent(name)}/second-factor`, { method: "DELETE" });
+      says.textContent = `Removed. ${name} signs in with their password and can set up a new second factor.`;
+    } catch (e) {
+      says.textContent = e.status === 404
+        ? `${name} has no second factor, so there was nothing to remove.`
+        : e.message;
+    } finally {
+      t.disabled = false;
+    }
+  }
+});
+
+/** Enter in a code field does what the step's main button does; the fields are not in a form. */
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement) || event.target.id !== "pfSfCode") return;
+  event.preventDefault();
+  $(sfMineStep === "remove" ? "pfSfRemove" : "pfSfConfirm")?.click();
+});
+
+/* ------------------------------------------------ an administrator without a second factor (ADR-201) */
+
+/** Set for the rest of the session when the notice is put away; the next sign-in shows it again. */
+const FACTOR_NOTICE_KEY = "gis-factor-notice";
+
+/**
+ * The line above every screen for an administrator whose own account signs in with a password alone. Asked of the
+ * server rather than worked out, because whether this account *can* have one here (`available`) is the server's to
+ * say: an administrator who signs in through an identity provider has their second step there, and is not told off.
+ */
+async function drawFactorNotice() {
+  const notice = $("factorNotice");
+  if (!notice) return;
+
+  const administrator = !!signedInAs && (whoNow?.roles || []).includes("administrator");
+  let hidden = true;
+  try { hidden = sessionStorage.getItem(FACTOR_NOTICE_KEY) === "hidden"; } catch { /* private mode: show it */ }
+  if (!administrator || hidden) { notice.hidden = true; return; }
+
+  let state;
+  try {
+    state = await api("/rest/auth/second-factor");
+  } catch {
+    notice.hidden = true;
+    return;
+  }
+
+  if (!state.available || state.enabled) { notice.hidden = true; return; }
+
+  $("factorNoticeText").textContent = state.required
+    ? "Your organization requires two-step sign-in and your account does not have it yet. Your next sign-in will ask "
+      + "you to set it up."
+    : "Your administrator account signs in with a password alone. Add two-step sign-in so a stolen password is not "
+      + "enough to get in.";
+  $("factorNoticeGo").href = `/studio/user/${encodeURIComponent(signedInAs)}?security`;
+  notice.hidden = false;
+}
+
+function hideFactorNotice() {
+  const notice = $("factorNotice");
+  if (notice) notice.hidden = true;
+}
+
+$("factorNoticeHide")?.addEventListener("click", () => {
+  try { sessionStorage.setItem(FACTOR_NOTICE_KEY, "hidden"); } catch { /* private mode: for this page only */ }
+  hideFactorNotice();
+
+  // The button is gone with the line; the page itself takes the focus rather than the document body (D-93).
+  $("app").focus({ preventScroll: true });
+});
 
 function drawProfile() {
   const p = profileNow;
@@ -26500,8 +26992,8 @@ async function handleClick(event) {
       return;
     }
 
-    if (!transfer && !confirm(`Delete ${name} and everything they own? The layers are `
-      + `unpublished and the services and folders go with them. This cannot be undone.`)) {
+    if (!transfer && !confirm(`Delete ${name} and everything they own? The services go with their `
+      + `hosted tables and uploaded images, and so do the folders and their recycle bin. This cannot be undone.`)) {
       return;
     }
 
@@ -29045,6 +29537,7 @@ async function whoami() {
   // caller from a group, and every other member operation names somebody else — so this is the only
   // place the console needs to know who it is beyond drawing the banner.
   signedInAs = me.authenticated ? (me.name || "") : "";
+  whoNow = me.authenticated ? me : null;
   if ($("myProfile")) {
     $("myProfile").hidden = !signedInAs;
     $("myProfile").href = `/studio/user/${encodeURIComponent(signedInAs)}`;
@@ -29059,14 +29552,353 @@ async function whoami() {
   return me;
 }
 
+/* ------------------------------------------------- a second factor, set up and kept (ADR-201) */
+
+/**
+ * The parts of setting up a second factor that the sign-in card and My profile share — ADR-201: a secret to put in
+ * an authenticator app, and the recovery codes that are shown once.
+ *
+ * <b>The secret is held here, not in the markup's attributes.</b> It is on screen to be typed, which is the point; it
+ * is not put anywhere a copy-everything listener, an address or a log would pick it up. Keyed by the box it is drawn
+ * in, because both places can be on one page.
+ */
+const sfSecrets = new Map();
+const sfCodes = new Map();
+
+/** Who the app will list this as — the otpauth label, `Graticula (host):name` — or the empty string. */
+function sfAccount(address) {
+  try {
+    return decodeURIComponent(new URL(address).pathname.replace(/^\/+/, ""));
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Step one of a setup: open the app, or type the key. `box` names the drawn box and its ids.
+ *
+ * <b>Both, always.</b> On a phone the link opens the authenticator app with everything filled in; on a computer it
+ * usually does nothing, and the key is what gets typed into the phone. There is no QR code: drawing one needs a
+ * library this console does not have (build-vs-adopt), and the owner has not been asked for one.
+ */
+function sfKeyMarkup(box, setup) {
+  const secret = String(setup.secret || "").replace(/\s+/g, "");
+  sfSecrets.set(box, secret);
+
+  const groups = secret.match(/.{1,4}/g) || [];
+  const address = String(setup.address || "");
+  const account = sfAccount(address);
+
+  return `
+    <ol class="sfsteps">
+      <li>
+        <b><span class="sfnum" aria-hidden="true">1</span>Add your account to an authenticator app</b>
+        <span class="lede">Any app that shows 6-digit codes: Microsoft Authenticator, Google Authenticator,
+          1Password and others.</span>
+        ${/^otpauth:\/\//i.test(address) ? `<div class="sfqr" id="${box}Qr" data-sf-qr="${h(address)}" hidden></div>
+        <span class="lede sfqr-said">Scan this with the app on your phone.</span>
+        <a class="sfopen" href="${h(address)}">Open in the authenticator app</a>
+        <span class="lede">On a phone, this opens the app with everything filled in. Or type this key into the
+          app:</span>` : `<span class="lede">Type this key into the app:</span>`}
+        <div class="sfkey">
+          <code id="${box}Key" aria-label="Setup key: ${h(groups.join(" "))}">${groups.map(g => `<span>${h(g)}</span>`).join(" ")}</code>
+          <button type="button" class="tiny" data-sf-copy-key="${box}" aria-describedby="${box}Key">Copy key</button>
+        </div>
+        <p class="hint">In the app, choose to enter a setup key; it is time-based.${account
+          ? ` The app lists it as <b>${h(account)}</b>.` : ""}</p>
+        <p class="hint sfsaid" id="${box}Said" role="status" aria-live="polite"></p>
+      </li>
+    </ol>`;
+}
+
+/** The QR encoder's load, once — `qrcode.js`, vendored (Kazuhiko Arase's qrcode-generator 2.0.4, MIT). */
+let sfQrLoading = null;
+
+/**
+ * Loads the QR encoder from this server, once, and only when a key is about to be shown.
+ *
+ * <b>Ours, not a CDN</b>, as `ol.js` is (`loadOpenLayers`): the policy is `script-src 'self'`, and a secret's picture
+ * drawn by a third party's script would be a strange place to start trusting one. Owner decision 2026-10-19.
+ *
+ * @returns {Promise<boolean>} whether the encoder is available
+ */
+function loadQrEncoder() {
+  if (window.qrcode) return Promise.resolve(true);
+
+  if (!sfQrLoading) {
+    sfQrLoading = new Promise(done => {
+      const tag = document.createElement("script");
+      tag.src = "qrcode.js";
+      tag.onload = () => done(true);
+      tag.onerror = () => done(false);
+      document.head.appendChild(tag);
+    });
+  }
+
+  return sfQrLoading;
+}
+
+/**
+ * Draws the `otpauth://` address of each key on the page as a QR code an authenticator app scans.
+ *
+ * <b>Why it is here at all:</b> most enrolment happens at a desk, where the alternative is typing thirty-two
+ * characters into a phone (the ux-designer agent's finding, 2026-10-19). On a phone the link opens the app, and CSS
+ * hides the picture there, since a phone cannot scan its own screen.
+ *
+ * <b>It fails quietly.</b> If the encoder does not load, the key and the link are still there; nothing depends on the
+ * picture. Drawn as SVG from the encoder's module matrix, black on white whatever the theme, because that is what a
+ * camera reads, with four modules of quiet zone as the standard asks.
+ */
+async function sfDrawQrs() {
+  const holders = [...document.querySelectorAll("[data-sf-qr]")].filter(el => !el.dataset.sfQrDrawn);
+  if (!holders.length || !await loadQrEncoder()) return;
+
+  for (const holder of holders) {
+    const qr = window.qrcode(0, "M");
+    qr.addData(holder.dataset.sfQr);
+    qr.make();
+
+    const n = qr.getModuleCount();
+    const quiet = 4;
+    let d = "";
+
+    for (let row = 0; row < n; row++) {
+      for (let col = 0; col < n; col++) {
+        if (qr.isDark(row, col)) d += `M${col + quiet} ${row + quiet}h1v1h-1z`;
+      }
+    }
+
+    const side = n + 2 * quiet;
+    // Whole pixels per module: at a fractional size a module is drawn two pixels wide in one column and three in the
+    // next, and a camera reading that is reading noise. Measured 2026-10-19: one of two renders at 176 px did not decode.
+    holder.innerHTML = `<svg viewBox="0 0 ${side} ${side}" width="${side * 4}" height="${side * 4}" role="img" aria-label="QR code to scan with the authenticator app"
+      shape-rendering="crispEdges"><rect width="${side}" height="${side}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+    holder.dataset.sfQrDrawn = "1";
+    holder.hidden = false;
+  }
+}
+
+/**
+ * The recovery codes, shown once: read, copy, download, and a box to tick before the reader moves on.
+ *
+ * <b>The tick is the point.</b> Nothing will show these again, and a Continue that works without reading them is how
+ * they end up nowhere. The button the tick enables belongs to whoever drew this, so `data-sf-saved` names it.
+ */
+function sfRecoveryMarkup(box, codes, continueId) {
+  sfCodes.set(box, codes.slice());
+
+  return `
+    <p class="sflede">If you lose your phone, each of these signs you in once in place of a code.
+      <b>This is the only time they are shown.</b> Keep them somewhere other than the phone: a password manager, or
+      printed and put away.</p>
+    <ol class="sfcodes" aria-label="Recovery codes">${codes.map(c => `<li><code>${h(c)}</code></li>`).join("")}</ol>
+    <div class="sfrow">
+      <button type="button" class="tiny" data-sf-copy-codes="${box}">Copy codes</button>
+      <button type="button" class="tiny" data-sf-download="${box}">Download as .txt</button>
+    </div>
+    <p class="hint sfsaid" id="${box}Said" role="status" aria-live="polite"></p>
+    <label class="sfsaved"><input type="checkbox" id="${box}Saved" data-sf-saved="${continueId}">
+      I have saved my recovery codes</label>`;
+}
+
+/** Says something in a drawn box's own live line. */
+function sfSay(box, message) {
+  const line = $(`${box}Said`);
+  if (line) line.textContent = message;
+}
+
+/** The recovery codes as a text file, named after the server and the account so two of them can be told apart. */
+function sfDownloadCodes(box) {
+  const codes = sfCodes.get(box) || [];
+  const who = signedInAs || $("u")?.value || "";
+  const text = [
+    "Graticula recovery codes",
+    `Server: ${location.host}`,
+    `Account: ${who}`,
+    `Saved: ${new Date().toISOString().slice(0, 10)}`,
+    "",
+    "Each code signs you in once, in place of a code from your authenticator app.",
+    "",
+    ...codes,
+    "",
+  ].join("\r\n");
+
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  link.download = `graticula-recovery-codes-${(location.hostname + "-" + who).replace(/[^A-Za-z0-9._-]+/g, "_")}.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+  sfSay(box, "Downloaded. Move the file somewhere other than this computer's Downloads folder.");
+}
+
+/**
+ * The shared buttons, on their own listener — not added to the console's long click listener, whose early returns
+ * would leave a branch below them dead on some screens (2026-10-18, `shared-listener-guard`).
+ */
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("button") : null;
+  if (!t) return;
+
+  if (t.dataset.sfCopyKey) {
+    const box = t.dataset.sfCopyKey;
+    try {
+      await navigator.clipboard.writeText(sfSecrets.get(box) || "");
+      sfSay(box, "The key is copied. Paste it into the app.");
+      copiedHere(t);
+    } catch {
+      sfSay(box, "This browser did not let the page copy. Type the key from the screen; spaces do not matter.");
+    }
+    return;
+  }
+
+  if (t.dataset.sfCopyCodes) {
+    const box = t.dataset.sfCopyCodes;
+    try {
+      await navigator.clipboard.writeText((sfCodes.get(box) || []).join("\n"));
+      sfSay(box, "The codes are copied. Paste them into your password manager.");
+      copiedHere(t);
+    } catch {
+      sfSay(box, "This browser did not let the page copy. Download them, or write them down.");
+    }
+    return;
+  }
+
+  if (t.dataset.sfDownload) sfDownloadCodes(t.dataset.sfDownload);
+});
+
+document.addEventListener("change", event => {
+  const box = event.target;
+  if (!(box instanceof HTMLInputElement) || !box.dataset.sfSaved) return;
+  const go = $(box.dataset.sfSaved);
+  if (go) go.disabled = !box.checked;
+});
+
+/** A code as typed — `123 456` from a phone's display is the same code. Recovery codes keep their hyphen. */
+const sfCode = value => String(value || "").replace(/\s+/g, "");
+
+/**
+ * Which step the sign-in card is on: the name and password, setting up a second factor, or the recovery codes.
+ *
+ * <b>The password stays where it already was</b> — in its field, hidden with the rest of the first step — because the
+ * setup is finished by sending the same name and password again with a code. Nothing new holds it, and it is cleared
+ * when the card is left or the sign-in succeeds.
+ */
+let signinStep = "credentials";
+
+/** Leaving the recovery codes unread by closing the tab loses them for good; the browser asks first. */
+function signinRecoveryGuard(event) {
+  event.preventDefault();
+  event.returnValue = "";
+}
+
+/** Back to the first step, as the card is drawn for somebody arriving. */
+function signinReset({ keepName = true } = {}) {
+  signinStep = "credentials";
+  $("signinSetup").hidden = true;
+  $("signinRecovery").hidden = true;
+  $("signinCreds").hidden = false;
+  $("signinSetupKey").innerHTML = "";
+  $("signinRecoveryCodes").innerHTML = "";
+  $("signinSetupCode").value = "";
+  $("signinSetupCode").removeAttribute("aria-invalid");
+  $("signinSetupError").hidden = true;
+  $("signinCodeRow").hidden = true;
+  $("signinCode").value = "";
+  $("p").value = "";
+  if (!keepName) $("u").value = "";
+  sfSecrets.delete("signinSetupKey");
+  sfCodes.delete("signinRecoveryCodes");
+  window.removeEventListener("beforeunload", signinRecoveryGuard);
+}
+
+/**
+ * The setup step — ADR-201 condition 2 — drawn from the server's `secondFactorSetup`. `refused` is what to say when
+ * this is the step coming back after a code that did not match; empty on arrival.
+ */
+function signinSetupShow(setup, refused) {
+  const arriving = signinStep !== "setup";
+  signinStep = "setup";
+  $("signinError").hidden = true;
+  $("signinCreds").hidden = true;
+  $("signinSetup").hidden = false;
+
+  // The same secret comes back on every attempt until one is confirmed, so the key is redrawn only when it changed —
+  // a redraw under the reader would move what they were copying from.
+  const secret = String(setup.secret || "").replace(/\s+/g, "");
+  if (arriving || sfSecrets.get("signinSetupKey") !== secret) {
+    $("signinSetupKey").innerHTML = sfKeyMarkup("signinSetupKey", setup);
+    sfDrawQrs();
+  }
+
+  $("signinSetupWho").innerHTML = `Your organization requires a code from an authenticator app each time
+    <b>${h($("u").value)}</b> signs in. Set it up once, now; it takes about a minute.`;
+
+  const error = $("signinSetupError");
+  const field = $("signinSetupCode");
+  error.textContent = refused || "";
+  error.hidden = !refused;
+
+  if (refused) {
+    field.setAttribute("aria-invalid", "true");
+    field.select();
+    field.focus();
+  } else {
+    field.removeAttribute("aria-invalid");
+    field.value = "";
+    // The heading, so a screen reader starts at what this step is rather than in a field it has not been told about.
+    $("signinSetupTitle").focus();
+  }
+}
+
+/** The recovery codes the setup answered, before the console opens. The session is already held. */
+function signinRecoveryShow(codes) {
+  signinStep = "recovery";
+  $("signinSetup").hidden = true;
+  $("signinCreds").hidden = true;
+  $("signinRecovery").hidden = false;
+  $("signinRecoveryGo").disabled = true;
+  $("signinRecoveryCodes").innerHTML = sfRecoveryMarkup("signinRecoveryCodes", codes, "signinRecoveryGo");
+  window.addEventListener("beforeunload", signinRecoveryGuard);
+  $("signinRecoveryTitle").focus();
+}
+
+$("signinSetupBack").addEventListener("click", () => {
+  signinReset();
+  $("p").focus();
+});
+
+$("signinRecoveryGo").addEventListener("click", async () => {
+  if (!$("signinRecoveryCodesSaved")?.checked) return;
+  signinReset();
+  await start();
+});
+
 $("signinForm").addEventListener("submit", async event => {
   event.preventDefault();
 
-  const button = $("go");
+  // The codes step has its own button and nothing to send; Enter on its tick box must not sign in again.
+  if (signinStep === "recovery") return;
+
+  const setup = signinStep === "setup";
+  const button = setup ? $("signinSetupGo") : $("go");
+  const said = button.textContent;
   const error = $("signinError");
   error.hidden = true;
+
+  // ADR-201: a code is sent only once the server has asked for one — from the setup step, or the code row.
+  const code = setup ? sfCode($("signinSetupCode").value)
+    : $("signinCodeRow").hidden ? undefined : sfCode($("signinCode").value);
+
+  if (setup && !code) {
+    signinSetupShow({ secret: sfSecrets.get("signinSetupKey") }, "Enter the 6-digit code the app shows for this account.");
+    return;
+  }
+
   button.disabled = true;
-  button.textContent = "Signing in…";
+  button.setAttribute("aria-busy", "true");
+  button.textContent = setup ? "Checking the code…" : "Signing in…";
 
   try {
     const r = await api("/rest/auth/login", {
@@ -29075,28 +29907,57 @@ $("signinForm").addEventListener("submit", async event => {
       // `remember` is Keep me signed in: false gives a cookie with no expiry, which the browser
       // forgets when it closes. The session itself lasts as long as it always did.
       body: JSON.stringify({
-        name: $("u").value, password: $("p").value, remember: $("keep").checked,
-        // ADR-201: sent only once the server has asked for it.
-        code: $("signinCodeRow").hidden ? undefined : $("signinCode").value,
+        name: $("u").value, password: $("p").value, remember: $("keep").checked, code,
       }),
     });
-    $("signinCodeRow").hidden = true;
-    $("signinCode").value = "";
     token = r.token;
     sessionStorage.setItem("gis-token", token);
     $("p").type = "password";
     $("pShow").textContent = "Show";
     $("pShow").setAttribute("aria-pressed", "false");
+
+    // ADR-201 condition 2: this sign-in set a second factor up, and its recovery codes are in this answer only.
+    if ((r.recoveryCodes || []).length) {
+      $("p").value = "";
+      signinRecoveryShow(r.recoveryCodes);
+      return;
+    }
+
+    signinReset();
     await start();
   } catch (e) {
+    const details = e.details || [];
+
+    // ADR-201 condition 2: the password was right, the organisation requires a second factor, and there is none. The
+    // same answer after a code means the code did not match; the server's sentence for that offers a recovery code,
+    // which somebody setting up has not got yet, so this one is the console's own.
+    if (details.includes("secondFactorSetup") && e.body && e.body.secondFactorSetup) {
+      signinSetupShow(e.body.secondFactorSetup, !setup ? ""
+        : e.status === 429 ? e.message
+        : "That code did not match. Enter the code the app shows now. If it keeps failing, check that the phone "
+          + "sets its clock automatically.");
+      return;
+    }
+
+    // Anything else from the setup step — the account slowed after failed codes, say — is said there, beside the code.
+    if (setup && e.status === 429) {
+      signinSetupShow({ secret: sfSecrets.get("signinSetupKey") }, e.message || String(e));
+      return;
+    }
+
+    // The password stopped being right while the code was being set up — changed or reset elsewhere. Back to it.
+    if (setup) signinReset();
+
     // The server's own words. A refused sign-in says whether the name is
     // unknown, the password wrong, or the account throttled, and each sends the
     // reader somewhere different.
     error.textContent = e.message || String(e);
     error.hidden = false;
 
-    // ADR-201: the password was right and a code is needed; the code field gets the focus, not the password.
-    if ((e.details || []).includes("secondFactor")) {
+    // ADR-201: the password was right and a code is needed; the code field gets the focus, not the password. The
+    // first time, the sentence is the console's: the server's names the JSON field to send it in.
+    if (details.includes("secondFactor")) {
+      if (!code) error.textContent = "Enter the code from your authenticator app to finish signing in.";
       $("signinCodeRow").hidden = false;
       $("signinCode").value = "";
       $("signinCode").focus();
@@ -29105,7 +29966,8 @@ $("signinForm").addEventListener("submit", async event => {
     }
   } finally {
     button.disabled = false;
-    button.textContent = "Sign in";
+    button.removeAttribute("aria-busy");
+    button.textContent = said;
   }
 });
 
@@ -29443,6 +30305,10 @@ async function start() {
   $("app").style.display = "";
   $("tabs").style.display = "";
   $("signout").style.display = "";
+
+  // ADR-201: an administrator who signs in with a password alone is told so, on its own clock — the screens do not
+  // wait for it.
+  drawFactorNotice();
   drawLegend();
   drawBasemapControl();
 

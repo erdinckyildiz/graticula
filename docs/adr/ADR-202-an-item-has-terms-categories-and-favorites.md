@@ -35,6 +35,14 @@ these can be said once for all of them.
   reads every item's terms and categories at start, after every write here and once a minute, so another node's write
   reaches this one within that minute.
 - **The recycle bin** is a decision of its own — [Q-180](../open-questions.md), built as [ADR-203](ADR-203-a-deleted-item-waits-in-the-recycle-bin.md).
+- **The OGC documents fall back to the terms — owner decision 2026-10-19.** A service's OGC access constraints
+  ([ADR-167](ADR-167-a-service-s-ogc-documents-describe-it.md)) and its item's terms were two fields neither of which
+  knew of the other, and an empty OGC field wrote nothing: a QGIS reader was never told what Pro showed. They stay two
+  fields, so an OGC audience can be told something different, but where the OGC one is empty WMS, WFS, WCS 2.0 and 1.0
+  and OGC API Records carry the terms, as text (`OgcTerms`). WCS 1.0 had written `NONE` even at a service's own address,
+  and now says what 2.0 says. **An image service's terms, categories and favourite are reached through the portal id a
+  client holds**, which is derived from its coverage; through it they answered 404, and the favourites list gave the
+  service's item id instead.
 
 ## 3. Alternatives and counterarguments
 

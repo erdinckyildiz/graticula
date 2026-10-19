@@ -24,6 +24,37 @@ public sealed class PostgresSecondFactorStore : ISecondFactorStore
         _dataSource = dataSource;
     }
 
+    /// <summary>
+    /// The members a requirement covers who have no second factor on, so will be asked to set one up at their next
+    /// sign-in — ADR-201 condition 2. Enabled members with a password here; administrators only, or everyone.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> WithoutAsync(bool administratorsOnly, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            select p.name
+              from principal p
+              join local_credential c on c.principal_id = p.id
+             where p.kind = 'user' and p.disabled_at is null
+               and (not @administrators
+                    or exists (select 1 from principal_role r where r.principal_id = p.id and r.role_name = 'administrator'))
+               and not exists (select 1 from principal_second_factor f
+                                where f.principal_id = p.id and f.enabled_at is not null)
+             order by lower(p.name)
+            """);
+        command.Parameters.AddWithValue("administrators", administratorsOnly);
+
+        List<string> names = [];
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            names.Add(reader.GetString(0));
+        }
+
+        return names;
+    }
+
     /// <inheritdoc/>
     public async Task<SecondFactorRecord?> FindAsync(Guid principal, CancellationToken cancellationToken)
     {

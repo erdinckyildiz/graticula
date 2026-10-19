@@ -595,7 +595,7 @@ internal static partial class CoverageAdminEndpoints
     /// images it places with it, where they are this server's.
     /// </summary>
     /// <summary>Every file an uploaded image service keeps — the image, its overviews, a mosaic's images beside it.</summary>
-    private static List<string> UploadedFilesOf(string path)
+    internal static List<string> UploadedFilesOf(string path)
     {
         List<string> files = [];
 
