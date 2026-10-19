@@ -279,6 +279,20 @@ public static class PredicateSql
                     matched = dialect.GuidText(matched!);
                 }
 
+                if (dialect.OracleForms)
+                {
+                    // Oracle has no `ilike` and no default escape: folded through lower(), and told that a
+                    // backslash escapes, which is what every pattern written for PostgreSQL means by one.
+                    string side = like.IgnoreCase ? "lower(" + matched + ")" : matched!;
+                    string pattern = Bind(parameters, dialect, OraclePattern(like.Pattern));
+
+                    sql.Append(side).Append(like.Negated ? " not like " : " like ")
+                       .Append(like.IgnoreCase ? "lower(" + pattern + ")" : pattern)
+                       .Append(@" escape '\'");
+
+                    return true;
+                }
+
                 sql.Append(matched).Append(like.Negated
                         ? (like.IgnoreCase ? " not ilike " : " not like ")
                         : (like.IgnoreCase ? " ilike " : " like "))
@@ -556,6 +570,16 @@ public static class PredicateSql
                 return true;
 
             case ScalarExpression.Arithmetic arithmetic:
+                // Oracle's `/` does not truncate whole numbers, so ArcGIS's integer division is wrapped.
+                bool truncated = dialect.OracleForms && arithmetic.Integral
+                    && arithmetic.Operator is not (ArithmeticOperator.Add or ArithmeticOperator.Subtract
+                        or ArithmeticOperator.Multiply);
+
+                if (truncated)
+                {
+                    sql.Append("trunc");
+                }
+
                 sql.Append('(');
 
                 if (!Inner(arithmetic.Left, out error))
@@ -568,7 +592,7 @@ public static class PredicateSql
                     ArithmeticOperator.Add => " + ",
                     ArithmeticOperator.Subtract => " - ",
                     ArithmeticOperator.Multiply => " * ",
-                    _ => arithmetic.Integral ? $" {dialect.IntegerDivision} " : " / ",
+                    _ => arithmetic.Integral && !truncated ? $" {dialect.IntegerDivision} " : " / ",
                 });
 
                 if (!Inner(arithmetic.Right, out error))
@@ -580,7 +604,7 @@ public static class PredicateSql
                 return true;
 
             case ScalarExpression.Cast cast:
-                return WriteCast(cast, sql, Inner, out error);
+                return WriteCast(cast, sql, dialect, Inner, out error);
 
             case ScalarExpression.Extract extract:
                 sql.Append("extract(").Append(extract.Part switch
@@ -593,12 +617,20 @@ public static class PredicateSql
                     _ => "second",
                 }).Append(" from ");
 
+                // An Oracle DATE has a time and no hour field for extract; a TIMESTAMP has both.
+                bool clock = dialect.OracleForms && extract.Part is DatePart.Hour or DatePart.Minute or DatePart.Second;
+
+                if (clock)
+                {
+                    sql.Append("cast(");
+                }
+
                 if (!Inner(extract.Operand, out error))
                 {
                     return false;
                 }
 
-                sql.Append(')');
+                sql.Append(clock ? " as timestamp))" : ")");
                 return true;
 
             case ScalarExpression.Trim trim:
@@ -628,8 +660,22 @@ public static class PredicateSql
 
     private delegate bool EmitOne(ScalarExpression node, out string? error);
 
-    private static bool WriteCast(ScalarExpression.Cast cast, StringBuilder sql, EmitOne inner, out string? error)
+    private static bool WriteCast(
+        ScalarExpression.Cast cast, StringBuilder sql, SqlDialect dialect, EmitOne inner, out string? error)
     {
+        if (dialect.OracleForms && cast.Target == CastTarget.Text && cast.Length is { } cut)
+        {
+            sql.Append("substr(cast(");
+
+            if (!inner(cast.Operand, out error))
+            {
+                return false;
+            }
+
+            sql.Append(" as varchar2(4000)), 1, ").Append(cut.ToString(CultureInfo.InvariantCulture)).Append(')');
+            return true;
+        }
+
         // A length is a cut, written the one way both dialects cut alike (SqlDialect's remarks).
         if (cast.Target == CastTarget.Text && cast.Length is { } length)
         {
@@ -653,6 +699,9 @@ public static class PredicateSql
 
         sql.Append(" as ").Append(cast.Target switch
         {
+            // Oracle has no bigint and no unsized varchar.
+            CastTarget.BigInteger when dialect.OracleForms => "number(19)",
+            CastTarget.Text when dialect.OracleForms => "varchar2(4000)",
             CastTarget.Integer => "integer",
             CastTarget.SmallInteger => "smallint",
             CastTarget.BigInteger => "bigint",
@@ -716,6 +765,11 @@ public static class PredicateSql
             return true;
         }
 
+        if (dialect.OracleForms && WriteOracleCall(call, sql, inner, out error) is { } done)
+        {
+            return done;
+        }
+
         return call.Function switch
         {
             // With a number of places the number is cast; alone, both dialects round every number.
@@ -750,6 +804,124 @@ public static class PredicateSql
                 inner,
                 out error),
         };
+    }
+
+    /// <summary>
+    /// A <c>like</c> pattern as Oracle accepts it: PostgreSQL reads a backslash before any character as that character,
+    /// and Oracle refuses one before anything but <c>%</c>, <c>_</c> and itself (ORA-01424, measured), so those
+    /// backslashes are dropped. What the pattern matches is unchanged.
+    /// </summary>
+    private static string OraclePattern(string pattern)
+    {
+        if (!pattern.Contains('\\', StringComparison.Ordinal))
+        {
+            return pattern;
+        }
+
+        StringBuilder kept = new(pattern.Length);
+
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            if (pattern[i] == '\\' && i + 1 < pattern.Length)
+            {
+                char next = pattern[i + 1];
+
+                if (next is not ('%' or '_' or '\\'))
+                {
+                    continue;
+                }
+
+                kept.Append('\\').Append(next);
+                i++;
+                continue;
+            }
+
+            kept.Append(pattern[i]);
+        }
+
+        return kept.ToString();
+    }
+
+    /// <summary>The calls Oracle spells its own way, or null for one it spells as PostgreSQL does.</summary>
+    private static bool? WriteOracleCall(
+        ScalarExpression.FunctionCall call, StringBuilder sql, EmitOne inner, out string? error)
+    {
+        IReadOnlyList<ScalarExpression> a = call.Arguments;
+        error = null;
+
+        bool Args(string name, IReadOnlyList<ScalarExpression> args, out string? why)
+        {
+            sql.Append(name).Append('(');
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sql.Append(", ");
+                }
+
+                if (!inner(args[i], out why))
+                {
+                    return false;
+                }
+            }
+
+            sql.Append(')');
+            why = null;
+            return true;
+        }
+
+        switch (call.Function)
+        {
+            // POSITION(a IN b) is INSTR(b, a): the haystack first.
+            case ScalarFunction.Position:
+                return Args("instr", [a[1], a[0]], out error);
+
+            case ScalarFunction.Substring:
+                return Args("substr", a, out error);
+
+            case ScalarFunction.CharLength:
+                return Args("length", a, out error);
+
+            case ScalarFunction.Ceiling:
+                return Args("ceil", a, out error);
+
+            // LOG10(x) is LOG(10, x).
+            case ScalarFunction.Log10:
+                sql.Append("log(10, ");
+
+                if (!inner(a[0], out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            // Oracle's CONCAT takes two arguments; `||` takes any number and, like PostgreSQL's concat, treats a
+            // null as empty.
+            case ScalarFunction.Concat:
+                sql.Append('(');
+
+                for (int i = 0; i < a.Count; i++)
+                {
+                    if (i > 0)
+                    {
+                        sql.Append(" || ");
+                    }
+
+                    if (!inner(a[i], out error))
+                    {
+                        return false;
+                    }
+                }
+
+                sql.Append(')');
+                return true;
+
+            default:
+                return null;
+        }
     }
 
     /// <summary>Matches a name against the layer's columns and quotes what was found.</summary>

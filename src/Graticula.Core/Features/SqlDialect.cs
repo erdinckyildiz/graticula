@@ -33,8 +33,10 @@ public sealed class SqlDialect
         bool numericForPlaces,
         string integerDivision,
         IReadOnlySet<string>? guidColumns = null,
-        bool arcGisGuidText = false)
+        bool arcGisGuidText = false,
+        bool oracleForms = false)
     {
+        OracleForms = oracleForms;
         Name = name;
         Placeholder = placeholder;
         NumericForPlaces = numericForPlaces;
@@ -50,6 +52,31 @@ public sealed class SqlDialect
     /// <summary>DuckDB, with <c>$w0</c> placeholders — how the GeoParquet provider binds by name.</summary>
     public static SqlDialect DuckDb { get; } = new(
         "DuckDB", index => $"$w{index.ToString(CultureInfo.InvariantCulture)}", numericForPlaces: false, "//");
+
+    /// <summary>
+    /// Oracle, with <c>:w0</c> placeholders — ADR-205 — and <see cref="OracleForms"/> for everything Oracle spells
+    /// its own way.
+    /// </summary>
+    public static SqlDialect Oracle { get; } = new(
+        "Oracle", index => $":w{index.ToString(CultureInfo.InvariantCulture)}", numericForPlaces: false, "/",
+        oracleForms: true);
+
+    /// <summary>
+    /// Whether Oracle's spellings are used where they differ from PostgreSQL's and DuckDB's — ADR-205, measured
+    /// against Oracle AI Database 26ai Free on 2026-10-19.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One flag, not one per difference</b>, because the differences come together and only Oracle has them:
+    /// no <c>ilike</c> (folded through <c>lower</c>), no default escape in <c>like</c> (PostgreSQL's is a
+    /// backslash, so patterns written for it say <c>escape</c>), <c>substr</c> and <c>instr</c> rather than
+    /// <c>substring … from … for</c> and <c>position … in</c>, <c>ceil</c>, <c>length</c>, <c>log(10, x)</c>, a
+    /// two-argument <c>concat</c> (so <c>||</c>), no <c>bigint</c> and no unsized <c>varchar</c> in a cast, a
+    /// division of whole numbers that does not truncate (so <c>trunc</c>), and no hour in a <c>DATE</c> for
+    /// <c>extract</c> (so it is cast to a timestamp first).
+    /// </para>
+    /// </remarks>
+    public bool OracleForms { get; }
 
     /// <summary>The dialect's name, for messages.</summary>
     public string Name { get; }
@@ -70,7 +97,7 @@ public sealed class SqlDialect
     /// <returns>The dialect.</returns>
     public SqlDialect WithPlaceholder(Func<int, string> placeholder) =>
         new(Name, placeholder ?? throw new ArgumentNullException(nameof(placeholder)), NumericForPlaces, IntegerDivision,
-            GuidColumns, ArcGisGuidText);
+            GuidColumns, ArcGisGuidText, OracleForms);
 
     /// <summary>
     /// The layer's columns that hold a UUID — a GlobalID — which every filter language sends as text and neither
@@ -98,7 +125,7 @@ public sealed class SqlDialect
     public SqlDialect WithGuids(IEnumerable<string> columns, bool arcGisText) =>
         new(Name, Placeholder, NumericForPlaces, IntegerDivision,
             new HashSet<string>(columns ?? throw new ArgumentNullException(nameof(columns)), StringComparer.OrdinalIgnoreCase),
-            arcGisText);
+            arcGisText, OracleForms);
 
     /// <summary>Whether a column holds UUIDs.</summary>
     internal bool IsGuid(string? column) => column is not null && GuidColumns.Contains(column);
