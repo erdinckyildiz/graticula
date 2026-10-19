@@ -126,13 +126,16 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
                    (select max(cc.column_name) from all_constraints c
                       join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name
                      where c.owner = m.owner and c.table_name = m.table_name and c.constraint_type = 'P'
-                    having count(*) = 1) as key_column
+                    having count(*) = 1) as key_column,
+                   (select count(*) from all_sdo_index_info x
+                     where x.table_owner = m.owner and x.table_name = m.table_name and x.column_name = m.column_name) as indexes,
+                   nvl(sdo_cs.map_oracle_srid_to_epsg(m.srid), m.srid) as epsg
               from all_sdo_geom_metadata m
              where exists (select 1 from all_tables t where t.owner = m.owner and t.table_name = m.table_name)
              order by m.owner, m.table_name, m.column_name
             """;
 
-        List<(string Owner, string Table, string Column, int? Srid, string? Gtype, string? Key)> found = [];
+        List<(string Owner, string Table, string Column, int? Srid, string? Gtype, string? Key, bool Indexed)> found = [];
 
         await using (OracleCommand command = new(Sql, connection))
         await using (OracleDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
@@ -143,9 +146,11 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
                     reader.GetString(0),
                     reader.GetString(1),
                     reader.GetString(2),
-                    reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetDecimal(3)),
+                    // The EPSG code where Oracle has its own number for the same reference (8307 is 4326).
+                    reader.IsDBNull(7) ? null : Convert.ToInt32(reader.GetDecimal(7)),
                     reader.IsDBNull(4) ? null : reader.GetString(4),
-                    reader.IsDBNull(5) ? null : reader.GetString(5)));
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.GetDecimal(6) > 0));
             }
         }
 
@@ -159,6 +164,15 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
             if (row.Srid is not { } srid)
             {
                 skipped.Add(new SkippedTable(name, "Its spatial metadata names no SRID, so its coordinates' reference is unknown."));
+                continue;
+            }
+
+            // The reader asks the spatial index for a box (SDO_FILTER), which Oracle refuses without one (ORA-13226).
+            if (!row.Indexed)
+            {
+                skipped.Add(new SkippedTable(name,
+                    "Its geometry column has no spatial index, which Oracle needs to answer a spatial filter. Create one "
+                    + "with INDEXTYPE IS MDSYS.SPATIAL_INDEX_V2."));
                 continue;
             }
 
