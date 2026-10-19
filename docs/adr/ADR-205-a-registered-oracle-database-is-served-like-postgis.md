@@ -207,6 +207,7 @@ Oracle connection pool per registered source, inside the same admission budget t
    managed driver, no native client — under its actual terms, against shipping it in the server image under the
    Graticula Community License 1.1; DEPENDENCY-LICENSES.md's row rewritten from what was read, and its stale Apache-2.0
    premise corrected. If it may not be shipped, phase 1 still proceeds and the image does not carry it.
+   **PARTLY DISCHARGED 2026-10-19** — read from the package itself (23.26.301): the Oracle Free Distribution, Hosting, and Use Terms permit redistributing the unmodified driver, with the licence copy, no fee for the driver, Oracle's notices kept, export control the user's, no reverse engineering; the bundled notices are MIT/BSD-style. **It may be shipped.** DEPENDENCY-LICENSES.md's row is rewritten. **Still owed:** the image carries `LICENSE.txt` and `info.txt` beside the driver, held by a test when the provider is merged.
 2. **No call site reads *not GeoParquet* as *PostGIS* any more.** Every `GeoParquetLocator.Is` that means *not
    PostGIS* asks the kind instead, and an architecture test fails on a new one.
 3. **CI runs the Oracle provider's tests against Oracle Free on amd64** (`gvenzl/oracle-free` as a service container),
