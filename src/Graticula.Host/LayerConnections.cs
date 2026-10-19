@@ -541,13 +541,17 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     /// <summary>
     /// Whether several layers' edits can be kept or discarded together: every one in the same
-    /// PostgreSQL database, none of them a file.
+    /// PostgreSQL database, none of them a file or another engine.
     /// </summary>
     /// <param name="edits">The layers' edits.</param>
     /// <returns>Whether one transaction can hold them.</returns>
+    /// <remarks>
+    /// <b>Asks the kind, not "not a file" — ADR-205 condition 2.</b> Until 2026-10-20 this read every source that was
+    /// not GeoParquet as PostgreSQL, so two Oracle layers would have been handed to one Npgsql transaction.
+    /// </remarks>
     internal static bool OneTransactionHolds(IReadOnlyList<LayerEdit> edits) =>
         edits.Count > 0
-        && edits.All(e => !GeoParquetLocator.Is(e.Layer.ConnectionString))
+        && edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
         && edits.Select(e => e.Layer.ConnectionString).Distinct(StringComparer.Ordinal).Count() == 1;
 
     /// <summary>

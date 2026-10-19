@@ -125,6 +125,17 @@ RUN rm -f /app/runtimes/osx/native/libduckdb.dylib \
  && cp "${bindings}LICENSE-DuckDB.txt" /app/LICENSE-DuckDB.txt \
  && cp "${bindings}LICENSE.md" /app/LICENSE-DuckDB.NET.txt
 
+# <b>Oracle's managed driver, with the two files its terms ask to travel with it — ADR-205 condition 1.</b>
+# The Oracle Free Distribution, Hosting, and Use Terms permit redistributing the unmodified driver with
+# its licence; `info.txt` carries the third-party notices. Read out of the restored package, as DuckDB's
+# are, and the build fails if the driver or either file is missing.
+RUN test -f /app/Oracle.ManagedDataAccess.dll \
+ && oracle="$(ls -d /root/.nuget/packages/oracle.manageddataaccess.core/*/ | head -n 1)" \
+ && cp "${oracle}LICENSE.txt" /app/LICENSE-Oracle.ManagedDataAccess.txt \
+ && cp "${oracle}info.txt" /app/NOTICE-Oracle.ManagedDataAccess.txt \
+ && test -s /app/LICENSE-Oracle.ManagedDataAccess.txt \
+ && test -s /app/NOTICE-Oracle.ManagedDataAccess.txt
+
 # <b>Skia's and HarfBuzz's native libraries for the two architectures too, and for the same
 # reason — ADR-100.</b> Adding the shaper is what made this visible: a portable publish copies
 # HarfBuzz for sixteen runtime identifiers, **103 MB**, and measuring that showed Skia had been

@@ -236,15 +236,25 @@ Oracle connection pool per registered source, inside the same admission budget t
    managed driver, no native client — under its actual terms, against shipping it in the server image under the
    Graticula Community License 1.1; DEPENDENCY-LICENSES.md's row rewritten from what was read, and its stale Apache-2.0
    premise corrected. If it may not be shipped, phase 1 still proceeds and the image does not carry it.
-   **PARTLY DISCHARGED 2026-10-19** — read from the package itself (23.26.301): the Oracle Free Distribution, Hosting, and Use Terms permit redistributing the unmodified driver, with the licence copy, no fee for the driver, Oracle's notices kept, export control the user's, no reverse engineering; the bundled notices are MIT/BSD-style. **It may be shipped.** DEPENDENCY-LICENSES.md's row is rewritten. **Still owed:** the image carries `LICENSE.txt` and `info.txt` beside the driver, held by a test when the provider is merged.
+   **PARTLY DISCHARGED 2026-10-19** — read from the package itself (23.26.301): the Oracle Free Distribution, Hosting, and Use Terms permit redistributing the unmodified driver, with the licence copy, no fee for the driver, Oracle's notices kept, export control the user's, no reverse engineering; the bundled notices are MIT/BSD-style. **It may be shipped.** DEPENDENCY-LICENSES.md's row is rewritten. **Still owed:** the image carries `LICENSE.txt` and `info.txt` beside the driver, held by a test when the provider is merged. *(2026-10-20: `deploy/server.Dockerfile` now copies both out of the restored package as `LICENSE-Oracle.ManagedDataAccess.txt` and `NOTICE-Oracle.ManagedDataAccess.txt` and fails the build if the driver or either file is missing — written, and not yet run: the image is built only by a release, so the first release carrying this branch is the test.)*
 2. **No call site reads *not GeoParquet* as *PostGIS* any more.** Every `GeoParquetLocator.Is` that means *not
    PostGIS* asks the kind instead, and an architecture test fails on a new one.
+   **DISCHARGED 2026-10-20** — the 22 calls were read one by one. Twenty-one are about a file for a file's own reason
+   or have Oracle asked before them; one was not — `LayerConnections.OneTransactionHolds` would have handed two
+   Oracle layers' edits to one Npgsql transaction — and now asks `GeoParquetLocator.KindOf`.
+   `NotAFileIsNotPostGisTests` holds the count per file, fails on a new call, and was falsified by adding one.
 3. **CI runs the Oracle provider's tests against Oracle Free on amd64** (`gvenzl/oracle-free` as a service container),
    and the fixture recipe seeds the same tables there as on the VPS.
 4. **Oracle tiles through the datastore are timed** against the same layer registered from PostGIS, at the
    scale target's largest layer the test server can hold.
 5. **ArcGIS Pro opens a table Graticula publishes**, through an Oracle database connection, and draws and identifies
    it — measured with the arcpy harness through an SSH tunnel to the VPS. The owner's prize; its failure blocks nothing.
+   **DISCHARGED 2026-10-20** — ArcGIS Pro's arcpy, with Oracle Instant Client 23 (Basic Lite, on the process's path
+   only), made an Oracle database connection to FREEPDB1 as TRDATA and saw a `RemoteDatabase` — no geodatabase, as
+   decided — holding `TRDATA.TR_YER` (Point) and `TRDATA.TR_KARA` (Polygon), OBJECTID as the object id and EPSG:4326 as
+   the reference. It read all 1,421 places, drew both tables to a layout, found Ankara by attribute, and selected by
+   location the places inside the land polygon Oracle calls invalid: **1,005 — the count Graticula's FeatureServer
+   answers for the same polygon** over the same tables. Pro and Graticula read one table and agree on it.
 6. **The Oracle writer passes the PostGIS writer's edit-rule tests** — domains, subtypes, editor tracking, own-only
    editing (ADR-115), one transaction — before editing is offered on an Oracle layer.
 7. **[Q-182](../open-questions.md) is answered** — `SDO_GEOMETRY`, the phasing, and the tile route — before phase 1 is

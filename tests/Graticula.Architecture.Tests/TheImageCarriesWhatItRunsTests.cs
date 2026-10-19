@@ -162,4 +162,30 @@ public sealed class TheImageCarriesWhatItRunsTests
                 < dockerfile.IndexOf("dotnet publish", StringComparison.Ordinal),
             "Directory.Build.targets is copied after the publish that needs it.");
     }
+
+    /// <summary>
+    /// ADR-205 condition 1: the image that carries Oracle's managed driver carries the licence and notices its terms
+    /// require to travel with it, copied out of the restored package, and the build fails without them.
+    /// </summary>
+    [Fact]
+    public void The_image_carries_the_oracle_driver_s_licence_beside_it()
+    {
+        string dockerfile = Read("deploy", "server.Dockerfile");
+
+        foreach (string needed in new[]
+                 {
+                     "oracle.manageddataaccess.core",
+                     "LICENSE.txt\" /app/LICENSE-Oracle.ManagedDataAccess.txt",
+                     "info.txt\" /app/NOTICE-Oracle.ManagedDataAccess.txt",
+                     "test -s /app/LICENSE-Oracle.ManagedDataAccess.txt",
+                     "test -s /app/NOTICE-Oracle.ManagedDataAccess.txt",
+                 })
+        {
+            Assert.True(
+                dockerfile.Contains(needed, StringComparison.Ordinal),
+                $"deploy/server.Dockerfile no longer has `{needed}`. The Oracle Free Distribution, Hosting, and Use "
+                + "Terms let the driver be redistributed only with a copy of its licence, and NuGet does not put "
+                + "LICENSE.txt or info.txt into a publish — ADR-205 condition 1.");
+        }
+    }
 }
