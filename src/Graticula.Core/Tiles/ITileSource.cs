@@ -8,17 +8,11 @@ namespace Graticula.Tiles;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Two implementations now, and both still encode through PostGIS.</b> Until
-/// 2026-09-13 <c>PostGisTileSource</c> was the only one, because [ADR-021]
-/// decided that tiles are encoded by PostGIS and every row this server tiled
-/// came from PostGIS too. <c>ReadTileSource</c> reads its rows from
-/// DuckDB — a GeoParquet layer, ADR-066 §9 amended — and hands them to
-/// <see cref="IMvtEncoder"/>, which is the same PostGIS encoding step wearing a
-/// port so a second source of rows can reach it. The port is here because the
-/// build-vs-adopt policy forbids a provider type appearing in a Tier 1
-/// signature: without it the tile endpoint would take an
-/// <c>NpgsqlDataSource</c>, and the argument that most of the tiling pipeline is
-/// still ours would stop being true at the first line of the handler.
+/// <b>One implementation, <c>PostGisTileSource</c>, over the datastore — ADR-206.</b> [ADR-021] decided that
+/// tiles are encoded by PostGIS. From 2026-09-13 to 2026-10-20 a second one read rows from DuckDB or Oracle and
+/// handed them to a PostGIS encoder over a port (<c>IMvtEncoder</c>); ADR-206 took tiles off every registered source
+/// and both went. This interface stays because the build-vs-adopt policy forbids a provider type in a Tier 1
+/// signature: without it the tile endpoint would take an <c>NpgsqlDataSource</c>.
 /// </para>
 /// <para>
 /// <b>It returns bytes, not geometry.</b> That is the whole of ADR-021 in one

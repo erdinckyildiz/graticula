@@ -250,48 +250,4 @@ public sealed class ATileSchemeIsCutInItsOwnReferenceTests : PostgresFixture
             Assert.InRange(reader.GetDouble(7), built.Projected.MaxY - 1, built.Projected.MaxY + 1);
         }
     }
-
-    [Fact]
-    public async Task Rows_handed_to_the_encoder_come_out_as_the_table_s_tile_does()
-    {
-        // The GeoParquet path: rows read elsewhere, encoded by the same statement on the same grid.
-        LayerDefinition layer = await ShapesAsync(5254);
-        TileAddress address = new(3, 1, 1);
-
-        List<MvtRow> rows =
-        [
-            Row("square", new Polygon(new LinearRing(XySequence.Wrap(
-                [495000, 4495000, 505000, 4495000, 505000, 4505000, 495000, 4505000, 495000, 4495000])))),
-            Row("point", new Point(500000, 4500000)),
-        ];
-
-        byte[] encoded = await new PostGisMvtEncoder(DataSource)
-            .EncodeAsync(rows, address, Tm30, "shapes", 5254, CancellationToken.None);
-
-        Mvt.Layer fromRows = Assert.Single(Mvt.Decode(encoded));
-        Mvt.Layer fromTable = (await TileAsync(layer, address))!;
-
-        Assert.Equal(PointOf(fromTable), PointOf(fromRows));
-
-        // <b>The same rings, compared from the same start.</b> The two paths hand PostGIS the square
-        // differently and each ring came back starting at another corner (measured on the fixture,
-        // 2026-09-29): the same closed ring, drawn identically, which an element-by-element compare
-        // called different. Each ring is rotated to start at its smallest vertex before comparing.
-        Assert.Equal(
-            Canonical(fromTable.Features.Single(f => (string?)f.Attributes["kind"] == "square").Rings),
-            Canonical(fromRows.Features.Single(f => (string?)f.Attributes["kind"] == "square").Rings));
-
-        static List<List<(int X, int Y)>> Canonical(List<List<(int X, int Y)>> rings) =>
-            rings.Select(ring =>
-            {
-                List<(int X, int Y)> open = ring.Count > 1 && ring[0] == ring[^1] ? ring[..^1] : ring;
-                int start = open.IndexOf(open.Min());
-                List<(int X, int Y)> turned = [.. open.Skip(start), .. open.Take(start)];
-                turned.Add(turned[0]);
-                return turned;
-            }).ToList();
-
-        static MvtRow Row(string kind, Geometry geometry) =>
-            new(geometry, [new MvtTag("kind", FieldType.Text, kind)]);
-    }
 }

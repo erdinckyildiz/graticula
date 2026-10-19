@@ -29,13 +29,15 @@ way — 0 is empty, 1 may be — and costs no query against the data. Touching c
 vector tile is encoded with a buffer. `TheTileMapSaysWhichTilesAreEmptyTests` fetches every tile a map calls empty
 and requires it empty, at a level where the tile under the data is not; an all-zero map fails it.
 
-**Amended 2026-09-29, by owner decision — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md):
+**Amendment reversed 2026-10-20, by owner decision — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md): vector tiles are served from the datastore only, so §1's *hosted data is PostGIS* and §4's *the datastore is ours* read as they did before the amendment below, which is kept as the record.**
+
+~~**Amended 2026-09-29, by owner decision — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md):
 a registered PostGIS database's layers serve vector tiles**, reversing Q-67 for PostGIS. The decision here
 is unchanged and is what made that cheap: the tile is the same `ST_AsMVTGeom`/`ST_AsMVT` statement, run in
 the registered database through its own pool instead of in the datastore. §1's *hosted data is PostGIS*
 and §4's *the datastore is ours* now read *every tile source is PostGIS*; the datastore is no longer the
 only database a tile is encoded in, which puts a registered database's PostGIS version (3.0 or later, for
-`ST_TileEnvelope`) and its indexes in the tile's path — ADR-095 §5.2.
+`ST_TileEnvelope`) and its indexes in the tile's path — ADR-095 §5.2.~~
 
 
 > **Scope note, 2026-08-18 — v1 serves PostGIS only, and the other engines are
@@ -97,7 +99,7 @@ PostgreSQL is not what a tile costs. What the in-process path costs instead is
 That is A-037 — *allocation rate, not CPU, sets the ceiling* — appearing in the
 one workload that was supposed to be the encoder's best case.
 
-**Amended 2026-09-13: the rows reaching `ST_AsMVTGeom`/`ST_AsMVT` are no longer always PostGIS's
+*(Reversed 2026-10-20, [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md): `GeoParquetTileSource`, `PostGisMvtEncoder` and the rest of this crossing are removed; the rows are PostGIS's own again, and what follows is the record.)* **Amended 2026-09-13: the rows reaching `ST_AsMVTGeom`/`ST_AsMVT` are no longer always PostGIS's
 own.** ADR-066 §9 started giving GeoParquet layers vector tiles; their rows are read from a file
 through DuckDB (`GeoParquetTileSource`) and cross into the datastore as a batch — WKB and
 JSON-typed attributes, `unnest(...) with ordinality`, `PostGisMvtEncoder` — to reach the same
@@ -156,10 +158,10 @@ stage into PostgreSQL.
   the datastore, reached the same way [ADR-008](ADR-008-query-engine.md) reaches
   `ST_Intersects` and `ST_ClipByBox2D`. Pushdown *is* the query-engine design;
   this is that design followed to its conclusion for one output format.
-- The datastore is ours. *(Since [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md), not
+- The datastore is ours. ~~*(Since [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md), not
   the only database a tile is encoded in: a registered PostGIS database encodes its own layers' tiles.
   That is still PostGIS, so the decision holds; what it no longer holds is that somebody else never chose
-  the database.)* [ADR-019](ADR-019-portal-server-split.md) fused it into
+  the database.)*~~ *(True again since 2026-10-20: [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md) took tiles off registered databases.)* [ADR-019](ADR-019-portal-server-split.md) fused it into
   the product and [Q-69](../open-questions.md) made it mandatory. This is not a
   dependency on a database somebody else chose.
 - **Most of the tiling pipeline stays Tier 1 and unaffected**: tile addressing

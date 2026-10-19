@@ -284,10 +284,9 @@ public sealed class PostGisTileSourceTests : PostgresFixture
     /// A minimal Mapbox Vector Tile reader.
     /// </summary>
     /// <remarks>
-    /// <b>Internal rather than private since 2026-09-13</b>, so <c>GeoParquetTileOracleTests</c>
-    /// can decode a <c>ReadTileSource</c> tile with the same reader this class checks a
-    /// <c>PostGisTileSource</c> tile with — one decoder, so the two are being read the same way
-    /// rather than by two implementations that could disagree about the same bytes.
+    /// <b>Internal rather than private</b>, so the other tile tests in this project decode with the same reader this
+    /// class checks a <c>PostGisTileSource</c> tile with — one decoder, never two that could disagree about the same
+    /// bytes.
     /// </remarks>
     internal static class Mvt
     {

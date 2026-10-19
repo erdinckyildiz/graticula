@@ -9625,8 +9625,7 @@ function tileLayerMarkup(l, name) {
         numbers is under *Advanced*.
       -->
       <h4>Tile layer</h4>
-      <!-- tileable, not hosted (D-264): a GeoParquet layer is tiled (ADR-066 section 9) and is never
-           hosted, so this page told its operator there was no cache while the tiles were being cached. -->
+      <!-- tileable, not hosted (D-264), though since ADR-206 the two say the same: only the datastore is tiled. -->
       ${l.tileable ? `
       <p class="lede">Built the first time somebody views an area, and cleared as soon as this service's
         data changes through this server.${l.coherence === "best-effort" ? ` Other tools can change this
@@ -9661,9 +9660,9 @@ function tileLayerMarkup(l, name) {
         <div id="cacheLimits"></div>
         <div id="cacheDetails"></div>
       </details>`
-      : `<p class="hint">No tile cache: this layer stays in its own database, and this server serves it as
-         features only. Tiles come from layers this server holds itself — data in its datastore, and
-         GeoParquet files it reads directly. To get tiles, publish a copy into the datastore.</p>`}
+      : `<p class="hint">No tile cache: this layer is registered from a database or files this server does not
+         own, and is served as features, as ArcGIS serves registered data. Tiles come from the datastore only.
+         To get tiles, import a copy into the datastore.</p>`}
 `;
 }
 

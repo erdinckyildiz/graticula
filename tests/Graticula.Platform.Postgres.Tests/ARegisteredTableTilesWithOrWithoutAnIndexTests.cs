@@ -12,9 +12,14 @@ using Mvt = Graticula.Platform.Postgres.Tests.PostGisTileSourceTests.Mvt;
 namespace Graticula.Platform.Postgres.Tests;
 
 /// <summary>
-/// A registered table — not hosted, not in Web Mercator, and with no spatial index — still tiles, and the
-/// describe says whether it is indexed — ADR-095 §5.2.
+/// A table shaped as somebody else's — not hosted, not in Web Mercator, and with no spatial index — still tiles
+/// through the datastore's statement, and the describe says whether it is indexed — ADR-095 §5.2.
 /// </summary>
+/// <remarks>
+/// <b>Since ADR-206 (2026-10-20) a registered layer is not tiled</b>, so this no longer stands for one; it holds
+/// <c>PostGisTileSource</c> to a table the importer did not make, and the describe's index answer, which the query
+/// face's notice reads.
+/// </remarks>
 /// <remarks>
 /// <para>
 /// <b>The shape of somebody else's table, built on purpose.</b> A hosted table is created by the importer in

@@ -58,12 +58,8 @@ public sealed class TilePipelineVersionTests
         "src/Graticula.Providers.PostGis/PostGisTileSource.cs",
         "src/Graticula.Host/VectorTileEndpoints.cs",
 
-        // <b>A GeoParquet layer's tile, since 27e311d, and missing from this list until Q-157.</b> Its rows
-        // come from DuckDB and are encoded by this statement, so these two decide its bytes as the two
-        // above decide a table's; generalising by zoom changed both and this check watched one.
-        "src/Graticula.Providers.PostGis/PostGisMvtEncoder.cs",
-        // <b>Moved into Core as ReadTileSource on 2026-10-20 (ADR-205 §5c)</b>, when Oracle became its second reader.
-        "src/Graticula.Core/Tiles/ReadTileSource.cs",
+        // <b>A GeoParquet layer's tile left this list on 2026-10-20 with the files that drew it</b> — ADR-206 tiles
+        // the datastore only, so PostGisMvtEncoder and ReadTileSource (GeoParquetTileSource until that morning) are gone.
 
         // <b>A service's grid, since ADR-096 (2026-09-29).</b> Where a tile is, which levels exist, when a level is
         // simplified and what the cache key says about the grid are all decided here now — for Web Mercator by
@@ -80,6 +76,10 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-10-20 for ADR-206, and the version deliberately did not move.</b> Tiles come from the datastore
+        // only: the encoder for rows read elsewhere left this list, `ITileSource`'s remarks and the tile route's refusal
+        // were rewritten, and `Tileable` asks `hosted` alone. Every datastore tile is cut, keyed and encoded as before;
+        // a registered layer's tiles, keyed by its source, are no longer served at all.
         // <b>Moved 2026-10-20 for ADR-205 §5c, and the version deliberately did not move.</b> GeoParquetTileSource
         // became Core's ReadTileSource so an Oracle layer's rows reach the same encoder, and it now asks its reader for
         // index-intersects where it asked envelope-intersects — which a GeoParquet reader answers with the same exact
@@ -225,7 +225,7 @@ public sealed class TilePipelineVersionTests
         // styles and `resources/info` answer POST as well as GET; the tile, font and sprite routes are untouched.
         // <b>Moved again 2026-10-18, and the version did not move.</b> The service document names its portal item
         // (`serviceItemId`, ServiceItem) and its page links it; no tile byte, key or route changed.
-        "54082ab9f68862d02ed4b737d65d26092457283e86ce1ce6243da5014853e9f0";
+        "f835f1acda9692b8dbfb66d5a20549a09e35d9cdef719eaa8d067175f1a611e6";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

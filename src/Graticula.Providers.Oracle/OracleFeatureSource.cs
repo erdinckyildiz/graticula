@@ -832,8 +832,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             inOracle.Add(BoxClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), table.Srid, parameters));
         }
 
-        // <b>Index-intersects is the index's answer, as `&&` is PostGIS's</b> — what a tile asks (ReadTileSource), and
-        // the encoder clips. Nothing is read twice for it; a bounding box or another relation beside it is exact.
+        // <b>Index-intersects is the index's answer, as `&&` is PostGIS's</b> — esriSpatialRelIndexIntersects asks for
+        // exactly that. Nothing is read twice for it; a bounding box or another relation beside it is exact.
         if (shape is null && query.BoundingBox is null
             && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
         {

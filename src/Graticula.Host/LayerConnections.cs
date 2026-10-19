@@ -79,12 +79,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// layer on a folder asked of a process without it is refused by name.
     /// </param>
     /// <param name="projector">The datastore's projector, which a GeoParquet layer projects through.</param>
-    /// <param name="mvtEncoder">
-    /// Where a GeoParquet tile's rows are encoded — ADR-066 §9, amended 2026-09-13. Optional for
-    /// the same reason <paramref name="geoParquet"/> is: a process started without one serves no
-    /// GeoParquet tiles, and <see cref="TileSourceFor"/> says so by name rather than reaching a
-    /// null reference.
-    /// </param>
     /// <param name="tiles">
     /// The tile cache a successful edit empties for its layer — ADR-069. Optional for the same
     /// reason as the others: a process without one has no tiles to go stale.
@@ -96,7 +90,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         SourceQuiesce? quiesce = null,
         GeoParquetSources? geoParquet = null,
         Graticula.Geometries.IProjector? projector = null,
-        Graticula.Tiles.IMvtEncoder? mvtEncoder = null,
         ITileCache? tiles = null,
         Graticula.Geometries.IGeometryEngine? engine = null)
     {
@@ -108,7 +101,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _quiesce = quiesce;
         _geoParquet = geoParquet;
         _projector = projector;
-        _mvtEncoder = mvtEncoder;
         _tiles = tiles;
         _engine = engine;
     }
@@ -126,7 +118,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
-    private readonly Graticula.Tiles.IMvtEncoder? _mvtEncoder;
 
     /// <summary>
     /// Closes this source's pool, so nothing of ours is holding its tables.
@@ -648,22 +639,19 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return outcomes;
     }
 
-    /// <summary>A tile source for one layer.</summary>    /// <summary>A tile source for one layer.</summary>
+    /// <summary>A tile source for one datastore layer.</summary>
     /// <param name="layer">The layer.</param>
     /// <param name="attributes">
     /// The columns to carry into the tile, with their types, already checked against the layer's
     /// real columns — the same identifier whitelist ADR-008 §4.6 requires of the select list, for
-    /// the same reason. The type travels too because a GeoParquet layer's encoder has to give
-    /// each value back the PostgreSQL type a hosted column of that kind would have.
+    /// the same reason.
     /// </param>
     /// <param name="scheme">The grid the service is cut on, or null for Web Mercator — ADR-096.</param>
     /// <returns>The tile source.</returns>
     /// <remarks>
-    /// <b>GeoParquet layers get tiles too, since 2026-09-13 — owner decision, reversing ADR-066
-    /// §9 for this one face.</b> Editing, attachments, related records and schema editing are
-    /// still refused by <see cref="RefuseIfFile"/>; tiling is not, because a GeoParquet layer's
-    /// rows can still be read and PostGIS can still encode them, which is the whole of what a
-    /// tile needs.
+    /// <b>The datastore's only — ADR-206.</b> A registered layer of any kind is refused before it gets here, by
+    /// <see cref="VectorTileEndpoints.Tileable"/>; this refuses it again rather than hand a GeoParquet folder's or an
+    /// Oracle database's locator to Npgsql, which is what falling through to the pool would do.
     /// </remarks>
     public ITileSource TileSourceFor(
         PublishedLayer layer,
@@ -677,57 +665,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(attributes);
 
-        if (OracleLocator.Is(layer.ConnectionString))
+        if (!VectorTileEndpoints.Tileable(layer))
         {
-            // <b>ADR-205 §5c: Oracle's rows, the datastore's ST_AsMVT</b> — a GeoParquet layer's route, and its gates.
-            if (_quiesce?.Holding(layer.ConnectionString) is { } oracleHeld)
-            {
-                throw new SourceQuiescedException(SourceQuiesce.Says(oracleHeld), oracleHeld.Until);
-            }
-
-            if (_projector is null || _mvtEncoder is null)
-            {
-                throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
-                    + "the projector and vector tile encoder its tiles are drawn with.");
-            }
-
-            return new ReadTileSource(
-                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer)),
-                layer.Definition, attributes, _mvtEncoder, scheme);
-        }
-
-        if (GeoParquetLocator.Is(layer.ConnectionString))
-        {
-            // <b>The same gate <see cref="SourceFor"/> applies, restated.</b> A tile source is
-            // built once per cold tile rather than once per request (`TileSingleFlight`), but the
-            // pool it reads through is the file's own, and an operator quiescing that source
-            // needs it honoured here exactly as it is on the query path.
-            if (_quiesce?.Holding(layer.ConnectionString) is { } held)
-            {
-                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
-            }
-
-            if (_geoParquet is null || _projector is null)
-            {
-                throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
-                    + "server was started without the means to read one.");
-            }
-
-            if (_mvtEncoder is null)
-            {
-                throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
-                    + "server was started without a vector tile encoder for it.");
-            }
-
-            TimeSpan? lowered = Lowered(layer);
-
-            GeoParquetFeatureSource reader = new(
-                _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered);
-
-            return new ReadTileSource(reader, layer.Definition, attributes, _mvtEncoder, scheme);
+            throw new QueryNotSupportedException(
+                $"Layer '{layer.Definition.Name}' is registered from a database or files this server does not own, and "
+                + "vector tiles are drawn from the datastore only (ADR-206). Draw it through its FeatureServer, or "
+                + "import it into the datastore.");
         }
 
         return new PostGisTileSource(
@@ -944,10 +887,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// gated on the hosted schema. This is here so that a face written later that forgets gets a
     /// sentence rather than an Npgsql parse error about a folder path.
     /// <para>
-    /// <b>Tiling stopped being one of these on 2026-09-13.</b> <see cref="TileSourceFor"/> used
-    /// to call this too — ADR-066 §9's original refusal — and now branches to
-    /// <see cref="ReadTileSource"/> instead. The sentence above is what every other caller
-    /// still gets; a GeoParquet layer's own words about tiles no longer include *cannot*.
+    /// <b>Tiling is refused before this, for every registered layer alike</b> — ADR-206, in
+    /// <see cref="TileSourceFor"/>; from 2026-09-13 to 2026-10-20 a GeoParquet layer was tiled.
     /// </para>
     /// </remarks>
     private static void RefuseIfFile(PublishedLayer layer, string what)

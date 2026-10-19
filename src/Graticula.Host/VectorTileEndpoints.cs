@@ -171,15 +171,9 @@ internal static class VectorTileEndpoints
         // the service rather than being quietly skipped — a tile missing one of
         // three layers looks like missing data, and nobody would know to ask.
         //
-        // <b>GeoParquet counts as tileable too, since 2026-09-13 — owner decision, reversing
-        // ADR-066 §9 for this one face.</b> A GeoParquet layer is never hosted (`IsHosted` is
-        // about the datastore, and a file is not the datastore), so it used to fail this test
-        // for the same reason a registered Oracle table does.
-        //
-        // <b>And a registered PostGIS layer, since 2026-09-29 — ADR-095, owner decision,
-        // reversing Q-67 for PostGIS.</b> Its rows are read by the statement a hosted layer's
-        // are, in its own database. `Tileable` is what tells a layer that tiles from one that
-        // cannot now that `IsHosted` answers neither.
+        // <b>Datastore layers only — ADR-206, owner decision 2026-10-20.</b> From 2026-09-13 a GeoParquet
+        // layer and from 2026-09-29 a registered PostGIS one were tiled too (ADR-066 §9, ADR-095); ADR-206
+        // restored Q-67, and `Tileable` asks the one rule.
         PublishedLayer layer = service.Layers[0];
 
         foreach (PublishedLayer each in service.Layers)
@@ -202,13 +196,12 @@ internal static class VectorTileEndpoints
                     {
                         code = 400,
                         message =
-                            $"Layer '{layer.Definition.Name}' of '{layerName}' is served from a "
-                            + $"'{KindOf(layer)}' source, and this server cannot encode that kind "
-                            + "of source as vector tiles. Tiles are served from hosted data, from "
-                            + "registered PostGIS databases and from GeoParquet and DuckDB sources "
-                            + "(ADR-095, ADR-066 §9); other database engines serve features only "
-                            + "(Q-67). Its FeatureServer is at "
-                            + $"/rest/services/{layerName}/FeatureServer and is unaffected.",
+                            $"Layer '{layer.Definition.Name}' of '{layerName}' is registered from a "
+                            + $"'{KindOf(layer)}' source, and vector tiles are drawn from the datastore "
+                            + "only (ADR-206), as ArcGIS draws a registered layer through its feature "
+                            + "service. Its FeatureServer is at "
+                            + $"/rest/services/{layerName}/FeatureServer; import the data into the "
+                            + "datastore for tiles.",
                         details = Array.Empty<string>(),
                     },
                 },
@@ -259,26 +252,14 @@ internal static class VectorTileEndpoints
         return service;
     }
 
-    /// <summary>Whether a layer's rows can reach a vector tile at all.</summary>
+    /// <summary>Whether a layer serves vector tiles: a datastore layer does, a registered one does not — ADR-206.</summary>
     /// <remarks>
-    /// <para>
-    /// <b>Hosted, a registered PostGIS database, or a DuckDB-read source — ADR-095, owner decision
-    /// 2026-09-29, reversing Q-67 for PostGIS.</b> A hosted layer and a registered PostGIS layer are
-    /// both read by <c>PostGisTileSource</c>, the one statement, run in the layer's own database
-    /// through <see cref="LayerConnections.TileSourceFor"/>'s pool for that source — so quiesce, the
-    /// breaker and the budget are the source's, not the datastore's. A GeoParquet layer is read by
-    /// <c>ReadTileSource</c> and encoded by the same statement (ADR-066 §9).
-    /// </para>
-    /// <para>
-    /// <b>The rule is <see cref="Graticula.Platform.Admin.TileSources.Tiled"/>, and this only asks
-    /// it</b>, so the catalogue's <c>AdminLayer.Tileable</c> cannot answer differently. What is still
-    /// refused is a kind nothing here encodes — none can be registered today, and the SQL Server,
-    /// Oracle and MySQL providers v1-scope §3a defers would be — because <c>ST_AsMVT</c> is a PostGIS
-    /// function and Q-67's reason still holds for those engines.
-    /// </para>
+    /// <b>The rule is <see cref="Graticula.Platform.Admin.TileSources.Tiled"/>, and this only asks it</b>, so the
+    /// catalogue's <c>AdminLayer.Tileable</c> cannot answer differently. From 2026-09-29 to 2026-10-20 a registered
+    /// PostGIS, DuckDB-read or Oracle layer was tiled too (ADR-095, ADR-066 §9, ADR-205 §5c); ADR-206 restored Q-67.
     /// </remarks>
     internal static bool Tileable(PublishedLayer layer) =>
-        Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted, KindOf(layer));
+        Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted);
 
     /// <summary>The kind of a layer's source, read off its locator — <see cref="Graticula.Platform.Admin.DataSourceKinds"/>.</summary>
     private static string KindOf(PublishedLayer layer) =>

@@ -40,7 +40,7 @@ and segfaults under emulation (measured, both 2022 and 2025) — and then:
   measured working on the arm64 test server (§4). Esri's `ST_GEOMETRY` would need Esri's library, which is outside the
   owner's *no SDE* and lists no arm64 build.
 - **Read first, editing second, versioning not at all** until the owner returns to it (§5).
-- **Tiles through the datastore**, as DuckDB-read layers are tiled today (§5c).
+- ~~**Tiles through the datastore**, as DuckDB-read layers are tiled today (§5c).~~ *(Removed 2026-10-20 — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md).)*
 
 ### 1c. What is true in the code, measured on `origin/main` at `b4b5eb77`
 
@@ -164,6 +164,8 @@ the PostGIS writer's own tests before it is offered (condition 6).
 
 ### 5c. Tiles — through the datastore
 
+> **Amended 2026-10-20 — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md): Oracle layers are not tiled.** No registered source is; `TileSources.Tiled` answers by `hosted` alone, ADR-008's Q-67 amendment (*registered Oracle layers never serve tiles*) holds again, and `ReadTileSource` is removed. The paragraphs below are kept as the record of what was decided and built the same day. An Oracle layer's *query answers* still keep five minutes and `best-effort` coherence.
+
 A registered Oracle layer is tiled as a DuckDB-read layer is: rows through the feature source, `ST_AsMVT` in the
 PostGIS datastore. `TileSources.Tiled` names Oracle, and ADR-008's Q-67 amendment no longer holds for it. Its tiles
 are `best-effort` and keep five minutes by default, as every source other tools write to does (`TileSources.WrittenElsewhere`).
@@ -225,9 +227,9 @@ Oracle connection pool per registered source, inside the same admission budget t
 
 - **Condition 1 finds the driver cannot be redistributed** — the image ships without it, and how a customer adds it
   becomes a decision of its own.
-- **Condition 4 measures an Oracle tile over 500 ms at p95 on a layer a registered PostGIS layer draws in under 100** —
+- ~~**Condition 4 measures an Oracle tile over 500 ms at p95 on a layer a registered PostGIS layer draws in under 100** —
   the datastore route is the wrong one for Oracle, and an in-database encoder (Oracle's own, if it has one by then) or
-  pre-seeding is reconsidered.
+  pre-seeding is reconsidered.~~ *No subject since 2026-10-20: ADR-206 tiles the datastore only.*
 - **The owner returns to versioning** — a new ADR, starting from §5d.
 
 ## 10. Conditions
@@ -252,6 +254,7 @@ Oracle connection pool per registered source, inside the same admission budget t
    13356 on amd64 as on arm64, and the 15 `Needs=Oracle` tests passed.
 4. **Oracle tiles through the datastore are timed** against the same layer registered from PostGIS, at the
    scale target's largest layer the test server can hold.
+   *(Deferred 2026-10-20 with its decision — ADR-206: no registered source is tiled, so there is no Oracle tile to time.)*
 5. **ArcGIS Pro opens a table Graticula publishes**, through an Oracle database connection, and draws and identifies
    it — measured with the arcpy harness through an SSH tunnel to the VPS. The owner's prize; its failure blocks nothing.
    **DISCHARGED 2026-10-20** — ArcGIS Pro's arcpy, with Oracle Instant Client 23 (Basic Lite, on the process's path
@@ -272,6 +275,7 @@ Oracle connection pool per registered source, inside the same admission budget t
    (`OracleFeatureSourceTests.Land_oracle_calls_invalid_is_served_and_filters_exactly`); a relation phase 1 does not
    answer is refused before Oracle is asked. As tiles: the VectorTileServer of the published land table drew it at
    z5 and z6 on the fixture, through the datastore's encoder, from the polygons as they are.
+   *(2026-10-20, later: the tile half was measured while Oracle tiles existed; [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md) removed them the same day, so only the feature half remains true of the product.)*
 
 ## 11. Dissent
 

@@ -37,8 +37,9 @@ public sealed class NotAFileIsNotPostGisTests
         // Closing a folder; the probe and the database listing, Oracle asked first.
         ["src/Graticula.Host/GeoParquetSources.cs"] = 3,
 
-        // The read and tile branches, Oracle's ahead of them; and the edit refusal, which names Oracle next.
-        ["src/Graticula.Host/LayerConnections.cs"] = 3,
+        // The read branch, Oracle's ahead of it; and the edit refusal, which names Oracle next. (The tile branch went
+        // with ADR-206.)
+        ["src/Graticula.Host/LayerConnections.cs"] = 2,
 
         // The relationship refusal, which names Oracle beside it.
         ["src/Graticula.Host/RelationshipEndpoints.cs"] = 3,
