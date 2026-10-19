@@ -91,6 +91,12 @@
          Core only: the spatial extension is never installed or loaded, so GEOS and GDAL do not
          come with it. Confined to Graticula.Providers.DuckDb by NativeDependencyTests. -->
     <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.5" />
+    <!-- Oracle's managed driver, for registered Oracle databases (ADR-205). Fully managed: no native
+         client, no OCI. Licensed under the Oracle Free Distribution, Hosting, and Use Terms, read from
+         the package on 2026-10-19 (DEPENDENCY-LICENSES.md): redistributable unmodified, with its
+         LICENSE.txt and info.txt beside it in the image, and no fee for the driver itself. Confined to
+         Graticula.Providers.Oracle by NativeDependencyTests. -->
+    <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
   </ItemGroup>
   <ItemGroup Label="Rendering â€” Tier 2, behind our own port, in the serving process">
     <!-- ADR-041. The only rasteriser in this repository, and the first native

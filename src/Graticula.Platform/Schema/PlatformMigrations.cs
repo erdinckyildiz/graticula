@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(94);
+    public static SchemaVersion ComponentSchemaVersion => new(95);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -129,7 +129,24 @@ public static class PlatformMigrations
         AMemberMayHaveASecondFactorV92,
         AnItemHasTermsCategoriesAndFavoritesV93,
         ADeletedItemWaitsInTheRecycleBinV94,
+        ARegisteredDatabaseMayBeOracleV95,
     ]);
+
+    /// <summary>A registered data source may be an Oracle database — ADR-205.</summary>
+    /// <remarks>
+    /// <b>Expand.</b> A constraint widened; every existing row satisfies it, and a build before this one never writes
+    /// the new kind. Its locator is <c>oracle:</c> and JSON, sealed like every other (<c>OracleLocator</c>).
+    /// </remarks>
+    private static Migration ARegisteredDatabaseMayBeOracleV95 => Migration.Expand(
+        new SchemaVersion(95),
+        "A registered data source may be an Oracle database (ADR-205).",
+
+        "alter table data_source drop constraint if exists data_source_kind_known",
+
+        """
+        alter table data_source add constraint data_source_kind_known
+            check (kind in ('postgis', 'geoparquet', 'geoparquet-remote', 'duckdb', 'motherduck', 'oracle'))
+        """);
 
     /// <summary>A deleted item waits in the recycle bin, its rows kept with their ids — ADR-203, Q-180.</summary>
     /// <remarks>
