@@ -62,7 +62,8 @@ public sealed class TilePipelineVersionTests
         // come from DuckDB and are encoded by this statement, so these two decide its bytes as the two
         // above decide a table's; generalising by zoom changed both and this check watched one.
         "src/Graticula.Providers.PostGis/PostGisMvtEncoder.cs",
-        "src/Graticula.Providers.DuckDb/GeoParquetTileSource.cs",
+        // <b>Moved into Core as ReadTileSource on 2026-10-20 (ADR-205 §5c)</b>, when Oracle became its second reader.
+        "src/Graticula.Core/Tiles/ReadTileSource.cs",
 
         // <b>A service's grid, since ADR-096 (2026-09-29).</b> Where a tile is, which levels exist, when a level is
         // simplified and what the cache key says about the grid are all decided here now — for Web Mercator by
@@ -79,6 +80,10 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-10-20 for ADR-205 §5c, and the version deliberately did not move.</b> GeoParquetTileSource
+        // became Core's ReadTileSource so an Oracle layer's rows reach the same encoder, and it now asks its reader for
+        // index-intersects where it asked envelope-intersects — which a GeoParquet reader answers with the same exact
+        // box test, so not one GeoParquet tile reads a different row. An Oracle layer had no tiles before.
         // <b>Moved 2026-10-15 for D-297, and the version moved with it, to 4.</b> `PostGisTileSource` selects the
         // attributes a layer describes as doubles `::double precision`, so a `numeric` column's value in a tile is a
         // double where it was text: the bytes of every tile of such a layer change.
@@ -220,7 +225,7 @@ public sealed class TilePipelineVersionTests
         // styles and `resources/info` answer POST as well as GET; the tile, font and sprite routes are untouched.
         // <b>Moved again 2026-10-18, and the version did not move.</b> The service document names its portal item
         // (`serviceItemId`, ServiceItem) and its page links it; no tile byte, key or route changed.
-        "3659678c2f3abb852b76c85bc4a1354f59e69d641c7d70c68e6258e59ec38fab";
+        "54082ab9f68862d02ed4b737d65d26092457283e86ce1ce6243da5014853e9f0";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

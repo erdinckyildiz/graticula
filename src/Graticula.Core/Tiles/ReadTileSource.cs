@@ -6,21 +6,26 @@ using System.Threading.Tasks;
 using Graticula.Catalog;
 using Graticula.Features;
 using Graticula.Geometries;
-using Graticula.Tiles;
 
-namespace Graticula.Providers.DuckDb;
+namespace Graticula.Tiles;
 
 /// <summary>
-/// Builds vector tiles for a GeoParquet layer — ADR-066 §9, amended 2026-09-13.
+/// Builds vector tiles for a layer whose rows another engine reads — a GeoParquet layer (ADR-066 §9, amended
+/// 2026-09-13) and a registered Oracle one (ADR-205 §5c).
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Reads through the same bounded path every other GeoParquet query uses.</b> A tile is a
-/// bounding-box question, and <see cref="GeoParquetFeatureSource"/> already answers one: the box
-/// test, the statement timeout and <see cref="GeoParquetFeatureSource.DefaultMostMatched"/> are
-/// not repeated here, they are <em>reached</em>, by asking for <see cref="SpatialRelation.EnvelopeIntersects"/>
-/// against the tile's own envelope — which is the DuckDB-side equivalent of the plain <c>&amp;&amp;</c>
-/// test <c>PostGisTileSource</c> runs, box against box, nothing about the shape considered yet.
+/// <b>Was <c>GeoParquetTileSource</c> until 2026-10-20</b>, when Oracle became the second reader it fits, and moved
+/// into Core with nothing changed but the reader's type and the relation asked.
+/// </para>
+/// <para>
+/// <b>Reads through the same bounded path every other query of the layer uses.</b> A tile is a
+/// bounding-box question, and the layer's <see cref="IFeatureSource"/> already answers one: the box
+/// test, the statement timeout and the reader's bound on what a filter may match are
+/// not repeated here, they are <em>reached</em>, by asking for <see cref="SpatialRelation.IndexIntersects"/>
+/// against the tile's own envelope — the plain <c>&amp;&amp;</c> test <c>PostGisTileSource</c> runs, box
+/// against box, nothing about the shape considered yet. A GeoParquet reader answers it as an exact box test, an
+/// Oracle one with its spatial index (<c>SDO_FILTER</c>) alone; either way the encoder clips.
 /// </para>
 /// <para>
 /// <b>Encoding is still PostGIS's job.</b> ADR-021 decided that once and this does not reopen it:
@@ -37,19 +42,19 @@ namespace Graticula.Providers.DuckDb;
 /// complete. A tile cannot say it is partial, so a cut there is silent degradation. Paging gives
 /// the answer <c>PostGisTileSource</c> gives, whose query has no limit; what bounds it is what
 /// bounds that one — the statement timeout — plus
-/// <see cref="GeoParquetFeatureSource.DefaultMostMatched"/>, which <em>refuses</em> a box that
+/// the reader's bound on what a filter matches, which <em>refuses</em> a box that
 /// matches more than a million features rather than truncating it.
 /// </para>
 /// </remarks>
-public sealed class GeoParquetTileSource : ITileSource
+public sealed class ReadTileSource : ITileSource
 {
-    private readonly GeoParquetFeatureSource _reader;
+    private readonly IFeatureSource _reader;
     private readonly LayerDefinition _layer;
     private readonly IReadOnlyList<FieldDescription> _attributes;
     private readonly IMvtEncoder _encoder;
     private readonly VectorTileScheme _scheme;
 
-    /// <summary>Creates a tile source over one GeoParquet layer.</summary>
+    /// <summary>Creates a tile source over one layer read by another engine.</summary>
     /// <param name="reader">
     /// The layer's own bounded reader — the same one a FeatureServer query over this layer would
     /// use, so a tile pays the same statement timeout and the same million-feature bound.
@@ -57,16 +62,16 @@ public sealed class GeoParquetTileSource : ITileSource
     /// <param name="layer">The layer definition.</param>
     /// <param name="attributes">
     /// Columns to carry into the tile as feature tags, with their types — already checked against
-    /// the file's real columns, the same whitelist <c>PostGisTileSource</c> is handed.
+    /// the source's real columns, the same whitelist <c>PostGisTileSource</c> is handed.
     /// </param>
     /// <param name="encoder">Where the rows are turned into MVT bytes.</param>
     /// <param name="scheme">
     /// The grid the service is cut on, or null for Web Mercator — ADR-096. <b>Supported, because the
     /// read shares the envelope</b>: the box test is asked in the scheme's own reference and the encoder is
-    /// handed the scheme, so a GeoParquet layer tiles on a TUREF grid exactly as a table does.
+    /// handed the scheme, so such a layer tiles on a TUREF grid exactly as a table does.
     /// </param>
-    public GeoParquetTileSource(
-        GeoParquetFeatureSource reader,
+    public ReadTileSource(
+        IFeatureSource reader,
         LayerDefinition layer,
         IReadOnlyList<FieldDescription> attributes,
         IMvtEncoder encoder,
@@ -113,7 +118,7 @@ public sealed class GeoParquetTileSource : ITileSource
                 PageRows,
                 fields: [.. _attributes.Select(a => a.Name)],
                 includeGeometry: true,
-                spatial: new SpatialFilter(filter, SpatialRelation.EnvelopeIntersects),
+                spatial: new SpatialFilter(filter, SpatialRelation.IndexIntersects),
                 // Every page is ordered by identity inside the reader (D-21), so consecutive
                 // pages neither repeat nor skip a row.
                 offset: offset,

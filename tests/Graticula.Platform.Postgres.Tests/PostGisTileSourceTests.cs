@@ -285,7 +285,7 @@ public sealed class PostGisTileSourceTests : PostgresFixture
     /// </summary>
     /// <remarks>
     /// <b>Internal rather than private since 2026-09-13</b>, so <c>GeoParquetTileOracleTests</c>
-    /// can decode a <c>GeoParquetTileSource</c> tile with the same reader this class checks a
+    /// can decode a <c>ReadTileSource</c> tile with the same reader this class checks a
     /// <c>PostGisTileSource</c> tile with — one decoder, so the two are being read the same way
     /// rather than by two implementations that could disagree about the same bytes.
     /// </remarks>

@@ -168,6 +168,14 @@ A registered Oracle layer is tiled as a DuckDB-read layer is: rows through the f
 PostGIS datastore. `TileSources.Tiled` names Oracle, and ADR-008's Q-67 amendment no longer holds for it. Its tiles
 are `best-effort` and keep five minutes by default, as every source other tools write to does (`TileSources.WrittenElsewhere`).
 
+**As built, 2026-10-20.** `GeoParquetTileSource` became Core's `ReadTileSource`, taking any `IFeatureSource`, and asks
+its reader for index-intersects — `&&`'s meaning — rather than envelope-intersects, which a GeoParquet reader answers
+with the same exact box test (the tile pipeline's version did not move). An Oracle reader answers it with
+`SDO_FILTER` alone, nothing refined. **A geodetic spatial index answers wide**: for the z6 tile over Ankara it named
+391 rows where 308 places lie in the tile, and the encoder's clip left exactly the 308 — the tile is right, and the
+rows it cost are condition 4's to weigh. On this branch `TileSources.Registered` names Oracle; `WrittenElsewhere` is
+its name on the debts branch, which the merge reconciles.
+
 ### 5d. What is not decided
 
 - **Versioning** — the owner's to return to. Nothing in phases 1 and 2 adds a column to a customer's table or keeps
@@ -244,10 +252,11 @@ Oracle connection pool per registered source, inside the same admission budget t
 8. **A geometry Oracle calls invalid is still served.** `TRDATA.TR_KARA`'s two polygons (13356) come back as
    features and tiles, and a spatial relation Oracle refuses on them answers with a refusal that says why — tested
    against them as they are, never against a repaired copy.
-   **PARTLY DISCHARGED 2026-10-20** — as features: both polygons are read through the FeatureServer, and the larger
+   **DISCHARGED 2026-10-20** — as features: both polygons are read through the FeatureServer, and the larger
    filters TR_YER's 1,421 places exactly as the same test over every place read unfiltered does
    (`OracleFeatureSourceTests.Land_oracle_calls_invalid_is_served_and_filters_exactly`); a relation phase 1 does not
-   answer is refused before Oracle is asked. **Still owed:** as tiles, with §5c.
+   answer is refused before Oracle is asked. As tiles: the VectorTileServer of the published land table drew it at
+   z5 and z6 on the fixture, through the datastore's encoder, from the polygons as they are.
 
 ## 11. Dissent
 

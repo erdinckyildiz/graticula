@@ -20,7 +20,7 @@ namespace Graticula.Providers.PostGis;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Added 2026-09-13 for <c>GeoParquetTileSource</c>, and this is the datastore round trip that
+/// <b>Added 2026-09-13 for <c>ReadTileSource</c>, and this is the datastore round trip that
 /// answer describes.</b> A GeoParquet layer's rows come from DuckDB; PostGIS still does the
 /// encoding, which means the rows have to cross into PostgreSQL rather than starting there. The
 /// shape is <c>PostGisProjector</c>'s: the batch travels as arrays bound to one statement,

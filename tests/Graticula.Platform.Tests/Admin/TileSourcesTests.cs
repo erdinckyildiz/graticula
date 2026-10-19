@@ -29,11 +29,13 @@ public sealed class TileSourcesTests
         Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.GeoParquetRemote));
         Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.DuckDb));
         Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.MotherDuck));
+
+        // ADR-205 §5c: Oracle's rows, the datastore's ST_AsMVT, since 2026-10-20.
+        Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.Oracle));
     }
 
     [Theory]
     [InlineData("sqlserver")]
-    [InlineData("oracle")]
     [InlineData("mysql")]
     [InlineData("")]
     [InlineData(null)]
@@ -52,6 +54,9 @@ public sealed class TileSourcesTests
 
         Assert.Equal(TileSources.RegisteredLifetime, TileSources.DefaultLifetimeOf(false, DataSourceKinds.PostGis, server));
         Assert.Equal(TimeSpan.FromMinutes(5), TileSources.RegisteredLifetime);
+
+        // ADR-205 §5c: a registered Oracle table is written by other tools as a registered PostGIS one is.
+        Assert.Equal(TileSources.RegisteredLifetime, TileSources.DefaultLifetimeOf(false, DataSourceKinds.Oracle, server));
 
         // Hosted and the file kinds keep the server's default: nothing about them changed.
         Assert.Equal(server, TileSources.DefaultLifetimeOf(true, DataSourceKinds.PostGis, server));
@@ -76,6 +81,7 @@ public sealed class TileSourcesTests
         Assert.Equal("exact", TileSources.CoherenceOf(true, DataSourceKinds.PostGis));
         Assert.Equal("best-effort", TileSources.CoherenceOf(false, DataSourceKinds.PostGis));
         Assert.Equal("best-effort", TileSources.CoherenceOf(false, DataSourceKinds.MotherDuck));
+        Assert.Equal("best-effort", TileSources.CoherenceOf(false, DataSourceKinds.Oracle));
         Assert.Equal("file-version", TileSources.CoherenceOf(false, DataSourceKinds.GeoParquet));
         Assert.Equal("file-version", TileSources.CoherenceOf(false, DataSourceKinds.DuckDb));
     }

@@ -673,7 +673,25 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(attributes);
 
-        RefuseIfOracle(layer);
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            // <b>ADR-205 §5c: Oracle's rows, the datastore's ST_AsMVT</b> — a GeoParquet layer's route, and its gates.
+            if (_quiesce?.Holding(layer.ConnectionString) is { } oracleHeld)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(oracleHeld), oracleHeld.Until);
+            }
+
+            if (_projector is null || _mvtEncoder is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    + "the projector and vector tile encoder its tiles are drawn with.");
+            }
+
+            return new ReadTileSource(
+                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer)),
+                layer.Definition, attributes, _mvtEncoder, scheme);
+        }
 
         if (GeoParquetLocator.Is(layer.ConnectionString))
         {
@@ -705,7 +723,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             GeoParquetFeatureSource reader = new(
                 _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered);
 
-            return new GeoParquetTileSource(reader, layer.Definition, attributes, _mvtEncoder, scheme);
+            return new ReadTileSource(reader, layer.Definition, attributes, _mvtEncoder, scheme);
         }
 
         return new PostGisTileSource(
@@ -924,7 +942,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// <para>
     /// <b>Tiling stopped being one of these on 2026-09-13.</b> <see cref="TileSourceFor"/> used
     /// to call this too — ADR-066 §9's original refusal — and now branches to
-    /// <see cref="GeoParquetTileSource"/> instead. The sentence above is what every other caller
+    /// <see cref="ReadTileSource"/> instead. The sentence above is what every other caller
     /// still gets; a GeoParquet layer's own words about tiles no longer include *cannot*.
     /// </para>
     /// </remarks>
@@ -947,26 +965,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     }
 
     /// <summary>
-    /// Refuses an Oracle layer by name until its reader exists — ADR-205 phase 1 — rather than letting it fall through
-    /// to the PostGIS source, whose pool would be built from a locator that is not a PostgreSQL connection string.
-    /// </summary>
-    /// <summary>
     /// A file's or an Oracle table's statement bound: the database layer's, lowered and never raised by the service.
     /// </summary>
     private static TimeSpan Lowered(PublishedLayer layer) =>
         layer.StatementTimeout is { } wanted && wanted > TimeSpan.Zero && wanted < StatementTimeout
             ? wanted
             : StatementTimeout;
-
-    private static void RefuseIfOracle(PublishedLayer layer)
-    {
-        if (OracleLocator.Is(layer.ConnectionString))
-        {
-            throw new QueryNotSupportedException(
-                $"Layer '{layer.Definition.Name}' is in an Oracle database, and this build queries Oracle tables but "
-                + "does not yet draw them as vector tiles (ADR-205 phase 1). Query the layer's FeatureServer instead.");
-        }
-    }
 
     /// <inheritdoc/>
     public void Dispose()

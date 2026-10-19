@@ -267,7 +267,7 @@ internal static class VectorTileEndpoints
     /// both read by <c>PostGisTileSource</c>, the one statement, run in the layer's own database
     /// through <see cref="LayerConnections.TileSourceFor"/>'s pool for that source — so quiesce, the
     /// breaker and the budget are the source's, not the datastore's. A GeoParquet layer is read by
-    /// <c>GeoParquetTileSource</c> and encoded by the same statement (ADR-066 §9).
+    /// <c>ReadTileSource</c> and encoded by the same statement (ADR-066 §9).
     /// </para>
     /// <para>
     /// <b>The rule is <see cref="Graticula.Platform.Admin.TileSources.Tiled"/>, and this only asks

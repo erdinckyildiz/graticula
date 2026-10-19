@@ -11,7 +11,7 @@ namespace Graticula.Tiles;
 /// <b>Two implementations now, and both still encode through PostGIS.</b> Until
 /// 2026-09-13 <c>PostGisTileSource</c> was the only one, because [ADR-021]
 /// decided that tiles are encoded by PostGIS and every row this server tiled
-/// came from PostGIS too. <c>GeoParquetTileSource</c> reads its rows from
+/// came from PostGIS too. <c>ReadTileSource</c> reads its rows from
 /// DuckDB — a GeoParquet layer, ADR-066 §9 amended — and hands them to
 /// <see cref="IMvtEncoder"/>, which is the same PostGIS encoding step wearing a
 /// port so a second source of rows can reach it. The port is here because the

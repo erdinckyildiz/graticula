@@ -18,7 +18,7 @@ namespace Graticula.Platform.Postgres.Tests;
 
 /// <summary>
 /// A vector tile built by <see cref="PostGisTileSource"/> over a table, and the same rows served
-/// from a GeoParquet file by <see cref="GeoParquetTileSource"/> and <see cref="PostGisMvtEncoder"/>
+/// from a GeoParquet file by <see cref="ReadTileSource"/> and <see cref="PostGisMvtEncoder"/>
 /// — ADR-066 §9, amended 2026-09-13.
 /// </summary>
 /// <remarks>
@@ -253,7 +253,7 @@ public sealed class GeoParquetTileOracleTests : PostgresFixture
             new LayerDefinition("tilegrid", "main", "tilegrid", "geom", Srid, "objectid", "objectid", isHosted: false),
             new NoopProjector());
 
-        GeoParquetTileSource fromFile = new(
+        ReadTileSource fromFile = new(
             reader,
             new LayerDefinition("tilegrid", "main", "tilegrid", "geom", Srid, "objectid", "objectid", isHosted: false),
             AttributeDescriptions,

@@ -256,7 +256,7 @@ public sealed class GeoParquetSourcesTests : IDisposable
         ITileSource source = connections.TileSourceFor(
             layer, [new FieldDescription("name", FieldType.Text, true, null)]);
 
-        Assert.IsType<Graticula.Providers.DuckDb.GeoParquetTileSource>(source);
+        Assert.IsType<Graticula.Tiles.ReadTileSource>(source);
     }
 
     private sealed class RecordingEncoder : Graticula.Tiles.IMvtEncoder

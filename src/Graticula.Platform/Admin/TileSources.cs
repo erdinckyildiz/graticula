@@ -18,7 +18,8 @@ namespace Graticula.Platform.Admin;
 /// <b>A whitelist of kinds, not a blacklist.</b> Every kind a registration can name today serves tiles: the
 /// datastore and a registered PostGIS database through <c>ST_AsMVT</c> in that database (ADR-095, reversing
 /// [Q-67](../../../docs/open-questions.md) for PostGIS), and the DuckDB-read kinds through the same statement
-/// run over rows DuckDB read (ADR-066 §9). A kind added later — the SQL Server, Oracle or MySQL provider
+/// run over rows DuckDB read (ADR-066 §9), and a registered Oracle database the same way over rows Oracle read
+/// (ADR-205 §5c, 2026-10-20). A kind added later — the SQL Server or MySQL provider
 /// [v1-scope](../../../docs/v1-scope.md) §3a defers — is refused until somebody decides how its rows reach a
 /// tile, because <c>ST_AsMVT</c> is a PostGIS function and Q-67's reason still holds for those engines.
 /// </para>
@@ -58,7 +59,8 @@ public static class TileSources
             or DataSourceKinds.GeoParquet
             or DataSourceKinds.GeoParquetRemote
             or DataSourceKinds.DuckDb
-            or DataSourceKinds.MotherDuck;
+            or DataSourceKinds.MotherDuck
+            or DataSourceKinds.Oracle;
 
     /// <summary>Whether this server sees every change to the layer's rows — false for a registered PostGIS layer.</summary>
     /// <param name="hosted">Whether the layer's data is in the datastore.</param>
@@ -68,10 +70,11 @@ public static class TileSources
     /// <b>PostGIS only, and MotherDuck is the other case it does not cover.</b> A MotherDuck table can also change
     /// under us and carries no version (<c>GeoParquetFolder</c> reads none for it), so it is <c>best-effort</c> in
     /// <see cref="CoherenceOf"/> too — but its default lifetime was not part of the owner's decision and is left
-    /// as it was. ADR-095 §6 records it.
+    /// as it was. ADR-095 §6 records it. <b>A registered Oracle table is one too</b> (ADR-205 §5c): other tools write to
+    /// it, and it has five minutes and <c>best-effort</c> as a registered PostGIS table has.
     /// </remarks>
     public static bool Registered(bool hosted, string? kind) =>
-        !hosted && kind is DataSourceKinds.PostGis;
+        !hosted && kind is DataSourceKinds.PostGis or DataSourceKinds.Oracle;
 
     /// <summary>How long a layer's tiles are kept when the layer itself names no lifetime.</summary>
     /// <param name="hosted">Whether the layer's data is in the datastore.</param>
@@ -100,6 +103,6 @@ public static class TileSources
     /// </remarks>
     public static string CoherenceOf(bool hosted, string? kind) =>
         hosted ? "exact"
-        : kind is DataSourceKinds.PostGis or DataSourceKinds.MotherDuck ? "best-effort"
+        : kind is DataSourceKinds.PostGis or DataSourceKinds.MotherDuck or DataSourceKinds.Oracle ? "best-effort"
         : "file-version";
 }

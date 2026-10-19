@@ -194,6 +194,119 @@ public sealed class OracleFeatureSourceTests
         Assert.Contains("ADR-205 phase 1", refused.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// ADR-205 §5c: a tile reads, in pages, every place the index puts in the tile's box — never fewer than the box
+    /// holds exactly — and hands them to the encoder in the layer's own reference.
+    /// </summary>
+    [Fact]
+    public async Task A_tile_hands_the_encoder_every_place_in_its_box()
+    {
+        // z6 x=37 y=24 is 28.1-33.75 E, 36.5-41.0 N: Ankara, Konya, Eskişehir, Bursa.
+        Graticula.Tiles.TileAddress address = new(6, 37, 24);
+        Envelope degrees = MercatorProjector.ToDegrees(address.WebMercatorEnvelope());
+
+        List<Feature> all = await EveryPlaceAsync();
+        int inside = all.Count(f => degrees.Intersects(f.Geometry!.Envelope));
+        Assert.InRange(inside, 1, 1420);
+
+        RecordingEncoder encoder = new();
+        Graticula.Tiles.ReadTileSource tiles = new(
+            new OracleFeatureSource(
+                OracleFixture.Locator,
+                new LayerDefinition("Places", OracleFixture.Source.User.ToUpperInvariant(), "TR_YER", "SHAPE", 4326, "OBJECTID", "OBJECTID", isHosted: false),
+                new MercatorProjector()),
+            new LayerDefinition("Places", OracleFixture.Source.User.ToUpperInvariant(), "TR_YER", "SHAPE", 4326, "OBJECTID", "OBJECTID", isHosted: false),
+            [new FieldDescription("AD", FieldType.Text, true, null)],
+            encoder);
+
+        Assert.Equal(encoder.Answer, await tiles.BuildAsync(address, "places", None));
+
+        (Graticula.Tiles.MvtRow[] rows, int srid) = Assert.Single(encoder.Calls);
+        Assert.Equal(4326, srid);
+        // <b>Every place in the box, and more — measured: 391 rows for 308 places.</b> A geodetic spatial index tests
+        // coarser boxes than the tile's, so SDO_FILTER answers wide, and the encoder (ST_AsMVTGeom) drops what lies
+        // outside the tile and its buffer. What must hold is that nothing inside is missing.
+        HashSet<(double, double)> handed = [.. rows.Select(r => (((Point)r.Geometry).X, ((Point)r.Geometry).Y))];
+
+        Assert.All(
+            all.Where(f => degrees.Intersects(f.Geometry!.Envelope)),
+            f => Assert.Contains((((Point)f.Geometry!).X, ((Point)f.Geometry!).Y), handed));
+        Assert.InRange(rows.Length, inside, all.Count);
+        Assert.Contains(rows, r => (string?)r.Attributes[0].Value == "Ankara");
+    }
+
+    private sealed class RecordingEncoder : Graticula.Tiles.IMvtEncoder
+    {
+        public List<(Graticula.Tiles.MvtRow[] Rows, int Srid)> Calls { get; } = [];
+
+        public byte[] Answer { get; } = [1, 2, 3];
+
+        public Task<byte[]> EncodeAsync(
+            IReadOnlyList<Graticula.Tiles.MvtRow> rows, Graticula.Tiles.TileAddress address, string layerName, int srid,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add(([.. rows], srid));
+            return Task.FromResult(Answer);
+        }
+    }
+
+    /// <summary>Spherical Web Mercator to degrees, for a tile's box — the only move a tile test asks for.</summary>
+    private sealed class MercatorProjector : IProjector
+    {
+        private const double R = 6_378_137;
+
+        public static Envelope ToDegrees(Envelope metres)
+        {
+            (double w, double s) = Degrees(metres.MinX, metres.MinY);
+            (double e, double n) = Degrees(metres.MaxX, metres.MaxY);
+            return new Envelope(w, s, e, n);
+        }
+
+        private static (double Lon, double Lat) Degrees(double x, double y) =>
+            (x / R * 180 / Math.PI, (2 * Math.Atan(Math.Exp(y / R)) - (Math.PI / 2)) * 180 / Math.PI);
+
+        public Task<(IReadOnlyList<Geometry> Projected, ProjectionProvenance Provenance)> ProjectAsync(
+            IReadOnlyList<Geometry> geometries, int fromSrid, int toSrid, CancellationToken cancellationToken)
+        {
+            Assert.Equal((3857, 4326), (fromSrid, toSrid));
+
+            List<Geometry> moved = [];
+
+            foreach (Polygon polygon in geometries.Cast<Polygon>())
+            {
+                double[] xy = polygon.Shell.Coordinates.ToInterleavedArray();
+
+                for (int i = 0; i < xy.Length; i += 2)
+                {
+                    (xy[i], xy[i + 1]) = Degrees(xy[i], xy[i + 1]);
+                }
+
+                moved.Add(new Polygon(new LinearRing(XySequence.Wrap(xy))));
+            }
+
+            return Task.FromResult<(IReadOnlyList<Geometry>, ProjectionProvenance)>((moved, new ProjectionProvenance("test", null)));
+        }
+
+        public Task<IReadOnlyList<Geometry>?> ProjectToDefinitionAsync(
+            IReadOnlyList<Geometry> geometries, int fromSrid, string definition, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked for a written reference.");
+
+        public Task<IReadOnlyList<Geometry>> GeneralizeAsync(
+            IReadOnlyList<Geometry> geometries, int fromSrid, int toSrid, double tolerance, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked to generalize.");
+
+        public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task<Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
+            Task.FromResult<Envelope?>(null);
+
+        public Task<IReadOnlyList<KnownReference>> ReferencesAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<KnownReference>>([]);
+
+        public Task<ProjectionProvenance> DescribeAsync(int fromSrid, int toSrid, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked to describe a projection.");
+    }
+
     /// <summary>A projector for a test that never asks for another reference.</summary>
     private sealed class StillProjector : IProjector
     {
