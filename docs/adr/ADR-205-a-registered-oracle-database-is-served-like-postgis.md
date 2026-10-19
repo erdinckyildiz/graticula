@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` for the shape · `LOW` for the driver's licence until condition 1 runs |
-| **Decided** | 2026-10-19, by owner decision — Oracle enters v1 as a registered database (§1). The phasing of §5 is ours and `INFERRED` where §1b says so |
+| **Decided** | 2026-10-19, by owner decision — Oracle enters v1 as a registered database (§1), and the three answers of §1b confirmed the same day ([Q-182](../open-questions.md), *"evet"*) |
 | **Supersedes** | [v1-scope.md](../v1-scope.md) §3a's deferral, for Oracle only; [ADR-008](ADR-008-query-engine.md)'s Q-67 amendment, *registered Oracle layers never serve tiles* (§5c) |
 | **Superseded by** | — |
 
@@ -33,7 +33,7 @@ and segfaults under emulation (measured, both 2022 and 2025) — and then:
    left for later; nothing here builds it, and nothing here may make it harder.
 5. **Graticula first; ArcGIS Pro opening the same tables directly is a prize, not a requirement.**
 
-### 1b. `INFERRED`, for confirmation — [Q-182](../open-questions.md)
+### 1b. ~~`INFERRED`, for confirmation~~ Confirmed by the owner 2026-10-19 — [Q-182](../open-questions.md), *"evet"*
 
 - **Geometry is `SDO_GEOMETRY`**, Oracle's own type. *Sıfırdan* means we choose; it is the one type Oracle decodes
   itself (`SDO_UTIL.TO_WKBGEOMETRY`), the one ArcGIS Pro reads from an Oracle database with no geodatabase in it, and
@@ -218,7 +218,7 @@ Oracle connection pool per registered source, inside the same admission budget t
 6. **The Oracle writer passes the PostGIS writer's edit-rule tests** — domains, subtypes, editor tracking, own-only
    editing (ADR-115), one transaction — before editing is offered on an Oracle layer.
 7. **[Q-182](../open-questions.md) is answered** — `SDO_GEOMETRY`, the phasing, and the tile route — before phase 1 is
-   merged.
+   merged. **DISCHARGED 2026-10-19** — the owner answered *"evet"* to all three.
 
 ## 11. Dissent
 
