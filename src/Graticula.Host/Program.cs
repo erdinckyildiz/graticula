@@ -771,7 +771,9 @@ public static class Program
             services.GetRequiredService<SecretProtector>()));
 
         builder.Services.AddSingleton<IDataSourceProbe>(services => new DataSourceProbes(
-            new PostgresDataSourceProbe(), services.GetRequiredService<GeoParquetSources>()));
+            new PostgresDataSourceProbe(),
+            services.GetRequiredService<GeoParquetSources>(),
+            new Graticula.Providers.Oracle.OracleDataSourceProbe()));
 
         builder.Services.AddSingleton<IAuditLog>(services =>
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));

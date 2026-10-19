@@ -86,6 +86,20 @@ internal sealed class SourceQuiesce
             return string.Empty;
         }
 
+        // An Oracle locator is JSON, not key=value pairs (ADR-205); read as pairs, every Oracle database would have
+        // had the same empty key, and two of them would have been one database to the quiesce register.
+        if (Graticula.Platform.Admin.OracleLocator.Is(connectionString))
+        {
+            try
+            {
+                return "oracle:" + Graticula.Platform.Admin.OracleLocator.DatabaseKey(connectionString);
+            }
+            catch (ArgumentException)
+            {
+                return string.Empty;
+            }
+        }
+
         string host = string.Empty;
         string port = "5432";
         string database = string.Empty;

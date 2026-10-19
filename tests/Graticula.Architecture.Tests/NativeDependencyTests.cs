@@ -122,6 +122,14 @@ public sealed class NativeDependencyTests
          + "one project holds it: no DuckDB type — connection, reader, parameter — reaches Core, "
          + "an endpoint or a writer, so the engine can be moved out of process or replaced by "
          + "changing one project rather than finding every place it leaked into."),
+
+        ("Oracle.ManagedDataAccess",
+         "Graticula.Providers.Oracle",
+         "A registered Oracle database is Tier 2 behind IDataSourceProbe and, as it grows, IFeatureSource "
+         + "— ADR-205. Its managed driver is licensed under Oracle's own terms, read on 2026-10-19 and "
+         + "shippable with its notices beside it; one project holding it is what keeps that obligation, and "
+         + "the driver's types, in one place. The locator the rest of the server sees is JSON "
+         + "(OracleLocator), so nothing else needs to name it."),
     ];
 
     [Fact]

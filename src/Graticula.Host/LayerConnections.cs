@@ -243,6 +243,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
+        RefuseIfOracle(layer);
+
         if (GeoParquetLocator.Is(layer.ConnectionString))
         {
             // <b>ADR-066.</b> The same budget, breaker and quiesce as a database, because each of
@@ -651,6 +653,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(attributes);
 
+        RefuseIfOracle(layer);
+
         if (GeoParquetLocator.Is(layer.ConnectionString))
         {
             // <b>The same gate <see cref="SourceFor"/> applies, restated.</b> A tile source is
@@ -914,6 +918,28 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             throw new QueryNotSupportedException(
                 $"Layer '{layer.Definition.Name}' is served from a GeoParquet file, which cannot be "
                 + $"{what}: the file is read in place and never written (ADR-066).");
+        }
+
+        // ADR-205 §5b: an Oracle layer is read before it is written, and the writer waits on condition 6.
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            throw new QueryNotSupportedException(
+                $"Layer '{layer.Definition.Name}' is in an Oracle database, which this server reads and does not yet "
+                + $"write, so it cannot be {what} (ADR-205 phase 2).");
+        }
+    }
+
+    /// <summary>
+    /// Refuses an Oracle layer by name until its reader exists — ADR-205 phase 1 — rather than letting it fall through
+    /// to the PostGIS source, whose pool would be built from a locator that is not a PostgreSQL connection string.
+    /// </summary>
+    private static void RefuseIfOracle(PublishedLayer layer)
+    {
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            throw new QueryNotSupportedException(
+                $"Layer '{layer.Definition.Name}' is in an Oracle database, and this build registers Oracle databases "
+                + "and lists their tables but does not yet read them (ADR-205 phase 1).");
         }
     }
 

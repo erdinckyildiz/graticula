@@ -1261,18 +1261,25 @@ internal sealed partial class GeoParquetSources : IDisposable
 }
 
 /// <summary>
-/// The probe every data-source endpoint calls, sending a GeoParquet locator to the folder and
-/// everything else to PostgreSQL.
+/// The probe every data-source endpoint calls, sending a GeoParquet locator to the folder, an Oracle locator to
+/// Oracle (ADR-205) and everything else to PostgreSQL.
 /// </summary>
-internal sealed class DataSourceProbes(IDataSourceProbe postgres, GeoParquetSources geoParquet) : IDataSourceProbe
+internal sealed class DataSourceProbes(
+    IDataSourceProbe postgres, GeoParquetSources geoParquet, IDataSourceProbe? oracle = null) : IDataSourceProbe
 {
+    private readonly IDataSourceProbe _oracle = oracle ?? new Graticula.Providers.Oracle.OracleDataSourceProbe();
+
     public Task<ProbeResult> ProbeAsync(string connectionString, CancellationToken cancellationToken) =>
-        GeoParquetLocator.Is(connectionString)
+        OracleLocator.Is(connectionString)
+            ? _oracle.ProbeAsync(connectionString, cancellationToken)
+            : GeoParquetLocator.Is(connectionString)
             ? Task.Run(() => geoParquet.Probe(connectionString), cancellationToken)
             : postgres.ProbeAsync(connectionString, cancellationToken);
 
     public Task<DatabaseListing> ListDatabasesAsync(string connectionString, CancellationToken cancellationToken) =>
-        GeoParquetLocator.Is(connectionString)
+        OracleLocator.Is(connectionString)
+            ? _oracle.ListDatabasesAsync(connectionString, cancellationToken)
+            : GeoParquetLocator.Is(connectionString)
             ? Task.FromResult(new DatabaseListing(
                 ProbeOutcome.CannotConnect,
                 "A GeoParquet folder has no databases; its files are listed by testing the folder.",
