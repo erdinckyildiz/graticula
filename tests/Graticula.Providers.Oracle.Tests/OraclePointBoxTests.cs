@@ -70,6 +70,13 @@ public sealed class OraclePointBoxTests
         Assert.Equal(Inside(31, 38, 33.5, 39.75).Length, await source.CountAsync(
             new FeatureQuery(1, spatial: new SpatialFilter(box, SpatialRelation.Intersects)), None));
 
+        // A box over most of the layer is answered without the spatial index, and keeps its edges as the narrow one does.
+        Assert.Equal(Inside(29.9, 36.9, 34.5, 41.5), (await source.ObjectIdsAsync(
+            new FeatureQuery(1000, boundingBox: new Envelope(29.9, 36.9, 34.5, 41.5)), None)).Order().ToArray());
+        Assert.Equal(Grid.Length, await source.CountAsync(
+            new FeatureQuery(1, spatial: new SpatialFilter(
+                new Polygon(new LinearRing(XySequence.Wrap([30, 37, 35, 37, 35, 42, 30, 42, 30, 37]))), SpatialRelation.Intersects)), None));
+
         // A triangle is not a box: candidates read as coordinates, decided here.
         Polygon triangle = new(new LinearRing(XySequence.Wrap([30, 37, 35, 37, 30, 42, 30, 37])));
         long[] under = [.. Grid.Where(p => p.X + p.Y <= 72.0000001).Select(p => (long)p.Id).Order()];

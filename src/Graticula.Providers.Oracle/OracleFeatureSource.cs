@@ -1154,7 +1154,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         OracleTable table = new(columns, srid ?? throw new InvalidOperationException(
             $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, "
-            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates, points);
+            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates, points,
+            points ? await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false) : null);
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
@@ -1264,18 +1265,30 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             return new Filters(attributes, parameters);
         }
 
+        bool indexOnly = shape is null && query.BoundingBox is null
+            && query.Spatial is { Relation: SpatialRelation.IndexIntersects };
+        bool pointBoxes = !indexOnly && table.Points && byEngine is null && (shape is null || IsBox(shape));
+
         // The index's answer, kept for a box-only query too large to refine here.
         List<string> inOracle = [.. attributes];
 
         for (int i = 0; i < boxes.Count; i++)
         {
+            // <b>A box over most of a point layer is not asked of the index</b>, because the comparison below is exact
+            // on its own and a scan is cheaper than the index's answer when that answer is most of the table: on the
+            // VPS, 200,000 points counted in a box holding all of them took SDO_FILTER 230–420 ms and the comparison
+            // alone 20–80 ms, and a box holding 1,768 of them 60–80 ms against 60 ms. A stale extent costs speed only.
+            if (pointBoxes && Wide(boxes[i], table.Extent))
+            {
+                continue;
+            }
+
             inOracle.Add(BoxClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), table.Srid, parameters));
         }
 
         // <b>Index-intersects is the index's answer, as `&&` is PostGIS's</b> — esriSpatialRelIndexIntersects asks for
         // exactly that. Nothing is read twice for it; a bounding box or another relation beside it is exact.
-        if (shape is null && query.BoundingBox is null
-            && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
+        if (indexOnly)
         {
             return new Filters(inOracle, parameters);
         }
@@ -1286,7 +1299,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         // here. Only where the spatial index promises points (LAYER_GTYPE=POINT). A point's numbers are read from
         // SDO_POINT — SDO_GEOM.SDO_MIN_MBR_ORDINATE, which reads them wherever they are kept, cost 177 s against 0.43 s
         // for 200,000 points, so it is only the fallback for a point kept in the ordinate array (COALESCE stops early).
-        if (table.Points && byEngine is null && (shape is null || IsBox(shape)))
+        if (pointBoxes)
         {
             List<string> exact = [.. inOracle];
 
@@ -1426,6 +1439,23 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         return $"sdo_filter({Shape}, sdo_geometry(2003, {srid.ToString(CultureInfo.InvariantCulture)}, null, "
             + $"sdo_elem_info_array(1, 1003, 3), sdo_ordinate_array(:{name}a, :{name}b, :{name}c, :{name}d))) = 'TRUE'";
+    }
+
+    /// <summary>The share of a point layer's extent past which a box is answered by a scan rather than the index.</summary>
+    private const double WideShare = 0.2;
+
+    /// <summary>Whether a box covers enough of the layer's extent that the spatial index would return most rows.</summary>
+    private static bool Wide(Envelope box, Envelope? extent)
+    {
+        if (extent is not { } e || !box.Intersects(e))
+        {
+            return false;
+        }
+
+        double overlap = (Math.Min(box.MaxX, e.MaxX) - Math.Max(box.MinX, e.MinX)) * (Math.Min(box.MaxY, e.MaxY) - Math.Max(box.MinY, e.MinY));
+        double whole = (e.MaxX - e.MinX) * (e.MaxY - e.MinY);
+
+        return whole <= 0 ? box.Contains(e) : overlap >= WideShare * whole;
     }
 
     /// <summary>Whether a filter shape is an axis-aligned rectangle, so its box is the shape.</summary>
@@ -1723,7 +1753,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
     private sealed record OracleColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, OracleGuids.Storage? Guid = null);
 
     private sealed record OracleTable(
-        IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None, bool Points = false)
+        IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None, bool Points = false,
+        Envelope? Extent = null)
     {
         public FieldType TypeOf(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))?.Type ?? FieldType.Unknown;
