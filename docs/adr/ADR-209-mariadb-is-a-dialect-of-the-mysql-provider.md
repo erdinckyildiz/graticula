@@ -97,12 +97,33 @@ attachments and a history.
 
 1. **The dialect, and reading parity**: registration and the probe on MariaDB, and ADR-208's two parity sets — 110
    relation queries and 87 query features, and the percentiles — asked of a MariaDB layer and a PostGIS layer holding
-   the same rows, alike.
+   the same rows, alike. **DISCHARGED 2026-10-20** — `MySqlDialect` reads the server's own word for itself and holds
+   every difference §1a measured; through REST on the local fixture a MariaDB 11.8 layer and a PostGIS layer holding the
+   same 1,421 places and two land polygons answered **110 of 110 relation queries, 87 of 87 query features and 40 of 40
+   percentiles alike**. The set is synthetic and seeded — Oracle, which the MySQL run read its places from, was stopped
+   on the VPS by owner decision the same hour — and it has names and kinds left null on purpose, which is how the run
+   found **a defect MySQL shares**: MySQL and MariaDB put nulls first in an ascending order and PostgreSQL puts them last,
+   so a grouped answer cut at its page limit kept a different thousand groups. Every ORDER BY the provider writes now
+   places nulls as PostgreSQL does; the MySQL run had missed it because its data had no null names. And a second, MariaDB's
+   own: it keeps a whole-number expression's standard deviation and variance as a four-place DECIMAL, repaired as
+   ADR-208 repaired the average, with `1e0 *`.
 2. **Editing**: the MySQL writer's tests and its rule tests (26) passing against MariaDB, a UUID GlobalID included.
-3. **Relationships, attachments and history** through REST, as ADR-208 condition 4 ran them.
+   **DISCHARGED 2026-10-20** — the provider's whole suite, 65 of 65, against MariaDB 11.8, with the tests' set-up SQL
+   translated in one place (`MySqlFixture.Sql`) and the provider's own in `MySqlDialect`; a GlobalID in MariaDB's `UUID`
+   column minted, answered, filtered and looked up. Run unchanged first, the suite failed 44 of 62, 43 of them on the tests'
+   own table definitions — and one on a real defect: an attachment key written `bigint(20) unsigned`, as MariaDB and older
+   MySQL write integer types, was refused as not an integer.
+3. **Relationships, attachments and history** through REST, as ADR-208 condition 4 ran them. **DISCHARGED 2026-10-20**
+   — `mariadb-cond4-e2e.py`, ADR-208's run pointed at MariaDB, 45 of 45: attachments beside the table and in the
+   datastore, a history read at a moment, restored and switched off with its triggers gone, and `queryRelatedRecords`;
+   and the editing run, 26 of 26. A MariaDB history needs no trigger flag: the server writes no binary log by default.
+   A publish reports rows whose SRID is not the column's (measured with a 3857 point in a 4326 column) and says validity
+   could not be measured, never that nothing was invalid.
 4. **A CI job** against a `mariadb:11.8` container beside the MySQL one.
 5. **The console** names MariaDB where it offers MySQL: the *Add a source* dialog, which now offers Oracle and
    MySQL says *MySQL* alone, and a MariaDB administrator should not have to guess that it means theirs.
+   **DISCHARGED 2026-10-20** — the choice reads *MySQL or MariaDB*, and its hint names both version floors and MariaDB's
+   `REF_SYSTEM_ID`.
 
 ## 6. Consequences
 

@@ -48,6 +48,14 @@ public static class MySqlTableChecks
         {
             await using MySqlConnection connection = await MySqlConnections.OpenAsync(
                 MySqlConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+
+            // MariaDB has no ST_IsValid (ADR-209 §1a), so its tables' validity cannot be asked — said as that, never as
+            // a count of none invalid.
+            if (!MySqlDialect.Of(connection).Validates)
+            {
+                return null;
+            }
+
             await using MySqlCommand command = new(
                 $"select count(*), coalesce(sum(case when st_isvalid({shape}) then 0 else 1 end), 0) from {from} where {shape} is not null",
                 connection)
@@ -87,13 +95,19 @@ public static class MySqlTableChecks
         {
             await using MySqlConnection connection = await MySqlConnections.OpenAsync(
                 MySqlConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+            MySqlDialect dialect = MySqlDialect.Of(connection);
+
+            // MariaDB's SPATIAL_REF_SYS holds no 4326 (ADR-209 §1a), so whether a code is geographic is this server's
+            // own register there, and MySQL's catalogue here.
+            string geographicSql = dialect.IsMariaDb
+                ? "null"
+                : "(select case when r.definition like 'GEOGCS%' then 1 else 0 end "
+                  + "from information_schema.st_spatial_reference_systems r where r.srs_id = @declared)";
 
             await using MySqlCommand command = new(
-                """
-                select g.srs_id,
-                       (select case when r.definition like 'GEOGCS%' then 1 else 0 end
-                          from information_schema.st_spatial_reference_systems r where r.srs_id = @declared)
-                  from information_schema.st_geometry_columns g
+                $"""
+                select g.srs_id, {geographicSql}
+                  from {dialect.GeometryColumns} g
                  where g.table_schema = @s and g.table_name = @t and g.column_name = @c
                 """, connection)
             {
@@ -116,7 +130,9 @@ public static class MySqlTableChecks
                 }
 
                 stored = Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture);
-                geographic = reader.IsDBNull(1) ? null : Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture) == 1;
+                geographic = reader.IsDBNull(1)
+                    ? (dialect.IsMariaDb ? AxisOrder.IsGeographic(declared) : null)
+                    : Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture) == 1;
             }
 
             if (stored != declared)
@@ -124,12 +140,29 @@ public static class MySqlTableChecks
                 return new Reference(stored, $"the column holds EPSG:{stored} and this asked for EPSG:{declared}");
             }
 
-            // The extent as the reader takes it: with the SRID set to 0, so longitude comes first and MySQL computes a
-            // box under a geographic reference at all.
+            // The extent as the reader takes it (MySqlDialect.Extent).
             string shape = LayerDefinition.Quote(column);
-            await using MySqlCommand extent = new(
-                $"select st_asbinary(st_envelope(st_srid(st_collect({shape}), 0))) from {LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(table)}",
-                connection)
+            string from = $"{LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(table)}";
+
+            // <b>MariaDB stores whatever SRID it is given</b>, whatever the column declares (ADR-209 §1a): rows in
+            // another reference would be read as if they were in this one, so they are counted and said.
+            if (!dialect.EnforcesSrid)
+            {
+                await using MySqlCommand mixed = new(
+                    $"select count(*) from {from} where st_srid({shape}) <> @declared", connection) { CommandTimeout = 10 };
+                mixed.Parameters.AddWithValue("@declared", declared);
+                long others = Convert.ToInt64(await mixed.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
+
+                if (others > 0)
+                {
+                    return new Reference(
+                        stored,
+                        $"{others:N0} row{(others == 1 ? " holds a shape" : "s hold shapes")} in another reference than the "
+                        + $"column's EPSG:{declared} — MariaDB does not enforce a column's reference — and would be read as if in it");
+                }
+            }
+
+            await using MySqlCommand extent = new(dialect.Extent(shape, from), connection)
             {
                 CommandTimeout = 10,
             };

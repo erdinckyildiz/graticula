@@ -25,6 +25,9 @@ internal static class MySqlGuids
 
         /// <summary><c>BINARY(16)</c>: sixteen bytes.</summary>
         Binary,
+
+        /// <summary>MariaDB's own <c>UUID</c> type, which reads and takes the bare text form (ADR-209).</summary>
+        Uuid,
     }
 
     /// <summary>The storage of a column named GLOBALID, or null when it is not kept as a GUID.</summary>
@@ -34,6 +37,7 @@ internal static class MySqlGuids
             : dataType.ToLowerInvariant() switch
             {
                 "binary" when length == 16 => Storage.Binary,
+                "uuid" => Storage.Uuid,
                 "char" or "varchar" when length == 38 => Storage.Braced,
                 "char" or "varchar" when length == 36 => Storage.Bare,
                 _ => null,
@@ -44,6 +48,7 @@ internal static class MySqlGuids
     {
         Storage.Braced => $"upper({quoted})",
         Storage.Bare => $"concat('{{', upper({quoted}), '}}')",
+        Storage.Uuid => $"concat('{{', upper(cast({quoted} as char)), '}}')",
         _ => $"concat('{{', upper(insert(insert(insert(insert(hex({quoted}), 9, 0, '-'), 14, 0, '-'), 19, 0, '-'), 24, 0, '-')), '}}')",
     };
 
@@ -55,6 +60,7 @@ internal static class MySqlGuids
     {
         Storage.Braced => Braced(value),
         Storage.Bare => value.ToString("D", CultureInfo.InvariantCulture).ToUpperInvariant(),
+        Storage.Uuid => value.ToString("D", CultureInfo.InvariantCulture),
         _ => Convert.FromHexString(value.ToString("N", CultureInfo.InvariantCulture)),
     };
 

@@ -300,13 +300,16 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
     /// <param name="Srid">The column's SRID, which a written shape is given.</param>
     /// <param name="KeyMade">Whether the key is AUTO_INCREMENT.</param>
     /// <param name="GlobalStorage">How the GlobalID column keeps its value, or null.</param>
-    private sealed record TableFacts(int Srid, bool KeyMade, MySqlGuids.Storage? GlobalStorage);
+    /// <param name="Dialect">Which server: MySQL or MariaDB (ADR-209).</param>
+    private sealed record TableFacts(int Srid, bool KeyMade, MySqlGuids.Storage? GlobalStorage, MySqlDialect Dialect);
 
     private async Task<TableFacts> FactsAsync(MySqlConnection connection, MySqlTransaction transaction, CancellationToken cancellationToken)
     {
+        MySqlDialect dialect = MySqlDialect.Of(connection);
+
         await using MySqlCommand command = Command(
-            """
-            select (select g.srs_id from information_schema.st_geometry_columns g
+            $"""
+            select (select g.srs_id from {dialect.GeometryColumns} g
                      where g.table_schema = @db and g.table_name = @tab and g.column_name = @col),
                    (select count(*) from information_schema.columns c
                      where c.table_schema = @db and c.table_name = @tab and c.column_name = @key and c.extra like '%auto_increment%')
@@ -335,7 +338,7 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
             ? await GlobalStorageAsync(connection, _layer, named, transaction, cancellationToken).ConfigureAwait(false)
             : null;
 
-        return new TableFacts(srid, keyMade, global);
+        return new TableFacts(srid, keyMade, global, dialect);
     }
 
     private static async Task<MySqlGuids.Storage?> GlobalStorageAsync(
@@ -405,7 +408,7 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
         if (shaped)
         {
             columns.Add(Shape);
-            values.Add($"st_geomfromwkb(@geom, {facts.Srid.ToString(CultureInfo.InvariantCulture)}, {MySqlFeatureSource.LongLat})");
+            values.Add(facts.Dialect.FromWkb("@geom", facts.Srid));
         }
 
         if (columns.Count == 0)
@@ -470,7 +473,7 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
         if (shaped)
         {
             assignments.Add(update.Geometry is { IsEmpty: false }
-                ? $"t.{Shape} = st_geomfromwkb(@geom, {facts.Srid.ToString(CultureInfo.InvariantCulture)}, {MySqlFeatureSource.LongLat})"
+                ? $"t.{Shape} = {facts.Dialect.FromWkb("@geom", facts.Srid)}"
                 : $"t.{Shape} = null");
         }
 

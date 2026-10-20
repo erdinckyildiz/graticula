@@ -22702,8 +22702,9 @@ function dbconnServerKind(kind) {
       + "edited where it is — no geodatabase is installed or read. It lists the user's own tables and those the "
       + "user may select from, and Test is what checks the connection: Oracle names one database, its service."
     : kind === "mysql"
-      ? "MySQL 8.0 or later. Every table whose geometry column declares an <code>SRID</code> and has a "
-        + "spatial index can be published, read and edited where it is, in x and y — MySQL keeps no Z or M."
+      ? "MySQL 8.0 or later, or MariaDB 10.6 or later — which one is read from the server. Every table whose geometry "
+        + "column declares its reference (<code>SRID</code>, or MariaDB's <code>REF_SYSTEM_ID</code>) and has a spatial "
+        + "index can be published, read and edited where it is, in x and y — neither keeps Z or M."
       : "";
   $("dcServerHint").hidden = kind === "postgis";
 
@@ -22913,7 +22914,7 @@ async function openDbConnection(source) {
           <span class="dcgrouphead" id="dcKindServers">A database server</span>
           <label><input type="radio" name="dcKind" value="postgis" checked> PostGIS</label>
           <label><input type="radio" name="dcKind" value="oracle"> Oracle</label>
-          <label><input type="radio" name="dcKind" value="mysql"> MySQL</label>
+          <label><input type="radio" name="dcKind" value="mysql"> MySQL or MariaDB</label>
         </div>
         <div class="dcgroup" role="group" aria-labelledby="dcKindFiles">
           <span class="dcgrouphead" id="dcKindFiles">Files, read where they are</span>
