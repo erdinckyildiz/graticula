@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-10-20, by owner decision: asked whether MySQL could be installed on the server (*"mysql kurabiliyor muyuz vps'e"*), told to do it (*"hepsini yap"*), and after Oracle was finished, to begin (*"başla"*). The scope — the same as Oracle's, nothing left out — is `INFERRED` from *"önce oracle tarafını bitirelim. dışarıda bırakılmasın bir şey"* and listed in §5 for confirmation. |
+| **Decided** | 2026-10-20, by owner decision, the inferences answered the same day ([Q-185](../open-questions.md)): asked whether MySQL could be installed on the server (*"mysql kurabiliyor muyuz vps'e"*), told to do it (*"hepsini yap"*), and after Oracle was finished, to begin (*"başla"*). The scope — the same as Oracle's, nothing left out — is `INFERRED` from *"önce oracle tarafını bitirelim. dışarıda bırakılmasın bir şey"* and listed in §5 for confirmation. |
 | **Reverses** | [v1-scope.md](../v1-scope.md) §3a for MySQL, which deferred it with SQL Server and MariaDB |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -78,12 +78,12 @@ records, the table checks and the pruning — with Oracle moved behind it too.
    ADR-207), each where MySQL can carry it: no Z or M; a row version computed from the row.
 6. **The host reaches every registered SQL engine through one seam**, Oracle's moved behind it first.
 
-**`INFERRED` — for the owner to confirm:**
+~~**`INFERRED` — for the owner to confirm:**~~ **Answered 2026-10-20 ([Q-185](../open-questions.md)): the first and third confirmed (*"tamam"*); the second half reversed — *"mariadb deneyelim"*, and after MariaDB 11.8 was measured, built to the same scope as a dialect of this provider.**
 
 - **The scope is Oracle's** — editing, attachments and history included — from *"dışarıda bırakılmasın bir şey"*,
   which was said of Oracle.
-- **MySQL 8.0 or later, and not MariaDB**, whose spatial support has no SRID-aware axis order and no
-  `ST_GEOMETRY_COLUMNS`.
+- **MySQL 8.0 or later**~~, and not MariaDB~~, whose spatial support has no SRID-aware axis order and no
+  `ST_GEOMETRY_COLUMNS` — *true, and the reason MariaDB needs a dialect rather than the reason it is left out.*
 - **A row's version is a hash of its content**, for If-Match.
 
 ## Conditions

@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0c0be190</code> · 2026-10-20 18:46</p>
+<p class="stamp">Şu commit’ten üretildi: <code>70009fd9</code> · 2026-10-20 16:43</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">206</div><div class="kpi-l">ADR</div><div class="kpi-n">79 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">412/486</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">65 canlı · 9 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">191 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">16</div><div class="kpi-l">açık borç</div><div class="kpi-n">283 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">192 yanıtlandı</div></div>
+<div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">açık borç</div><div class="kpi-n">283 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5338</div><div class="kpi-l">test</div><div class="kpi-n">565 kaynak dosya, 247,383 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">85 madde</span></div><p><b>65 ADR conditions</b> outstanding across 41 decisions — the largest commitment on this page.</p><p><b>16 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">86 madde</span></div><p><b>65 ADR conditions</b> outstanding across 41 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -425,6 +425,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-307</td><td>An administrator cannot see whether a member has a second factor.</td><td class="muted-t">An administrator asking who has one, or the members screen gaining a column.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-308</td><td>A registered layer&#x27;s answer lifetime has no control on the console since ADR-206.</td><td class="muted-t">The console&#x27;s redesign reaches the layer settings page (Codex&#x27;s), or an operator asks how to keep a registered layer&#x27;s…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-309</td><td>A registered layer removed through the recycle bin can leave its trigger and companion tables behind.</td><td class="muted-t">The recycle bin&#x27;s purge touches a registered layer with a history or attachments, or a member who owns one is removed.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-310</td><td>The console registers neither Oracle nor MySQL, and opens one as if it were PostGIS.</td><td class="muted-t">Now: the next piece of work after v1.0.446 and its site update, before MariaDB, through the ux-designer review every…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">283 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -543,7 +544,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>0c0be190</code><time>2026-10-20</time><span>The MySQL writer passes Oracle&#x27;s port of the PostGIS rule tests (ADR-208)</span></li>
+<li><code>70009fd9</code><time>2026-10-20</time><span>Owner confirms ADR-207&#x27;s three inferences (Q-184)</span></li>
+<li><code>3e7ad7fa</code><time>2026-10-20</time><span>The MySQL writer passes Oracle&#x27;s port of the PostGIS rule tests (ADR-208)</span></li>
 <li><code>102282e4</code><time>2026-10-20</time><span>A MySQL table&#x27;s write rights are read from SHOW GRANTS, roles included (ADR-208)</span></li>
 <li><code>6bde3ef7</code><time>2026-10-20</time><span>A MySQL layer has relationships, attachments and history (ADR-208 condition 4)</span></li>
 <li><code>8ad04d30</code><time>2026-10-20</time><span>A MySQL layer is edited as an Oracle one is (ADR-208 condition 3)</span></li>
@@ -556,7 +558,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d683df3e</code><time>2026-10-20</time><span>The README says what v1.0.441 shipped: Oracle registered and edited, no registered source tiled; ADR-205 condition 1 discharged by the image</span></li>
 <li><code>0546c383</code><time>2026-10-20</time><span>A registered Oracle database is served, edited and listed like PostGIS; vector tiles come from the datastore only (ADR-205, ADR-206)</span></li>
 <li><code>b4b5eb77</code><time>2026-10-19</time><span>Several organisations in one deployment, designed and prototyped; the server runs as a role row-level security binds (ADR-204, ADR-193 amended, Q-181, A-086)</span></li>
-<li><code>51911135</code><time>2026-10-19</time><span>Server&#x27;s Site page says where sign-in and two-step sign-in are set, and links there; the members section is headed as Studio&#x27;s (ADR-189)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
