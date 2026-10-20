@@ -14,6 +14,7 @@ using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
+using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Graticula.Platform.Identity;
@@ -9397,20 +9398,6 @@ internal static partial class AdminEndpoints
     /// <b>False when the locator cannot be read</b>, so a source sealed with another key takes the
     /// PostGIS path it always took and fails there with the sentence that path already has.
     /// </remarks>
-    private static async Task<bool> IsOracleAsync(
-        IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
-    {
-        try
-        {
-            return OracleLocator.Is(
-                await catalog.ConnectionStringOfAsync(dataSourceId, cancellation).ConfigureAwait(false));
-        }
-        catch (CryptographicException)
-        {
-            return false;
-        }
-    }
-
     private static async Task<bool> IsGeoParquetAsync(
         IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
     {
@@ -9478,10 +9465,20 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            // PostGIS measures this; an Oracle locator is not a PostgreSQL connection string (ADR-205).
-            if (OracleLocator.Is(connection) || GeoParquetLocator.Is(connection))
+            if (GeoParquetLocator.Is(connection))
             {
                 return null;
+            }
+
+            // ADR-205: an Oracle table is measured by Oracle, by Oracle's rules (OracleTableChecks), in the same bound.
+            if (OracleLocator.Is(connection))
+            {
+                return await OracleTableChecks.ValidityAsync(
+                        connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
+                        TimeSpan.FromSeconds(30), cancellation)
+                    .ConfigureAwait(false) is { } measured
+                    ? new GeometryValidity(measured.Rows, measured.Invalid, measured.Reasons)
+                    : null;
             }
 
             NpgsqlDataSourceBuilder builder = new(connection);
@@ -9532,10 +9529,20 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            // PostGIS measures this; an Oracle locator is not a PostgreSQL connection string (ADR-205).
-            if (OracleLocator.Is(connection) || GeoParquetLocator.Is(connection))
+            if (GeoParquetLocator.Is(connection))
             {
                 return null;
+            }
+
+            // ADR-205: an Oracle table's reference is the one its spatial metadata names (OracleTableChecks).
+            if (OracleLocator.Is(connection))
+            {
+                return await OracleTableChecks.ReferenceAsync(
+                        connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
+                        publication.Srid, cancellation)
+                    .ConfigureAwait(false) is { } found
+                    ? new DeclaredReference(publication.Srid, found.Stored, found.Complaint)
+                    : null;
             }
 
             NpgsqlDataSourceBuilder builder = new(connection);
@@ -9703,21 +9710,6 @@ internal static partial class AdminEndpoints
 
                 return;
             }
-        }
-
-        // <b>ADR-205: an Oracle table's validity is not measured</b>, for condition 8's reason — Oracle's rules are not
-        // PostGIS's, and the reader serves what Oracle calls invalid — so a publish that asks for it is refused as a
-        // file's is. Its reference is the one its spatial metadata declares (OracleDataSourceProbe).
-        if (request.RequireValidGeometry
-            && await IsOracleAsync(catalog, publication.DataSourceId, cancellation).ConfigureAwait(false))
-        {
-            await Refuse(
-                context, 422,
-                $"'{publication.SchemaName}.{publication.TableName}' was not published because requireValidGeometry "
-                + "was asked for, and validity is measured by PostGIS over a table in the datastore — an Oracle table "
-                + "is read in place and its geometry is not scanned. Publish without that flag.")
-                .ConfigureAwait(false);
-            return;
         }
 
         GeometryValidity? validity = fromFile
