@@ -742,6 +742,7 @@ public static class FeatureServerMetadataWriter
     /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <param name="cacheMaxAge">The seconds a client may keep this layer's answers, as ArcGIS publishes it; zero, the default, for none.</param>
     /// <param name="displayName">The name to show when it is not the catalogue's, the layer's title; null for the catalogue name.</param>
+    /// <param name="attachments">Whether it keeps attachments (ADR-207); null for hosted layers only.</param>
     public static object Layer(
         LayerDefinition layer,
         GeometryKind geometryType,
@@ -795,7 +796,11 @@ public static class FeatureServerMetadataWriter
 
         // <b>What the layer is called here, 2026-10-18</b>: its title when it has one (Pro's table-of-contents name for a
         // layer Pro published), else <c>layer.Name</c>. The catalogue name is still written, as <c>catalogName</c>.
-        string? displayName = null)
+        string? displayName = null,
+
+        // <b>Whether it keeps attachments — ADR-207</b>: a registered layer does where an administrator switched them
+        // on; null for the rule before that, hosted layers only. On the end, like the rest.
+        bool? attachments = null)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(description);
@@ -957,10 +962,9 @@ public static class FeatureServerMetadataWriter
             tileMaxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
             maxRecordCountFactor = 1,
             supportedQueryFormats = "JSON, geoJSON, PBF",
-            // Hosted layers only: ADR-013 §4c's registered cases are designed
-            // and not built, and declaring a capability on a layer that refuses
-            // it is worse than not declaring it.
-            hasAttachments = layer.IsHosted,
+            // Hosted layers, and registered ones that keep attachments (ADR-207): declaring a capability on a layer
+            // that refuses it is worse than not declaring it.
+            hasAttachments = attachments ?? layer.IsHosted,
 
             // <b>Declared relationships, so a client can find them.</b> A
             // relationship a client cannot discover is one nobody follows —
@@ -1026,7 +1030,7 @@ public static class FeatureServerMetadataWriter
                 supportsReturningQueryExtent = true,
 
                 // <b>queryAttachments answers where attachments do — 2026-09-15.</b>
-                supportsQueryAttachments = layer.IsHosted,
+                supportsQueryAttachments = attachments ?? layer.IsHosted,
                 // <b>From the source, since a layer's file cannot answer it — ADR-066.</b>
                 supportsQueryWithDistance = description.AnswersDistance,
                 // <b>False from 2026-08-16 until the clause was parsed the way `where` is — D-41, Q-109.</b> It was

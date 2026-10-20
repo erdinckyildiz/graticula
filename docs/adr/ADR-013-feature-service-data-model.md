@@ -473,8 +473,8 @@ beside it; the conditions below are what stop the two being built twice.
 | §4d | Filenames are data, never paths | **built** |
 | §4d | Hard size cap | **built**, 128 MB, enforced while streaming |
 | §4e | Per-layer quota | **built**, schema 8, enforced inside the write transaction |
-| §4c | Read a migrated `__ATTACH` on a registered source | **not built** — refused with 501 saying so |
-| §4c | Create a companion table where we have DDL rights | **not built** |
+| §4c | Read a migrated `__ATTACH` on a registered source | **not built** — switching attachments on beside a table that already has one is refused, naming it (ADR-207) |
+| §4c | Create a companion table where we have DDL rights | **built 2026-10-20** ([ADR-207](ADR-207-attachments-and-history-on-registered-layers.md)): a registered PostGIS or Oracle layer keeps attachments beside its table or in the datastore, switched on per layer by an administrator |
 | §4d | Virus scanning | **not built, and not decided** — §4d left it open and it stays open |
 | §3 | Relationships declared, not reverse-engineered | **built**, schema 9 |
 | §3 | `queryRelatedRecords` is one query, not N+1 | **built**, and the reader counts its own statements so a test can prove it |

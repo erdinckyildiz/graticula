@@ -192,6 +192,47 @@ public sealed class OracleFeatureSourceTests
         ["OBJECTID"] = FieldType.Integer, ["AD"] = FieldType.Text, ["TUR"] = FieldType.Text,
     };
 
+    /// <summary>The width of a layer's shapes, measured, since Oracle's statistics leave an SDO_GEOMETRY's empty.</summary>
+    [Fact]
+    public async Task A_layer_says_how_wide_its_shapes_are()
+    {
+        GeometryWidth places = Assert.NotNull(await Places().GeometryWidthAsync(None));
+        Assert.Equal(1421f, places.Rows);
+        Assert.Equal(21, places.AverageBytes);
+
+        GeometryWidth land = Assert.NotNull(await Land().GeometryWidthAsync(None));
+        Assert.True(land.PerFeatureBytes > 10 * places.PerFeatureBytes, $"{land.PerFeatureBytes} against {places.PerFeatureBytes}");
+    }
+
+    /// <summary>A publish's two questions, asked of Oracle: validity by Oracle's rules, and the declared reference.</summary>
+    [Fact]
+    public async Task A_publish_learns_how_valid_a_table_is_and_whether_its_reference_was_declared_right()
+    {
+        string owner = OracleFixture.Source.User.ToUpperInvariant();
+
+        OracleTableChecks.Validity? places = await OracleTableChecks.ValidityAsync(
+            OracleFixture.Locator, owner, "TR_YER", "SHAPE", TimeSpan.FromSeconds(60), None);
+        Assert.NotNull(places);
+        Assert.Equal(1421, places.Rows);
+        Assert.Equal(0, places.Invalid);
+
+        // ADR-205 condition 8: the land PostGIS serves is invalid by Oracle's rules, and this says so with the reason.
+        OracleTableChecks.Validity? land = await OracleTableChecks.ValidityAsync(
+            OracleFixture.Locator, owner, "TR_KARA", "SHAPE", TimeSpan.FromSeconds(60), None);
+        Assert.NotNull(land);
+        Assert.True(land.Invalid > 0);
+        Assert.StartsWith("ORA-", land.Reasons[0], StringComparison.Ordinal);
+
+        OracleTableChecks.Reference? right = await OracleTableChecks.ReferenceAsync(OracleFixture.Locator, owner, "TR_YER", "SHAPE", 4326, None);
+        Assert.NotNull(right);
+        Assert.Null(right.Complaint);
+
+        OracleTableChecks.Reference? wrong = await OracleTableChecks.ReferenceAsync(OracleFixture.Locator, owner, "TR_YER", "SHAPE", 3857, None);
+        Assert.NotNull(wrong);
+        Assert.Equal(4326, wrong.Stored);
+        Assert.Contains("EPSG:4326", wrong.Complaint, StringComparison.Ordinal);
+    }
+
     /// <summary>queryTopFeatures: the highest identities of each kind, and a count and id list that agree with the read.</summary>
     [Fact]
     public async Task Top_features_are_ranked_within_each_group()

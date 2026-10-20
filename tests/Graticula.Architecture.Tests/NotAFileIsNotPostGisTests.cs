@@ -31,15 +31,22 @@ public sealed class NotAFileIsNotPostGisTests
     {
         // Closing a removed or moved folder's DuckDB; whether a change moves a file; the file-only echo, refusal of a
         // hand-written locator, and the two secret strippers, each with Oracle handled above it; the publish's file
-        // checks; and the two validity and reference guards, which name Oracle beside it.
+        // checks; and the two validity and reference guards, which now hand Oracle to OracleTableChecks on the next
+        // line (ADR-207).
         ["src/Graticula.Host/AdminEndpoints.cs"] = 12,
+
+        // ADR-207: a file is refused attachments; Oracle and PostGIS are both given them.
+        ["src/Graticula.Host/AdminEndpoints.Attachments.cs"] = 1,
+
+        // ADR-207: a file is refused a history; Oracle and PostGIS both keep one.
+        ["src/Graticula.Host/AdminEndpoints.History.cs"] = 1,
 
         // Closing a folder; the probe and the database listing, Oracle asked first.
         ["src/Graticula.Host/GeoParquetSources.cs"] = 3,
 
-        // The read branch, Oracle's ahead of it; and the edit refusal, which names Oracle next. (The tile branch went
-        // with ADR-206.)
-        ["src/Graticula.Host/LayerConnections.cs"] = 2,
+        // The read branch, Oracle's ahead of it; the edit refusal, which names Oracle next; and the attachment
+        // store's file refusal, Oracle's store chosen below it (ADR-207). (The tile branch went with ADR-206.)
+        ["src/Graticula.Host/LayerConnections.cs"] = 3,
 
         // The relationship refusal, which names Oracle beside it.
         ["src/Graticula.Host/RelationshipEndpoints.cs"] = 3,

@@ -345,6 +345,16 @@ public sealed class PublishedLayer
     public bool EditOwnOnly { get; init; }
 
     /// <summary>
+    /// Where a registered layer keeps its attachments — ADR-207: <see cref="AttachmentPlaces.Source"/> beside its table
+    /// in its own database, <see cref="AttachmentPlaces.Datastore"/> in Graticula's, or null for none. A hosted layer
+    /// keeps them beside its table whatever this says.
+    /// </summary>
+    public string? AttachmentsIn { get; init; }
+
+    /// <summary>Whether this layer answers attachments: a hosted one always, a registered one where they were switched on.</summary>
+    public bool KeepsAttachments => Definition.IsHosted || AttachmentsIn is not null;
+
+    /// <summary>
     /// The title its publisher gave it, or null — ADR-179. The OGC faces show it in place of the title they compose from
     /// the service's and the layer's names; nothing addresses a layer by it.
     /// </summary>

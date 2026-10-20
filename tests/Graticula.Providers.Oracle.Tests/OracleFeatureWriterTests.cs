@@ -22,11 +22,6 @@ namespace Graticula.Providers.Oracle.Tests;
 /// <b>Oracle names its columns in capitals</b>, so the attributes here do too: the layer's fields are what the
 /// database describes, and the whitelist compares them exactly.
 /// </para>
-/// <para>
-/// <b>Not ported, and why.</b> <c>Two_layers_in_one_transaction_are_rolled_back_together</c>: the Oracle writer has no
-/// shared-transaction entry, so a service-level edit across Oracle layers is applied layer by layer
-/// (<c>OneTransactionHolds</c> asks for PostgreSQL). Its own all-or-nothing is tested below.
-/// </para>
 /// </remarks>
 [Trait("Needs", "Oracle")]
 public sealed class OracleFeatureWriterTests
@@ -466,6 +461,68 @@ public sealed class OracleFeatureWriterTests
         Assert.Contains("does not make it", outcome.Adds[0].Error!, StringComparison.Ordinal);
         Assert.True(outcome.Updates[0].Succeeded, outcome.Updates[0].Error);
         Assert.Equal("changed", await LabelAsync("ZZW_PLAIN_KEY", 7));
+    }
+
+    /// <summary>A key filled by a sequence in a before-insert trigger — how older Oracle tables number rows — takes adds.</summary>
+    [Fact]
+    public async Task A_table_whose_key_a_trigger_fills_takes_adds()
+    {
+        await ExecuteAsync("drop sequence if exists zzw_trigger_key_seq");
+        OracleFeatureWriter writer = await WriterAsync("ZZW_TRIGGER_KEY", keyMade: false);
+        await ExecuteAsync("create sequence zzw_trigger_key_seq start with 500");
+        await ExecuteAsync(
+            "create or replace trigger zzw_trigger_key_bi before insert on zzw_trigger_key for each row "
+            + "begin if :new.objectid is null then :new.objectid := zzw_trigger_key_seq.nextval; end if; end;");
+
+        EditOutcome outcome = await writer.ApplyAsync(new EditBatch([Add(("LABEL", "new"))], [], []), None);
+
+        EditResult added = Assert.Single(outcome.Adds);
+        Assert.True(added.Succeeded, added.Error);
+        Assert.Equal(500, added.Identity);
+        Assert.Equal("new", await LabelAsync("ZZW_TRIGGER_KEY", 500));
+    }
+
+    /// <summary>
+    /// The service-level applyEdits across two layers of one Oracle database: all or nothing holds across both, and both
+    /// keep their edits when every one succeeded.
+    /// </summary>
+    [Fact]
+    public async Task Two_layers_edits_are_kept_or_discarded_together()
+    {
+        await WriterAsync("ZZW_TOGETHER_A");
+        await WriterAsync("ZZW_TOGETHER_B", extra: "req varchar2(20) not null");
+
+        async Task<OracleFeatureWriter.LayerBatch> PartAsync(string table, EditBatch batch)
+        {
+            LayerDefinition layer = new(table, Owner, table, "SHAPE", 4326, "OBJECTID", "OBJECTID", isHosted: false);
+            LayerDescription described = await new OracleFeatureSource(OracleFixture.Locator, layer, new MercatorProjector()).DescribeAsync(None);
+            return new OracleFeatureWriter.LayerBatch(layer, described.Fields, null, null, batch);
+        }
+
+        // The second layer's add leaves out a required column: nothing of either layer is kept.
+        IReadOnlyList<EditOutcome> refused = await OracleFeatureWriter.ApplyTogetherAsync(
+            OracleFixture.Locator,
+            [
+                await PartAsync("ZZW_TOGETHER_A", new EditBatch([Add(("LABEL", "a"))], [], [])),
+                await PartAsync("ZZW_TOGETHER_B", new EditBatch([Add(("LABEL", "b"))], [], [])),
+            ],
+            new MercatorProjector(), null, None);
+
+        Assert.All(refused, o => Assert.True(o.RolledBack));
+        Assert.Equal(0L, await CountAsync("ZZW_TOGETHER_A"));
+        Assert.Equal(0L, await CountAsync("ZZW_TOGETHER_B"));
+
+        IReadOnlyList<EditOutcome> kept = await OracleFeatureWriter.ApplyTogetherAsync(
+            OracleFixture.Locator,
+            [
+                await PartAsync("ZZW_TOGETHER_A", new EditBatch([Add(("LABEL", "a"))], [], [])),
+                await PartAsync("ZZW_TOGETHER_B", new EditBatch([Add(("LABEL", "b"), ("REQ", "given"))], [], [])),
+            ],
+            new MercatorProjector(), null, None);
+
+        Assert.All(kept, o => Assert.False(o.RolledBack));
+        Assert.Equal(1L, await CountAsync("ZZW_TOGETHER_A"));
+        Assert.Equal(1L, await CountAsync("ZZW_TOGETHER_B"));
     }
 
     /// <summary>A geometry sent in another reference is moved into the layer's before it is stored.</summary>

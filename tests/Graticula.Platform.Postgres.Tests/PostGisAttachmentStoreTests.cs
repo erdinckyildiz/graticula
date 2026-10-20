@@ -63,6 +63,52 @@ public sealed class PostGisAttachmentStoreTests : PostgresFixture
         return (new PostGisAttachmentStore(DataSource, layer, quota), table);
     }
 
+    /// <summary>
+    /// ADR-207: a registered layer's attachments in the datastore — no foreign key, so an upload asks whether the
+    /// feature is there, and this server removes a deleted feature's attachments itself.
+    /// </summary>
+    [Fact]
+    public async Task In_the_datastore_an_upload_asks_for_its_feature_and_a_deleted_feature_s_attachments_go()
+    {
+        await using (NpgsqlCommand schema = DataSource.CreateCommand($"create schema if not exists {PostGisImporter.HostedSchema}"))
+        {
+            await schema.ExecuteNonQueryAsync();
+        }
+
+        LayerDefinition elsewhere = new(
+            name: "elsewhere", schemaName: "theirs", tableName: "parcels", geometryColumn: "geom", srid: 3857,
+            identityColumn: "objectid", integerIdentityColumn: "objectid", isHosted: false);
+        HashSet<long> there = [1, 2];
+
+        PostGisAttachmentStore store = PostGisAttachmentStore.InDatastore(
+            DataSource, Guid.NewGuid(), elsewhere, 1024 * 1024 * 1024, (feature, _) => Task.FromResult(there.Contains(feature)));
+
+        try
+        {
+            await Assert.ThrowsAsync<AttachmentFeatureMissingException>(
+                () => store.AddAsync(9, "x.bin", "application/octet-stream", null, Bytes(10), CancellationToken.None));
+
+            int first = await store.AddAsync(1, "a.bin", "application/octet-stream", null, Bytes(200_000), CancellationToken.None);
+            await store.AddAsync(2, "b.bin", "application/octet-stream", null, Bytes(10), CancellationToken.None);
+
+            Assert.Equal([1L, 2L], (await store.FeaturesAsync(CancellationToken.None)).Order());
+
+            await using (OpenAttachment? opened = await store.OpenAsync(first, CancellationToken.None))
+            {
+                Assert.Equal(Bytes(200_000).ToArray(), await DrainAsync(opened!.Content));
+            }
+
+            Assert.Equal(1, await store.DeleteOfFeaturesAsync([1], CancellationToken.None));
+            Assert.Equal((1L, 10L), await store.CountAsync(CancellationToken.None));
+        }
+        finally
+        {
+            await store.DropAsync(CancellationToken.None);
+        }
+
+        Assert.Equal((0L, 0L), await store.CountAsync(CancellationToken.None));
+    }
+
     private async Task DropAsync(string table)
     {
         await using NpgsqlCommand drop = DataSource.CreateCommand(

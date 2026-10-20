@@ -14,6 +14,7 @@ using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
+using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Graticula.Platform.Identity;
@@ -637,6 +638,7 @@ internal static partial class AdminEndpoints
         MapIdentityProviders(app); // ADR-088 — AdminEndpoints.IdentityProviders.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
+        MapAttachments(app);     // ADR-207 — AdminEndpoints.Attachments.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
         MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
@@ -2014,6 +2016,7 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         SourceQuiesce quiesce,
         RecycleBinService recycle,
+        LayerConnections connections,
         CancellationToken cancellation)
     {
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
@@ -2049,6 +2052,22 @@ internal static partial class AdminEndpoints
         }
 
         bool isView = target?.ViewOf is not null;
+
+        // ADR-207, as for one layer's unpublish: what this server made beside a registered layer goes first.
+        if (target is not null)
+        {
+            foreach (PublishedLayer layer in (await published.ListAsync(cancellation).ConfigureAwait(false))
+                         .Where(l => l.ServiceId == target.Id && !l.Definition.IsHosted))
+            {
+                if (await KeptForRegisteredAsync(connections, layer, cancellation).ConfigureAwait(false) is { } kept)
+                {
+                    await Refuse(context, 409,
+                        $"Layer '{layer.Definition.Name}' of '{name}' keeps {kept}, which this server made for it. Switch "
+                        + "that off on the layer first (ADR-207); nothing was deleted.").ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
 
         // ADR-203: a whole delete goes into the recycle bin — the hosted tables only it publishes set aside, its rows kept
         // with their ids — and comes back from there until it expires.
@@ -9397,20 +9416,6 @@ internal static partial class AdminEndpoints
     /// <b>False when the locator cannot be read</b>, so a source sealed with another key takes the
     /// PostGIS path it always took and fails there with the sentence that path already has.
     /// </remarks>
-    private static async Task<bool> IsOracleAsync(
-        IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
-    {
-        try
-        {
-            return OracleLocator.Is(
-                await catalog.ConnectionStringOfAsync(dataSourceId, cancellation).ConfigureAwait(false));
-        }
-        catch (CryptographicException)
-        {
-            return false;
-        }
-    }
-
     private static async Task<bool> IsGeoParquetAsync(
         IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
     {
@@ -9478,10 +9483,20 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            // PostGIS measures this; an Oracle locator is not a PostgreSQL connection string (ADR-205).
-            if (OracleLocator.Is(connection) || GeoParquetLocator.Is(connection))
+            if (GeoParquetLocator.Is(connection))
             {
                 return null;
+            }
+
+            // ADR-205: an Oracle table is measured by Oracle, by Oracle's rules (OracleTableChecks), in the same bound.
+            if (OracleLocator.Is(connection))
+            {
+                return await OracleTableChecks.ValidityAsync(
+                        connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
+                        TimeSpan.FromSeconds(30), cancellation)
+                    .ConfigureAwait(false) is { } measured
+                    ? new GeometryValidity(measured.Rows, measured.Invalid, measured.Reasons)
+                    : null;
             }
 
             NpgsqlDataSourceBuilder builder = new(connection);
@@ -9532,10 +9547,20 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            // PostGIS measures this; an Oracle locator is not a PostgreSQL connection string (ADR-205).
-            if (OracleLocator.Is(connection) || GeoParquetLocator.Is(connection))
+            if (GeoParquetLocator.Is(connection))
             {
                 return null;
+            }
+
+            // ADR-205: an Oracle table's reference is the one its spatial metadata names (OracleTableChecks).
+            if (OracleLocator.Is(connection))
+            {
+                return await OracleTableChecks.ReferenceAsync(
+                        connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
+                        publication.Srid, cancellation)
+                    .ConfigureAwait(false) is { } found
+                    ? new DeclaredReference(publication.Srid, found.Stored, found.Complaint)
+                    : null;
             }
 
             NpgsqlDataSourceBuilder builder = new(connection);
@@ -9703,21 +9728,6 @@ internal static partial class AdminEndpoints
 
                 return;
             }
-        }
-
-        // <b>ADR-205: an Oracle table's validity is not measured</b>, for condition 8's reason — Oracle's rules are not
-        // PostGIS's, and the reader serves what Oracle calls invalid — so a publish that asks for it is refused as a
-        // file's is. Its reference is the one its spatial metadata declares (OracleDataSourceProbe).
-        if (request.RequireValidGeometry
-            && await IsOracleAsync(catalog, publication.DataSourceId, cancellation).ConfigureAwait(false))
-        {
-            await Refuse(
-                context, 422,
-                $"'{publication.SchemaName}.{publication.TableName}' was not published because requireValidGeometry "
-                + "was asked for, and validity is measured by PostGIS over a table in the datastore — an Oracle table "
-                + "is read in place and its geometry is not scanned. Publish without that flag.")
-                .ConfigureAwait(false);
-            return;
         }
 
         GeometryValidity? validity = fromFile
@@ -11803,6 +11813,29 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>What this server made for a registered layer and keeps — attachments, a history — or null for nothing.</summary>
+    private static async Task<string?> KeptForRegisteredAsync(
+        LayerConnections connections, PublishedLayer layer, CancellationToken cancellation)
+    {
+        bool attachments = layer.AttachmentsIn is not null;
+        bool history = false;
+
+        if ((Graticula.Platform.Admin.GeoParquetLocator.KindOf(layer.ConnectionString) == DataSourceKinds.PostGis
+                || Graticula.Platform.Admin.OracleLocator.Is(layer.ConnectionString))
+            && layer.Definition.IntegerIdentityColumn is not null)
+        {
+            history = await connections.HistoryFor(layer).IsOnAsync(cancellation).ConfigureAwait(false);
+        }
+
+        return (attachments, history) switch
+        {
+            (true, true) => "attachments and a history",
+            (true, false) => "attachments",
+            (false, true) => "a history",
+            _ => null,
+        };
+    }
+
     private static async Task UnpublishAsync(
         HttpContext context,
         string name,
@@ -11811,6 +11844,7 @@ internal static partial class AdminEndpoints
         ServiceContexts contexts,
         ITileCache tiles,
         IAuditLog audit,
+        LayerConnections connections,
         CancellationToken cancellation)
     {
         // <b>Read before the delete, and now it decides the delete.</b> D-109: this used to
@@ -11829,6 +11863,19 @@ internal static partial class AdminEndpoints
                 .ConfigureAwait(false)
             || !await NotProtectedAsync(context, catalog, going.ServiceName, going.Folder, cancellation).ConfigureAwait(false))
         {
+            return;
+        }
+
+        // <b>ADR-207: what this server made for a registered layer goes before the layer does.</b> Its attachments and its
+        // history live in tables beside the customer's table, or in the datastore, and a trigger on that table goes on
+        // recording every edit after nothing here reads it — so unpublishing first would leave them to nobody.
+        if (!going.Definition.IsHosted
+            && await KeptForRegisteredAsync(connections, going, cancellation).ConfigureAwait(false) is { } kept)
+        {
+            await Refuse(context, 409,
+                $"'{name}' keeps {kept}, which this server made for it. Switch {(kept.Contains(" and ", StringComparison.Ordinal) ? "them" : "it")} "
+                + $"off first — POST /admin/layers/{name}/attachments with {{\"in\": null}}, POST /admin/layers/{name}/history "
+                + "with {\"enabled\": false} — and then remove the layer (ADR-207).").ConfigureAwait(false);
             return;
         }
 

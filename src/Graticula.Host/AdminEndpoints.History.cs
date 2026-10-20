@@ -1,4 +1,5 @@
 using System;
+using System.Data.Common;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -9,6 +10,7 @@ using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
+using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
@@ -90,7 +92,7 @@ internal static partial class AdminEndpoints
             before = parsed;
         }
 
-        PostGisFeatureHistory history = connections.HistoryFor(layer);
+        IFeatureHistory history = connections.HistoryFor(layer);
 
         try
         {
@@ -129,7 +131,7 @@ internal static partial class AdminEndpoints
                 next = more ? page[^1].At.ToString("O", System.Globalization.CultureInfo.InvariantCulture) : null,
             }).ExecuteAsync(context).ConfigureAwait(false);
         }
-        catch (NpgsqlException e)
+        catch (DbException e)
         {
             await Refuse(context, 502, $"The layer's history could not be read: {e.Message}").ConfigureAwait(false);
         }
@@ -166,7 +168,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        PostGisFeatureHistory history = connections.HistoryFor(layer);
+        IFeatureHistory history = connections.HistoryFor(layer);
         long features = 0;
 
         try
@@ -180,12 +182,31 @@ internal static partial class AdminEndpoints
                 await history.DisableAsync(cancellation).ConfigureAwait(false);
             }
         }
-        catch (NpgsqlException e)
+        catch (InvalidOperationException e)
+        {
+            // ADR-207: what the administrator has to change first — the database user, the key — said as it is.
+            await Refuse(context, 409, e.Message).ConfigureAwait(false);
+            return;
+        }
+        catch (DbException e)
         {
             await AuditAsync(
                 context, audit, "layer.history", name, Detail(new { enabled = request.Enabled, error = e.Message }),
                 succeeded: false, cancellation).ConfigureAwait(false);
-            await Refuse(context, 502, $"The datastore refused: {e.Message}").ConfigureAwait(false);
+
+            // ADR-207: a registered database that will not let this role make the history is the administrator's to
+            // grant — a 409 naming the right, not the datastore's 502.
+            string? lacking = e is PostgresException failed
+                ? PostGisFeatureHistory.Refusal(failed, layer.Definition)
+                : OracleFeatureHistory.Refusal(e, layer.Definition);
+
+            if (lacking is not null)
+            {
+                await Refuse(context, 409, lacking).ConfigureAwait(false);
+                return;
+            }
+
+            await Refuse(context, 502, $"The database refused: {e.Message}").ConfigureAwait(false);
             return;
         }
 
@@ -261,7 +282,7 @@ internal static partial class AdminEndpoints
                 return;
             }
         }
-        catch (NpgsqlException e)
+        catch (DbException e)
         {
             await Refuse(context, 502, $"The datastore refused: {e.Message}").ConfigureAwait(false);
             return;
@@ -306,7 +327,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        PostGisFeatureHistory history = connections.HistoryFor(layer);
+        IFeatureHistory history = connections.HistoryFor(layer);
 
         if (!await history.IsOnAsync(cancellation).ConfigureAwait(false))
         {
@@ -397,13 +418,15 @@ internal static partial class AdminEndpoints
                 .RestoreAsync(objectId, request.Version, current.Principal.Name, description.Tracking, cancellation)
                 .ConfigureAwait(false);
         }
-        catch (PostgresException e)
+        catch (Exception e) when (e is DbException or InvalidOperationException)
         {
+            string said = e is PostgresException postgres ? postgres.MessageText : e.Message;
+
             await AuditAsync(
                 context, audit, "layer.history.restore", name,
-                Detail(new { objectId, version = request.Version, error = e.MessageText }),
+                Detail(new { objectId, version = request.Version, error = said }),
                 succeeded: false, cancellation).ConfigureAwait(false);
-            await Refuse(context, 409, $"The version could not be written back: {e.MessageText}").ConfigureAwait(false);
+            await Refuse(context, 409, $"The version could not be written back: {said}").ConfigureAwait(false);
             return;
         }
 
@@ -459,17 +482,18 @@ internal static partial class AdminEndpoints
 
     /// <summary>Why a layer can have no history, or null when it can.</summary>
     /// <remarks>
-    /// <b>Hosted, in the hosted schema, with an integer object id</b> — ADR-002 §4.2 and ADR-078 §5.1.
-    /// The refusal says which, because "not available" with no reason is a switch that looks broken.
+    /// <b>In a database, with an integer object id</b> — ADR-078 §5.1 and, since 2026-10-20, ADR-207: a registered
+    /// PostGIS layer keeps one as a hosted layer does, beside its table. The refusal says which, because "not
+    /// available" with no reason is a switch that looks broken.
     /// </remarks>
     private static string? HistoryRefusal(PublishedLayer layer)
     {
-        if (!HostedDataEndpoints.AlterableSchema(layer.Definition.IsHosted, layer.Definition.SchemaName))
+        if (GeoParquetLocator.Is(layer.ConnectionString))
         {
-            return "History is kept by a trigger and a table beside the layer's, and this server runs that kind of "
-                + "change only in the datastore it owns. This layer's data lives in a database it does not "
-                + "(ADR-002 §4.2), so it cannot keep a history here.";
+            return "History is kept by a trigger and a table beside the layer's, and this layer is a file read in place, "
+                + "which has neither (ADR-066).";
         }
+
 
         if (layer.Definition.IntegerIdentityColumn is null)
         {

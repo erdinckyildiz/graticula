@@ -503,15 +503,19 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                     + "the projector an edit's geometry is moved with.");
             }
 
-            return new OracleFeatureWriter(
-                layer.ConnectionString, layer.Definition, fields, _projector, tracking, subtypes, Lowered(layer));
+            return Removing(
+                layer,
+                new OracleFeatureWriter(
+                    layer.ConnectionString, layer.Definition, fields, _projector, tracking, subtypes, Lowered(layer)));
         }
 
         RefuseIfFile(layer, "edited");
 
-        IFeatureWriter writer = new PostGisFeatureWriter(
-            PoolFor(layer.ConnectionString), layer.Definition, fields,
-            tracking ?? Graticula.Catalog.EditorTracking.None, subtypes, layer.GeometryType);
+        IFeatureWriter writer = Removing(
+            layer,
+            new PostGisFeatureWriter(
+                PoolFor(layer.ConnectionString), layer.Definition, fields,
+                tracking ?? Graticula.Catalog.EditorTracking.None, subtypes, layer.GeometryType));
 
         // <b>Here, so every face that edits empties the tiles — not at each face.</b> ADR-069
         // said `ITileCache` is told to drop a layer's entries on an edit, and nothing told it:
@@ -539,6 +543,14 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // ADR-205: an Oracle layer's GlobalIDs are its own column's, looked up there.
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            return OracleFeatureWriter.ObjectIdsOfAsync(
+                layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
+        }
+
         RefuseIfFile(layer, "edited");
 
         return PostGisFeatureWriter.ObjectIdsOfAsync(
@@ -563,7 +575,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// </remarks>
     internal static bool OneTransactionHolds(IReadOnlyList<LayerEdit> edits) =>
         edits.Count > 0
-        && edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
+        && (edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
+            || edits.All(e => OracleLocator.Is(e.Layer.ConnectionString)))
         && edits.Select(e => e.Layer.ConnectionString).Distinct(StringComparer.Ordinal).Count() == 1;
 
     /// <summary>
@@ -597,6 +610,29 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             throw new InvalidOperationException("These layers are not in one database, so one transaction cannot hold their edits.");
         }
 
+        // ADR-205: layers in one Oracle database share one Oracle transaction, behind the same quiesce as one layer's
+        // edit. No tiles to empty: a registered layer has none (ADR-206).
+        if (OracleLocator.Is(edits[0].Layer.ConnectionString))
+        {
+            if (_quiesce?.Holding(edits[0].Layer.ConnectionString) is { } held)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+            }
+
+            IReadOnlyList<EditOutcome> together = await OracleFeatureWriter.ApplyTogetherAsync(
+                    edits[0].Layer.ConnectionString,
+                    [.. edits.Select(e => new OracleFeatureWriter.LayerBatch(
+                        e.Layer.Definition, e.Description.Fields, e.Description.Tracking, e.Description.Subtypes, e.Batch))],
+                    _projector ?? throw new InvalidOperationException(
+                        "This server was started without the projector an edit's geometry is moved with."),
+                    Lowered(edits[0].Layer),
+                    cancellation)
+                .ConfigureAwait(false);
+
+            await RemoveAttachmentsOfDeletedAsync(edits, together, cancellation).ConfigureAwait(false);
+            return together;
+        }
+
         NpgsqlDataSource pool = PoolFor(edits[0].Layer.ConnectionString);
 
         await using NpgsqlConnection connection = await pool.OpenConnectionAsync(cancellation).ConfigureAwait(false);
@@ -614,7 +650,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         {
             PostGisFeatureWriter store = new(
                 pool, edit.Layer.Definition, edit.Description.Fields,
-                edit.Description.Tracking, edit.Description.Subtypes);
+                edit.Description.Tracking, edit.Description.Subtypes, edit.Layer.GeometryType);
             Graticula.Tiles.VectorTileScheme? scheme = SchemeOfService is null || _tiles is null
                 ? null
                 : await SchemeOfService(edit.Layer.ServiceId, cancellation).ConfigureAwait(false);
@@ -625,9 +661,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         foreach (LayerEdit edit in edits)
         {
+            // With the geometry kind, so Q-153's polygon repair runs here as it does through WriterFor.
             PostGisFeatureWriter writer = new(
                 pool, edit.Layer.Definition, edit.Description.Fields,
-                edit.Description.Tracking, edit.Description.Subtypes);
+                edit.Description.Tracking, edit.Description.Subtypes, edit.Layer.GeometryType);
 
             EditOutcome outcome = await writer
                 .ApplyWithinAsync(connection, transaction, edit.Batch, cancellation)
@@ -645,6 +682,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         await transaction.CommitAsync(cancellation).ConfigureAwait(false);
 
+        await RemoveAttachmentsOfDeletedAsync(edits, outcomes, cancellation).ConfigureAwait(false);
+
         if (_tiles is not null)
         {
             for (int i = 0; i < edits.Count; i++)
@@ -658,6 +697,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         }
 
         return outcomes;
+    }
+
+    /// <summary>After a transaction across layers commits, the attachments its deletes left in the datastore (ADR-207).</summary>
+    private async Task RemoveAttachmentsOfDeletedAsync(
+        IReadOnlyList<LayerEdit> edits, IReadOnlyList<EditOutcome> outcomes, CancellationToken cancellation)
+    {
+        for (int i = 0; i < edits.Count; i++)
+        {
+            long[] deleted = AttachmentRemovingWriter.Deleted(outcomes[i]);
+
+            if (deleted.Length > 0)
+            {
+                await RemoveOrphanedAttachmentsAsync(edits[i].Layer, deleted, cancellation).ConfigureAwait(false);
+            }
+        }
     }
 
     /// <summary>A tile source for one datastore layer.</summary>
@@ -778,6 +832,35 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return _breaker.Failed(layer.ConnectionString, failure);
     }
 
+    /// <summary>
+    /// Prunes the histories registered layers keep in their own databases to their keeping periods — ADR-207, beside
+    /// HistoryRetention's sweep of the datastore. Each database is swept once, whatever number of layers it serves.
+    /// </summary>
+    /// <param name="layers">Every published layer.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What was deleted, by table.</returns>
+    public async Task<IReadOnlyList<(string Table, long Versions)>> PruneRegisteredHistoryAsync(
+        IReadOnlyList<PublishedLayer> layers, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+
+        List<(string Table, long Versions)> pruned = [];
+
+        foreach (string source in layers
+                     .Where(l => !l.Definition.IsHosted
+                         && (GeoParquetLocator.KindOf(l.ConnectionString) == DataSourceKinds.PostGis
+                             || OracleLocator.Is(l.ConnectionString)))
+                     .Select(l => l.ConnectionString)
+                     .Distinct(StringComparer.Ordinal))
+        {
+            pruned.AddRange(OracleLocator.Is(source)
+                ? await OracleFeatureHistory.PruneAsync(source, cancellationToken).ConfigureAwait(false)
+                : await PostGisFeatureHistory.PruneAsync(PoolFor(source), cancellationToken).ConfigureAwait(false));
+        }
+
+        return pruned;
+    }
+
     /// <summary>A layer's history — ADR-078 — over the layer's own pool.</summary>
     /// <param name="layer">The layer.</param>
     /// <returns>Its history.</returns>
@@ -785,10 +868,17 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// The query pool rather than a pool of its own: reading a history is a query, and switching it on
     /// is one administrator's transaction that lifts its own statement timeout.
     /// </remarks>
-    public PostGisFeatureHistory HistoryFor(PublishedLayer layer)
+    public IFeatureHistory HistoryFor(PublishedLayer layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // ADR-207: an Oracle layer's history is kept by Oracle, beside its table.
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            return new OracleFeatureHistory(layer.ConnectionString, layer.Definition);
+        }
+
         RefuseIfFile(layer, "given a history");
 
         return new PostGisFeatureHistory(PoolFor(layer.ConnectionString), layer.Definition);
@@ -809,11 +899,15 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// means they stop attachments, which is a bad afternoon rather than an
     /// outage.
     /// </remarks>
-    public PostGisAttachmentStore AttachmentsFor(PublishedLayer layer)
+    public IAttachmentStore AttachmentsFor(PublishedLayer layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
-        RefuseIfFile(layer, "given attachments");
+
+        if (GeoParquetLocator.Is(layer.ConnectionString))
+        {
+            RefuseIfFile(layer, "given attachments");
+        }
 
         // <b>The same guard, on the second dictionary.</b> Attachments are a separate pool keyed
         // the same way — a quiesced source that still served them would still be holding the
@@ -824,10 +918,100 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 SourceQuiesce.Says(attachmentsHeld), attachmentsHeld.Until);
         }
 
+        // <b>ADR-207: a registered layer keeps them where an administrator said</b> — beside its table in its own
+        // database, or in the datastore. A hosted layer keeps them beside its table, as it always has.
+        if (!layer.Definition.IsHosted)
+        {
+            switch (layer.AttachmentsIn)
+            {
+                case AttachmentPlaces.Datastore:
+                    return DatastoreAttachments(layer);
+
+                case AttachmentPlaces.Source when OracleLocator.Is(layer.ConnectionString):
+                    return new OracleAttachmentStore(layer.ConnectionString, layer.Definition, layer.AttachmentQuotaBytes);
+
+                case AttachmentPlaces.Source:
+                    break;
+
+                default:
+                    throw new QueryNotSupportedException(
+                        $"Layer '{layer.Definition.Name}' keeps no attachments. An administrator switches them on with "
+                        + $"POST /admin/layers/{layer.Definition.Name}/attachments, beside its table or in the datastore "
+                        + "(ADR-207).");
+            }
+        }
+
         return new PostGisAttachmentStore(
             _attachmentPools.GetOrAdd(layer.ConnectionString, BuildAttachmentPool),
             layer.Definition,
             layer.AttachmentQuotaBytes);
+    }
+
+    /// <summary>The datastore's connection string, for the attachments registered layers keep there — ADR-207.</summary>
+    public string? DatastoreConnection { get; set; }
+
+    /// <summary>A registered layer's attachments in the datastore, which ask the layer whether a feature is there.</summary>
+    private PostGisAttachmentStore DatastoreAttachments(PublishedLayer layer)
+    {
+        string datastore = DatastoreConnection ?? throw new InvalidOperationException(
+            "This server was started without the datastore's connection, which a layer's attachments kept there need.");
+
+        return PostGisAttachmentStore.InDatastore(
+            _attachmentPools.GetOrAdd(datastore, BuildAttachmentPool),
+            layer.Id,
+            layer.Definition,
+            layer.AttachmentQuotaBytes,
+            async (featureId, cancellation) =>
+                await SourceFor(layer)
+                    .CountAsync(new FeatureQuery(1, includeGeometry: false, identities: [featureId]), cancellation)
+                    .ConfigureAwait(false) > 0);
+    }
+
+    /// <summary>
+    /// Removes the attachments a registered layer keeps in the datastore for features that are gone — deleted by this
+    /// server's edit (<paramref name="deleted"/>), or, when it is null, by any tool: a sweep asks the layer which of
+    /// the features holding attachments are still there (ADR-207). Nothing for a layer that keeps them elsewhere,
+    /// where the foreign key cascades.
+    /// </summary>
+    /// <param name="layer">The layer.</param>
+    /// <param name="deleted">The features deleted, or null to sweep.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many attachments went.</returns>
+    public async Task<long> RemoveOrphanedAttachmentsAsync(
+        PublishedLayer layer, IReadOnlyList<long>? deleted, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        if (layer.Definition.IsHosted || layer.AttachmentsIn != AttachmentPlaces.Datastore)
+        {
+            return 0;
+        }
+
+        PostGisAttachmentStore store = DatastoreAttachments(layer);
+
+        if (deleted is not null)
+        {
+            return await store.DeleteOfFeaturesAsync(deleted, cancellationToken).ConfigureAwait(false);
+        }
+
+        IReadOnlyList<long> holding = await store.FeaturesAsync(cancellationToken).ConfigureAwait(false);
+        List<long> gone = [];
+
+        foreach (long[] batch in holding.Chunk(1_000))
+        {
+            HashSet<long> there = [];
+
+            await foreach (Feature feature in SourceFor(layer)
+                               .ReadAsync(new FeatureQuery(batch.Length, fields: [], includeGeometry: false, identities: batch), cancellationToken)
+                               .ConfigureAwait(false))
+            {
+                there.Add(long.Parse(feature.Id, System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            gone.AddRange(batch.Where(id => !there.Contains(id)));
+        }
+
+        return await store.DeleteOfFeaturesAsync(gone, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -881,11 +1065,27 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// two is refused at query time rather than at declaration time, since a
     /// data source can be re-registered elsewhere after the declaration.
     /// </remarks>
-    public PostGisRelatedRecords RelatedFor(PublishedLayer origin, PublishedLayer related)
+    public IRelatedRecords RelatedFor(PublishedLayer origin, PublishedLayer related)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(related);
+
+        // ADR-205: two layers of one Oracle database are joined there; an Oracle layer and one elsewhere cannot be.
+        if (OracleLocator.Is(origin.ConnectionString) || OracleLocator.Is(related.ConnectionString))
+        {
+            if (!OracleLocator.Is(origin.ConnectionString) || !OracleLocator.Is(related.ConnectionString))
+            {
+                throw new QueryNotSupportedException(
+                    $"'{origin.Definition.Name}' and '{related.Definition.Name}' are in different databases — one of them "
+                    + "Oracle — so a relationship between them cannot be followed in one query.");
+            }
+
+            return new OracleRelatedRecords(
+                origin.ConnectionString, origin.Definition, related.Definition,
+                string.Equals(origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal));
+        }
+
         RefuseIfFile(origin, "related to another layer");
         RefuseIfFile(related, "related to another layer");
 
@@ -912,6 +1112,15 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// <see cref="TileSourceFor"/>; from 2026-09-13 to 2026-10-20 a GeoParquet layer was tiled.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// A registered layer's writer, removing the attachments it keeps in the datastore of the features it deletes —
+    /// ADR-207; any other layer's writer as it is.
+    /// </summary>
+    private IFeatureWriter Removing(PublishedLayer layer, IFeatureWriter writer) =>
+        !layer.Definition.IsHosted && layer.AttachmentsIn == AttachmentPlaces.Datastore
+            ? new AttachmentRemovingWriter(writer, (deleted, cancellation) => RemoveOrphanedAttachmentsAsync(layer, deleted, cancellation))
+            : writer;
+
     private static void RefuseIfFile(PublishedLayer layer, string what)
     {
         if (GeoParquetLocator.Is(layer.ConnectionString))

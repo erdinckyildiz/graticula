@@ -131,6 +131,12 @@ public sealed class SqlDialect
     internal bool IsGuid(string? column) => column is not null && GuidColumns.Contains(column);
 
     /// <summary>A UUID column as text, in the spelling of the face that asked.</summary>
+    /// <remarks>
+    /// Oracle's provider hands the column over already as ArcGIS's text (<c>OracleGuids.Text</c>), since it keeps a
+    /// GlobalID as text or as RAW rather than as a UUID type.
+    /// </remarks>
     internal string GuidText(string quoted) =>
-        ArcGisGuidText ? $"('{{' || upper({quoted}::text) || '}}')" : $"({quoted}::text)";
+        OracleForms
+            ? ArcGisGuidText ? quoted : $"lower(substr({quoted}, 2, 36))"
+            : ArcGisGuidText ? $"('{{' || upper({quoted}::text) || '}}')" : $"({quoted}::text)";
 }

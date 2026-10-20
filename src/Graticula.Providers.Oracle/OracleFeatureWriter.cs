@@ -96,9 +96,124 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         await using OracleConnection connection =
             await OracleConnections.OpenAsync(_connectionString, cancellationToken).ConfigureAwait(false);
 
-        TableFacts facts = await FactsAsync(connection, cancellationToken).ConfigureAwait(false);
+        using OracleTransaction transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+        EditOutcome outcome = await ApplyWithinAsync(connection, transaction, batch, cancellationToken).ConfigureAwait(false);
+
+        if (MustRollBack(batch, outcome))
+        {
+            transaction.Rollback();
+            return outcome with { RolledBack = true };
+        }
+
+        transaction.Commit();
+        return outcome;
+    }
+
+    /// <summary>Whether a batch's outcome means its transaction is discarded: all or nothing, and not all.</summary>
+    public static bool MustRollBack(EditBatch batch, EditOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        return batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed);
+    }
+
+    /// <summary>One layer's part of an edit across several, for <see cref="ApplyTogetherAsync"/>.</summary>
+    /// <param name="Layer">The layer.</param>
+    /// <param name="Fields">Its real columns.</param>
+    /// <param name="Tracking">Its edit-tracking columns, or null.</param>
+    /// <param name="Subtypes">Its subtypes, or null.</param>
+    /// <param name="Batch">Its edits.</param>
+    public sealed record LayerBatch(
+        LayerDefinition Layer,
+        IReadOnlyList<FieldDescription> Fields,
+        EditorTracking? Tracking,
+        LayerSubtypes? Subtypes,
+        EditBatch Batch);
+
+    /// <summary>
+    /// Several layers' edits in one Oracle database, in one transaction — kept together or discarded together when any
+    /// batch asked for all or nothing, as several PostGIS layers' are (the service-level <c>applyEdits</c>).
+    /// </summary>
+    /// <param name="locator">The database's <c>oracle:</c> locator, which every layer shares.</param>
+    /// <param name="layers">The layers' edits.</param>
+    /// <param name="projector">Moves a geometry sent in another reference into its layer's.</param>
+    /// <param name="statementTimeout">How long one statement may run.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each layer's outcome, in order, every one rolled back if any was.</returns>
+    public static async Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
+        string locator,
+        IReadOnlyList<LayerBatch> layers,
+        IProjector projector,
+        TimeSpan? statementTimeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(locator);
+        ArgumentNullException.ThrowIfNull(layers);
+        ArgumentNullException.ThrowIfNull(projector);
+
+        await using OracleConnection connection = await OracleConnections.OpenAsync(
+            OracleConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
 
         using OracleTransaction transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+        List<EditOutcome> outcomes = [];
+        bool rollBack = false;
+
+        foreach (LayerBatch part in layers)
+        {
+            OracleFeatureWriter writer = new(locator, part.Layer, part.Fields, projector, part.Tracking, part.Subtypes, statementTimeout);
+            EditOutcome outcome = await writer.ApplyWithinAsync(connection, transaction, part.Batch, cancellationToken).ConfigureAwait(false);
+
+            rollBack |= MustRollBack(part.Batch, outcome);
+            outcomes.Add(outcome);
+        }
+
+        if (rollBack)
+        {
+            transaction.Rollback();
+            return [.. outcomes.Select(o => o with { RolledBack = true })];
+        }
+
+        transaction.Commit();
+        return outcomes;
+    }
+
+    /// <summary>
+    /// A batch in a transaction the caller owns: each edit in its own savepoint, nothing committed or rolled back here.
+    /// </summary>
+    private async Task<EditOutcome> ApplyWithinAsync(
+        OracleConnection connection, OracleTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
+    {
+        // <b>Who is editing, told to the database for the length of this batch</b> — ADR-207: a layer keeping its
+        // history records every version with a trigger, which reads the session's CLIENT_IDENTIFIER, as the PostGIS
+        // writer's graticula.editor. Cleared before the connection goes back to the pool, whatever happens.
+        if (!string.IsNullOrEmpty(batch.Editor))
+        {
+            await using OracleCommand who = Command("begin dbms_session.set_identifier(:p_editor); end;", connection);
+            who.Parameters.Add("p_editor", batch.Editor);
+            await who.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await ApplyNamedAsync(connection, transaction, batch, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(batch.Editor))
+            {
+                await using OracleCommand forget = Command("begin dbms_session.clear_identifier; end;", connection);
+                await forget.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task<EditOutcome> ApplyNamedAsync(
+        OracleConnection connection, OracleTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
+    {
+        TableFacts facts = await FactsAsync(connection, cancellationToken).ConfigureAwait(false);
 
         List<EditResult> adds = [];
         List<EditResult> updates = [];
@@ -132,19 +247,87 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         foreach (long identity in batch.Deletes)
         {
             deletes.Add(await IsolatedAsync(
-                transaction, savepoint++, () => DeleteAsync(connection, identity, batch, cancellationToken)).ConfigureAwait(false));
+                transaction, savepoint++, () => DeleteAsync(connection, facts, identity, batch, cancellationToken)).ConfigureAwait(false));
         }
 
-        EditOutcome outcome = new(adds, updates, deletes, RolledBack: false);
+        return new EditOutcome(adds, updates, deletes, RolledBack: false);
+    }
 
-        if (batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed))
+    /// <summary>The object ids of the features carrying these GlobalIDs — <c>useGlobalIds=true</c>, as on PostGIS.</summary>
+    /// <param name="locator">The data source's <c>oracle:</c> locator.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="globalIdColumn">Its GlobalID column.</param>
+    /// <param name="globalIds">The GlobalIDs.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each GlobalID found, with its object id; one not in the table is absent.</returns>
+    /// <remarks>Read before the edit, as <c>PostGisFeatureWriter.ObjectIdsOfAsync</c> is, and for its reason.</remarks>
+    public static async Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
+        string locator,
+        LayerDefinition layer,
+        string globalIdColumn,
+        IReadOnlyCollection<Guid> globalIds,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(locator);
+        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(globalIds);
+
+        Dictionary<Guid, long> found = [];
+
+        if (globalIds.Count == 0 || layer.IntegerIdentityColumn is null)
         {
-            transaction.Rollback();
-            return outcome with { RolledBack = true };
+            return found;
         }
 
-        transaction.Commit();
-        return outcome;
+        await using OracleConnection connection = await OracleConnections.OpenAsync(
+            OracleConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+
+        OracleGuids.Storage storage;
+
+        await using (OracleCommand typed = new(
+            "select data_type, data_length, char_length from all_tab_columns where owner = :o and table_name = :t and column_name = :c",
+            connection) { BindByName = true })
+        {
+            typed.Parameters.Add("o", layer.SchemaName);
+            typed.Parameters.Add("t", layer.TableName);
+            typed.Parameters.Add("c", globalIdColumn);
+
+            await using OracleDataReader described = await typed.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!await described.ReadAsync(cancellationToken).ConfigureAwait(false)
+                || OracleGuids.Of(
+                    globalIdColumn,
+                    described.GetString(0),
+                    described.IsDBNull(1) ? null : Convert.ToInt32(described.GetValue(1), CultureInfo.InvariantCulture),
+                    described.IsDBNull(2) ? null : Convert.ToInt32(described.GetValue(2), CultureInfo.InvariantCulture)) is not { } kept)
+            {
+                return found;
+            }
+
+            storage = kept;
+        }
+
+        string column = LayerDefinition.Quote(globalIdColumn);
+
+        await using OracleCommand command = new(
+            $"select {column}, {LayerDefinition.Quote(layer.IntegerIdentityColumn)} from {layer.QuotedTable} "
+            + $"where {OracleGuids.Text(column, storage)} in (select j.v from json_table(:ids, '$[*]' columns (v varchar2(38) path '$')) j)",
+            connection) { BindByName = true };
+
+        command.Parameters.Add(
+            "ids", OracleDbType.Clob, JsonSerializer.Serialize(globalIds.Select(OracleGuids.Braced)), ParameterDirection.Input);
+
+        await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (!reader.IsDBNull(0) && OracleGuids.Read(reader.GetValue(0)) is { } global)
+            {
+                found[global] = Convert.ToInt64(reader.GetValue(1), CultureInfo.InvariantCulture);
+            }
+        }
+
+        return found;
     }
 
     /// <summary>
@@ -170,7 +353,8 @@ public sealed class OracleFeatureWriter : IFeatureWriter
     /// <param name="Srid">The geometry's Oracle SRID, which a written shape must carry (ORA-13295).</param>
     /// <param name="Declared">The ordinates the column declares, from its dimension count.</param>
     /// <param name="KeyMade">Whether the database makes a new row's key.</param>
-    private sealed record TableFacts(int Srid, GeometryOrdinates Declared, bool KeyMade);
+    /// <param name="GlobalStorage">How the GlobalID column keeps its value, or null when the layer has none.</param>
+    private sealed record TableFacts(int Srid, GeometryOrdinates Declared, bool KeyMade, OracleGuids.Storage? GlobalStorage = null);
 
     private async Task<TableFacts> FactsAsync(OracleConnection connection, CancellationToken cancellationToken)
     {
@@ -178,7 +362,15 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             """
             select m.srid,
                    (select count(*) from table(m.diminfo)),
-                   (select case when c.identity_column = 'YES' or c.data_default_vc is not null then 1 else 0 end
+                   (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
+                   (select case when c.identity_column = 'YES' or c.data_default_vc is not null
+                                  -- The way Oracle tables made before identity columns number their rows: a sequence
+                                  -- read by a row trigger before the insert.
+                                  or exists (select 1 from all_triggers g
+                                              where g.table_owner = m.owner and g.table_name = m.table_name
+                                                and g.status = 'ENABLED' and g.trigger_type = 'BEFORE EACH ROW'
+                                                and g.triggering_event like '%INSERT%')
+                                then 1 else 0 end
                       from all_tab_columns c
                      where c.owner = m.owner and c.table_name = m.table_name and c.column_name = :k)
               from all_sdo_geom_metadata m
@@ -200,12 +392,74 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
 
         int dimensions = Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture);
+        OracleGuids.Storage? global = _columns.GlobalId is { } named
+            ? await GlobalStorageAsync(connection, named, cancellationToken).ConfigureAwait(false)
+            : null;
+
+        // A third dimension is a measure where the metadata calls it M, as Oracle's linear referencing does.
+        bool measured = Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) > 0;
 
         return new TableFacts(
             Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture),
-            dimensions >= 4 ? GeometryOrdinates.Z | GeometryOrdinates.M : dimensions == 3 ? GeometryOrdinates.Z : GeometryOrdinates.None,
-            !reader.IsDBNull(2) && Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) == 1);
+            dimensions switch
+            {
+                >= 4 => GeometryOrdinates.Z | GeometryOrdinates.M,
+                3 => measured ? GeometryOrdinates.M : GeometryOrdinates.Z,
+                _ => GeometryOrdinates.None,
+            },
+            !reader.IsDBNull(3) && Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture) == 1,
+            global);
     }
+
+    /// <summary>How the GlobalID column keeps its value (OracleGuids).</summary>
+    private async Task<OracleGuids.Storage?> GlobalStorageAsync(
+        OracleConnection connection, string column, CancellationToken cancellationToken)
+    {
+        await using OracleCommand command = Command(
+            "select data_type, data_length, char_length from all_tab_columns where owner = :o and table_name = :t and column_name = :c",
+            connection);
+
+        command.Parameters.Add("o", _layer.SchemaName);
+        command.Parameters.Add("t", _layer.TableName);
+        command.Parameters.Add("c", column);
+
+        await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
+            ? OracleGuids.Of(
+                column,
+                reader.GetString(0),
+                reader.IsDBNull(1) ? null : Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture),
+                reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture))
+            : null;
+    }
+
+    /// <summary>The <c>returning</c> clause that reads a row's GlobalID back, or nothing for a layer without one.</summary>
+    private string ReturningGlobal(TableFacts facts) =>
+        facts.GlobalStorage is null || _columns.GlobalId is null
+            ? string.Empty
+            : $" returning {LayerDefinition.Quote(_columns.GlobalId)} into :gid";
+
+    /// <summary>Adds the output the GlobalID is read into, when <see cref="ReturningGlobal"/> asked for one.</summary>
+    private static OracleParameter? GlobalOut(OracleCommand command, TableFacts facts) =>
+        facts.GlobalStorage switch
+        {
+            null => null,
+            OracleGuids.Storage.Raw => command.Parameters.Add("gid", OracleDbType.Raw, 16, null, ParameterDirection.Output),
+            _ => command.Parameters.Add("gid", OracleDbType.Varchar2, 64, null, ParameterDirection.Output),
+        };
+
+    /// <summary>The GlobalID an output read, or null.</summary>
+    private static Guid? GlobalOf(OracleParameter? output) =>
+        output?.Value switch
+        {
+            null or DBNull => null,
+            global::Oracle.ManagedDataAccess.Types.OracleString { IsNull: true } => null,
+            global::Oracle.ManagedDataAccess.Types.OracleBinary { IsNull: true } => null,
+            global::Oracle.ManagedDataAccess.Types.OracleString text => OracleGuids.Read(text.Value),
+            global::Oracle.ManagedDataAccess.Types.OracleBinary bytes => OracleGuids.Read(bytes.Value),
+            object other => OracleGuids.Read(other),
+        };
 
     private async Task<EditResult> AddAsync(
         OracleConnection connection, TableFacts facts, FeatureAdd add, EditBatch batch, CancellationToken cancellationToken)
@@ -215,7 +469,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             return EditResult.Failed(
                 -1,
                 $"'{_layer.IntegerIdentityColumn}' is this table's key and the database does not make it — it is neither "
-                + "an identity column nor given a default — so this server cannot add a row without inventing a number "
+                + "an identity column, nor given a default, nor filled by a trigger before the insert — so this server cannot add a row without inventing a number "
                 + "the table's own users did not choose. Updates and deletes are answered (ADR-205).");
         }
 
@@ -229,6 +483,26 @@ public sealed class OracleFeatureWriter : IFeatureWriter
                 keepGlobalId: batch.KeepsGlobalIds))
         {
             return EditResult.Failed(-1, error!);
+        }
+
+        // <b>Every new row gets a GlobalID</b>, as ArcGIS gives one: the client's under useGlobalIds, kept by TryBind;
+        // otherwise one minted here, whatever default the column has, so the result can say which it is.
+        Guid? global = null;
+
+        if (_columns.GlobalId is { } globalColumn && facts.GlobalStorage is not null)
+        {
+            int at = bound.FindIndex(b => string.Equals(b.Column, globalColumn, StringComparison.Ordinal));
+
+            if (at >= 0 && bound[at].Value is Guid kept)
+            {
+                global = kept;
+            }
+            else
+            {
+                global = Guid.NewGuid();
+                bound.RemoveAll(b => string.Equals(b.Column, globalColumn, StringComparison.Ordinal));
+                bound.Add((globalColumn, global));
+            }
         }
 
         List<string> columns = [.. bound.Select(b => LayerDefinition.Quote(b.Column))];
@@ -250,12 +524,12 @@ public sealed class OracleFeatureWriter : IFeatureWriter
 
         string block =
             "declare g sdo_geometry; begin "
-            + (shaped ? "g := sdo_util.from_wkbgeometry(:geom); g.sdo_srid := :srid; " : string.Empty)
+            + (shaped ? Assignment(add.Geometry!) : string.Empty)
             + $"insert into {Table} ({string.Join(", ", columns)}) values ({string.Join(", ", values)}) "
             + $"returning {Id} into :rid; end;";
 
         await using OracleCommand command = Command(block, connection);
-        Bind(command, bound);
+        Bind(command, bound, facts);
 
         if (shaped)
         {
@@ -272,7 +546,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         try
         {
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            return EditResult.Ok(Convert.ToInt64(made.Value.ToString(), CultureInfo.InvariantCulture));
+            return EditResult.Ok(Convert.ToInt64(made.Value.ToString(), CultureInfo.InvariantCulture)) with { GlobalId = global };
         }
         catch (OracleException e)
         {
@@ -294,10 +568,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             return EditResult.Missing(update.Identity);
         }
 
-        if (Precondition(batch, update.Identity) is { } refusedVersion)
-        {
-            return refusedVersion;
-        }
+        string[]? expected = Expected(batch, update.Identity);
 
         if (update.Geometry is not null
             && (ordinates ?? facts.Declared) is var holds
@@ -354,12 +625,12 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         // Ownership rides in the `where`, so whose the row is and the write are one statement — ADR-064.
         string block =
             "declare g sdo_geometry; begin "
-            + (shaped && update.Geometry is { IsEmpty: false } ? "g := sdo_util.from_wkbgeometry(:geom); g.sdo_srid := :srid; " : string.Empty)
-            + $"update {Table} set {string.Join(", ", assignments)} where {Id} = :id{OwnerClause(owner)}; "
+            + (shaped && update.Geometry is { IsEmpty: false } sentShape ? Assignment(sentShape) : string.Empty)
+            + $"update {Table} set {string.Join(", ", assignments)} where {Id} = :id{VersionClause(expected)}{OwnerClause(owner)}{ReturningGlobal(facts)}; "
             + ":n := sql%rowcount; end;";
 
         await using OracleCommand command = Command(block, connection);
-        Bind(command, bound);
+        Bind(command, bound, facts);
 
         if (shaped && update.Geometry is { IsEmpty: false } geometry)
         {
@@ -372,12 +643,14 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
 
         command.Parameters.Add("id", update.Identity);
+        BindExpected(command, expected);
 
         if (owner is not null)
         {
             command.Parameters.Add("owner", owner);
         }
 
+        OracleParameter? globalOut = GlobalOut(command, facts);
         OracleParameter changed = command.Parameters.Add("n", OracleDbType.Int32, ParameterDirection.Output);
 
         try
@@ -385,8 +658,8 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
             return Convert.ToInt32(changed.Value.ToString(), CultureInfo.InvariantCulture) > 0
-                ? EditResult.Ok(update.Identity)
-                : await WhyNotAsync(connection, update.Identity, owner, cancellationToken).ConfigureAwait(false);
+                ? EditResult.Ok(update.Identity) with { GlobalId = GlobalOf(globalOut) }
+                : await WhyNotAsync(connection, update.Identity, owner, expected, cancellationToken).ConfigureAwait(false);
         }
         catch (OracleException e)
         {
@@ -395,17 +668,16 @@ public sealed class OracleFeatureWriter : IFeatureWriter
     }
 
     private async Task<EditResult> DeleteAsync(
-        OracleConnection connection, long identity, EditBatch batch, CancellationToken cancellationToken)
+        OracleConnection connection, TableFacts facts, long identity, EditBatch batch, CancellationToken cancellationToken)
     {
-        if (Precondition(batch, identity) is { } refusedVersion)
-        {
-            return refusedVersion;
-        }
+        string[]? expected = Expected(batch, identity);
 
         string? owner = EditColumns.OwnerOf(batch);
 
         await using OracleCommand command = Command(
-            $"begin delete from {Table} where {Id} = :id{OwnerClause(owner)}; :n := sql%rowcount; end;", connection);
+            $"begin delete from {Table} where {Id} = :id{VersionClause(expected)}{OwnerClause(owner)}{ReturningGlobal(facts)}; :n := sql%rowcount; end;", connection);
+
+        BindExpected(command, expected);
 
         command.Parameters.Add("id", identity);
 
@@ -414,6 +686,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             command.Parameters.Add("owner", owner);
         }
 
+        OracleParameter? globalOut = GlobalOut(command, facts);
         OracleParameter removed = command.Parameters.Add("n", OracleDbType.Int32, ParameterDirection.Output);
 
         try
@@ -423,8 +696,8 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             // Deleting what is already gone is a failure, as ArcGIS reports it: the client believes it deleted a
             // feature it never saw.
             return Convert.ToInt32(removed.Value.ToString(), CultureInfo.InvariantCulture) > 0
-                ? EditResult.Ok(identity)
-                : await WhyNotAsync(connection, identity, owner, cancellationToken).ConfigureAwait(false);
+                ? EditResult.Ok(identity) with { GlobalId = GlobalOf(globalOut) }
+                : await WhyNotAsync(connection, identity, owner, expected, cancellationToken).ConfigureAwait(false);
         }
         catch (OracleException e)
         {
@@ -432,17 +705,28 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
     }
 
-    /// <summary>
-    /// A version precondition, refused: an Oracle layer publishes no row versions, so a version a caller holds is not
-    /// one this server gave out, and writing over it would be the lost update D-186 exists to stop.
-    /// </summary>
-    private static EditResult? Precondition(EditBatch batch, long identity) =>
+    /// <summary>The versions an edit of this row is conditional on — If-Match — or null for an unconditional one.</summary>
+    private static string[]? Expected(EditBatch batch, long identity) =>
         batch.Expects is { } expects && expects.TryGetValue(identity, out IReadOnlyList<string>? versions) && versions.Count > 0
-            ? EditResult.Failed(
-                identity,
-                "This layer is in a registered Oracle database, which publishes no row versions, so an edit "
-                + "conditional on one cannot be checked. Send it without If-Match (ADR-205).")
+            ? [.. versions]
             : null;
+
+    /// <summary>
+    /// <b>The precondition rides in the <c>where</c></b>, so comparing and writing are one statement — D-186, as the
+    /// PostGIS writer's <c>xmin</c> does. A row's version is its <c>ORA_ROWSCN</c> (OracleFeatureSource.VersionOfAsync).
+    /// </summary>
+    private static string VersionClause(string[]? expected) =>
+        expected is null
+            ? string.Empty
+            : " and to_char(ora_rowscn) in (select j.v from json_table(:expected, '$[*]' columns (v varchar2(40) path '$')) j)";
+
+    private static void BindExpected(OracleCommand command, string[]? expected)
+    {
+        if (expected is not null)
+        {
+            command.Parameters.Add("expected", OracleDbType.Varchar2, JsonSerializer.Serialize(expected), ParameterDirection.Input);
+        }
+    }
 
     /// <summary>Adds the tracked columns this server writes on a new row, and says whether the editor is bound.</summary>
     private bool Sign(List<string> columns, List<string> values, EditBatch batch, bool creating)
@@ -490,12 +774,36 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
 
         byte[] wkb = WkbWriter.ToArray(placed);
+
+        if (Ordinates.Of(geometry) != GeometryOrdinates.None)
+        {
+            SdoShape.Parts parts = SdoShape.FromWkb(wkb);
+
+            command.Parameters.Add("gt", parts.GType);
+            command.Parameters.Add("srid", facts.Srid);
+            command.Parameters.Add("ei", OracleDbType.Clob, SdoShape.JsonArray(parts.ElemInfo!), ParameterDirection.Input);
+            command.Parameters.Add("ord", OracleDbType.Clob, SdoShape.JsonArray(parts.Ordinates!), ParameterDirection.Input);
+            return;
+        }
+
         global::Oracle.ManagedDataAccess.Types.OracleBlob blob = new(connection);
         blob.Write(wkb, 0, wkb.Length);
 
         command.Parameters.Add("geom", OracleDbType.Blob, blob, ParameterDirection.Input);
         command.Parameters.Add("srid", facts.Srid);
     }
+
+    /// <summary>
+    /// The PL/SQL that makes <c>g</c> the shape <see cref="BindGeometryAsync"/> binds: from WKB for x and y, and from its
+    /// parts for a shape with Z or M, whose ISO WKB <c>FROM_WKBGEOMETRY</c> refuses (<see cref="SdoShape"/>).
+    /// </summary>
+    private static string Assignment(Geometry geometry) =>
+        Ordinates.Of(geometry) == GeometryOrdinates.None
+            ? "g := sdo_util.from_wkbgeometry(:geom); g.sdo_srid := :srid; "
+            : "select sdo_geometry(:gt, :srid, null, "
+                + "cast(multiset(select v from json_table(:ei, '$[*]' columns (n for ordinality, v number path '$')) order by n) as sdo_elem_info_array), "
+                + "cast(multiset(select v from json_table(:ord, '$[*]' columns (n for ordinality, v number path '$')) order by n) as sdo_ordinate_array)) "
+                + "into g from dual; ";
 
     /// <summary>The ordinates each updated row stores, or null for a row with no shape; a missing row is absent.</summary>
     private async Task<IReadOnlyDictionary<long, GeometryOrdinates?>> StoredOrdinatesAsync(
@@ -627,13 +935,32 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         : _tracking.Creator is null ? " and 1 = 0"
         : $" and {LayerDefinition.Quote(_tracking.Creator)} = :owner";
 
-    /// <summary>Why a write that changed nothing changed nothing: a row that is not there, or not the caller's.</summary>
+    /// <summary>
+    /// Why a write that changed nothing changed nothing: a row that is not there, at another version than the one
+    /// expected, or not the caller's.
+    /// </summary>
     private async Task<EditResult> WhyNotAsync(
-        OracleConnection connection, long identity, string? owner, CancellationToken cancellationToken) =>
-        owner is not null
-        && await WhoseAsync(connection, identity, owner, cancellationToken).ConfigureAwait(false) is { } refused
-            ? refused
-            : EditResult.Missing(identity);
+        OracleConnection connection, long identity, string? owner, string[]? expected, CancellationToken cancellationToken)
+    {
+        if (expected is not null)
+        {
+            await using OracleCommand command = Command($"select to_char(ora_rowscn) from {Table} where {Id} = :id", connection);
+            command.Parameters.Add("id", identity);
+
+            switch (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))
+            {
+                case null or DBNull:
+                    return EditResult.Missing(identity);
+                case string version when !expected.Contains(version, StringComparer.Ordinal):
+                    return EditResult.Stale(identity);
+            }
+        }
+
+        return owner is not null
+            && await WhoseAsync(connection, identity, owner, cancellationToken).ConfigureAwait(false) is { } refused
+                ? refused
+                : EditResult.Missing(identity);
+    }
 
     /// <summary>The refusal for a row this caller does not own, or null when it is theirs — ADR-064.</summary>
     private async Task<EditResult?> WhoseAsync(
@@ -669,11 +996,16 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         CommandTimeout = (int)Math.Ceiling(_timeout.TotalSeconds),
     };
 
-    private static void Bind(OracleCommand command, List<(string Column, object? Value)> bound)
+    private void Bind(OracleCommand command, List<(string Column, object? Value)> bound, TableFacts facts)
     {
         for (int i = 0; i < bound.Count; i++)
         {
-            command.Parameters.Add("v" + i.ToString(CultureInfo.InvariantCulture), Value(bound[i].Value));
+            object value = bound[i].Value is Guid id && facts.GlobalStorage is { } storage
+                && string.Equals(bound[i].Column, _columns.GlobalId, StringComparison.Ordinal)
+                    ? OracleGuids.Bound(id, storage)
+                    : Value(bound[i].Value);
+
+            command.Parameters.Add("v" + i.ToString(CultureInfo.InvariantCulture), value);
         }
     }
 

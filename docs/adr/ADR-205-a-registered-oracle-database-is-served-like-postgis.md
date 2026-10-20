@@ -144,6 +144,38 @@ the other providers implement, with Oracle's types nowhere in a Core signature. 
   WKB (`SDO_UTIL.TO_WKBGEOMETRY`) and in the same way.
 - The FeatureServer, OGC API Features, WFS and WMS faces answer for it as they do for registered PostGIS.
 
+**Amended 2026-10-20 a fourth time, by owner direction (*"önce oracle tarafını bitirelim. dışarıda bırakılmasın bir
+şey"*) — an Oracle layer has what a registered PostGIS layer has, and attachments and history besides.** Measured in
+the code first: a comparison of every capability a registered PostGIS layer has against an Oracle one, which found the
+gaps below, and one defect worse than a gap. Each is built and tested against Oracle Database 23ai Free:
+
+- **Z and M — a defect.** Oracle's `TO_WKBGEOMETRY` gives a shape with three ordinates a 2D type code followed by three
+  doubles per vertex, writes the elevation of a shape in a geographic reference as `0`, and refuses four ordinates
+  (ORA-13199); `FROM_WKBGEOMETRY` refuses ISO's Z and M codes. So a 3D line on an Oracle layer read back with its
+  vertices shifted, and a shape with Z could not be written. `SdoShape` now takes a shape apart (its parts handed over
+  as JSON) into ISO WKB and builds one from parts on write, turning rings as Oracle requires; wherever x and y suffice
+  the shape is flattened with `SDO_CS.MAKE_2D`. The layer document says `hasZ`/`hasM`.
+- **GlobalIDs**: a column named GLOBALID kept as `CHAR(38)` (an Esri geodatabase's form), `CHAR(36)` or `RAW(16)`
+  is the layer's GlobalID — minted on add, answered by every edit, filtered on as ArcGIS spells one, looked up for
+  `useGlobalIds`.
+- **Row versions**: `ORA_ROWSCN` is a row's version (an ETag), and an edit conditional on one is checked in its own
+  statement — §5b item 3 reversed.
+- **A key made by a trigger** — a sequence read before the insert, how older Oracle tables number rows — takes adds;
+  §5b item 1 widened.
+- **One transaction across layers** of one Oracle database for the service-level `applyEdits` — §5b item 5 reversed;
+  and the PostGIS path given back the geometry kind its writers had lost, so Q-153's repair runs there again.
+- **Relationships and related records**, followed in one query (`IRelatedRecords`, now Core's).
+- **Geometry width**, measured from the first rows, since Oracle's statistics leave an `SDO_GEOMETRY`'s empty.
+- **A publish's validity and reference checks**, by Oracle's rules (`OracleTableChecks`), so `requireValidGeometry`
+  is answered rather than refused.
+- **A distance with any relation** answered as within that distance, as on PostGIS (and on GeoParquet, which refused
+  it the same way).
+- **Attachments and history** — §5b item 4 reversed by [ADR-207](ADR-207-attachments-and-history-on-registered-layers.md).
+
+Still not built, and each is its own decision: **versioning** (§5d, the owner's *"ayrı bir iş olarak, sonra"*), and
+**a polygon repaired on write** (§5b item 2, the owner's confirmed choice). Not a gap: vector tiles, which no registered
+source serves (ADR-206).
+
 **Amended 2026-10-20 a third time, by owner direction (*"bunları da yap, oracle'ı kapatalım"*) — the four query
 features phase 1 refused are answered.** `queryTopFeatures`, a `havingClause`, statistics over an SQL expression
 (`onStatisticField` and `groupByFieldsForStatistics`) and `returnCentroid` now answer on an Oracle layer, and its
@@ -209,16 +241,21 @@ read-only otherwise. Measured end to end on the fixture: `applyEdits` added, upd
 
 1. **A new row's key must be made by the database** — an identity column or a column default. Where it is not, adds are
    refused with the reason and updates and deletes are answered: a customer's table numbers its rows its own way, and
-   this server inventing a number (a `max + 1`) races every other writer.
+   this server inventing a number (a `max + 1`) races every other writer. *(Widened 2026-10-20: a trigger that fills the
+   key before the insert counts as the database making it.)*
 2. **A polygon is stored as sent, not repaired.** The PostGIS writer repairs an invalid polygon with `ST_MakeValid`
    (Q-153); Oracle's validity is not PostGIS's (condition 8), and repairing by one engine's rules data the other engine
    holds changes the customer's rows for a reason their own tools would not give.
-3. **A version precondition is refused.** An Oracle layer publishes no row versions (no ETag), so a client holding one
-   holds a version this server did not issue; writing over it would be the lost update D-186 stops.
-4. **No history, attachments or GlobalIDs.** Each needs a table or column this server creates, and it creates nothing in
-   a registered database (ADR-002 §4.2).
-5. **A service-level edit across several Oracle layers is not one transaction** — each layer's batch is its own, as for
-   any pair of sources `OneTransactionHolds` does not join.
+3. ~~**A version precondition is refused.** An Oracle layer publishes no row versions (no ETag), so a client holding one
+   holds a version this server did not issue; writing over it would be the lost update D-186 stops.~~ *(Reversed
+   2026-10-20 by the owner's "dışarıda bırakılmasın bir şey": `ORA_ROWSCN` is the version, and the precondition rides
+   in the `where`.)*
+4. ~~**No history, attachments or GlobalIDs.** Each needs a table or column this server creates, and it creates nothing in
+   a registered database (ADR-002 §4.2).~~ *(Reversed 2026-10-20 — [ADR-207](ADR-207-attachments-and-history-on-registered-layers.md);
+   a GLOBALID column already in the table is read, written and minted.)*
+5. ~~**A service-level edit across several Oracle layers is not one transaction** — each layer's batch is its own, as for
+   any pair of sources `OneTransactionHolds` does not join.~~ *(Reversed 2026-10-20: layers of one Oracle database share
+   one Oracle transaction.)*
 
 ### 5c. Tiles — through the datastore
 

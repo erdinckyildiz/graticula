@@ -542,8 +542,9 @@ pre .k{color:var(--accent)}
               <h3>PostGIS and Oracle, for databases</h3>
               <p>No SQL Server, no MySQL, no file geodatabase served in place. <b>Oracle since
               v1.0.441</b>: a registered database&rsquo;s <span class="nm">SDO_GEOMETRY</span> tables are
-              queried and edited in place &mdash; no versioning, attachments, related records or history,
-              and a new row&rsquo;s key made by the database. An Esri enterprise geodatabase&rsquo;s own
+              queried and edited in place, with Z and M, GlobalIDs, row versions and related records, and
+              with attachments and a history where an administrator switches them on, as for a registered
+              PostGIS table &mdash; no versioning, and a new row&rsquo;s key made by the database. An Esri enterprise geodatabase&rsquo;s own
               <span class="nm">ST_GEOMETRY</span> tables are not read. No registered source serves vector
               tiles. The other engines are deferred, not cancelled. <b>GeoParquet files are the one thing served where they
               lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no
