@@ -107,6 +107,19 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     private string From => _layer.QuotedTable;
 
+    /// <summary>
+    /// What a query reads: the table, or — with a <c>historicMoment</c> — the layer's history as it was then (ADR-207,
+    /// <see cref="MySqlFeatureHistory.AtMoment"/>). The moment is written as a literal this code formats from a
+    /// <see cref="DateTimeOffset"/>, so every statement a query builds carries it without a bind to thread through.
+    /// </summary>
+    private string Source(FeatureQuery query, MySqlTable table) =>
+        query.HistoricMoment is not { } moment
+            ? From
+            : MySqlFeatureHistory.AtMoment(
+                _layer,
+                [.. table.Columns.Select(c => (c.Name, c.Type, c.Guid))],
+                "cast('" + moment.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture) + "' as datetime(6))");
+
     /// <summary>A shape as WKB in longitude–latitude order.</summary>
     internal static string Wkb(string shape) => $"st_asbinary({shape}, {LongLat})";
 
@@ -168,7 +181,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         if (distinct)
         {
-            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(From).Append(" t");
+            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             sql.Append(" group by ").Append(string.Join(", ", schema.Names.Distinct(StringComparer.Ordinal).Select(LayerDefinition.Quote)));
         }
@@ -176,7 +189,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
             sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", {Wkb(Shape)} as g" : ", null as g");
-            sql.Append(" from ").Append(From).Append(" t");
+            sql.Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
 
@@ -341,6 +354,8 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         bool writable = table.IsTable
             && await MySqlConnections.CanWriteAsync(connection, _layer.SchemaName, _layer.TableName, cancellationToken).ConfigureAwait(false);
 
+        HistoryKept? kept = await MySqlFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
+
         return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
         {
             AnswersDistance = _engine is not null,
@@ -350,6 +365,11 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             AnswersStatisticExpressions = true,
             AnswersRelations = _engine is not null,
             SpatiallyIndexed = true,
+
+            // ADR-207: a history kept beside the table, which historicMoment reads.
+            Archived = kept is not null,
+            ArchivedSince = kept?.Since,
+            HistoryKeepDays = kept?.KeepDays,
         };
     }
 
@@ -414,19 +434,19 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         {
             statement.Sql.Append("select count(*) from (select distinct ")
                 .Append(string.Join(", ", query.Fields.Select(LayerDefinition.Quote)))
-                .Append(" from ").Append(From).Append(" t");
+                .Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             statement.Sql.Append(") d");
         }
         else if (ceiling is { } most)
         {
-            statement.Sql.Append("select count(*) from (select 1 from ").Append(From).Append(" t");
+            statement.Sql.Append("select count(*) from (select 1 from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             statement.Sql.Append(" limit ").Append(statement.Bind("ceiling", most)).Append(") d");
         }
         else
         {
-            statement.Sql.Append("select count(*) from ").Append(From).Append(" t");
+            statement.Sql.Append("select count(*) from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
 
@@ -449,7 +469,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Wkb(Shape)).Append(" from ").Append(From).Append(" t");
+        statement.Sql.Append("select ").Append(Wkb(Shape)).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
 
         Envelope extent = Envelope.Empty;
@@ -515,7 +535,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(From).Append(" t");
+        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
         statement.Sql.Append(" order by ").Append(Id);
 
@@ -624,7 +644,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             sql.Append("select w.*, ").Append(string.Join(", ", windows)).Append(" from (");
         }
 
-        sql.Append("select ").Append(string.Join(", ", inner)).Append(" from ").Append(From).Append(" t");
+        sql.Append("select ").Append(string.Join(", ", inner)).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
         sql.Append(windows.Count > 0 ? ") w) q" : ") q");
 
@@ -724,11 +744,6 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     private void Refuse(FeatureQuery query)
     {
         const string Here = "This layer is in a registered MySQL database, which this build reads";
-
-        if (query.HistoricMoment is not null)
-        {
-            throw new QueryNotSupportedException($"{Here} without a history (ADR-208 condition 4).");
-        }
 
         if (query.Having is { } having && (having.Predicate is null || having.Columns is null))
         {
@@ -923,7 +938,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             ranked.Append("partition by ").Append(string.Join(", ", top.GroupBy.Select(LayerDefinition.Quote))).Append(' ');
         }
 
-        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(From).Append(" t");
+        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(Source(query, table)).Append(" t");
 
         if (filters.Clauses.Count > 0)
         {
@@ -1001,7 +1016,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         List<Geometry>? kept = byEngine is null ? null : [];
 
-        List<long>? matched = await RefineAsync(connection, new Filters(inMySql, parameters), boxes, shape, cancellationToken, kept)
+        List<long>? matched = await RefineAsync(connection, Source(query, table), new Filters(inMySql, parameters), boxes, shape, cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
@@ -1030,6 +1045,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     /// <summary>The identities of the candidates whose boxes and shapes meet the filters — the exact pass.</summary>
     private async Task<List<long>?> RefineAsync(
         MySqlConnection connection,
+        string from,
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
@@ -1038,7 +1054,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     {
         Statement statement = new(candidates);
 
-        statement.Sql.Append("select ").Append(Id).Append(", ").Append(Wkb(Shape)).Append(" from ").Append(From).Append(" t");
+        statement.Sql.Append("select ").Append(Id).Append(", ").Append(Wkb(Shape)).Append(" from ").Append(from).Append(" t");
         statement.AppendWhere();
 
         List<long> matched = [];

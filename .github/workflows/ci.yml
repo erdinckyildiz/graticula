@@ -255,6 +255,11 @@ jobs:
       - name: build
         run: dotnet build tests/Graticula.Providers.MySql.Tests -c Release
 
+      # A history is kept by triggers, and a server writing a binary log lets only SUPER create one unless this is set
+      # (error 1419) — what an administrator does for a MySQL layer's history, done here as root.
+      - name: allow triggers
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -pci-mysql-root-1 -e "set persist log_bin_trust_function_creators = 1"
+
       - name: mysql
         run: dotnet test tests/Graticula.Providers.MySql.Tests -c Release --no-build --filter 'Needs=MySql'
 

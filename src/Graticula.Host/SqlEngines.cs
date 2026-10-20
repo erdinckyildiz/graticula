@@ -147,11 +147,9 @@ internal sealed class OracleEngine : ISqlEngine
             : null;
 }
 
-/// <summary>MySQL behind the seam — ADR-208. What it does not yet do it refuses by name.</summary>
+/// <summary>MySQL behind the seam — ADR-208.</summary>
 internal sealed class MySqlEngine : ISqlEngine
 {
-    private const string NotYet = "is not built for a MySQL layer yet (ADR-208)";
-
     public string Kind => DataSourceKinds.MySql;
 
     public string Name => "MySQL";
@@ -184,23 +182,27 @@ internal sealed class MySqlEngine : ISqlEngine
         MySqlFeatureWriter.ObjectIdsOfAsync(layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
 
     public IAttachmentStore Attachments(PublishedLayer layer) =>
-        throw new QueryNotSupportedException($"Attachments beside the table {NotYet}; keep them in the datastore.");
+        new MySqlAttachmentStore(layer.ConnectionString, layer.Definition, layer.AttachmentQuotaBytes);
 
-    public IFeatureHistory History(PublishedLayer layer) => throw new QueryNotSupportedException($"A history {NotYet}.");
+    public IFeatureHistory History(PublishedLayer layer) => new MySqlFeatureHistory(layer.ConnectionString, layer.Definition);
 
-    public string? HistoryRefusal(Exception failure, LayerDefinition layer) => null;
+    public string? HistoryRefusal(Exception failure, LayerDefinition layer) => MySqlFeatureHistory.Refusal(failure, layer);
 
     public IRelatedRecords Related(PublishedLayer origin, PublishedLayer related, bool sameDatabase) =>
-        throw new QueryNotSupportedException($"Related records {NotYet}.");
+        new MySqlRelatedRecords(origin.ConnectionString, origin.Definition, related.Definition, sameDatabase);
 
     public Task<IReadOnlyList<(string Table, long Versions)>> PruneHistoryAsync(string locator, CancellationToken cancellationToken) =>
-        Task.FromResult<IReadOnlyList<(string Table, long Versions)>>([]);
+        MySqlFeatureHistory.PruneAsync(locator, cancellationToken);
 
-    public Task<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?> ValidityAsync(
+    public async Task<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?> ValidityAsync(
         string locator, string schema, string table, string column, TimeSpan timeout, CancellationToken cancellationToken) =>
-        Task.FromResult<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?>(null);
+        await MySqlTableChecks.ValidityAsync(locator, schema, table, column, timeout, cancellationToken).ConfigureAwait(false) is { } found
+            ? (found.Rows, found.Invalid, found.Reasons)
+            : null;
 
-    public Task<(int? Stored, string? Complaint)?> ReferenceAsync(
+    public async Task<(int? Stored, string? Complaint)?> ReferenceAsync(
         string locator, string schema, string table, string column, int declared, CancellationToken cancellationToken) =>
-        Task.FromResult<(int? Stored, string? Complaint)?>(null);
+        await MySqlTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
+            ? (found.Stored, found.Complaint)
+            : null;
 }

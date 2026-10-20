@@ -107,7 +107,22 @@ records, the table checks and the pruning — with Oracle moved behind it too.
    `rollbackOnFailure`, editor tracking filled, a GlobalID returned and queried, and OGC API Features create and
    replace with `If-Match` at the version read (and 412 at one that moved). The writer's connections are the only ones
    that allow session variables, which the history trigger of condition 4 will read the editor from.
-4. **Relationships, attachments and history** as ADR-207 gives them.
+4. **Relationships, attachments and history** as ADR-207 gives them. **DISCHARGED 2026-10-20** — `MySqlRelatedRecords`,
+   `MySqlAttachmentStore`, `MySqlFeatureHistory` and `MySqlTableChecks` behind the seam, where the engine had refused
+   all four by name. Provider tests 20 of 20; through REST on the local fixture 45 of 45 — attachments beside the table
+   and in the datastore (600 KB across chunks, listed, downloaded byte for byte, replaced, a missing feature a 404,
+   removed with its feature, unpublish refused while on, switched off with the tables gone), a history (seeded, the
+   layer document's archiving, an applyEdits update and delete and a direct SQL edit named as direct, features, a box,
+   a count and a where clause at a moment, versions, a restore, a keeping period, switched off with its table and
+   triggers gone), and `queryRelatedRecords` grouped by origin. **Three ways it is not Oracle's, each for a reason
+   measured on 8.4:** attachments are **chunked** as PostgreSQL's are, because MySQL has no LOB locator and the driver
+   holds a whole row to hand it over, so one `LONGBLOB` would put a client-chosen size on the heap; a history is **three
+   triggers**, one per event, with times in `UTC_TIMESTAMP(6)` so another tool's session zone cannot shift them; and
+   **creating a trigger where the server writes a binary log needs `SUPER` or `log_bin_trust_function_creators`**
+   (error 1419), which the refusal names — measured with the flag off: 409, the remedy in the sentence, and nothing left
+   behind. **One gap MySQL adds and Oracle has not**: a row removed by a foreign key's cascade fires no trigger, so that
+   deletion is not in the history. The test server and the CI container set the flag; a customer's administrator
+   decides it for theirs.
 5. **A CI job** against a MySQL container, as the Oracle job runs against one.
 
 ## 6. Consequences
