@@ -58,11 +58,28 @@ public sealed class MySqlRelatedRecordsTests
 
         MySqlTableChecks.Validity? validity = await MySqlTableChecks.ValidityAsync(
             MySqlFixture.Locator, Database, "zzt_checks", "shape", TimeSpan.FromSeconds(30), None);
-        Assert.Equal((2L, 1L), (validity!.Rows, validity.Invalid));
-        Assert.Single(validity.Reasons);
+        if (MySqlFixture.IsMariaDb)
+        {
+            // MariaDB has no ST_IsValid (ADR-209 §1a): not measured, which is not the same as none invalid.
+            Assert.Null(validity);
+        }
+        else
+        {
+            Assert.Equal((2L, 1L), (validity!.Rows, validity.Invalid));
+            Assert.Single(validity.Reasons);
+        }
 
         MySqlTableChecks.Reference? same = await MySqlTableChecks.ReferenceAsync(MySqlFixture.Locator, Database, "zzt_checks", "shape", 4326, None);
         Assert.Equal((4326, (string?)null), (same!.Stored, same.Complaint));
+
+        // MariaDB keeps whatever SRID a shape is given, whatever its column declares: the publish check counts and says it.
+        if (MySqlFixture.IsMariaDb)
+        {
+            await MySqlFixture.ExecuteAsync("insert into zzt_checks values (3, st_geomfromtext('POINT(3656000 4855000)', 3857))");
+            MySqlTableChecks.Reference? mixed = await MySqlTableChecks.ReferenceAsync(MySqlFixture.Locator, Database, "zzt_checks", "shape", 4326, None);
+            Assert.Contains("1 row holds a shape in another reference", mixed!.Complaint!, StringComparison.Ordinal);
+            await MySqlFixture.ExecuteAsync("delete from zzt_checks where objectid = 3");
+        }
 
         MySqlTableChecks.Reference? other = await MySqlTableChecks.ReferenceAsync(MySqlFixture.Locator, Database, "zzt_checks", "shape", 3857, None);
         Assert.Contains("EPSG:4326", other!.Complaint!, StringComparison.Ordinal);

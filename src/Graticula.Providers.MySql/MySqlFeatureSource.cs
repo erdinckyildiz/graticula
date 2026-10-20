@@ -46,9 +46,6 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     /// <summary>The most vertices a spatial filter's geometry may have — GeometryServer's cap.</summary>
     public const int MostFilterVertices = 130_000;
 
-    /// <summary>The axis order every geometry crosses in.</summary>
-    internal const string LongLat = "'axis-order=long-lat'";
-
     private static readonly TimeSpan ColumnsKept = TimeSpan.FromMinutes(1);
 
     private static readonly ConcurrentDictionary<string, (DateTimeOffset At, MySqlTable Table)> Tables = new(StringComparer.Ordinal);
@@ -118,10 +115,18 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             : MySqlFeatureHistory.AtMoment(
                 _layer,
                 [.. table.Columns.Select(c => (c.Name, c.Type, c.Guid))],
-                "cast('" + moment.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture) + "' as datetime(6))");
+                "cast('" + moment.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture) + "' as datetime(6))",
+                table.Dialect);
 
     /// <summary>A shape as WKB in longitude–latitude order.</summary>
-    internal static string Wkb(string shape) => $"st_asbinary({shape}, {LongLat})";
+
+    /// <summary>
+    /// An ORDER BY key where nulls fall as PostgreSQL's — last ascending, first descending — rather than MySQL's and
+    /// MariaDB's, which put them first ascending. Found by ADR-209's parity run: a grouped answer cut at its page limit
+    /// kept a different thousand groups once a name was null, and the MySQL run had missed it because its data had none.
+    /// </summary>
+    private static string Ordered(string expression, bool descending) =>
+        descending ? $"{expression} is null desc, {expression} desc" : $"{expression} is null, {expression} asc";
 
     /// <inheritdoc />
     public FeatureSchema SchemaFor(FeatureQuery query)
@@ -188,7 +193,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         else
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
-            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", {Wkb(Shape)} as g" : ", null as g");
+            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", {table.Dialect.Wkb(Shape)} as g" : ", null as g");
             sql.Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
@@ -356,7 +361,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         HistoryKept? kept = await MySqlFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
 
-        return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
+        return new LayerDescription(fields, await ExtentOfTableAsync(connection, table.Dialect, cancellationToken).ConfigureAwait(false), writable)
         {
             AnswersDistance = _engine is not null,
             AnswersHaving = true,
@@ -377,10 +382,10 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     /// The table's extent. <b>MySQL computes no envelope under a geographic reference</b> (error 3618), so the shapes are
     /// collected with their SRID set to 0 — the stored numbers, longitude first — and the envelope is of those.
     /// </summary>
-    private async Task<Envelope?> ExtentOfTableAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    private async Task<Envelope?> ExtentOfTableAsync(MySqlConnection connection, MySqlDialect dialect, CancellationToken cancellationToken)
     {
         await using MySqlCommand command = new(
-            $"select st_asbinary(st_envelope(st_srid(st_collect({Shape}), 0))) from {From}", connection)
+            dialect.Extent(Shape, From), connection)
         {
             CommandTimeout = (int)Math.Ceiling(_timeout.TotalSeconds),
         };
@@ -469,7 +474,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Wkb(Shape)).Append(" from ").Append(Source(query, table)).Append(" t");
+        statement.Sql.Append("select ").Append(table.Dialect.Wkb(Shape)).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
 
         Envelope extent = Envelope.Empty;
@@ -687,13 +692,13 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
                 if (named is not null)
                 {
-                    ordering.Add(key.Descending ? $"{LayerDefinition.Quote(named)} desc" : LayerDefinition.Quote(named));
+                    ordering.Add(Ordered(LayerDefinition.Quote(named), key.Descending));
                 }
             }
 
             if (ordering.Count == 0)
             {
-                ordering.AddRange(groups);
+                ordering.AddRange(groups.Select(g => Ordered(g, descending: false)));
             }
 
             sql.Append(" order by ").Append(string.Join(", ", ordering)).Append(" limit ").Append(statement.Bind("limit", query.Limit));
@@ -880,10 +885,10 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         bool isTable = true;
 
         await using (MySqlCommand command = new(
-            """
+            $"""
             select g.srs_id, (select t.table_type from information_schema.tables t
                                where t.table_schema = g.table_schema and t.table_name = g.table_name)
-              from information_schema.st_geometry_columns g
+              from {MySqlDialect.Of(connection).GeometryColumns} g
              where g.table_schema = @db and g.table_name = @tab and g.column_name = @col
             """, connection))
         {
@@ -902,7 +907,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         MySqlTable table = new(columns, srid ?? throw new InvalidOperationException(
             $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, which "
-            + "is no longer a spatial column with an SRID (information_schema.ST_GEOMETRY_COLUMNS)."), isTable);
+            + "is no longer a spatial column with an SRID."), isTable, MySqlDialect.Of(connection));
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
@@ -929,7 +934,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         // the other filters keep.
         string order = top.OrderBy.Count == 0
             ? Id
-            : string.Join(", ", top.OrderBy.Select(k => LayerDefinition.Quote(k.Field) + (k.Descending ? " desc" : " asc")));
+            : string.Join(", ", top.OrderBy.Select(k => Ordered(LayerDefinition.Quote(k.Field), k.Descending)));
 
         StringBuilder ranked = new StringBuilder("select ").Append(Id).Append(" as i, row_number() over (");
 
@@ -1006,7 +1011,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         for (int i = 0; i < boxes.Count; i++)
         {
-            inMySql.Add(BoxClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), table.Srid, parameters));
+            inMySql.Add(BoxClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), table, parameters));
         }
 
         if (shape is null && query.BoundingBox is null && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
@@ -1016,7 +1021,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         List<Geometry>? kept = byEngine is null ? null : [];
 
-        List<long>? matched = await RefineAsync(connection, Source(query, table), new Filters(inMySql, parameters), boxes, shape, cancellationToken, kept)
+        List<long>? matched = await RefineAsync(connection, Source(query, table), table.Dialect, new Filters(inMySql, parameters), boxes, shape, cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
@@ -1046,6 +1051,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     private async Task<List<long>?> RefineAsync(
         MySqlConnection connection,
         string from,
+        MySqlDialect dialect,
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
@@ -1054,7 +1060,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     {
         Statement statement = new(candidates);
 
-        statement.Sql.Append("select ").Append(Id).Append(", ").Append(Wkb(Shape)).Append(" from ").Append(from).Append(" t");
+        statement.Sql.Append("select ").Append(Id).Append(", ").Append(dialect.Wkb(Shape)).Append(" from ").Append(from).Append(" t");
         statement.AppendWhere();
 
         List<long> matched = [];
@@ -1098,7 +1104,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     /// <summary><c>MBRIntersects</c> with a rectangle in the column's SRID — the spatial index's box test.</summary>
     /// <remarks>The rectangle is bound as WKT read in longitude–latitude order; in degrees it is kept inside the world.</remarks>
-    private string BoxClause(Envelope box, string name, int srid, List<(string Name, object Value)> parameters)
+    private string BoxClause(Envelope box, string name, MySqlTable table, List<(string Name, object Value)> parameters)
     {
         if (AxisOrder.IsGeographic(_layer.Srid))
         {
@@ -1111,7 +1117,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             $"POLYGON(({n(box.MinX)} {n(box.MinY)}, {n(box.MaxX)} {n(box.MinY)}, {n(box.MaxX)} {n(box.MaxY)}, "
             + $"{n(box.MinX)} {n(box.MaxY)}, {n(box.MinX)} {n(box.MinY)}))"));
 
-        return $"mbrintersects({Shape}, st_geomfromtext(@{name}, {srid.ToString(CultureInfo.InvariantCulture)}, {LongLat}))";
+        return $"mbrintersects({Shape}, {table.Dialect.FromText("@" + name, table.Srid)})";
     }
 
     private static Polygon Rectangle(Envelope box) =>
@@ -1252,11 +1258,11 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         if (distinct)
         {
-            sql.Append(" order by ").Append(string.Join(", ", schema.Names.Select(LayerDefinition.Quote)));
+            sql.Append(" order by ").Append(string.Join(", ", schema.Names.Select(n => Ordered(LayerDefinition.Quote(n), descending: false))));
         }
         else if (query.OrderBy.Count > 0)
         {
-            sql.Append(" order by ").Append(string.Join(", ", query.OrderBy.Select(k => LayerDefinition.Quote(k.Field) + (k.Descending ? " desc" : " asc"))));
+            sql.Append(" order by ").Append(string.Join(", ", query.OrderBy.Select(k => Ordered(LayerDefinition.Quote(k.Field), k.Descending))));
 
             if (!query.OrderBy.Any(k => string.Equals(k.Field, _layer.IdentityColumn, StringComparison.Ordinal)))
             {
@@ -1289,8 +1295,8 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
             // MySQL averages whole numbers into a DECIMAL kept to four places; PostgreSQL's is exact, and a double here.
             StatisticKind.Avg => $"avg(1e0 * {column})",
-            StatisticKind.StdDev => $"stddev_samp({column})",
-            StatisticKind.Var => $"var_samp({column})",
+            StatisticKind.StdDev => $"stddev_samp(1e0 * {column})",
+            StatisticKind.Var => $"var_samp(1e0 * {column})",
             _ => throw new ArgumentOutOfRangeException(nameof(statistic), statistic.Kind, null),
         };
     }
@@ -1379,7 +1385,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     internal sealed record MySqlColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, MySqlGuids.Storage? Guid = null);
 
-    internal sealed record MySqlTable(IReadOnlyList<MySqlColumn> Columns, int Srid, bool IsTable)
+    internal sealed record MySqlTable(IReadOnlyList<MySqlColumn> Columns, int Srid, bool IsTable, MySqlDialect Dialect)
     {
         public FieldType TypeOf(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))?.Type ?? FieldType.Unknown;

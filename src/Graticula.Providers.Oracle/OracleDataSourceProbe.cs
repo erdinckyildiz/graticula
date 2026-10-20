@@ -35,9 +35,11 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
         {
             driver = OracleConnections.For(connectionString, pooling: false);
         }
-        catch (ArgumentException e)
+        catch (ArgumentException)
         {
-            return Refused(ProbeOutcome.CannotConnect, e.Message);
+            // Said as what is missing, not as the argument exception's own text, which ends "(Parameter 'stored')"
+            // — a design review found that tail in the console's red box.
+            return Refused(ProbeOutcome.CannotConnect, "A host, a port, a service and a user are all needed — the service is the name the Oracle listener knows the database by, such as FREEPDB1 or ORCLPDB1.");
         }
 
         try

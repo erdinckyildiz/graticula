@@ -97,9 +97,11 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
     /// <param name="layer">The layer.</param>
     /// <param name="columns">The table's columns, and how each is kept: its field type, and a GUID's storage.</param>
     /// <param name="moment">The moment, as an SQL expression of a UTC <c>DATETIME(6)</c>.</param>
+    /// <param name="dialect">Which server, which decides how a recorded value is read back (ADR-209).</param>
     /// <returns>A parenthesised relation.</returns>
     internal static string AtMoment(
-        LayerDefinition layer, IReadOnlyList<(string Name, FieldType Type, MySqlGuids.Storage? Guid)> columns, string moment)
+        LayerDefinition layer, IReadOnlyList<(string Name, FieldType Type, MySqlGuids.Storage? Guid)> columns, string moment,
+        MySqlDialect dialect)
     {
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(columns);
@@ -118,10 +120,10 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
             string value = (type, guid) switch
             {
                 (FieldType.Guid, MySqlGuids.Storage.Binary) or (FieldType.Binary, _) => $"unhex(json_value(h.attributes, {path}))",
-                (FieldType.SmallInteger or FieldType.Integer or FieldType.BigInteger, _) => $"json_value(h.attributes, {path} returning signed)",
-                (FieldType.Boolean, _) => $"json_value(h.attributes, {path} returning unsigned)",
-                (FieldType.Double or FieldType.Single, _) => $"json_value(h.attributes, {path} returning double)",
-                (FieldType.Date, _) => $"json_value(h.attributes, {path} returning datetime(6))",
+                (FieldType.SmallInteger or FieldType.Integer or FieldType.BigInteger, _) => dialect.JsonAs("h.attributes", path, "signed"),
+                (FieldType.Boolean, _) => dialect.JsonAs("h.attributes", path, "unsigned"),
+                (FieldType.Double or FieldType.Single, _) => dialect.JsonAs("h.attributes", path, "double"),
+                (FieldType.Date, _) => dialect.JsonAs("h.attributes", path, "datetime(6)"),
                 _ => Text("h.attributes", path),
             };
 
@@ -215,6 +217,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
 
         IReadOnlyList<(string Name, string Type)> columns = await RecordedColumnsAsync(connection, cancellationToken).ConfigureAwait(false);
         int srid = await SridAsync(connection, cancellationToken).ConfigureAwait(false);
+        MySqlDialect dialect = MySqlDialect.Of(connection);
         string role = "substring_index(user(), '@', 1)";
 
         // A table left behind by triggers somebody dropped by hand is a history with a hole in it; it starts again.
@@ -234,7 +237,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
                to_editor     varchar(256),
                to_role       varchar(128),
                attributes    json not null,
-               shape         geometry not null srid {srid.ToString(CultureInfo.InvariantCulture)},
+               shape         {dialect.GeometryColumn("geometry", srid)},
                restored_from bigint,
                index (objectid, gdb_from_date),
                index (gdb_from_date),
@@ -528,7 +531,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
                 continue;
             }
 
-            string value = Read("@attributes", name, type);
+            string value = Read("@attributes", name, type, MySqlDialect.Of(connection));
             set.Add($"{LayerDefinition.Quote(name)} = {value}");
             insertColumns.Add(LayerDefinition.Quote(name));
             insertValues.Add(value);
@@ -670,7 +673,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
     private async Task<int> SridAsync(MySqlConnection connection, CancellationToken cancellationToken)
     {
         await using MySqlCommand command = Command(
-            "select srs_id from information_schema.st_geometry_columns where table_schema = @s and table_name = @t and column_name = @c",
+            $"select srs_id from {MySqlDialect.Of(connection).GeometryColumns} g where g.table_schema = @s and g.table_name = @t and g.column_name = @c",
             connection);
 
         command.Parameters.AddWithValue("@s", _layer.SchemaName);
@@ -703,19 +706,19 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
               + ")";
 
     /// <summary>A recorded column read back from a version's JSON in <paramref name="json"/>, as its column's type.</summary>
-    private static string Read(string json, string name, string type)
+    private static string Read(string json, string name, string type, MySqlDialect dialect)
     {
         string path = Path(name);
 
         return type switch
         {
-            "tinyint" or "smallint" or "mediumint" or "int" or "integer" or "bigint" or "year" => $"json_value({json}, {path} returning signed)",
-            _ when type.EndsWith(" unsigned", StringComparison.Ordinal) || type == "bit" => $"json_value({json}, {path} returning unsigned)",
-            "decimal" or "numeric" => $"json_value({json}, {path} returning decimal(65, 30))",
-            "float" or "double" or "real" => $"json_value({json}, {path} returning double)",
-            "date" => $"json_value({json}, {path} returning date)",
-            "datetime" or "timestamp" => $"json_value({json}, {path} returning datetime(6))",
-            "time" => $"json_value({json}, {path} returning time(6))",
+            "tinyint" or "smallint" or "mediumint" or "int" or "integer" or "bigint" or "year" => dialect.JsonAs(json, path, "signed"),
+            _ when type.EndsWith(" unsigned", StringComparison.Ordinal) || type == "bit" => dialect.JsonAs(json, path, "unsigned"),
+            "decimal" or "numeric" => dialect.JsonAs(json, path, "decimal(65, 30)"),
+            "float" or "double" or "real" => dialect.JsonAs(json, path, "double"),
+            "date" => dialect.JsonAs(json, path, "date"),
+            "datetime" or "timestamp" => dialect.JsonAs(json, path, "datetime(6)"),
+            "time" => dialect.JsonAs(json, path, "time(6)"),
             "binary" or "varbinary" => $"unhex(json_value({json}, {path}))",
             "json" => $"case when json_type(json_extract({json}, {path})) = 'NULL' then null else json_extract({json}, {path}) end",
             _ => Text(json, path),

@@ -29,9 +29,11 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
         {
             driver = MySqlConnections.For(connectionString, pooling: false);
         }
-        catch (ArgumentException e)
+        catch (ArgumentException)
         {
-            return Refused(ProbeOutcome.CannotConnect, e.Message);
+            // Said as what is missing, not as the argument exception's own text, which ends "(Parameter 'stored')"
+            // — a design review found that tail in the console's red box.
+            return Refused(ProbeOutcome.CannotConnect, "A host, a port, a database and a user are all needed to reach a MySQL server.");
         }
 
         try
@@ -39,25 +41,42 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
             await using MySqlConnection connection = await MySqlConnections.OpenAsync(driver, cancellationToken).ConfigureAwait(false);
 
             string version = connection.ServerVersion;
+            MySqlDialect dialect = MySqlDialect.Of(connection);
+            string[] parts = version.Split('.', '-');
+            int major = int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int m) ? m : 0;
+            int minor = parts.Length > 1 && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int n) ? n : 0;
 
-            if (!int.TryParse(version.Split('.')[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int major) || major < 8)
+            // MySQL 8.0 keeps a reference per column; MariaDB 10.6 is the first with json_table (ADR-208, ADR-209).
+            if (dialect.IsMariaDb ? major < 10 || (major == 10 && minor < 6) : major < 8)
             {
                 return new ProbeResult(
                     ProbeOutcome.UnusableGeometry,
-                    $"This is MySQL {version}, and MySQL 8.0 or later is needed: earlier versions keep no spatial reference "
-                    + "per column. A MariaDB server is not MySQL here (ADR-208).",
+                    dialect.IsMariaDb
+                        ? $"This is MariaDB {version}, and MariaDB 10.6 or later is needed: earlier versions have no "
+                          + "json_table, which every filter by object id is written with (ADR-209)."
+                        : $"This is MySQL {version}, and MySQL 8.0 or later is needed: earlier versions keep no spatial "
+                          + "reference per column (ADR-208).",
                     version, null, []);
             }
 
             (List<SourceTable> tables, List<SkippedTable> skipped) =
-                await TablesAsync(connection, connection.Database, cancellationToken).ConfigureAwait(false);
+                await TablesAsync(connection, connection.Database, dialect, cancellationToken).ConfigureAwait(false);
 
             string message = tables.Count == 0
                 ? "Connected, and nothing here can be published: no table with a spatial column that has an SRID and a "
                   + "spatial index, and a single whole-number key, is in this database."
                 : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published.";
 
-            return new ProbeResult(ProbeOutcome.Usable, message, version, "MySQL spatial " + version, tables, skipped);
+            return new ProbeResult(ProbeOutcome.Usable, message, version, $"{dialect.Name} spatial {version}", tables, skipped);
+        }
+        catch (MySqlException e) when (e.ErrorCode is MySqlErrorCode.UnableToConnectToHost)
+        {
+            // Nothing answered, so nothing refused: said as where it looked — a design review read "The database
+            // refused" over a port nothing listens on.
+            MySqlSource source = MySqlLocator.Of(connectionString);
+            return Refused(
+                ProbeOutcome.CannotConnect,
+                $"Nothing answered at {source.Host}:{source.Port}. Check the instance and the port, and that this server may reach it.");
         }
         catch (MySqlException e)
         {
@@ -83,16 +102,16 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
             ? new DatabaseListing(probed.Outcome, probed.Message, [])
             : new DatabaseListing(
                 ProbeOutcome.Usable,
-                "A MySQL source is one database; this is the one the connection names.",
+                "A MySQL or MariaDB source is one database; this is the one the connection names.",
                 [MySqlLocator.Of(connectionString).Database]);
     }
 
     private static async Task<(List<SourceTable> Tables, List<SkippedTable> Skipped)> TablesAsync(
-        MySqlConnection connection, string database, CancellationToken cancellation)
+        MySqlConnection connection, string database, MySqlDialect dialect, CancellationToken cancellation)
     {
         // Every spatial column of the database, its SRID and declared type, whether a spatial index covers it, and the
         // table's primary key when that key is one column of a whole-number type.
-        const string Sql = """
+        string sql = $"""
             select g.table_name, g.column_name, g.srs_id, g.geometry_type_name,
                    (select count(*) from information_schema.statistics s
                      where s.table_schema = g.table_schema and s.table_name = g.table_name
@@ -107,14 +126,14 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
                                                and k.constraint_name = 'PRIMARY')) as key_type,
                    (select t.table_type from information_schema.tables t
                      where t.table_schema = g.table_schema and t.table_name = g.table_name) as table_type
-              from information_schema.st_geometry_columns g
+              from {dialect.GeometryColumns} g
              where g.table_schema = @db
              order by g.table_name, g.column_name
             """;
 
         List<(string Table, string Column, int? Srid, string Type, bool Indexed, string? Key, string? KeyType, string? Kind)> found = [];
 
-        await using (MySqlCommand command = new(Sql, connection))
+        await using (MySqlCommand command = new(sql, connection))
         {
             command.Parameters.AddWithValue("@db", database);
 
@@ -145,7 +164,8 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
             {
                 skipped.Add(new SkippedTable(name,
                     $"Its column {row.Column} has no SRID attribute, so its coordinates' reference is unknown. Declare it — "
-                    + $"ALTER TABLE … MODIFY {row.Column} {row.Type} NOT NULL SRID 4326 — and give it a spatial index."));
+                    + $"ALTER TABLE … MODIFY {row.Column} {dialect.GeometryColumn(row.Type, 4326).ToUpperInvariant()} — and give "
+                    + "it a spatial index."));
                 continue;
             }
 

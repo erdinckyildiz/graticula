@@ -574,7 +574,7 @@ public sealed class MySqlFeatureWriterRuleTests
     {
         await using MySqlConnection connection = await MySqlConnections.OpenAsync(
             MySqlConnections.For(MySqlFixture.Locator, pooling: true), None);
-        await using MySqlCommand command = new(sql, connection);
+        await using MySqlCommand command = new(MySqlFixture.Sql(sql), connection);
         command.Parameters.AddWithValue("@id", id);
         object? value = await command.ExecuteScalarAsync(None);
         return value is DBNull ? null : value;
@@ -620,10 +620,10 @@ public sealed class MySqlFeatureWriterRuleTests
     {
         await using MySqlConnection connection = await MySqlConnections.OpenAsync(
             MySqlConnections.For(MySqlFixture.Locator, pooling: true), None);
-        await using MySqlCommand command = new(
+        await using MySqlCommand command = new(MySqlFixture.Sql(
             "select created_user, last_edited_user, case when created_date is not null then 1 else 0 end, "
             + "case when last_edited_date > utc_timestamp() - interval 1 hour then 1 else 0 end "
-            + $"from {table} where objectid = @id", connection);
+            + $"from {table} where objectid = @id"), connection);
         command.Parameters.AddWithValue("@id", id);
 
         await using MySqlDataReader reader = await command.ExecuteReaderAsync(None);

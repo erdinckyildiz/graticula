@@ -96,6 +96,73 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// The dialog registers an Oracle or a MySQL database, in the fields a PostGIS one uses — D-310.
+    /// </summary>
+    /// <remarks>
+    /// <b>Found 2026-10-20 preparing v1.0.446</b>: the server had taken both kinds for a week and an hour,
+    /// and the dialog offered neither, so they were registered through the API only. Choosing one fits the
+    /// fields to it — the engine's port, Oracle's word for a database, no written string, since that is
+    /// Npgsql's — and the body names the kind; choosing PostGIS again puts its port back and names none.
+    /// </remarks>
+    [Fact]
+    public async Task Oracle_and_MySQL_are_chosen_in_the_dialog_and_fit_its_fields()
+    {
+        await OpenSourcesAsync();
+        await ClickAsync("#sAdd");
+
+        await WaitForAsync(
+            "document.querySelector('input[name=\"dcKind\"][value=\"oracle\"]') !== null",
+            "The dialog offers no Oracle database, so one can be registered only through the API.");
+
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "document.querySelector('input[name=\"dcKind\"][value=\"mysql\"]') !== null"),
+            "The dialog offers no MySQL database.");
+
+        await ClickAsync("input[name=\"dcKind\"][value=\"oracle\"]");
+
+        Assert.Equal("1521", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        Assert.Equal("Service", await Browser.EvaluateAsync<string>("document.getElementById('dcDatabaseName').textContent"));
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('dcAdvanced').hidden"),
+            "A written connection string is Npgsql's, and is offered for an Oracle database.");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('dcServerHint').hidden"),
+            "Nothing says what an Oracle database must hold to be published.");
+        Assert.Equal("oracle", await Browser.EvaluateAsync<string>("dbconnBody().kind"));
+
+        // Oracle names one database, so clicking into the service asks the server nothing — it failed every
+        // time with the service still empty, until a design review found the red box it left.
+        await ClickAsync("#dcDatabase");
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('dcResult').textContent"));
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('dcListHint').hidden"),
+            "The line about choosing from a list shows for Oracle, which has none.");
+
+        // A port somebody typed survives a change of engine; one still at a default follows it.
+        await ClickAsync("input[name=\"dcKind\"][value=\"mysql\"]");
+        Assert.Equal("3306", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        Assert.Equal("Database", await Browser.EvaluateAsync<string>("document.getElementById('dcDatabaseName').textContent"));
+        Assert.Equal("mysql", await Browser.EvaluateAsync<string>("dbconnBody().kind"));
+
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcPort').value = '13306', true)");
+        await ClickAsync("input[name=\"dcKind\"][value=\"oracle\"]");
+        Assert.Equal("13306", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcPort').value = '1521', true)");
+        await ClickAsync("input[name=\"dcKind\"][value=\"postgis\"]");
+        Assert.Equal("5432", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('dcAdvanced').hidden"));
+
+        // A written PostGIS string survives a look at another engine: hidden there, not cleared.
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcRaw').value = 'Host=db;Database=x', true)");
+        await ClickAsync("input[name=\"dcKind\"][value=\"mysql\"]");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('dcHost').disabled"),
+            "The PostGIS string greys MySQL's fields, which do not use it.");
+        await ClickAsync("input[name=\"dcKind\"][value=\"postgis\"]");
+        Assert.Equal("Host=db;Database=x", await Browser.EvaluateAsync<string>("document.getElementById('dcRaw').value"));
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcRaw').value = '', dbconnOverride(), true)");
+        Assert.True(await Browser.EvaluateAsync<bool>("dbconnBody().kind === undefined"),
+            "A PostGIS body has never named its kind, and now does.");
+    }
+
+    /// <summary>
     /// Choosing a database asks the server what is on it, and offering none says why.
     /// </summary>
     /// <remarks>

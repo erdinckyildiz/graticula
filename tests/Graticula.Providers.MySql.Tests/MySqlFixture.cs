@@ -1,4 +1,5 @@
 using System;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
@@ -35,6 +36,37 @@ internal static class MySqlFixture
 
     public static MySqlSource Source => MySqlLocator.Of(Locator);
 
+    private static bool? mariaDb;
+
+    /// <summary>Whether the test database is MariaDB (ADR-209), asked once.</summary>
+    public static bool IsMariaDb
+    {
+        get
+        {
+            if (mariaDb is null)
+            {
+                using MySqlConnection connection = new(MySqlConnections.For(Locator, pooling: true));
+                connection.Open();
+                mariaDb = MySqlDialect.Of(connection).IsMariaDb;
+            }
+
+            return mariaDb.Value;
+        }
+    }
+
+    /// <summary>
+    /// A test's SQL, written for MySQL, as MariaDB takes it: a column's reference is <c>REF_SYSTEM_ID=n</c> before
+    /// <c>NOT NULL</c>, there is no axis-order option, and <c>ST_Longitude</c> is <c>ST_X</c>. The provider's own SQL
+    /// is the dialect's business (<c>MySqlDialect</c>); this is only the tests' set-up and read-back.
+    /// </summary>
+    public static string Sql(string sql) => !IsMariaDb
+        ? sql
+        : Regex.Replace(
+            Regex.Replace(
+                Regex.Replace(sql, @"(\w+) not null srid (\d+)", "$1 ref_system_id=$2 not null", RegexOptions.IgnoreCase),
+                @",\s*'axis-order=long-lat'", string.Empty),
+            @"\bst_(longitude|latitude)\(", m => m.Groups[1].Value == "longitude" ? "st_x(" : "st_y(", RegexOptions.IgnoreCase);
+
     /// <summary>Runs statements on the test database, in ANSI mode as the provider's sessions are.</summary>
     public static async Task ExecuteAsync(params string[] statements)
     {
@@ -43,7 +75,7 @@ internal static class MySqlFixture
 
         foreach (string statement in statements)
         {
-            await using MySqlCommand command = new(statement, connection);
+            await using MySqlCommand command = new(Sql(statement), connection);
             await command.ExecuteNonQueryAsync(CancellationToken.None);
         }
     }

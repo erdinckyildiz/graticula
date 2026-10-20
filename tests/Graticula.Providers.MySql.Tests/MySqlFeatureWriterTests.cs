@@ -126,6 +126,18 @@ public sealed class MySqlFeatureWriterTests
         Assert.Equal(minted, Assert.Single((await writer.ApplyAsync(new EditBatch([], [], [added.Identity]), None)).Deletes).GlobalId);
     }
 
+    /// <summary>ADR-209: MariaDB's own UUID column keeps a GlobalID too. MySQL has no such type, so there it is not asked.</summary>
+    [Fact]
+    public async Task A_globalid_in_a_mariadb_uuid_column_is_minted_answered_filtered_and_looked_up()
+    {
+        if (!MySqlFixture.IsMariaDb)
+        {
+            return;
+        }
+
+        await A_globalid_column_is_minted_answered_filtered_and_looked_up("zzw_guid_uuid", "uuid");
+    }
+
     [Fact]
     public async Task An_edit_conditional_on_a_row_version_goes_through_at_that_version_and_not_after_it_moved()
     {

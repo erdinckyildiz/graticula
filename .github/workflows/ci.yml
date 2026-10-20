@@ -263,6 +263,45 @@ jobs:
       - name: mysql
         run: dotnet test tests/Graticula.Providers.MySql.Tests -c Release --no-build --filter 'Needs=MySql'
 
+  # <b>ADR-209 condition 4: the same provider tests against MariaDB</b>, which the provider serves as a dialect. The
+  # tests' own set-up SQL is translated by MySqlFixture.Sql; MariaDB writes no binary log here, so no trigger flag.
+  mariadb:
+    name: mariadb
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: ci-mariadb-root-1
+          MARIADB_DATABASE: graticula_test
+          MARIADB_USER: graticula
+          MARIADB_PASSWORD: ci-mariadb-1
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      GRATICULA_TEST_MYSQL: 'mysql:{"host":"127.0.0.1","port":3306,"database":"graticula_test","user":"graticula","password":"ci-mariadb-1"}'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: build
+        run: dotnet build tests/Graticula.Providers.MySql.Tests -c Release
+
+      - name: mariadb
+        run: dotnet test tests/Graticula.Providers.MySql.Tests -c Release --no-build --filter 'Needs=MySql'
+
   datastore:
     name: datastore
     runs-on: ubuntu-latest

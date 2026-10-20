@@ -92,7 +92,7 @@ public sealed class MySqlAttachmentStore : IAttachmentStore, IAttachmentTables
         string keyType = await type.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as string
             ?? throw new InvalidOperationException($"{_layer.SchemaName}.{_layer.TableName} has no column '{idColumn}'.");
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(keyType, "^(tiny|small|medium|big)?int( unsigned)?$|^int\\(\\d+\\)( unsigned)?$"))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(keyType, "^(tiny|small|medium|big)?int(\\(\\d+\\))?( unsigned)?$"))
         {
             throw new InvalidOperationException(
                 $"{_layer.SchemaName}.{_layer.TableName}'s key '{idColumn}' is a {keyType}, and attachments are kept against an integer key.");
