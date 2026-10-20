@@ -16,10 +16,16 @@ namespace Graticula.Features;
 /// predicate. A datastore that does not speak PostgreSQL's dialect emits its own statement from
 /// this rather than rewriting that one — [D-162](../../../docs/architecture-debt.md), ADR-066 §4.
 /// </param>
+/// <param name="Columns">
+/// For a having clause, the aggregate each name in <paramref name="Predicate"/> stands for —
+/// <c>having_aggregate_0</c> is <c>count(*)</c> — so another dialect can write the clause again (ADR-205); null for a
+/// where clause, whose names are columns.
+/// </param>
 public readonly record struct ParsedWhere(
     string Sql,
     IReadOnlyList<object?> Parameters,
-    AttributePredicate? Predicate = null);
+    AttributePredicate? Predicate = null,
+    IReadOnlyDictionary<string, string>? Columns = null);
 
 /// <summary>
 /// Parses the subset of SQL-92 that ArcGIS's <c>where</c> parameter uses.

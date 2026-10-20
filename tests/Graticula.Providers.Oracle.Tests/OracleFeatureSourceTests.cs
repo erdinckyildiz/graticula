@@ -185,6 +185,94 @@ public sealed class OracleFeatureSourceTests
         Assert.Equal(2, await Places().CountAsync(new FeatureQuery(1, fields: ["TUR"], distinct: true), None));
     }
 
+    private static long IdOf(Feature feature) => long.Parse(feature.Id, System.Globalization.CultureInfo.InvariantCulture);
+
+    private static readonly Dictionary<string, FieldType> PlaceFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["OBJECTID"] = FieldType.Integer, ["AD"] = FieldType.Text, ["TUR"] = FieldType.Text,
+    };
+
+    /// <summary>queryTopFeatures: the highest identities of each kind, and a count and id list that agree with the read.</summary>
+    [Fact]
+    public async Task Top_features_are_ranked_within_each_group()
+    {
+        List<Feature> every = await EveryPlaceAsync();
+        long[] expected = [.. every.GroupBy(f => (string?)f[1]).SelectMany(g => g.Select(IdOf).OrderDescending().Take(3)).Order()];
+
+        FeatureQuery query = new(100, fields: ["TUR"])
+        {
+            Top = new TopFilter(["TUR"], 3, [new SortKey("OBJECTID", Descending: true)]),
+        };
+
+        Assert.Equal(expected, (await AllAsync(Places(), query)).Select(IdOf).Order());
+        Assert.Equal(expected.Length, await Places().CountAsync(query, None));
+        Assert.Equal(expected, (await Places().ObjectIdsAsync(query, None)).Order());
+    }
+
+    /// <summary>Q-109's having clause, written again in Oracle's dialect from the tree the face parsed.</summary>
+    [Fact]
+    public async Task A_having_clause_keeps_the_groups_it_names()
+    {
+        List<Feature> every = await EveryPlaceAsync();
+        Dictionary<string, int> counts = every.GroupBy(f => (string)f[1]!).ToDictionary(g => g.Key, g => g.Count());
+        int threshold = counts.Values.Min();
+
+        Assert.True(HavingClause.TryParse(
+            $"COUNT(OBJECTID) > {threshold}", PlaceFields, ["TUR"], LayerDefinition.Quote, out ParsedWhere having, out string? error), error);
+
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> rows = await Places().StatisticsAsync(
+            new FeatureQuery(10, statistics: [new StatisticRequest(StatisticKind.Count, "OBJECTID", "N")], groupBy: ["TUR"])
+            {
+                Having = having,
+            },
+            None);
+
+        Assert.Equal(counts.Where(c => c.Value > threshold).Select(c => c.Key).Order(), rows.Select(r => (string?)r["TUR"]));
+    }
+
+    /// <summary>A statistic over an expression, and a group by an expression, computed by Oracle.</summary>
+    [Fact]
+    public async Task Statistics_are_computed_over_an_expression_and_grouped_by_one()
+    {
+        List<Feature> every = await EveryPlaceAsync();
+
+        Assert.True(StatisticExpression.TryParse(
+            "OBJECTID * 2 + 1", PlaceFields, LayerDefinition.Quote, 0, out BoundExpression? doubled, out string? error), error);
+        Assert.True(StatisticExpression.TryParse(
+            "UPPER(TUR)", PlaceFields, LayerDefinition.Quote, 1, out BoundExpression? kind, out error), error);
+
+        IReadOnlyList<IReadOnlyDictionary<string, object?>> rows = await Places().StatisticsAsync(
+            new FeatureQuery(10, statistics: [new StatisticRequest(StatisticKind.Sum, "OBJECTID * 2 + 1", "S", Expression: doubled)])
+            {
+                GroupExpressions = [new GroupExpression("KIND", kind!)],
+            },
+            None);
+
+        var expected = every.GroupBy(f => ((string)f[1]!).ToUpperInvariant())
+            .OrderBy(g => g.Key, StringComparer.Ordinal)
+            .Select(g => (g.Key, g.Sum(f => (double)(IdOf(f) * 2 + 1))));
+
+        Assert.Equal(expected, rows.Select(r => ((string)r["KIND"]!, Convert.ToDouble(r["S"], System.Globalization.CultureInfo.InvariantCulture))));
+    }
+
+    /// <summary>returnCentroid: a label point inside each piece of land, read even when the shape is not returned.</summary>
+    [Fact]
+    public async Task A_centroid_lies_inside_its_polygon_and_needs_no_shape_returned()
+    {
+        List<Feature> shapes = await AllAsync(Land(), new FeatureQuery(100));
+        List<Feature> centroids = await AllAsync(Land(), new FeatureQuery(100, includeGeometry: false) { ReturnCentroid = true });
+
+        Assert.NotEmpty(centroids);
+        Assert.Equal(shapes.Select(s => s.Id), centroids.Select(c => c.Id));
+
+        foreach ((Feature shape, Feature centroid) in shapes.Zip(centroids))
+        {
+            Assert.Null(centroid.Geometry);
+            Point point = Assert.IsType<Point>(centroid.Centroid);
+            Assert.True(GeometryPredicates.Intersects(shape.Geometry!, point), $"feature {shape.Id}");
+        }
+    }
+
     [Fact]
     public async Task A_relation_it_does_not_answer_is_refused_before_anything_is_read()
     {

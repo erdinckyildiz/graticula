@@ -144,6 +144,24 @@ the other providers implement, with Oracle's types nowhere in a Core signature. 
   WKB (`SDO_UTIL.TO_WKBGEOMETRY`) and in the same way.
 - The FeatureServer, OGC API Features, WFS and WMS faces answer for it as they do for registered PostGIS.
 
+**Amended 2026-10-20 a third time, by owner direction (*"bunları da yap, oracle'ı kapatalım"*) — the four query
+features phase 1 refused are answered.** `queryTopFeatures`, a `havingClause`, statistics over an SQL expression
+(`onStatisticField` and `groupByFieldsForStatistics`) and `returnCentroid` now answer on an Oracle layer, and its
+document says so. **None is pasted from PostgreSQL's SQL**: the face parses a having clause and an expression once and
+now keeps the parsed tree beside the SQL — `ParsedWhere.Columns`, the aggregate each having name stands for, and
+`BoundExpression.Operand` — and the Oracle reader writes both again through `SqlDialect.Oracle`. Top features are the
+PostGIS path's `row_number() over (partition by … order by …)` over the same filters, kept as an id clause so a count,
+an id list and an extent agree with the read. Expressions are computed in an inner select and grouped outside it by
+name, because Oracle matches a `GROUP BY` expression with its select-list copy as text and one carrying a bind
+variable does not match itself (ORA-00979). The centroid is Core's `GeometryMeasures.LabelPoint` over the output shape,
+read even when the shape is not returned. **Measured against PostGIS through the REST face**, the same places and land
+on both: 87 comparisons — 16 top-feature queries (ids, counts, inside a pentagon, rows under a where), 15 having
+clauses, 47 expression statistics including grouping by an expression and percentiles over one, and the centroid with
+and without the shape — 0 disagreements, where the refusals (a having clause without an aggregate, `CASE` and `%`,
+which the face's expression grammar does not take) are the same on both. A centroid is placed by a different engine
+on each, so its pass is a point inside its own polygon, checked by PostGIS. What an Oracle layer still lacks is the
+editing list in §5b and attachments, related records and history.
+
 **Amended 2026-10-20 again, by owner direction (*"mekansal sorgular önemli. rest api üzerinden o sorgular
 gelecek"*) — every relation and a distance are answered.** What the paragraph below refuses is no longer refused: a
 distance and the relations beyond intersection (contains, within, crosses, overlaps, touches and a DE-9IM relation)

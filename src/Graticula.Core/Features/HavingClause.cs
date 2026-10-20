@@ -154,6 +154,10 @@ public static partial class HavingClause
             return false;
         }
 
+        // The aggregates ride along, so an Oracle layer writes the same clause in its own dialect (ADR-205); the
+        // functions are ones both databases spell alike.
+        parsed = parsed with { Columns = aggregates };
+
         return true;
     }
 
