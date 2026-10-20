@@ -86,7 +86,7 @@ attachments and a history.
 6. **JSON is read by casting `JSON_VALUE`**, in both dialects — one form, since MySQL accepts it too.
 7. **A GlobalID may also be kept in MariaDB's `UUID` type.**
 
-**`INFERRED` — for the owner to confirm:**
+~~**`INFERRED` — for the owner to confirm:**~~ **Confirmed 2026-10-20, all three ([Q-186](../open-questions.md)): *"evet"*.**
 
 - **One kind, `mysql`**, for both servers, told apart when connected — so a MariaDB is registered as MySQL, and the
   console says *MySQL or MariaDB*. The alternative is a `mariadb` kind and a migration.
