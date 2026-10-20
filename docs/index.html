@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Graticula is an ArcGIS-compatible GIS server and portal on PostGIS, which also serves GeoParquet files where they lie: feature, map, image, vector tile and geometry services, with items, members, roles and sharing, from one container and one Postgres.">
+<meta name="description" content="Graticula is an ArcGIS-compatible GIS server and portal on PostGIS, which also serves registered Oracle tables and GeoParquet files where they lie: feature, map, image, vector tile and geometry services, with items, members, roles and sharing, from one container and one Postgres.">
 <meta name="color-scheme" content="light dark">
 <meta property="og:title" content="Graticula">
 <meta property="og:description" content="A GIS server and its portal, from one container and one Postgres.">
@@ -269,7 +269,7 @@ pre .k{color:var(--accent)}
         <p class="eyebrow">Graticula <span class="sep">/</span> v1 <span class="sep">/</span> source-available</p>
         <h1>A GIS server and its portal, from one container and one Postgres.</h1>
         <p class="lede"><b>Server</b> does what a GIS Server site does: services at
-        <span class="nm">/rest/services</span>, published out of PostGIS or GeoParquet files — on the server, on the web or in S3 — opened by the clients
+        <span class="nm">/rest/services</span>, published out of PostGIS, Oracle or GeoParquet files — on the server, on the web or in S3 — opened by the clients
         you already have. <b>Studio</b> does what the portal does &mdash; items, members, roles,
         groups, sharing. They are one process and one API with two doors, because the three tiers
         are fused rather than federated:
@@ -354,7 +354,8 @@ pre .k{color:var(--accent)}
               <tr><td>ArcGIS Data Store, installed and registered separately</td>
                   <td>The same PostgreSQL the server already needs.</td></tr>
               <tr><td>An enterprise geodatabase registered as a data store</td>
-                  <td>Your own PostGIS, registered &mdash; read and write where rights allow.</td></tr>
+                  <td>Your own PostGIS or Oracle, registered &mdash; read and write where rights allow. Oracle&rsquo;s
+                  <span class="nm">SDO_GEOMETRY</span> tables are served as they are, with no geodatabase installed.</td></tr>
               <tr><td>A folder of files registered as a data store</td>
                   <td>A folder of GeoParquet files, an <span class="nm">s3://</span> prefix or an
                   <span class="nm">https://</span> file, registered by name and read in place by
@@ -399,7 +400,7 @@ pre .k{color:var(--accent)}
             <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Feature services</h3>
-              <p>Query and edit a registered PostGIS table or a hosted layer, and query a
+              <p>Query and edit a registered PostGIS or Oracle table or a hosted layer, and query a
               GeoParquet file where it lies. Identity, relationships and attachments are
               declared rather than reverse-engineered. A query answers as JSON, GeoJSON or PBF,
               filters by time where a layer has a time field, and keeps Z and M.</p>
@@ -421,8 +422,8 @@ pre .k{color:var(--accent)}
             <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Vector tile services</h3>
-              <p>Tiles from hosted data, registered PostGIS tables and GeoParquet or DuckDB sources,
-              with a style document and a checked-in glyph set, so a label actually draws instead of
+              <p>Tiles from the data this server holds, as ArcGIS serves them from hosted data &mdash; a registered
+              database or file is served as features and maps &mdash; with a style document and a checked-in glyph set, so a label actually draws instead of
               silently rendering nothing. <b>Labels draw in Latin, Greek, Cyrillic, Arabic, Hebrew,
               Armenian, Georgian and Thai</b>; Devanagari, Bengali and Tamil are served and MapLibre
               draws them unshaped; Chinese, Japanese and Korean need an image built for them. A service may carry several named styles, and
@@ -538,10 +539,13 @@ pre .k{color:var(--accent)}
           <div class="gap">
             <i class="sw none"><span class="vh">Not built.</span></i>
             <div>
-              <h3>PostGIS, and nothing else, for databases</h3>
-              <p>No Oracle, no SQL Server, no file geodatabase served in place. An enterprise
-              geodatabase on Oracle has to move before this can serve it. The other engines are
-              deferred, not cancelled. <b>GeoParquet files are the one thing served where they
+              <h3>PostGIS and Oracle, for databases</h3>
+              <p>No SQL Server, no MySQL, no file geodatabase served in place. <b>Oracle since
+              v1.0.441</b>: a registered database&rsquo;s <span class="nm">SDO_GEOMETRY</span> tables are
+              queried and edited in place &mdash; no versioning, attachments, related records or history,
+              and a new row&rsquo;s key made by the database. An Esri enterprise geodatabase&rsquo;s own
+              <span class="nm">ST_GEOMETRY</span> tables are not read. No registered source serves vector
+              tiles. The other engines are deferred, not cancelled. <b>GeoParquet files are the one thing served where they
               lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no
               attachments, no related records, and a distance filter only in a projected reference.
               Every other spatial relation is decided by the geometry engine the Geometry service runs.</p>
