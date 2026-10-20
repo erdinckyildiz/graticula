@@ -208,7 +208,11 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         // key took 28 s for the first thousand and 23 s for the thousand at offset 100,000, where PostGIS took 78 ms.
         // So a read asks for identities and attributes first, in its order, and for the shapes of each thousand of those
         // rows as they arrive — a map drawn from 200,000 points timed out at 30 s before this, in one statement.
-        bool twoPass = !distinct && (query.IncludeGeometry || query.ReturnCentroid);
+        // <b>Points need neither pass</b>: where the index promises points and no Z or M is asked for, a row's shape is
+        // its two numbers, read with its attributes — the second pass cost a page of a thousand 52 ms on the VPS, and a
+        // single feature by its id 78 ms against 28 ms in one statement.
+        bool inlinePoints = !distinct && table.Points && !parted && (query.IncludeGeometry || query.ReturnCentroid);
+        bool twoPass = !distinct && !inlinePoints && (query.IncludeGeometry || query.ReturnCentroid);
 
         if (distinct)
         {
@@ -220,7 +224,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
             // A centroid is the output shape's label point, so the shape is read for it even when it is not returned.
-            sql.Append((query.IncludeGeometry || query.ReturnCentroid) && !twoPass ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
+            sql.Append(inlinePoints
+                ? $", {PointOrdinate(1)} as g, {PointOrdinate(2)} as gy"
+                : (query.IncludeGeometry || query.ReturnCentroid) && !twoPass ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
 
             // Z and M come from the shape's parts, because Oracle's WKB of a shape with them is not WKB (SdoShape).
             if (parted && !twoPass)
@@ -266,6 +272,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             int geometryOrdinal = schema.Count + 1;
             Geometry? geometry = reader.IsDBNull(geometryOrdinal)
                 ? null
+                : inlinePoints
+                    ? new Point(Convert.ToDouble(reader.GetValue(geometryOrdinal), CultureInfo.InvariantCulture),
+                        Convert.ToDouble(reader.GetValue(geometryOrdinal + 1), CultureInfo.InvariantCulture))
                 : parted && !reader.IsDBNull(geometryOrdinal + 1)
                     && SdoShape.ToWkb(SdoShape.ParseParts(reader.GetString(geometryOrdinal + 1))) is { } full
                         ? WkbReader.Read(full, query.KeepOrdinates, out _)
@@ -344,6 +353,13 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         }
     }
 
+    /// <summary>A point's x (1) or y (2), from SDO_POINT where it is there and from its ordinates where it is not.</summary>
+    private string PointOrdinate(int axis)
+    {
+        string name = axis == 1 ? "x" : "y";
+        return $"coalesce(t.{Shape}.sdo_point.{name}, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, {axis.ToString(CultureInfo.InvariantCulture)}))";
+    }
+
     /// <summary>How many rows wait for their shapes at once in a two-pass read.</summary>
     private const int ShapeChunk = 1_000;
 
@@ -373,7 +389,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         StringBuilder sql = new($"select t.{Id}, ");
 
         sql.Append(points
-            ? $"coalesce(t.{Shape}.sdo_point.x, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 1)), coalesce(t.{Shape}.sdo_point.y, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 2))"
+            ? $"{PointOrdinate(1)}, {PointOrdinate(2)}"
             : $"sdo_util.to_wkbgeometry({Flat(table).Replace(Shape, "t." + Shape, StringComparison.Ordinal)})");
 
         if (parted)
