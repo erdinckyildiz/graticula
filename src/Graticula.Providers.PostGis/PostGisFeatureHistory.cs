@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Catalog;
+using Graticula.Features;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -34,7 +35,7 @@ namespace Graticula.Providers.PostGis;
 /// that may not create it is refused with the right it lacks (<see cref="Refusal"/>).
 /// </para>
 /// </remarks>
-public sealed class PostGisFeatureHistory
+public sealed class PostGisFeatureHistory : IFeatureHistory
 {
     /// <summary>The companion table's suffix, beside <see cref="PostGisAttachmentStore.Suffix"/>.</summary>
     public const string Suffix = "__history";
@@ -903,64 +904,3 @@ public sealed class PostGisFeatureHistory
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }
-
-/// <summary>One change in a layer's history.</summary>
-/// <param name="HistoryId">The version it opened or closed.</param>
-/// <param name="ObjectId">The feature.</param>
-/// <param name="At">When.</param>
-/// <param name="Kind"><c>added</c>, <c>updated</c>, <c>restored</c>, <c>deleted</c> or <c>emptied</c>.</param>
-/// <param name="Editor">Who: the account, or the database role when <paramref name="Direct"/>.</param>
-/// <param name="Direct">Whether the write came straight to the database rather than through this server.</param>
-public sealed record FeatureChange(long HistoryId, long ObjectId, DateTimeOffset At, string Kind, string Editor, bool Direct);
-
-/// <summary>One version of a feature.</summary>
-/// <param name="HistoryId">Its id.</param>
-/// <param name="From">When it became true.</param>
-/// <param name="To">When it stopped, or null while it is current.</param>
-/// <param name="OpenedBy"><c>seed</c>, <c>insert</c> or <c>update</c>.</param>
-/// <param name="ClosedBy"><c>update</c>, <c>delete</c>, <c>truncate</c>, or null while current.</param>
-/// <param name="Editor">Who made it.</param>
-/// <param name="Direct">Whether that write came straight to the database.</param>
-/// <param name="EndedBy">Who ended it, or null.</param>
-/// <param name="EndedDirect">Whether that write came straight to the database.</param>
-/// <param name="Attributes">Its attributes, as stored.</param>
-/// <param name="GeoJson">Its shape as GeoJSON, in the layer's reference, or null.</param>
-public sealed record FeatureVersion(
-    long HistoryId,
-    DateTimeOffset From,
-    DateTimeOffset? To,
-    string OpenedBy,
-    string? ClosedBy,
-    string Editor,
-    bool Direct,
-    string? EndedBy,
-    bool EndedDirect,
-    JsonElement Attributes,
-    string? GeoJson)
-{
-    /// <summary>The version a restore wrote back to make this one, or null when it was not a restore.</summary>
-    public long? RestoredFrom { get; init; }
-}
-
-/// <summary>What a restore did.</summary>
-public enum RestoreResult
-{
-    /// <summary>The feature existed and was written back as the version.</summary>
-    Updated,
-
-    /// <summary>The feature had been deleted and was written again under its old object id.</summary>
-    Recreated,
-
-    /// <summary>No such version of that feature.</summary>
-    NoSuchVersion,
-}
-
-/// <summary>A restore's outcome.</summary>
-/// <param name="Result">What happened.</param>
-/// <param name="AttachmentsNotRestored">Whether a recreated feature came back without attachments it may have had.</param>
-public sealed record RestoreOutcome(RestoreResult Result, bool AttachmentsNotRestored);
-
-/// <summary>How a layer's history is kept — ADR-078.</summary>
-/// <param name="Since">The earliest moment it answers for.</param>
-/// <param name="KeepDays">How many days of ended versions are kept, or null for all of them.</param>
-public sealed record HistoryKept(DateTimeOffset Since, int? KeepDays);

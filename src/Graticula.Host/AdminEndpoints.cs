@@ -11820,7 +11820,8 @@ internal static partial class AdminEndpoints
         bool attachments = layer.AttachmentsIn is not null;
         bool history = false;
 
-        if (Graticula.Platform.Admin.GeoParquetLocator.KindOf(layer.ConnectionString) == DataSourceKinds.PostGis
+        if ((Graticula.Platform.Admin.GeoParquetLocator.KindOf(layer.ConnectionString) == DataSourceKinds.PostGis
+                || Graticula.Platform.Admin.OracleLocator.Is(layer.ConnectionString))
             && layer.Definition.IntegerIdentityColumn is not null)
         {
             history = await connections.HistoryFor(layer).IsOnAsync(cancellation).ConfigureAwait(false);

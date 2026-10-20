@@ -848,11 +848,14 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         foreach (string source in layers
                      .Where(l => !l.Definition.IsHosted
-                         && GeoParquetLocator.KindOf(l.ConnectionString) == DataSourceKinds.PostGis)
+                         && (GeoParquetLocator.KindOf(l.ConnectionString) == DataSourceKinds.PostGis
+                             || OracleLocator.Is(l.ConnectionString)))
                      .Select(l => l.ConnectionString)
                      .Distinct(StringComparer.Ordinal))
         {
-            pruned.AddRange(await PostGisFeatureHistory.PruneAsync(PoolFor(source), cancellationToken).ConfigureAwait(false));
+            pruned.AddRange(OracleLocator.Is(source)
+                ? await OracleFeatureHistory.PruneAsync(source, cancellationToken).ConfigureAwait(false)
+                : await PostGisFeatureHistory.PruneAsync(PoolFor(source), cancellationToken).ConfigureAwait(false));
         }
 
         return pruned;
@@ -865,10 +868,17 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// The query pool rather than a pool of its own: reading a history is a query, and switching it on
     /// is one administrator's transaction that lifts its own statement timeout.
     /// </remarks>
-    public PostGisFeatureHistory HistoryFor(PublishedLayer layer)
+    public IFeatureHistory HistoryFor(PublishedLayer layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // ADR-207: an Oracle layer's history is kept by Oracle, beside its table.
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            return new OracleFeatureHistory(layer.ConnectionString, layer.Definition);
+        }
+
         RefuseIfFile(layer, "given a history");
 
         return new PostGisFeatureHistory(PoolFor(layer.ConnectionString), layer.Definition);

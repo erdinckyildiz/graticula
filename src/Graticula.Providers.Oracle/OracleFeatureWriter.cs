@@ -186,6 +186,33 @@ public sealed class OracleFeatureWriter : IFeatureWriter
     private async Task<EditOutcome> ApplyWithinAsync(
         OracleConnection connection, OracleTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
     {
+        // <b>Who is editing, told to the database for the length of this batch</b> — ADR-207: a layer keeping its
+        // history records every version with a trigger, which reads the session's CLIENT_IDENTIFIER, as the PostGIS
+        // writer's graticula.editor. Cleared before the connection goes back to the pool, whatever happens.
+        if (!string.IsNullOrEmpty(batch.Editor))
+        {
+            await using OracleCommand who = Command("begin dbms_session.set_identifier(:p_editor); end;", connection);
+            who.Parameters.Add("p_editor", batch.Editor);
+            await who.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            return await ApplyNamedAsync(connection, transaction, batch, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(batch.Editor))
+            {
+                await using OracleCommand forget = Command("begin dbms_session.clear_identifier; end;", connection);
+                await forget.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private async Task<EditOutcome> ApplyNamedAsync(
+        OracleConnection connection, OracleTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
+    {
         TableFacts facts = await FactsAsync(connection, cancellationToken).ConfigureAwait(false);
 
         List<EditResult> adds = [];

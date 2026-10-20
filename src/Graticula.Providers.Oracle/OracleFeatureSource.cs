@@ -115,6 +115,20 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
     private string From => _layer.QuotedTable;
 
     /// <summary>
+    /// What a query reads: the table, or — with a <c>historicMoment</c> — the layer's history as it was then (ADR-207,
+    /// <see cref="OracleFeatureHistory.AtMoment"/>). The moment is written as a literal this code formats from a
+    /// <see cref="DateTimeOffset"/>, so every statement a query builds carries it without a bind to thread through.
+    /// </summary>
+    private string Source(FeatureQuery query, OracleTable table) =>
+        query.HistoricMoment is not { } moment
+            ? From
+            : OracleFeatureHistory.AtMoment(
+                _layer,
+                [.. table.Columns.Select(c => (c.Name, c.Type, c.Guid))],
+                "to_timestamp_tz('" + moment.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff", CultureInfo.InvariantCulture)
+                + " +00:00', 'YYYY-MM-DD\"T\"HH24:MI:SS.FF6 TZH:TZM')");
+
+    /// <summary>
     /// The shape as Oracle's WKB can carry it: itself on a layer of x and y, and flattened (<c>SDO_CS.MAKE_2D</c>) on
     /// one with Z or M, whose own WKB is not WKB (<see cref="SdoShape"/>).
     /// </summary>
@@ -191,7 +205,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         if (distinct)
         {
-            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(From);
+            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(Source(query, table));
             statement.AppendWhere();
             sql.Append(" group by ").Append(string.Join(", ", schema.Names.Distinct(StringComparer.Ordinal).Select(LayerDefinition.Quote)));
         }
@@ -207,7 +221,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
                 sql.Append(", ").Append(SdoShape.PartsSql("t", Shape)).Append(" as z");
             }
 
-            sql.Append(" from ").Append(From).Append(" t");
+            sql.Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
 
@@ -391,6 +405,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         bool writable = await OracleConnections.CanWriteAsync(connection, _layer.SchemaName, _layer.TableName, cancellationToken)
             .ConfigureAwait(false);
 
+        HistoryKept? kept = await OracleFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
+
         return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
         {
             AnswersDistance = _engine is not null,
@@ -401,6 +417,11 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             AnswersRelations = _engine is not null,
             SpatiallyIndexed = true,
             StoredOrdinates = table.Ordinates,
+
+            // ADR-207: a history kept beside the table, which historicMoment reads.
+            Archived = kept is not null,
+            ArchivedSince = kept?.Since,
+            HistoryKeepDays = kept?.KeepDays,
         };
     }
 
@@ -479,19 +500,19 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         {
             statement.Sql.Append("select count(*) from (select distinct ")
                 .Append(string.Join(", ", query.Fields.Select(LayerDefinition.Quote)))
-                .Append(" from ").Append(From);
+                .Append(" from ").Append(Source(query, table));
             statement.AppendWhere();
             statement.Sql.Append(')');
         }
         else if (ceiling is { } most)
         {
-            statement.Sql.Append("select count(*) from (select 1 from ").Append(From);
+            statement.Sql.Append("select count(*) from (select 1 from ").Append(Source(query, table));
             statement.AppendWhere();
             statement.Sql.Append(" fetch first ").Append(statement.Bind("ceiling", most)).Append(" rows only)");
         }
         else
         {
-            statement.Sql.Append("select count(*) from ").Append(From);
+            statement.Sql.Append("select count(*) from ").Append(Source(query, table));
             statement.AppendWhere();
         }
 
@@ -518,7 +539,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
 
-        statement.Sql.Append("select sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(From);
+        statement.Sql.Append("select sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(Source(query, table));
         statement.AppendWhere();
 
         Envelope extent = Envelope.Empty;
@@ -591,7 +612,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(From);
+        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(Source(query, table));
         statement.AppendWhere();
         statement.Sql.Append(" order by ").Append(Id);
 
@@ -678,7 +699,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         }
 
         sql.Append("select ").Append(string.Join(", ", select))
-           .Append(" from (select ").Append(string.Join(", ", inner)).Append(" from ").Append(From).Append(" t");
+           .Append(" from (select ").Append(string.Join(", ", inner)).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
         sql.Append(") q");
 
@@ -1028,7 +1049,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             ranked.Append("partition by ").Append(string.Join(", ", top.GroupBy.Select(LayerDefinition.Quote))).Append(' ');
         }
 
-        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(From);
+        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(Source(query, table));
 
         if (filters.Clauses.Count > 0)
         {
@@ -1115,7 +1136,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         // A distance's box is the filter's grown by the distance, so the exact box pass keeps every row it could reach.
         List<long>? matched = await RefineAsync(
-                connection, table, new Filters(inOracle, parameters), boxes, shape, cancellationToken, kept)
+                connection, table, Source(query, table), new Filters(inOracle, parameters), boxes, shape, cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
@@ -1150,6 +1171,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
     private async Task<List<long>?> RefineAsync(
         OracleConnection connection,
         OracleTable table,
+        string relation,
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
@@ -1158,7 +1180,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
     {
         Statement statement = new(candidates);
 
-        statement.Sql.Append("select ").Append(Id).Append(", sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(From);
+        statement.Sql.Append("select ").Append(Id).Append(", sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(relation);
         statement.AppendWhere();
 
         List<long> matched = [];
