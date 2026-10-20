@@ -98,12 +98,18 @@ administrator.**
   choose between the two offered, and this is the one that records edits made by other tools.
 - **Datastore attachments are swept** for features deleted elsewhere, rather than kept as orphans.
 
-### Conditions
+## Conditions
 
 1. **Registered PostGIS gets history** with the hosted trigger unchanged, once its *hosted only* guards become *owns
-   the table or may create in its schema*.
+   the table or may create in its schema*. **DISCHARGED 2026-10-20** — the guards went, a role that may not create it is
+   refused with the right it lacks (409), the hourly sweep prunes registered databases too; measured on the fixture
+   through REST: switched on, edited, `historicMoment` answered the old value, the log and versions named the editor.
 2. **Attachments in either place** on registered PostGIS, with the place recorded per layer in the catalogue.
-3. **Oracle attachments**, in either place.
+   **DISCHARGED 2026-10-20** — migration 96, `POST /admin/layers/{name}/attachments`; measured through REST in both
+   places: upload of 300 KB, list, byte-for-byte download, replace, 404 for a missing feature, removal with the
+   feature (by cascade beside the table, by this server in the datastore), switch off.
+3. **Oracle attachments**, in either place. **DISCHARGED 2026-10-20** — `<TABLE>__ATTACH` with a BLOB streamed both
+   ways beside the table, the datastore's tables otherwise; the same REST run, both places.
 4. **Oracle history**: the trigger, `historicMoment`, changes, versions, restore.
 5. **Each measured end to end through the REST face**, against a PostGIS layer doing the same.
 
