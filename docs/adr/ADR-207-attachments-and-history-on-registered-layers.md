@@ -110,8 +110,18 @@ administrator.**
    feature (by cascade beside the table, by this server in the datastore), switch off.
 3. **Oracle attachments**, in either place. **DISCHARGED 2026-10-20** — `<TABLE>__ATTACH` with a BLOB streamed both
    ways beside the table, the datastore's tables otherwise; the same REST run, both places.
-4. **Oracle history**: the trigger, `historicMoment`, changes, versions, restore.
-5. **Each measured end to end through the REST face**, against a PostGIS layer doing the same.
+4. **Oracle history**: the trigger, `historicMoment`, changes, versions, restore. **DISCHARGED 2026-10-20** —
+   `OracleFeatureHistory`, the editor read from the session's `CLIENT_IDENTIFIER`; measured through REST: an update and a
+   delete through `applyEdits` and an update made directly in SQL, `historicMoment` with and without a box and as a
+   count, the change log naming the editor and the direct edit as direct, a deleted feature restored under its id, a
+   keeping period, switched off with its table and trigger gone. **Two differences from the PostgreSQL trigger,
+   recorded rather than hidden:** the trigger names the columns the table had when history was switched on (Oracle has
+   no `to_jsonb(new)`), so a column added later is recorded after switching off and on; and `TRUNCATE` fires no row
+   trigger, so it is not recorded.
+5. **Each measured end to end through the REST face**, against a PostGIS layer doing the same. **DISCHARGED
+   2026-10-20** — the attachment run did the same eleven steps on a registered PostGIS table and an Oracle table, in
+   both places, 0 failures; the history runs did the same on each (`D:/temp/pg-history-e2e.py`,
+   `D:/temp/ora-history-e2e.py`, `D:/temp/attach-e2e.py` on the fixture).
 
 ## 6. Consequences
 
