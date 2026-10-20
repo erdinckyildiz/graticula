@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
@@ -12,7 +14,7 @@ namespace Graticula.Providers.MySql;
 /// <b>Here and only here</b>, because this is the one project that may name the driver. The locator carries fields;
 /// the driver's builder quotes whatever needs quoting.
 /// </remarks>
-internal static class MySqlConnections
+internal static partial class MySqlConnections
 {
     /// <summary>The driver's connection string for a stored locator.</summary>
     /// <param name="stored">A <c>mysql:</c> locator, unsealed.</param>
@@ -81,35 +83,160 @@ internal static class MySqlConnections
     /// Whether the connected user may insert, update and delete rows of a table — all three, at the global, database or
     /// table level, as <c>CanWriteAsync</c> asks of Oracle; two of three is not editable, for its reason.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Read from <c>SHOW GRANTS</c>, not from <c>information_schema</c></b>, because only the first sees a role: a user
+    /// whose rights come through a role finds no row of them in <c>schema_privileges</c> (measured on 8.4), while
+    /// <c>SHOW GRANTS</c> without <c>FOR</c> writes out the privileges of the session's active roles as its own.
+    /// </para>
+    /// <para>
+    /// <b>A database-level grant names a pattern, not a database</b>: <c>_</c> and <c>%</c> are wildcards in it, and the
+    /// official image grants its user <c>`graticula\_test`.*</c>. Found by CI, whose container was the first to grant
+    /// the escaped form; an equality against <c>schema_privileges</c> called the layer read-only.
+    /// </para>
+    /// </remarks>
     public static async Task<bool> CanWriteAsync(
         MySqlConnection connection, string database, string table, CancellationToken cancellationToken)
     {
-        await using MySqlCommand command = new(
-            """
-            select count(distinct p.privilege_type) from (
-              select privilege_type from information_schema.user_privileges where grantee = @who
-              union all
-              select privilege_type from information_schema.schema_privileges where grantee = @who and table_schema = @db
-              union all
-              select privilege_type from information_schema.table_privileges
-               where grantee = @who and table_schema = @db and table_name = @tab
-            ) p where p.privilege_type in ('INSERT', 'UPDATE', 'DELETE')
-            """, connection);
+        await using MySqlCommand command = new("show grants", connection);
+        List<string> grants = [];
 
-        command.Parameters.AddWithValue("@who", await GranteeAsync(connection, cancellationToken).ConfigureAwait(false));
-        command.Parameters.AddWithValue("@db", database);
-        command.Parameters.AddWithValue("@tab", table);
+        await using (MySqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                grants.Add(reader.GetString(0));
+            }
+        }
 
-        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) == 3;
+        return Writes(grants, database, table);
     }
 
-    /// <summary>The connected account as <c>information_schema</c> writes a grantee: <c>'user'@'host'</c>.</summary>
-    private static async Task<string> GranteeAsync(MySqlConnection connection, CancellationToken cancellationToken)
+    /// <summary>
+    /// Whether these <c>SHOW GRANTS</c> lines give INSERT, UPDATE and DELETE on a table — on every column, so a
+    /// column-level grant does not count; a <c>GRANT role TO user</c> line, which names no object, is passed over.
+    /// </summary>
+    internal static bool Writes(IEnumerable<string> grants, string database, string table)
     {
-        await using MySqlCommand command = new("select current_user()", connection);
-        string account = (string)(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))!;
-        int at = account.LastIndexOf('@');
+        HashSet<string> held = new(StringComparer.Ordinal);
 
-        return at < 0 ? $"'{account}'" : $"'{account[..at]}'@'{account[(at + 1)..]}'";
+        foreach (string grant in grants)
+        {
+            Match line = GrantLine().Match(grant);
+
+            if (!line.Success || !Covers(line.Groups["on"].Value.Trim(), database, table))
+            {
+                continue;
+            }
+
+            foreach (string privilege in TopLevel(line.Groups["privileges"].Value))
+            {
+                string named = privilege.Trim().ToUpperInvariant();
+
+                if (named == "ALL" || named == "ALL PRIVILEGES")
+                {
+                    held.UnionWith(["INSERT", "UPDATE", "DELETE"]);
+                }
+                else if (!named.Contains('(', StringComparison.Ordinal))
+                {
+                    held.Add(named);
+                }
+            }
+        }
+
+        return held.Contains("INSERT") && held.Contains("UPDATE") && held.Contains("DELETE");
     }
+
+    /// <summary>Whether a grant's object — <c>*.*</c>, <c>`db`.*</c> or <c>`db`.`table`</c> — covers the table.</summary>
+    private static bool Covers(string on, string database, string table)
+    {
+        if (on == "*.*")
+        {
+            return true;
+        }
+
+        Match named = GrantObject().Match(on);
+
+        if (!named.Success)
+        {
+            return false;
+        }
+
+        string db = Unquote(named.Groups["db"].Value);
+
+        if (named.Groups["table"].Value == "*")
+        {
+            return Regex.IsMatch(database, "^" + Pattern(db) + "$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        }
+
+        string tab = Unquote(named.Groups["table"].Value);
+
+        return string.Equals(db, database, StringComparison.OrdinalIgnoreCase) && string.Equals(tab, table, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// A quoted name as the server wrote it: in backticks, or — <b>on a session in <c>ANSI</c> mode, which every session
+    /// here is</b> — in double quotes, with the quote doubled inside.
+    /// </summary>
+    private static string Unquote(string quoted) =>
+        quoted[1..^1].Replace(new string(quoted[0], 2), quoted[0].ToString(), StringComparison.Ordinal);
+
+    /// <summary>A database pattern from a grant as a regular expression: <c>_</c> one character, <c>%</c> any, <c>\</c> escaping.</summary>
+    private static string Pattern(string grant)
+    {
+        System.Text.StringBuilder pattern = new();
+
+        for (int i = 0; i < grant.Length; i++)
+        {
+            char c = grant[i];
+
+            if (c == '\\' && i + 1 < grant.Length)
+            {
+                pattern.Append(Regex.Escape(grant[++i].ToString()));
+            }
+            else
+            {
+                pattern.Append(c switch
+                {
+                    '_' => ".",
+                    '%' => ".*",
+                    _ => Regex.Escape(c.ToString()),
+                });
+            }
+        }
+
+        return pattern.ToString();
+    }
+
+    /// <summary>A privilege list split at the commas outside a column list.</summary>
+    private static IEnumerable<string> TopLevel(string privileges)
+    {
+        int depth = 0;
+        int from = 0;
+
+        for (int i = 0; i < privileges.Length; i++)
+        {
+            switch (privileges[i])
+            {
+                case '(':
+                    depth++;
+                    break;
+                case ')':
+                    depth--;
+                    break;
+                case ',' when depth == 0:
+                    yield return privileges[from..i];
+                    from = i + 1;
+                    break;
+            }
+        }
+
+        yield return privileges[from..];
+    }
+
+    [GeneratedRegex(@"^GRANT\s+(?<privileges>.+?)\s+ON\s+(?:TABLE\s+)?(?<on>\*\.\*|(?:`(?:[^`]|``)*`|""(?:[^""]|"""")*"")\.(?:\*|(?:`(?:[^`]|``)*`|""(?:[^""]|"""")*"")))\s+TO\s", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex GrantLine();
+
+    [GeneratedRegex(@"^(?<db>(?:`(?:[^`]|``)*`|""(?:[^""]|"""")*""))\.(?<table>\*|(?:`(?:[^`]|``)*`|""(?:[^""]|"""")*""))$")]
+    private static partial Regex GrantObject();
 }
