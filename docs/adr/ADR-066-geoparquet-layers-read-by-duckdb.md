@@ -224,7 +224,7 @@ process.** Concretely:
    or `file_row_number`. Verified at publish and again whenever the file changes.
 9. **Read-only.** `Writable` is false, so capabilities are `Query`; editing, attachments, related
    records, ~~vector tiles~~ and schema editing are refused, the last line of each in
-   `LayerConnections`. **Amended 2026-09-13: vector tiles are no longer one of the refusals —
+   `LayerConnections`. **Reversed 2026-10-20 by owner decision — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md): vector tiles are one of the refusals again, and `GeoParquetTileSource` is removed; the amendment below is kept as the record of what was built. What it settled about drawing a dense layer, `maxAllowableOffset` on the query path, is what draws these layers now.** **Amended 2026-09-13: vector tiles are no longer one of the refusals —
    owner decision.** The Studio console's map preview draws every layer as an ArcGIS SDK
    `FeatureLayer`, which fetches FeatureServer `query` tiles; for a GeoParquet polygon layer that
    was 4–8 MB per tile even after `maxAllowableOffset` cut far-zoom tiles 107× (item 6 above),
@@ -248,7 +248,7 @@ process.** Concretely:
    is about the datastore, and a file is not the datastore), so Q-67's rule — vector tiles come only
    from data this server owns or reads under its own control — is not relaxed for a *registered
    database* layer *(it was on 2026-09-29, for PostGIS — [ADR-095](ADR-095-registered-postgis-layers-serve-vector-tiles.md);
-   the rule is `TileSources.Tiled` now, and this section's shape is what that change copied)*; `VectorTileEndpoints.Tileable` names the two cases that now qualify (hosted,
+   the rule is `TileSources.Tiled` now, and this section's shape is what that change copied; and not since 2026-10-20 — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md) restored the rule for every registered source)*; `VectorTileEndpoints.Tileable` names the two cases that now qualify (hosted,
    or GeoParquet) rather than widening `IsHosted` itself. **Cache invalidation is structural, not a
    sweep**: a replaced file's own version (`GeoParquetTable.Version`, from its length and
    modification time) rides in `TileCacheKey.FingerprintOf`, so a replacement invalidates its tiles

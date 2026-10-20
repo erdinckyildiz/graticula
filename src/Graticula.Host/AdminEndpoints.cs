@@ -9397,6 +9397,20 @@ internal static partial class AdminEndpoints
     /// <b>False when the locator cannot be read</b>, so a source sealed with another key takes the
     /// PostGIS path it always took and fails there with the sentence that path already has.
     /// </remarks>
+    private static async Task<bool> IsOracleAsync(
+        IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
+    {
+        try
+        {
+            return OracleLocator.Is(
+                await catalog.ConnectionStringOfAsync(dataSourceId, cancellation).ConfigureAwait(false));
+        }
+        catch (CryptographicException)
+        {
+            return false;
+        }
+    }
+
     private static async Task<bool> IsGeoParquetAsync(
         IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
     {
@@ -9464,6 +9478,12 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
+            // PostGIS measures this; an Oracle locator is not a PostgreSQL connection string (ADR-205).
+            if (OracleLocator.Is(connection) || GeoParquetLocator.Is(connection))
+            {
+                return null;
+            }
+
             NpgsqlDataSourceBuilder builder = new(connection);
 
             // <b>Its own bound, because a validity scan is a sequential pass.</b> A
@@ -9508,6 +9528,12 @@ internal static partial class AdminEndpoints
         {
             if (await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
                     .ConfigureAwait(false) is not { Length: > 0 } connection)
+            {
+                return null;
+            }
+
+            // PostGIS measures this; an Oracle locator is not a PostgreSQL connection string (ADR-205).
+            if (OracleLocator.Is(connection) || GeoParquetLocator.Is(connection))
             {
                 return null;
             }
@@ -9677,6 +9703,21 @@ internal static partial class AdminEndpoints
 
                 return;
             }
+        }
+
+        // <b>ADR-205: an Oracle table's validity is not measured</b>, for condition 8's reason — Oracle's rules are not
+        // PostGIS's, and the reader serves what Oracle calls invalid — so a publish that asks for it is refused as a
+        // file's is. Its reference is the one its spatial metadata declares (OracleDataSourceProbe).
+        if (request.RequireValidGeometry
+            && await IsOracleAsync(catalog, publication.DataSourceId, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(
+                context, 422,
+                $"'{publication.SchemaName}.{publication.TableName}' was not published because requireValidGeometry "
+                + "was asked for, and validity is measured by PostGIS over a table in the datastore — an Oracle table "
+                + "is read in place and its geometry is not scanned. Publish without that flag.")
+                .ConfigureAwait(false);
+            return;
         }
 
         GeometryValidity? validity = fromFile
@@ -12282,6 +12323,24 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // <b>An Oracle database's fields — ADR-205 — and never its password.</b> Its locator is JSON, so the fields are
+        // read rather than parsed out of a connection string, and a correction sends the password again.
+        if (OracleLocator.Is(stored))
+        {
+            OracleSource oracle = OracleLocator.Of(stored);
+            await Results.Json(new
+            {
+                name = found.Value.Name,
+                kind = DataSourceKinds.Oracle,
+                host = oracle.Host,
+                port = oracle.Port,
+                database = oracle.Service,
+                username = oracle.User,
+                hasPassword = !string.IsNullOrEmpty(oracle.Password),
+            }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
         if (GeoParquetLocator.Is(stored))
         {
             await Results.Json(new
@@ -12410,6 +12469,47 @@ internal static partial class AdminEndpoints
                 : null;
         }
 
+        // <b>An Oracle database — ADR-205 — named by its fields and nothing else.</b> `database` is the service, a
+        // pluggable database's included. As with a GeoParquet folder, the locator is produced here and only here: a
+        // connection string written by hand would be ODP.NET's syntax arriving at a server that never parses it.
+        if (string.Equals(request.Kind, DataSourceKinds.Oracle, StringComparison.OrdinalIgnoreCase))
+        {
+            if (hasString || HasRemoteFields(request) || !string.IsNullOrWhiteSpace(request.Path)
+                || !string.IsNullOrEmpty(request.Token) || request.Srid is not null)
+            {
+                why = "An Oracle database is named by `host`, `port`, `database` (its service), `username` and "
+                    + "`password`; nothing else describes it.";
+                return null;
+            }
+
+            if (!hasFields || string.IsNullOrWhiteSpace(request.Username))
+            {
+                why = "An Oracle database needs `host` and `username`.";
+                return null;
+            }
+
+            if (!databaseOptional && string.IsNullOrWhiteSpace(request.Database))
+            {
+                why = "`database` is required: the service name, such as FREEPDB1 for a pluggable database.";
+                return null;
+            }
+
+            int port = request.Port ?? OracleSource.DefaultPort;
+
+            if (port is <= 0 or > 65535)
+            {
+                why = "`port` is not a port.";
+                return null;
+            }
+
+            return OracleLocator.For(new OracleSource(
+                request.Host!.Trim(),
+                port,
+                string.IsNullOrWhiteSpace(request.Database) ? string.Empty : request.Database.Trim(),
+                request.Username!.Trim(),
+                string.IsNullOrEmpty(request.Password) ? null : request.Password));
+        }
+
         if (!string.IsNullOrEmpty(request.Token) || request.Srid is not null)
         {
             why = $"`token` and `srid` describe a DuckDB database; send them with `kind: \"{DataSourceKinds.DuckDb}\"` or `\"{DataSourceKinds.MotherDuck}\"`.";
@@ -12450,7 +12550,7 @@ internal static partial class AdminEndpoints
         {
             why = $"`kind` '{request.Kind}' is not one this server registers: "
                 + $"{DataSourceKinds.PostGis}, {DataSourceKinds.GeoParquet}, {DataSourceKinds.GeoParquetRemote}, "
-                + $"{DataSourceKinds.DuckDb} or {DataSourceKinds.MotherDuck}.";
+                + $"{DataSourceKinds.DuckDb}, {DataSourceKinds.MotherDuck} or {DataSourceKinds.Oracle}.";
 
             return null;
         }
@@ -12568,6 +12668,19 @@ internal static partial class AdminEndpoints
             return string.Empty;
         }
 
+        // An Oracle locator is JSON with the password as one field (ADR-205): left out, never parsed as Npgsql's.
+        if (OracleLocator.Is(connectionString))
+        {
+            try
+            {
+                return OracleLocator.WithoutSecrets(connectionString);
+            }
+            catch (ArgumentException)
+            {
+                return string.Empty;
+            }
+        }
+
         if (GeoParquetLocator.Is(connectionString))
         {
             return connectionString;
@@ -12595,6 +12708,18 @@ internal static partial class AdminEndpoints
 
     internal static string Summarise(string connectionString)
     {
+        if (OracleLocator.Is(connectionString))
+        {
+            try
+            {
+                return OracleLocator.Of(connectionString).Address;
+            }
+            catch (ArgumentException)
+            {
+                return "unparseable";
+            }
+        }
+
         if (GeoParquetLocator.Is(connectionString))
         {
             try

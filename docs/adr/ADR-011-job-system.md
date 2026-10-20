@@ -330,7 +330,7 @@ run as jobs), admin API (§39), geoprocessing (§36).
    *(2026-09-29: the first job that reads a data source is the tile seed —
    [ADR-093](ADR-093-seeding-the-tile-cache.md) — and it takes a `ConnectionBudget` lease for
    every tile it builds, so the vacuous half is not vacuous any more. The sources it reads are
-   the datastore and GeoParquet folders, since tiles come from nothing else (Q-67), so the
+   the datastore ~~and GeoParquet folders~~ *(and, since ADR-206 on 2026-10-20, the datastore alone)*, since tiles come from nothing else (Q-67), so the
    condition's *registered source* is still unread by any job; and the import's write path
    still holds no lease. The condition stays partly discharged.)*
    *(2026-10-12: **the import's write path holds the lease now**, the repair this item named.

@@ -58,7 +58,8 @@ public sealed class QuiescedPoolsTests
 
         // The three that did not.
         Assert.Throws<SourceQuiescedException>(() => connections.WriterFor(layer, []));
-        Assert.Throws<SourceQuiescedException>(() => connections.TileSourceFor(layer, []));
+        // Tiles are the datastore's only (ADR-206), so the tile path is asked about a hosted layer on the same pool.
+        Assert.Throws<SourceQuiescedException>(() => connections.TileSourceFor(Layer(hosted: true), []));
         Assert.Throws<SourceQuiescedException>(() => connections.AttachmentsFor(layer));
     }
 
@@ -83,15 +84,15 @@ public sealed class QuiescedPoolsTests
 
         Assert.NotNull(connections.SourceFor(layer));
         Assert.NotNull(connections.WriterFor(layer, []));
-        Assert.NotNull(connections.TileSourceFor(layer, []));
+        Assert.NotNull(connections.TileSourceFor(Layer(hosted: true), []));
         Assert.NotNull(connections.AttachmentsFor(layer));
     }
 
     /// <summary>A layer over the connection this test quiesces.</summary>
-    private static PublishedLayer Layer() =>
+    private static PublishedLayer Layer(bool hosted = false) =>
         new(
             Guid.NewGuid(),
-            new LayerDefinition("roads", "public", "roads", "geom", 3857, "id", "objectid", false),
+            new LayerDefinition("roads", "public", "roads", "geom", 3857, "id", "objectid", hosted),
             "source",
             Connection,
             GeometryKind.Polygon,

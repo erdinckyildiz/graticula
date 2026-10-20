@@ -961,9 +961,9 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
 
                    -- <b>The source's kind, and whether the tile face answers is decided from it in C#.</b>
                    -- D-264 moved the tile question off `is_datastore` and into a `kind in (...)` list
-                   -- here, which was a second copy of `VectorTileEndpoints.Tileable`; ADR-095 changed the
-                   -- rule (a registered PostGIS layer is tiled too) and `TileSources.Tiled` is now the
-                   -- one place it lives, asked by this listing and by the tile face alike.
+                   -- here, which was a second copy of `VectorTileEndpoints.Tileable`; `TileSources.Tiled`
+                   -- is the one place the rule lives, asked by this listing and by the tile face alike.
+                   -- Since ADR-206 it asks `is_datastore` alone; the kind is still read for the lifetime.
                    d.kind,
 
                    -- ADR-179: the title the OGC faces show, so Studio shows what is set.
@@ -1002,7 +1002,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(15) ? null : reader.GetInt32(15),
                 reader.IsDBNull(16) ? null : reader.GetDouble(16),
                 reader.IsDBNull(17) ? null : reader.GetDouble(17),
-                TileSources.Tiled(reader.GetBoolean(10), reader.GetString(18)),
+                TileSources.Tiled(reader.GetBoolean(10)),
                 reader.GetString(18),
                 reader.IsDBNull(19) ? null : reader.GetString(19)));
         }

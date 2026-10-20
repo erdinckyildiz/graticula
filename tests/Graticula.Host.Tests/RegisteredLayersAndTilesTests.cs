@@ -15,15 +15,15 @@ using Xunit;
 namespace Graticula.Host.Tests;
 
 /// <summary>
-/// ADR-095: a registered PostGIS layer serves vector tiles, keyed by the database it reads, kept for a
-/// shorter default than a hosted one, and thrown away when its source is pointed somewhere else.
+/// A registered layer and the caches: no vector tiles since ADR-206 (they were ADR-095's from 2026-09-29 to
+/// 2026-10-20), and still a shorter default lifetime for its query answers than a hosted layer's, a key that knows its
+/// database, and a move that is told apart from a new password.
 /// </summary>
 /// <remarks>
-/// <b>Against the host's own functions, with hand-built layers</b> — the rule, the key, the lifetime and the
-/// move test are all decided without a database. What a real registered table does with them is the
-/// conformance suite's <c>ARegisteredPostGisLayerServesTilesTests</c>.
+/// <b>Against the host's own functions, with hand-built layers</b> — decided without a database. What a real
+/// registered table answers is the conformance suite's <c>ARegisteredPostGisLayerServesNoTilesTests</c>.
 /// </remarks>
-public sealed class RegisteredLayersServeTilesTests
+public sealed class RegisteredLayersAndTilesTests
 {
     private const string Here =
         "Host=db.example;Port=5432;Database=gis;Username=reader;Password=first";
@@ -51,29 +51,36 @@ public sealed class RegisteredLayersServeTilesTests
 
     private static readonly TileAddress Tile = new(12, 2408, 1532);
 
+    /// <summary>ADR-206: the datastore is tiled, and no registered source is, whatever its kind.</summary>
     [Fact]
-    public void A_registered_PostGIS_layer_is_tileable_and_so_is_every_other_kind()
+    public void Only_a_datastore_layer_is_tileable()
     {
         Assert.True(VectorTileEndpoints.Tileable(Layer(Here, hosted: true)));
 
-        // The reversal: Q-67 answered false here until 2026-09-29.
-        Assert.True(VectorTileEndpoints.Tileable(Layer(Here)));
-
-        Assert.True(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.For("/data/parquet"))));
-        Assert.True(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.ForRemote("{\"url\":\"https://x/y.parquet\"}"))));
-        Assert.True(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.ForAttached(false, "{\"path\":\"a.duckdb\"}"))));
-        Assert.True(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.ForAttached(true, "{\"database\":\"md\"}"))));
+        Assert.False(VectorTileEndpoints.Tileable(Layer(Here)));
+        Assert.False(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.For("/data/parquet"))));
+        Assert.False(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.ForRemote("{\"url\":\"https://x/y.parquet\"}"))));
+        Assert.False(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.ForAttached(false, "{\"path\":\"a.duckdb\"}"))));
+        Assert.False(VectorTileEndpoints.Tileable(Layer(GeoParquetLocator.ForAttached(true, "{\"database\":\"md\"}"))));
+        Assert.False(VectorTileEndpoints.Tileable(Layer(OracleLocator.For(new OracleSource("db.example", 1521, "FREEPDB1", "reader", "x")))));
     }
 
     [Fact]
     public void The_services_directory_and_the_seed_ask_the_same_rule()
     {
-        PublishedService service = new(
+        PublishedService registered = new(
             Guid.NewGuid(), "parcels", null, "FeatureServer", null, null,
             SharingScope.Public, ServiceStatus.Started, [Layer(Here)]);
 
-        Assert.True(ServiceFaces.Tileable(service));
-        Assert.Null(TileSeeder.WhyNotSeedable(service));
+        Assert.False(ServiceFaces.Tileable(registered));
+        Assert.NotNull(TileSeeder.WhyNotSeedable(registered));
+
+        PublishedService hosted = new(
+            Guid.NewGuid(), "parcels", null, "FeatureServer", null, null,
+            SharingScope.Public, ServiceStatus.Started, [Layer(Here, hosted: true)]);
+
+        Assert.True(ServiceFaces.Tileable(hosted));
+        Assert.Null(TileSeeder.WhyNotSeedable(hosted));
     }
 
     [Fact]

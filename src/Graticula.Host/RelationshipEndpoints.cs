@@ -176,14 +176,24 @@ internal static class RelationshipEndpoints
         // ADR-066.</b> Refused where it is declared, so the refusal is an administrator's sentence
         // at the moment of the mistake rather than every client's 400 on every related-records
         // query afterwards.
+        // ADR-205: an Oracle layer's joins are not built either; refused here for the same reason.
         if (Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString)
-            || Graticula.Platform.Admin.GeoParquetLocator.Is(related.ConnectionString))
+            || Graticula.Platform.Admin.GeoParquetLocator.Is(related.ConnectionString)
+            || Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString)
+            || Graticula.Platform.Admin.OracleLocator.Is(related.ConnectionString))
         {
+            bool originIsFile = Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString);
+            var offender = originIsFile || Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString) ? origin : related;
+
             await Fail(
                 context, 422,
-                $"'{(Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString) ? origin : related).Definition.Name}' "
-                + "is served from a GeoParquet file, and related records are answered by a join in "
-                + "the database both layers are in. Import the file into the datastore to relate it.")
+                Graticula.Platform.Admin.OracleLocator.Is(offender.ConnectionString)
+                    ? $"'{offender.Definition.Name}' is in an Oracle database, and relationships between Oracle layers "
+                      + "are not built yet (ADR-205): related records are answered by a join this server does not yet "
+                      + "make there."
+                    : $"'{offender.Definition.Name}' "
+                      + "is served from a GeoParquet file, and related records are answered by a join in "
+                      + "the database both layers are in. Import the file into the datastore to relate it.")
                 .ConfigureAwait(false);
 
             return;

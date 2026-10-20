@@ -1184,11 +1184,9 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
     /// [D-264](../../docs/architecture-debt.md).
     /// </summary>
     /// <remarks>
-    /// <b>Three sources, because one answer proves nothing here.</b> A GeoParquet layer is tiled and is
-    /// never hosted; a registered PostGIS layer is tiled and not hosted since ADR-095 (2026-09-29 — it was
-    /// neither until then); the datastore is both. The console read `hosted` for this question and told an
-    /// operator their GeoParquet layer had no tile cache while its tiles were being cached. The kind rides
-    /// along too, because the listing's coherence field is read from it.
+    /// <b>Three registered sources, and none is tiled — ADR-206, 2026-10-20.</b> From 2026-09-13 a GeoParquet layer
+    /// and from 2026-09-29 a registered PostGIS layer were (ADR-066 §9, ADR-095); the listing's `tileable` follows the
+    /// one rule. The kind rides along still, because the listing's lifetime and coherence fields are read from it.
     /// </remarks>
     [Fact]
     public async Task The_listing_says_which_layers_have_tiles()
@@ -1210,11 +1208,11 @@ public sealed class PostgresAdminCatalogTests : PostgresFixture
         IReadOnlyList<AdminLayer> listed = await admin.ListLayersAsync(CancellationToken.None);
         AdminLayer Of(string name) => listed.Single(l => l.Name == name);
 
-        Assert.True(Of("tiles_registered").Tileable, "A registered PostGIS layer is tiled — ADR-095.");
+        Assert.False(Of("tiles_registered").Tileable, "A registered PostGIS layer is not tiled — ADR-206.");
         Assert.Equal("postgis", Of("tiles_registered").Kind);
         Assert.Equal("geoparquet", Of("tiles_parquet").Kind);
-        Assert.True(Of("tiles_parquet").Tileable, "A GeoParquet layer is tiled — ADR-066 §9.");
-        Assert.True(Of("tiles_ducks").Tileable, "A DuckDB-served layer is tiled too.");
+        Assert.False(Of("tiles_parquet").Tileable, "A GeoParquet layer is not tiled — ADR-206.");
+        Assert.False(Of("tiles_ducks").Tileable, "A DuckDB-served layer is not tiled either.");
 
         // And none of the three is hosted, which is why the question needed its own field.
         Assert.All(listed, l => Assert.False(l.Hosted));

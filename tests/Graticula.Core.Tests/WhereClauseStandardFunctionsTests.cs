@@ -99,6 +99,62 @@ public sealed class WhereClauseStandardFunctionsTests
         Assert.Equal(sql, Duck(clause));
     }
 
+    private static string Oracle(string clause)
+    {
+        Assert.True(
+            PredicateSql.TryEmit(Ok(clause).Predicate, Columns, Quote, out ParsedWhere emitted, out string? error, dialect: SqlDialect.Oracle),
+            error);
+
+        return emitted.Sql;
+    }
+
+    // ADR-205: each spelling run against Oracle AI Database 26ai Free before it was written down.
+    [Theory]
+    [InlineData("population / 2 = 3", "trunc(\"population\" / :w0) = :w1")]
+    [InlineData("area / 2 = 3.75", "(\"area\" / :w0) = :w1")]
+    [InlineData("CAST(code AS VARCHAR(2)) = 'TR'", "substr(cast(\"code\" as varchar2(4000)), 1, 2) = :w0")]
+    [InlineData("CAST(area AS VARCHAR) = '7.5'", "cast(\"area\" as varchar2(4000)) = :w0")]
+    [InlineData("CAST(area AS BIGINT) = 7", "cast(\"area\" as number(19)) = :w0")]
+    [InlineData("CHAR_LENGTH(name) > 5", "length(\"name\") > :w0")]
+    [InlineData("SUBSTRING(code, 1, 2) = 'TR'", "substr(\"code\", 1, 2) = :w0")]
+    [InlineData("POSITION('-' IN code) = 3", "instr(\"code\", :w0) = :w1")]
+    [InlineData("CEILING(area) = 8", "ceil(\"area\") = :w0")]
+    [InlineData("LOG10(area) > 1", "log(10, \"area\") > :w0")]
+    [InlineData("CONCAT(code, name) = 'TR06Ankara'", "(\"code\" || \"name\") = :w0")]
+    [InlineData("EXTRACT(HOUR FROM founded) = 3", "extract(hour from cast(\"founded\" as timestamp)) = :w0")]
+    [InlineData("EXTRACT(YEAR FROM founded) = 2026", "extract(year from \"founded\") = :w0")]
+    [InlineData("name LIKE 'An%'", "\"name\" like :w0 escape '\\'")]
+    public void Oracle_gets_its_own_spelling_where_it_differs(string clause, string sql)
+    {
+        Assert.Equal(sql, Oracle(clause));
+    }
+
+    [Fact]
+    public void Oracle_folds_a_case_blind_match_through_lower()
+    {
+        AttributePredicate blind = new AttributePredicate.Matches("name", "an%", Negated: false, IgnoreCase: true);
+        Assert.True(
+            PredicateSql.TryEmit(blind, Columns, Quote, out ParsedWhere emitted, out string? error, dialect: SqlDialect.Oracle),
+            error);
+
+        Assert.Equal("lower(\"name\") like lower(:w0) escape '\\'", emitted.Sql);
+    }
+
+    [Theory]
+    [InlineData(@"TR\-06", "TR-06")]
+    [InlineData(@"50\%", @"50\%")]
+    [InlineData(@"a\_b\\c", @"a\_b\\c")]
+    [InlineData("plain%", "plain%")]
+    public void Oracle_is_bound_a_pattern_without_the_escapes_it_refuses(string pattern, string bound)
+    {
+        AttributePredicate like = new AttributePredicate.Matches("code", pattern, Negated: false);
+        Assert.True(
+            PredicateSql.TryEmit(like, Columns, Quote, out ParsedWhere emitted, out string? error, dialect: SqlDialect.Oracle),
+            error);
+
+        Assert.Equal(bound, Assert.Single(emitted.Parameters));
+    }
+
     [Fact]
     public void Integer_division_truncates_in_postgresql_as_written()
     {

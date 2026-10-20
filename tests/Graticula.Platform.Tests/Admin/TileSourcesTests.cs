@@ -16,33 +16,19 @@ namespace Graticula.Platform.Tests.Admin;
 public sealed class TileSourcesTests
 {
     [Fact]
-    public void Every_kind_a_registration_can_name_is_tiled()
+    public void The_datastore_is_tiled()
     {
-        // The datastore.
-        Assert.True(TileSources.Tiled(hosted: true, DataSourceKinds.PostGis));
-
-        // ADR-095: a registered PostGIS database, which Q-67 refused until 2026-09-29.
-        Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.PostGis));
-
-        // ADR-066 §9 and ADR-067: the DuckDB-read kinds.
-        Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.GeoParquet));
-        Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.GeoParquetRemote));
-        Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.DuckDb));
-        Assert.True(TileSources.Tiled(hosted: false, DataSourceKinds.MotherDuck));
+        Assert.True(TileSources.Tiled(hosted: true));
     }
 
-    [Theory]
-    [InlineData("sqlserver")]
-    [InlineData("oracle")]
-    [InlineData("mysql")]
-    [InlineData("")]
-    [InlineData(null)]
-    public void A_kind_nothing_here_encodes_is_still_refused(string? kind)
+    /// <summary>
+    /// ADR-206, owner decision 2026-10-20: no registered source serves vector tiles, whatever its kind — Q-67's rule,
+    /// restored after ADR-095, ADR-066 §9 and ADR-205 §5c had widened it.
+    /// </summary>
+    [Fact]
+    public void No_registered_source_is_tiled()
     {
-        // Q-67's reason still holds for these engines: `ST_AsMVT` is a PostGIS function. None can be
-        // registered today; the provider v1-scope §3a defers would be refused until somebody decides how
-        // its rows reach a tile.
-        Assert.False(TileSources.Tiled(hosted: false, kind));
+        Assert.False(TileSources.Tiled(hosted: false));
     }
 
     [Fact]
@@ -52,6 +38,9 @@ public sealed class TileSourcesTests
 
         Assert.Equal(TileSources.RegisteredLifetime, TileSources.DefaultLifetimeOf(false, DataSourceKinds.PostGis, server));
         Assert.Equal(TimeSpan.FromMinutes(5), TileSources.RegisteredLifetime);
+
+        // ADR-205 §5c: a registered Oracle table is written by other tools as a registered PostGIS one is.
+        Assert.Equal(TileSources.RegisteredLifetime, TileSources.DefaultLifetimeOf(false, DataSourceKinds.Oracle, server));
 
         // Hosted and the file kinds keep the server's default: nothing about them changed.
         Assert.Equal(server, TileSources.DefaultLifetimeOf(true, DataSourceKinds.PostGis, server));
@@ -76,6 +65,7 @@ public sealed class TileSourcesTests
         Assert.Equal("exact", TileSources.CoherenceOf(true, DataSourceKinds.PostGis));
         Assert.Equal("best-effort", TileSources.CoherenceOf(false, DataSourceKinds.PostGis));
         Assert.Equal("best-effort", TileSources.CoherenceOf(false, DataSourceKinds.MotherDuck));
+        Assert.Equal("best-effort", TileSources.CoherenceOf(false, DataSourceKinds.Oracle));
         Assert.Equal("file-version", TileSources.CoherenceOf(false, DataSourceKinds.GeoParquet));
         Assert.Equal("file-version", TileSources.CoherenceOf(false, DataSourceKinds.DuckDb));
     }

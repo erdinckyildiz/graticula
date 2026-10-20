@@ -92,7 +92,6 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         }
     }
     private readonly LayerDefinition _layer;
-    private readonly IReadOnlyList<FieldDescription> _fields;
     private readonly EditorTracking _tracking;
     private readonly LayerSubtypes? _subtypes;
 
@@ -141,12 +140,15 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
 
         _dataSource = dataSource;
         _layer = layer;
-        _fields = fields;
         _tracking = tracking ?? EditorTracking.None;
         _subtypes = subtypes;
-        _globalId = GlobalIds.FieldOf(fields);
+        _columns = new EditColumns(layer, fields, subtypes);
+        _globalId = _columns.GlobalId;
         _geometryKind = geometryKind;
     }
+
+    /// <summary>The rules both writers share — EditColumns, ADR-205 phase 2.</summary>
+    private readonly EditColumns _columns;
 
     /// <summary>The layer's GlobalID column, which this server fills, or null.</summary>
     private readonly string? _globalId;
@@ -465,13 +467,13 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         CancellationToken cancellationToken)
     {
         if (add.Geometry is { IsEmpty: false } shape && declared is { } stores
-            && DimensionRefusal(shape, stores, "the layer's geometry column") is { } refused)
+            && EditColumns.DimensionRefusal(shape, stores, "the layer's geometry column") is { } refused)
         {
             return EditResult.Failed(-1, refused);
         }
 
         // A new feature has no stored subtype: the one it is given is the one it is.
-        if (!TryBindColumns(add.Attributes, null, out List<(string Column, object? Value)> bound, out string? error, keepGlobalId: batch.KeepsGlobalIds))
+        if (!_columns.TryBind(add.Attributes, null, out List<(string Column, object? Value)> bound, out string? error, keepGlobalId: batch.KeepsGlobalIds))
         {
             return EditResult.Failed(-1, error!);
         }
@@ -504,7 +506,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
 
         // <b>ADR-064: the tracked columns are this server's to write</b> — the account's name and
         // the database's clock. Whatever the client sent for them was dropped by
-        // `TryBindColumns`, so these are the only values the row can get.
+        // `EditColumns.TryBind`, so these are the only values the row can get.
         bool named = false;
 
         foreach ((string? column, string value, bool isName) in (ReadOnlySpan<(string?, string, bool)>)
@@ -646,7 +648,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         // what its column declares, and to nothing when the column declares nothing.
         if (update.Geometry is not null
             && (zmFlag is { } flag ? (GeometryOrdinates)flag : declared) is { } stores
-            && DimensionRefusal(
+            && EditColumns.DimensionRefusal(
                 update.Geometry,
                 stores,
                 zmFlag is null ? "the layer's geometry column" : "this feature's stored geometry") is { } lossy)
@@ -654,7 +656,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return EditResult.Failed(update.Identity, lossy);
         }
 
-        if (!TryBindColumns(update.Attributes, storedSubtype, out List<(string Column, object? Value)> bound, out string? error))
+        if (!_columns.TryBind(update.Attributes, storedSubtype, out List<(string Column, object? Value)> bound, out string? error))
         {
             return EditResult.Failed(update.Identity, error!);
         }
@@ -682,7 +684,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             assignments.Add($"{LayerDefinition.Quote(_layer.GeometryColumn)} = {stored}");
         }
 
-        string? owner = OwnerFilter(batch);
+        string? owner = EditColumns.OwnerOf(batch);
 
         if (assignments.Count == 0)
         {
@@ -796,7 +798,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         EditBatch batch,
         CancellationToken cancellationToken)
     {
-        string? owner = OwnerFilter(batch);
+        string? owner = EditColumns.OwnerOf(batch);
 
         string sql =
             $"delete from {_layer.QuotedTable} "
@@ -868,26 +870,17 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         EditBatch batch,
         CancellationToken cancellationToken)
     {
-        if (_subtypes is not { } subtypes
-            || !update.Attributes.TryGetValue(subtypes.Field, out object? sent)
-            || !DomainRules.TryCode(sent, out long code)
-            || subtypes.Find(code) is not { } target)
+        if (_columns.SubtypeMove(update) is not { } move)
         {
             return null;
         }
 
-        FieldDescription[] unsent = [.. _fields.Where(f =>
-            target.Domains.ContainsKey(f.Name) && !update.Attributes.ContainsKey(f.Name))];
+        (Subtype target, long code, FieldDescription[] unsent) = move;
 
-        if (unsent.Length == 0)
-        {
-            return null;
-        }
-
-        string? owner = OwnerFilter(batch);
+        string? owner = EditColumns.OwnerOf(batch);
 
         await using NpgsqlCommand command = new(
-            $"select {LayerDefinition.Quote(subtypes.Field)}::bigint, "
+            $"select {LayerDefinition.Quote(_columns.SubtypeField!)}::bigint, "
             + string.Join(", ", unsent.Select(f => LayerDefinition.Quote(f.Name)))
             + $" from {_layer.QuotedTable} where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = @id"
             + OwnerClause(owner),
@@ -914,19 +907,14 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         {
             object? stored = reader.IsDBNull(i + 1) ? null : reader.GetValue(i + 1);
 
-            if (DomainRules.Refusal(unsent[i], stored, target.Domains[unsent[i].Name], target) is { } refusal)
+            if (EditColumns.SubtypeMoveRefusal(target, unsent[i], stored) is { } refusal)
             {
-                return $"{refusal} This edit moves the feature to subtype {target.Code} ({target.Name}) and leaves "
-                    + $"'{unsent[i].Name}' as it was, which the new subtype does not allow. Send '{unsent[i].Name}' "
-                    + "with a value it allows, in the same edit.";
+                return refusal;
             }
         }
 
         return null;
     }
-
-    private static string? OwnerFilter(EditBatch batch) =>
-        batch.OwnOnly ? batch.Editor ?? string.Empty : null;
 
     /// <summary>The ownership predicate for a write's <c>where</c>, or nothing.</summary>
     /// <remarks>
@@ -984,10 +972,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
     {
         if (_tracking.Creator is null)
         {
-            return EditResult.NotOwned(
-                identity,
-                "This layer does not record who created its features, so none of them is yours to "
-                + "change. Changing them needs features:fullEdit.");
+            return EditColumns.NotOwned(identity, recordsCreator: false, creator: null);
         }
 
         await using NpgsqlCommand command = new(
@@ -1006,58 +991,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return EditResult.Missing(identity);
         }
 
-        if (reader.IsDBNull(0))
-        {
-            return EditResult.NotOwned(
-                identity,
-                $"Feature {identity} has no creator recorded, so it is nobody's own. Changing it "
-                + "needs features:fullEdit.");
-        }
+        string? creator = reader.IsDBNull(0) ? null : reader.GetString(0);
 
-        return string.Equals(reader.GetString(0), owner, StringComparison.Ordinal)
+        return creator is not null && string.Equals(creator, owner, StringComparison.Ordinal)
             ? null
-            : EditResult.NotOwned(
-                identity,
-                $"Feature {identity} was created by somebody else. Changing another account's "
-                + "feature needs features:fullEdit.");
-    }
-
-    /// <summary>
-    /// Why a geometry may not be written where <paramref name="stores"/> is kept, or null when it may.
-    /// </summary>
-    /// <param name="sent">The geometry the edit carries.</param>
-    /// <param name="stores">What the row or column holds.</param>
-    /// <param name="where">What holds it, for the sentence.</param>
-    /// <remarks>
-    /// <b>Both directions are losses, so both are refused.</b> A flat shape over an elevation discards the
-    /// elevation; an elevation into a flat column is discarded by the column, or refused by PostGIS in words
-    /// about typmods. Padding a missing Z with zero is not an option either: zero metres is a value, and
-    /// nobody could tell it from a measured one (ADR-077 §10).
-    /// </remarks>
-    private static string? DimensionRefusal(Geometry sent, GeometryOrdinates stores, string where)
-    {
-        GeometryOrdinates carried = Ordinates.Of(sent);
-
-        if (carried == stores)
-        {
-            return null;
-        }
-
-        GeometryOrdinates missing = stores & ~carried;
-
-        if (missing != GeometryOrdinates.None)
-        {
-            return $"{char.ToUpperInvariant(where[0])}{where[1..]} carries {Ordinates.Name(missing)}, and the "
-                + "geometry sent has none. Writing it would discard the stored value or invent one, so the edit "
-                + $"is refused. Send the geometry with {(missing == (GeometryOrdinates.Z | GeometryOrdinates.M) ? "them" : "it")} "
-                + "— hasZ / hasM and a value on every vertex — or update the attributes alone (ADR-077).";
-        }
-
-        GeometryOrdinates extra = carried & ~stores;
-
-        return $"The geometry sent carries {Ordinates.Name(extra)}, and {where} stores "
-            + $"{Ordinates.Name(stores) ?? "x and y only"}. Storing it would discard "
-            + $"{(extra == (GeometryOrdinates.Z | GeometryOrdinates.M) ? "them" : "it")}, so the edit is refused (ADR-077).";
+            : EditColumns.NotOwned(identity, recordsCreator: true, creator);
     }
 
     /// <summary>
@@ -1177,10 +1115,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return new Dictionary<long, long?>();
         }
 
-        long[] needed = [.. updates
-            .Where(u => !u.Attributes.ContainsKey(subtypes.Field) && u.Attributes.Keys.Any(subtypes.Varies))
-            .Select(u => u.Identity)
-            .Distinct()];
+        long[] needed = _columns.NeedingStoredSubtype(updates);
 
         if (needed.Length == 0)
         {
@@ -1209,144 +1144,6 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         }
 
         return codes;
-    }
-
-    /// <summary>
-    /// Checks every column against the layer's real columns, and every value against the domain
-    /// that governs it.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// ADR-008 §4.6. A column name cannot be a parameter, so it is compared
-    /// against the list the database gave us and refused if absent. The object
-    /// id and the geometry column are refused too: the first is assigned by the
-    /// database and the second has its own handling, and letting either through
-    /// here would write a raw value into a column that expects something else.
-    /// </para>
-    /// <para>
-    /// <b>ADR-065 and ADR-013 condition 5: a domain the document reports is a domain this refuses
-    /// a value outside.</b> Here, in the writer both faces share, so ArcGIS <c>applyEdits</c> and
-    /// OGC API Features refuse the same values with the same sentence. A value is checked against
-    /// its subtype's domain when the feature has a subtype that gives the column one — the subtype
-    /// sent in the same edit, or the one it already is — and against the column's own otherwise.
-    /// </para>
-    /// <para>
-    /// <b>What is checked is what is written</b>, not the row it lands in. An update that moves a
-    /// feature to another subtype and leaves a column alone does not have that column's stored
-    /// value checked against the new subtype's domain: the value was not sent, and refusing an edit
-    /// for something already in the table is refusing a different edit than the one asked for.
-    /// </para>
-    /// </remarks>
-    private bool TryBindColumns(
-        IReadOnlyDictionary<string, object?> attributes,
-        long? storedSubtype,
-        out List<(string Column, object? Value)> bound,
-        out string? error,
-        bool keepGlobalId = false)
-    {
-        bound = [];
-        error = null;
-
-        // The subtype this feature will be: the one sent, when one is, and the one it is otherwise.
-        long? subtype = storedSubtype;
-
-        if (_subtypes is { } declared && attributes.TryGetValue(declared.Field, out object? sent))
-        {
-            subtype = DomainRules.TryCode(sent, out long code) ? code : null;
-        }
-
-        foreach (KeyValuePair<string, object?> attribute in attributes)
-        {
-            if (string.Equals(attribute.Key, _layer.IntegerIdentityColumn, StringComparison.Ordinal))
-            {
-                // Silently ignored rather than refused. Every ArcGIS client
-                // round-trips the object id in the attributes of an update, and
-                // refusing would fail every well-behaved edit.
-                continue;
-            }
-
-            if (string.Equals(attribute.Key, _layer.GeometryColumn, StringComparison.Ordinal))
-            {
-                error =
-                    $"'{attribute.Key}' is the geometry column and cannot be set as an attribute. "
-                    + "Send the shape in the feature's 'geometry' member.";
-                return false;
-            }
-
-            FieldDescription? field = null;
-
-            foreach (FieldDescription candidate in _fields)
-            {
-                if (string.Equals(candidate.Name, attribute.Key, StringComparison.Ordinal))
-                {
-                    field = candidate;
-                    break;
-                }
-            }
-
-            if (field is null)
-            {
-                error =
-                    $"'{attribute.Key}' is not a column of this layer. Columns are taken from the "
-                    + "database rather than the request, so a name that is not there cannot be "
-                    + "written.";
-                return false;
-            }
-
-            // <b>A tracked column is dropped, not refused — ADR-064.</b> The document says it is
-            // not editable, and an ArcGIS web client echoes every attribute back on an update
-            // anyway; refusing would fail an ordinary edit over a value the client never meant
-            // to change. This server writes the column itself, after this.
-            if (field.Value.Maintained)
-            {
-                continue;
-            }
-
-            // <b>The GlobalID is this server's to write, like a tracked column</b> — dropped rather
-            // than refused, because a client echoes it back on every update. The column's default
-            // gives a new row its value.
-            //
-            // <b>Except on an add under `useGlobalIds=true`</b>, where the client minted it and will
-            // refer to the feature by it. A null is still the column's default's to fill.
-            if (string.Equals(attribute.Key, _globalId, StringComparison.Ordinal)
-                && !(keepGlobalId && attribute.Value is Guid))
-            {
-                continue;
-            }
-
-            if (_subtypes is { } subtypes
-                && string.Equals(attribute.Key, subtypes.Field, StringComparison.Ordinal))
-            {
-                if (DomainRules.SubtypeRefusal(subtypes, attribute.Value) is { } notASubtype)
-                {
-                    error = notASubtype;
-                    return false;
-                }
-            }
-            else
-            {
-                FieldDomain? governing = _subtypes?.DomainFor(attribute.Key, subtype, field.Value.Domain)
-                    ?? field.Value.Domain;
-
-                // The subtype is named in the refusal only when the domain is the subtype's, so a
-                // value refused by the column's own domain is not blamed on the feature's kind.
-                Subtype? whose = governing is not null
-                    && !ReferenceEquals(governing, field.Value.Domain)
-                    && subtype is { } kind
-                        ? _subtypes!.Find(kind)
-                        : null;
-
-                if (DomainRules.Refusal(field.Value, attribute.Value, governing, whose) is { } outside)
-                {
-                    error = outside;
-                    return false;
-                }
-            }
-
-            bound.Add((attribute.Key, attribute.Value));
-        }
-
-        return true;
     }
 
     private static void Bind(

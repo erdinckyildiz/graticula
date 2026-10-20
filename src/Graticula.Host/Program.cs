@@ -724,13 +724,6 @@ public static class Program
                     services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)),
                 services.GetRequiredService<SourceBreaker>()));
 
-        // <b>The other half of a GeoParquet tile, ADR-066 §9 amended 2026-09-13.</b> Rows are
-        // read from a file; encoding them is still PostGIS's job (ADR-021), and this is the
-        // datastore round trip that does it — the same pool `IProjector` reaches, because
-        // encoding is a service of the datastore rather than of any registered database.
-        builder.Services.AddSingleton<Graticula.Tiles.IMvtEncoder>(services =>
-            new PostGisMvtEncoder(services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool)));
-
         // <b>Overlay runs in its own process, and the pool is what kills it.</b>
         // Q-97, answered by the owner: no property of the input predicts overlay
         // cost, so the bound is a deadline on a process rather than a cap on a
@@ -771,7 +764,9 @@ public static class Program
             services.GetRequiredService<SecretProtector>()));
 
         builder.Services.AddSingleton<IDataSourceProbe>(services => new DataSourceProbes(
-            new PostgresDataSourceProbe(), services.GetRequiredService<GeoParquetSources>()));
+            new PostgresDataSourceProbe(),
+            services.GetRequiredService<GeoParquetSources>(),
+            new Graticula.Providers.Oracle.OracleDataSourceProbe()));
 
         builder.Services.AddSingleton<IAuditLog>(services =>
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));

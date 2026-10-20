@@ -433,6 +433,8 @@ paragraph together with the oracle that would have to be extended.
 
 ### Amendment, 2026-08-12 — Q-67: tiles come only from hosted data
 
+> **For Oracle, no longer — [ADR-205](ADR-205-a-registered-oracle-database-is-served-like-postgis.md), 2026-10-19.** A registered Oracle layer is tiled through the PostGIS datastore, as a DuckDB-read layer is: rows through the feature source, `ST_AsMVT` in the datastore. The in-process encoder whose cost made this amendment is not on that route. Whether the route is affordable for Oracle is ADR-205 condition 4.
+
 **Owner decision, taken after run 3 rather than before it.** Vector tiles are
 served only from data hosted in the datastore. Registered Oracle, SQL Server and
 foreign PostGIS layers serve features — including full ArcGIS FeatureServer

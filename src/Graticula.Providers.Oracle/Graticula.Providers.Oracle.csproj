@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2 ADAPTER. Layers served from a registered Oracle database's SDO_GEOMETRY tables — ADR-205.
+
+    Separate from the PostGIS and DuckDB providers for the reason they are separate from each other:
+    a different engine and a different dialect below the same ports. Oracle's managed driver is
+    referenced here and nowhere else (NativeDependencyTests), so no Oracle type — connection,
+    reader, parameter, SDO object — reaches Core, an endpoint or a writer. Geometry crosses the port
+    as WKB (SDO_UTIL.TO_WKBGEOMETRY), as it does from DuckDB.
+
+    It references Graticula.Platform for the registration probe's types (ProbeResult, SourceTable)
+    and OracleLocator, as Graticula.Platform.Postgres does for PostgreSQL's probe.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Providers.Oracle</RootNamespace>
+    <AssemblyName>Graticula.Providers.Oracle</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+    <ProjectReference Include="..\Graticula.Platform\Graticula.Platform.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Graticula.Providers.Oracle.Tests" />
+  </ItemGroup>
+
+</Project>

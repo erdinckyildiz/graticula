@@ -8,6 +8,7 @@ using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Providers.DuckDb;
+using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Npgsql;
@@ -78,12 +79,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// layer on a folder asked of a process without it is refused by name.
     /// </param>
     /// <param name="projector">The datastore's projector, which a GeoParquet layer projects through.</param>
-    /// <param name="mvtEncoder">
-    /// Where a GeoParquet tile's rows are encoded — ADR-066 §9, amended 2026-09-13. Optional for
-    /// the same reason <paramref name="geoParquet"/> is: a process started without one serves no
-    /// GeoParquet tiles, and <see cref="TileSourceFor"/> says so by name rather than reaching a
-    /// null reference.
-    /// </param>
     /// <param name="tiles">
     /// The tile cache a successful edit empties for its layer — ADR-069. Optional for the same
     /// reason as the others: a process without one has no tiles to go stale.
@@ -95,7 +90,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         SourceQuiesce? quiesce = null,
         GeoParquetSources? geoParquet = null,
         Graticula.Geometries.IProjector? projector = null,
-        Graticula.Tiles.IMvtEncoder? mvtEncoder = null,
         ITileCache? tiles = null,
         Graticula.Geometries.IGeometryEngine? engine = null)
     {
@@ -107,7 +101,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         _quiesce = quiesce;
         _geoParquet = geoParquet;
         _projector = projector;
-        _mvtEncoder = mvtEncoder;
         _tiles = tiles;
         _engine = engine;
     }
@@ -125,7 +118,6 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     private readonly GeoParquetSources? _geoParquet;
     private readonly Graticula.Geometries.IProjector? _projector;
-    private readonly Graticula.Tiles.IMvtEncoder? _mvtEncoder;
 
     /// <summary>
     /// Closes this source's pool, so nothing of ours is holding its tables.
@@ -243,6 +235,30 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            // <b>ADR-205 — a GeoParquet layer's gates, for the same reasons.</b> The driver keeps its own pool per
+            // connection string; the budget, breaker and quiesce are this server's statements about its work.
+            if (_quiesce?.Holding(layer.ConnectionString) is { } oracleHeld)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(oracleHeld), oracleHeld.Until);
+            }
+
+            if (_projector is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    + "the projector it moves coordinates with.");
+            }
+
+            return new BudgetedFeatureSource(
+                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer)),
+                _budget,
+                layer.ConnectionString,
+                _breaker,
+                _quiesce);
+        }
+
         if (GeoParquetLocator.Is(layer.ConnectionString))
         {
             // <b>ADR-066.</b> The same budget, breaker and quiesce as a database, because each of
@@ -262,10 +278,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             }
 
             // The same statement bound as a database layer's, lowered and never raised by the service.
-            TimeSpan? lowered = layer.StatementTimeout is { } fileWanted
-                && fileWanted > TimeSpan.Zero && fileWanted < StatementTimeout
-                    ? fileWanted
-                    : StatementTimeout;
+            TimeSpan? lowered = Lowered(layer);
 
             return new BudgetedFeatureSource(
                 new GeoParquetFeatureSource(
@@ -473,6 +486,27 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // <b>ADR-205 phase 2: an Oracle table is edited by its own writer</b>, under the rules the PostGIS one applies
+        // (EditColumns), behind the same quiesce. Not wrapped in TilePurgingWriter: a registered layer has no tiles (ADR-206).
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            if (_quiesce?.Holding(layer.ConnectionString) is { } held)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+            }
+
+            if (_projector is null)
+            {
+                throw new InvalidOperationException(
+                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    + "the projector an edit's geometry is moved with.");
+            }
+
+            return new OracleFeatureWriter(
+                layer.ConnectionString, layer.Definition, fields, _projector, tracking, subtypes, Lowered(layer));
+        }
+
         RefuseIfFile(layer, "edited");
 
         IFeatureWriter writer = new PostGisFeatureWriter(
@@ -519,13 +553,17 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
     /// <summary>
     /// Whether several layers' edits can be kept or discarded together: every one in the same
-    /// PostgreSQL database, none of them a file.
+    /// PostgreSQL database, none of them a file or another engine.
     /// </summary>
     /// <param name="edits">The layers' edits.</param>
     /// <returns>Whether one transaction can hold them.</returns>
+    /// <remarks>
+    /// <b>Asks the kind, not "not a file" — ADR-205 condition 2.</b> Until 2026-10-20 this read every source that was
+    /// not GeoParquet as PostgreSQL, so two Oracle layers would have been handed to one Npgsql transaction.
+    /// </remarks>
     internal static bool OneTransactionHolds(IReadOnlyList<LayerEdit> edits) =>
         edits.Count > 0
-        && edits.All(e => !GeoParquetLocator.Is(e.Layer.ConnectionString))
+        && edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
         && edits.Select(e => e.Layer.ConnectionString).Distinct(StringComparer.Ordinal).Count() == 1;
 
     /// <summary>
@@ -622,22 +660,19 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return outcomes;
     }
 
-    /// <summary>A tile source for one layer.</summary>    /// <summary>A tile source for one layer.</summary>
+    /// <summary>A tile source for one datastore layer.</summary>
     /// <param name="layer">The layer.</param>
     /// <param name="attributes">
     /// The columns to carry into the tile, with their types, already checked against the layer's
     /// real columns — the same identifier whitelist ADR-008 §4.6 requires of the select list, for
-    /// the same reason. The type travels too because a GeoParquet layer's encoder has to give
-    /// each value back the PostgreSQL type a hosted column of that kind would have.
+    /// the same reason.
     /// </param>
     /// <param name="scheme">The grid the service is cut on, or null for Web Mercator — ADR-096.</param>
     /// <returns>The tile source.</returns>
     /// <remarks>
-    /// <b>GeoParquet layers get tiles too, since 2026-09-13 — owner decision, reversing ADR-066
-    /// §9 for this one face.</b> Editing, attachments, related records and schema editing are
-    /// still refused by <see cref="RefuseIfFile"/>; tiling is not, because a GeoParquet layer's
-    /// rows can still be read and PostGIS can still encode them, which is the whole of what a
-    /// tile needs.
+    /// <b>The datastore's only — ADR-206.</b> A registered layer of any kind is refused before it gets here, by
+    /// <see cref="VectorTileEndpoints.Tileable"/>; this refuses it again rather than hand a GeoParquet folder's or an
+    /// Oracle database's locator to Npgsql, which is what falling through to the pool would do.
     /// </remarks>
     public ITileSource TileSourceFor(
         PublishedLayer layer,
@@ -651,40 +686,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(attributes);
 
-        if (GeoParquetLocator.Is(layer.ConnectionString))
+        if (!VectorTileEndpoints.Tileable(layer))
         {
-            // <b>The same gate <see cref="SourceFor"/> applies, restated.</b> A tile source is
-            // built once per cold tile rather than once per request (`TileSingleFlight`), but the
-            // pool it reads through is the file's own, and an operator quiescing that source
-            // needs it honoured here exactly as it is on the query path.
-            if (_quiesce?.Holding(layer.ConnectionString) is { } held)
-            {
-                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
-            }
-
-            if (_geoParquet is null || _projector is null)
-            {
-                throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
-                    + "server was started without the means to read one.");
-            }
-
-            if (_mvtEncoder is null)
-            {
-                throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is served from a GeoParquet folder and this "
-                    + "server was started without a vector tile encoder for it.");
-            }
-
-            TimeSpan? lowered = layer.StatementTimeout is { } fileWanted
-                && fileWanted > TimeSpan.Zero && fileWanted < StatementTimeout
-                    ? fileWanted
-                    : StatementTimeout;
-
-            GeoParquetFeatureSource reader = new(
-                _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, _projector, lowered);
-
-            return new GeoParquetTileSource(reader, layer.Definition, attributes, _mvtEncoder, scheme);
+            throw new QueryNotSupportedException(
+                $"Layer '{layer.Definition.Name}' is registered from a database or files this server does not own, and "
+                + "vector tiles are drawn from the datastore only (ADR-206). Draw it through its FeatureServer, or "
+                + "import it into the datastore.");
         }
 
         return new PostGisTileSource(
@@ -901,10 +908,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// gated on the hosted schema. This is here so that a face written later that forgets gets a
     /// sentence rather than an Npgsql parse error about a folder path.
     /// <para>
-    /// <b>Tiling stopped being one of these on 2026-09-13.</b> <see cref="TileSourceFor"/> used
-    /// to call this too — ADR-066 §9's original refusal — and now branches to
-    /// <see cref="GeoParquetTileSource"/> instead. The sentence above is what every other caller
-    /// still gets; a GeoParquet layer's own words about tiles no longer include *cannot*.
+    /// <b>Tiling is refused before this, for every registered layer alike</b> — ADR-206, in
+    /// <see cref="TileSourceFor"/>; from 2026-09-13 to 2026-10-20 a GeoParquet layer was tiled.
     /// </para>
     /// </remarks>
     private static void RefuseIfFile(PublishedLayer layer, string what)
@@ -915,7 +920,25 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 $"Layer '{layer.Definition.Name}' is served from a GeoParquet file, which cannot be "
                 + $"{what}: the file is read in place and never written (ADR-066).");
         }
+
+        // ADR-205: an Oracle layer's rows are edited in place (WriterFor), and nothing else is made for it — a history,
+        // attachments or a GlobalID lookup would need tables in the customer's database, which this server never creates
+        // (ADR-002 §4.2).
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            throw new QueryNotSupportedException(
+                $"Layer '{layer.Definition.Name}' is in a registered Oracle database, whose rows this server edits in "
+                + $"place and beside which it makes nothing, so it cannot be {what} (ADR-205).");
+        }
     }
+
+    /// <summary>
+    /// A file's or an Oracle table's statement bound: the database layer's, lowered and never raised by the service.
+    /// </summary>
+    private static TimeSpan Lowered(PublishedLayer layer) =>
+        layer.StatementTimeout is { } wanted && wanted > TimeSpan.Zero && wanted < StatementTimeout
+            ? wanted
+            : StatementTimeout;
 
     /// <inheritdoc/>
     public void Dispose()

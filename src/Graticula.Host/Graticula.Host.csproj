@@ -34,6 +34,7 @@
     <ProjectReference Include="..\Graticula.Security.Argon2\Graticula.Security.Argon2.csproj" />
     <ProjectReference Include="..\Graticula.Providers.PostGis\Graticula.Providers.PostGis.csproj" />
     <ProjectReference Include="..\Graticula.Providers.DuckDb\Graticula.Providers.DuckDb.csproj" />
+    <ProjectReference Include="..\Graticula.Providers.Oracle\Graticula.Providers.Oracle.csproj" />
   </ItemGroup>
 
   <!--

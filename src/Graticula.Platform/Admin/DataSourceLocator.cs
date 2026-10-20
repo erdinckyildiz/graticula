@@ -21,6 +21,9 @@ public static class DataSourceKinds
 
     /// <summary>A MotherDuck database, its tables read as layers — ADR-067 §5.4.</summary>
     public const string MotherDuck = "motherduck";
+
+    /// <summary>An Oracle database, its <c>SDO_GEOMETRY</c> tables read as layers — ADR-205.</summary>
+    public const string Oracle = "oracle";
 }
 
 /// <summary>
@@ -160,9 +163,15 @@ public static class GeoParquetLocator
 
     /// <summary>The kind a stored locator belongs to.</summary>
     /// <param name="stored">The unsealed locator.</param>
-    /// <returns>The kind, <see cref="DataSourceKinds.PostGis"/> for anything that is not files.</returns>
+    /// <returns>The kind, <see cref="DataSourceKinds.PostGis"/> for anything that names no other engine.</returns>
+    /// <remarks>
+    /// <b>Oracle first, since 2026-10-19 (ADR-205).</b> Everything this does not recognise is PostGIS, so a kind added
+    /// without a line here is silently a PostgreSQL connection string to every caller — which is what an Oracle
+    /// locator would have been.
+    /// </remarks>
     public static string KindOf(string? stored) =>
-        IsRemote(stored) ? DataSourceKinds.GeoParquetRemote
+        OracleLocator.Is(stored) ? DataSourceKinds.Oracle
+        : IsRemote(stored) ? DataSourceKinds.GeoParquetRemote
         : stored is not null && stored.StartsWith(DuckDbScheme, StringComparison.Ordinal) ? DataSourceKinds.DuckDb
         : stored is not null && stored.StartsWith(MotherDuckScheme, StringComparison.Ordinal) ? DataSourceKinds.MotherDuck
         : Is(stored) ? DataSourceKinds.GeoParquet

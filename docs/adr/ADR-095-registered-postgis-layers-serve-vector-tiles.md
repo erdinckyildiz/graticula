@@ -9,7 +9,7 @@
 | **Depends on** | [ADR-021](ADR-021-tile-encoding.md), [ADR-010](ADR-010-caching.md), [ADR-066](ADR-066-geoparquet-layers-read-by-duckdb.md), [ADR-059](ADR-059-quiescing-a-data-source.md), [ADR-069](ADR-069-query-responses-carry-the-layer-s-cache-lifetime.md), [ADR-070](ADR-070-a-layer-has-a-visible-scale-range.md), [ADR-085](ADR-085-a-tile-leaves-out-what-it-cannot-draw.md), [ADR-093](ADR-093-seeding-the-tile-cache.md) |
 | **Amends** | [ADR-021](ADR-021-tile-encoding.md) §1 and §4 (*the datastore is ours* is no longer the only database a tile is encoded in); [ADR-010](ADR-010-caching.md) §5.3 and §6b (a registered layer's default lifetime and its read-back) |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md) (2026-10-20) |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -111,6 +111,8 @@ administrator who knows the layer is static buys it back.
 | Not measured: throughput from a remote registered database, or any tile over a network link to one | — | §9 |
 
 ## 5. Decision
+
+> **Reversed 2026-10-20 by owner decision — [ADR-206](ADR-206-vector-tiles-are-served-from-the-datastore-only.md): no registered layer serves vector tiles, and `TileSources.Tiled` answers by `hosted` alone. This section is kept as the record of what was decided and built. What survives is not the tile: the five-minute default lifetime and the `best-effort` coherence (§5.3) now govern a registered layer's *query answers* (ADR-069, `QueryResponseCaching`), and a data-source move still purges the layer's caches (§5.4). §5.2 (encoding) and §5.5 (seeding) have no subject.**
 
 **A layer is tileable when it is hosted, when its source is a registered PostGIS database, or when its
 source is GeoParquet or DuckDB. A registered PostGIS layer's tile is built by the hosted layer's statement
