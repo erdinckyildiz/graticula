@@ -1,0 +1,50 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Graticula.Platform.Admin;
+using MySqlConnector;
+using Xunit;
+
+namespace Graticula.Providers.MySql.Tests;
+
+/// <summary>
+/// The MySQL database ADR-208's tests read: a <c>mysql:</c> locator in <c>GRATICULA_TEST_MYSQL</c>, naming a database
+/// the user may create tables in. Each test makes the tables it reads, so no seed is needed.
+/// </summary>
+/// <remarks>
+/// <b>Fails rather than skips when it is not set</b>, as every database-backed suite here does. Filter it out
+/// deliberately with <c>--filter Needs!=MySql</c>.
+/// </remarks>
+internal static class MySqlFixture
+{
+    public const string Variable = "GRATICULA_TEST_MYSQL";
+
+    public static string Locator
+    {
+        get
+        {
+            string? stored = Environment.GetEnvironmentVariable(Variable);
+            Assert.True(
+                stored is not null && MySqlLocator.Is(stored),
+                $"{Variable} is not set to a mysql: locator, so these tests FAIL rather than skip. Set it to "
+                + "mysql:{\"host\":…,\"port\":…,\"database\":…,\"user\":…,\"password\":…} for a database the user may "
+                + "create tables in, or filter them out deliberately with --filter Needs!=MySql.");
+            return stored!;
+        }
+    }
+
+    public static MySqlSource Source => MySqlLocator.Of(Locator);
+
+    /// <summary>Runs statements on the test database, in ANSI mode as the provider's sessions are.</summary>
+    public static async Task ExecuteAsync(params string[] statements)
+    {
+        await using MySqlConnection connection =
+            await MySqlConnections.OpenAsync(MySqlConnections.For(Locator, pooling: true), CancellationToken.None);
+
+        foreach (string statement in statements)
+        {
+            await using MySqlCommand command = new(statement, connection);
+            await command.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+    }
+}

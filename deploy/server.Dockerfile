@@ -266,6 +266,12 @@ COPY --from=build /duckdb-extensions/linux_${TARGETARCH}/ ./duckdb-extensions/li
 # line that makes that true of the artefact somebody actually receives.
 COPY tools/fonts/LICENSE-DejaVu.txt ./LICENSE-DejaVu.txt
 
+# <b>MySqlConnector's MIT licence travels with the driver — ADR-208.</b> Its package declares the licence only as an
+# SPDX expression and carries no text, so the text and the copyright its nuspec states are in the repository, and the
+# build fails if the driver is not in the image beside it.
+COPY deploy/LICENSE-MySqlConnector.txt ./LICENSE-MySqlConnector.txt
+RUN test -f /app/MySqlConnector.dll && test -s /app/LICENSE-MySqlConnector.txt
+
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.
 VOLUME ["/var/lib/graticula"]

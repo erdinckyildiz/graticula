@@ -35,6 +35,7 @@
     <ProjectReference Include="..\Graticula.Providers.PostGis\Graticula.Providers.PostGis.csproj" />
     <ProjectReference Include="..\Graticula.Providers.DuckDb\Graticula.Providers.DuckDb.csproj" />
     <ProjectReference Include="..\Graticula.Providers.Oracle\Graticula.Providers.Oracle.csproj" />
+    <ProjectReference Include="..\Graticula.Providers.MySql\Graticula.Providers.MySql.csproj" />
   </ItemGroup>
 
   <!--

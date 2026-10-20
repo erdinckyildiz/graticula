@@ -8,6 +8,7 @@ using Graticula.Features;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
+using Graticula.Providers.MySql;
 using Graticula.Providers.Oracle;
 
 namespace Graticula.Host;
@@ -80,7 +81,7 @@ internal interface ISqlEngine
 internal static class SqlEngines
 {
     /// <summary>Every engine behind the seam.</summary>
-    public static IReadOnlyList<ISqlEngine> All { get; } = [new OracleEngine()];
+    public static IReadOnlyList<ISqlEngine> All { get; } = [new OracleEngine(), new MySqlEngine()];
 
     /// <summary>The engine a locator names, or null for PostgreSQL and the DuckDB-read files.</summary>
     public static ISqlEngine? For(string? locator) => All.FirstOrDefault(engine => engine.Owns(locator));
@@ -144,4 +145,56 @@ internal sealed class OracleEngine : ISqlEngine
         await OracleTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
             ? (found.Stored, found.Complaint)
             : null;
+}
+
+/// <summary>MySQL behind the seam — ADR-208. Phase 1 reads; what it does not yet do it refuses by name.</summary>
+internal sealed class MySqlEngine : ISqlEngine
+{
+    private const string NotYet = "is not built for a MySQL layer yet (ADR-208)";
+
+    public string Kind => DataSourceKinds.MySql;
+
+    public string Name => "MySQL";
+
+    public bool Owns(string? locator) => MySqlLocator.Is(locator);
+
+    public IDataSourceProbe Probe { get; } = new MySqlDataSourceProbe();
+
+    public IFeatureSource Source(PublishedLayer layer, IProjector projector, TimeSpan timeout, IGeometryEngine? engine) =>
+        new MySqlFeatureSource(layer.ConnectionString, layer.Definition, projector, timeout, engine);
+
+    public IFeatureWriter Writer(
+        PublishedLayer layer, IReadOnlyList<FieldDescription> fields, IProjector projector, EditorTracking? tracking,
+        LayerSubtypes? subtypes, TimeSpan timeout) =>
+        throw new QueryNotSupportedException($"Editing {NotYet}.");
+
+    public Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
+        string locator, IReadOnlyList<LayerConnections.LayerEdit> edits, IProjector projector, TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        throw new QueryNotSupportedException($"Editing {NotYet}.");
+
+    public Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
+        PublishedLayer layer, string globalIdColumn, IReadOnlyCollection<Guid> globalIds, CancellationToken cancellationToken) =>
+        throw new QueryNotSupportedException($"A GlobalID lookup {NotYet}.");
+
+    public IAttachmentStore Attachments(PublishedLayer layer) =>
+        throw new QueryNotSupportedException($"Attachments beside the table {NotYet}; keep them in the datastore.");
+
+    public IFeatureHistory History(PublishedLayer layer) => throw new QueryNotSupportedException($"A history {NotYet}.");
+
+    public string? HistoryRefusal(Exception failure, LayerDefinition layer) => null;
+
+    public IRelatedRecords Related(PublishedLayer origin, PublishedLayer related, bool sameDatabase) =>
+        throw new QueryNotSupportedException($"Related records {NotYet}.");
+
+    public Task<IReadOnlyList<(string Table, long Versions)>> PruneHistoryAsync(string locator, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<(string Table, long Versions)>>([]);
+
+    public Task<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?> ValidityAsync(
+        string locator, string schema, string table, string column, TimeSpan timeout, CancellationToken cancellationToken) =>
+        Task.FromResult<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?>(null);
+
+    public Task<(int? Stored, string? Complaint)?> ReferenceAsync(
+        string locator, string schema, string table, string column, int declared, CancellationToken cancellationToken) =>
+        Task.FromResult<(int? Stored, string? Complaint)?>(null);
 }

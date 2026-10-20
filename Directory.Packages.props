@@ -97,6 +97,10 @@
          LICENSE.txt and info.txt beside it in the image, and no fee for the driver itself. Confined to
          Graticula.Providers.Oracle by NativeDependencyTests. -->
     <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
+    <!-- MySqlConnector, for registered MySQL databases (ADR-208). MIT, fully managed. Chosen over Oracle's own
+         MySql.Data, which is GPLv2 with a FOSS exception (DEPENDENCY-LICENSES.md). Referenced only from
+         Graticula.Providers.MySql. -->
+    <PackageVersion Include="MySqlConnector" Version="2.4.0" />
   </ItemGroup>
   <ItemGroup Label="Rendering â€” Tier 2, behind our own port, in the serving process">
     <!-- ADR-041. The only rasteriser in this repository, and the first native

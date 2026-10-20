@@ -88,9 +88,16 @@ records, the table checks and the pruning — with Oracle moved behind it too.
 
 ## Conditions
 
-1. **The engine seam**, with Oracle behind it and its tests and REST runs passing unchanged.
+1. **The engine seam**, with Oracle behind it and its tests and REST runs passing unchanged. **DISCHARGED 2026-10-20** —
+   `ISqlEngine` in the host, `SqlLocators` in the platform; afterwards Oracle answered 110/110 relations and 87/87 query
+   features against PostGIS, its attachment and history runs had 0 failures, and its provider tests 98/98.
 2. **Phase 1, reading**: registration and the probe, features, ids, counts, extent, statistics, every relation and a
-   distance, the query features Oracle answers — measured against a PostGIS layer through REST.
+   distance, the query features Oracle answers — measured against a PostGIS layer through REST. **DISCHARGED 2026-10-20**
+   — the Oracle runs' two sets asked of a MySQL layer and a PostGIS layer holding the same 1,421 places and two land
+   polygons: 110 of 110 relation queries and 87 of 87 query features alike, and 40 of 40 percentiles (which MySQL has no
+   function for, computed here from window ranks as PostgreSQL defines them). Two differences found and repaired on the
+   way: MySQL averages and divides whole numbers into a DECIMAL kept to four places (now a double, as PostgreSQL's), and
+   it computes no envelope under a geographic reference (the extent is taken with the SRID set to 0, longitude first).
 3. **Phase 2, editing**: adds, updates and deletes under `EditColumns`' rules, GlobalIDs, row versions, one
    transaction across layers.
 4. **Relationships, attachments and history** as ADR-207 gives them.

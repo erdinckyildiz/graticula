@@ -279,6 +279,18 @@ public static class PredicateSql
                     matched = dialect.GuidText(matched!);
                 }
 
+                if (dialect.MySqlForms)
+                {
+                    // MySQL has no `ilike` either; its default escape is already the backslash PostgreSQL's patterns mean.
+                    string mySide = like.IgnoreCase ? "lower(" + matched + ")" : matched!;
+                    string bound = Bind(parameters, dialect, like.Pattern);
+
+                    sql.Append(mySide).Append(like.Negated ? " not like " : " like ")
+                       .Append(like.IgnoreCase ? "lower(" + bound + ")" : bound);
+
+                    return true;
+                }
+
                 if (dialect.OracleForms)
                 {
                     // Oracle has no `ilike` and no default escape: folded through lower(), and told that a
@@ -582,6 +594,14 @@ public static class PredicateSql
 
                 sql.Append('(');
 
+                // MySQL divides a whole number into a DECIMAL kept to four places (div_precision_increment); multiplied
+                // by a double first, it divides as PostgreSQL does a double.
+                if (dialect.MySqlForms && !arithmetic.Integral
+                    && arithmetic.Operator is not (ArithmeticOperator.Add or ArithmeticOperator.Subtract or ArithmeticOperator.Multiply))
+                {
+                    sql.Append("1e0 * ");
+                }
+
                 if (!Inner(arithmetic.Left, out error))
                 {
                     return false;
@@ -686,7 +706,8 @@ public static class PredicateSql
                 return false;
             }
 
-            sql.Append(" as varchar) from 1 for ").Append(length.ToString(CultureInfo.InvariantCulture)).Append(')');
+            sql.Append(dialect.MySqlForms ? " as char) from 1 for " : " as varchar) from 1 for ")
+               .Append(length.ToString(CultureInfo.InvariantCulture)).Append(')');
             return true;
         }
 
@@ -702,6 +723,12 @@ public static class PredicateSql
             // Oracle has no bigint and no unsized varchar.
             CastTarget.BigInteger when dialect.OracleForms => "number(19)",
             CastTarget.Text when dialect.OracleForms => "varchar2(4000)",
+
+            // MySQL casts to signed, char and double; `real` would be four bytes in ANSI mode (REAL_AS_FLOAT).
+            CastTarget.Integer or CastTarget.SmallInteger or CastTarget.BigInteger when dialect.MySqlForms => "signed",
+            CastTarget.Double when dialect.MySqlForms => "double",
+            CastTarget.Real when dialect.MySqlForms => "float",
+            CastTarget.Text when dialect.MySqlForms => "char",
             CastTarget.Integer => "integer",
             CastTarget.SmallInteger => "smallint",
             CastTarget.BigInteger => "bigint",
@@ -768,6 +795,25 @@ public static class PredicateSql
         if (dialect.OracleForms && WriteOracleCall(call, sql, inner, out error) is { } done)
         {
             return done;
+        }
+
+        // MySQL truncates with `truncate(x, places)`, the places required.
+        if (dialect.MySqlForms && call.Function == ScalarFunction.Truncate)
+        {
+            if (a.Count == 2)
+            {
+                return Write("truncate", ", ", null, inner, out error);
+            }
+
+            sql.Append("truncate(");
+
+            if (!inner(a[0], out error))
+            {
+                return false;
+            }
+
+            sql.Append(", 0)");
+            return true;
         }
 
         return call.Function switch

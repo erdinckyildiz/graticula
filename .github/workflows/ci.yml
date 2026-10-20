@@ -158,6 +158,11 @@ jobs:
           dotnet test tests/Graticula.Providers.Oracle.Tests -c Release --no-build \
             --filter 'Needs!=Oracle'
 
+      # ADR-208: a registered MySQL database. The tests that read one (Needs=MySql) run in the `mysql` job.
+      - name: mysql
+        run: |
+          dotnet test tests/Graticula.Providers.MySql.Tests -c Release --no-build             --filter 'Needs!=MySql'
+
       - name: argon2
         run: |
           dotnet test tests/Graticula.Security.Argon2.Tests -c Release --no-build \
@@ -213,6 +218,45 @@ jobs:
 
       - name: oracle
         run: dotnet test tests/Graticula.Providers.Oracle.Tests -c Release --no-build --filter 'Needs=Oracle'
+
+  # <b>ADR-208 condition 5: the MySQL provider against a real MySQL, on every push.</b> MySQL 8.4 as a service
+  # container; each test makes the tables it reads, so there is no seed.
+  mysql:
+    name: mysql
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-mysql-root-1
+          MYSQL_DATABASE: graticula_test
+          MYSQL_USER: graticula
+          MYSQL_PASSWORD: ci-mysql-1
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pci-mysql-root-1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      GRATICULA_TEST_MYSQL: 'mysql:{"host":"127.0.0.1","port":3306,"database":"graticula_test","user":"graticula","password":"ci-mysql-1"}'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: build
+        run: dotnet build tests/Graticula.Providers.MySql.Tests -c Release
+
+      - name: mysql
+        run: dotnet test tests/Graticula.Providers.MySql.Tests -c Release --no-build --filter 'Needs=MySql'
 
   datastore:
     name: datastore
@@ -301,6 +345,8 @@ jobs:
           echo "Oracle       reads a real Oracle database (ADR-205). NOT skipped —"
           echo "             run in the oracle job, against Oracle Free seeded by"
           echo "             tools/oracle-test-seed.py."
+          echo "MySql        reads a real MySQL database (ADR-208). NOT skipped —"
+          echo "             run in the mysql job, against MySQL 8.4."
           echo
           echo "Run the two that CI cannot, on a machine that can:"
           echo
