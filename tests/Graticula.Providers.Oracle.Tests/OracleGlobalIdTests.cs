@@ -113,7 +113,43 @@ public sealed class OracleGlobalIdTests
         Assert.Equal(theirs, Assert.Single(added.Adds).GlobalId);
     }
 
-    private static async Task<List<Feature>> ReadAsync(OracleFeatureSource source, FeatureQuery query)
+/// <summary>D-186 on an Oracle layer: a row's version is its ORA_ROWSCN, and an edit conditional on it is checked.</summary>
+    [Fact]
+    public async Task An_edit_conditional_on_a_row_version_goes_through_at_that_version_and_not_after_it_moved()
+    {
+        (OracleFeatureSource source, OracleFeatureWriter writer, _) = await TableAsync("ZZG_VERSION", "char(38)");
+
+        EditOutcome added = await writer.ApplyAsync(
+            new EditBatch([new FeatureAdd(new Dictionary<string, object?> { ["LABEL"] = "a" }, new Point(30, 40))], [], []), None);
+        long id = Assert.Single(added.Adds).Identity;
+
+        string held = Assert.IsType<string>(await source.VersionOfAsync(id, None));
+
+        EditResult first = Assert.Single((await writer.ApplyAsync(Conditional(id, "b", held), None)).Updates);
+        Assert.True(first.Succeeded, first.Error);
+
+        string now = Assert.IsType<string>(await source.VersionOfAsync(id, None));
+        Assert.NotEqual(held, now);
+
+        // The version it was edited at has moved: a second client holding it does not write over the first.
+        EditResult second = Assert.Single((await writer.ApplyAsync(Conditional(id, "c", held), None)).Updates);
+        Assert.False(second.Succeeded);
+        Assert.True(second.VersionMoved);
+
+        EditResult gone = Assert.Single((await writer.ApplyAsync(Conditional(id + 1000, "c", now), None)).Updates);
+        Assert.True(gone.NoSuchFeature);
+
+        EditResult removed = Assert.Single((await writer.ApplyAsync(
+            new EditBatch([], [], [id], Expects: new Dictionary<long, IReadOnlyList<string>> { [id] = [now] }), None)).Deletes);
+        Assert.True(removed.Succeeded, removed.Error);
+        Assert.Null(await source.VersionOfAsync(id, None));
+    }
+
+    private static EditBatch Conditional(long id, string label, string version) =>
+        new([], [new FeatureUpdate(id, new Dictionary<string, object?> { ["LABEL"] = label }, null)], [],
+            Expects: new Dictionary<long, IReadOnlyList<string>> { [id] = [version] });
+
+        private static async Task<List<Feature>> ReadAsync(OracleFeatureSource source, FeatureQuery query)
     {
         List<Feature> features = [];
 

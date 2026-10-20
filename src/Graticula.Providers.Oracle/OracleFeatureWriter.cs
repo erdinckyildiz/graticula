@@ -455,10 +455,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             return EditResult.Missing(update.Identity);
         }
 
-        if (Precondition(batch, update.Identity) is { } refusedVersion)
-        {
-            return refusedVersion;
-        }
+        string[]? expected = Expected(batch, update.Identity);
 
         if (update.Geometry is not null
             && (ordinates ?? facts.Declared) is var holds
@@ -516,7 +513,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         string block =
             "declare g sdo_geometry; begin "
             + (shaped && update.Geometry is { IsEmpty: false } sentShape ? Assignment(sentShape) : string.Empty)
-            + $"update {Table} set {string.Join(", ", assignments)} where {Id} = :id{OwnerClause(owner)}{ReturningGlobal(facts)}; "
+            + $"update {Table} set {string.Join(", ", assignments)} where {Id} = :id{VersionClause(expected)}{OwnerClause(owner)}{ReturningGlobal(facts)}; "
             + ":n := sql%rowcount; end;";
 
         await using OracleCommand command = Command(block, connection);
@@ -533,6 +530,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
 
         command.Parameters.Add("id", update.Identity);
+        BindExpected(command, expected);
 
         if (owner is not null)
         {
@@ -548,7 +546,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
 
             return Convert.ToInt32(changed.Value.ToString(), CultureInfo.InvariantCulture) > 0
                 ? EditResult.Ok(update.Identity) with { GlobalId = GlobalOf(globalOut) }
-                : await WhyNotAsync(connection, update.Identity, owner, cancellationToken).ConfigureAwait(false);
+                : await WhyNotAsync(connection, update.Identity, owner, expected, cancellationToken).ConfigureAwait(false);
         }
         catch (OracleException e)
         {
@@ -559,15 +557,14 @@ public sealed class OracleFeatureWriter : IFeatureWriter
     private async Task<EditResult> DeleteAsync(
         OracleConnection connection, TableFacts facts, long identity, EditBatch batch, CancellationToken cancellationToken)
     {
-        if (Precondition(batch, identity) is { } refusedVersion)
-        {
-            return refusedVersion;
-        }
+        string[]? expected = Expected(batch, identity);
 
         string? owner = EditColumns.OwnerOf(batch);
 
         await using OracleCommand command = Command(
-            $"begin delete from {Table} where {Id} = :id{OwnerClause(owner)}{ReturningGlobal(facts)}; :n := sql%rowcount; end;", connection);
+            $"begin delete from {Table} where {Id} = :id{VersionClause(expected)}{OwnerClause(owner)}{ReturningGlobal(facts)}; :n := sql%rowcount; end;", connection);
+
+        BindExpected(command, expected);
 
         command.Parameters.Add("id", identity);
 
@@ -587,7 +584,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             // feature it never saw.
             return Convert.ToInt32(removed.Value.ToString(), CultureInfo.InvariantCulture) > 0
                 ? EditResult.Ok(identity) with { GlobalId = GlobalOf(globalOut) }
-                : await WhyNotAsync(connection, identity, owner, cancellationToken).ConfigureAwait(false);
+                : await WhyNotAsync(connection, identity, owner, expected, cancellationToken).ConfigureAwait(false);
         }
         catch (OracleException e)
         {
@@ -595,17 +592,28 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
     }
 
-    /// <summary>
-    /// A version precondition, refused: an Oracle layer publishes no row versions, so a version a caller holds is not
-    /// one this server gave out, and writing over it would be the lost update D-186 exists to stop.
-    /// </summary>
-    private static EditResult? Precondition(EditBatch batch, long identity) =>
+    /// <summary>The versions an edit of this row is conditional on — If-Match — or null for an unconditional one.</summary>
+    private static string[]? Expected(EditBatch batch, long identity) =>
         batch.Expects is { } expects && expects.TryGetValue(identity, out IReadOnlyList<string>? versions) && versions.Count > 0
-            ? EditResult.Failed(
-                identity,
-                "This layer is in a registered Oracle database, which publishes no row versions, so an edit "
-                + "conditional on one cannot be checked. Send it without If-Match (ADR-205).")
+            ? [.. versions]
             : null;
+
+    /// <summary>
+    /// <b>The precondition rides in the <c>where</c></b>, so comparing and writing are one statement — D-186, as the
+    /// PostGIS writer's <c>xmin</c> does. A row's version is its <c>ORA_ROWSCN</c> (OracleFeatureSource.VersionOfAsync).
+    /// </summary>
+    private static string VersionClause(string[]? expected) =>
+        expected is null
+            ? string.Empty
+            : " and to_char(ora_rowscn) in (select j.v from json_table(:expected, '$[*]' columns (v varchar2(40) path '$')) j)";
+
+    private static void BindExpected(OracleCommand command, string[]? expected)
+    {
+        if (expected is not null)
+        {
+            command.Parameters.Add("expected", OracleDbType.Varchar2, JsonSerializer.Serialize(expected), ParameterDirection.Input);
+        }
+    }
 
     /// <summary>Adds the tracked columns this server writes on a new row, and says whether the editor is bound.</summary>
     private bool Sign(List<string> columns, List<string> values, EditBatch batch, bool creating)
@@ -814,13 +822,32 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         : _tracking.Creator is null ? " and 1 = 0"
         : $" and {LayerDefinition.Quote(_tracking.Creator)} = :owner";
 
-    /// <summary>Why a write that changed nothing changed nothing: a row that is not there, or not the caller's.</summary>
+    /// <summary>
+    /// Why a write that changed nothing changed nothing: a row that is not there, at another version than the one
+    /// expected, or not the caller's.
+    /// </summary>
     private async Task<EditResult> WhyNotAsync(
-        OracleConnection connection, long identity, string? owner, CancellationToken cancellationToken) =>
-        owner is not null
-        && await WhoseAsync(connection, identity, owner, cancellationToken).ConfigureAwait(false) is { } refused
-            ? refused
-            : EditResult.Missing(identity);
+        OracleConnection connection, long identity, string? owner, string[]? expected, CancellationToken cancellationToken)
+    {
+        if (expected is not null)
+        {
+            await using OracleCommand command = Command($"select to_char(ora_rowscn) from {Table} where {Id} = :id", connection);
+            command.Parameters.Add("id", identity);
+
+            switch (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false))
+            {
+                case null or DBNull:
+                    return EditResult.Missing(identity);
+                case string version when !expected.Contains(version, StringComparer.Ordinal):
+                    return EditResult.Stale(identity);
+            }
+        }
+
+        return owner is not null
+            && await WhoseAsync(connection, identity, owner, cancellationToken).ConfigureAwait(false) is { } refused
+                ? refused
+                : EditResult.Missing(identity);
+    }
 
     /// <summary>The refusal for a row this caller does not own, or null when it is theirs — ADR-064.</summary>
     private async Task<EditResult?> WhoseAsync(

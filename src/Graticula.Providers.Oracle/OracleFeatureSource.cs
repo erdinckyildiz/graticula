@@ -39,7 +39,7 @@ namespace Graticula.Providers.Oracle;
 /// (<see cref="IProjector"/>) — no Oracle type leaves this project.
 /// </para>
 /// </remarks>
-public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
+public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFeatureVersions
 {
     private const int ProjectionBatch = 512;
 
@@ -316,6 +316,25 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             Centroid = centroid,
         };
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>A row's version is its <c>ORA_ROWSCN</c></b> — the system change number of the commit that last wrote it, as
+    /// PostgreSQL's <c>xmin</c> is the transaction's. Unless the table was made with <c>ROWDEPENDENCIES</c> Oracle keeps
+    /// it per block, so a neighbour's commit moves it too: an edit conditional on it can be refused when nothing of its
+    /// own changed, and is never let through when something did — the safe side of D-186.
+    /// </remarks>
+    public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken) =>
+        Bounded(async token =>
+        {
+            await using OracleConnection connection = await OpenAsync(token).ConfigureAwait(false);
+            await using OracleCommand command = new(
+                $"select to_char(ora_rowscn) from {From} where {Id} = :id", connection) { BindByName = true };
+
+            command.Parameters.Add("id", OracleDbType.Int64, identity, System.Data.ParameterDirection.Input);
+
+            return await command.ExecuteScalarAsync(token).ConfigureAwait(false) as string;
+        }, cancellationToken);
 
     /// <inheritdoc />
     public Task<LayerDescription> DescribeAsync(CancellationToken cancellationToken) =>
