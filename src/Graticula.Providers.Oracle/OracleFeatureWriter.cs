@@ -178,6 +178,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             """
             select m.srid,
                    (select count(*) from table(m.diminfo)),
+                   (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
                    (select case when c.identity_column = 'YES' or c.data_default_vc is not null then 1 else 0 end
                       from all_tab_columns c
                      where c.owner = m.owner and c.table_name = m.table_name and c.column_name = :k)
@@ -201,10 +202,18 @@ public sealed class OracleFeatureWriter : IFeatureWriter
 
         int dimensions = Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture);
 
+        // A third dimension is a measure where the metadata calls it M, as Oracle's linear referencing does.
+        bool measured = Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) > 0;
+
         return new TableFacts(
             Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture),
-            dimensions >= 4 ? GeometryOrdinates.Z | GeometryOrdinates.M : dimensions == 3 ? GeometryOrdinates.Z : GeometryOrdinates.None,
-            !reader.IsDBNull(2) && Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) == 1);
+            dimensions switch
+            {
+                >= 4 => GeometryOrdinates.Z | GeometryOrdinates.M,
+                3 => measured ? GeometryOrdinates.M : GeometryOrdinates.Z,
+                _ => GeometryOrdinates.None,
+            },
+            !reader.IsDBNull(3) && Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture) == 1);
     }
 
     private async Task<EditResult> AddAsync(
@@ -250,7 +259,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
 
         string block =
             "declare g sdo_geometry; begin "
-            + (shaped ? "g := sdo_util.from_wkbgeometry(:geom); g.sdo_srid := :srid; " : string.Empty)
+            + (shaped ? Assignment(add.Geometry!) : string.Empty)
             + $"insert into {Table} ({string.Join(", ", columns)}) values ({string.Join(", ", values)}) "
             + $"returning {Id} into :rid; end;";
 
@@ -354,7 +363,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         // Ownership rides in the `where`, so whose the row is and the write are one statement — ADR-064.
         string block =
             "declare g sdo_geometry; begin "
-            + (shaped && update.Geometry is { IsEmpty: false } ? "g := sdo_util.from_wkbgeometry(:geom); g.sdo_srid := :srid; " : string.Empty)
+            + (shaped && update.Geometry is { IsEmpty: false } sentShape ? Assignment(sentShape) : string.Empty)
             + $"update {Table} set {string.Join(", ", assignments)} where {Id} = :id{OwnerClause(owner)}; "
             + ":n := sql%rowcount; end;";
 
@@ -490,12 +499,36 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
 
         byte[] wkb = WkbWriter.ToArray(placed);
+
+        if (Ordinates.Of(geometry) != GeometryOrdinates.None)
+        {
+            SdoShape.Parts parts = SdoShape.FromWkb(wkb);
+
+            command.Parameters.Add("gt", parts.GType);
+            command.Parameters.Add("srid", facts.Srid);
+            command.Parameters.Add("ei", OracleDbType.Clob, SdoShape.JsonArray(parts.ElemInfo!), ParameterDirection.Input);
+            command.Parameters.Add("ord", OracleDbType.Clob, SdoShape.JsonArray(parts.Ordinates!), ParameterDirection.Input);
+            return;
+        }
+
         global::Oracle.ManagedDataAccess.Types.OracleBlob blob = new(connection);
         blob.Write(wkb, 0, wkb.Length);
 
         command.Parameters.Add("geom", OracleDbType.Blob, blob, ParameterDirection.Input);
         command.Parameters.Add("srid", facts.Srid);
     }
+
+    /// <summary>
+    /// The PL/SQL that makes <c>g</c> the shape <see cref="BindGeometryAsync"/> binds: from WKB for x and y, and from its
+    /// parts for a shape with Z or M, whose ISO WKB <c>FROM_WKBGEOMETRY</c> refuses (<see cref="SdoShape"/>).
+    /// </summary>
+    private static string Assignment(Geometry geometry) =>
+        Ordinates.Of(geometry) == GeometryOrdinates.None
+            ? "g := sdo_util.from_wkbgeometry(:geom); g.sdo_srid := :srid; "
+            : "select sdo_geometry(:gt, :srid, null, "
+                + "cast(multiset(select v from json_table(:ei, '$[*]' columns (n for ordinality, v number path '$')) order by n) as sdo_elem_info_array), "
+                + "cast(multiset(select v from json_table(:ord, '$[*]' columns (n for ordinality, v number path '$')) order by n) as sdo_ordinate_array)) "
+                + "into g from dual; ";
 
     /// <summary>The ordinates each updated row stores, or null for a row with no shape; a missing row is absent.</summary>
     private async Task<IReadOnlyDictionary<long, GeometryOrdinates?>> StoredOrdinatesAsync(

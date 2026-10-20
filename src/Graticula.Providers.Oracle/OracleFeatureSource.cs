@@ -114,6 +114,12 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
     private string From => _layer.QuotedTable;
 
+    /// <summary>
+    /// The shape as Oracle's WKB can carry it: itself on a layer of x and y, and flattened (<c>SDO_CS.MAKE_2D</c>) on
+    /// one with Z or M, whose own WKB is not WKB (<see cref="SdoShape"/>).
+    /// </summary>
+    private string Flat(OracleTable table) => table.Ordinates == GeometryOrdinates.None ? Shape : $"sdo_cs.make_2d({Shape})";
+
     /// <inheritdoc />
     public FeatureSchema SchemaFor(FeatureQuery query)
     {
@@ -181,6 +187,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         string selected = string.Concat(schema.Names.Select(
             (field, i) => $", {LayerDefinition.Quote(field)} as c{i.ToString(CultureInfo.InvariantCulture)}"));
 
+        bool parted = !distinct && query.IncludeGeometry && (table.Ordinates & query.KeepOrdinates) != GeometryOrdinates.None;
+
         if (distinct)
         {
             sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(From);
@@ -191,8 +199,15 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
             // A centroid is the output shape's label point, so the shape is read for it even when it is not returned.
-            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", sdo_util.to_wkbgeometry({Shape}) as g" : ", null as g");
-            sql.Append(" from ").Append(From);
+            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
+
+            // Z and M come from the shape's parts, because Oracle's WKB of a shape with them is not WKB (SdoShape).
+            if (parted)
+            {
+                sql.Append(", ").Append(SdoShape.PartsSql("t", Shape)).Append(" as z");
+            }
+
+            sql.Append(" from ").Append(From).Append(" t");
             statement.AppendWhere();
         }
 
@@ -229,7 +244,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             int geometryOrdinal = schema.Count + 1;
             Geometry? geometry = reader.IsDBNull(geometryOrdinal)
                 ? null
-                : WkbReader.Read((byte[])reader.GetValue(geometryOrdinal));
+                : parted && !reader.IsDBNull(geometryOrdinal + 1)
+                    && SdoShape.ToWkb(SdoShape.ParseParts(reader.GetString(geometryOrdinal + 1))) is { } full
+                        ? WkbReader.Read(full, query.KeepOrdinates, out _)
+                        : WkbReader.Read((byte[])reader.GetValue(geometryOrdinal));
 
             Feature feature = new(id, geometry, schema, values);
 
@@ -324,6 +342,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             AnswersStatisticExpressions = true,
             AnswersRelations = _engine is not null,
             SpatiallyIndexed = true,
+            StoredOrdinates = table.Ordinates,
         };
     }
 
@@ -441,7 +460,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
 
-        statement.Sql.Append("select sdo_util.to_wkbgeometry(").Append(Shape).Append(") from ").Append(From);
+        statement.Sql.Append("select sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(From);
         statement.AppendWhere();
 
         Envelope extent = Envelope.Empty;
@@ -857,24 +876,53 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         }
 
         int? srid = null;
+        GeometryOrdinates ordinates = GeometryOrdinates.None;
 
+        // <b>What the column stores: its metadata's dimensions, and a measure where one is named or a row says so</b> —
+        // a third dimension is an elevation unless it is called M, as Oracle's linear referencing names it, or the first
+        // row's SDO_GTYPE puts a measure there (its L digit).
         await using (OracleCommand command = new(
-            "select srid from all_sdo_geom_metadata where owner = :o and table_name = :t and column_name = :c",
-            connection) { BindByName = true })
+            $"""
+            select m.srid,
+                   (select count(*) from table(m.diminfo)),
+                   (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
+                   (select r.{Shape}.sdo_gtype from {From} r where r.{Shape} is not null and rownum = 1)
+              from all_sdo_geom_metadata m
+             where m.owner = :o and m.table_name = :t and m.column_name = :c
+            """, connection) { BindByName = true })
         {
             command.Parameters.Add("o", OracleDbType.Varchar2, _layer.SchemaName, System.Data.ParameterDirection.Input);
             command.Parameters.Add("t", OracleDbType.Varchar2, _layer.TableName, System.Data.ParameterDirection.Input);
             command.Parameters.Add("c", OracleDbType.Varchar2, _layer.GeometryColumn, System.Data.ParameterDirection.Input);
 
-            if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is { } found and not DBNull)
+            await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && !reader.IsDBNull(0))
             {
-                srid = Convert.ToInt32(found, CultureInfo.InvariantCulture);
+                srid = Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture);
+                int dimensions = Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture);
+                bool named = Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture) > 0;
+                int? sampled = reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture);
+
+                if (sampled is { } gtype && gtype / 1000 > dimensions)
+                {
+                    dimensions = gtype / 1000;
+                }
+
+                bool measured = named || sampled / 100 % 10 > 0;
+
+                ordinates = dimensions switch
+                {
+                    >= 4 => GeometryOrdinates.Z | GeometryOrdinates.M,
+                    3 => measured ? GeometryOrdinates.M : GeometryOrdinates.Z,
+                    _ => GeometryOrdinates.None,
+                };
             }
         }
 
         OracleTable table = new(columns, srid ?? throw new InvalidOperationException(
             $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, "
-            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."));
+            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates);
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
@@ -1004,7 +1052,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         // A distance's box is the filter's grown by the distance, so the exact box pass keeps every row it could reach.
         List<long>? matched = await RefineAsync(
-                connection, new Filters(inOracle, parameters), boxes, shape, cancellationToken, kept)
+                connection, table, new Filters(inOracle, parameters), boxes, shape, cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
@@ -1038,6 +1086,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     /// </returns>
     private async Task<List<long>?> RefineAsync(
         OracleConnection connection,
+        OracleTable table,
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
@@ -1046,7 +1095,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     {
         Statement statement = new(candidates);
 
-        statement.Sql.Append("select ").Append(Id).Append(", sdo_util.to_wkbgeometry(").Append(Shape).Append(") from ").Append(From);
+        statement.Sql.Append("select ").Append(Id).Append(", sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(From);
         statement.AppendWhere();
 
         List<long> matched = [];
@@ -1387,7 +1436,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
     private sealed record OracleColumn(string Name, FieldType Type, bool Nullable, int? MaxLength);
 
-    private sealed record OracleTable(IReadOnlyList<OracleColumn> Columns, int Srid)
+    private sealed record OracleTable(IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None)
     {
         public FieldType TypeOf(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))?.Type ?? FieldType.Unknown;
