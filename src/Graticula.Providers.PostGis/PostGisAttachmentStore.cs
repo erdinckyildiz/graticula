@@ -47,7 +47,7 @@ namespace Graticula.Providers.PostGis;
 /// table, which is a different query however we store ours.
 /// </para>
 /// </remarks>
-public sealed class PostGisAttachmentStore : IAttachmentStore
+public sealed class PostGisAttachmentStore : IAttachmentStore, IAttachmentTables
 {
     /// <summary>
     /// The suffix Esri uses, so a migrated table is found where it already is.
@@ -683,6 +683,9 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
             ? string.Empty
             : $"\n                 references {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)}"
               + $" ({LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn)}) on delete cascade";
+
+    /// <inheritdoc/>
+    public Task EnsureTablesAsync(CancellationToken cancellationToken) => EnsureTableAsync(cancellationToken);
 
     /// <summary>How many attachments there are and how many bytes they hold — what switching them off would remove.</summary>
     /// <param name="cancellationToken">Cancellation.</param>

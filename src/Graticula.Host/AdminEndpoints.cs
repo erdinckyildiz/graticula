@@ -14,7 +14,6 @@ using Graticula.Cartography;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
-using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Graticula.Platform.Identity;
@@ -9488,10 +9487,10 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            // ADR-205: an Oracle table is measured by Oracle, by Oracle's rules (OracleTableChecks), in the same bound.
-            if (OracleLocator.Is(connection))
+            // ADR-205, ADR-208: another engine's table is measured by that engine, by its own rules, in the same bound.
+            if (SqlEngines.For(connection) is { } sql)
             {
-                return await OracleTableChecks.ValidityAsync(
+                return await sql.ValidityAsync(
                         connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
                         TimeSpan.FromSeconds(30), cancellation)
                     .ConfigureAwait(false) is { } measured
@@ -9552,10 +9551,10 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            // ADR-205: an Oracle table's reference is the one its spatial metadata names (OracleTableChecks).
-            if (OracleLocator.Is(connection))
+            // ADR-205, ADR-208: another engine's table's reference is the one its catalogue names.
+            if (SqlEngines.For(connection) is { } sql)
             {
-                return await OracleTableChecks.ReferenceAsync(
+                return await sql.ReferenceAsync(
                         connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
                         publication.Srid, cancellation)
                     .ConfigureAwait(false) is { } found
@@ -11821,7 +11820,7 @@ internal static partial class AdminEndpoints
         bool history = false;
 
         if ((Graticula.Platform.Admin.GeoParquetLocator.KindOf(layer.ConnectionString) == DataSourceKinds.PostGis
-                || Graticula.Platform.Admin.OracleLocator.Is(layer.ConnectionString))
+                || Graticula.Platform.Admin.SqlLocators.Is(layer.ConnectionString))
             && layer.Definition.IntegerIdentityColumn is not null)
         {
             history = await connections.HistoryFor(layer).IsOnAsync(cancellation).ConfigureAwait(false);
@@ -12370,20 +12369,20 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // <b>An Oracle database's fields — ADR-205 — and never its password.</b> Its locator is JSON, so the fields are
-        // read rather than parsed out of a connection string, and a correction sends the password again.
-        if (OracleLocator.Is(stored))
+        // <b>An Oracle or MySQL database's fields — ADR-205, ADR-208 — and never its password.</b> Its locator is JSON,
+        // so the fields are read rather than parsed out of a connection string, and a correction sends the password again.
+        if (SqlLocators.Is(stored))
         {
-            OracleSource oracle = OracleLocator.Of(stored);
+            SqlLocators.Fields sql = SqlLocators.FieldsOf(stored);
             await Results.Json(new
             {
                 name = found.Value.Name,
-                kind = DataSourceKinds.Oracle,
-                host = oracle.Host,
-                port = oracle.Port,
-                database = oracle.Service,
-                username = oracle.User,
-                hasPassword = !string.IsNullOrEmpty(oracle.Password),
+                kind = sql.Kind,
+                host = sql.Host,
+                port = sql.Port,
+                database = sql.Database,
+                username = sql.User,
+                hasPassword = sql.HasPassword,
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -12519,29 +12518,37 @@ internal static partial class AdminEndpoints
         // <b>An Oracle database — ADR-205 — named by its fields and nothing else.</b> `database` is the service, a
         // pluggable database's included. As with a GeoParquet folder, the locator is produced here and only here: a
         // connection string written by hand would be ODP.NET's syntax arriving at a server that never parses it.
-        if (string.Equals(request.Kind, DataSourceKinds.Oracle, StringComparison.OrdinalIgnoreCase))
+        bool oracle = string.Equals(request.Kind, DataSourceKinds.Oracle, StringComparison.OrdinalIgnoreCase);
+
+        // <b>A MySQL database — ADR-208 — named by its fields as an Oracle one is</b>; `database` is MySQL's database (its
+        // schema), whose spatial tables are offered.
+        if (oracle || string.Equals(request.Kind, DataSourceKinds.MySql, StringComparison.OrdinalIgnoreCase))
         {
+            string engine = oracle ? "An Oracle database" : "A MySQL database";
+
             if (hasString || HasRemoteFields(request) || !string.IsNullOrWhiteSpace(request.Path)
                 || !string.IsNullOrEmpty(request.Token) || request.Srid is not null)
             {
-                why = "An Oracle database is named by `host`, `port`, `database` (its service), `username` and "
-                    + "`password`; nothing else describes it.";
+                why = $"{engine} is named by `host`, `port`, `database`{(oracle ? " (its service)" : string.Empty)}, "
+                    + "`username` and `password`; nothing else describes it.";
                 return null;
             }
 
             if (!hasFields || string.IsNullOrWhiteSpace(request.Username))
             {
-                why = "An Oracle database needs `host` and `username`.";
+                why = $"{engine} needs `host` and `username`.";
                 return null;
             }
 
             if (!databaseOptional && string.IsNullOrWhiteSpace(request.Database))
             {
-                why = "`database` is required: the service name, such as FREEPDB1 for a pluggable database.";
+                why = oracle
+                    ? "`database` is required: the service name, such as FREEPDB1 for a pluggable database."
+                    : "`database` is required: the MySQL database whose tables are offered.";
                 return null;
             }
 
-            int port = request.Port ?? OracleSource.DefaultPort;
+            int port = request.Port ?? (oracle ? OracleSource.DefaultPort : MySqlSource.DefaultPort);
 
             if (port is <= 0 or > 65535)
             {
@@ -12549,12 +12556,14 @@ internal static partial class AdminEndpoints
                 return null;
             }
 
-            return OracleLocator.For(new OracleSource(
-                request.Host!.Trim(),
-                port,
-                string.IsNullOrWhiteSpace(request.Database) ? string.Empty : request.Database.Trim(),
-                request.Username!.Trim(),
-                string.IsNullOrEmpty(request.Password) ? null : request.Password));
+            string host = request.Host!.Trim();
+            string database = string.IsNullOrWhiteSpace(request.Database) ? string.Empty : request.Database.Trim();
+            string user = request.Username!.Trim();
+            string? password = string.IsNullOrEmpty(request.Password) ? null : request.Password;
+
+            return oracle
+                ? OracleLocator.For(new OracleSource(host, port, database, user, password))
+                : MySqlLocator.For(new MySqlSource(host, port, database, user, password));
         }
 
         if (!string.IsNullOrEmpty(request.Token) || request.Srid is not null)
@@ -12597,7 +12606,7 @@ internal static partial class AdminEndpoints
         {
             why = $"`kind` '{request.Kind}' is not one this server registers: "
                 + $"{DataSourceKinds.PostGis}, {DataSourceKinds.GeoParquet}, {DataSourceKinds.GeoParquetRemote}, "
-                + $"{DataSourceKinds.DuckDb}, {DataSourceKinds.MotherDuck} or {DataSourceKinds.Oracle}.";
+                + $"{DataSourceKinds.DuckDb}, {DataSourceKinds.MotherDuck}, {DataSourceKinds.Oracle} or {DataSourceKinds.MySql}.";
 
             return null;
         }
@@ -12715,12 +12724,13 @@ internal static partial class AdminEndpoints
             return string.Empty;
         }
 
-        // An Oracle locator is JSON with the password as one field (ADR-205): left out, never parsed as Npgsql's.
-        if (OracleLocator.Is(connectionString))
+        // An Oracle or MySQL locator is JSON with the password as one field (ADR-205, ADR-208): left out, never parsed
+        // as Npgsql's.
+        if (SqlLocators.Is(connectionString))
         {
             try
             {
-                return OracleLocator.WithoutSecrets(connectionString);
+                return SqlLocators.WithoutSecrets(connectionString);
             }
             catch (ArgumentException)
             {
@@ -12755,11 +12765,11 @@ internal static partial class AdminEndpoints
 
     internal static string Summarise(string connectionString)
     {
-        if (OracleLocator.Is(connectionString))
+        if (SqlLocators.Is(connectionString))
         {
             try
             {
-                return OracleLocator.Of(connectionString).Address;
+                return SqlLocators.Address(connectionString);
             }
             catch (ArgumentException)
             {

@@ -24,6 +24,9 @@ public static class DataSourceKinds
 
     /// <summary>An Oracle database, its <c>SDO_GEOMETRY</c> tables read as layers — ADR-205.</summary>
     public const string Oracle = "oracle";
+
+    /// <summary>A MySQL database, its spatial tables read as layers — ADR-208.</summary>
+    public const string MySql = "mysql";
 }
 
 /// <summary>
@@ -171,6 +174,7 @@ public static class GeoParquetLocator
     /// </remarks>
     public static string KindOf(string? stored) =>
         OracleLocator.Is(stored) ? DataSourceKinds.Oracle
+        : MySqlLocator.Is(stored) ? DataSourceKinds.MySql
         : IsRemote(stored) ? DataSourceKinds.GeoParquetRemote
         : stored is not null && stored.StartsWith(DuckDbScheme, StringComparison.Ordinal) ? DataSourceKinds.DuckDb
         : stored is not null && stored.StartsWith(MotherDuckScheme, StringComparison.Ordinal) ? DataSourceKinds.MotherDuck

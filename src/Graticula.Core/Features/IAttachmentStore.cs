@@ -189,6 +189,28 @@ public sealed class AttachmentFeatureMissingException : Exception
 }
 
 /// <summary>
+/// The tables an attachment store keeps its attachments in, made and removed when an administrator switches a
+/// registered layer's attachments on and off — ADR-207.
+/// </summary>
+public interface IAttachmentTables
+{
+    /// <summary>Creates the tables, when they are not there.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>A task.</returns>
+    Task EnsureTablesAsync(CancellationToken cancellationToken);
+
+    /// <summary>How many attachments there are and how many bytes they hold.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The count and the bytes; zero where the tables were never made.</returns>
+    Task<(long Count, long Bytes)> CountAsync(CancellationToken cancellationToken);
+
+    /// <summary>Drops the tables and every attachment in them.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>A task.</returns>
+    Task DropAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// An attachment open for reading, holding the connection it reads through.
 /// </summary>
 /// <remarks>

@@ -193,9 +193,9 @@ internal static class RelationshipEndpoints
             return;
         }
 
-        if (Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString)
-            != Graticula.Platform.Admin.OracleLocator.Is(related.ConnectionString)
-            || (Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString)
+        if (Graticula.Platform.Admin.SqlLocators.KindOf(origin.ConnectionString)
+            != Graticula.Platform.Admin.SqlLocators.KindOf(related.ConnectionString)
+            || (Graticula.Platform.Admin.SqlLocators.Is(origin.ConnectionString)
                 && !string.Equals(origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal)))
         {
             await Fail(

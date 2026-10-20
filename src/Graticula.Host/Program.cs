@@ -765,8 +765,7 @@ public static class Program
 
         builder.Services.AddSingleton<IDataSourceProbe>(services => new DataSourceProbes(
             new PostgresDataSourceProbe(),
-            services.GetRequiredService<GeoParquetSources>(),
-            new Graticula.Providers.Oracle.OracleDataSourceProbe()));
+            services.GetRequiredService<GeoParquetSources>()));
 
         builder.Services.AddSingleton<IAuditLog>(services =>
             new PostgresAuditLog(services.GetRequiredService<NpgsqlDataSource>()));

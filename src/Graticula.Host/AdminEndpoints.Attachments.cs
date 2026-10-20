@@ -7,8 +7,6 @@ using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
-using Graticula.Providers.Oracle;
-using Graticula.Providers.PostGis;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 
@@ -213,40 +211,18 @@ internal static partial class AdminEndpoints
         _ => "nowhere",
     };
 
-    private static async Task<(long Count, long Bytes)> CountAttachmentsAsync(
+    // ADR-207: every store a registered layer can be given keeps its own tables (IAttachmentTables).
+    private static IAttachmentTables Tables(LayerConnections connections, PublishedLayer layer) =>
+        connections.AttachmentsFor(layer) as IAttachmentTables
+        ?? throw new InvalidOperationException($"Layer '{layer.Definition.Name}'s attachments are kept by a store that makes no tables.");
+
+    private static Task<(long Count, long Bytes)> CountAttachmentsAsync(
         LayerConnections connections, PublishedLayer layer, CancellationToken cancellation) =>
-        connections.AttachmentsFor(layer) switch
-        {
-            PostGisAttachmentStore postgis => await postgis.CountAsync(cancellation).ConfigureAwait(false),
-            OracleAttachmentStore oracle => await oracle.CountAsync(cancellation).ConfigureAwait(false),
-            _ => (0, 0),
-        };
+        Tables(connections, layer).CountAsync(cancellation);
 
-    private static async Task DropAttachmentsAsync(
-        LayerConnections connections, PublishedLayer layer, CancellationToken cancellation)
-    {
-        switch (connections.AttachmentsFor(layer))
-        {
-            case PostGisAttachmentStore postgis:
-                await postgis.DropAsync(cancellation).ConfigureAwait(false);
-                break;
-            case OracleAttachmentStore oracle:
-                await oracle.DropAsync(cancellation).ConfigureAwait(false);
-                break;
-        }
-    }
+    private static Task DropAttachmentsAsync(LayerConnections connections, PublishedLayer layer, CancellationToken cancellation) =>
+        Tables(connections, layer).DropAsync(cancellation);
 
-    private static async Task EnsureAttachmentsAsync(
-        LayerConnections connections, PublishedLayer layer, CancellationToken cancellation)
-    {
-        switch (connections.AttachmentsFor(layer))
-        {
-            case PostGisAttachmentStore postgis:
-                await postgis.EnsureTableAsync(cancellation).ConfigureAwait(false);
-                break;
-            case OracleAttachmentStore oracle:
-                await oracle.EnsureTableAsync(cancellation).ConfigureAwait(false);
-                break;
-        }
-    }
+    private static Task EnsureAttachmentsAsync(LayerConnections connections, PublishedLayer layer, CancellationToken cancellation) =>
+        Tables(connections, layer).EnsureTablesAsync(cancellation);
 }

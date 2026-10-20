@@ -29,7 +29,7 @@ namespace Graticula.Providers.Oracle;
 /// A missing feature is the database's refusal (ORA-02291), said as one.
 /// </para>
 /// </remarks>
-public sealed class OracleAttachmentStore : IAttachmentStore
+public sealed class OracleAttachmentStore : IAttachmentStore, IAttachmentTables
 {
     /// <summary>The suffix Esri gives the table, so one already there is the one used.</summary>
     public const string Suffix = "__ATTACH";
@@ -111,6 +111,9 @@ public sealed class OracleAttachmentStore : IAttachmentStore
                 + "the datastore instead, or rename that table.");
         }
     }
+
+    /// <inheritdoc/>
+    public Task EnsureTablesAsync(CancellationToken cancellationToken) => EnsureTableAsync(cancellationToken);
 
     /// <summary>How many attachments there are and how many bytes they hold.</summary>
     /// <param name="cancellationToken">Cancellation.</param>
