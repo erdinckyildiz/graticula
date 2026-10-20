@@ -147,7 +147,7 @@ internal sealed class OracleEngine : ISqlEngine
             : null;
 }
 
-/// <summary>MySQL behind the seam — ADR-208. Phase 1 reads; what it does not yet do it refuses by name.</summary>
+/// <summary>MySQL behind the seam — ADR-208. What it does not yet do it refuses by name.</summary>
 internal sealed class MySqlEngine : ISqlEngine
 {
     private const string NotYet = "is not built for a MySQL layer yet (ADR-208)";
@@ -166,16 +166,22 @@ internal sealed class MySqlEngine : ISqlEngine
     public IFeatureWriter Writer(
         PublishedLayer layer, IReadOnlyList<FieldDescription> fields, IProjector projector, EditorTracking? tracking,
         LayerSubtypes? subtypes, TimeSpan timeout) =>
-        throw new QueryNotSupportedException($"Editing {NotYet}.");
+        new MySqlFeatureWriter(layer.ConnectionString, layer.Definition, fields, projector, tracking, subtypes, timeout);
 
     public Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
         string locator, IReadOnlyList<LayerConnections.LayerEdit> edits, IProjector projector, TimeSpan timeout,
         CancellationToken cancellationToken) =>
-        throw new QueryNotSupportedException($"Editing {NotYet}.");
+        MySqlFeatureWriter.ApplyTogetherAsync(
+            locator,
+            [.. edits.Select(e => new MySqlFeatureWriter.LayerBatch(
+                e.Layer.Definition, e.Description.Fields, e.Description.Tracking, e.Description.Subtypes, e.Batch))],
+            projector,
+            timeout,
+            cancellationToken);
 
     public Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
         PublishedLayer layer, string globalIdColumn, IReadOnlyCollection<Guid> globalIds, CancellationToken cancellationToken) =>
-        throw new QueryNotSupportedException($"A GlobalID lookup {NotYet}.");
+        MySqlFeatureWriter.ObjectIdsOfAsync(layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
 
     public IAttachmentStore Attachments(PublishedLayer layer) =>
         throw new QueryNotSupportedException($"Attachments beside the table {NotYet}; keep them in the datastore.");

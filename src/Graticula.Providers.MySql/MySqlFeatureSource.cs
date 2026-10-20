@@ -286,12 +286,19 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             return await command.ExecuteScalarAsync(token).ConfigureAwait(false) as string;
         }, cancellationToken);
 
-    /// <summary>The SQL of a row's version: a SHA-1 of its columns and its shape, each named so a null is not lost.</summary>
     internal string VersionSql(MySqlTable table, string alias) =>
+        VersionSqlOf(table.Columns.Select(c => c.Name), _layer.GeometryColumn, alias);
+
+    /// <summary>The SQL of a row's version: a SHA-1 of its columns and its shape, each named so a null is not lost.</summary>
+    /// <param name="columns">The table's columns other than the shape.</param>
+    /// <param name="shape">The geometry column.</param>
+    /// <param name="alias">The row's alias, or the table's name.</param>
+    /// <returns>The expression.</returns>
+    internal static string VersionSqlOf(IEnumerable<string> columns, string shape, string alias) =>
         "sha1(concat_ws('|', "
-        + string.Join(", ", table.Columns.Select(c =>
-            $"concat('{c.Name.Replace("'", "''", StringComparison.Ordinal)}=', coalesce(hex({alias}.{LayerDefinition.Quote(c.Name)}), '~'))"))
-        + $", coalesce(hex(st_asbinary({alias}.{Shape})), '~')))";
+        + string.Join(", ", columns.Select(c =>
+            $"concat('{c.Replace("'", "''", StringComparison.Ordinal)}=', coalesce(hex({alias}.{LayerDefinition.Quote(c)}), '~'))"))
+        + $", coalesce(hex(st_asbinary({alias}.{LayerDefinition.Quote(shape)})), '~')))";
 
     /// <inheritdoc />
     public Task<GeometryWidth?> GeometryWidthAsync(CancellationToken cancellationToken) =>
@@ -331,9 +338,8 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         List<FieldDescription> fields = [.. table.Columns.Select(c => new FieldDescription(
             c.Name, c.Type, c.Nullable && !string.Equals(c.Name, _layer.IdentityColumn, StringComparison.Ordinal), c.MaxLength))];
 
-        // Read-only until the writer is built (ADR-208 condition 3): a document offering edits the layer cannot take
-        // would be the lie D-231 names.
-        bool writable = false;
+        bool writable = table.IsTable
+            && await MySqlConnections.CanWriteAsync(connection, _layer.SchemaName, _layer.TableName, cancellationToken).ConfigureAwait(false);
 
         return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
         {
@@ -825,10 +831,14 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 string name = reader.GetString(0);
-                FieldType type = TypeOf(
-                    reader.GetString(1),
-                    reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture),
-                    reader.GetString(6));
+                MySqlGuids.Storage? guid = MySqlGuids.Of(
+                    name, reader.GetString(1), reader.IsDBNull(4) ? null : Convert.ToInt64(reader.GetValue(4), CultureInfo.InvariantCulture));
+                FieldType type = guid is not null
+                    ? FieldType.Guid
+                    : TypeOf(
+                        reader.GetString(1),
+                        reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetValue(3), CultureInfo.InvariantCulture),
+                        reader.GetString(6));
 
                 if (type == FieldType.Unknown || string.Equals(name, _layer.GeometryColumn, StringComparison.Ordinal))
                 {
@@ -840,7 +850,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
                         ? (int)max
                         : null;
 
-                columns.Add(new MySqlColumn(name, type, reader.GetString(5) == "YES", length));
+                columns.Add(new MySqlColumn(name, type, reader.GetString(5) == "YES", guid is null ? length : null, guid));
             }
         }
 
@@ -1100,16 +1110,25 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
                 "A where clause reached a MySQL layer without its parsed predicate, so it cannot be emitted in MySQL's dialect.");
         }
 
+        // A GlobalID is compared as ArcGIS spells one, whatever its column keeps (MySqlGuids).
+        Dictionary<string, MySqlGuids.Storage> guids = table.Columns
+            .Where(c => c.Guid is not null)
+            .ToDictionary(c => c.Name, c => c.Guid!.Value, StringComparer.Ordinal);
+
+        string Quoted(string name) =>
+            guids.TryGetValue(name, out MySqlGuids.Storage storage) ? MySqlGuids.Text(LayerDefinition.Quote(name), storage) : LayerDefinition.Quote(name);
+
         if (!PredicateSql.TryEmit(
-                where.Predicate, [.. table.Columns.Select(c => c.Name)], LayerDefinition.Quote,
-                out ParsedWhere emitted, out string? error, dialect: SqlDialect.MySql))
+                where.Predicate, [.. table.Columns.Select(c => c.Name)], Quoted,
+                out ParsedWhere emitted, out string? error, dialect: SqlDialect.MySql.WithGuids(guids.Keys, arcGisText: true)))
         {
             throw new QueryNotSupportedException(error!);
         }
 
         for (int i = 0; i < emitted.Parameters.Count; i++)
         {
-            parameters.Add(("w" + i.ToString(CultureInfo.InvariantCulture), emitted.Parameters[i] ?? DBNull.Value));
+            object? value = emitted.Parameters[i] is Guid id ? MySqlGuids.Braced(id) : emitted.Parameters[i];
+            parameters.Add(("w" + i.ToString(CultureInfo.InvariantCulture), value ?? DBNull.Value));
         }
 
         return emitted.Sql;
@@ -1336,10 +1355,13 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         },
         float single => type == FieldType.Double ? (object)(double)single : single,
         DateTime moment => DateTime.SpecifyKind(moment, DateTimeKind.Utc),
+
+        // A GlobalID, as its column keeps it (MySqlGuids).
+        string or byte[] when type == FieldType.Guid && MySqlGuids.Read(value) is { } guid => guid,
         _ => value,
     };
 
-    internal sealed record MySqlColumn(string Name, FieldType Type, bool Nullable, int? MaxLength);
+    internal sealed record MySqlColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, MySqlGuids.Storage? Guid = null);
 
     internal sealed record MySqlTable(IReadOnlyList<MySqlColumn> Columns, int Srid, bool IsTable)
     {

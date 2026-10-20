@@ -99,7 +99,14 @@ records, the table checks and the pruning — with Oracle moved behind it too.
    way: MySQL averages and divides whole numbers into a DECIMAL kept to four places (now a double, as PostgreSQL's), and
    it computes no envelope under a geographic reference (the extent is taken with the SRID set to 0, longitude first).
 3. **Phase 2, editing**: adds, updates and deletes under `EditColumns`' rules, GlobalIDs, row versions, one
-   transaction across layers.
+   transaction across layers. **DISCHARGED 2026-10-20** — `MySqlFeatureWriter`, under `EditColumns` as Oracle's writer
+   is: its provider tests (adds, updates, deletes; a Z shape and a table without `AUTO_INCREMENT` refused by name;
+   GlobalIDs kept as `CHAR(38)`, `CHAR(36)` and `BINARY(16)`, minted, filtered and looked up; an edit at a row version
+   and refused after it moved; two layers kept or discarded together) 14 of 14, and through REST on the local fixture
+   26 of 26: applyEdits adds in 4326 and 3857 stored longitude first, an update, a delete, a bad value, a Z shape,
+   `rollbackOnFailure`, editor tracking filled, a GlobalID returned and queried, and OGC API Features create and
+   replace with `If-Match` at the version read (and 412 at one that moved). The writer's connections are the only ones
+   that allow session variables, which the history trigger of condition 4 will read the editor from.
 4. **Relationships, attachments and history** as ADR-207 gives them.
 5. **A CI job** against a MySQL container, as the Oracle job runs against one.
 

@@ -18,8 +18,12 @@ internal static class MySqlConnections
     /// <param name="stored">A <c>mysql:</c> locator, unsealed.</param>
     /// <param name="pooling">Whether to pool; a registration probe does not, a layer's source does.</param>
     /// <param name="timeoutSeconds">How long to wait for a connection.</param>
+    /// <param name="userVariables">
+    /// Whether a statement may name a session variable (<c>@graticula_editor</c>, which a history trigger reads) — the
+    /// writer's connections only: anywhere else an <c>@name</c> with no parameter stays the error it should be.
+    /// </param>
     /// <returns>The connection string.</returns>
-    public static string For(string stored, bool pooling, int timeoutSeconds = 15)
+    public static string For(string stored, bool pooling, int timeoutSeconds = 15, bool userVariables = false)
     {
         MySqlSource source = MySqlLocator.Of(stored);
 
@@ -35,6 +39,7 @@ internal static class MySqlConnections
             // A row's identity and a GUID come back as the types their columns declare, and a zero date is a null.
             GuidFormat = MySqlGuidFormat.None,
             ConvertZeroDateTime = true,
+            AllowUserVariables = userVariables,
         };
 
         if (!string.IsNullOrEmpty(source.Password))
