@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>69a10124</code> · 2026-10-20 01:13</p>
+<p class="stamp">Generated from commit <code>0546c383</code> · 2026-10-20 06:35</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">204</div><div class="kpi-l">ADRs</div><div class="kpi-n">79 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">400/475</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">66 live · 9 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">401/475</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">65 live · 9 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">189 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">open debts</div><div class="kpi-n">283 repaid · 5 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">85 items</span></div><p><b>66 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">84 items</span></div><p><b>65 ADR conditions</b> outstanding across 41 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -172,7 +172,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-193 · Backup and restore are the server&#x27;</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-199 · A group may be public: anybody fin</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-205 · A registered Oracle database is se</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -393,7 +392,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">202</td><td>An item has terms of use and categories, and a member keeps favourites</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 <tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">2/13</td></tr>
-<tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">6/8</td></tr>
+<tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">7/8</td></tr>
 <tr><td class="id">206</td><td>Vector tiles are served from the datastore only</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
@@ -540,20 +539,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>69a10124</code><time>2026-10-20</time><span>Vector tiles come from the datastore only (ADR-206, owner decision; reverses ADR-095 and ADR-066 §9 tiles)</span></li>
-<li><code>db7f9055</code><time>2026-10-20</time><span>ADR-205 condition 3 discharged: CI&#x27;s oracle job ran the 15 Needs=Oracle tests against Oracle Free</span></li>
-<li><code>c72e3e7f</code><time>2026-10-20</time><span>Pro opens the Oracle tables Graticula serves and agrees with it; nothing reads not-a-file as PostgreSQL (ADR-205 conditions 2 and 5)</span></li>
-<li><code>89f7e4f8</code><time>2026-10-20</time><span>CI reads a real Oracle on every run: Oracle Free, a synthetic seed (ADR-205 condition 3)</span></li>
-<li><code>0546215e</code><time>2026-10-20</time><span>An Oracle layer is drawn as vector tiles through the datastore (ADR-205 §5c; condition 8 discharged)</span></li>
-<li><code>f7928eb7</code><time>2026-10-20</time><span>A published Oracle table answers the FeatureServer (ADR-205 phase 1, step 2; condition 8 partly)</span></li>
-<li><code>e776c93b</code><time>2026-10-19</time><span>An Oracle table can be read: SDO_FILTER&#x27;s box, the exact test here (ADR-205 phase 1, step 2)</span></li>
-<li><code>0db36299</code><time>2026-10-19</time><span>The where grammar has an Oracle spelling, each form run against Oracle 26ai Free (ADR-205 phase 1)</span></li>
-<li><code>8cf8482d</code><time>2026-10-19</time><span>CI runs the Oracle provider&#x27;s tests that need no database, and names the ones that do (ADR-205 condition 3 pending)</span></li>
-<li><code>49d34105</code><time>2026-10-19</time><span>An Oracle database can be registered through the admin API and its tables listed; nothing hands its locator to Npgsql (ADR-205 phase 1, step 1)</span></li>
-<li><code>1dfcf95f</code><time>2026-10-19</time><span>An Oracle database can be probed: its SDO_GEOMETRY tables listed with key, reference and type (ADR-205 phase 1, migration 95)</span></li>
-<li><code>1521d3a7</code><time>2026-10-19</time><span>ADR-205: a customer-shaped Oracle table to build against, and Oracle calling PostGIS-valid land invalid (condition 8)</span></li>
-<li><code>57951b4f</code><time>2026-10-19</time><span>The Oracle managed driver may be shipped: its licence read from the package (ADR-205 condition 1, partly)</span></li>
-<li><code>672eda16</code><time>2026-10-19</time><span>Q-182 answered: SDO_GEOMETRY, read then edit, tiles through the datastore (ADR-205 condition 7)</span></li>
+<li><code>0546c383</code><time>2026-10-20</time><span>A registered Oracle database is served, edited and listed like PostGIS; vector tiles come from the datastore only (ADR-205, ADR-206)</span></li>
+<li><code>b4b5eb77</code><time>2026-10-19</time><span>Several organisations in one deployment, designed and prototyped; the server runs as a role row-level security binds (ADR-204, ADR-193 amended, Q-181, A-086)</span></li>
+<li><code>51911135</code><time>2026-10-19</time><span>Server&#x27;s Site page says where sign-in and two-step sign-in are set, and links there; the members section is headed as Studio&#x27;s (ADR-189)</span></li>
+<li><code>7c43b890</code><time>2026-10-19</time><span>The portal names ArcGIS Enterprise 12.1, as the server does: 2026.1, 12.1.0, build 786 (V-58, ADR-181)</span></li>
+<li><code>10d84e36</code><time>2026-10-19</time><span>A removed member leaves nothing owned by nobody; OGC documents carry an item&#x27;s terms; an organisation may require a second factor, set up at sign-in with a QR code (ADR-201, 202, 203; D-304, D-306)</span></li>
+<li><code>0a41b8ff</code><time>2026-10-19</time><span>The console, the map viewers and the REST directory, after a full UX sweep: every finding fixed and verified on dev (UX sweep 2026-10-19)</span></li>
+<li><code>c3987bd7</code><time>2026-10-19</time><span>queryRelatedRecords writes its rows as the query does and sends only the fields outFields names (V-102)</span></li>
+<li><code>fc2457fd</code><time>2026-10-19</time><span>The ArcGIS veteran&#x27;s open findings: geodesic measures, public groups, API keys, a second factor, item terms, categories and favourites, and a recycle bin (ADR-197 to ADR-203, migrations 91 to 94)</span></li>
+<li><code>a64f4d3e</code><time>2026-10-18</time><span>A portal listing without num answers ten, as ArcGIS does (Q-178, ADR-195 condition 1)</span></li>
+<li><code>1b944d9e</code><time>2026-10-18</time><span>A layer Pro publishes keeps its table-of-contents name, and its item gets Pro&#x27;s summary and tags (ADR-191 §5.7)</span></li>
+<li><code>e47b6a09</code><time>2026-10-18</time><span>A service&#x27;s name in the item page&#x27;s title wraps, so the page fits a narrow phone</span></li>
+<li><code>223d3852</code><time>2026-10-18</time><span>The item id on an item&#x27;s Overview wraps, so the page fits a phone</span></li>
+<li><code>450bb100</code><time>2026-10-18</time><span>ArcGIS addresses, Share As Web Map, the veteran review&#x27;s small findings, and items addressed by id (ADR-194, 195, 196)</span></li>
+<li><code>05616963</code><time>2026-10-17</time><span>Backup and restore are the server&#x27;s own commands, and they take the database with them (ADR-193)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
