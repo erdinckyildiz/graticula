@@ -85,11 +85,11 @@ public sealed class QuiescedPoolsTests
         Assert.NotNull(connections.SourceFor(layer));
         Assert.NotNull(connections.WriterFor(layer, []));
         Assert.NotNull(connections.TileSourceFor(Layer(hosted: true), []));
-        Assert.NotNull(connections.AttachmentsFor(layer));
+        Assert.NotNull(connections.AttachmentsFor(Layer(attachments: true)));
     }
 
     /// <summary>A layer over the connection this test quiesces.</summary>
-    private static PublishedLayer Layer(bool hosted = false) =>
+    private static PublishedLayer Layer(bool hosted = false, bool attachments = false) =>
         new(
             Guid.NewGuid(),
             new LayerDefinition("roads", "public", "roads", "geom", 3857, "id", "objectid", hosted),
@@ -98,5 +98,9 @@ public sealed class QuiescedPoolsTests
             GeometryKind.Polygon,
             null,
             SharingScope.Organization,
-            ServiceStatus.Started);
+            ServiceStatus.Started)
+        {
+            // ADR-207: a registered layer keeps attachments only where an administrator switched them on.
+            AttachmentsIn = attachments ? AttachmentPlaces.Source : null,
+        };
 }
