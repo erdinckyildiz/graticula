@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-187 | **[OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?** MongoDB, Redis, CockroachDB and OpenSearch were loaded with the same 200,000 points and asked PostGIS's ten questions in their own languages ([other-databases-trial.md](research/other-databases-trial.md)). **CockroachDB** gave every answer PostGIS did and was 2–11× slower; a dialect of the PostGIS provider is its shape. **OpenSearch/Elasticsearch** counted, aggregated and measured distance 8–10× faster than PostGIS and returned documents 6–13× slower; ArcGIS Pro lists Elasticsearch among its connections. **MongoDB** was slower on all but the distance and draws edges as great circles, so a box is not a box. **Redis** answers a slow query partly without saying so. Recommendation: none now — the scale target needs none of them, and the next provider should follow a customer who keeps data there; if one, OpenSearch, for statistics over large point sets. | Owner | Measured, not built. |
 
 ## Answered
 
