@@ -571,7 +571,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// </remarks>
     internal static bool OneTransactionHolds(IReadOnlyList<LayerEdit> edits) =>
         edits.Count > 0
-        && edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
+        && (edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
+            || edits.All(e => OracleLocator.Is(e.Layer.ConnectionString)))
         && edits.Select(e => e.Layer.ConnectionString).Distinct(StringComparer.Ordinal).Count() == 1;
 
     /// <summary>
@@ -605,6 +606,26 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             throw new InvalidOperationException("These layers are not in one database, so one transaction cannot hold their edits.");
         }
 
+        // ADR-205: layers in one Oracle database share one Oracle transaction, behind the same quiesce as one layer's
+        // edit. No tiles to empty: a registered layer has none (ADR-206).
+        if (OracleLocator.Is(edits[0].Layer.ConnectionString))
+        {
+            if (_quiesce?.Holding(edits[0].Layer.ConnectionString) is { } held)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+            }
+
+            return await OracleFeatureWriter.ApplyTogetherAsync(
+                    edits[0].Layer.ConnectionString,
+                    [.. edits.Select(e => new OracleFeatureWriter.LayerBatch(
+                        e.Layer.Definition, e.Description.Fields, e.Description.Tracking, e.Description.Subtypes, e.Batch))],
+                    _projector ?? throw new InvalidOperationException(
+                        "This server was started without the projector an edit's geometry is moved with."),
+                    Lowered(edits[0].Layer),
+                    cancellation)
+                .ConfigureAwait(false);
+        }
+
         NpgsqlDataSource pool = PoolFor(edits[0].Layer.ConnectionString);
 
         await using NpgsqlConnection connection = await pool.OpenConnectionAsync(cancellation).ConfigureAwait(false);
@@ -622,7 +643,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         {
             PostGisFeatureWriter store = new(
                 pool, edit.Layer.Definition, edit.Description.Fields,
-                edit.Description.Tracking, edit.Description.Subtypes);
+                edit.Description.Tracking, edit.Description.Subtypes, edit.Layer.GeometryType);
             Graticula.Tiles.VectorTileScheme? scheme = SchemeOfService is null || _tiles is null
                 ? null
                 : await SchemeOfService(edit.Layer.ServiceId, cancellation).ConfigureAwait(false);
@@ -633,9 +654,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
 
         foreach (LayerEdit edit in edits)
         {
+            // With the geometry kind, so Q-153's polygon repair runs here as it does through WriterFor.
             PostGisFeatureWriter writer = new(
                 pool, edit.Layer.Definition, edit.Description.Fields,
-                edit.Description.Tracking, edit.Description.Subtypes);
+                edit.Description.Tracking, edit.Description.Subtypes, edit.Layer.GeometryType);
 
             EditOutcome outcome = await writer
                 .ApplyWithinAsync(connection, transaction, edit.Batch, cancellation)

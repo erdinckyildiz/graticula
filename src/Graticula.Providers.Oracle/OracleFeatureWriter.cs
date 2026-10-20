@@ -96,9 +96,97 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         await using OracleConnection connection =
             await OracleConnections.OpenAsync(_connectionString, cancellationToken).ConfigureAwait(false);
 
-        TableFacts facts = await FactsAsync(connection, cancellationToken).ConfigureAwait(false);
+        using OracleTransaction transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+        EditOutcome outcome = await ApplyWithinAsync(connection, transaction, batch, cancellationToken).ConfigureAwait(false);
+
+        if (MustRollBack(batch, outcome))
+        {
+            transaction.Rollback();
+            return outcome with { RolledBack = true };
+        }
+
+        transaction.Commit();
+        return outcome;
+    }
+
+    /// <summary>Whether a batch's outcome means its transaction is discarded: all or nothing, and not all.</summary>
+    public static bool MustRollBack(EditBatch batch, EditOutcome outcome)
+    {
+        ArgumentNullException.ThrowIfNull(batch);
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        return batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed);
+    }
+
+    /// <summary>One layer's part of an edit across several, for <see cref="ApplyTogetherAsync"/>.</summary>
+    /// <param name="Layer">The layer.</param>
+    /// <param name="Fields">Its real columns.</param>
+    /// <param name="Tracking">Its edit-tracking columns, or null.</param>
+    /// <param name="Subtypes">Its subtypes, or null.</param>
+    /// <param name="Batch">Its edits.</param>
+    public sealed record LayerBatch(
+        LayerDefinition Layer,
+        IReadOnlyList<FieldDescription> Fields,
+        EditorTracking? Tracking,
+        LayerSubtypes? Subtypes,
+        EditBatch Batch);
+
+    /// <summary>
+    /// Several layers' edits in one Oracle database, in one transaction — kept together or discarded together when any
+    /// batch asked for all or nothing, as several PostGIS layers' are (the service-level <c>applyEdits</c>).
+    /// </summary>
+    /// <param name="locator">The database's <c>oracle:</c> locator, which every layer shares.</param>
+    /// <param name="layers">The layers' edits.</param>
+    /// <param name="projector">Moves a geometry sent in another reference into its layer's.</param>
+    /// <param name="statementTimeout">How long one statement may run.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Each layer's outcome, in order, every one rolled back if any was.</returns>
+    public static async Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
+        string locator,
+        IReadOnlyList<LayerBatch> layers,
+        IProjector projector,
+        TimeSpan? statementTimeout,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(locator);
+        ArgumentNullException.ThrowIfNull(layers);
+        ArgumentNullException.ThrowIfNull(projector);
+
+        await using OracleConnection connection = await OracleConnections.OpenAsync(
+            OracleConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
 
         using OracleTransaction transaction = connection.BeginTransaction(IsolationLevel.ReadCommitted);
+
+        List<EditOutcome> outcomes = [];
+        bool rollBack = false;
+
+        foreach (LayerBatch part in layers)
+        {
+            OracleFeatureWriter writer = new(locator, part.Layer, part.Fields, projector, part.Tracking, part.Subtypes, statementTimeout);
+            EditOutcome outcome = await writer.ApplyWithinAsync(connection, transaction, part.Batch, cancellationToken).ConfigureAwait(false);
+
+            rollBack |= MustRollBack(part.Batch, outcome);
+            outcomes.Add(outcome);
+        }
+
+        if (rollBack)
+        {
+            transaction.Rollback();
+            return [.. outcomes.Select(o => o with { RolledBack = true })];
+        }
+
+        transaction.Commit();
+        return outcomes;
+    }
+
+    /// <summary>
+    /// A batch in a transaction the caller owns: each edit in its own savepoint, nothing committed or rolled back here.
+    /// </summary>
+    private async Task<EditOutcome> ApplyWithinAsync(
+        OracleConnection connection, OracleTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
+    {
+        TableFacts facts = await FactsAsync(connection, cancellationToken).ConfigureAwait(false);
 
         List<EditResult> adds = [];
         List<EditResult> updates = [];
@@ -135,16 +223,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
                 transaction, savepoint++, () => DeleteAsync(connection, facts, identity, batch, cancellationToken)).ConfigureAwait(false));
         }
 
-        EditOutcome outcome = new(adds, updates, deletes, RolledBack: false);
-
-        if (batch.RollbackOnFailure && (!outcome.AllSucceeded || batch.AnythingAlreadyFailed))
-        {
-            transaction.Rollback();
-            return outcome with { RolledBack = true };
-        }
-
-        transaction.Commit();
-        return outcome;
+        return new EditOutcome(adds, updates, deletes, RolledBack: false);
     }
 
     /// <summary>The object ids of the features carrying these GlobalIDs — <c>useGlobalIds=true</c>, as on PostGIS.</summary>
