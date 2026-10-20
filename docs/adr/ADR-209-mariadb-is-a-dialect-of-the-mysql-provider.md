@@ -119,7 +119,9 @@ attachments and a history.
    and the editing run, 26 of 26. A MariaDB history needs no trigger flag: the server writes no binary log by default.
    A publish reports rows whose SRID is not the column's (measured with a 3857 point in a 4326 column) and says validity
    could not be measured, never that nothing was invalid.
-4. **A CI job** against a `mariadb:11.8` container beside the MySQL one.
+4. **A CI job** against a `mariadb:11.8` container beside the MySQL one. **DISCHARGED 2026-10-20** — the `mariadb` job runs the
+   provider suite against `mariadb:11.8` as a service container; green on its first run, 39463515972 (commit `82a28a52`),
+   beside a green `mysql` job on the same commit, which is what checks the null-ordering repair on MySQL itself.
 5. **The console** names MariaDB where it offers MySQL: the *Add a source* dialog, which now offers Oracle and
    MySQL says *MySQL* alone, and a MariaDB administrator should not have to guess that it means theirs.
    **DISCHARGED 2026-10-20** — the choice reads *MySQL or MariaDB*, and its hint names both version floors and MariaDB's
