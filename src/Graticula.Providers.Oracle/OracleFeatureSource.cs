@@ -826,11 +826,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
                 + "(GeometryServer/buffer) and filter by the result.");
         }
 
-        if (spatial.Distance > 0 && spatial.Relation != SpatialRelation.Intersects)
-        {
-            throw new QueryNotSupportedException(
-                $"A distance is answered with intersects, and '{spatial.Relation}' was asked for with one.");
-        }
+        // A distance is answered as within that distance whatever relation names it, as the PostGIS path's ST_DWithin
+        // answers it (2026-10-20, ADR-205: refused here until then, so the same query had two answers).
 
         if (_engine is not null && EngineRelations.Contains(spatial.Relation))
         {
