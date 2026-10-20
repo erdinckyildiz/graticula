@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(96);
+    public static SchemaVersion ComponentSchemaVersion => new(97);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -131,6 +131,7 @@ public static class PlatformMigrations
         ADeletedItemWaitsInTheRecycleBinV94,
         ARegisteredDatabaseMayBeOracleV95,
         ARegisteredLayerMayKeepAttachmentsV96,
+        ARegisteredDatabaseMayBeMySqlV97,
     ]);
 
     /// <summary>A registered data source may be an Oracle database — ADR-205.</summary>
@@ -138,6 +139,19 @@ public static class PlatformMigrations
     /// <b>Expand.</b> A constraint widened; every existing row satisfies it, and a build before this one never writes
     /// the new kind. Its locator is <c>oracle:</c> and JSON, sealed like every other (<c>OracleLocator</c>).
     /// </remarks>
+    /// <summary>A registered data source may be a MySQL database — ADR-208.</summary>
+    /// <remarks><b>Expand.</b> A constraint widened, as migration 95 widened it for Oracle.</remarks>
+    private static Migration ARegisteredDatabaseMayBeMySqlV97 => Migration.Expand(
+        new SchemaVersion(97),
+        "A registered data source may be a MySQL database (ADR-208).",
+
+        "alter table data_source drop constraint if exists data_source_kind_known",
+
+        """
+        alter table data_source add constraint data_source_kind_known
+            check (kind in ('postgis', 'geoparquet', 'geoparquet-remote', 'duckdb', 'motherduck', 'oracle', 'mysql'))
+        """);
+
     /// <summary>
     /// A registered layer may keep attachments — ADR-207 — in its own database beside its table, or in the datastore;
     /// null keeps none. A hosted layer keeps them beside its table whatever this says, as it always has.

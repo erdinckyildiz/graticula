@@ -34,9 +34,11 @@ public sealed class SqlDialect
         string integerDivision,
         IReadOnlySet<string>? guidColumns = null,
         bool arcGisGuidText = false,
-        bool oracleForms = false)
+        bool oracleForms = false,
+        bool mySqlForms = false)
     {
         OracleForms = oracleForms;
+        MySqlForms = mySqlForms;
         Name = name;
         Placeholder = placeholder;
         NumericForPlaces = numericForPlaces;
@@ -60,6 +62,22 @@ public sealed class SqlDialect
     public static SqlDialect Oracle { get; } = new(
         "Oracle", index => $":w{index.ToString(CultureInfo.InvariantCulture)}", numericForPlaces: false, "/",
         oracleForms: true);
+
+    /// <summary>
+    /// MySQL, with <c>@w0</c> placeholders as MySqlConnector binds them — ADR-208 — on a session in <c>ANSI</c> mode, so
+    /// names are double-quoted and <c>||</c> concatenates as in PostgreSQL; <see cref="MySqlForms"/> for the rest.
+    /// </summary>
+    public static SqlDialect MySql { get; } = new(
+        "MySQL", index => $"@w{index.ToString(CultureInfo.InvariantCulture)}", numericForPlaces: false, "div",
+        mySqlForms: true);
+
+    /// <summary>
+    /// Whether MySQL's spellings are used where they differ from PostgreSQL's — ADR-208, measured against MySQL 8.4.11
+    /// on 2026-10-20: no <c>ilike</c> (folded through <c>lower</c>; MySQL's default escape is already the backslash),
+    /// <c>signed</c>, <c>char</c> and <c>double</c> as cast targets, <c>truncate(x, n)</c> for <c>trunc</c>, and
+    /// <c>div</c> for a division of whole numbers.
+    /// </summary>
+    public bool MySqlForms { get; }
 
     /// <summary>
     /// Whether Oracle's spellings are used where they differ from PostgreSQL's and DuckDB's — ADR-205, measured
@@ -97,7 +115,7 @@ public sealed class SqlDialect
     /// <returns>The dialect.</returns>
     public SqlDialect WithPlaceholder(Func<int, string> placeholder) =>
         new(Name, placeholder ?? throw new ArgumentNullException(nameof(placeholder)), NumericForPlaces, IntegerDivision,
-            GuidColumns, ArcGisGuidText, OracleForms);
+            GuidColumns, ArcGisGuidText, OracleForms, MySqlForms);
 
     /// <summary>
     /// The layer's columns that hold a UUID — a GlobalID — which every filter language sends as text and neither
@@ -125,7 +143,7 @@ public sealed class SqlDialect
     public SqlDialect WithGuids(IEnumerable<string> columns, bool arcGisText) =>
         new(Name, Placeholder, NumericForPlaces, IntegerDivision,
             new HashSet<string>(columns ?? throw new ArgumentNullException(nameof(columns)), StringComparer.OrdinalIgnoreCase),
-            arcGisText, OracleForms);
+            arcGisText, OracleForms, MySqlForms);
 
     /// <summary>Whether a column holds UUIDs.</summary>
     internal bool IsGuid(string? column) => column is not null && GuidColumns.Contains(column);
@@ -136,7 +154,7 @@ public sealed class SqlDialect
     /// GlobalID as text or as RAW rather than as a UUID type.
     /// </remarks>
     internal string GuidText(string quoted) =>
-        OracleForms
+        OracleForms || MySqlForms
             ? ArcGisGuidText ? quoted : $"lower(substr({quoted}, 2, 36))"
             : ArcGisGuidText ? $"('{{' || upper({quoted}::text) || '}}')" : $"({quoted}::text)";
 }

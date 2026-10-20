@@ -68,7 +68,7 @@ public static class TileSources
     /// it, and it has five minutes and <c>best-effort</c> as a registered PostGIS table has.
     /// </remarks>
     public static bool Registered(bool hosted, string? kind) =>
-        !hosted && kind is DataSourceKinds.PostGis or DataSourceKinds.Oracle;
+        !hosted && kind is DataSourceKinds.PostGis or DataSourceKinds.Oracle or DataSourceKinds.MySql;
 
     /// <summary>How long a layer's tiles are kept when the layer itself names no lifetime.</summary>
     /// <param name="hosted">Whether the layer's data is in the datastore.</param>
@@ -97,6 +97,6 @@ public static class TileSources
     /// </remarks>
     public static string CoherenceOf(bool hosted, string? kind) =>
         hosted ? "exact"
-        : kind is DataSourceKinds.PostGis or DataSourceKinds.MotherDuck or DataSourceKinds.Oracle ? "best-effort"
+        : kind is DataSourceKinds.PostGis or DataSourceKinds.MotherDuck or DataSourceKinds.Oracle or DataSourceKinds.MySql ? "best-effort"
         : "file-version";
 }

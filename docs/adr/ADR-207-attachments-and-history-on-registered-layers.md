@@ -89,7 +89,7 @@ administrator.**
 3. **Nothing is created unless asked for**, and switching either off drops what switching it on made, after saying how
    many attachments or versions go with it.
 
-**`INFERRED` — for the owner to confirm:**
+**~~`INFERRED` — for the owner to confirm~~ Confirmed by the owner 2026-10-20 — [Q-184](../open-questions.md), *"tamam"*:**
 
 - **Opt-in per layer, by an administrator.** The owner said where attachments may be kept and that history belongs
   everywhere; not that every registered table gets them unasked. Creating tables and triggers in a customer's schema

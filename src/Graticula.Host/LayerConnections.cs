@@ -8,7 +8,6 @@ using Graticula.Features;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Providers.DuckDb;
-using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Npgsql;
@@ -235,24 +234,24 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
-        if (OracleLocator.Is(layer.ConnectionString))
+        if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
-            // <b>ADR-205 — a GeoParquet layer's gates, for the same reasons.</b> The driver keeps its own pool per
-            // connection string; the budget, breaker and quiesce are this server's statements about its work.
-            if (_quiesce?.Holding(layer.ConnectionString) is { } oracleHeld)
+            // <b>ADR-205, ADR-208 — a GeoParquet layer's gates, for the same reasons.</b> The driver keeps its own pool
+            // per connection string; the budget, breaker and quiesce are this server's statements about its work.
+            if (_quiesce?.Holding(layer.ConnectionString) is { } sqlHeld)
             {
-                throw new SourceQuiescedException(SourceQuiesce.Says(oracleHeld), oracleHeld.Until);
+                throw new SourceQuiescedException(SourceQuiesce.Says(sqlHeld), sqlHeld.Until);
             }
 
             if (_projector is null)
             {
                 throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    $"Layer '{layer.Definition.Name}' is in a {sql.Name} database and this server was started without "
                     + "the projector it moves coordinates with.");
             }
 
             return new BudgetedFeatureSource(
-                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer), _engine),
+                sql.Source(layer, _projector, Lowered(layer), _engine),
                 _budget,
                 layer.ConnectionString,
                 _breaker,
@@ -487,9 +486,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
-        // <b>ADR-205 phase 2: an Oracle table is edited by its own writer</b>, under the rules the PostGIS one applies
-        // (EditColumns), behind the same quiesce. Not wrapped in TilePurgingWriter: a registered layer has no tiles (ADR-206).
-        if (OracleLocator.Is(layer.ConnectionString))
+        // <b>ADR-205 phase 2, ADR-208: another engine's table is edited by its own writer</b>, under the rules the
+        // PostGIS one applies (EditColumns), behind the same quiesce. Not wrapped in TilePurgingWriter: a registered
+        // layer has no tiles (ADR-206).
+        if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
             if (_quiesce?.Holding(layer.ConnectionString) is { } held)
             {
@@ -499,14 +499,11 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             if (_projector is null)
             {
                 throw new InvalidOperationException(
-                    $"Layer '{layer.Definition.Name}' is in an Oracle database and this server was started without "
+                    $"Layer '{layer.Definition.Name}' is in a {sql.Name} database and this server was started without "
                     + "the projector an edit's geometry is moved with.");
             }
 
-            return Removing(
-                layer,
-                new OracleFeatureWriter(
-                    layer.ConnectionString, layer.Definition, fields, _projector, tracking, subtypes, Lowered(layer)));
+            return Removing(layer, sql.Writer(layer, fields, _projector, tracking, subtypes, Lowered(layer)));
         }
 
         RefuseIfFile(layer, "edited");
@@ -544,11 +541,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
-        // ADR-205: an Oracle layer's GlobalIDs are its own column's, looked up there.
-        if (OracleLocator.Is(layer.ConnectionString))
+        // ADR-205, ADR-208: another engine's GlobalIDs are its own column's, looked up there.
+        if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
-            return OracleFeatureWriter.ObjectIdsOfAsync(
-                layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
+            return sql.ObjectIdsOfAsync(layer, globalIdColumn, globalIds, cancellationToken);
         }
 
         RefuseIfFile(layer, "edited");
@@ -576,7 +572,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     internal static bool OneTransactionHolds(IReadOnlyList<LayerEdit> edits) =>
         edits.Count > 0
         && (edits.All(e => GeoParquetLocator.KindOf(e.Layer.ConnectionString) == DataSourceKinds.PostGis)
-            || edits.All(e => OracleLocator.Is(e.Layer.ConnectionString)))
+            || (SqlEngines.For(edits[0].Layer.ConnectionString) is { } sql
+                && edits.All(e => sql.Owns(e.Layer.ConnectionString))))
         && edits.Select(e => e.Layer.ConnectionString).Distinct(StringComparer.Ordinal).Count() == 1;
 
     /// <summary>
@@ -610,19 +607,18 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             throw new InvalidOperationException("These layers are not in one database, so one transaction cannot hold their edits.");
         }
 
-        // ADR-205: layers in one Oracle database share one Oracle transaction, behind the same quiesce as one layer's
-        // edit. No tiles to empty: a registered layer has none (ADR-206).
-        if (OracleLocator.Is(edits[0].Layer.ConnectionString))
+        // ADR-205, ADR-208: layers in one database of another engine share one transaction there, behind the same
+        // quiesce as one layer's edit. No tiles to empty: a registered layer has none (ADR-206).
+        if (SqlEngines.For(edits[0].Layer.ConnectionString) is { } sql)
         {
             if (_quiesce?.Holding(edits[0].Layer.ConnectionString) is { } held)
             {
                 throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
             }
 
-            IReadOnlyList<EditOutcome> together = await OracleFeatureWriter.ApplyTogetherAsync(
+            IReadOnlyList<EditOutcome> together = await sql.ApplyTogetherAsync(
                     edits[0].Layer.ConnectionString,
-                    [.. edits.Select(e => new OracleFeatureWriter.LayerBatch(
-                        e.Layer.Definition, e.Description.Fields, e.Description.Tracking, e.Description.Subtypes, e.Batch))],
+                    edits,
                     _projector ?? throw new InvalidOperationException(
                         "This server was started without the projector an edit's geometry is moved with."),
                     Lowered(edits[0].Layer),
@@ -849,12 +845,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         foreach (string source in layers
                      .Where(l => !l.Definition.IsHosted
                          && (GeoParquetLocator.KindOf(l.ConnectionString) == DataSourceKinds.PostGis
-                             || OracleLocator.Is(l.ConnectionString)))
+                             || SqlEngines.For(l.ConnectionString) is not null))
                      .Select(l => l.ConnectionString)
                      .Distinct(StringComparer.Ordinal))
         {
-            pruned.AddRange(OracleLocator.Is(source)
-                ? await OracleFeatureHistory.PruneAsync(source, cancellationToken).ConfigureAwait(false)
+            pruned.AddRange(SqlEngines.For(source) is { } sql
+                ? await sql.PruneHistoryAsync(source, cancellationToken).ConfigureAwait(false)
                 : await PostGisFeatureHistory.PruneAsync(PoolFor(source), cancellationToken).ConfigureAwait(false));
         }
 
@@ -873,10 +869,10 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
 
-        // ADR-207: an Oracle layer's history is kept by Oracle, beside its table.
-        if (OracleLocator.Is(layer.ConnectionString))
+        // ADR-207: another engine's layer's history is kept by that engine, beside its table.
+        if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
-            return new OracleFeatureHistory(layer.ConnectionString, layer.Definition);
+            return sql.History(layer);
         }
 
         RefuseIfFile(layer, "given a history");
@@ -927,8 +923,8 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 case AttachmentPlaces.Datastore:
                     return DatastoreAttachments(layer);
 
-                case AttachmentPlaces.Source when OracleLocator.Is(layer.ConnectionString):
-                    return new OracleAttachmentStore(layer.ConnectionString, layer.Definition, layer.AttachmentQuotaBytes);
+                case AttachmentPlaces.Source when SqlEngines.For(layer.ConnectionString) is { } sql:
+                    return sql.Attachments(layer);
 
                 case AttachmentPlaces.Source:
                     break;
@@ -1071,19 +1067,21 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(related);
 
-        // ADR-205: two layers of one Oracle database are joined there; an Oracle layer and one elsewhere cannot be.
-        if (OracleLocator.Is(origin.ConnectionString) || OracleLocator.Is(related.ConnectionString))
+        // ADR-205, ADR-208: two layers of one database of another engine are joined there; one of them and a layer
+        // anywhere else cannot be.
+        if (SqlEngines.For(origin.ConnectionString) is not null || SqlEngines.For(related.ConnectionString) is not null)
         {
-            if (!OracleLocator.Is(origin.ConnectionString) || !OracleLocator.Is(related.ConnectionString))
+            ISqlEngine? engine = SqlEngines.For(origin.ConnectionString);
+
+            if (engine is null || !engine.Owns(related.ConnectionString))
             {
                 throw new QueryNotSupportedException(
-                    $"'{origin.Definition.Name}' and '{related.Definition.Name}' are in different databases — one of them "
-                    + "Oracle — so a relationship between them cannot be followed in one query.");
+                    $"'{origin.Definition.Name}' and '{related.Definition.Name}' are in different databases — at least one "
+                    + "of them not PostgreSQL — so a relationship between them cannot be followed in one query.");
             }
 
-            return new OracleRelatedRecords(
-                origin.ConnectionString, origin.Definition, related.Definition,
-                string.Equals(origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal));
+            return engine.Related(
+                origin, related, string.Equals(origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal));
         }
 
         RefuseIfFile(origin, "related to another layer");
@@ -1133,11 +1131,11 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         // ADR-205: an Oracle layer's rows are edited in place (WriterFor), and nothing else is made for it — a history,
         // attachments or a GlobalID lookup would need tables in the customer's database, which this server never creates
         // (ADR-002 §4.2).
-        if (OracleLocator.Is(layer.ConnectionString))
+        if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
             throw new QueryNotSupportedException(
-                $"Layer '{layer.Definition.Name}' is in a registered Oracle database, whose rows this server edits in "
-                + $"place and beside which it makes nothing, so it cannot be {what} (ADR-205).");
+                $"Layer '{layer.Definition.Name}' is in a registered {sql.Name} database, which this server reaches through "
+                + $"its own engine, so it cannot be {what} here (ADR-208).");
         }
     }
 

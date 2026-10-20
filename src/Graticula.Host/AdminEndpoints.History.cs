@@ -10,7 +10,6 @@ using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
-using Graticula.Providers.Oracle;
 using Graticula.Providers.PostGis;
 using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
@@ -198,7 +197,7 @@ internal static partial class AdminEndpoints
             // grant — a 409 naming the right, not the datastore's 502.
             string? lacking = e is PostgresException failed
                 ? PostGisFeatureHistory.Refusal(failed, layer.Definition)
-                : OracleFeatureHistory.Refusal(e, layer.Definition);
+                : SqlEngines.For(layer.ConnectionString)?.HistoryRefusal(e, layer.Definition);
 
             if (lacking is not null)
             {

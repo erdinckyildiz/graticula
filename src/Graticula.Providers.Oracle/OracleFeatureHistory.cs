@@ -260,7 +260,18 @@ public sealed class OracleFeatureHistory : IFeatureHistory
                  ])
         {
             await using OracleCommand command = Command(statement, connection);
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+            try
+            {
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OracleException)
+            {
+                // DDL commits as it goes, so a refused trigger or index leaves the table made before it: taken away
+                // again, so a refusal leaves the schema as it found it.
+                await DisableAsync(CancellationToken.None).ConfigureAwait(false);
+                throw;
+            }
         }
 
         long seeded;
