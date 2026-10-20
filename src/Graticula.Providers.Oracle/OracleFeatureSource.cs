@@ -39,7 +39,7 @@ namespace Graticula.Providers.Oracle;
 /// (<see cref="IProjector"/>) — no Oracle type leaves this project.
 /// </para>
 /// </remarks>
-public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFeatureVersions
+public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFeatureVersions, IGeometryStatistics
 {
     private const int ProjectionBatch = 512;
 
@@ -334,6 +334,45 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             command.Parameters.Add("id", OracleDbType.Int64, identity, System.Data.ParameterDirection.Input);
 
             return await command.ExecuteScalarAsync(token).ConfigureAwait(false) as string;
+        }, cancellationToken);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>Measured from the first rows, because Oracle's statistics do not know</b> — measured 2026-10-20: the dictionary
+    /// leaves an <c>SDO_GEOMETRY</c> column's <c>AVG_COL_LEN</c> empty, and <c>AVG_ROW_LEN</c> counts 20 bytes for a row
+    /// whose ordinates, stored out of line, are 580 KB. So the width is the WKB length of up to 200 shapes, and the
+    /// row count is the dictionary's (the last <c>DBMS_STATS</c>), or counted when the table has never been analysed.
+    /// </remarks>
+    public Task<GeometryWidth?> GeometryWidthAsync(CancellationToken cancellationToken) =>
+        Bounded<GeometryWidth?>(async token =>
+        {
+            await using OracleConnection connection = await OpenAsync(token).ConfigureAwait(false);
+            OracleTable table = await TableAsync(connection, token).ConfigureAwait(false);
+
+            await using OracleCommand command = new(
+                $"""
+                -- COALESCE stops at the first value, so a table that was analysed is not counted.
+                select coalesce((select num_rows from all_tables where owner = :o and table_name = :t),
+                                (select count(*) from {From})),
+                       (select avg(dbms_lob.getlength(sdo_util.to_wkbgeometry({Flat(table)})))
+                          from (select {Shape} from {From} where {Shape} is not null and rownum <= 200))
+                  from dual
+                """, connection) { BindByName = true };
+
+            command.Parameters.Add("o", OracleDbType.Varchar2, _layer.SchemaName, System.Data.ParameterDirection.Input);
+            command.Parameters.Add("t", OracleDbType.Varchar2, _layer.TableName, System.Data.ParameterDirection.Input);
+
+            await using OracleDataReader reader = await command.ExecuteReaderAsync(token).ConfigureAwait(false);
+
+            if (!await reader.ReadAsync(token).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            float rows = Convert.ToSingle(reader.GetValue(0), CultureInfo.InvariantCulture);
+            int? each = reader.IsDBNull(1) ? null : (int)Math.Ceiling(Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture));
+
+            return new GeometryWidth(rows, each, each is { } bytes ? (long)(bytes * (double)rows) : 0);
         }, cancellationToken);
 
     /// <inheritdoc />

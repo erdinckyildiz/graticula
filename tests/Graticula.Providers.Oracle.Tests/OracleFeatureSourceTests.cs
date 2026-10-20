@@ -192,6 +192,18 @@ public sealed class OracleFeatureSourceTests
         ["OBJECTID"] = FieldType.Integer, ["AD"] = FieldType.Text, ["TUR"] = FieldType.Text,
     };
 
+    /// <summary>The width of a layer's shapes, measured, since Oracle's statistics leave an SDO_GEOMETRY's empty.</summary>
+    [Fact]
+    public async Task A_layer_says_how_wide_its_shapes_are()
+    {
+        GeometryWidth places = Assert.NotNull(await Places().GeometryWidthAsync(None));
+        Assert.Equal(1421f, places.Rows);
+        Assert.Equal(21, places.AverageBytes);
+
+        GeometryWidth land = Assert.NotNull(await Land().GeometryWidthAsync(None));
+        Assert.True(land.PerFeatureBytes > 100_000, $"{land.PerFeatureBytes}");
+    }
+
     /// <summary>queryTopFeatures: the highest identities of each kind, and a count and id list that agree with the read.</summary>
     [Fact]
     public async Task Top_features_are_ranked_within_each_group()
