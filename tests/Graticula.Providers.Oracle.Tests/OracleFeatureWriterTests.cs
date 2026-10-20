@@ -468,6 +468,25 @@ public sealed class OracleFeatureWriterTests
         Assert.Equal("changed", await LabelAsync("ZZW_PLAIN_KEY", 7));
     }
 
+    /// <summary>A key filled by a sequence in a before-insert trigger — how older Oracle tables number rows — takes adds.</summary>
+    [Fact]
+    public async Task A_table_whose_key_a_trigger_fills_takes_adds()
+    {
+        await ExecuteAsync("drop sequence if exists zzw_trigger_key_seq");
+        OracleFeatureWriter writer = await WriterAsync("ZZW_TRIGGER_KEY", keyMade: false);
+        await ExecuteAsync("create sequence zzw_trigger_key_seq start with 500");
+        await ExecuteAsync(
+            "create or replace trigger zzw_trigger_key_bi before insert on zzw_trigger_key for each row "
+            + "begin if :new.objectid is null then :new.objectid := zzw_trigger_key_seq.nextval; end if; end;");
+
+        EditOutcome outcome = await writer.ApplyAsync(new EditBatch([Add(("LABEL", "new"))], [], []), None);
+
+        EditResult added = Assert.Single(outcome.Adds);
+        Assert.True(added.Succeeded, added.Error);
+        Assert.Equal(500, added.Identity);
+        Assert.Equal("new", await LabelAsync("ZZW_TRIGGER_KEY", 500));
+    }
+
     /// <summary>A geometry sent in another reference is moved into the layer's before it is stored.</summary>
     [Fact]
     public async Task A_geometry_sent_in_another_reference_is_moved_into_the_layer_s()

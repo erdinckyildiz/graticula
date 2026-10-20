@@ -257,7 +257,14 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             select m.srid,
                    (select count(*) from table(m.diminfo)),
                    (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
-                   (select case when c.identity_column = 'YES' or c.data_default_vc is not null then 1 else 0 end
+                   (select case when c.identity_column = 'YES' or c.data_default_vc is not null
+                                  -- The way Oracle tables made before identity columns number their rows: a sequence
+                                  -- read by a row trigger before the insert.
+                                  or exists (select 1 from all_triggers g
+                                              where g.table_owner = m.owner and g.table_name = m.table_name
+                                                and g.status = 'ENABLED' and g.trigger_type = 'BEFORE EACH ROW'
+                                                and g.triggering_event like '%INSERT%')
+                                then 1 else 0 end
                       from all_tab_columns c
                      where c.owner = m.owner and c.table_name = m.table_name and c.column_name = :k)
               from all_sdo_geom_metadata m
@@ -356,7 +363,7 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             return EditResult.Failed(
                 -1,
                 $"'{_layer.IntegerIdentityColumn}' is this table's key and the database does not make it — it is neither "
-                + "an identity column nor given a default — so this server cannot add a row without inventing a number "
+                + "an identity column, nor given a default, nor filled by a trigger before the insert — so this server cannot add a row without inventing a number "
                 + "the table's own users did not choose. Updates and deletes are answered (ADR-205).");
         }
 
