@@ -1271,15 +1271,19 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         // The index's answer, kept for a box-only query too large to refine here.
         List<string> inOracle = [.. attributes];
+        bool[] compared = new bool[boxes.Count];
 
         for (int i = 0; i < boxes.Count; i++)
         {
-            // <b>A box over most of a point layer is not asked of the index</b>, because the comparison below is exact
-            // on its own and a scan is cheaper than the index's answer when that answer is most of the table: on the
-            // VPS, 200,000 points counted in a box holding all of them took SDO_FILTER 230–420 ms and the comparison
-            // alone 20–80 ms, and a box holding 1,768 of them 60–80 ms against 60 ms. A stale extent costs speed only.
-            if (pointBoxes && Wide(boxes[i], table.Extent))
+            // <b>A box over a good share of a point layer is not asked of the index</b> but compared, which is exact on
+            // its own, because a scan is cheaper than the geodetic index's answer once that answer is more than a few
+            // rows in a hundred: on the VPS, 200,000 points took SDO_FILTER 230–420 ms for a box holding all of them
+            // and 210 ms for one holding 24,596, against 60–80 ms compared; a box holding 1,768 cost both about 60 ms.
+            // A projected index was not measured. A stale extent costs speed only, never an answer.
+            if (table.Points && !indexOnly && Wide(boxes[i], table.Extent))
             {
+                inOracle.Add(InBox(boxes[i], "inbox" + i.ToString(CultureInfo.InvariantCulture), parameters));
+                compared[i] = true;
                 continue;
             }
 
@@ -1305,13 +1309,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
             for (int i = 0; i < boxes.Count; i++)
             {
-                string name = "inbox" + i.ToString(CultureInfo.InvariantCulture);
-                parameters.Add((name + "a", boxes[i].MinX));
-                parameters.Add((name + "b", boxes[i].MaxX));
-                parameters.Add((name + "c", boxes[i].MinY));
-                parameters.Add((name + "d", boxes[i].MaxY));
-                exact.Add($"coalesce(t.{Shape}.sdo_point.x, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 1)) between :{name}a and :{name}b "
-                    + $"and coalesce(t.{Shape}.sdo_point.y, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 2)) between :{name}c and :{name}d");
+                if (!compared[i])
+                {
+                    exact.Add(InBox(boxes[i], "inbox" + i.ToString(CultureInfo.InvariantCulture), parameters));
+                }
             }
 
             return new Filters(exact, parameters);
@@ -1441,8 +1442,21 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             + $"sdo_elem_info_array(1, 1003, 3), sdo_ordinate_array(:{name}a, :{name}b, :{name}c, :{name}d))) = 'TRUE'";
     }
 
-    /// <summary>The share of a point layer's extent past which a box is answered by a scan rather than the index.</summary>
-    private const double WideShare = 0.2;
+    /// <summary>A point inside a box, decided by its coordinates.</summary>
+    private string InBox(Envelope box, string name, List<(string Name, object Value)> parameters)
+    {
+        parameters.Add((name + "a", box.MinX));
+        parameters.Add((name + "b", box.MaxX));
+        parameters.Add((name + "c", box.MinY));
+        parameters.Add((name + "d", box.MaxY));
+        return $"{PointOrdinate(1)} between :{name}a and :{name}b and {PointOrdinate(2)} between :{name}c and :{name}d";
+    }
+
+    /// <summary>
+    /// The share of a point layer's extent past which a box is compared rather than asked of the index — an area's share
+    /// standing for a share of rows, which is where the two cost the same on a geodetic index (see RowFiltersAsync).
+    /// </summary>
+    private const double WideShare = 0.05;
 
     /// <summary>Whether a box covers enough of the layer's extent that the spatial index would return most rows.</summary>
     private static bool Wide(Envelope box, Envelope? extent)
