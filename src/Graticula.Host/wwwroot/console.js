@@ -22571,21 +22571,39 @@ function dbconnBody() {
     return body;
   }
 
+  const kind = dbconnKind();
   const raw = $("dcRaw");
 
-  if (raw && raw.value.trim()) {
+  // <b>Only PostGIS takes a written string</b>: it is Npgsql's, and an Oracle or MySQL locator is fields
+  // the server seals as JSON (ADR-205, ADR-208), so the box is hidden for them and never read.
+  if (kind === "postgis" && raw && raw.value.trim()) {
     return { name: $("dcName").value.trim(), connectionString: raw.value.trim() };
   }
 
-  return {
+  const body = {
     name: $("dcName").value.trim(),
     host: $("dcHost").value.trim(),
-    port: Number($("dcPort").value) || 5432,
+    port: Number($("dcPort").value) || DBCONN_PORTS[kind],
     database: $("dcDatabase").value.trim(),
     username: $("dcUser").value,
     password: $("dcPassword").value,
   };
+
+  // A PostGIS body names no kind, as it never has; the other two say which they are.
+  if (kind !== "postgis") body.kind = kind;
+  return body;
 }
+
+/**
+ * The database servers the dialog's shared fields describe, and each one's usual port.
+ *
+ * <b>One block of fields for three engines, because they ask the same five things</b> — a host, a
+ * port, a database (Oracle calls it a service), a user and a password — and the server turns each
+ * into its own locator. Found 2026-10-20 ([D-310](docs/architecture-debt.md)): Oracle had been
+ * registrable for a week and MySQL for an hour, both through the API only, and a registered one
+ * opened for correction was shown as PostGIS.
+ */
+const DBCONN_PORTS = { postgis: 5432, oracle: 1521, mysql: 3306 };
 
 /**
  * Shows the bucket settings only while the location is not an https file.
@@ -22603,10 +22621,12 @@ function dbconnRemoteScheme() {
 /**
  * Which kind of source the dialog is describing.
  *
- * @returns {"postgis"|"geoparquet"|"geoparquet-remote"|"duckdb"|"motherduck"} the chosen kind, or the kind of the source being corrected
+ * @returns {"postgis"|"oracle"|"mysql"|"geoparquet"|"geoparquet-remote"|"duckdb"|"motherduck"} the chosen kind, or the kind of the source being corrected
  */
 function dbconnKind() {
-  const known = kind => (["geoparquet", "geoparquet-remote", "duckdb", "motherduck"].includes(kind) ? kind : "postgis");
+  const known = kind => (["oracle", "mysql", "geoparquet", "geoparquet-remote", "duckdb", "motherduck"].includes(kind)
+    ? kind
+    : "postgis");
 
   if (dbconn) return known(dbconn.kind);
 
@@ -22624,11 +22644,13 @@ function dbconnKind() {
 function dbconnShowKind() {
   const kind = dbconnKind();
 
-  $("dcPostgis").hidden = kind !== "postgis";
+  $("dcPostgis").hidden = !(kind in DBCONN_PORTS);
   $("dcFolder").hidden = kind !== "geoparquet";
   $("dcRemote").hidden = kind !== "geoparquet-remote";
   $("dcDuckDb").hidden = kind !== "duckdb";
   $("dcMotherDuck").hidden = kind !== "motherduck";
+
+  if (kind in DBCONN_PORTS) dbconnServerKind(kind);
 
   // <b>Emptied, not written blank.</b> `dbconnSays` gives the region its bordered class even with
   // nothing to say, and a design review found the empty box it left sitting under the fields for the
@@ -22647,6 +22669,49 @@ function dbconnShowKind() {
 }
 
 /**
+ * Fits the shared database fields to the engine chosen: its port, what it calls a database, and
+ * whether a written connection string is on offer.
+ *
+ * <b>The port moves only while it is still another engine's default</b>, so a port somebody typed
+ * survives a change of mind about the engine, and a correction's stored port is filled in after
+ * this runs. <b>The database list is forgotten</b>, since it was the other engine's answer.
+ *
+ * @param {"postgis"|"oracle"|"mysql"} kind the engine
+ */
+function dbconnServerKind(kind) {
+  const port = $("dcPort");
+
+  if (port && (port.value.trim() === "" || Object.values(DBCONN_PORTS).map(String).includes(port.value))) {
+    port.value = String(DBCONN_PORTS[kind]);
+  }
+
+  $("dcDatabaseName").textContent = kind === "oracle" ? "Service" : "Database";
+  $("dcDatabase").placeholder = kind === "oracle"
+    ? "the service the listener knows — FREEPDB1, ORCLPDB1"
+    : "press to list what is on that server";
+  $("dcDatabase").dataset.asked = "";
+  $("dcDatabases").innerHTML = "";
+
+  // <b>Hidden, not cleared</b> — a design review found a typed string gone after a look at Oracle and back;
+  // `dbconnBody` already ignores it for the other engines, and `dbconnOverride` greys nothing for them.
+  $("dcAdvanced").hidden = kind !== "postgis";
+  dbconnOverride();
+
+  $("dcServerHint").innerHTML = kind === "oracle"
+    ? "Every table with an <code>SDO_GEOMETRY</code> column and a spatial index can be published, read and "
+      + "edited where it is — no geodatabase is installed or read. It lists the user's own tables and those the "
+      + "user may select from, and Test is what checks the connection: Oracle names one database, its service."
+    : kind === "mysql"
+      ? "MySQL 8.0 or later. Every table whose geometry column declares an <code>SRID</code> and has a "
+        + "spatial index can be published, read and edited where it is, in x and y — MySQL keeps no Z or M."
+      : "";
+  $("dcServerHint").hidden = kind === "postgis";
+
+  // The line about choosing from a list is PostGIS's and MySQL's: Oracle has no list to choose from.
+  $("dcListHint").hidden = kind === "oracle";
+}
+
+/**
  * Shows, or stops showing, that the advanced string is what will be sent.
  *
  * <b>The fields are disabled rather than hidden.</b> Somebody who typed a host into them wants
@@ -22655,7 +22720,7 @@ function dbconnShowKind() {
  */
 function dbconnOverride() {
   const raw = $("dcRaw");
-  const on = Boolean(raw && raw.value.trim());
+  const on = Boolean(raw && raw.value.trim()) && dbconnKind() === "postgis";
   const said = $("dcOverride");
 
   for (const id of ["dcHost", "dcPort", "dcUser", "dcPassword", "dcDatabase"]) {
@@ -22725,6 +22790,11 @@ async function dbconnFill() {
 
   if (combo.dataset.asked === asked) return;
 
+  // <b>Oracle is not asked</b>: a listener serves the database the connection names, so there is no list
+  // to fill — and asking with the service still empty failed every time somebody clicked into the field to
+  // type it (a design review, D-310). Test is where an Oracle connection is checked.
+  if (dbconnKind() === "oracle") return;
+
   if (!$("dcHost").value.trim() || !$("dcUser").value) {
     dbconnSays("warn", "The host and the user first. ",
       "This list comes from the server, so it cannot be asked for until there is a server to "
@@ -22747,7 +22817,7 @@ async function dbconnFill() {
     const names = said.databases || [];
 
     if (!names.length) {
-      dbconnSays(sourceTone(said.outcome), spaced(said.outcome || "No answer"), said.message || "");
+      dbconnSays(sourceTone(said.outcome), `${spaced(said.outcome || "No answer")}. `, said.message || "");
       return;
     }
 
@@ -22825,30 +22895,38 @@ async function openDbConnection(source) {
     is the chosen kind's alone. Correcting a source does not offer the choice: a source keeps its
     kind, and the server refuses a correction that would change it.
   */
+  // <b>Two groups, and what is off said once under them</b> — a design review of 2026-10-20 (D-310) found
+  // seven options in one wrapping row, each disabled one's explanation sitting between two options, and on a
+  // phone the whole first screen spent on things this server cannot do. The engines come first: they are
+  // what most sources are, and they share the fields below.
+  const off = [
+    geoParquetRoot ? null : "GeoParquet folders and DuckDB files: set <code>Graticula:GeoParquetRoot</code>",
+    remoteGeoParquet ? null : "GeoParquet on the web or in S3: put DuckDB's httpfs extension in <code>Graticula:DuckDbExtensions</code>",
+    motherDuckOn ? null : "MotherDuck: set <code>Graticula:MotherDuck</code>",
+  ].filter(Boolean);
+  const offNote = off.length ? 'aria-describedby="dcKindOff"' : "";
+
   const kindChoice = source ? "" : `
       <fieldset class="dckind">
         <legend>What it is</legend>
-        <label><input type="radio" name="dcKind" value="postgis" checked> A PostGIS database</label>
-        <label><input type="radio" name="dcKind" value="geoparquet"
-          ${geoParquetRoot ? "" : "disabled aria-describedby=\"dcKindOff\""}>
-          A folder of GeoParquet files</label>
-        ${geoParquetRoot ? "" : `<p class="hint" id="dcKindOff">This server reads no GeoParquet
-          folders: it was started without <code>Graticula:GeoParquetRoot</code>, the setting that
-          names the directory they may be registered from.</p>`}
-        <label><input type="radio" name="dcKind" value="geoparquet-remote"
-          ${remoteGeoParquet ? "" : "disabled aria-describedby=\"dcRemoteOff\""}>
-          GeoParquet on the web or in S3</label>
-        ${remoteGeoParquet ? "" : `<p class="hint" id="dcRemoteOff">This server reads no remote
-          GeoParquet: it was started without DuckDB's httpfs extension in the directory
-          <code>Graticula:DuckDbExtensions</code> names.</p>`}
-        <label><input type="radio" name="dcKind" value="duckdb"
-          ${geoParquetRoot ? "" : "disabled aria-describedby=\"dcKindOff\""}>
-          A DuckDB database file</label>
-        <label><input type="radio" name="dcKind" value="motherduck"
-          ${motherDuckOn ? "" : "disabled aria-describedby=\"dcMotherOff\""}>
-          A MotherDuck database</label>
-        ${motherDuckOn ? "" : `<p class="hint" id="dcMotherOff">This server reads no MotherDuck
-          databases: it was started without <code>Graticula:MotherDuck</code>.</p>`}
+        <div class="dcgroup" role="group" aria-labelledby="dcKindServers">
+          <span class="dcgrouphead" id="dcKindServers">A database server</span>
+          <label><input type="radio" name="dcKind" value="postgis" checked> PostGIS</label>
+          <label><input type="radio" name="dcKind" value="oracle"> Oracle</label>
+          <label><input type="radio" name="dcKind" value="mysql"> MySQL</label>
+        </div>
+        <div class="dcgroup" role="group" aria-labelledby="dcKindFiles">
+          <span class="dcgrouphead" id="dcKindFiles">Files, read where they are</span>
+          <label><input type="radio" name="dcKind" value="geoparquet" ${geoParquetRoot ? "" : `disabled ${offNote}`}>
+            A folder of GeoParquet files</label>
+          <label><input type="radio" name="dcKind" value="geoparquet-remote" ${remoteGeoParquet ? "" : `disabled ${offNote}`}>
+            GeoParquet on the web or in S3</label>
+          <label><input type="radio" name="dcKind" value="duckdb" ${geoParquetRoot ? "" : `disabled ${offNote}`}>
+            A DuckDB database file</label>
+          <label><input type="radio" name="dcKind" value="motherduck" ${motherDuckOn ? "" : `disabled ${offNote}`}>
+            A MotherDuck database</label>
+        </div>
+        ${off.length ? `<p class="hint" id="dcKindOff">Not available on this server: ${off.join("; ")}.</p>` : ""}
       </fieldset>`;
 
   $("dbconnBody").innerHTML = `
@@ -22961,12 +23039,13 @@ async function openDbConnection(source) {
           <input id="dcPassword" type="password" autocomplete="new-password"></label>
       </div>
       <div class="row">
-        <label class="field" style="flex:1 1 100%">Database
+        <label class="field" style="flex:1 1 100%"><span id="dcDatabaseName">Database</span>
           <input id="dcDatabase" list="dcDatabases" spellcheck="false"
                  placeholder="press to list what is on that server">
           <datalist id="dcDatabases"></datalist></label>
       </div>
-      <p class="hint">${source
+      <p class="hint" id="dcServerHint" hidden></p>
+      <p class="hint" id="dcListHint">${source
         ? "The password is the one thing not filled in: it is sealed and this server does not "
           + "read it back, so it has to be typed again — which also means saving requires "
           + "already knowing it."
@@ -23050,6 +23129,7 @@ async function openDbConnection(source) {
   };
 
   dbconnOverride();
+  dbconnServerKind(dbconnKind() in DBCONN_PORTS ? dbconnKind() : "postgis");
   dialog.showModal();
 
   if (!source) {
@@ -23125,7 +23205,7 @@ async function openDbConnection(source) {
     const said = await api(`/admin/datasources/${encodeURIComponent(source.id)}/connection`);
 
     $("dcHost").value = said.host || "";
-    $("dcPort").value = said.port || 5432;
+    $("dcPort").value = said.port || DBCONN_PORTS[dbconnKind()] || 5432;
     $("dcDatabase").value = said.database || "";
     $("dcUser").value = said.username || "";
     $("dcPassword").focus();
@@ -23175,7 +23255,7 @@ async function dbconnTest() {
       body: JSON.stringify(dbconnBody()),
     });
 
-    dbconnSays(sourceTone(r.outcome), spaced(r.outcome || "Done"), r.message || "");
+    dbconnSays(sourceTone(r.outcome), `${spaced(r.outcome || "Done")}. `, r.message || "");
     dbconnSkipped(r.skipped);
   } catch (e) {
     dbconnSays("alert", "Refused. ", e.message);

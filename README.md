@@ -87,8 +87,9 @@ that works.
   x and y only, since MySQL stores no Z or M, and a row version computed from the row. A history needs the server to
   let the connected user create triggers (`log_bin_trust_function_creators` where a binary log is written), and a
   refusal says so. ArcGIS Pro has no MySQL database connection, so it reaches these layers through the FeatureServer.
-  **Oracle and MySQL sources are registered through `POST /admin/datasources` for now** — the console's dialog does not
-  offer them yet ([D-310](docs/architecture-debt.md)). No
+  The console's *Add a source* dialog registers both, beside PostGIS ([D-310](docs/architecture-debt.md), repaired in
+  v1.0.447). **MariaDB is being added as a dialect of the same provider**
+  ([ADR-209](docs/adr/ADR-209-mariadb-is-a-dialect-of-the-mysql-provider.md)) and is not served yet. No
   registered source serves vector tiles ([ADR-206](docs/adr/ADR-206-vector-tiles-are-served-from-the-datastore-only.md)).
   The other engines are deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a. **GeoParquet files are the one
   thing served where they lie** — in a folder on the server, or over `https://` and `s3://` — and

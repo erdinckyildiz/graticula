@@ -548,8 +548,8 @@ pre .k{color:var(--accent)}
               <span class="nm">ST_GEOMETRY</span> tables are not read. <b>MySQL 8.0 or later since v1.0.446</b>, to the
               same scope &mdash; x and y only, since MySQL stores no Z or M, and a history only where the server lets the
               connected user create triggers. ArcGIS Pro has no MySQL connection; it reaches these layers through the
-              FeatureServer. Oracle and MySQL sources are registered through the admin API for now; the console&rsquo;s
-              dialog does not offer them yet. No registered source serves vector
+              FeatureServer. The console registers both beside PostGIS. MariaDB is being added as a dialect of the
+              same provider and is not served yet. No registered source serves vector
               tiles. The other engines are deferred, not cancelled. <b>GeoParquet files are the one thing served where they
               lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no
               attachments, no related records, and a distance filter only in a projected reference.

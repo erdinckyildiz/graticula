@@ -29,9 +29,11 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
         {
             driver = MySqlConnections.For(connectionString, pooling: false);
         }
-        catch (ArgumentException e)
+        catch (ArgumentException)
         {
-            return Refused(ProbeOutcome.CannotConnect, e.Message);
+            // Said as what is missing, not as the argument exception's own text, which ends "(Parameter 'stored')"
+            // — a design review found that tail in the console's red box.
+            return Refused(ProbeOutcome.CannotConnect, "A host, a port, a database and a user are all needed to reach a MySQL server.");
         }
 
         try
@@ -58,6 +60,15 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
                 : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published.";
 
             return new ProbeResult(ProbeOutcome.Usable, message, version, "MySQL spatial " + version, tables, skipped);
+        }
+        catch (MySqlException e) when (e.ErrorCode is MySqlErrorCode.UnableToConnectToHost)
+        {
+            // Nothing answered, so nothing refused: said as where it looked — a design review read "The database
+            // refused" over a port nothing listens on.
+            MySqlSource source = MySqlLocator.Of(connectionString);
+            return Refused(
+                ProbeOutcome.CannotConnect,
+                $"Nothing answered at {source.Host}:{source.Port}. Check the instance and the port, and that this server may reach it.");
         }
         catch (MySqlException e)
         {
