@@ -205,7 +205,7 @@ connected user owns the table or holds all three object grants or the `ANY TABLE
 read-only otherwise. Measured end to end on the fixture: `applyEdits` added, updated (a point sent in EPSG:3857 stored in
 4326), deleted and refused a text value for a number by name; OGC API Features created, replaced and deleted an item.
 
-**`INFERRED` — this session's, for the owner to confirm:**
+**~~`INFERRED` — this session's, for the owner to confirm~~ Confirmed by the owner 2026-10-20 — [Q-183](../open-questions.md), *"hepsini yap"*:**
 
 1. **A new row's key must be made by the database** — an identity column or a column default. Where it is not, adds are
    refused with the reason and updates and deletes are answered: a customer's table numbers its rows its own way, and
