@@ -123,6 +123,7 @@ opens from an Oracle database connection — the owner's prize, at no extra cost
 | SQL Server cannot run there | `mcr.microsoft.com/mssql/server` 2022 and 2025: amd64 only; under QEMU both exit 139 | measured 2026-10-19 |
 | Esri supports Oracle 26ai for geodatabases | Esri's Oracle database requirements list 26ai (23.26.1+) on Linux, and 19c | [doc.esri.com](https://doc.esri.com/en/arcgis-pro/latest/help/data/databases/database-requirements-oracle.html) |
 | An Oracle provider's seams exist | dialect, WKB boundary, datastore tile route | §1c |
+| Oracle answers point queries within about twice PostGIS | 200,000 points, ten queries through the REST face, every answer checked against PostGIS's; slowest gap the pentagon, 219 ms against 106 | measured 2026-10-21, [registered-engine-speed.md](../research/registered-engine-speed.md) |
 | The datastore tile route is affordable for Oracle | **Not measured** | condition 4 |
 | ArcGIS Pro opens the same tables directly | **Not measured** | condition 5 |
 | The managed driver may be redistributed in the server image | **Not verified** | condition 1 |
