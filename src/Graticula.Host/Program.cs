@@ -813,6 +813,9 @@ public static class Program
                     cancellation)
                 .ConfigureAwait(false)));
 
+        // ADR-207: attachments a registered layer keeps in the datastore, for features another tool deleted.
+        builder.Services.AddHostedService<AttachmentSweep>();
+
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));
 
@@ -962,6 +965,9 @@ public static class Program
             app.Services.GetRequiredService<LayerConnections>().SchemeOfService = async (id, cancellation) =>
                 (await services.ListServicesAsync(cancellation).ConfigureAwait(false)).Services?
                     .FirstOrDefault(service => service.Id == id)?.TileScheme;
+
+            // ADR-207: where the attachments registered layers keep in the datastore are.
+            app.Services.GetRequiredService<LayerConnections>().DatastoreConnection = DatastoreConnection(settings.PlatformStore);
         }
         ILogger logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("startup");
 
@@ -4099,7 +4105,10 @@ public static class Program
             cacheMaxAge: (int)QueryResponseCaching.LifetimeOf(layer, settings.TileCacheLifetime, description.Writable).TotalSeconds,
 
             // 2026-10-18: the title when the layer has one, which is what Pro called the layer it published.
-            displayName: layer.DisplayName);
+            displayName: layer.DisplayName,
+
+            // ADR-207: a registered layer keeps attachments where an administrator switched them on.
+            attachments: layer.KeepsAttachments);
 
         // ADR-113: a view layer says so, and so does a source's.
         document = ViewFlags.Apply(context, document, layer.ViewOf is not null, layer.HasViews, layerCapabilities);

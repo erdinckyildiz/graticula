@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Catalog;
@@ -84,6 +85,9 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
     private readonly NpgsqlDataSource _dataSource;
     private readonly LayerDefinition _layer;
     private readonly long _quota;
+    private readonly string _schema;
+    private readonly string _table;
+    private readonly Func<long, CancellationToken, Task<bool>>? _featureExists;
 
     /// <summary>Creates a store over one layer's companion table.</summary>
     /// <param name="dataSource">
@@ -101,16 +105,63 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
         _dataSource = dataSource;
         _layer = layer;
         _quota = quotaBytes;
+        _schema = layer.SchemaName;
+        _table = layer.TableName + Suffix;
     }
 
+    private PostGisAttachmentStore(
+        NpgsqlDataSource dataSource,
+        LayerDefinition layer,
+        long quotaBytes,
+        string schema,
+        string table,
+        Func<long, CancellationToken, Task<bool>> featureExists)
+        : this(dataSource, layer, quotaBytes)
+    {
+        _schema = schema;
+        _table = table;
+        _featureExists = featureExists;
+    }
+
+    /// <summary>
+    /// A registered layer's attachments kept in the datastore — ADR-207 — in tables named for the layer's id in the
+    /// hosted schema rather than beside a table this database does not hold.
+    /// </summary>
+    /// <param name="datastore">The datastore's attachment pool.</param>
+    /// <param name="layerId">The layer's catalogue id, which names the tables.</param>
+    /// <param name="layer">The layer.</param>
+    /// <param name="quotaBytes">How much it may store.</param>
+    /// <param name="featureExists">
+    /// Whether the layer has a feature of this object id, asked before an upload: <b>no foreign key can</b>, since the
+    /// feature is in another database.
+    /// </param>
+    /// <returns>The store.</returns>
+    public static PostGisAttachmentStore InDatastore(
+        NpgsqlDataSource datastore,
+        Guid layerId,
+        LayerDefinition layer,
+        long quotaBytes,
+        Func<long, CancellationToken, Task<bool>> featureExists)
+    {
+        ArgumentNullException.ThrowIfNull(featureExists);
+
+        return new PostGisAttachmentStore(
+            datastore, layer, quotaBytes, PostGisImporter.HostedSchema, DatastoreTableOf(layerId), featureExists);
+    }
+
+    /// <summary>The name of a registered layer's attachment table in the datastore.</summary>
+    /// <param name="layerId">The layer's catalogue id.</param>
+    /// <returns>The table's name; its chunks are in the same name with <see cref="ChunkSuffix"/>.</returns>
+    public static string DatastoreTableOf(Guid layerId) => "layer_" + layerId.ToString("N", CultureInfo.InvariantCulture) + Suffix;
+
     /// <summary>The companion table's name, derived from the layer's.</summary>
-    public string TableName => _layer.TableName + Suffix;
+    public string TableName => _table;
 
     private string Qualified =>
-        $"{LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(TableName)}";
+        $"{LayerDefinition.Quote(_schema)}.{LayerDefinition.Quote(TableName)}";
 
     private string QualifiedChunks =>
-        $"{LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(TableName + ChunkSuffix)}";
+        $"{LayerDefinition.Quote(_schema)}.{LayerDefinition.Quote(TableName + ChunkSuffix)}";
 
     /// <summary>
     /// Creates the companion table if it is not there.
@@ -139,10 +190,7 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
             $"""
              create table if not exists {Qualified} (
                attachmentid   integer generated always as identity primary key,
-               rel_objectid   bigint      not null
-                 references {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)}
-                   ({LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn)})
-                   on delete cascade,
+               rel_objectid   bigint      not null{References},
                att_name       text        not null,
                content_type   text        not null,
                declared_type  text,
@@ -184,6 +232,23 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
             connection);
 
         await index.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+
+        // <b>A table of that name already there may be somebody else's</b> — an Esri geodatabase's keys by
+        // rel_globalid — and `if not exists` would keep it. Reading one is ADR-013 §4c's migration, not this.
+        await using NpgsqlCommand shape = new(
+            "select count(*) from information_schema.columns where table_schema = @schema and table_name = @table "
+            + "and column_name in ('rel_objectid', 'data_size')",
+            connection);
+        shape.Parameters.AddWithValue("schema", _schema);
+        shape.Parameters.AddWithValue("table", TableName);
+
+        if (Convert.ToInt32(await shape.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) != 2)
+        {
+            throw new InvalidOperationException(
+                $"{_schema}.{TableName} is already there and is not a table this server made. Reading one is not built "
+                + "(ADR-013 §4c); keep this layer's attachments in the datastore instead, or rename that table.");
+        }
+
         return true;
     }
 
@@ -314,6 +379,13 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(content);
+
+        // ADR-207: in the datastore no foreign key can refuse an attachment for a feature that is not there, so it is
+        // asked first.
+        if (_featureExists is not null && !await _featureExists(featureId, cancellationToken).ConfigureAwait(false))
+        {
+            throw new AttachmentFeatureMissingException($"There is no feature {featureId} in this layer, so nothing was attached.");
+        }
 
         await EnsureTableAsync(cancellationToken).ConfigureAwait(false);
 
@@ -602,6 +674,97 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
             await SumAsync(connection, null, cancellationToken).ConfigureAwait(false), _quota);
     }
 
+    /// <summary>
+    /// The foreign key to the layer's table that cascades a feature's deletion to its attachments — beside the table,
+    /// where the database can keep it; none in the datastore, where this server removes them (ADR-207).
+    /// </summary>
+    private string References =>
+        _featureExists is not null
+            ? string.Empty
+            : $"\n                 references {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)}"
+              + $" ({LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn)}) on delete cascade";
+
+    /// <summary>How many attachments there are and how many bytes they hold — what switching them off would remove.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The count and the bytes; zero for a store whose tables were never made.</returns>
+    public async Task<(long Count, long Bytes)> CountAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"select count(*), coalesce(sum(data_size), 0)::bigint from {Qualified}");
+
+        try
+        {
+            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            return (reader.GetInt64(0), reader.GetInt64(1));
+        }
+        catch (PostgresException e) when (e.SqlState == "42P01")
+        {
+            return (0, 0);
+        }
+    }
+
+    /// <summary>Drops the store's tables and every attachment in them — switching attachments off (ADR-207).</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>A task.</returns>
+    public async Task DropAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"drop table if exists {QualifiedChunks}; drop table if exists {Qualified}");
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Removes the attachments of these features — for a store with no foreign key to cascade (ADR-207).</summary>
+    /// <param name="featureIds">The features deleted.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many attachments went.</returns>
+    public async Task<long> DeleteOfFeaturesAsync(IReadOnlyList<long> featureIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(featureIds);
+
+        if (featureIds.Count == 0)
+        {
+            return 0;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand($"delete from {Qualified} where rel_objectid = any(@ids)");
+        command.Parameters.Add(new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Bigint) { Value = featureIds.ToArray() });
+
+        try
+        {
+            return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (PostgresException e) when (e.SqlState == "42P01")
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>The features that have attachments, for a sweep that asks which of them are still there.</summary>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Their object ids.</returns>
+    public async Task<IReadOnlyList<long>> FeaturesAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand($"select distinct rel_objectid from {Qualified}");
+        List<long> features = [];
+
+        try
+        {
+            await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                features.Add(reader.GetInt64(0));
+            }
+        }
+        catch (PostgresException e) when (e.SqlState == "42P01")
+        {
+            return [];
+        }
+
+        return features;
+    }
+
     private async Task<long> SumAsync(
         NpgsqlConnection connection, NpgsqlTransaction? transaction, CancellationToken cancellationToken)
     {
@@ -636,29 +799,5 @@ public sealed class PostGisAttachmentStore : IAttachmentStore
         }
 
         await connection.DisposeAsync().ConfigureAwait(false);
-    }
-}
-
-/// <summary>A layer's attachment quota would have been exceeded.</summary>
-public sealed class AttachmentQuotaExceededException : Exception
-{
-    /// <summary>Creates the exception.</summary>
-    public AttachmentQuotaExceededException()
-    {
-    }
-
-    /// <summary>Creates the exception.</summary>
-    /// <param name="message">What happened.</param>
-    public AttachmentQuotaExceededException(string message)
-        : base(message)
-    {
-    }
-
-    /// <summary>Creates the exception.</summary>
-    /// <param name="message">What happened.</param>
-    /// <param name="innerException">Why.</param>
-    public AttachmentQuotaExceededException(string message, Exception innerException)
-        : base(message, innerException)
-    {
     }
 }

@@ -1301,6 +1301,13 @@ public interface IAdminCatalog
     /// <returns>Whether the layer exists.</returns>
     Task<bool> SetEditOwnOnlyAsync(Guid layerId, bool editOwnOnly, CancellationToken cancellationToken);
 
+    /// <summary>Sets where a registered layer keeps its attachments, or null for none — ADR-207.</summary>
+    /// <param name="layerId">The layer.</param>
+    /// <param name="place">A word of <c>AttachmentPlaces</c>, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer exists.</returns>
+    Task<bool> SetAttachmentsInAsync(Guid layerId, string? place, CancellationToken cancellationToken);
+
     /// <summary>Replaces one view layer's filter as written — ADR-113. The PostgreSQL view is the host's to remake.</summary>
     /// <param name="layerId">The view layer.</param>
     /// <param name="definition">The filter, or null for every row.</param>

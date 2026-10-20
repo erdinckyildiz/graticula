@@ -152,6 +152,9 @@ public sealed class PostgresLayerCatalog
         -- ADR-115, migration 73: whether its editors change only what they added. On the end.
         l.edit_own_only,
 
+        -- ADR-207, migration 96: where a registered layer keeps its attachments, or null. Read by name.
+        l.attachments_in,
+
         -- ADR-179, migration 83: the title a publisher gave it, or null for the composed one. On the end, read by name.
         l.title as layer_title,
 
@@ -588,6 +591,9 @@ public sealed class PostgresLayerCatalog
 
             // ADR-115.
             EditOwnOnly = reader.GetBoolean(reader.GetOrdinal("edit_own_only")),
+
+            // ADR-207.
+            AttachmentsIn = Nullable(reader, "attachments_in"),
 
             // ADR-179.
             Title = Nullable(reader, "layer_title"),

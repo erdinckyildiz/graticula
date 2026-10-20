@@ -638,6 +638,7 @@ internal static partial class AdminEndpoints
         MapIdentityProviders(app); // ADR-088 — AdminEndpoints.IdentityProviders.cs
         MapThumbnails(app);      // ADR-071 — AdminEndpoints.Thumbnails.cs
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
+        MapAttachments(app);     // ADR-207 — AdminEndpoints.Attachments.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
         MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
@@ -2015,6 +2016,7 @@ internal static partial class AdminEndpoints
         IAuditLog audit,
         SourceQuiesce quiesce,
         RecycleBinService recycle,
+        LayerConnections connections,
         CancellationToken cancellation)
     {
         string? at = string.IsNullOrWhiteSpace(folder) ? null : folder.Trim();
@@ -2050,6 +2052,22 @@ internal static partial class AdminEndpoints
         }
 
         bool isView = target?.ViewOf is not null;
+
+        // ADR-207, as for one layer's unpublish: what this server made beside a registered layer goes first.
+        if (target is not null)
+        {
+            foreach (PublishedLayer layer in (await published.ListAsync(cancellation).ConfigureAwait(false))
+                         .Where(l => l.ServiceId == target.Id && !l.Definition.IsHosted))
+            {
+                if (await KeptForRegisteredAsync(connections, layer, cancellation).ConfigureAwait(false) is { } kept)
+                {
+                    await Refuse(context, 409,
+                        $"Layer '{layer.Definition.Name}' of '{name}' keeps {kept}, which this server made for it. Switch "
+                        + "that off on the layer first (ADR-207); nothing was deleted.").ConfigureAwait(false);
+                    return;
+                }
+            }
+        }
 
         // ADR-203: a whole delete goes into the recycle bin — the hosted tables only it publishes set aside, its rows kept
         // with their ids — and comes back from there until it expires.
@@ -11795,6 +11813,28 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>What this server made for a registered layer and keeps — attachments, a history — or null for nothing.</summary>
+    private static async Task<string?> KeptForRegisteredAsync(
+        LayerConnections connections, PublishedLayer layer, CancellationToken cancellation)
+    {
+        bool attachments = layer.AttachmentsIn is not null;
+        bool history = false;
+
+        if (Graticula.Platform.Admin.GeoParquetLocator.KindOf(layer.ConnectionString) == DataSourceKinds.PostGis
+            && layer.Definition.IntegerIdentityColumn is not null)
+        {
+            history = await connections.HistoryFor(layer).IsOnAsync(cancellation).ConfigureAwait(false);
+        }
+
+        return (attachments, history) switch
+        {
+            (true, true) => "attachments and a history",
+            (true, false) => "attachments",
+            (false, true) => "a history",
+            _ => null,
+        };
+    }
+
     private static async Task UnpublishAsync(
         HttpContext context,
         string name,
@@ -11803,6 +11843,7 @@ internal static partial class AdminEndpoints
         ServiceContexts contexts,
         ITileCache tiles,
         IAuditLog audit,
+        LayerConnections connections,
         CancellationToken cancellation)
     {
         // <b>Read before the delete, and now it decides the delete.</b> D-109: this used to
@@ -11821,6 +11862,19 @@ internal static partial class AdminEndpoints
                 .ConfigureAwait(false)
             || !await NotProtectedAsync(context, catalog, going.ServiceName, going.Folder, cancellation).ConfigureAwait(false))
         {
+            return;
+        }
+
+        // <b>ADR-207: what this server made for a registered layer goes before the layer does.</b> Its attachments and its
+        // history live in tables beside the customer's table, or in the datastore, and a trigger on that table goes on
+        // recording every edit after nothing here reads it — so unpublishing first would leave them to nobody.
+        if (!going.Definition.IsHosted
+            && await KeptForRegisteredAsync(connections, going, cancellation).ConfigureAwait(false) is { } kept)
+        {
+            await Refuse(context, 409,
+                $"'{name}' keeps {kept}, which this server made for it. Switch {(kept.Contains(" and ", StringComparison.Ordinal) ? "them" : "it")} "
+                + $"off first — POST /admin/layers/{name}/attachments with {{\"in\": null}}, POST /admin/layers/{name}/history "
+                + "with {\"enabled\": false} — and then remove the layer (ADR-207).").ConfigureAwait(false);
             return;
         }
 

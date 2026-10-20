@@ -725,8 +725,10 @@ internal static class AttachmentEndpoints
             {
                 await Refuse(context, 507, e.Message).ConfigureAwait(false);
             }
-            catch (Npgsql.PostgresException missing)
-                when (missing.SqlState == Npgsql.PostgresErrorCodes.ForeignKeyViolation)
+            catch (Exception missing)
+                when (missing is AttachmentFeatureMissingException
+                    || (missing is Npgsql.PostgresException foreign
+                        && foreign.SqlState == Npgsql.PostgresErrorCodes.ForeignKeyViolation))
             {
                 // <b>The feature is not there, and saying so is the whole answer.</b> The companion
                 // table references the layer, so the insert is refused by the database; until
@@ -829,7 +831,7 @@ internal static class AttachmentEndpoints
     /// anybody who may read the feature may read what is attached to it — and
     /// adding one is an edit, because it changes what the layer holds.
     /// </remarks>
-    private static async Task<PostGisAttachmentStore?> ResolveAsync(
+    private static async Task<IAttachmentStore?> ResolveAsync(
         HttpContext context,
         string serviceName,
         int layerId,
@@ -876,24 +878,27 @@ internal static class AttachmentEndpoints
         // different words: a registered layer is somebody else's database, and a
         // datastore layer in a schema we did not create is our database and still
         // not our table.
-        if (!HostedDataEndpoints.AlterableSchema(
-                layer.Definition.IsHosted, layer.Definition.SchemaName))
+        // <b>A hosted layer in a schema this server did not create keeps none</b>: its companion table would be created in
+        // somebody else's schema of our own database, which nothing asked for (ADR-058 §5h).
+        if (layer.Definition.IsHosted
+            && !HostedDataEndpoints.AlterableSchema(layer.Definition.IsHosted, layer.Definition.SchemaName))
         {
-            // ADR-013 §4c allows reading a migrated __ATTACH table on a
-            // registered source and creating one where we hold DDL rights.
-            // Neither is built, and saying so beats a table that fails to be
-            // created halfway through an upload.
-            string because = layer.Definition.IsHosted
-                ? $"it is served from the '{layer.Definition.SchemaName}' schema, which this server "
-                    + "did not create. Attachments need a companion table beside the layer's own, and "
-                    + "this server creates tables only in the schema it made"
-                : "it is registered rather than hosted";
-        
             await Refuse(context, 501,
-                $"Attachments are not available on '{layer.Definition.Name}' because {because}. "
-                + "Reading a migrated __ATTACH table and creating a companion table "
-                + "where this server has DDL rights are both designed (ADR-013 §4c) and not "
-                + "built.").ConfigureAwait(false);
+                $"Attachments are not available on '{layer.Definition.Name}' because it is served from the "
+                + $"'{layer.Definition.SchemaName}' schema, which this server did not create. Attachments need a companion "
+                + "table beside the layer's own, and this server creates tables only in the schema it made.")
+                .ConfigureAwait(false);
+            return null;
+        }
+
+        // <b>ADR-207: a registered layer keeps them where an administrator switched them on</b> — beside its table in
+        // its own database, or in the datastore — and none until then.
+        if (!layer.Definition.IsHosted && !layer.KeepsAttachments)
+        {
+            await Refuse(context, 501,
+                $"'{layer.Definition.Name}' keeps no attachments. An administrator switches them on with "
+                + $"POST /admin/layers/{layer.Definition.Name}/attachments, choosing beside its table or in the datastore "
+                + "(ADR-207).").ConfigureAwait(false);
             return null;
         }
 

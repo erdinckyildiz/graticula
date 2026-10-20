@@ -201,7 +201,7 @@ public sealed class OracleFeatureSourceTests
         Assert.Equal(21, places.AverageBytes);
 
         GeometryWidth land = Assert.NotNull(await Land().GeometryWidthAsync(None));
-        Assert.True(land.PerFeatureBytes > 100_000, $"{land.PerFeatureBytes}");
+        Assert.True(land.PerFeatureBytes > 10 * places.PerFeatureBytes, $"{land.PerFeatureBytes} against {places.PerFeatureBytes}");
     }
 
     /// <summary>A publish's two questions, asked of Oracle: validity by Oracle's rules, and the declared reference.</summary>

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(95);
+    public static SchemaVersion ComponentSchemaVersion => new(96);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -130,6 +130,7 @@ public static class PlatformMigrations
         AnItemHasTermsCategoriesAndFavoritesV93,
         ADeletedItemWaitsInTheRecycleBinV94,
         ARegisteredDatabaseMayBeOracleV95,
+        ARegisteredLayerMayKeepAttachmentsV96,
     ]);
 
     /// <summary>A registered data source may be an Oracle database — ADR-205.</summary>
@@ -137,6 +138,20 @@ public static class PlatformMigrations
     /// <b>Expand.</b> A constraint widened; every existing row satisfies it, and a build before this one never writes
     /// the new kind. Its locator is <c>oracle:</c> and JSON, sealed like every other (<c>OracleLocator</c>).
     /// </remarks>
+    /// <summary>
+    /// A registered layer may keep attachments — ADR-207 — in its own database beside its table, or in the datastore;
+    /// null keeps none. A hosted layer keeps them beside its table whatever this says, as it always has.
+    /// </summary>
+    /// <remarks><b>Expand.</b> A nullable column; a build before this one never reads it.</remarks>
+    private static Migration ARegisteredLayerMayKeepAttachmentsV96 => Migration.Expand(
+        new SchemaVersion(96),
+        "A registered layer may keep attachments, in its own database or in the datastore (ADR-207).",
+
+        """
+        alter table layer add column if not exists attachments_in text null
+            constraint layer_attachments_in_known check (attachments_in in ('source', 'datastore'))
+        """);
+
     private static Migration ARegisteredDatabaseMayBeOracleV95 => Migration.Expand(
         new SchemaVersion(95),
         "A registered data source may be an Oracle database (ADR-205).",

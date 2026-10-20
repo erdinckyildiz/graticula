@@ -290,7 +290,7 @@ rather than a correction:
 - **Opt-in per layer**, not on for every hosted layer.
 - **ArcGIS archiving's shape** (`gdb_from_date`/`gdb_to_date`, `historicMoment`) rather than NextGIS Web's
   numbered versions.
-- **Hosted layers only.** Derived from ADR-002 §4.2 rather than chosen, but it is a limit the owner has not
-  seen stated.
+- ~~**Hosted layers only.** Derived from ADR-002 §4.2 rather than chosen, but it is a limit the owner has not
+  seen stated.~~ *(Reversed 2026-10-20 by owner decision — [ADR-207](ADR-207-attachments-and-history-on-registered-layers.md): *"tüm registered db lerde olmalı"*. A registered PostGIS layer keeps one beside its table, switched on by an administrator.)*
 - **Turning history off deletes it.**
 - **Restore writes a new version** rather than rewinding.

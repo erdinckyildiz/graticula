@@ -137,6 +137,57 @@ public interface IAttachmentStore
     Task<AttachmentUsage> UsageAsync(CancellationToken cancellationToken);
 }
 
+/// <summary>A layer's attachment quota would have been exceeded.</summary>
+public sealed class AttachmentQuotaExceededException : Exception
+{
+    /// <summary>Creates the exception.</summary>
+    public AttachmentQuotaExceededException()
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What happened.</param>
+    public AttachmentQuotaExceededException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What happened.</param>
+    /// <param name="innerException">Why.</param>
+    public AttachmentQuotaExceededException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
+
+/// <summary>
+/// The feature an attachment was offered for is not there — ADR-207: a store with no foreign key to the layer's table
+/// (one in the datastore, beside a registered layer) asks first, and says so with this rather than store an orphan.
+/// </summary>
+public sealed class AttachmentFeatureMissingException : Exception
+{
+    /// <summary>Creates the exception.</summary>
+    public AttachmentFeatureMissingException()
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What happened.</param>
+    public AttachmentFeatureMissingException(string message)
+        : base(message)
+    {
+    }
+
+    /// <summary>Creates the exception.</summary>
+    /// <param name="message">What happened.</param>
+    /// <param name="inner">Why.</param>
+    public AttachmentFeatureMissingException(string message, Exception inner)
+        : base(message, inner)
+    {
+    }
+}
+
 /// <summary>
 /// An attachment open for reading, holding the connection it reads through.
 /// </summary>

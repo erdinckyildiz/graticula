@@ -2492,6 +2492,16 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
     }
 
     /// <inheritdoc/>
+    public async Task<bool> SetAttachmentsInAsync(Guid layerId, string? place, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand("update layer set attachments_in = @place where id = @id");
+        command.Parameters.AddWithValue("id", layerId);
+        command.Parameters.AddWithValue("place", (object?)place ?? DBNull.Value);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
     public async Task<bool> SetViewDefinitionAsync(Guid layerId, string? definition, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
