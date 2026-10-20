@@ -101,6 +101,14 @@ internal sealed class MySqlDialect
         ? $"cast(json_value({json}, {path}) as {Cast(type)})"
         : $"json_value({json}, {path} returning {type})";
 
+    /// <summary>
+    /// A point's coordinates as SQL, x then y: MySQL reads a geographic point's longitude and latitude by name, since
+    /// its X is the latitude there; MariaDB, and MySQL on a projected reference, read X and Y as stored.
+    /// </summary>
+    public (string X, string Y) Coordinates(string shape, bool geographic) => !IsMariaDb && geographic
+        ? ($"st_longitude({shape})", $"st_latitude({shape})")
+        : ($"st_x({shape})", $"st_y({shape})");
+
     /// <summary>Whether the server can say whether a shape is valid; MariaDB has no <c>ST_IsValid</c>.</summary>
     public bool Validates => !IsMariaDb;
 

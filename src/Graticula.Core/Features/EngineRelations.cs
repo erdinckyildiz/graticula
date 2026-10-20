@@ -153,6 +153,17 @@ public static class EngineRelations
         ArgumentNullException.ThrowIfNull(engine);
 
         List<long> satisfied = [];
+
+        // <b>Points within a distance of a point are measured here, not in the engine.</b> The general path projects every
+        // thousand candidates through the datastore's PROJ and asks the geometry worker; for two points the answer is one
+        // distance — on the WGS 84 ellipsoid for EPSG:4326, as PostGIS's geography measures it, or on the plane for a
+        // projected layer, as its geometry does. Measured on the VPS before: 50 km around a point over a MariaDB layer of
+        // 200,000 places took 770 ms where PostGIS took 90.
+        if (PointDistances(candidates, geometries, spatial, layerSrid) is { } measured)
+        {
+            return measured;
+        }
+
         string? metric = null;
         Geometry right = spatial.Geometry;
 
@@ -343,6 +354,118 @@ public static class EngineRelations
     }
 
     /// <summary>The great-circle distance in metres between two points in degrees, on the mean radius.</summary>
+    /// <summary>
+    /// The candidates within the filter's distance when the filter and every candidate are single points and the layer is
+    /// EPSG:4326 or projected; null to leave the question to the engine — any other shape, another geographic reference
+    /// (its ellipsoid may not be WGS 84's), or a pair Vincenty's iteration does not settle.
+    /// </summary>
+    internal static List<long>? PointDistances(
+        IReadOnlyList<long> candidates, IReadOnlyList<Geometry> geometries, SpatialFilter spatial, int layerSrid)
+    {
+        if (spatial.Distance <= 0 || spatial.Relation != SpatialRelation.Intersects
+            || spatial.Geometry is not Point { IsEmpty: false } centre)
+        {
+            return null;
+        }
+
+        bool geographic = AxisOrder.IsGeographic(layerSrid);
+
+        if (geographic && layerSrid != 4326)
+        {
+            return null;
+        }
+
+        List<long> within = [];
+
+        for (int i = 0; i < geometries.Count; i++)
+        {
+            if (geometries[i] is not Point { IsEmpty: false } point)
+            {
+                return null;
+            }
+
+            double metres;
+
+            if (geographic)
+            {
+                if (WgsDistance(centre.X, centre.Y, point.X, point.Y) is not { } d)
+                {
+                    return null;
+                }
+
+                metres = d;
+            }
+            else
+            {
+                double dx = point.X - centre.X, dy = point.Y - centre.Y;
+                metres = Math.Sqrt((dx * dx) + (dy * dy));
+            }
+
+            if (metres <= spatial.Distance)
+            {
+                within.Add(candidates[i]);
+            }
+        }
+
+        return within;
+    }
+
+    /// <summary>
+    /// The distance between two longitude–latitude points on the WGS 84 ellipsoid, by Vincenty's inverse formula — within
+    /// a tenth of a millimetre of Karney's, which PostGIS's geography uses, at the distances a filter reaches — or null
+    /// where the iteration does not converge (nearly antipodal points).
+    /// </summary>
+    internal static double? WgsDistance(double lon1, double lat1, double lon2, double lat2)
+    {
+        const double A = 6_378_137.0, F = 1 / 298.257223563, B = A * (1 - F);
+        double l = (lon2 - lon1) * Math.PI / 180;
+        double u1 = Math.Atan((1 - F) * Math.Tan(lat1 * Math.PI / 180));
+        double u2 = Math.Atan((1 - F) * Math.Tan(lat2 * Math.PI / 180));
+        double sinU1 = Math.Sin(u1), cosU1 = Math.Cos(u1), sinU2 = Math.Sin(u2), cosU2 = Math.Cos(u2);
+        double lambda = l, sinSigma, cosSigma, sigma, cosSqAlpha, cos2SigmaM;
+        int iterations = 0;
+
+        while (true)
+        {
+            double sinLambda = Math.Sin(lambda), cosLambda = Math.Cos(lambda);
+            sinSigma = Math.Sqrt(((cosU2 * sinLambda) * (cosU2 * sinLambda))
+                + (((cosU1 * sinU2) - (sinU1 * cosU2 * cosLambda)) * ((cosU1 * sinU2) - (sinU1 * cosU2 * cosLambda))));
+
+            if (sinSigma == 0)
+            {
+                return 0;
+            }
+
+            cosSigma = (sinU1 * sinU2) + (cosU1 * cosU2 * cosLambda);
+            sigma = Math.Atan2(sinSigma, cosSigma);
+            double sinAlpha = cosU1 * cosU2 * sinLambda / sinSigma;
+            cosSqAlpha = 1 - (sinAlpha * sinAlpha);
+            cos2SigmaM = cosSqAlpha != 0 ? cosSigma - (2 * sinU1 * sinU2 / cosSqAlpha) : 0;
+            double c = F / 16 * cosSqAlpha * (4 + (F * (4 - (3 * cosSqAlpha))));
+            double previous = lambda;
+            lambda = l + ((1 - c) * F * sinAlpha
+                * (sigma + (c * sinSigma * (cos2SigmaM + (c * cosSigma * (-1 + (2 * cos2SigmaM * cos2SigmaM)))))));
+
+            if (Math.Abs(lambda - previous) < 1e-12)
+            {
+                break;
+            }
+
+            if (++iterations > 200)
+            {
+                return null;
+            }
+        }
+
+        double uSq = cosSqAlpha * ((A * A) - (B * B)) / (B * B);
+        double bigA = 1 + (uSq / 16384 * (4096 + (uSq * (-768 + (uSq * (320 - (175 * uSq)))))));
+        double bigB = uSq / 1024 * (256 + (uSq * (-128 + (uSq * (74 - (47 * uSq))))));
+        double deltaSigma = bigB * sinSigma * (cos2SigmaM + (bigB / 4 * ((cosSigma * (-1 + (2 * cos2SigmaM * cos2SigmaM)))
+            - (bigB / 6 * cos2SigmaM * (-3 + (4 * sinSigma * sinSigma)) * (-3 + (4 * cos2SigmaM * cos2SigmaM))))));
+
+        return B * bigA * (sigma - deltaSigma);
+    }
+
     private static double Haversine(double lon1, double lat1, double lon2, double lat2)
     {
         const double R = 6_371_008.8;

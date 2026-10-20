@@ -961,6 +961,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         int? srid = null;
         GeometryOrdinates ordinates = GeometryOrdinates.None;
+        bool points = false;
 
         // <b>What the column stores: its metadata's dimensions, and a measure where one is named or a row says so</b> —
         // a third dimension is an elevation unless it is called M, as Oracle's linear referencing names it, or the first
@@ -970,7 +971,11 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             select m.srid,
                    (select count(*) from table(m.diminfo)),
                    (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
-                   (select r.{Shape}.sdo_gtype from {From} r where r.{Shape} is not null and rownum = 1)
+                   (select r.{Shape}.sdo_gtype from {From} r where r.{Shape} is not null and rownum = 1),
+                   (select count(*) from all_sdo_index_info i, all_sdo_index_metadata x
+                     where i.table_owner = m.owner and i.table_name = m.table_name and i.column_name = m.column_name
+                       and x.sdo_index_owner = i.index_owner and x.sdo_index_name = i.index_name
+                       and x.sdo_layer_gtype = 'POINT')
               from all_sdo_geom_metadata m
              where m.owner = :o and m.table_name = :t and m.column_name = :c
             """, connection) { BindByName = true })
@@ -995,6 +1000,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
                 bool measured = named || sampled / 100 % 10 > 0;
 
+                // A spatial index made with LAYER_GTYPE=POINT is Oracle's promise that the column holds points only: it
+                // refuses any other shape.
+                points = Convert.ToInt32(reader.GetValue(4), CultureInfo.InvariantCulture) > 0;
+
                 ordinates = dimensions switch
                 {
                     >= 4 => GeometryOrdinates.Z | GeometryOrdinates.M,
@@ -1006,7 +1015,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         OracleTable table = new(columns, srid ?? throw new InvalidOperationException(
             $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, "
-            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates);
+            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates, points);
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
@@ -1132,6 +1141,29 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             return new Filters(inOracle, parameters);
         }
 
+        // <b>A box against points is decided in Oracle, exactly.</b> A point is inside an axis-aligned box when each
+        // coordinate is between the box's — the exact pass's answer and PostGIS's, boundary included — so it is written
+        // as that comparison beside SDO_FILTER, whose geodetic index answers wide (ADR-205 §4), and nothing is carried
+        // here. Only where the spatial index promises points (LAYER_GTYPE=POINT); SDO_MIN_MBR_ORDINATE reads a point's
+        // coordinates wherever SDO_GEOMETRY keeps them, and checks nothing.
+        if (table.Points && byEngine is null && (shape is null || IsBox(shape)))
+        {
+            List<string> exact = [.. inOracle];
+
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                string name = "inbox" + i.ToString(CultureInfo.InvariantCulture);
+                parameters.Add((name + "a", boxes[i].MinX));
+                parameters.Add((name + "b", boxes[i].MaxX));
+                parameters.Add((name + "c", boxes[i].MinY));
+                parameters.Add((name + "d", boxes[i].MaxY));
+                exact.Add($"sdo_geom.sdo_min_mbr_ordinate({Shape}, 1) between :{name}a and :{name}b "
+                    + $"and sdo_geom.sdo_min_mbr_ordinate({Shape}, 2) between :{name}c and :{name}d");
+            }
+
+            return new Filters(exact, parameters);
+        }
+
         List<Geometry>? kept = byEngine is null ? null : [];
 
         // A distance's box is the filter's grown by the distance, so the exact box pass keeps every row it could reach.
@@ -1247,6 +1279,13 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         return $"sdo_filter({Shape}, sdo_geometry(2003, {srid.ToString(CultureInfo.InvariantCulture)}, null, "
             + $"sdo_elem_info_array(1, 1003, 3), sdo_ordinate_array(:{name}a, :{name}b, :{name}c, :{name}d))) = 'TRUE'";
     }
+
+    /// <summary>Whether a filter shape is an axis-aligned rectangle, so its box is the shape.</summary>
+    private static bool IsBox(Geometry shape) =>
+        shape is Polygon { Holes.Count: 0 } polygon
+        && polygon.Shell.Coordinates is { Count: 5 } ring
+        && Enumerable.Range(0, 5).All(i => (ring.X(i) == polygon.Envelope.MinX || ring.X(i) == polygon.Envelope.MaxX)
+                                           && (ring.Y(i) == polygon.Envelope.MinY || ring.Y(i) == polygon.Envelope.MaxY));
 
     private static Polygon Rectangle(Envelope box) =>
         new(new LinearRing(XySequence.Wrap(
@@ -1535,7 +1574,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
     private sealed record OracleColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, OracleGuids.Storage? Guid = null);
 
-    private sealed record OracleTable(IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None)
+    private sealed record OracleTable(
+        IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None, bool Points = false)
     {
         public FieldType TypeOf(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))?.Type ?? FieldType.Unknown;

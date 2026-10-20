@@ -125,8 +125,20 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
     /// MariaDB's, which put them first ascending. Found by ADR-209's parity run: a grouped answer cut at its page limit
     /// kept a different thousand groups once a name was null, and the MySQL run had missed it because its data had none.
     /// </summary>
-    private static string Ordered(string expression, bool descending) =>
-        descending ? $"{expression} is null desc, {expression} desc" : $"{expression} is null, {expression} asc";
+    /// <remarks>
+    /// <b>Only where the column can hold a null.</b> The extra key is an expression, so MySQL cannot read the order off an
+    /// index with it: added to a key column it turned a page at offset 100,000 into a sort of every row (measured on the
+    /// VPS, 2.7 times PostGIS's time). A NOT NULL column has no nulls to place and is ordered as it is.
+    /// </remarks>
+    private static string Ordered(string expression, bool descending, bool nullable = true) =>
+        !nullable ? $"{expression} {(descending ? "desc" : "asc")}"
+        : descending ? $"{expression} is null desc, {expression} desc" : $"{expression} is null, {expression} asc";
+
+    /// <summary>Whether a column of the table may hold a null; the identity never does, and an unknown name may.</summary>
+    private bool Nullable(MySqlTable table, string field) =>
+        !string.Equals(field, _layer.IdentityColumn, StringComparison.OrdinalIgnoreCase)
+        && (table.Columns.FirstOrDefault(c => string.Equals(c.Name, field, StringComparison.OrdinalIgnoreCase)) is not { } column
+            || column.Nullable);
 
     /// <inheritdoc />
     public FeatureSchema SchemaFor(FeatureQuery query)
@@ -198,7 +210,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             statement.AppendWhere();
         }
 
-        AppendOrderAndPaging(statement, query, schema, distinct);
+        AppendOrderAndPaging(statement, query, schema, distinct, table);
 
         FieldType[] types = [.. schema.Names.Select(table.TypeOf)];
         List<Feature> batch = new(ProjectionBatch);
@@ -692,7 +704,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
                 if (named is not null)
                 {
-                    ordering.Add(Ordered(LayerDefinition.Quote(named), key.Descending));
+                    ordering.Add(Ordered(LayerDefinition.Quote(named), key.Descending, Nullable(table, named)));
                 }
             }
 
@@ -883,11 +895,13 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         int? srid = null;
         bool isTable = true;
+        bool points = false;
 
         await using (MySqlCommand command = new(
             $"""
             select g.srs_id, (select t.table_type from information_schema.tables t
-                               where t.table_schema = g.table_schema and t.table_name = g.table_name)
+                               where t.table_schema = g.table_schema and t.table_name = g.table_name),
+                   g.geometry_type_name
               from {MySqlDialect.Of(connection).GeometryColumns} g
              where g.table_schema = @db and g.table_name = @tab and g.column_name = @col
             """, connection))
@@ -902,12 +916,13 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             {
                 srid = reader.IsDBNull(0) ? null : Convert.ToInt32(reader.GetValue(0), CultureInfo.InvariantCulture);
                 isTable = reader.IsDBNull(1) || reader.GetString(1) == "BASE TABLE";
+                points = !reader.IsDBNull(2) && string.Equals(reader.GetString(2), "point", StringComparison.OrdinalIgnoreCase);
             }
         }
 
         MySqlTable table = new(columns, srid ?? throw new InvalidOperationException(
             $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, which "
-            + "is no longer a spatial column with an SRID."), isTable, MySqlDialect.Of(connection));
+            + "is no longer a spatial column with an SRID."), isTable, MySqlDialect.Of(connection), points);
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
@@ -934,7 +949,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         // the other filters keep.
         string order = top.OrderBy.Count == 0
             ? Id
-            : string.Join(", ", top.OrderBy.Select(k => Ordered(LayerDefinition.Quote(k.Field), k.Descending)));
+            : string.Join(", ", top.OrderBy.Select(k => Ordered(LayerDefinition.Quote(k.Field), k.Descending, Nullable(table, k.Field))));
 
         StringBuilder ranked = new StringBuilder("select ").Append(Id).Append(" as i, row_number() over (");
 
@@ -1017,6 +1032,24 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         if (shape is null && query.BoundingBox is null && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
         {
             return new Filters(inMySql, parameters);
+        }
+
+        // <b>A box against points needs nothing taken out of the database.</b> A point is inside an axis-aligned box when
+        // each coordinate is between the box's — the answer the exact pass here would give, boundary included, and the
+        // one PostGIS gives — so it is written as that comparison beside the index's box test and the whole query stays
+        // in MySQL. Measured on the VPS before: a box over the whole region carried 200,000 shapes here and 200,000 ids
+        // back, 3.6 times PostGIS's time. A polygon that is not a box, a distance, and any other relation keep the
+        // exact pass.
+        if (table.Points && byEngine is null && (shape is null || IsBox(shape)))
+        {
+            List<string> exact = [.. inMySql];
+
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                exact.Add(InBox(boxes[i], "inbox" + i.ToString(CultureInfo.InvariantCulture), table, parameters));
+            }
+
+            return new Filters(exact, parameters);
         }
 
         List<Geometry>? kept = byEngine is null ? null : [];
@@ -1118,6 +1151,24 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             + $"{n(box.MinX)} {n(box.MaxY)}, {n(box.MinX)} {n(box.MinY)}))"));
 
         return $"mbrintersects({Shape}, {table.Dialect.FromText("@" + name, table.Srid)})";
+    }
+
+    /// <summary>Whether a filter shape is an axis-aligned rectangle, so its box is the shape.</summary>
+    private static bool IsBox(Geometry shape) =>
+        shape is Polygon { Holes.Count: 0 } polygon
+        && polygon.Shell.Coordinates is { Count: 5 } ring
+        && Enumerable.Range(0, 5).All(i => (ring.X(i) == polygon.Envelope.MinX || ring.X(i) == polygon.Envelope.MaxX)
+                                           && (ring.Y(i) == polygon.Envelope.MinY || ring.Y(i) == polygon.Envelope.MaxY));
+
+    /// <summary>A point's coordinates between a box's, in the order a client gives them: longitude, latitude.</summary>
+    private string InBox(Envelope box, string name, MySqlTable table, List<(string Name, object Value)> parameters)
+    {
+        (string x, string y) = table.Dialect.Coordinates(Shape, AxisOrder.IsGeographic(table.Srid));
+        parameters.Add((name + "x0", box.MinX));
+        parameters.Add((name + "x1", box.MaxX));
+        parameters.Add((name + "y0", box.MinY));
+        parameters.Add((name + "y1", box.MaxY));
+        return $"{x} between @{name}x0 and @{name}x1 and {y} between @{name}y0 and @{name}y1";
     }
 
     private static Polygon Rectangle(Envelope box) =>
@@ -1252,17 +1303,17 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         return result;
     }
 
-    private void AppendOrderAndPaging(Statement statement, FeatureQuery query, FeatureSchema schema, bool distinct)
+    private void AppendOrderAndPaging(Statement statement, FeatureQuery query, FeatureSchema schema, bool distinct, MySqlTable table)
     {
         StringBuilder sql = statement.Sql;
 
         if (distinct)
         {
-            sql.Append(" order by ").Append(string.Join(", ", schema.Names.Select(n => Ordered(LayerDefinition.Quote(n), descending: false))));
+            sql.Append(" order by ").Append(string.Join(", ", schema.Names.Select(n => Ordered(LayerDefinition.Quote(n), descending: false, Nullable(table, n)))));
         }
         else if (query.OrderBy.Count > 0)
         {
-            sql.Append(" order by ").Append(string.Join(", ", query.OrderBy.Select(k => Ordered(LayerDefinition.Quote(k.Field), k.Descending))));
+            sql.Append(" order by ").Append(string.Join(", ", query.OrderBy.Select(k => Ordered(LayerDefinition.Quote(k.Field), k.Descending, Nullable(table, k.Field)))));
 
             if (!query.OrderBy.Any(k => string.Equals(k.Field, _layer.IdentityColumn, StringComparison.Ordinal)))
             {
@@ -1385,7 +1436,12 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     internal sealed record MySqlColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, MySqlGuids.Storage? Guid = null);
 
-    internal sealed record MySqlTable(IReadOnlyList<MySqlColumn> Columns, int Srid, bool IsTable, MySqlDialect Dialect)
+    /// <param name="Columns">The table's served columns.</param>
+    /// <param name="Srid">The geometry column's reference.</param>
+    /// <param name="IsTable">Whether it is a table rather than a view.</param>
+    /// <param name="Dialect">Which server: MySQL or MariaDB.</param>
+    /// <param name="Points">Whether the column is declared POINT, so a shape's box is the shape (the box filters' exact case).</param>
+    internal sealed record MySqlTable(IReadOnlyList<MySqlColumn> Columns, int Srid, bool IsTable, MySqlDialect Dialect, bool Points = false)
     {
         public FieldType TypeOf(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))?.Type ?? FieldType.Unknown;
