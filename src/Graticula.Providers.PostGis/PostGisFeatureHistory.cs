@@ -29,8 +29,9 @@ namespace Graticula.Providers.PostGis;
 /// that — and the geometry as its own column with a spatial index.
 /// </para>
 /// <para>
-/// <b>Hosted layers only.</b> This is DDL, and ADR-002 §4.2 says this server never runs DDL in a
-/// database it does not own. <see cref="RefuseOutsideHosted"/> is the same guard the importer uses.
+/// <b>Hosted layers, and since 2026-10-20 registered ones</b> — ADR-207, by owner decision: this is DDL in a database
+/// this server may not own, so it is made only when an administrator switches history on for the layer, and a role
+/// that may not create it is refused with the right it lacks (<see cref="Refusal"/>).
 /// </para>
 /// </remarks>
 public sealed class PostGisFeatureHistory
@@ -212,8 +213,6 @@ public sealed class PostGisFeatureHistory
     /// </remarks>
     public async Task<bool> SetKeepAsync(int? days, CancellationToken cancellationToken)
     {
-        RefuseOutsideHosted();
-
         if (days is { } d)
         {
             ArgumentOutOfRangeException.ThrowIfLessThan(d, 1);
@@ -267,11 +266,10 @@ public sealed class PostGisFeatureHistory
             select n.nspname, c.relname, obj_description(c.oid, 'pg_class')
             from pg_class c
             join pg_namespace n on n.oid = c.relnamespace
-            where n.nspname = @schema and c.relkind = 'r' and right(c.relname, 9) = '__history'
+            where c.relkind = 'r' and right(c.relname, 9) = '__history'
               and obj_description(c.oid, 'pg_class') like 'graticula:%'
             """))
         {
-            list.Parameters.AddWithValue("schema", PostGisImporter.HostedSchema);
 
             await using NpgsqlDataReader reader = await list.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
@@ -387,8 +385,6 @@ public sealed class PostGisFeatureHistory
     /// </remarks>
     public async Task<long> EnableAsync(CancellationToken cancellationToken)
     {
-        RefuseOutsideHosted();
-
         if (_layer.IntegerIdentityColumn is null)
         {
             throw new InvalidOperationException(
@@ -488,7 +484,6 @@ public sealed class PostGisFeatureHistory
     /// </remarks>
     public async Task DisableAsync(CancellationToken cancellationToken)
     {
-        RefuseOutsideHosted();
 
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
@@ -670,7 +665,6 @@ public sealed class PostGisFeatureHistory
         EditorTracking? tracking,
         CancellationToken cancellationToken)
     {
-        RefuseOutsideHosted();
         ArgumentException.ThrowIfNullOrWhiteSpace(editor);
 
         EditorTracking track = tracking ?? EditorTracking.None;
@@ -881,14 +875,23 @@ public sealed class PostGisFeatureHistory
             """;
     }
 
-    private void RefuseOutsideHosted()
+    /// <summary>
+    /// The sentence for a database that refused the DDL history needs, or null for any other failure — ADR-207: on a
+    /// registered database the connected role may not own the table or create in its schema.
+    /// </summary>
+    /// <param name="failure">What the database said.</param>
+    /// <param name="layer">The layer.</param>
+    /// <returns>The sentence, or null.</returns>
+    public static string? Refusal(PostgresException failure, LayerDefinition layer)
     {
-        if (!string.Equals(_layer.SchemaName, PostGisImporter.HostedSchema, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"'{_layer.SchemaName}.{_layer.TableName}' is not in the hosted schema. History is a trigger and a table "
-                + "beside the layer's, and this server runs DDL only in the datastore it owns (ADR-002 §4.2).");
-        }
+        ArgumentNullException.ThrowIfNull(failure);
+        ArgumentNullException.ThrowIfNull(layer);
+
+        return failure.SqlState == PostgresErrorCodes.InsufficientPrivilege
+            ? $"The database refused to create the history beside '{layer.SchemaName}.{layer.TableName}': {failure.MessageText}. "
+              + "Keeping a history needs a table and a trigger there, so the role this server connects as must own the "
+              + "table and may create in its schema. Grant that, or keep the layer without history (ADR-207)."
+            : null;
     }
 
     private static string Literal(string value) => value.Replace("'", "''", StringComparison.Ordinal);

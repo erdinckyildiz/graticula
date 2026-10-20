@@ -385,8 +385,9 @@ public sealed class FeatureHistoryTests : PostgresFixture
         Assert.DoesNotContain(await PostGisFeatureHistory.PruneAsync(DataSource, CancellationToken.None), p => p.Table.Contains(layer.Name, StringComparison.Ordinal));
     }
 
+    /// <summary>ADR-207: a registered table keeps its history as a hosted one does, beside it in its own schema.</summary>
     [Fact]
-    public async Task A_table_outside_the_hosted_schema_is_refused()
+    public async Task A_table_outside_the_hosted_schema_keeps_its_history_too()
     {
         await ExecuteAsync($"create table \"{SchemaName}\".registered (objectid integer generated always as identity primary key, geom geometry(Point, {Srid}))");
 
@@ -400,10 +401,12 @@ public sealed class FeatureHistoryTests : PostgresFixture
             integerIdentityColumn: "objectid",
             isHosted: false);
 
-        InvalidOperationException refused = await Assert.ThrowsAsync<InvalidOperationException>(
-            () => new PostGisFeatureHistory(DataSource, registered).EnableAsync(CancellationToken.None));
+        await ExecuteAsync($"insert into \"{SchemaName}\".registered (geom) values (st_setsrid(st_makepoint(1, 2), {Srid}))");
 
-        Assert.Contains("ADR-002", refused.Message, StringComparison.Ordinal);
+        Assert.Equal(1, await new PostGisFeatureHistory(DataSource, registered).EnableAsync(CancellationToken.None));
+        Assert.True((await new PostGisFeatureSource(DataSource, registered).DescribeAsync(CancellationToken.None)).Archived);
+
+        await new PostGisFeatureHistory(DataSource, registered).DisableAsync(CancellationToken.None);
         Assert.False((await new PostGisFeatureSource(DataSource, registered).DescribeAsync(CancellationToken.None)).Archived);
     }
 

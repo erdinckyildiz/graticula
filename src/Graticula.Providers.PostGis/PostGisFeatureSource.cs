@@ -1384,15 +1384,13 @@ public sealed class PostGisFeatureSource
     /// Whether the table keeps its history — ADR-078 — asked of the database, not remembered.
     /// </summary>
     /// <remarks>
-    /// <b>Only a hosted table can.</b> History is DDL beside the table, which this server runs only in
-    /// the datastore (ADR-002 §4.2), so a registered table is not asked: the answer is no, and asking
-    /// would be a query per describe against somebody else's database for a fact that cannot be true.
+    /// <b>Any table may, since ADR-207</b> — a registered one too, when an administrator switched history on for it. One
+    /// query per describe, which the describe's cache absorbs.
     /// </remarks>
     /// <returns>How its history is kept, or null when the layer keeps none.</returns>
     private async Task<HistoryKept?> HistoryKeptAsync(CancellationToken cancellationToken)
     {
-        if (!string.Equals(_layer.SchemaName, PostGisImporter.HostedSchema, StringComparison.Ordinal)
-            || _layer.IntegerIdentityColumn is null)
+        if (_layer.IntegerIdentityColumn is null)
         {
             return null;
         }

@@ -805,7 +805,13 @@ public static class Program
         // the keyed one, whose search path reaches PostGIS and the hosted schema.
         builder.Services.AddHostedService(services => new HistoryRetention(
             services.GetRequiredKeyedService<NpgsqlDataSource>(DatastorePool),
-            services.GetRequiredService<ILogger<HistoryRetention>>()));
+            services.GetRequiredService<ILogger<HistoryRetention>>(),
+
+            // ADR-207: and the histories registered layers keep in their own databases.
+            async cancellation => await services.GetRequiredService<LayerConnections>().PruneRegisteredHistoryAsync(
+                    await services.GetRequiredService<PostgresLayerCatalog>().ListAsync(cancellation).ConfigureAwait(false),
+                    cancellation)
+                .ConfigureAwait(false)));
 
         builder.Services.AddSingleton<ISetupStore>(services =>
             new PostgresSetupStore(services.GetRequiredService<NpgsqlDataSource>()));

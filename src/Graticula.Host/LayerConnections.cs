@@ -808,6 +808,32 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         return _breaker.Failed(layer.ConnectionString, failure);
     }
 
+    /// <summary>
+    /// Prunes the histories registered layers keep in their own databases to their keeping periods — ADR-207, beside
+    /// HistoryRetention's sweep of the datastore. Each database is swept once, whatever number of layers it serves.
+    /// </summary>
+    /// <param name="layers">Every published layer.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What was deleted, by table.</returns>
+    public async Task<IReadOnlyList<(string Table, long Versions)>> PruneRegisteredHistoryAsync(
+        IReadOnlyList<PublishedLayer> layers, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(layers);
+
+        List<(string Table, long Versions)> pruned = [];
+
+        foreach (string source in layers
+                     .Where(l => !l.Definition.IsHosted
+                         && GeoParquetLocator.KindOf(l.ConnectionString) == DataSourceKinds.PostGis)
+                     .Select(l => l.ConnectionString)
+                     .Distinct(StringComparer.Ordinal))
+        {
+            pruned.AddRange(await PostGisFeatureHistory.PruneAsync(PoolFor(source), cancellationToken).ConfigureAwait(false));
+        }
+
+        return pruned;
+    }
+
     /// <summary>A layer's history — ADR-078 — over the layer's own pool.</summary>
     /// <param name="layer">The layer.</param>
     /// <returns>Its history.</returns>
