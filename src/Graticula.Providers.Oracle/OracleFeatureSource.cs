@@ -837,7 +837,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         await using (OracleCommand command = new(
             """
-            select column_name, data_type, data_precision, data_scale, char_length, nullable
+            select column_name, data_type, data_precision, data_scale, char_length, nullable, data_length
               from all_tab_columns
              where owner = :o and table_name = :t and data_type_owner is null
              order by column_id
@@ -850,10 +850,18 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                FieldType type = TypeOf(
+                OracleGuids.Storage? guid = OracleGuids.Of(
+                    reader.GetString(0),
                     reader.GetString(1),
-                    reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetDecimal(2)),
-                    reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetDecimal(3)));
+                    reader.IsDBNull(6) ? null : Convert.ToInt32(reader.GetDecimal(6)),
+                    reader.IsDBNull(4) ? null : Convert.ToInt32(reader.GetDecimal(4)));
+
+                FieldType type = guid is not null
+                    ? FieldType.Guid
+                    : TypeOf(
+                        reader.GetString(1),
+                        reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetDecimal(2)),
+                        reader.IsDBNull(3) ? null : Convert.ToInt32(reader.GetDecimal(3)));
 
                 if (type == FieldType.Unknown)
                 {
@@ -864,7 +872,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
                     ? Convert.ToInt32(reader.GetDecimal(4))
                     : null;
 
-                columns.Add(new OracleColumn(reader.GetString(0), type, reader.GetString(5) == "Y", length));
+                columns.Add(new OracleColumn(reader.GetString(0), type, reader.GetString(5) == "Y", guid is null ? length : null, guid));
             }
         }
 
@@ -1183,16 +1191,28 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
                 + "Oracle's dialect.");
         }
 
+        // A GlobalID is compared as ArcGIS spells one, whatever its column keeps (OracleGuids); the value sent is read
+        // as a GUID first, so braces and case do not matter.
+        Dictionary<string, OracleGuids.Storage> guids = table.Columns
+            .Where(c => c.Guid is not null)
+            .ToDictionary(c => c.Name, c => c.Guid!.Value, StringComparer.Ordinal);
+
+        string Quoted(string name) =>
+            guids.TryGetValue(name, out OracleGuids.Storage storage)
+                ? OracleGuids.Text(LayerDefinition.Quote(name), storage)
+                : LayerDefinition.Quote(name);
+
         if (!PredicateSql.TryEmit(
-                where.Predicate, [.. table.Columns.Select(c => c.Name)], LayerDefinition.Quote,
-                out ParsedWhere emitted, out string? error, dialect: SqlDialect.Oracle))
+                where.Predicate, [.. table.Columns.Select(c => c.Name)], Quoted,
+                out ParsedWhere emitted, out string? error, dialect: SqlDialect.Oracle.WithGuids(guids.Keys, arcGisText: true)))
         {
             throw new QueryNotSupportedException(error!);
         }
 
         for (int i = 0; i < emitted.Parameters.Count; i++)
         {
-            parameters.Add(("w" + i.ToString(CultureInfo.InvariantCulture), emitted.Parameters[i] ?? DBNull.Value));
+            object? value = emitted.Parameters[i] is Guid id ? OracleGuids.Braced(id) : emitted.Parameters[i];
+            parameters.Add(("w" + i.ToString(CultureInfo.InvariantCulture), value ?? DBNull.Value));
         }
 
         return emitted.Sql;
@@ -1431,10 +1451,12 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             FieldType.Single => (object)(float)real,
             _ => (object)real,
         },
+        // A GlobalID, as its column keeps it (OracleGuids).
+        string or byte[] when type == FieldType.Guid && OracleGuids.Read(value) is { } guid => guid,
         _ => value,
     };
 
-    private sealed record OracleColumn(string Name, FieldType Type, bool Nullable, int? MaxLength);
+    private sealed record OracleColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, OracleGuids.Storage? Guid = null);
 
     private sealed record OracleTable(IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None)
     {

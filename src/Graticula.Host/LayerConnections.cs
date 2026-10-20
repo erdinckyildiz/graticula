@@ -539,6 +539,14 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(layer);
+
+        // ADR-205: an Oracle layer's GlobalIDs are its own column's, looked up there.
+        if (OracleLocator.Is(layer.ConnectionString))
+        {
+            return OracleFeatureWriter.ObjectIdsOfAsync(
+                layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
+        }
+
         RefuseIfFile(layer, "edited");
 
         return PostGisFeatureWriter.ObjectIdsOfAsync(
