@@ -252,7 +252,7 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             }
 
             return new BudgetedFeatureSource(
-                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer)),
+                new OracleFeatureSource(layer.ConnectionString, layer.Definition, _projector, Lowered(layer), _engine),
                 _budget,
                 layer.ConnectionString,
                 _breaker,

@@ -144,6 +144,21 @@ the other providers implement, with Oracle's types nowhere in a Core signature. 
   WKB (`SDO_UTIL.TO_WKBGEOMETRY`) and in the same way.
 - The FeatureServer, OGC API Features, WFS and WMS faces answer for it as they do for registered PostGIS.
 
+**Amended 2026-10-20 again, by owner direction (*"mekansal sorgular önemli. rest api üzerinden o sorgular
+gelecek"*) — every relation and a distance are answered.** What the paragraph below refuses is no longer refused: a
+distance and the relations beyond intersection (contains, within, crosses, overlaps, touches and a DE-9IM relation)
+are decided by the geometry engine — the worker the GeometryServer's `relation` runs in — exactly as a GeoParquet
+layer's are, because the code that does it moved out of `GeoParquetFeatureSource` into Core's `EngineRelations` and
+both readers call it. `SDO_FILTER` still finds the candidates; the engine decides among them. **Measured against
+PostGIS through the REST face**: the same 1,421 places and two land polygons published from Oracle and from a
+registered PostGIS table on the fixture, and 110 queries — seven `spatialRel` values, two DE-9IM patterns and two
+distances, each with five filters (a pentagon, a point, a line, a small square, an envelope), over the points and
+over the polygons — gave identical object ids, 110 of 110. The run found one defect first, in the shared code: a
+distance on a layer in degrees grew the search box from the filter's vertices, so an envelope's top edge — a geodesic
+that bows a kilometre toward the pole — left out a place 49,057 m from it. The box and the projected filter are now
+both built from the filter densified along great circles (`EngineRelations.GeodesicDensified`, 10 km), which repairs
+GeoParquet layers too.
+
 **Amended 2026-10-20, as built — the spatial filter is not `SDO_RELATE`.** `OracleFeatureSource` has
 GeoParquetFeatureSource's shape rather than PostGisFeatureSource's: `SDO_FILTER` asks the spatial index for the rows
 whose boxes meet the filter, `GeometryPredicates.Intersects` decides here which shapes do, and order, paging,

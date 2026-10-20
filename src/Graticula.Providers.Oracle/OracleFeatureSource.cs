@@ -18,7 +18,7 @@ using SortKey = Graticula.Features.SortKey;
 namespace Graticula.Providers.Oracle;
 
 /// <summary>
-/// A layer served from one SDO_GEOMETRY table of a registered Oracle database — ADR-205 phase 1, read only.
+/// A layer served from one SDO_GEOMETRY table of a registered Oracle database — ADR-205; its writer is OracleFeatureWriter.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -63,20 +63,27 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     private readonly IProjector _projector;
     private readonly TimeSpan _timeout;
     private readonly int _mostMatched;
+    private readonly IGeometryEngine? _engine;
 
     /// <summary>Serves one table of a registered Oracle database as a layer.</summary>
     /// <param name="locator">The data source's <c>oracle:</c> locator.</param>
     /// <param name="layer">The layer; its schema is the table's owner.</param>
     /// <param name="projector">The datastore's projector.</param>
     /// <param name="statementTimeout">How long one query may run; <see cref="DefaultStatementTimeout"/> when null.</param>
+    /// <param name="engine">
+    /// The geometry engine, which decides a distance and every relation beyond intersection (Core's
+    /// <see cref="EngineRelations"/>, as for a GeoParquet layer); null answers intersection only.
+    /// </param>
     public OracleFeatureSource(
-        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout = null)
-        : this(locator, layer, projector, statementTimeout, DefaultMostMatched)
+        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout = null,
+        IGeometryEngine? engine = null)
+        : this(locator, layer, projector, statementTimeout, DefaultMostMatched, engine)
     {
     }
 
     internal OracleFeatureSource(
-        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout, int mostMatched)
+        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout, int mostMatched,
+        IGeometryEngine? engine = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(locator);
         ArgumentNullException.ThrowIfNull(layer);
@@ -94,9 +101,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         _projector = projector;
         _timeout = statementTimeout ?? DefaultStatementTimeout;
         _mostMatched = mostMatched;
+        _engine = engine;
     }
 
-    /// <summary>The relations an Oracle layer answers in phase 1.</summary>
+    /// <summary>The relations an Oracle layer answers itself; the rest are the geometry engine's (EngineRelations).</summary>
     public static IReadOnlyList<SpatialRelation> Relations { get; } =
         [SpatialRelation.Intersects, SpatialRelation.EnvelopeIntersects, SpatialRelation.IndexIntersects];
 
@@ -270,12 +278,12 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
         {
-            AnswersDistance = false,
+            AnswersDistance = _engine is not null,
             AnswersHaving = false,
             AnswersTopFeatures = false,
             AnswersCentroid = false,
             AnswersStatisticExpressions = false,
-            AnswersRelations = false,
+            AnswersRelations = _engine is not null,
             SpatiallyIndexed = true,
         };
     }
@@ -584,7 +592,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     }
 
     /// <summary>Refuses what this provider does not answer, before any work is done.</summary>
-    private static void Refuse(FeatureQuery query)
+    private void Refuse(FeatureQuery query)
     {
         const string Here = "This layer is in a registered Oracle database, which this build reads";
 
@@ -621,18 +629,32 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
                 + "(GeometryServer/generalize).");
         }
 
-        if (spatial.Distance > 0)
+        // <b>A distance and the relations beyond intersection are the geometry engine's</b> — the worker the
+        // GeometryServer's `relation` runs in, as for a GeoParquet layer (Core's EngineRelations). Without one, which a
+        // test can build, only intersection is answered.
+        if (spatial.Distance > 0 && _engine is null)
         {
             throw new QueryNotSupportedException(
-                $"{Here} by intersection and not within a distance (ADR-205 phase 1). Buffer the geometry first "
+                $"{Here} without a geometry engine here, so not within a distance. Buffer the geometry first "
                 + "(GeometryServer/buffer) and filter by the result.");
+        }
+
+        if (spatial.Distance > 0 && spatial.Relation != SpatialRelation.Intersects)
+        {
+            throw new QueryNotSupportedException(
+                $"A distance is answered with intersects, and '{spatial.Relation}' was asked for with one.");
+        }
+
+        if (_engine is not null && EngineRelations.Contains(spatial.Relation))
+        {
+            return;
         }
 
         if (!Relations.Contains(spatial.Relation))
         {
             throw new QueryNotSupportedException(
                 $"{Here} with the spatial relations intersects, envelope-intersects and index-intersects, and "
-                + $"'{spatial.Relation}' is not one of them (ADR-205 phase 1).");
+                + $"'{spatial.Relation}' is not one of them.");
         }
     }
 
@@ -767,6 +789,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         List<(string Name, object Value)> parameters = [];
         List<Envelope> boxes = [];
         Geometry? shape = null;
+        SpatialFilter? byEngine = null;
 
         if (query.BoundingBox is { } box)
         {
@@ -796,9 +819,14 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
                 return new Filters(["1 = 0"], []);
             }
 
-            boxes.Add(filter.Envelope);
+            // A distance widens the box it is looked for in; the exact test is then the engine's.
+            boxes.Add(EngineRelations.SearchBox(filter, spatial.Distance, _layer.Srid));
 
-            if (spatial.Relation == SpatialRelation.Intersects)
+            if (EngineRelations.Decides(spatial))
+            {
+                byEngine = spatial with { Geometry = filter };
+            }
+            else if (spatial.Relation == SpatialRelation.Intersects)
             {
                 shape = filter;
             }
@@ -825,12 +853,24 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             return new Filters(inOracle, parameters);
         }
 
-        List<long>? matched = await RefineAsync(connection, new Filters(inOracle, parameters), boxes, shape, cancellationToken)
+        List<Geometry>? kept = byEngine is null ? null : [];
+
+        // A distance's box is the filter's grown by the distance, so the exact box pass keeps every row it could reach.
+        List<long>? matched = await RefineAsync(
+                connection, new Filters(inOracle, parameters), boxes, shape, cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
         {
             return new Filters(inOracle, parameters);
+        }
+
+        if (byEngine is not null)
+        {
+            matched = await EngineRelations.SatisfyingAsync(
+                    matched, kept!, byEngine, _layer.Srid, _projector, _engine!, "a registered Oracle database",
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (matched.Count == 0)
@@ -854,7 +894,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        List<Geometry>? kept = null)
     {
         Statement statement = new(candidates);
 
@@ -884,7 +925,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
             if (matched.Count == _mostMatched)
             {
-                if (shape is null)
+                if (shape is null && kept is null)
                 {
                     return null;
                 }
@@ -895,6 +936,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             }
 
             matched.Add(Convert.ToInt64(reader.GetDecimal(0), CultureInfo.InvariantCulture));
+            kept?.Add(geometry);
         }
 
         return matched;

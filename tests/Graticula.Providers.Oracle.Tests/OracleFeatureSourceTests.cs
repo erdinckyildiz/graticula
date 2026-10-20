@@ -191,7 +191,8 @@ public sealed class OracleFeatureSourceTests
         QueryNotSupportedException refused = await Assert.ThrowsAsync<QueryNotSupportedException>(() =>
             Places().CountAsync(new FeatureQuery(1, spatial: new SpatialFilter(new Point(32, 39), SpatialRelation.Within)), None));
 
-        Assert.Contains("ADR-205 phase 1", refused.Message, StringComparison.Ordinal);
+        // Without a geometry engine (none is given here) a relation beyond intersection is refused by name.
+        Assert.Contains("is not one of them", refused.Message, StringComparison.Ordinal);
     }
 
     /// <summary>A projector for a test that never asks for another reference.</summary>
