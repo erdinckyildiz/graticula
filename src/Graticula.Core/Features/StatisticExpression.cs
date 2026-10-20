@@ -9,11 +9,13 @@ namespace Graticula.Features;
 /// <param name="Sql">The fragment, with every literal a named placeholder.</param>
 /// <param name="Parameters">Each placeholder's name, without its <c>@</c>, and the value bound to it.</param>
 /// <param name="Kind">What it yields, as far as the parser can tell.</param>
+/// <param name="Operand">The parsed expression, so another dialect writes it again (ADR-205); null where none was kept.</param>
 public sealed record BoundExpression(
     string Text,
     string Sql,
     IReadOnlyList<KeyValuePair<string, object?>> Parameters,
-    ExpressionKind Kind);
+    ExpressionKind Kind,
+    ScalarExpression? Operand = null);
 
 /// <summary>
 /// An SQL expression a statistics query groups by, and the name it is answered under — <c>Expr1</c>, <c>Expr2</c>, as
@@ -107,7 +109,8 @@ public static class StatisticExpression
             text,
             sql,
             [.. values.Select((value, i) => new KeyValuePair<string, object?>(Placeholder(statistic, i)[1..], value))],
-            operand.Kind);
+            operand.Kind,
+            operand);
         return true;
     }
 }

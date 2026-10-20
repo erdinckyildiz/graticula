@@ -144,25 +144,14 @@ public sealed class GeoParquetFeatureSource
         _engine = engine;
     }
 
-    /// <summary>The relations the geometry engine answers for a GeoParquet layer — D-263.</summary>
-    public static IReadOnlyList<SpatialRelation> EngineRelations { get; } =
-    [
-        SpatialRelation.Contains, SpatialRelation.Within, SpatialRelation.Crosses,
-        SpatialRelation.Overlaps, SpatialRelation.Touches, SpatialRelation.Relate,
-    ];
+    /// <summary>The relations the geometry engine answers for a GeoParquet layer — D-263, Core's since 2026-10-20.</summary>
+    public static IReadOnlyList<SpatialRelation> EngineRelations => Graticula.Features.EngineRelations.Relations;
 
     /// <summary>Whether this layer answers a distance: with an engine — in degrees too since 2026-10-15 (ADR-066 #3).</summary>
     private bool AnswersDistance => _engine is not null;
 
-    /// <summary>
-    /// How far from its centre a distance on a layer in degrees is measured: the filter's reach plus the distance.
-    /// </summary>
-    /// <remarks>
-    /// The azimuthal equidistant projection the test is made in is exact along every line through its centre and
-    /// stretches the rest by <c>(r/R) / sin(r/R)</c>: 0.1 % at 500 km and 0.4 % at 1,000 km. Past that a distance is
-    /// refused rather than answered differently from the datastore, which measures on the ellipsoid.
-    /// </remarks>
-    internal const double MostGeographicReachMetres = 1_000_000;
+    /// <summary>How far from its centre a distance on a layer in degrees is measured — Core's EngineRelations.</summary>
+    internal const double MostGeographicReachMetres = Graticula.Features.EngineRelations.MostGeographicReachMetres;
 
     /// <summary>The relations a GeoParquet layer answers.</summary>
     public static IReadOnlyList<SpatialRelation> Relations { get; } =
@@ -904,11 +893,8 @@ public sealed class GeoParquetFeatureSource
             }
 
             // A distance widens the box it is looked for in; the exact test is the engine's.
-            boxes.Add(spatial.Distance > 0
-                ? AxisOrder.IsGeographic(_layer.Srid)
-                    ? GeographicWidened(filter.Envelope, spatial.Distance)
-                    : Widened(filter.Envelope, spatial.Distance)
-                : filter.Envelope);
+            // Core's, which an Oracle layer asks too: in degrees it grows the geodesic edges' box, not the vertices'.
+            boxes.Add(Graticula.Features.EngineRelations.SearchBox(filter, spatial.Distance, _layer.Srid));
 
             if (spatial.Distance > 0 || EngineRelations.Contains(spatial.Relation))
             {
@@ -1066,166 +1052,16 @@ public sealed class GeoParquetFeatureSource
 
     /// <summary>
     /// The candidates the geometry engine says satisfy the filter — every relation beyond intersection, and a
-    /// distance — D-263.
+    /// distance — D-263, by Core's <see cref="Graticula.Features.EngineRelations"/>, which an Oracle layer asks too.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The owner's decision, 2026-09-23: the engine the GeometryServer already uses, rather than DuckDB's
-    /// spatial extension.</b> ADR-066 rejected the extension because it links GEOS, PROJ and GDAL into the
-    /// serving process and gives a third GEOS whose answers would have to be reconciled with PostGIS's (Q-20).
-    /// The engine is the worker process the GeometryServer's <c>relation</c> runs in, so a GeoParquet layer and
-    /// that operation give the same answer, and nothing new is linked into this process.
-    /// </para>
-    /// <para>
-    /// <b>The meaning is PostGIS's, read off <c>PostGisFeatureSource</c>:</b> the feature is on the left and the
-    /// filter on the right, so <c>Within</c> is the feature within the filter and <c>Contains</c> the feature
-    /// containing it — <c>T*****FF*</c>, which is how <c>ST_Contains</c> is defined. A distance is in the layer's
-    /// units, which is what <c>ST_DWithin</c> answers on a projected layer; a layer in degrees refuses it before
-    /// anything is read.
-    /// </para>
-    /// <para>
-    /// <b>In batches</b>, so one request to the engine stays a size the worker was built for, and a refusal from
-    /// it — busy, too large, a deadline — is a refusal of the query with the engine's own sentence rather than a
-    /// partial answer.
-    /// </para>
-    /// </remarks>
-    private async Task<List<long>> ByEngineAsync(
-        List<long> candidates, List<Geometry> geometries, SpatialFilter spatial, CancellationToken cancellationToken)
-    {
-        List<long> satisfied = [];
+    private Task<List<long>> ByEngineAsync(
+        List<long> candidates, List<Geometry> geometries, SpatialFilter spatial, CancellationToken cancellationToken) =>
+        Graticula.Features.EngineRelations.SatisfyingAsync(
+            candidates, geometries, spatial, _layer.Srid, _projector, _engine!, "a GeoParquet file", cancellationToken);
 
-        // <b>A distance on a layer in degrees is measured in metres — ADR-066 condition 3, 2026-10-15.</b> The
-        // datastore casts to `geography` and measures on the ellipsoid; a file has no such column, so the features
-        // and the filter are moved into an azimuthal equidistant projection centred on the filter, where the engine's
-        // planar distance is metres and exact along every line through the centre, and refused past
-        // MostGeographicReachMetres, where it would stop agreeing with the datastore.
-        string? metric = null;
-        Geometry right = spatial.Geometry;
-
-        if (spatial.Distance > 0 && AxisOrder.IsGeographic(_layer.Srid))
-        {
-            Envelope box = spatial.Geometry.Envelope;
-            double lon = (box.MinX + box.MaxX) / 2, lat = (box.MinY + box.MaxY) / 2;
-            double reach = Math.Max(
-                    Math.Max(Haversine(lon, lat, box.MinX, box.MinY), Haversine(lon, lat, box.MaxX, box.MaxY)),
-                    Math.Max(Haversine(lon, lat, box.MinX, box.MaxY), Haversine(lon, lat, box.MaxX, box.MinY)))
-                + spatial.Distance;
-
-            if (reach > MostGeographicReachMetres)
-            {
-                throw new QueryNotSupportedException(
-                    $"This layer is served from a GeoParquet file in degrees, and a distance on it is measured in "
-                    + $"metres around the filter, within {MostGeographicReachMetres / 1000:N0} km of its centre; this "
-                    + $"filter and distance reach {reach / 1000:N0} km. Use a smaller filter or distance, or publish the "
-                    + "data into the datastore, which measures on the ellipsoid at any distance.");
-            }
-
-            metric = string.Create(
-                CultureInfo.InvariantCulture,
-                $"+proj=aeqd +lat_0={lat:R} +lon_0={lon:R} +datum=WGS84 +units=m +no_defs");
-
-            right = (await _projector.ProjectToDefinitionAsync([spatial.Geometry], _layer.Srid, metric, cancellationToken)
-                .ConfigureAwait(false) is [var moved] ? moved : null)
-                ?? throw new QueryNotSupportedException(
-                    "This layer is served from a GeoParquet file in degrees, and the filter could not be moved into "
-                    + "metres to measure a distance around it.");
-        }
-
-        for (int start = 0; start < candidates.Count; start += EngineBatch)
-        {
-            int count = Math.Min(EngineBatch, candidates.Count - start);
-            List<Geometry> left = geometries.GetRange(start, count);
-
-            if (metric is not null)
-            {
-                left = [.. await _projector.ProjectToDefinitionAsync(left, _layer.Srid, metric, cancellationToken)
-                        .ConfigureAwait(false)
-                    ?? throw new QueryNotSupportedException(
-                        "This layer is served from a GeoParquet file in degrees, and its features could not be moved "
-                        + "into metres to measure a distance.")];
-            }
-
-            EngineRequest request = spatial.Distance > 0
-                ? new EngineRequest(EngineOperation.WithinDistance, left, [right], metric is null ? _layer.Srid : 3857)
-                {
-                    Distance = spatial.Distance,
-                }
-                : new EngineRequest(EngineOperation.Relate, left, [spatial.Geometry], _layer.Srid)
-                {
-                    Pattern = PatternOf(spatial),
-                };
-
-            EngineResult result = await _engine!.ComputeAsync(request, cancellationToken).ConfigureAwait(false);
-
-            if (result.Refusal != EngineRefusal.None)
-            {
-                throw new QueryNotSupportedException(
-                    $"This layer is served from a GeoParquet file, and '{spatial.Relation}' is decided by the "
-                    + $"geometry engine, which did not answer: {result.Message}");
-            }
-
-            foreach (int[] pair in result.Pairs ?? [])
-            {
-                satisfied.Add(candidates[start + pair[0]]);
-            }
-        }
-
-        return satisfied;
-    }
-
-    /// <summary>The engine's name for a relation, with the feature on the left and the filter on the right.</summary>
-    private static string PatternOf(SpatialFilter spatial) => spatial.Relation switch
-    {
-        SpatialRelation.Within => "esriGeometryRelationWithin",
-        SpatialRelation.Touches => "esriGeometryRelationTouch",
-        SpatialRelation.Crosses => "esriGeometryRelationCross",
-        SpatialRelation.Overlaps => "esriGeometryRelationOverlap",
-        SpatialRelation.Contains => "T*****FF*",
-        SpatialRelation.Relate => spatial.RelatePattern
-            ?? throw new QueryNotSupportedException("A relation filter needs a DE-9IM pattern."),
-        _ => throw new QueryNotSupportedException($"'{spatial.Relation}' is not decided by the geometry engine."),
-    };
-
-    /// <summary>A box grown by a distance on every side.</summary>
-    private static Envelope Widened(Envelope box, double distance) =>
-        new(box.MinX - distance, box.MinY - distance, box.MaxX + distance, box.MaxY + distance);
-
-    /// <summary>
-    /// A box in degrees grown by a distance in metres, never narrower than the circle it has to hold — as the
-    /// datastore widens it (<c>PostGisFeatureSource.GeographicWidening</c>).
-    /// </summary>
-    /// <remarks>
-    /// Latitude by the fewest metres a degree of it ever is; longitude by that divided by the cosine of the furthest
-    /// latitude the box reaches. Near a pole, or across the antimeridian, every longitude.
-    /// </remarks>
-    internal static Envelope GeographicWidened(Envelope box, double metres)
-    {
-        double dLat = metres / 110_574.0;
-        double south = Math.Max(-90, box.MinY - dLat), north = Math.Min(90, box.MaxY + dLat);
-        double furthest = Math.Max(Math.Abs(south), Math.Abs(north));
-
-        if (furthest >= 89.9)
-        {
-            return new Envelope(-180, south, 180, north);
-        }
-
-        double dLon = metres / (111_320.0 * Math.Cos(furthest * Math.PI / 180));
-        double west = box.MinX - dLon, east = box.MaxX + dLon;
-
-        return west < -180 || east > 180
-            ? new Envelope(-180, south, 180, north)
-            : new Envelope(west, south, east, north);
-    }
-
-    /// <summary>The great-circle distance in metres between two points in degrees, on the mean radius.</summary>
-    private static double Haversine(double lon1, double lat1, double lon2, double lat2)
-    {
-        const double R = 6_371_008.8;
-        double p1 = lat1 * Math.PI / 180, p2 = lat2 * Math.PI / 180;
-        double dp = p2 - p1, dl = (lon2 - lon1) * Math.PI / 180;
-        double h = (Math.Sin(dp / 2) * Math.Sin(dp / 2)) + (Math.Cos(p1) * Math.Cos(p2) * Math.Sin(dl / 2) * Math.Sin(dl / 2));
-        return 2 * R * Math.Asin(Math.Min(1, Math.Sqrt(h)));
-    }
+    /// <summary>A box in degrees grown by a distance in metres — Core's EngineRelations.</summary>
+    internal static Envelope GeographicWidened(Envelope box, double metres) =>
+        Graticula.Features.EngineRelations.GeographicWidened(box, metres);
 
     /// <summary>
     /// A box test on the covering column, widened past single-precision rounding — the prefilter.

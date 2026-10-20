@@ -364,7 +364,10 @@ justified* — Q-87's last words — is the owner's to answer, and §11 asks.
 2. **In the serving process**, on the §3 argument that the files are the operator's, rather than in a
    child process.
 3. **Refuse rather than approximate** the relations the core cannot answer, rather than load the
-   spatial extension.
+   spatial extension. *(2026-10-20: the engine path that answers them since D-263 moved into Core's
+   `EngineRelations`, shared with Oracle layers (ADR-205), and a distance on a layer in degrees now grows its search box
+   from the filter's geodesic edges rather than its vertices — found by the Oracle-against-PostGIS parity run, where an
+   envelope's bowing top edge left a place 49,057 m away out of a 50 km filter.)*
 4. **`file_row_number` as an identity** for a file with no unique integer column.
 5. **Off unless the deployment names a root**, and the image's root is `/data/geoparquet`.
 

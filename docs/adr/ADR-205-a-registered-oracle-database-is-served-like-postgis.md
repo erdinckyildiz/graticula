@@ -144,6 +144,39 @@ the other providers implement, with Oracle's types nowhere in a Core signature. 
   WKB (`SDO_UTIL.TO_WKBGEOMETRY`) and in the same way.
 - The FeatureServer, OGC API Features, WFS and WMS faces answer for it as they do for registered PostGIS.
 
+**Amended 2026-10-20 a third time, by owner direction (*"bunları da yap, oracle'ı kapatalım"*) — the four query
+features phase 1 refused are answered.** `queryTopFeatures`, a `havingClause`, statistics over an SQL expression
+(`onStatisticField` and `groupByFieldsForStatistics`) and `returnCentroid` now answer on an Oracle layer, and its
+document says so. **None is pasted from PostgreSQL's SQL**: the face parses a having clause and an expression once and
+now keeps the parsed tree beside the SQL — `ParsedWhere.Columns`, the aggregate each having name stands for, and
+`BoundExpression.Operand` — and the Oracle reader writes both again through `SqlDialect.Oracle`. Top features are the
+PostGIS path's `row_number() over (partition by … order by …)` over the same filters, kept as an id clause so a count,
+an id list and an extent agree with the read. Expressions are computed in an inner select and grouped outside it by
+name, because Oracle matches a `GROUP BY` expression with its select-list copy as text and one carrying a bind
+variable does not match itself (ORA-00979). The centroid is Core's `GeometryMeasures.LabelPoint` over the output shape,
+read even when the shape is not returned. **Measured against PostGIS through the REST face**, the same places and land
+on both: 87 comparisons — 16 top-feature queries (ids, counts, inside a pentagon, rows under a where), 15 having
+clauses, 47 expression statistics including grouping by an expression and percentiles over one, and the centroid with
+and without the shape — 0 disagreements, where the refusals (a having clause without an aggregate, `CASE` and `%`,
+which the face's expression grammar does not take) are the same on both. A centroid is placed by a different engine
+on each, so its pass is a point inside its own polygon, checked by PostGIS. What an Oracle layer still lacks is the
+editing list in §5b and attachments, related records and history.
+
+**Amended 2026-10-20 again, by owner direction (*"mekansal sorgular önemli. rest api üzerinden o sorgular
+gelecek"*) — every relation and a distance are answered.** What the paragraph below refuses is no longer refused: a
+distance and the relations beyond intersection (contains, within, crosses, overlaps, touches and a DE-9IM relation)
+are decided by the geometry engine — the worker the GeometryServer's `relation` runs in — exactly as a GeoParquet
+layer's are, because the code that does it moved out of `GeoParquetFeatureSource` into Core's `EngineRelations` and
+both readers call it. `SDO_FILTER` still finds the candidates; the engine decides among them. **Measured against
+PostGIS through the REST face**: the same 1,421 places and two land polygons published from Oracle and from a
+registered PostGIS table on the fixture, and 110 queries — seven `spatialRel` values, two DE-9IM patterns and two
+distances, each with five filters (a pentagon, a point, a line, a small square, an envelope), over the points and
+over the polygons — gave identical object ids, 110 of 110. The run found one defect first, in the shared code: a
+distance on a layer in degrees grew the search box from the filter's vertices, so an envelope's top edge — a geodesic
+that bows a kilometre toward the pole — left out a place 49,057 m from it. The box and the projected filter are now
+both built from the filter densified along great circles (`EngineRelations.GeodesicDensified`, 10 km), which repairs
+GeoParquet layers too.
+
 **Amended 2026-10-20, as built — the spatial filter is not `SDO_RELATE`.** `OracleFeatureSource` has
 GeoParquetFeatureSource's shape rather than PostGisFeatureSource's: `SDO_FILTER` asks the spatial index for the rows
 whose boxes meet the filter, `GeometryPredicates.Intersects` decides here which shapes do, and order, paging,
@@ -172,7 +205,7 @@ connected user owns the table or holds all three object grants or the `ANY TABLE
 read-only otherwise. Measured end to end on the fixture: `applyEdits` added, updated (a point sent in EPSG:3857 stored in
 4326), deleted and refused a text value for a number by name; OGC API Features created, replaced and deleted an item.
 
-**`INFERRED` — this session's, for the owner to confirm:**
+**~~`INFERRED` — this session's, for the owner to confirm~~ Confirmed by the owner 2026-10-20 — [Q-183](../open-questions.md), *"hepsini yap"*:**
 
 1. **A new row's key must be made by the database** — an identity column or a column default. Where it is not, adds are
    refused with the reason and updates and deletes are answered: a customer's table numbers its rows its own way, and

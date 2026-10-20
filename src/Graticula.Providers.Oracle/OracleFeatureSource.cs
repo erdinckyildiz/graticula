@@ -18,7 +18,7 @@ using SortKey = Graticula.Features.SortKey;
 namespace Graticula.Providers.Oracle;
 
 /// <summary>
-/// A layer served from one SDO_GEOMETRY table of a registered Oracle database — ADR-205 phase 1, read only.
+/// A layer served from one SDO_GEOMETRY table of a registered Oracle database — ADR-205; its writer is OracleFeatureWriter.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -63,20 +63,27 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     private readonly IProjector _projector;
     private readonly TimeSpan _timeout;
     private readonly int _mostMatched;
+    private readonly IGeometryEngine? _engine;
 
     /// <summary>Serves one table of a registered Oracle database as a layer.</summary>
     /// <param name="locator">The data source's <c>oracle:</c> locator.</param>
     /// <param name="layer">The layer; its schema is the table's owner.</param>
     /// <param name="projector">The datastore's projector.</param>
     /// <param name="statementTimeout">How long one query may run; <see cref="DefaultStatementTimeout"/> when null.</param>
+    /// <param name="engine">
+    /// The geometry engine, which decides a distance and every relation beyond intersection (Core's
+    /// <see cref="EngineRelations"/>, as for a GeoParquet layer); null answers intersection only.
+    /// </param>
     public OracleFeatureSource(
-        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout = null)
-        : this(locator, layer, projector, statementTimeout, DefaultMostMatched)
+        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout = null,
+        IGeometryEngine? engine = null)
+        : this(locator, layer, projector, statementTimeout, DefaultMostMatched, engine)
     {
     }
 
     internal OracleFeatureSource(
-        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout, int mostMatched)
+        string locator, LayerDefinition layer, IProjector projector, TimeSpan? statementTimeout, int mostMatched,
+        IGeometryEngine? engine = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(locator);
         ArgumentNullException.ThrowIfNull(layer);
@@ -94,9 +101,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         _projector = projector;
         _timeout = statementTimeout ?? DefaultStatementTimeout;
         _mostMatched = mostMatched;
+        _engine = engine;
     }
 
-    /// <summary>The relations an Oracle layer answers in phase 1.</summary>
+    /// <summary>The relations an Oracle layer answers itself; the rest are the geometry engine's (EngineRelations).</summary>
     public static IReadOnlyList<SpatialRelation> Relations { get; } =
         [SpatialRelation.Intersects, SpatialRelation.EnvelopeIntersects, SpatialRelation.IndexIntersects];
 
@@ -182,7 +190,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         else
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
-            sql.Append(query.IncludeGeometry ? $", sdo_util.to_wkbgeometry({Shape}) as g" : ", null as g");
+            // A centroid is the output shape's label point, so the shape is read for it even when it is not returned.
+            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", sdo_util.to_wkbgeometry({Shape}) as g" : ", null as g");
             sql.Append(" from ").Append(From);
             statement.AppendWhere();
         }
@@ -191,7 +200,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         FieldType[] types = [.. schema.Names.Select(table.TypeOf)];
         List<Feature> batch = new(ProjectionBatch);
-        bool reshape = query.IncludeGeometry && !distinct
+        bool reshape = (query.IncludeGeometry || query.ReturnCentroid) && !distinct
             && (Projects(query) || query.Precision is >= 0 || query.MaxAllowableOffset is > 0);
 
         await using OracleCommand command = statement.Command(connection, _timeout);
@@ -226,7 +235,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
             if (!reshape)
             {
-                yield return feature;
+                yield return Finished(feature, query);
                 continue;
             }
 
@@ -236,7 +245,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             {
                 foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
                 {
-                    yield return done;
+                    yield return Finished(done, query);
                 }
 
                 batch.Clear();
@@ -247,9 +256,47 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         {
             foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
             {
-                yield return done;
+                yield return Finished(done, query);
             }
         }
+    }
+
+    /// <summary>
+    /// A feature as the face receives it: with its centroid when one was asked for, and without its shape when only the
+    /// centroid needed it.
+    /// </summary>
+    /// <remarks>
+    /// <b>The centroid is the output shape's label point</b> — <see cref="GeometryMeasures.LabelPoint"/>, a point inside
+    /// the polygon, which is what PostGIS's <c>ST_PointOnSurface</c> over the output geometry answers on a PostGIS layer
+    /// and what ArcGIS calls a label point; a point's centroid is itself, and a line has none.
+    /// </remarks>
+    private static Feature Finished(Feature feature, FeatureQuery query)
+    {
+        if (!query.ReturnCentroid)
+        {
+            return feature;
+        }
+
+        Geometry? centroid = feature.Geometry switch
+        {
+            null or { IsEmpty: true } => null,
+            Polygon or MultiPolygon => GeometryMeasures.LabelPoint(feature.Geometry),
+            Point point => point,
+            MultiPoint points => points.Parts.Count > 0 ? points.Parts[0] : null,
+            _ => null,
+        };
+
+        object?[] values = new object?[feature.Schema.Count];
+
+        for (int v = 0; v < values.Length; v++)
+        {
+            values[v] = feature[v];
+        }
+
+        return new Feature(feature.Id, query.IncludeGeometry ? feature.Geometry : null, feature.Schema, values)
+        {
+            Centroid = centroid,
+        };
     }
 
     /// <inheritdoc />
@@ -270,12 +317,12 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
         return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
         {
-            AnswersDistance = false,
-            AnswersHaving = false,
-            AnswersTopFeatures = false,
-            AnswersCentroid = false,
-            AnswersStatisticExpressions = false,
-            AnswersRelations = false,
+            AnswersDistance = _engine is not null,
+            AnswersHaving = true,
+            AnswersTopFeatures = true,
+            AnswersCentroid = true,
+            AnswersStatisticExpressions = true,
+            AnswersRelations = _engine is not null,
             SpatiallyIndexed = true,
         };
     }
@@ -501,27 +548,100 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
         StringBuilder sql = statement.Sql;
+        List<string> columns = [.. table.Columns.Select(c => c.Name)];
 
-        List<string> select = [.. query.GroupBy.Select(LayerDefinition.Quote)];
+        // <b>Expressions are computed in an inner select and grouped and aggregated outside it</b>, by name. Oracle
+        // compares a GROUP BY expression with the select list's as text, and one carrying a bind variable does not match
+        // its own copy (ORA-00979); a named column of the inner select does.
+        List<string> inner = ["t.*"];
+        List<string> groups = [.. query.GroupBy.Select(LayerDefinition.Quote)];
 
-        foreach (StatisticRequest statistic in query.Statistics)
+        int expressions = 0;
+
+        string Bound(BoundExpression expression)
         {
-            select.Add($"{Aggregate(statistic)} as {LayerDefinition.Quote(statistic.OutName)}");
+            string prefix = "x" + expressions.ToString(CultureInfo.InvariantCulture);
+            expressions++;
+
+            if (!PredicateSql.TryEmitExpression(
+                    expression.Operand!, columns, LayerDefinition.Quote, i => $":{prefix}_{i.ToString(CultureInfo.InvariantCulture)}",
+                    out string written, out IReadOnlyList<object?> values, out string? error, SqlDialect.Oracle))
+            {
+                throw new QueryNotSupportedException(error!);
+            }
+
+            for (int i = 0; i < values.Count; i++)
+            {
+                statement.Bind($"{prefix}_{i.ToString(CultureInfo.InvariantCulture)}", values[i] ?? DBNull.Value);
+            }
+
+            return written;
         }
 
-        sql.Append("select ").Append(string.Join(", ", select)).Append(" from ").Append(From);
-        statement.AppendWhere();
-
-        if (query.GroupBy.Count > 0)
+        foreach (GroupExpression grouped in query.GroupExpressions)
         {
-            sql.Append(" group by ").Append(string.Join(", ", query.GroupBy.Select(LayerDefinition.Quote)));
+            inner.Add($"({Bound(grouped.Expression)}) as {LayerDefinition.Quote(grouped.Name)}");
+            groups.Add(LayerDefinition.Quote(grouped.Name));
+        }
 
+        List<string> select = [.. groups];
+
+        for (int k = 0; k < query.Statistics.Count; k++)
+        {
+            StatisticRequest statistic = query.Statistics[k];
+            string? computed = null;
+
+            if (statistic.Expression is { } expression)
+            {
+                computed = "graticula_s" + k.ToString(CultureInfo.InvariantCulture);
+                inner.Add($"({Bound(expression)}) as {LayerDefinition.Quote(computed)}");
+            }
+
+            select.Add($"{Aggregate(statistic, computed)} as {LayerDefinition.Quote(statistic.OutName)}");
+        }
+
+        sql.Append("select ").Append(string.Join(", ", select))
+           .Append(" from (select ").Append(string.Join(", ", inner)).Append(" from ").Append(From).Append(" t");
+        statement.AppendWhere();
+        sql.Append(") q");
+
+        bool grouping = groups.Count > 0;
+
+        if (grouping)
+        {
+            sql.Append(" group by ").Append(string.Join(", ", groups));
+        }
+
+        // Q-109's having clause, written again from its tree in Oracle's dialect; the aggregates it names are ones both
+        // databases spell alike, and its values bind as :h0, :h1, ….
+        if (query.Having is { Predicate: { } having, Columns: { } aggregates })
+        {
+            List<string> names = [.. aggregates.Keys, .. query.GroupBy, .. query.GroupExpressions.Select(g => g.Name)];
+
+            if (!PredicateSql.TryEmit(
+                    having, names, name => aggregates.TryGetValue(name, out string? aggregate) ? aggregate : LayerDefinition.Quote(name),
+                    out ParsedWhere written, out string? error, i => ":h" + i.ToString(CultureInfo.InvariantCulture), SqlDialect.Oracle))
+            {
+                throw new QueryNotSupportedException(error!);
+            }
+
+            sql.Append(" having ").Append(written.Sql);
+
+            for (int i = 0; i < written.Parameters.Count; i++)
+            {
+                statement.Bind("h" + i.ToString(CultureInfo.InvariantCulture), written.Parameters[i] ?? DBNull.Value);
+            }
+        }
+
+        if (grouping)
+        {
             // The vocabulary rule of the other paths: a sort key naming neither a group nor a statistic is dropped.
             List<string> ordering = [];
 
             foreach (SortKey key in query.OrderBy)
             {
                 string? named = query.GroupBy
+                    .Concat(query.GroupExpressions.Select(g => g.Name))
                     .Concat(query.Statistics.Select(s => s.OutName))
                     .FirstOrDefault(n => n.Equals(key.Field, StringComparison.OrdinalIgnoreCase));
 
@@ -533,7 +653,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
             if (ordering.Count == 0)
             {
-                ordering.AddRange(query.GroupBy.Select(LayerDefinition.Quote));
+                ordering.AddRange(groups);
             }
 
             sql.Append(" order by ").Append(string.Join(", ", ordering))
@@ -584,28 +704,26 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     }
 
     /// <summary>Refuses what this provider does not answer, before any work is done.</summary>
-    private static void Refuse(FeatureQuery query)
+    private void Refuse(FeatureQuery query)
     {
         const string Here = "This layer is in a registered Oracle database, which this build reads";
 
-        if (query.Top is not null)
+        // <b>The face parses a having clause and a statistic expression once, in PostgreSQL's spelling, and keeps the
+        // tree and the aggregates beside it; this layer writes them again in Oracle's.</b> One built without them — by
+        // hand, not by the face — is refused rather than pasted.
+        if (query.Having is { } having && (having.Predicate is null || having.Columns is null))
         {
             throw new QueryNotSupportedException(
-                $"{Here} without queryTopFeatures (ADR-205 phase 1). Query with orderByFields and resultRecordCount for "
-                + "one group at a time.");
+                $"{Here}, and this having clause reached it without its parsed form, so it cannot be written in Oracle's "
+                + "dialect.");
         }
 
-        if (query.Statistics.Any(s => s.Expression is not null) || query.GroupExpressions.Count > 0)
+        if (query.Statistics.Any(s => s.Expression is { Operand: null })
+            || query.GroupExpressions.Any(g => g.Expression.Operand is null))
         {
             throw new QueryNotSupportedException(
-                $"{Here} without statistics over an SQL expression (ADR-205 phase 1). Compute it over a field.");
-        }
-
-        if (query.Having is not null)
-        {
-            throw new QueryNotSupportedException(
-                $"{Here} without a having clause (ADR-205 phase 1). Filter the returned statistics, or use 'where' to "
-                + "narrow the rows before they are grouped.");
+                $"{Here}, and a statistic expression reached it without its parsed form, so it cannot be written in "
+                + "Oracle's dialect.");
         }
 
         if (query.Spatial is not { } spatial)
@@ -621,18 +739,32 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
                 + "(GeometryServer/generalize).");
         }
 
-        if (spatial.Distance > 0)
+        // <b>A distance and the relations beyond intersection are the geometry engine's</b> — the worker the
+        // GeometryServer's `relation` runs in, as for a GeoParquet layer (Core's EngineRelations). Without one, which a
+        // test can build, only intersection is answered.
+        if (spatial.Distance > 0 && _engine is null)
         {
             throw new QueryNotSupportedException(
-                $"{Here} by intersection and not within a distance (ADR-205 phase 1). Buffer the geometry first "
+                $"{Here} without a geometry engine here, so not within a distance. Buffer the geometry first "
                 + "(GeometryServer/buffer) and filter by the result.");
+        }
+
+        if (spatial.Distance > 0 && spatial.Relation != SpatialRelation.Intersects)
+        {
+            throw new QueryNotSupportedException(
+                $"A distance is answered with intersects, and '{spatial.Relation}' was asked for with one.");
+        }
+
+        if (_engine is not null && EngineRelations.Contains(spatial.Relation))
+        {
+            return;
         }
 
         if (!Relations.Contains(spatial.Relation))
         {
             throw new QueryNotSupportedException(
                 $"{Here} with the spatial relations intersects, envelope-intersects and index-intersects, and "
-                + $"'{spatial.Relation}' is not one of them (ADR-205 phase 1).");
+                + $"'{spatial.Relation}' is not one of them.");
         }
     }
 
@@ -763,10 +895,48 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
     private async Task<Filters> FiltersAsync(
         OracleConnection connection, FeatureQuery query, OracleTable table, CancellationToken cancellationToken)
     {
+        Filters filters = await RowFiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
+
+        if (query.Top is not { } top)
+        {
+            return filters;
+        }
+
+        // <b>queryTopFeatures: the identities ranked within their group by the order asked, kept to the count</b> — the
+        // PostGIS path's `row_number() over (partition by … order by …)`, over exactly the rows the other filters keep,
+        // so a count, an id list and an extent of the same query count the features the read returns. Every name was
+        // checked against the layer's fields when the filter was read, and is quoted here by us.
+        string order = top.OrderBy.Count == 0
+            ? Id
+            : string.Join(", ", top.OrderBy.Select(k => LayerDefinition.Quote(k.Field) + (k.Descending ? " desc" : " asc")));
+
+        StringBuilder ranked = new StringBuilder("select ").Append(Id).Append(" as i, row_number() over (");
+
+        if (top.GroupBy.Count > 0)
+        {
+            ranked.Append("partition by ").Append(string.Join(", ", top.GroupBy.Select(LayerDefinition.Quote))).Append(' ');
+        }
+
+        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(From);
+
+        if (filters.Clauses.Count > 0)
+        {
+            ranked.Append(" where ").Append(string.Join(" and ", filters.Clauses));
+        }
+
+        return new Filters(
+            [$"{Id} in (select t.i from ({ranked}) t where t.r <= :top_count)"],
+            [.. filters.Parameters, ("top_count", (object)top.Count)]);
+    }
+
+    private async Task<Filters> RowFiltersAsync(
+        OracleConnection connection, FeatureQuery query, OracleTable table, CancellationToken cancellationToken)
+    {
         List<string> attributes = [];
         List<(string Name, object Value)> parameters = [];
         List<Envelope> boxes = [];
         Geometry? shape = null;
+        SpatialFilter? byEngine = null;
 
         if (query.BoundingBox is { } box)
         {
@@ -796,9 +966,14 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
                 return new Filters(["1 = 0"], []);
             }
 
-            boxes.Add(filter.Envelope);
+            // A distance widens the box it is looked for in; the exact test is then the engine's.
+            boxes.Add(EngineRelations.SearchBox(filter, spatial.Distance, _layer.Srid));
 
-            if (spatial.Relation == SpatialRelation.Intersects)
+            if (EngineRelations.Decides(spatial))
+            {
+                byEngine = spatial with { Geometry = filter };
+            }
+            else if (spatial.Relation == SpatialRelation.Intersects)
             {
                 shape = filter;
             }
@@ -825,12 +1000,24 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             return new Filters(inOracle, parameters);
         }
 
-        List<long>? matched = await RefineAsync(connection, new Filters(inOracle, parameters), boxes, shape, cancellationToken)
+        List<Geometry>? kept = byEngine is null ? null : [];
+
+        // A distance's box is the filter's grown by the distance, so the exact box pass keeps every row it could reach.
+        List<long>? matched = await RefineAsync(
+                connection, new Filters(inOracle, parameters), boxes, shape, cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
         {
             return new Filters(inOracle, parameters);
+        }
+
+        if (byEngine is not null)
+        {
+            matched = await EngineRelations.SatisfyingAsync(
+                    matched, kept!, byEngine, _layer.Srid, _projector, _engine!, "a registered Oracle database",
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         if (matched.Count == 0)
@@ -854,7 +1041,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        List<Geometry>? kept = null)
     {
         Statement statement = new(candidates);
 
@@ -884,7 +1072,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
 
             if (matched.Count == _mostMatched)
             {
-                if (shape is null)
+                if (shape is null && kept is null)
                 {
                     return null;
                 }
@@ -895,6 +1083,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
             }
 
             matched.Add(Convert.ToInt64(reader.GetDecimal(0), CultureInfo.InvariantCulture));
+            kept?.Add(geometry);
         }
 
         return matched;
@@ -1108,9 +1297,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries
         sql.Append(" fetch next ").Append(statement.Bind("limit", query.Limit)).Append(" rows only");
     }
 
-    private static string Aggregate(StatisticRequest statistic)
+    private static string Aggregate(StatisticRequest statistic, string? computed = null)
     {
-        string column = LayerDefinition.Quote(statistic.Field);
+        string column = LayerDefinition.Quote(computed ?? statistic.Field);
 
         string function = statistic.Kind switch
         {

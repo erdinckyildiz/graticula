@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>d683df3e</code> · 2026-10-20 07:21</p>
+<p class="stamp">Şu commit’ten üretildi: <code>c06ae2e2</code> · 2026-10-20 07:43</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">204</div><div class="kpi-l">ADR</div><div class="kpi-n">79 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">401/475</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">65 canlı · 9 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">189 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">190 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">283 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5234</div><div class="kpi-l">test</div><div class="kpi-n">541 kaynak dosya, 238,425 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5246</div><div class="kpi-l">test</div><div class="kpi-n">542 kaynak dosya, 238,817 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
@@ -524,7 +524,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1474</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.9%"></div></div><div class="bar-n">927</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:63.4%"></div></div><div class="bar-n">935</div></div>
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.6%"></div></div><div class="bar-n">835</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.3%"></div></div><div class="bar-n">550</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.4%"></div></div><div class="bar-n">418</div></div>
@@ -532,13 +532,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.1%"></div></div><div class="bar-n">237</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.4%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.2%"></div></div><div class="bar-n">121</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.4%"></div></div><div class="bar-n">65</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">69</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>c06ae2e2</code><time>2026-10-20</time><span>The Pages front page says what v1.0.441 shipped, and the miss is D-46&#x27;s twentieth instance</span></li>
 <li><code>d683df3e</code><time>2026-10-20</time><span>The README says what v1.0.441 shipped: Oracle registered and edited, no registered source tiled; ADR-205 condition 1 discharged by the image</span></li>
 <li><code>0546c383</code><time>2026-10-20</time><span>A registered Oracle database is served, edited and listed like PostGIS; vector tiles come from the datastore only (ADR-205, ADR-206)</span></li>
 <li><code>b4b5eb77</code><time>2026-10-19</time><span>Several organisations in one deployment, designed and prototyped; the server runs as a role row-level security binds (ADR-204, ADR-193 amended, Q-181, A-086)</span></li>
@@ -552,7 +553,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1b944d9e</code><time>2026-10-18</time><span>A layer Pro publishes keeps its table-of-contents name, and its item gets Pro&#x27;s summary and tags (ADR-191 §5.7)</span></li>
 <li><code>e47b6a09</code><time>2026-10-18</time><span>A service&#x27;s name in the item page&#x27;s title wraps, so the page fits a narrow phone</span></li>
 <li><code>223d3852</code><time>2026-10-18</time><span>The item id on an item&#x27;s Overview wraps, so the page fits a phone</span></li>
-<li><code>450bb100</code><time>2026-10-18</time><span>ArcGIS addresses, Share As Web Map, the veteran review&#x27;s small findings, and items addressed by id (ADR-194, 195, 196)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
