@@ -176,24 +176,32 @@ internal static class RelationshipEndpoints
         // ADR-066.</b> Refused where it is declared, so the refusal is an administrator's sentence
         // at the moment of the mistake rather than every client's 400 on every related-records
         // query afterwards.
-        // ADR-205: an Oracle layer's joins are not built either; refused here for the same reason.
+        // ADR-205: two layers of one Oracle database are joined there, as two of one PostgreSQL database are; an Oracle
+        // layer and one anywhere else are not in one database to join in, and are refused here for that reason.
         if (Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString)
-            || Graticula.Platform.Admin.GeoParquetLocator.Is(related.ConnectionString)
-            || Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString)
-            || Graticula.Platform.Admin.OracleLocator.Is(related.ConnectionString))
+            || Graticula.Platform.Admin.GeoParquetLocator.Is(related.ConnectionString))
         {
-            bool originIsFile = Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString);
-            var offender = originIsFile || Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString) ? origin : related;
+            var offender = Graticula.Platform.Admin.GeoParquetLocator.Is(origin.ConnectionString) ? origin : related;
 
             await Fail(
                 context, 422,
-                Graticula.Platform.Admin.OracleLocator.Is(offender.ConnectionString)
-                    ? $"'{offender.Definition.Name}' is in an Oracle database, and relationships between Oracle layers "
-                      + "are not built yet (ADR-205): related records are answered by a join this server does not yet "
-                      + "make there."
-                    : $"'{offender.Definition.Name}' "
-                      + "is served from a GeoParquet file, and related records are answered by a join in "
-                      + "the database both layers are in. Import the file into the datastore to relate it.")
+                $"'{offender.Definition.Name}' "
+                + "is served from a GeoParquet file, and related records are answered by a join in "
+                + "the database both layers are in. Import the file into the datastore to relate it.")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
+        if (Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString)
+            != Graticula.Platform.Admin.OracleLocator.Is(related.ConnectionString)
+            || (Graticula.Platform.Admin.OracleLocator.Is(origin.ConnectionString)
+                && !string.Equals(origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal)))
+        {
+            await Fail(
+                context, 422,
+                $"'{origin.Definition.Name}' and '{related.Definition.Name}' are not in one database, and one of them is "
+                + "in Oracle: related records are answered by a join in the database both layers are in (ADR-205).")
                 .ConfigureAwait(false);
 
             return;

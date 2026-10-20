@@ -11,11 +11,6 @@ using NpgsqlTypes;
 
 namespace Graticula.Providers.PostGis;
 
-/// <summary>Related rows for one origin feature.</summary>
-/// <param name="ObjectId">Which feature they belong to.</param>
-/// <param name="Records">Its related rows, as attribute maps.</param>
-public sealed record RelatedGroup(long ObjectId, IReadOnlyList<IReadOnlyDictionary<string, object?>> Records);
-
 /// <summary>
 /// Follows a declared relationship in one query.
 /// </summary>
@@ -34,7 +29,7 @@ public sealed record RelatedGroup(long ObjectId, IReadOnlyList<IReadOnlyDictiona
 /// the relationship was made, so the check has to be where the query is.
 /// </para>
 /// </remarks>
-public sealed class PostGisRelatedRecords
+public sealed class PostGisRelatedRecords : IRelatedRecords
 {
     private readonly NpgsqlDataSource _dataSource;
     private readonly LayerDefinition _origin;

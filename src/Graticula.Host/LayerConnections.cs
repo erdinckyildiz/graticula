@@ -911,11 +911,27 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
     /// two is refused at query time rather than at declaration time, since a
     /// data source can be re-registered elsewhere after the declaration.
     /// </remarks>
-    public PostGisRelatedRecords RelatedFor(PublishedLayer origin, PublishedLayer related)
+    public IRelatedRecords RelatedFor(PublishedLayer origin, PublishedLayer related)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         ArgumentNullException.ThrowIfNull(origin);
         ArgumentNullException.ThrowIfNull(related);
+
+        // ADR-205: two layers of one Oracle database are joined there; an Oracle layer and one elsewhere cannot be.
+        if (OracleLocator.Is(origin.ConnectionString) || OracleLocator.Is(related.ConnectionString))
+        {
+            if (!OracleLocator.Is(origin.ConnectionString) || !OracleLocator.Is(related.ConnectionString))
+            {
+                throw new QueryNotSupportedException(
+                    $"'{origin.Definition.Name}' and '{related.Definition.Name}' are in different databases — one of them "
+                    + "Oracle — so a relationship between them cannot be followed in one query.");
+            }
+
+            return new OracleRelatedRecords(
+                origin.ConnectionString, origin.Definition, related.Definition,
+                string.Equals(origin.ConnectionString, related.ConnectionString, StringComparison.Ordinal));
+        }
+
         RefuseIfFile(origin, "related to another layer");
         RefuseIfFile(related, "related to another layer");
 
