@@ -68,5 +68,47 @@ public sealed class MySqlRelatedRecordsTests
         Assert.Contains("EPSG:4326", other!.Complaint!, StringComparison.Ordinal);
 
         Assert.Null(await MySqlTableChecks.ReferenceAsync(MySqlFixture.Locator, Database, "zzt_no_such_table", "shape", 4326, None));
+
+        // ADR-205 condition 8's rule, held of MySQL: a geometry MySQL calls invalid is still served, and still filtered —
+        // the bow tie is read back and a point inside one of its lobes finds it, as it is, never a repaired copy.
+        LayerDefinition layer = new("zzt_checks", Database, "zzt_checks", "shape", 4326, "objectid", "objectid", isHosted: false);
+        MySqlFeatureSource source = new(MySqlFixture.Locator, layer, new NoProjector());
+
+        List<string> served = [];
+        await foreach (Feature feature in source.ReadAsync(new FeatureQuery(10), None))
+        {
+            Assert.NotNull(feature.Geometry);
+            served.Add(feature.Id);
+        }
+
+        Assert.Equal(["1", "2"], served.Order(StringComparer.Ordinal));
+        Assert.Equal(2, await source.CountAsync(
+            new FeatureQuery(10, spatial: new SpatialFilter(new Graticula.Geometries.Point(30.9, 40.5), SpatialRelation.Intersects)), None));
+    }
+
+    private sealed class NoProjector : Graticula.Geometries.IProjector
+    {
+        public Task<(IReadOnlyList<Graticula.Geometries.Geometry> Projected, Graticula.Geometries.ProjectionProvenance Provenance)> ProjectAsync(
+            IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, int toSrid, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked to project.");
+
+        public Task<IReadOnlyList<Graticula.Geometries.Geometry>?> ProjectToDefinitionAsync(
+            IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, string definition, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked for a written reference.");
+
+        public Task<IReadOnlyList<Graticula.Geometries.Geometry>> GeneralizeAsync(
+            IReadOnlyList<Graticula.Geometries.Geometry> geometries, int fromSrid, int toSrid, double tolerance, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked to generalize.");
+
+        public Task<bool> KnowsAsync(int srid, CancellationToken cancellationToken) => Task.FromResult(true);
+
+        public Task<Graticula.Geometries.Envelope?> DomainOfAsync(int srid, CancellationToken cancellationToken) =>
+            Task.FromResult<Graticula.Geometries.Envelope?>(null);
+
+        public Task<IReadOnlyList<Graticula.Geometries.KnownReference>> ReferencesAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<Graticula.Geometries.KnownReference>>([]);
+
+        public Task<Graticula.Geometries.ProjectionProvenance> DescribeAsync(int fromSrid, int toSrid, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Asked to describe a projection.");
     }
 }

@@ -107,6 +107,19 @@ records, the table checks and the pruning — with Oracle moved behind it too.
    `rollbackOnFailure`, editor tracking filled, a GlobalID returned and queried, and OGC API Features create and
    replace with `If-Match` at the version read (and 412 at one that moved). The writer's connections are the only ones
    that allow session variables, which the history trigger of condition 4 will read the editor from.
+   **Later the same day, held to what ADR-205 condition 6 held Oracle to**: `MySqlFeatureWriterRuleTests` ports
+   `OracleFeatureWriterTests` — itself the port of `PostGisFeatureWriterTests`, `DomainWriterTests` and
+   `EditorTrackingWriterTests` — case by case, 26 cases, all passing: required fields, unknown and geometry columns,
+   missing features, unique violations with and without rollback, coded and range domains, subtypes and the moves
+   between them, editor tracking that ignores what the client sends, and own-only editing. Three cases change for a
+   reason MySQL gives, and say so: an add without a shape is given one (a spatially indexed column cannot be null), the
+   two Z cases become one refusal, and a key a trigger fills is refused like a plain one (MySQL reports the id only of
+   an `AUTO_INCREMENT` column). **The port found one defect**: the writer passed MySQL's own message through, which
+   names a unique index as `'table.index'` and quotes the refused value; it now says the column, as Oracle's does, and
+   nothing else. **And CI found a second**: the official image grants its user `` `db\_name`.* ``, a pattern
+   `information_schema` keeps escaped, so a layer read as not editable; measuring that showed a user whose rights come
+   through a role sees none of them there at all. Write rights are read from `SHOW GRANTS`, which writes out the active
+   roles' privileges — a role-only user is offered writable through the probe, a select-only one is not.
 4. **Relationships, attachments and history** as ADR-207 gives them. **DISCHARGED 2026-10-20** — `MySqlRelatedRecords`,
    `MySqlAttachmentStore`, `MySqlFeatureHistory` and `MySqlTableChecks` behind the seam, where the engine had refused
    all four by name. Provider tests 20 of 20; through REST on the local fixture 45 of 45 — attachments beside the table
@@ -123,7 +136,20 @@ records, the table checks and the pruning — with Oracle moved behind it too.
    behind. **One gap MySQL adds and Oracle has not**: a row removed by a foreign key's cascade fires no trigger, so that
    deletion is not in the history. The test server and the CI container set the flag; a customer's administrator
    decides it for theirs.
-5. **A CI job** against a MySQL container, as the Oracle job runs against one.
+5. **A CI job** against a MySQL container, as the Oracle job runs against one. **DISCHARGED 2026-10-20** — the `mysql`
+   job runs the provider's tests against `mysql:8.4` as a service container, with `log_bin_trust_function_creators`
+   set as root so a history can be kept. Green on run 39448935198 (commit `102282e4`), every other job with it. **It
+   earned its place before it was green**: its first run of the writer found the escaped-grant defect condition 3
+   records, which no local run could, because the test server had been granted by hand.
+6. **A geometry MySQL calls invalid is still served** — ADR-205 condition 8's rule. **DISCHARGED 2026-10-20** — a bow-tie
+   polygon `ST_IsValid` rejects is counted invalid by the publish check, read back as a feature, and found by a point
+   inside one of its lobes, as it is (`MySqlRelatedRecordsTests`).
+
+**What ADR-205 condition 5 asked of Oracle has no MySQL counterpart, measured rather than assumed**: ArcGIS Pro 3.7
+(3.7.0.1901) offers twelve platforms in *Create Database Connection* — BigQuery, Dameng, Db2, Elasticsearch,
+OpenSearch, Oracle, PostgreSQL, Redshift, SAP HANA, SQL Server, Snowflake, Teradata — and MySQL is not one, so Pro
+cannot open a MySQL table directly. It reaches a MySQL layer through Graticula's FeatureServer, which is the route this
+decision builds. Read from the tool's own `tool.content` on 2026-10-20.
 
 ## 6. Consequences
 

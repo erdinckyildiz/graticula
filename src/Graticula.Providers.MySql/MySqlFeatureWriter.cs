@@ -799,14 +799,36 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
         }
     }
 
-    /// <summary>A database refusal in words the caller can act on — the column, where MySQL names one.</summary>
+    /// <summary>A database refusal in words the caller can act on — the column, never the table's internal name.</summary>
+    /// <remarks>
+    /// <b>MySQL's own text is never passed on</b>, as Oracle's is not: a duplicate names the key as
+    /// <c>'table.index'</c> and the value it refused, and the rest carry the row number of a statement the caller never
+    /// saw. Where the message names a column — <c>Column 'x'</c>, <c>Field 'x'</c>, <c>for column 'x'</c> — only that is
+    /// said. Found by porting Oracle's rule tests: the first version passed MySQL's message through whole.
+    /// </remarks>
     internal static string Explain(MySqlException e) => e.ErrorCode switch
     {
-        MySqlErrorCode.ColumnCannotBeNull or MySqlErrorCode.NoDefaultForField => $"A required value is missing: {e.Message}",
-        MySqlErrorCode.DuplicateKeyEntry => $"The value is already used where it must be unique: {e.Message}",
-        MySqlErrorCode.NoReferencedRow2 or MySqlErrorCode.RowIsReferenced2 => $"A related row refuses this: {e.Message}",
-        MySqlErrorCode.DataTooLong => $"A value is longer than its column allows: {e.Message}",
-        MySqlErrorCode.TruncatedWrongValueForField or MySqlErrorCode.WrongValueCountOnRow => $"A value is not of its column's type: {e.Message}",
-        _ => $"The database refused the edit: {e.Message}",
+        MySqlErrorCode.ColumnCannotBeNull or MySqlErrorCode.NoDefaultForField => ColumnIn(e) is { } column
+            ? $"'{column}' is required, and this edit leaves it without a value."
+            : "A required field is left without a value by this edit.",
+        MySqlErrorCode.DuplicateKeyEntry => "This would duplicate a value that must be unique in this layer.",
+        MySqlErrorCode.NoReferencedRow2 or MySqlErrorCode.NoReferencedRow => "This refers to a row that does not exist.",
+        MySqlErrorCode.RowIsReferenced2 or MySqlErrorCode.RowIsReferenced => "Other rows refer to this one, so it cannot be removed.",
+        MySqlErrorCode.DataTooLong => ColumnIn(e) is { } column
+            ? $"The value for '{column}' is longer than the column allows."
+            : "A value is longer than its column allows.",
+        MySqlErrorCode.TruncatedWrongValueForField or MySqlErrorCode.WarningDataOutOfRange => ColumnIn(e) is { } column
+            ? $"The value for '{column}' is the wrong type or out of range for the column."
+            : "A value is the wrong type or out of range for its column.",
+        MySqlErrorCode.TableAccessDenied or MySqlErrorCode.ColumnAccessDenied =>
+            "The server's credential for this database may not write to this table.",
+        _ when e.Number == 3819 => "A rule on this layer's table refused this value.",
+        _ => $"The database refused this edit (MySQL error {e.Number.ToString(CultureInfo.InvariantCulture)}).",
     };
+
+    /// <summary>The column a MySQL message names, or null.</summary>
+    private static string? ColumnIn(MySqlException e) =>
+        System.Text.RegularExpressions.Regex.Match(e.Message, @"(?:[Cc]olumn|Field) '([^']+)'") is { Success: true } found
+            ? found.Groups[1].Value
+            : null;
 }
