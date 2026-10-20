@@ -365,15 +365,24 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         OracleConnection connection, FeatureQuery query, OracleTable table, IReadOnlyList<long> ids, bool parted,
         CancellationToken cancellationToken)
     {
-        StringBuilder sql = new($"select {Id}, sdo_util.to_wkbgeometry({Flat(table)})");
+        // <b>Points are their two numbers</b>, where the index promises points and no Z or M is asked for; and <b>the ids
+        // drive the join</b>, so each is one probe of the key's index. Written as `in (select … from json_table(…))` this
+        // cost Oracle 330 ms a page on the VPS — the shapes converted first and matched after — against 20 ms for the
+        // same rows by their keys.
+        bool points = table.Points && !parted;
+        StringBuilder sql = new($"select t.{Id}, ");
+
+        sql.Append(points
+            ? $"coalesce(t.{Shape}.sdo_point.x, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 1)), coalesce(t.{Shape}.sdo_point.y, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 2))"
+            : $"sdo_util.to_wkbgeometry({Flat(table).Replace(Shape, "t." + Shape, StringComparison.Ordinal)})");
 
         if (parted)
         {
             sql.Append(", ").Append(SdoShape.PartsSql("t", Shape));
         }
 
-        sql.Append(" from ").Append(Source(query, table))
-           .Append(" t where ").Append(Id).Append(" in (select j.v from json_table(:gids, '$[*]' columns (v number path '$')) j)");
+        sql.Append(" from json_table(:gids, '$[*]' columns (v number path '$')) j join ").Append(Source(query, table))
+           .Append(" t on t.").Append(Id).Append(" = j.v");
 
         // The WKB comes inline with its row, as Statement.Command has it: without this ODP.NET fetches each BLOB in a round
         // trip of its own, and a page of 1,421 shapes took 28 s over the test tunnel (found with dotnet-stack).
@@ -397,6 +406,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
             shapes[id] = reader.IsDBNull(1)
                 ? null
+                : points
+                    ? new Point(Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture), Convert.ToDouble(reader.GetValue(2), CultureInfo.InvariantCulture))
                 : parted && !reader.IsDBNull(2) && SdoShape.ToWkb(SdoShape.ParseParts(reader.GetString(2))) is { } full
                     ? WkbReader.Read(full, query.KeepOrdinates, out _)
                     : WkbReader.Read((byte[])reader.GetValue(1));
