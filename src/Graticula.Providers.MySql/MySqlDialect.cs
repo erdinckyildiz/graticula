@@ -102,11 +102,14 @@ internal sealed class MySqlDialect
         : $"json_value({json}, {path} returning {type})";
 
     /// <summary>
-    /// A point's coordinates as SQL, x then y: MySQL reads a geographic point's longitude and latitude by name, since
-    /// its X is the latitude there; MariaDB, and MySQL on a projected reference, read X and Y as stored.
+    /// A point's coordinates as SQL, x then y, exactly as stored. <b>MySQL's geographic accessors are not exact</b>:
+    /// <c>ST_Longitude</c> and <c>ST_Y</c> of a point stored at longitude 31 answer 30.999999999999996 on MySQL 8.4,
+    /// while its WKB holds 31 — so a box whose edge is 31 lost the edge's points (found by CI's MySQL job, 2026-10-21).
+    /// The point is read as SRID 0 instead, where X is the stored longitude and Y the latitude, untouched. MariaDB, and
+    /// MySQL on a projected reference, read X and Y as stored.
     /// </summary>
     public (string X, string Y) Coordinates(string shape, bool geographic) => !IsMariaDb && geographic
-        ? ($"st_longitude({shape})", $"st_latitude({shape})")
+        ? ($"st_x(st_srid({shape}, 0))", $"st_y(st_srid({shape}, 0))")
         : ($"st_x({shape})", $"st_y({shape})");
 
     /// <summary>Whether the server can say whether a shape is valid; MariaDB has no <c>ST_IsValid</c>.</summary>
