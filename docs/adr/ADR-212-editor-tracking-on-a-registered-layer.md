@@ -57,6 +57,14 @@ history triggers in the customer's database. The four tracking columns are a sma
    one of those names that is already there and of the wrong type is refused naming it; a database that refuses the
    `ALTER` is said with what right it needs.
 2. **`DELETE …/editor-tracking`** takes the roles away and keeps the columns and what they hold.
+2a. **An administrator's word, not an owner's** (`admin:manageAllContent`): adding the columns to a registered table, and
+   keeping attachments *in its own database*, change the customer's database with the registered source's credentials,
+   which a layer's owner who did not register the source never held — a review of the branch found the owner was
+   enough. Keeping attachments in Graticula's datastore stays the owner's, as ADR-207 has it.
+2b. **An `ALTER` waits five seconds for the table, then is refused** (PostGIS `lock_timeout`, MySQL `lock_wait_timeout`,
+   SQL Server `LOCK_TIMEOUT`, Oracle `ddl_lock_timeout`), as the hosted path's does (ADR-058 §5g): otherwise one long
+   reader holds the `ALTER`, and every query of the layer queues behind it. Oracle's column check is case-blind, so a
+   `CREATED_USER` already there is reused rather than given a quoted twin.
 3. **SQL Server keeps attachments beside its table**, as the other engines do.
 4. **The DuckDB file and MotherDuck** are not given either, by the owner's word; their writer signs columns that are
    given roles, as every writer does.
@@ -64,7 +72,11 @@ history triggers in the customer's database. The four tracking columns are a sma
 ## Conditions
 
 1. **The console** shows *Keep history*, *Who creates and edits* and the attachments switch for a registered layer in
-   a database as it does for a hosted one, through the ux-designer review every screen gets.
+   a database as it does for a hosted one, through the ux-designer review every screen gets. **DISCHARGED 2026-10-21** — Settings › Feature layer
+   shows *Attachments* (in its own database / in Graticula's datastore / off), *Keep history* and *Who creates and edits*
+   for a registered PostGIS, Oracle, MySQL, MariaDB or SQL Server layer, through three rounds of the ux-designer review:
+   a confirm before anything is made in the customer's database, the four columns named, a refusal kept under the row
+   that was pressed as an alert, one layout from 390 to 1280 px; axe clean, contrast measured, keyboard throughout.
 2. **SQL Server's history and relationships** (ADR-210 condition 5's remainder) — not asked for here, recorded so the
    gap stays visible.
 

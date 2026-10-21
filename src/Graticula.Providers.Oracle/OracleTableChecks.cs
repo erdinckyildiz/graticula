@@ -43,10 +43,19 @@ public static class OracleTableChecks
             OracleConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
         List<string> added = [];
 
+        // An ALTER waits up to five seconds for the table's lock, then is refused (ORA-00054) rather than queueing.
+        await using (OracleCommand bound = new("alter session set ddl_lock_timeout = 5", connection))
+        {
+            await bound.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         foreach ((string name, bool moment) in columns)
         {
             await using OracleCommand there = new(
-                "select count(*) from all_tab_columns where owner = :o and table_name = :t and column_name = :c", connection) { BindByName = true };
+                "select count(*) from all_tab_columns where owner = :o and table_name = :t and upper(column_name) = upper(:c)", connection)
+            {
+                BindByName = true,
+            };
             there.Parameters.Add("o", OracleDbType.Varchar2, schema, System.Data.ParameterDirection.Input);
             there.Parameters.Add("t", OracleDbType.Varchar2, table, System.Data.ParameterDirection.Input);
             there.Parameters.Add("c", OracleDbType.Varchar2, name, System.Data.ParameterDirection.Input);

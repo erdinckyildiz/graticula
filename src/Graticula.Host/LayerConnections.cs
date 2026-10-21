@@ -557,18 +557,36 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         ArgumentNullException.ThrowIfNull(layer);
         ArgumentNullException.ThrowIfNull(columns);
 
+        if (_quiesce?.Holding(layer.ConnectionString) is { } held)
+        {
+            throw new SourceQuiescedException(SourceQuiesce.Says(held), held.Until);
+        }
+
         if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
-            IReadOnlyList<string> made = await sql.AddColumnsAsync(
-                layer.ConnectionString, layer.Definition.SchemaName, layer.Definition.TableName, columns, cancellationToken).ConfigureAwait(false);
-            sql.ColumnsChanged(layer);
-            return made;
+            try
+            {
+                return await sql.AddColumnsAsync(
+                    layer.ConnectionString, layer.Definition.SchemaName, layer.Definition.TableName, columns, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                // A third column refused leaves two added: they are read again either way.
+                sql.ColumnsChanged(layer);
+            }
         }
 
         RefuseIfFile(layer, "given columns");
 
         List<string> added = [];
         await using NpgsqlConnection connection = await PoolFor(layer.ConnectionString).OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        // <b>Bounded, as the hosted path's ALTER is</b> (ADR-058 §5g): an ALTER waits for every reader of the table, and
+        // every later query waits behind it — a long report would stall the layer. Refused quickly instead (55P03, a 409).
+        await using (NpgsqlCommand bound = new("set lock_timeout = '5s'", connection))
+        {
+            await bound.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
 
         foreach ((string name, bool moment) in columns)
         {

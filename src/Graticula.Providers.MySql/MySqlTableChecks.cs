@@ -44,6 +44,12 @@ public static class MySqlTableChecks
             MySqlConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
         List<string> added = [];
 
+        // An ALTER waits for every open transaction on the table's metadata; bounded, so a long reader is a refusal.
+        await using (MySqlCommand bound = new("set session lock_wait_timeout = 5", connection))
+        {
+            await bound.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         foreach ((string name, bool moment) in columns)
         {
             await using MySqlCommand there = new(

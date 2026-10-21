@@ -44,6 +44,12 @@ public static class SqlServerTableChecks
             SqlServerConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
         List<string> added = [];
 
+        // An ALTER waits for the table's schema lock; bounded, so a long reader is a refusal (error 1222).
+        await using (SqlCommand bound = new("set lock_timeout 5000", connection))
+        {
+            await bound.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         foreach ((string name, bool moment) in columns)
         {
             await using SqlCommand there = new(

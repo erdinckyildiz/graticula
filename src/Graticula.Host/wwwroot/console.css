@@ -4460,8 +4460,25 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 /* Out of the grid, under the box: inside it, spanning the row stretched Set and Keep all to the card's edge, and one
    column squeezed it to six lines (design review, 2026-10-07). 180px and the 8px gap are the label column's. */
 #featureLayers .layerblock .keepwhy { margin: 4px 0 0 188px; max-width: 70ch; }
-@media (max-width: 600px) { #featureLayers .layerblock .keepwhy { margin-left: 0; } }
-@media (max-width: 600px) { #featureLayers .layerblock .setting { grid-template-columns: minmax(0, 1fr); } }
+/* By the block's own width, not the window's — design review 2026-10-21: between 601 and about 1000 px the card is
+   narrower than the four columns, #serviceEdit clips its overflow, and Set, Use the name and Derive it were cut off. */
+#featureLayers { container-type: inline-size; }
+/* The two places side by side, wrapping as one control (finding 7) — before the narrow rule, which overrides it. */
+#featureLayers .layerblock .setting .attachchoice { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+#featureLayers .layerblock [data-steward-error] { margin: 6px 0 0 188px; max-width: 70ch; color: var(--alert); }
+#featureLayers .layerblock [data-steward-error]:empty { display: none; }
+@container (max-width: 640px) {
+  #featureLayers .layerblock .keepwhy { margin-left: 0; }
+  /* One column, controls at their own width: a mouse at 768 px gets no 600 px buttons (review round 2, R5). */
+  #featureLayers .layerblock .setting { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  #featureLayers .layerblock .setting .attachchoice { display: inline-grid; grid-template-columns: auto; }
+  #featureLayers .layerblock [data-steward-error] { margin-left: 0; }
+}
+/* On a phone the controls stretch, as the rest of the console's do. */
+@media (max-width: 600px) {
+  #featureLayers .layerblock .setting { justify-items: stretch; }
+  #featureLayers .layerblock .setting .attachchoice { display: grid; grid-template-columns: minmax(0, 1fr); }
+}
 
 /* A web map's item page (2026-10-01): the main column and the actions beside it, as the layer item. */
 /* Since the UX sweep of 2026-10-19 it is the layer's shell: a head card with the picture, the name and the actions,

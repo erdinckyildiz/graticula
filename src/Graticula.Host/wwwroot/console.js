@@ -46,6 +46,14 @@ let content = new Map();     // name -> the /content/layers entry, which carries
 let selected = null;         // the row the table marks: the layer last opened
 const layerNamed = name => known.find(l => l.name === name) || { name, hosted: false };
 
+/**
+ * Whether a layer keeps a history, records its editors and keeps attachments from Settings › Feature layer: a hosted
+ * layer, or — ADR-207, ADR-212 — a registered table in a database this server reads and writes. A file and a DuckDB
+ * database are not offered them.
+ */
+const STEWARDED_KINDS = new Set(["postgis", "oracle", "mysql", "sqlserver"]);
+const stewarded = layer => !!layer && (layer.hosted || STEWARDED_KINDS.has(layer.kind || ""));
+
 // ------------------------------------------------------------------ plumbing
 
 function toast(message, ok = false) {
@@ -8585,6 +8593,8 @@ function settingsFeatureHref() {
  * created and updated features* in Settings, and so does §5.4's table.
  */
 async function fillLayerStewardship() {
+  await fillRegisteredAttachments();
+
   for (const state of document.querySelectorAll("#featureLayers [data-history-state]")) {
     const name = state.dataset.historyState;
     const button = document.querySelector(`#featureLayers [data-history-toggle="${CSS.escape(name)}"]`);
@@ -8628,8 +8638,9 @@ async function fillLayerStewardship() {
       const doc = await api(`${layerUrl(name).replace(location.origin, "")}?f=json`);
       const tracked = !!(doc.editFieldsInfo && (doc.editFieldsInfo.creatorField || doc.editFieldsInfo.editorField));
       const ownOnly = !!doc.ownershipBasedAccessControlForFeatures;
+      const info = doc.editFieldsInfo || {};
       state.textContent = tracked
-        ? `Recorded — ${[doc.editFieldsInfo.creatorField, doc.editFieldsInfo.editorField].filter(Boolean).join(", ")}${
+        ? `Recorded — ${[info.creatorField, info.creationDateField, info.editorField, info.editDateField].filter(Boolean).join(", ")}${
           ownOnly ? ". Can't stop while editors are limited to their own features." : ""}`
         : "Not recorded";
       // ADR-115: recording can stop as well as start; the columns and what they hold stay.
@@ -8650,6 +8661,59 @@ async function fillLayerStewardship() {
             : "You and administrators are not limited. Features added before recording started belong to no one, so "
               + "editors cannot change them.";
         }
+      }
+    } catch (e) {
+      state.textContent = `Could not be read: ${e.message || e}`;
+    }
+  }
+}
+
+/**
+ * A refusal written under the layer's block, where it stays to be read — design review 2026-10-21: the refusal a
+ * registered database gives most often (no right to create or alter a table) is longer than a toast stays for. Null
+ * clears it.
+ */
+function stewardError(name, message, from) {
+  const box = document.querySelector(`#featureLayers [data-steward-error="${CSS.escape(name)}"]`);
+  if (!box) {
+    if (message) toast(`${name}: ${message}`);
+    return;
+  }
+  // Under the row whose button was pressed, so the refusal is read beside what refused.
+  const row = from?.closest(".setting");
+  if (row && box.previousElementSibling !== row) row.after(box);
+  if (message) {
+    const t = $("toast");
+    clearTimeout(t._timer);
+    t.className = "";
+  }
+  box.textContent = message ? `Not changed: ${message}` : "";
+}
+
+/** A registered layer's attachments, as GET /admin/layers/{name}/attachments says them — ADR-207, ADR-212. */
+async function fillRegisteredAttachments() {
+  for (const state of document.querySelectorAll("#featureLayers [data-attach-state]")) {
+    const name = state.dataset.attachState;
+    const choices = document.querySelector(`#featureLayers [data-attach-choices="${CSS.escape(name)}"]`);
+    const off = document.querySelector(`#featureLayers [data-attach-off="${CSS.escape(name)}"]`);
+    try {
+      const answer = await api(`/admin/layers/${encodeURIComponent(name)}/attachments`);
+      if (!answer.available) {
+        state.textContent = answer.reason || "This layer cannot keep attachments.";
+        if (choices) choices.hidden = true;
+        if (off) off.hidden = true;
+        continue;
+      }
+      const where = answer.in === "source" ? "in its own database"
+        : answer.in === "datastore" ? "in Graticula's datastore" : null;
+      state.textContent = where
+        ? `On — ${where}${answer.count ? ` · ${num(answer.count)} file${answer.count === 1 ? "" : "s"}, ${bytesPlain(answer.bytes || 0)}` : ""}`
+        : "Off";
+      if (choices) choices.hidden = !!where;
+      if (off) {
+        off.hidden = !where;
+        off.dataset.count = String(answer.count || 0);
+        off.dataset.place = answer.in || "";
       }
     } catch (e) {
       state.textContent = `Could not be read: ${e.message || e}`;
@@ -8695,10 +8759,22 @@ async function drawFeatureFacts(name, folder) {
     <h4>Layers</h4>
     <div id="featureLayers">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => `
       <div class="layerblock">
-        <b>${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
+        <b id="layerName-${h(one.name || "")}">${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
         ${st.manages ? layerTitleMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
         ${st.manages ? layerTimeMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
-        ${st.manages && layerNamed(one.name || "").hosted ? `
+        ${st.manages && stewarded(layerNamed(one.name || "")) ? `
+        ${layerNamed(one.name || "").hosted ? "" : `
+        <div class="setting"><span class="q">Attachments:</span>
+          <span class="val" data-attach-state="${h(one.name || "")}">reading…</span>
+          <span class="attachchoice" data-attach-choices="${h(one.name || "")}" hidden>
+            <button type="button" class="tiny" data-attach-in="source" data-attach-layer="${h(one.name || "")}"
+              aria-describedby="layerName-${h(one.name || "")}">In its own database</button>
+            <button type="button" class="tiny" data-attach-in="datastore" data-attach-layer="${h(one.name || "")}"
+              aria-describedby="layerName-${h(one.name || "")}">In Graticula's datastore</button>
+          </span>
+          <button type="button" class="tiny danger" data-attach-off="${h(one.name || "")}"
+            aria-describedby="layerName-${h(one.name || "")}" hidden>Turn off</button></div>`}
+        <p class="bad-inline" role="alert" data-steward-error="${h(one.name || "")}"></p>
         <div class="setting"><span class="q">Keep history:</span>
           <span class="val" data-history-state="${h(one.name || "")}">reading…</span>
           <button type="button" class="tiny" data-history-toggle="${h(one.name || "")}" hidden></button></div>
@@ -8715,7 +8791,7 @@ async function drawFeatureFacts(name, folder) {
         <div class="setting"><span class="q">Who creates and edits:</span>
           <span class="val" data-tracking-state="${h(one.name || "")}">reading…</span>
           ${serviceItem?.isView ? "" : `<button type="button" class="tiny" data-track-edits="${h(one.name || "")}"
-            hidden>Start recording</button>`}</div>
+            aria-describedby="layerName-${h(one.name || "")}" hidden>Start recording</button>`}</div>
         <div class="setting ownonly"><label class="check"><input type="checkbox" data-own-only="${h(one.name || "")}" disabled
             aria-describedby="ownWhy-${h(one.name || "")}">
           Editors can only update and delete the features they add</label>
@@ -8726,6 +8802,11 @@ async function drawFeatureFacts(name, folder) {
     ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
       uses the layer's one date column, or publishes no time when it has none or several — name one when the table
       has more than one date, <code>observed_at</code> rather than <code>created_at</code>.</p>` : ""}
+    ${st.manages && serviceLayers.some(one => { const l = layerNamed(one.name || ""); return !l.hosted && stewarded(l); })
+      ? `<p class="hint">A layer's <b>attachments</b> are files people add to its features. <b>In its own database</b>
+      creates a table beside it, named after it with __ATTACH as ArcGIS does, so the database's backups and other tools
+      see them; it needs the right to create a table. <b>In Graticula's datastore</b> writes nothing to that database.
+      Moving between the two is not offered: turning attachments off deletes the files.</p>` : ""}
     ${st.manages ? `<details class="removelayer"><summary>Remove a layer…</summary>
       <div class="row">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one =>
         `<button type="button" class="tiny danger" data-delete="${h(one.name || "")}">Remove ${h(one.name || "")}</button>`).join("")}</div>
@@ -18245,6 +18326,35 @@ document.addEventListener("click", async e => {
     return;
   }
 
+  if (t.dataset?.attachIn || t.dataset?.attachOff) {
+    const name = t.dataset.attachLayer || t.dataset.attachOff;
+    const place = t.dataset.attachIn || null;
+    if (place === "source" && !confirm(`Keep the attachments of ${name} in its own database? A table named after its `
+        + "table with __ATTACH is created beside it, which needs the right to create tables in that schema. Turning "
+        + "attachments off later deletes that table and its files.")) return;
+    if (!place) {
+      const count = Number(t.dataset.count || 0);
+      const files = count ? `Its ${num(count)} file${count === 1 ? "" : "s"}` : "It has no files, and";
+      if (!confirm(`Turn off the attachments of ${name}? `
+          + (t.dataset.place === "source"
+            ? `${files}${count ? " and" : ""} the attachment table beside it in its own database ${count ? "are" : "is"} deleted and cannot be recovered.`
+            : count ? `${files} ${count === 1 ? "is" : "are"} deleted and cannot be recovered.` : "It has no files."))) return;
+    }
+    t.disabled = true;
+    try {
+      const answer = await api(`/admin/layers/${encodeURIComponent(name)}/attachments`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ in: place }) });
+      stewardError(name, null);
+      toast(answer.note || (place ? "Attachments are on." : "Attachments are off."), true);
+    } catch (e) { stewardError(name, e.message || String(e), t); }
+    t.disabled = false;
+    await fillLayerStewardship();
+    // Focus to what is there now: the Turn off after switching on, the first choice after switching off.
+    (document.querySelector(`#featureLayers [data-attach-off="${CSS.escape(name)}"]:not([hidden])`)
+      || document.querySelector(`#featureLayers [data-attach-layer="${CSS.escape(name)}"]`))?.focus();
+    return;
+  }
+
   if (t.dataset?.historyToggle) {
     const name = t.dataset.historyToggle;
     const on = t.dataset.on !== "1";
@@ -18296,16 +18406,21 @@ document.addEventListener("click", async e => {
     const name = t.dataset.trackEdits;
     const stopping = t.dataset.on === "1";
     // Starting adds four columns; stopping keeps them and what they hold, as Portal does (ADR-115).
+    const registered = !layerNamed(name).hosted;
     if (!confirm(stopping
       ? `Stop recording who creates and edits features of ${name}? The four columns and what they already hold are kept.`
-      : `Record who creates and edits each feature of ${name}? Four columns are added — created by, created on, `
-        + "edited by, edited on. Features already there belong to nobody.")) return;
+      : `Record who creates and edits each feature of ${name}? The columns created_user, created_date, `
+        + "last_edited_user and last_edited_date are added"
+        + (registered ? " to its table in its own database, which needs the right to alter that table" : "")
+        + ". Columns of those names that are already there are reused. Features already there belong to nobody.")) return;
     t.disabled = true;
     try {
-      const answer = await api(`/admin/hosted/${encodeURIComponent(name)}/editor-tracking`,
+      // ADR-212: one route for a hosted and a registered layer; on a registered one the columns go into its database.
+      const answer = await api(`/admin/layers/${encodeURIComponent(name)}/editor-tracking`,
         { method: stopping ? "DELETE" : "POST" });
+      stewardError(name, null);
       toast(answer.note || (stopping ? "Edits are no longer recorded." : "Editors are recorded from now on."), true);
-    } catch (e) { toast(`${name}: ${e.message || e}`); }
+    } catch (e) { stewardError(name, e.message || String(e), t); }
     t.disabled = false;
     await fillLayerStewardship();
     document.querySelector(`#featureLayers [data-track-edits="${CSS.escape(name)}"]`)?.focus();

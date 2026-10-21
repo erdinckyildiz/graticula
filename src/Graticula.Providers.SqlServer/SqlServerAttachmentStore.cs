@@ -281,7 +281,7 @@ public sealed class SqlServerAttachmentStore : IAttachmentStore, IAttachmentTabl
             {
                 id = Convert.ToInt32(await insert.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
             }
-            catch (SqlException e) when (e.Number == 547)
+            catch (SqlException e) when (e.Number is 547 or 8115)
             {
                 await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
                 throw new AttachmentFeatureMissingException($"There is no feature {featureId} in this layer, so nothing was attached.", e);

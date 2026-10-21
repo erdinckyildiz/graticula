@@ -2839,7 +2839,9 @@ internal static class HostedDataEndpoints
             && (SqlEngines.For(found.ConnectionString) is not null
                 || GeoParquetLocator.KindOf(found.ConnectionString) == DataSourceKinds.PostGis))
         {
-            return found;
+            // <b>An administrator's, not the layer owner's</b> — a review of the branch: the columns go into the customer's
+            // database with the registered source's credentials, which an owner who did not register it never held.
+            return await Authorize.RequireAsync(context, Privilege.AdminManageAllContent).ConfigureAwait(false) ? found : null;
         }
 
         if (!found.Definition.IsHosted)
@@ -3302,6 +3304,11 @@ internal static class HostedDataEndpoints
             {
                 added.AddRange(await connections.AddColumnsAsync(
                     found, [.. portal.Select(p => (p.Name, p.Type == FieldType.Date))], cancellation).ConfigureAwait(false));
+            }
+            catch (SourceQuiescedException held)
+            {
+                await Fail(context, 503, held.Message).ConfigureAwait(false);
+                return;
             }
             catch (System.Data.Common.DbException refused)
             {
