@@ -104,6 +104,18 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         _engine = engine;
     }
 
+    /// <summary>
+    /// Forgets the columns read for one table, so the next read sees columns added since — ADR-212, after the editor-tracking
+    /// columns are added. The cache is static and keyed by database and table, so every source of the layer reads again.
+    /// </summary>
+    /// <param name="locator">The data source's locator.</param>
+    /// <param name="layer">The layer.</param>
+    public static void Forget(string locator, LayerDefinition layer)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+        Tables.TryRemove(OracleLocator.DatabaseKey(locator) + "|" + layer.SchemaName + "." + layer.TableName + "." + layer.GeometryColumn, out _);
+    }
+
     /// <summary>The relations an Oracle layer answers itself; the rest are the geometry engine's (EngineRelations).</summary>
     public static IReadOnlyList<SpatialRelation> Relations { get; } =
         [SpatialRelation.Intersects, SpatialRelation.EnvelopeIntersects, SpatialRelation.IndexIntersects];

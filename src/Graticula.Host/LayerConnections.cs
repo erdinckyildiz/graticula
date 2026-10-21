@@ -542,6 +542,58 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
                 SchemeOfService is null ? null : cancellation => SchemeOfService(layer.ServiceId, cancellation));
     }
 
+    /// <summary>
+    /// Adds columns to a registered layer's table where they are not there — the editor-tracking columns, ADR-212 — through
+    /// its own engine, and forgets the columns cached for it.
+    /// </summary>
+    /// <param name="layer">The registered layer.</param>
+    /// <param name="columns">Each column, with whether it holds a moment (otherwise an account name).</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The columns added.</returns>
+    public async Task<IReadOnlyList<string>> AddColumnsAsync(
+        PublishedLayer layer, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(layer);
+        ArgumentNullException.ThrowIfNull(columns);
+
+        if (SqlEngines.For(layer.ConnectionString) is { } sql)
+        {
+            IReadOnlyList<string> made = await sql.AddColumnsAsync(
+                layer.ConnectionString, layer.Definition.SchemaName, layer.Definition.TableName, columns, cancellationToken).ConfigureAwait(false);
+            sql.ColumnsChanged(layer);
+            return made;
+        }
+
+        RefuseIfFile(layer, "given columns");
+
+        List<string> added = [];
+        await using NpgsqlConnection connection = await PoolFor(layer.ConnectionString).OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+
+        foreach ((string name, bool moment) in columns)
+        {
+            await using NpgsqlCommand there = new(
+                "select count(*) from information_schema.columns where table_schema = @s and table_name = @t and column_name = @c", connection);
+            there.Parameters.AddWithValue("s", layer.Definition.SchemaName);
+            there.Parameters.AddWithValue("t", layer.Definition.TableName);
+            there.Parameters.AddWithValue("c", name);
+
+            if ((long)(await there.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) ?? 0L) > 0)
+            {
+                continue;
+            }
+
+            await using NpgsqlCommand alter = new(
+                $"alter table {layer.Definition.QuotedTable} add column if not exists "
+                + $"{Graticula.Catalog.LayerDefinition.Quote(name)} {(moment ? "timestamptz" : "text")}",
+                connection);
+            await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            added.Add(name);
+        }
+
+        return added;
+    }
+
     /// <summary>The object ids of the features carrying these GlobalIDs — <c>useGlobalIds=true</c>.</summary>
     /// <param name="layer">The layer.</param>
     /// <param name="globalIdColumn">Its GlobalID column.</param>

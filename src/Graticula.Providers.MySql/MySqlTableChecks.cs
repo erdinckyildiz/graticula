@@ -28,6 +28,47 @@ public static class MySqlTableChecks
     public sealed record Reference(int? Stored, string? Complaint);
 
     /// <summary>
+    /// Adds columns to a registered table, where they are not there — ADR-212: the editor-tracking columns, on an
+    /// administrator's word, as ADR-207 makes attachment tables and history triggers.
+    /// </summary>
+    /// <param name="locator">The data source's locator.</param>
+    /// <param name="schema">The table's schema.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="columns">Each column, with whether it holds a moment (otherwise an account name).</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The columns added.</returns>
+    public static async Task<IReadOnlyList<string>> AddColumnsAsync(
+        string locator, string schema, string table, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken)
+    {
+        await using MySqlConnection connection = await MySqlConnections.OpenAsync(
+            MySqlConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+        List<string> added = [];
+
+        foreach ((string name, bool moment) in columns)
+        {
+            await using MySqlCommand there = new(
+                "select count(*) from information_schema.columns where table_schema = @s and table_name = @t and column_name = @c", connection);
+            there.Parameters.AddWithValue("@s", schema);
+            there.Parameters.AddWithValue("@t", table);
+            there.Parameters.AddWithValue("@c", name);
+
+            if (Convert.ToInt64(await there.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) > 0)
+            {
+                continue;
+            }
+
+            await using MySqlCommand alter = new(
+                $"alter table {LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(table)} add column {LayerDefinition.Quote(name)} "
+                + (moment ? "datetime(6) null" : "varchar(255) null"),
+                connection);
+            await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            added.Add(name);
+        }
+
+        return added;
+    }
+
+    /// <summary>
     /// Counts the geometries MySQL's <c>ST_IsValid</c> rejects — <b>by MySQL's rules, not PostGIS's</b>, as Oracle's are
     /// counted by Oracle's (ADR-205 condition 8): it is MySQL's table, and MySQL's functions are what its other clients use.
     /// </summary>

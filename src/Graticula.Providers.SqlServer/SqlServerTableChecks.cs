@@ -27,6 +27,47 @@ public static class SqlServerTableChecks
     /// <param name="Complaint">What is wrong, in one sentence, or null.</param>
     public sealed record Reference(int? Stored, string? Complaint);
 
+    /// <summary>
+    /// Adds columns to a registered table, where they are not there — ADR-212: the editor-tracking columns, on an
+    /// administrator's word, as ADR-207 makes attachment tables and history triggers.
+    /// </summary>
+    /// <param name="locator">The data source's locator.</param>
+    /// <param name="schema">The table's schema.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="columns">Each column, with whether it holds a moment (otherwise an account name).</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The columns added.</returns>
+    public static async Task<IReadOnlyList<string>> AddColumnsAsync(
+        string locator, string schema, string table, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken)
+    {
+        await using SqlConnection connection = await SqlServerConnections.OpenAsync(
+            SqlServerConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+        List<string> added = [];
+
+        foreach ((string name, bool moment) in columns)
+        {
+            await using SqlCommand there = new(
+                "select count(*) from INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = @s and TABLE_NAME = @t and COLUMN_NAME = @c", connection);
+            there.Parameters.AddWithValue("@s", schema);
+            there.Parameters.AddWithValue("@t", table);
+            there.Parameters.AddWithValue("@c", name);
+
+            if (Convert.ToInt64(await there.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture) > 0)
+            {
+                continue;
+            }
+
+            await using SqlCommand alter = new(
+                $"alter table {LayerDefinition.Quote(schema)}.{LayerDefinition.Quote(table)} add {LayerDefinition.Quote(name)} "
+                + (moment ? "datetime2 null" : "nvarchar(255) null"),
+                connection);
+            await alter.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            added.Add(name);
+        }
+
+        return added;
+    }
+
     /// <summary>Counts the shapes <c>STIsValid</c> rejects — by SQL Server's rules, as Oracle's are counted by Oracle's.</summary>
     public static async Task<Validity?> ValidityAsync(
         string locator, string schema, string table, string column, TimeSpan timeout, CancellationToken cancellationToken)

@@ -158,6 +158,10 @@ internal static class HostedDataEndpoints
         // ADR-064: Portal's four editor-tracking columns, added and given their roles at once.
         app.MapPost("/admin/hosted/{layer}/editor-tracking", TrackEditsAsync);
 
+        // ADR-212: the same, for a registered layer — the columns added in its own database, on this word.
+        app.MapPost("/admin/layers/{layer}/editor-tracking", TrackEditsAsync);
+        app.MapDelete("/admin/layers/{layer}/editor-tracking", StopTrackingAsync);
+
         // ADR-115: tracking stops — the columns and what they recorded stay — and editors may be held to their own.
         app.MapDelete("/admin/hosted/{layer}/editor-tracking", StopTrackingAsync);
         app.MapPut("/admin/layers/{layer}/ownership-access", SetOwnershipAccessAsync);
@@ -2770,6 +2774,9 @@ internal static class HostedDataEndpoints
     /// <param name="what">What was being attempted, for the refusal.</param>
     /// <param name="cancellation">The caller's.</param>
     /// <param name="service">The service to look in, as <c>?service=</c> says it; null reads the request's.</param>
+    /// <param name="registeredToo">
+    /// Whether a registered layer in a database is answered too — editor tracking, ADR-212 — rather than refused.
+    /// </param>
     /// <returns>The layer, or null when a refusal has been written.</returns>
     /// <remarks>
     /// <b>ADR-058 §5h: a registered table is refused, and told where it is changed instead.</b>
@@ -2783,7 +2790,8 @@ internal static class HostedDataEndpoints
         string name,
         string what,
         CancellationToken cancellation,
-        string? service = null)
+        string? service = null,
+        bool registeredToo = false)
     {
         if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures)
             .ConfigureAwait(false))
@@ -2823,6 +2831,15 @@ internal static class HostedDataEndpoints
             .ConfigureAwait(false))
         {
             return null;
+        }
+
+        // <b>ADR-212: editor tracking on a registered layer too</b>, in a database this server reaches with its own engine
+        // or a registered PostGIS — never a file or a DuckDB database, which the owner left out.
+        if (!found.Definition.IsHosted && registeredToo
+            && (SqlEngines.For(found.ConnectionString) is not null
+                || GeoParquetLocator.KindOf(found.ConnectionString) == DataSourceKinds.PostGis))
+        {
+            return found;
         }
 
         if (!found.Definition.IsHosted)
@@ -3240,9 +3257,10 @@ internal static class HostedDataEndpoints
         ITileCache tiles,
         IAdminCatalog catalog,
         IAuditLog audit,
+        LayerConnections connections,
         CancellationToken cancellation)
     {
-        if (await HostedLayerAsync(context, layers, layer, "track the edits of", cancellation)
+        if (await HostedLayerAsync(context, layers, layer, "track the edits of", cancellation, registeredToo: true)
             .ConfigureAwait(false) is not { } found)
         {
             return;
@@ -3277,9 +3295,29 @@ internal static class HostedDataEndpoints
 
         List<string> added = [];
 
+        // ADR-212: a registered table is given its columns through its own engine, in its own database.
+        if (!found.Definition.IsHosted)
+        {
+            try
+            {
+                added.AddRange(await connections.AddColumnsAsync(
+                    found, [.. portal.Select(p => (p.Name, p.Type == FieldType.Date))], cancellation).ConfigureAwait(false));
+            }
+            catch (System.Data.Common.DbException refused)
+            {
+                await Fail(
+                    context, 409,
+                    $"The database refused to add the editor-tracking columns to '{found.Definition.SchemaName}."
+                    + $"{found.Definition.TableName}': {refused.Message.Split('\n')[0].Trim()} Adding them needs the right to "
+                    + "alter that table; a DBA can add them instead and give them their roles on the Fields page (ADR-212).")
+                    .ConfigureAwait(false);
+                return;
+            }
+        }
+
         foreach ((string name, FieldType type, _) in portal)
         {
-            if (table.Find(name) is not null)
+            if (!found.Definition.IsHosted || table.Find(name) is not null)
             {
                 continue;
             }
@@ -3363,7 +3401,7 @@ internal static class HostedDataEndpoints
         IAuditLog audit,
         CancellationToken cancellation)
     {
-        if (await HostedLayerAsync(context, layers, layer, "stop tracking the edits of", cancellation)
+        if (await HostedLayerAsync(context, layers, layer, "stop tracking the edits of", cancellation, registeredToo: true)
             .ConfigureAwait(false) is not { } found)
         {
             return;

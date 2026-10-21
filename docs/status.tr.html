@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e53ccc4e</code> · 2026-10-21 04:45</p>
+<p class="stamp">Şu commit’ten üretildi: <code>1382ff9e</code> · 2026-10-21 10:49</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">209</div><div class="kpi-l">ADR</div><div class="kpi-n">79 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">421/499</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">69 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">210</div><div class="kpi-l">ADR</div><div class="kpi-n">79 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">421/501</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">71 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">194 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">açık borç</div><div class="kpi-n">284 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5372</div><div class="kpi-l">test</div><div class="kpi-n">574 kaynak dosya, 251,972 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5377</div><div class="kpi-l">test</div><div class="kpi-n">575 kaynak dosya, 252,848 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">92 madde</span></div><p><b>69 ADR conditions</b> outstanding across 43 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">94 madde</span></div><p><b>71 ADR conditions</b> outstanding across 44 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -144,6 +144,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-203 · A deleted item waits in the recycl</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-212 · Editor tracking and attachments on</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
@@ -401,6 +402,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">209</td><td>MariaDB is a dialect of the MySQL provider</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">210</td><td>A registered SQL Server database is served to read, and edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
 <tr><td class="id">211</td><td>Tables of an attached DuckDB file or MotherDuck database are edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
+<tr><td class="id">212</td><td>Editor tracking and attachments on every registered database&#x27;s layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -544,15 +546,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:16.1%"></div></div><div class="bar-n">237</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.6%"></div></div><div class="bar-n">127</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.4%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.8%"></div></div><div class="bar-n">100</div></div>
-<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">66</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.9%"></div></div><div class="bar-n">101</div></div>
+<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">67</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.5%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
-<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.0%"></div></div><div class="bar-n">15</div></div>
+<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.2%"></div></div><div class="bar-n">18</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>1382ff9e</code><time>2026-10-21</time><span>A registered SQL Server database is read and edited; a DuckDB file or MotherDuck database is edited (ADR-210, ADR-211, Q-188, D-313)</span></li>
 <li><code>e53ccc4e</code><time>2026-10-21</time><span>Points are decided in MySQL, MariaDB and Oracle, and Oracle answers within twice PostGIS&#x27;s time; four other databases tried (ADR-205, 208, 209, Q-187, D-311, D-312)</span></li>
 <li><code>97f0cecc</code><time>2026-10-20</time><span>A registered MariaDB database is served as a dialect of the MySQL provider, and the console registers Oracle, MySQL and MariaDB (ADR-209, D-310)</span></li>
 <li><code>c755afa1</code><time>2026-10-20</time><span>A registered MySQL database is served as PostGIS and Oracle are: read, edited, related, with attachments and a history (ADR-208)</span></li>
@@ -566,7 +569,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7c43b890</code><time>2026-10-19</time><span>The portal names ArcGIS Enterprise 12.1, as the server does: 2026.1, 12.1.0, build 786 (V-58, ADR-181)</span></li>
 <li><code>10d84e36</code><time>2026-10-19</time><span>A removed member leaves nothing owned by nobody; OGC documents carry an item&#x27;s terms; an organisation may require a second factor, set up at sign-in with a QR code (ADR-201, 202, 203; D-304, D-306)</span></li>
 <li><code>0a41b8ff</code><time>2026-10-19</time><span>The console, the map viewers and the REST directory, after a full UX sweep: every finding fixed and verified on dev (UX sweep 2026-10-19)</span></li>
-<li><code>c3987bd7</code><time>2026-10-19</time><span>queryRelatedRecords writes its rows as the query does and sends only the fields outFields names (V-102)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
