@@ -302,6 +302,48 @@ jobs:
       - name: mariadb
         run: dotnet test tests/Graticula.Providers.MySql.Tests -c Release --no-build --filter 'Needs=MySql'
 
+  # <b>ADR-210 condition 1: the SQL Server provider against a real SQL Server, on every push.</b> The official image is
+  # amd64 only, which is why SQL Server is not on the arm64 showcase and is here. Its whole suite reads a database
+  # (Needs=SqlServer), so the unit job runs none of it.
+  sqlserver:
+    name: sqlserver
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: Ci-sqlserver-1
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Ci-sqlserver-1 -Q 'select 1'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      GRATICULA_TEST_SQLSERVER: 'sqlserver:{"host":"127.0.0.1","port":1433,"database":"graticula_test","user":"sa","password":"Ci-sqlserver-1"}'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: database
+        run: |
+          docker exec ${{ job.services.sqlserver.id }} /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Ci-sqlserver-1             -Q "create database graticula_test"
+
+      - name: build
+        run: dotnet build tests/Graticula.Providers.SqlServer.Tests -c Release
+
+      - name: sqlserver
+        run: dotnet test tests/Graticula.Providers.SqlServer.Tests -c Release --no-build --filter 'Needs=SqlServer'
+
   datastore:
     name: datastore
     runs-on: ubuntu-latest

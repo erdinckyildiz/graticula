@@ -209,6 +209,7 @@ public sealed partial class GeoParquetFolder : IDisposable
     private readonly ConcurrentDictionary<string, GeoParquetTable> _attachedDetails = new(StringComparer.Ordinal);
     private readonly object _attachedRefresh = new();
     private readonly object _attachedExtentGate = new();
+    private readonly ConcurrentDictionary<string, long> _edits = new(StringComparer.Ordinal);
 
     /// <summary>How long one statement reading an attached database's catalogue or extent may run.</summary>
     /// <remarks>
@@ -310,13 +311,32 @@ public sealed partial class GeoParquetFolder : IDisposable
 
         (_root, EngineVersion) = OpenConfined(AttachedSettings(attached, options));
 
+        // <b>Written as well as read, since 2026-10-21 by owner decision (ADR-211)</b>, and read only where it cannot
+        // be written: a file on a read-only mount, as ADR-066 §3 advised, or one this process may not write. The
+        // fallback is measured rather than assumed — the read-write attach is tried and its refusal is the evidence.
         try
         {
             using DuckDBCommand attach = _root.CreateCommand();
             attach.CommandText = attached.IsMotherDuck
-                ? $"attach {Literal("md:" + attached.MotherDuckDatabase)} as src (read_only)"
-                : $"attach {Literal(attached.File!)} as src (read_only)";
+                ? $"attach {Literal("md:" + attached.MotherDuckDatabase)} as src"
+                : $"attach {Literal(attached.File!)} as src";
             attach.ExecuteNonQuery();
+            IsWritable = true;
+        }
+        catch (DuckDBException)
+        {
+        }
+
+        try
+        {
+            if (!IsWritable)
+            {
+                using DuckDBCommand attach = _root.CreateCommand();
+                attach.CommandText = attached.IsMotherDuck
+                    ? $"attach {Literal("md:" + attached.MotherDuckDatabase)} as src (read_only)"
+                    : $"attach {Literal(attached.File!)} as src (read_only)";
+                attach.ExecuteNonQuery();
+            }
         }
         catch (DuckDBException failure)
         {
@@ -372,7 +392,10 @@ public sealed partial class GeoParquetFolder : IDisposable
         }
         else
         {
-            settings.Add($"set allowed_paths = [{Literal(attached.File!)}, {Literal(attached.File! + ".wal")}]");
+            // <b>And the checkpoint's own file</b>, which a writable attach needs: measured on 1.5.5, a checkpoint the
+            // sandbox refused `.wal.checkpoint` to did not fail quietly — it invalidated the database (ADR-211 §1a).
+            settings.Add($"set allowed_paths = [{Literal(attached.File!)}, {Literal(attached.File! + ".wal")}, "
+                + $"{Literal(attached.File! + ".wal.checkpoint")}]");
         }
 
         settings.Add("set enable_external_access = false");
@@ -383,6 +406,25 @@ public sealed partial class GeoParquetFolder : IDisposable
 
     /// <summary>Whether this instance reads an attached database's tables.</summary>
     public bool IsAttached => _attached is not null;
+
+    /// <summary>Whether the attached database was opened for writing — ADR-211; false for a folder and a remote location.</summary>
+    public bool IsWritable { get; }
+
+    /// <summary>One write at a time through this instance, so a batch's transaction is the only one changing rows.</summary>
+    internal SemaphoreSlim Writes { get; } = new(1, 1);
+
+    /// <summary>
+    /// Says a table was changed through this server: its version moves, and its listing, extent and details are read
+    /// again. A write goes to DuckDB's log before the file, so the file's size and time do not move with it.
+    /// </summary>
+    /// <param name="table">The table's name.</param>
+    internal void Edited(string table)
+    {
+        _edits.AddOrUpdate(table, 1, (_, n) => n + 1);
+        _attachedExtents.TryRemove(table, out _);
+        _attachedDetails.TryRemove(table, out _);
+        Volatile.Write(ref _attachedListing, null);
+    }
 
     /// <summary>The platform directory DuckDB names its extension builds by, for this process.</summary>
     public static string ExtensionPlatform =>
@@ -1021,9 +1063,10 @@ public sealed partial class GeoParquetFolder : IDisposable
             rows = Convert.ToInt64(count.ExecuteScalar(), CultureInfo.InvariantCulture);
         }
 
+        long edits = _edits.TryGetValue(name, out long made) ? made : 0;
         string version = fileVersion is not null
-            ? Hash($"{fileVersion}:{name}")
-            : Hash($"{rows}:{string.Join(",", all.Select(c => c.Name + " " + c.Type))}");
+            ? Hash($"{fileVersion}:{name}:{edits}")
+            : Hash($"{rows}:{string.Join(",", all.Select(c => c.Name + " " + c.Type))}:{edits}");
 
         // <b>Measured once per version, not once per listing</b> — the review's point that relisting MotherDuck
         // every minute ran a count-distinct over every table every minute, billed to the registrant.

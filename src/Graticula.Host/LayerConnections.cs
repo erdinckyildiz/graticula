@@ -506,6 +506,19 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
             return Removing(layer, sql.Writer(layer, fields, _projector, tracking, subtypes, Lowered(layer)));
         }
 
+        // <b>ADR-211: a table of an attached DuckDB file or MotherDuck database is edited through its source's own
+        // sandboxed DuckDB</b>, under the same rules and behind the same quiesce; a GeoParquet file is not.
+        if (GeoParquetLocator.IsAttached(layer.ConnectionString) && _geoParquet is not null && _projector is not null)
+        {
+            if (_quiesce?.Holding(layer.ConnectionString) is { } attachedHeld)
+            {
+                throw new SourceQuiescedException(SourceQuiesce.Says(attachedHeld), attachedHeld.Until);
+            }
+
+            return Removing(layer, new Graticula.Providers.DuckDb.DuckDbFeatureWriter(
+                _geoParquet.FolderFor(layer.ConnectionString), layer.Definition, fields, _projector, tracking, subtypes, Lowered(layer)));
+        }
+
         RefuseIfFile(layer, "edited");
 
         IFeatureWriter writer = Removing(
@@ -545,6 +558,12 @@ internal sealed class LayerConnections : IServiceSources, IDisposable
         if (SqlEngines.For(layer.ConnectionString) is { } sql)
         {
             return sql.ObjectIdsOfAsync(layer, globalIdColumn, globalIds, cancellationToken);
+        }
+
+        if (GeoParquetLocator.IsAttached(layer.ConnectionString) && _geoParquet is not null)
+        {
+            GeoParquetFolder attached = _geoParquet.FolderFor(layer.ConnectionString);
+            return Task.Run(() => Graticula.Providers.DuckDb.DuckDbFeatureWriter.ObjectIdsOf(attached, layer.Definition, globalIdColumn, globalIds), cancellationToken);
         }
 
         RefuseIfFile(layer, "edited");

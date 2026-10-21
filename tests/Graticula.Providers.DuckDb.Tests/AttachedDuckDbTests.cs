@@ -139,17 +139,19 @@ public sealed class AttachedDuckDbTests : IDisposable
     }
 
     [Fact]
-    public void The_instance_reads_its_file_and_nothing_else_and_never_writes()
+    public void The_instance_reads_and_writes_its_file_and_nothing_else()
     {
         using GeoParquetFolder database = Open();
         using DuckDBConnection connection = database.Open();
 
         Assert.Equal(100L, Scalar(connection, "select count(*) from src.main.grid"));
 
+        // ADR-211: the file itself is written now; nothing beside it is read or attached.
+        Assert.True(database.IsWritable);
+
         foreach (string refused in (string[])
             [
                 $"select count(*) from read_parquet('{_temporary.File("grid.parquet").Replace('\\', '/')}')",
-                "insert into src.main.grid select * from src.main.grid limit 1",
                 $"attach '{_temporary.File("other.duckdb").Replace('\\', '/')}' as other",
                 "set enable_external_access = true",
             ])

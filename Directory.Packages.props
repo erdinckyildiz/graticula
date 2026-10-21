@@ -101,6 +101,9 @@
          MySql.Data, which is GPLv2 with a FOSS exception (DEPENDENCY-LICENSES.md). Referenced only from
          Graticula.Providers.MySql. -->
     <PackageVersion Include="MySqlConnector" Version="2.4.0" />
+    <!-- Microsoft.Data.SqlClient, for registered SQL Server databases (ADR-210). MIT. Encrypts by default; the
+         provider trusts the server certificate rather than verifying it (ADR-210 §6). -->
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
   </ItemGroup>
   <ItemGroup Label="Rendering â€” Tier 2, behind our own port, in the serving process">
     <!-- ADR-041. The only rasteriser in this repository, and the first native

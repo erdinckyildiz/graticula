@@ -172,7 +172,7 @@ public static class PredicateSql
             // nothing to resolve against the columns, so this is the one predicate that
             // cannot fail to emit — which is the point of it existing at all.
             case AttributePredicate.MatchesNothing:
-                sql.Append("false");
+                sql.Append(dialect.SqlServerForms ? "1 = 0" : "false");
                 return true;
 
             case AttributePredicate.Conjunction and:
@@ -291,6 +291,19 @@ public static class PredicateSql
                     return true;
                 }
 
+                if (dialect.SqlServerForms)
+                {
+                    // T-SQL has no `ilike` and no default escape, and reads `[` as a wildcard (SqlServerPattern).
+                    string tSide = like.IgnoreCase ? "lower(" + matched + ")" : matched!;
+                    string tPattern = Bind(parameters, dialect, SqlServerPattern(like.Pattern));
+
+                    sql.Append(tSide).Append(like.Negated ? " not like " : " like ")
+                       .Append(like.IgnoreCase ? "lower(" + tPattern + ")" : tPattern)
+                       .Append(@" escape '\'");
+
+                    return true;
+                }
+
                 if (dialect.OracleForms)
                 {
                     // Oracle has no `ilike` and no default escape: folded through lower(), and told that a
@@ -361,7 +374,14 @@ public static class PredicateSql
                     return false;
                 }
 
-                sql.Append(like.Negated ? " not like " : " like ").Append(Bind(parameters, dialect, like.Pattern));
+                sql.Append(like.Negated ? " not like " : " like ")
+                   .Append(Bind(parameters, dialect, dialect.SqlServerForms ? SqlServerPattern(like.Pattern) : like.Pattern));
+
+                if (dialect.SqlServerForms)
+                {
+                    sql.Append(@" escape '\'");
+                }
+
                 return true;
 
             case AttributePredicate.ExpressionBetween between:
@@ -596,7 +616,7 @@ public static class PredicateSql
 
                 // MySQL divides a whole number into a DECIMAL kept to four places (div_precision_increment); multiplied
                 // by a double first, it divides as PostgreSQL does a double.
-                if (dialect.MySqlForms && !arithmetic.Integral
+                if ((dialect.MySqlForms || dialect.SqlServerForms) && !arithmetic.Integral
                     && arithmetic.Operator is not (ArithmeticOperator.Add or ArithmeticOperator.Subtract or ArithmeticOperator.Multiply))
                 {
                     sql.Append("1e0 * ");
@@ -625,6 +645,41 @@ public static class PredicateSql
 
             case ScalarExpression.Cast cast:
                 return WriteCast(cast, sql, dialect, Inner, out error);
+
+            case ScalarExpression.Extract extract when dialect.SqlServerForms:
+                sql.Append("datepart(").Append(extract.Part switch
+                {
+                    DatePart.Year => "year",
+                    DatePart.Month => "month",
+                    DatePart.Day => "day",
+                    DatePart.Hour => "hour",
+                    DatePart.Minute => "minute",
+                    _ => "second",
+                }).Append(", ");
+
+                if (!Inner(extract.Operand, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            case ScalarExpression.Trim trim when dialect.SqlServerForms:
+                sql.Append(trim.Side switch
+                {
+                    TrimSide.Leading => "ltrim(",
+                    TrimSide.Trailing => "rtrim(",
+                    _ => "ltrim(rtrim(",
+                });
+
+                if (!Inner(trim.Operand, out error))
+                {
+                    return false;
+                }
+
+                sql.Append(trim.Side is TrimSide.Leading or TrimSide.Trailing ? ")" : "))");
+                return true;
 
             case ScalarExpression.Extract extract:
                 sql.Append("extract(").Append(extract.Part switch
@@ -696,6 +751,19 @@ public static class PredicateSql
             return true;
         }
 
+        if (dialect.SqlServerForms && cast.Target == CastTarget.Text && cast.Length is { } tCut)
+        {
+            sql.Append("substring(cast(");
+
+            if (!inner(cast.Operand, out error))
+            {
+                return false;
+            }
+
+            sql.Append(" as nvarchar(4000)), 1, ").Append(tCut.ToString(CultureInfo.InvariantCulture)).Append(')');
+            return true;
+        }
+
         // A length is a cut, written the one way both dialects cut alike (SqlDialect's remarks).
         if (cast.Target == CastTarget.Text && cast.Length is { } length)
         {
@@ -729,6 +797,10 @@ public static class PredicateSql
             CastTarget.Double when dialect.MySqlForms => "double",
             CastTarget.Real when dialect.MySqlForms => "float",
             CastTarget.Text when dialect.MySqlForms => "char",
+            // T-SQL: `float` is eight bytes, `int` the integer, and text is nvarchar.
+            CastTarget.Integer when dialect.SqlServerForms => "int",
+            CastTarget.Double when dialect.SqlServerForms => "float",
+            CastTarget.Text when dialect.SqlServerForms => "nvarchar(4000)",
             CastTarget.Integer => "integer",
             CastTarget.SmallInteger => "smallint",
             CastTarget.BigInteger => "bigint",
@@ -795,6 +867,11 @@ public static class PredicateSql
         if (dialect.OracleForms && WriteOracleCall(call, sql, inner, out error) is { } done)
         {
             return done;
+        }
+
+        if (dialect.SqlServerForms && WriteSqlServerCall(call, sql, inner, out error) is { } tDone)
+        {
+            return tDone;
         }
 
         // MySQL truncates with `truncate(x, places)`, the places required.
@@ -886,6 +963,108 @@ public static class PredicateSql
         }
 
         return kept.ToString();
+    }
+
+    /// <summary>
+    /// A <c>like</c> pattern as T-SQL reads it with <c>escape '\'</c>: a backslash before anything but <c>%</c>, <c>_</c>
+    /// and itself is dropped, as for Oracle (<see cref="OraclePattern"/>), and a <c>[</c> — a character class in T-SQL and
+    /// a plain character in PostgreSQL — is escaped. What the pattern matches is PostgreSQL's.
+    /// </summary>
+    private static string SqlServerPattern(string pattern)
+    {
+        StringBuilder kept = new(pattern.Length + 4);
+
+        for (int i = 0; i < pattern.Length; i++)
+        {
+            char c = pattern[i];
+
+            if (c == '\\' && i + 1 < pattern.Length)
+            {
+                char next = pattern[++i];
+                kept.Append(next is '%' or '_' or '\\' or '[' ? "\\" + next : next.ToString());
+                continue;
+            }
+
+            kept.Append(c == '[' ? "\\[" : c.ToString());
+        }
+
+        return kept.ToString();
+    }
+
+    /// <summary>The calls T-SQL spells its own way, or null for one it spells as PostgreSQL does — ADR-210.</summary>
+    private static bool? WriteSqlServerCall(
+        ScalarExpression.FunctionCall call, StringBuilder sql, EmitOne inner, out string? error)
+    {
+        IReadOnlyList<ScalarExpression> a = call.Arguments;
+        error = null;
+
+        bool Args(string name, IReadOnlyList<ScalarExpression> args, string? tail, out string? why)
+        {
+            sql.Append(name).Append('(');
+
+            for (int i = 0; i < args.Count; i++)
+            {
+                if (i > 0)
+                {
+                    sql.Append(", ");
+                }
+
+                if (!inner(args[i], out why))
+                {
+                    return false;
+                }
+            }
+
+            sql.Append(tail).Append(')');
+            why = null;
+            return true;
+        }
+
+        switch (call.Function)
+        {
+            // POSITION(a IN b) is CHARINDEX(a, b): the needle first, as in POSITION.
+            case ScalarFunction.Position:
+                return Args("charindex", a, null, out error);
+
+            // SUBSTRING needs its length in T-SQL; without one it runs to the end.
+            case ScalarFunction.Substring:
+                return Args("substring", a, a.Count == 2 ? ", 2147483647" : null, out error);
+
+            case ScalarFunction.CharLength:
+                return Args("len", a, null, out error);
+
+            // ArcGIS's LOG is the natural logarithm, which is T-SQL's LOG.
+            case ScalarFunction.Log:
+                return Args("log", a, null, out error);
+
+            // ROUND(x, n, 1) truncates; ROUND needs its places.
+            case ScalarFunction.Truncate:
+                return Args("round", a, a.Count == 1 ? ", 0, 1" : ", 1", out error);
+
+            case ScalarFunction.Round when a.Count == 1:
+                return Args("round", a, ", 0", out error);
+
+            case ScalarFunction.Mod:
+                sql.Append('(');
+
+                if (!inner(a[0], out error))
+                {
+                    return false;
+                }
+
+                sql.Append(" % ");
+
+                if (!inner(a[1], out error))
+                {
+                    return false;
+                }
+
+                sql.Append(')');
+                return true;
+
+            default:
+                return null;
+        }
     }
 
     /// <summary>The calls Oracle spells its own way, or null for one it spells as PostgreSQL does.</summary>

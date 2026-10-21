@@ -15,6 +15,10 @@
     <RootNamespace>Graticula.Host</RootNamespace>
     <AssemblyName>Graticula.Host</AssemblyName>
     <UserSecretsId>gis-server-host</UserSecretsId>
+
+    <!-- ADR-210 §6: Microsoft.Data.SqlClient refuses to connect in globalization-invariant mode, so the host loads ICU
+         (the aspnet:9.0-noble image carries it) and pins the invariant culture in Main instead. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
@@ -36,6 +40,7 @@
     <ProjectReference Include="..\Graticula.Providers.DuckDb\Graticula.Providers.DuckDb.csproj" />
     <ProjectReference Include="..\Graticula.Providers.Oracle\Graticula.Providers.Oracle.csproj" />
     <ProjectReference Include="..\Graticula.Providers.MySql\Graticula.Providers.MySql.csproj" />
+    <ProjectReference Include="..\Graticula.Providers.SqlServer\Graticula.Providers.SqlServer.csproj" />
   </ItemGroup>
 
   <!--

@@ -22,9 +22,11 @@ namespace Graticula.Providers.DuckDb;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Read-only, and says so.</b> <see cref="LayerDescription.Writable"/> is false, which is what
-/// takes Create, Update and Delete out of the layer's capabilities on every face; a GeoParquet
-/// file is immutable, and editing one means rewriting it.
+/// <b>A file is read only, and says so.</b> <see cref="LayerDescription.Writable"/> is false for a GeoParquet file,
+/// which is what takes Create, Update and Delete out of the layer's capabilities on every face; a GeoParquet file is
+/// immutable, and editing one means rewriting it. <b>A table of an attached DuckDB file or MotherDuck database is
+/// writable since ADR-211</b>, where the database was opened for writing and the layer has an integer column of its own
+/// as its identity, and is edited by <see cref="DuckDbFeatureWriter"/>.
 /// </para>
 /// <para>
 /// <b>The box test runs in DuckDB and the exact test runs here.</b> DuckDB's core has no exact
@@ -343,7 +345,7 @@ public sealed class GeoParquetFeatureSource
             extent = await Task.Run(() => _folder.AttachedExtent(table), cancellationToken).ConfigureAwait(false);
         }
 
-        return new LayerDescription(fields, extent, Writable: false)
+        return new LayerDescription(fields, extent, Writable: Editable(table))
         {
             AnswersDistance = AnswersDistance,
             AnswersHaving = false,
@@ -656,8 +658,33 @@ public sealed class GeoParquetFeatureSource
     /// only when the file does, so an entity tag built from the file's length and modification
     /// time is exact rather than approximate: it changes on every replacement and on nothing else.
     /// </remarks>
-    public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken) =>
-        Task.FromResult<string?>(Table().Version);
+    /// <remarks>
+    /// <b>A row's own version where the layer is edited (ADR-211)</b> — an MD5 of its columns and shape, the expression the
+    /// writer compares — and the file's otherwise, the same for every row.
+    /// </remarks>
+    public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken)
+    {
+        GeoParquetTable table = Table();
+
+        if (!Editable(table))
+        {
+            return Task.FromResult<string?>(table.Version);
+        }
+
+        return Bounded(_ => Task.Run(() =>
+        {
+            using DuckDB.NET.Data.DuckDBConnection connection = _folder.Open();
+            using DuckDB.NET.Data.DuckDBCommand command = connection.CreateCommand();
+            command.CommandText =
+                $"select {DuckDbFeatureWriter.VersionSqlOf(table.Columns.Select(c => c.Name), _layer.GeometryColumn)} "
+                + $"from {table.Relation} where {Id} = $id";
+            command.Parameters.Add(new DuckDB.NET.Data.DuckDBParameter("id", identity));
+            return command.ExecuteScalar() as string;
+        }, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>Whether this layer is edited: a table of an attached database opened for writing, with its own key.</summary>
+    private bool Editable(GeoParquetTable table) => _folder.IsWritable && table.Relation is not null && !RowNumbers;
 
     /// <inheritdoc />
     /// <remarks>

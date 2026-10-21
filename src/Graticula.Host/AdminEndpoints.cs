@@ -12402,7 +12402,7 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        // <b>An Oracle or MySQL database's fields — ADR-205, ADR-208 — and never its password.</b> Its locator is JSON,
+        // <b>An Oracle, MySQL or SQL Server database's fields — ADR-205, ADR-208, ADR-210 — and never its password.</b> Its locator is JSON,
         // so the fields are read rather than parsed out of a connection string, and a correction sends the password again.
         if (SqlLocators.Is(stored))
         {
@@ -12555,9 +12555,13 @@ internal static partial class AdminEndpoints
 
         // <b>A MySQL database — ADR-208 — named by its fields as an Oracle one is</b>; `database` is MySQL's database (its
         // schema), whose spatial tables are offered.
-        if (oracle || string.Equals(request.Kind, DataSourceKinds.MySql, StringComparison.OrdinalIgnoreCase))
+        // <b>A SQL Server database — ADR-210 — the same way</b>; its port may be left out where the host names an
+        // instance (`host\SQLEXPRESS`, `(localdb)\MSSQLLocalDB`), which the driver finds by name.
+        bool sqlServer = string.Equals(request.Kind, DataSourceKinds.SqlServer, StringComparison.OrdinalIgnoreCase);
+
+        if (oracle || sqlServer || string.Equals(request.Kind, DataSourceKinds.MySql, StringComparison.OrdinalIgnoreCase))
         {
-            string engine = oracle ? "An Oracle database" : "A MySQL database";
+            string engine = oracle ? "An Oracle database" : sqlServer ? "A SQL Server database" : "A MySQL database";
 
             if (hasString || HasRemoteFields(request) || !string.IsNullOrWhiteSpace(request.Path)
                 || !string.IsNullOrEmpty(request.Token) || request.Srid is not null)
@@ -12577,11 +12581,11 @@ internal static partial class AdminEndpoints
             {
                 why = oracle
                     ? "`database` is required: the service name, such as FREEPDB1 for a pluggable database."
-                    : "`database` is required: the MySQL database whose tables are offered.";
+                    : $"`database` is required: the {(sqlServer ? "SQL Server" : "MySQL")} database whose tables are offered.";
                 return null;
             }
 
-            int port = request.Port ?? (oracle ? OracleSource.DefaultPort : MySqlSource.DefaultPort);
+            int port = request.Port ?? (oracle ? OracleSource.DefaultPort : sqlServer ? SqlServerSource.DefaultPort : MySqlSource.DefaultPort);
 
             if (port is <= 0 or > 65535)
             {
@@ -12593,6 +12597,13 @@ internal static partial class AdminEndpoints
             string database = string.IsNullOrWhiteSpace(request.Database) ? string.Empty : request.Database.Trim();
             string user = request.Username!.Trim();
             string? password = string.IsNullOrEmpty(request.Password) ? null : request.Password;
+
+            if (sqlServer)
+            {
+                // An instance named in the host is found by name; a port beside it is used only when one was sent.
+                int? tcp = request.Port is null && host.Contains('\\', StringComparison.Ordinal) ? null : port;
+                return SqlServerLocator.For(new SqlServerSource(host, tcp, database, user, password));
+            }
 
             return oracle
                 ? OracleLocator.For(new OracleSource(host, port, database, user, password))
@@ -12639,7 +12650,8 @@ internal static partial class AdminEndpoints
         {
             why = $"`kind` '{request.Kind}' is not one this server registers: "
                 + $"{DataSourceKinds.PostGis}, {DataSourceKinds.GeoParquet}, {DataSourceKinds.GeoParquetRemote}, "
-                + $"{DataSourceKinds.DuckDb}, {DataSourceKinds.MotherDuck}, {DataSourceKinds.Oracle} or {DataSourceKinds.MySql}.";
+                + $"{DataSourceKinds.DuckDb}, {DataSourceKinds.MotherDuck}, {DataSourceKinds.Oracle}, {DataSourceKinds.MySql} "
+                + $"or {DataSourceKinds.SqlServer}.";
 
             return null;
         }
