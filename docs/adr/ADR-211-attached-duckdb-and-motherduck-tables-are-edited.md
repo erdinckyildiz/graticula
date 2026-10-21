@@ -94,7 +94,12 @@ own sandboxed DuckDB, under the rules every registered engine's writer applies (
 2. **MotherDuck** edited end to end with a real token, and a read-scaling token's refusal falling back to read only.
 3. **End to end through FeatureServer** `applyEdits` on a server whose projection database knows EPSG:4326's area of
    use — the local fixture's PostGIS bundle does not (its `postgis_srs()` is empty), so a publish there was refused
-   before an edit could be sent.
+   before an edit could be sent. **DISCHARGED 2026-10-21** — on dev (VPS, arm64), with its own writable copy of the GeoParquet
+   root: a DuckDB file registered with its table offered writable, published, said editable, and through `applyEdits`
+   a place added with its key from the table's sequence and a GlobalID minted, moved with a shape sent in EPSG:3857 and
+   stored in 4326, an all-or-nothing batch with a bad value keeping nothing, and deleted — 10 of 10. The run found that
+   an edit refused before the writer was reached made the others answer *an earlier edit failed*; they now say *another
+   edit in this batch failed*.
 
 ## 6. Consequences
 

@@ -236,8 +236,8 @@ public sealed class DuckDbFeatureWriter : IFeatureWriter
 
     private static EditResult NotApplied(long identity) => EditResult.Failed(
         identity,
-        "Not applied: an earlier edit in this batch failed, and the batch asked for all or nothing. DuckDB keeps no "
-        + "savepoints, so the edits after a failure are not tried (ADR-211).");
+        "Not applied: another edit in this batch failed, and the batch asked for all or nothing. DuckDB keeps no "
+        + "savepoints, so once one edit has failed the others are not tried (ADR-211).");
 
     /// <param name="KeyMade">Whether the key column has a default, a sequence most often, that makes a new row's key.</param>
     /// <param name="GlobalKept">Whether the GlobalID column is a UUID this writer can mint.</param>
