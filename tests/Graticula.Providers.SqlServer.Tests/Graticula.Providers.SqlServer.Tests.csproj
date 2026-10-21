@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Providers.SqlServer.Tests</RootNamespace>
+
+    <!-- Microsoft.Data.SqlClient refuses to connect in globalization-invariant mode (ADR-210 §6), as the host does. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Graticula.Providers.SqlServer\Graticula.Providers.SqlServer.csproj" />
+    <ProjectReference Include="..\..\src\Graticula.Platform\Graticula.Platform.csproj" />
+  </ItemGroup>
+
+</Project>

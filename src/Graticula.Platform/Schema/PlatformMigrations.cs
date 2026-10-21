@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(97);
+    public static SchemaVersion ComponentSchemaVersion => new(98);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -132,7 +132,21 @@ public static class PlatformMigrations
         ARegisteredDatabaseMayBeOracleV95,
         ARegisteredLayerMayKeepAttachmentsV96,
         ARegisteredDatabaseMayBeMySqlV97,
+        ARegisteredDatabaseMayBeSqlServerV98,
     ]);
+
+    /// <summary>A registered data source may be a SQL Server database — ADR-210.</summary>
+    /// <remarks><b>Expand.</b> A constraint widened, as migrations 95 and 97 widened it for Oracle and MySQL.</remarks>
+    private static Migration ARegisteredDatabaseMayBeSqlServerV98 => Migration.Expand(
+        new SchemaVersion(98),
+        "A registered data source may be a SQL Server database (ADR-210).",
+
+        "alter table data_source drop constraint if exists data_source_kind_known",
+
+        """
+        alter table data_source add constraint data_source_kind_known
+            check (kind in ('postgis', 'geoparquet', 'geoparquet-remote', 'duckdb', 'motherduck', 'oracle', 'mysql', 'sqlserver'))
+        """);
 
     /// <summary>A registered data source may be an Oracle database — ADR-205.</summary>
     /// <remarks>

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    TIER 2 ADAPTER. Layers served from a registered SQL Server database's geometry and geography tables — ADR-210.
+
+    Separate from the PostGIS, DuckDB, Oracle and MySQL providers for the reason they are separate from each other: a
+    different engine and dialect below the same ports. Microsoft.Data.SqlClient is referenced here and nowhere else, so
+    no SQL Server type reaches Core, an endpoint or a writer. Geometry crosses the port as WKB in longitude-latitude order.
+  -->
+
+  <PropertyGroup>
+    <RootNamespace>Graticula.Providers.SqlServer</RootNamespace>
+    <AssemblyName>Graticula.Providers.SqlServer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Graticula.Core\Graticula.Core.csproj" />
+    <ProjectReference Include="..\Graticula.Platform\Graticula.Platform.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Graticula.Providers.SqlServer.Tests" />
+  </ItemGroup>
+
+</Project>

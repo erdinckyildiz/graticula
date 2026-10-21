@@ -128,6 +128,15 @@ public static class Program
     /// <summary>Entry point.</summary>
     public static async Task<int> Main(string[] args)
     {
+        // <b>The invariant culture, pinned, because globalization is no longer invariant (ADR-210 §6).</b> The SQL Server
+        // driver refuses to run without ICU, so this process loads it; what it formats and compares stays what it was
+        // under invariant mode's culture, whatever the machine's own — a Turkish Windows would otherwise upper-case `i`
+        // as `İ` anywhere a culture is not named.
+        System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+        System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+        System.Globalization.CultureInfo.CurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
+
         // <b>First, and before configuration, because the operator who needs this most
         // is the one whose server will not start — [D-168](../../docs/architecture-debt.md).</b>
         // This binary had four behaviours and advertised none of them: `keygen`, `migrate`,

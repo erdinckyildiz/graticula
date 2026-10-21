@@ -272,6 +272,10 @@ COPY tools/fonts/LICENSE-DejaVu.txt ./LICENSE-DejaVu.txt
 COPY deploy/LICENSE-MySqlConnector.txt ./LICENSE-MySqlConnector.txt
 RUN test -f /app/MySqlConnector.dll && test -s /app/LICENSE-MySqlConnector.txt
 
+# Microsoft.Data.SqlClient's, the same way and for the same reason — ADR-210.
+COPY deploy/LICENSE-Microsoft.Data.SqlClient.txt ./LICENSE-Microsoft.Data.SqlClient.txt
+RUN test -f /app/Microsoft.Data.SqlClient.dll && test -s /app/LICENSE-Microsoft.Data.SqlClient.txt
+
 # ADR-016 §3's secret volume. Declared so that running without one is a visible
 # choice rather than a silent loss of the certificate on every replacement.
 VOLUME ["/var/lib/graticula"]

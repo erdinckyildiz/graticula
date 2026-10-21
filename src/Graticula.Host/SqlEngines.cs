@@ -10,6 +10,7 @@ using Graticula.Platform.Admin;
 using Graticula.Platform.Catalog;
 using Graticula.Providers.MySql;
 using Graticula.Providers.Oracle;
+using Graticula.Providers.SqlServer;
 
 namespace Graticula.Host;
 
@@ -81,7 +82,7 @@ internal interface ISqlEngine
 internal static class SqlEngines
 {
     /// <summary>Every engine behind the seam.</summary>
-    public static IReadOnlyList<ISqlEngine> All { get; } = [new OracleEngine(), new MySqlEngine()];
+    public static IReadOnlyList<ISqlEngine> All { get; } = [new OracleEngine(), new MySqlEngine(), new SqlServerEngine()];
 
     /// <summary>The engine a locator names, or null for PostgreSQL and the DuckDB-read files.</summary>
     public static ISqlEngine? For(string? locator) => All.FirstOrDefault(engine => engine.Owns(locator));
@@ -203,6 +204,62 @@ internal sealed class MySqlEngine : ISqlEngine
     public async Task<(int? Stored, string? Complaint)?> ReferenceAsync(
         string locator, string schema, string table, string column, int declared, CancellationToken cancellationToken) =>
         await MySqlTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
+            ? (found.Stored, found.Complaint)
+            : null;
+}
+
+/// <summary>SQL Server behind the seam — ADR-210: read only, so every member that would change the database refuses.</summary>
+internal sealed class SqlServerEngine : ISqlEngine
+{
+    public string Kind => DataSourceKinds.SqlServer;
+
+    public string Name => "SQL Server";
+
+    public bool Owns(string? locator) => SqlServerLocator.Is(locator);
+
+    public IDataSourceProbe Probe { get; } = new SqlServerDataSourceProbe();
+
+    public IFeatureSource Source(PublishedLayer layer, IProjector projector, TimeSpan timeout, IGeometryEngine? engine) =>
+        new SqlServerFeatureSource(layer.ConnectionString, layer.Definition, projector, timeout, engine);
+
+    public IFeatureWriter Writer(
+        PublishedLayer layer, IReadOnlyList<FieldDescription> fields, IProjector projector, EditorTracking? tracking,
+        LayerSubtypes? subtypes, TimeSpan timeout) =>
+        new SqlServerReadOnly(layer.Definition);
+
+    public Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
+        string locator, IReadOnlyList<LayerConnections.LayerEdit> edits, IProjector projector, TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        throw new QueryNotSupportedException(
+            "These layers are served from a registered SQL Server database, which this build reads and does not edit (ADR-210 §5).");
+
+    public Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
+        PublishedLayer layer, string globalIdColumn, IReadOnlyCollection<Guid> globalIds, CancellationToken cancellationToken) =>
+        throw new QueryNotSupportedException(
+            $"Layer '{layer.Definition.Name}' is served from a registered SQL Server database, which this build reads and does "
+            + "not edit, so it takes no GlobalIDs to look up (ADR-210 §5).");
+
+    public IAttachmentStore Attachments(PublishedLayer layer) => new SqlServerReadOnly(layer.Definition);
+
+    public IFeatureHistory History(PublishedLayer layer) => new SqlServerReadOnly(layer.Definition);
+
+    public string? HistoryRefusal(Exception failure, LayerDefinition layer) => null;
+
+    public IRelatedRecords Related(PublishedLayer origin, PublishedLayer related, bool sameDatabase) =>
+        new SqlServerReadOnly(origin.Definition);
+
+    public Task<IReadOnlyList<(string Table, long Versions)>> PruneHistoryAsync(string locator, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<(string Table, long Versions)>>([]);
+
+    public async Task<(long Rows, long Invalid, IReadOnlyList<string> Reasons)?> ValidityAsync(
+        string locator, string schema, string table, string column, TimeSpan timeout, CancellationToken cancellationToken) =>
+        await SqlServerTableChecks.ValidityAsync(locator, schema, table, column, timeout, cancellationToken).ConfigureAwait(false) is { } found
+            ? (found.Rows, found.Invalid, found.Reasons)
+            : null;
+
+    public async Task<(int? Stored, string? Complaint)?> ReferenceAsync(
+        string locator, string schema, string table, string column, int declared, CancellationToken cancellationToken) =>
+        await SqlServerTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
             ? (found.Stored, found.Complaint)
             : null;
 }
