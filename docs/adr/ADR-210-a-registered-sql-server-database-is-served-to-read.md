@@ -104,8 +104,11 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
 
 ## Conditions
 
-1. **A CI job** against `mcr.microsoft.com/mssql/server` running the provider suite, as the MySQL and MariaDB jobs do.
-2. **The host's culture change**: the conformance suite against a host built with §5.6, and CI's whole run, green.
+1. **A CI job** against `mcr.microsoft.com/mssql/server` running the provider suite, as the MySQL and MariaDB jobs do. **DISCHARGED 2026-10-21** — the `sqlserver` job runs the suite against `mssql/server:2022-latest`
+   as a service container; green on its first run, at `c262b66f`.
+2. **The host's culture change**: the conformance suite against a host built with §5.6, and CI's whole run, green. **DISCHARGED 2026-10-21** — locally against the LocalDB fixture's host, 856 of 863, the seven
+   failures five known environment ones of this machine and two a log path the fixture script had wrong (11 of 11 once
+   corrected); and CI's whole run at `c262b66f`, conformance included, green on Linux with ICU.
 3. **The console** offers SQL Server in *Add a source* beside PostGIS, Oracle and MySQL or MariaDB, through the
    ux-designer review every screen gets — today it is registered through the API only, as Oracle and MySQL were first.
 4. **The owner confirms §5.5** — reading only — or asks for editing, which would be ADR-208's writer in T-SQL.

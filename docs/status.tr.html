@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>e53ccc4e</code> · 2026-10-21 04:45</p>
+<p class="stamp">Şu commit’ten üretildi: <code>c262b66f</code> · 2026-10-21 09:10</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">208</div><div class="kpi-l">ADR</div><div class="kpi-n">79 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">417/495</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">69 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">419/495</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">67 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">193 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">açık borç</div><div class="kpi-n">284 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,14 +126,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-188</b> — [OWNER] A registered SQL Server database — what ADR-210 §5 infers: read only.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">92 madde</span></div><p><b>69 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">90 madde</span></div><p><b>67 ADR conditions</b> outstanding across 42 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">11</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:55%"></div></div><div class="bar-n">6</div></div>
-<div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:36%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
@@ -143,6 +142,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-200 · Service accounts sign in with API </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-202 · An item has terms of use and categ</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-203 · A deleted item waits in the recycl</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
@@ -398,7 +398,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">207</td><td>Attachments and history on registered layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">208</td><td>A registered MySQL database is served like PostGIS</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">6/6</td></tr>
 <tr><td class="id">209</td><td>MariaDB is a dialect of the MySQL provider</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
-<tr><td class="id">210</td><td>A registered SQL Server database is served to read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
+<tr><td class="id">210</td><td>A registered SQL Server database is served to read</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -552,6 +552,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:0.6%"></div></div><div class="bar-n">9</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>c262b66f</code><time>2026-10-21</time><span>A registered SQL Server database is served to read (ADR-210, Q-188, D-313)</span></li>
 <li><code>e53ccc4e</code><time>2026-10-21</time><span>Points are decided in MySQL, MariaDB and Oracle, and Oracle answers within twice PostGIS&#x27;s time; four other databases tried (ADR-205, 208, 209, Q-187, D-311, D-312)</span></li>
 <li><code>97f0cecc</code><time>2026-10-20</time><span>A registered MariaDB database is served as a dialect of the MySQL provider, and the console registers Oracle, MySQL and MariaDB (ADR-209, D-310)</span></li>
 <li><code>c755afa1</code><time>2026-10-20</time><span>A registered MySQL database is served as PostGIS and Oracle are: read, edited, related, with attachments and a history (ADR-208)</span></li>
@@ -565,7 +566,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>7c43b890</code><time>2026-10-19</time><span>The portal names ArcGIS Enterprise 12.1, as the server does: 2026.1, 12.1.0, build 786 (V-58, ADR-181)</span></li>
 <li><code>10d84e36</code><time>2026-10-19</time><span>A removed member leaves nothing owned by nobody; OGC documents carry an item&#x27;s terms; an organisation may require a second factor, set up at sign-in with a QR code (ADR-201, 202, 203; D-304, D-306)</span></li>
 <li><code>0a41b8ff</code><time>2026-10-19</time><span>The console, the map viewers and the REST directory, after a full UX sweep: every finding fixed and verified on dev (UX sweep 2026-10-19)</span></li>
-<li><code>c3987bd7</code><time>2026-10-19</time><span>queryRelatedRecords writes its rows as the query does and sends only the fields outFields names (V-102)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
