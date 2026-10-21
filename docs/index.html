@@ -269,7 +269,7 @@ pre .k{color:var(--accent)}
         <p class="eyebrow">Graticula <span class="sep">/</span> v1 <span class="sep">/</span> source-available</p>
         <h1>A GIS server and its portal, from one container and one Postgres.</h1>
         <p class="lede"><b>Server</b> does what a GIS Server site does: services at
-        <span class="nm">/rest/services</span>, published out of PostGIS, Oracle, MySQL, MariaDB or GeoParquet files — on the server, on the web or in S3 — opened by the clients
+        <span class="nm">/rest/services</span>, published out of PostGIS, Oracle, SQL Server, MySQL, MariaDB or GeoParquet files — on the server, on the web or in S3 — opened by the clients
         you already have. <b>Studio</b> does what the portal does &mdash; items, members, roles,
         groups, sharing. They are one process and one API with two doors, because the three tiers
         are fused rather than federated:
@@ -354,7 +354,7 @@ pre .k{color:var(--accent)}
               <tr><td>ArcGIS Data Store, installed and registered separately</td>
                   <td>The same PostgreSQL the server already needs.</td></tr>
               <tr><td>An enterprise geodatabase registered as a data store</td>
-                  <td>Your own PostGIS, Oracle, MySQL or MariaDB, registered &mdash; read and write where rights allow. Oracle&rsquo;s
+                  <td>Your own PostGIS, Oracle, SQL Server, MySQL or MariaDB, registered &mdash; read and write where rights allow. Oracle&rsquo;s
                   <span class="nm">SDO_GEOMETRY</span> tables are served as they are, with no geodatabase installed.</td></tr>
               <tr><td>A folder of files registered as a data store</td>
                   <td>A folder of GeoParquet files, an <span class="nm">s3://</span> prefix or an
@@ -400,7 +400,7 @@ pre .k{color:var(--accent)}
             <i class="sw full"><span class="vh">Complete.</span></i>
             <div>
               <h3>Feature services</h3>
-              <p>Query and edit a registered PostGIS, Oracle, MySQL or MariaDB table or a hosted layer, and query a
+              <p>Query and edit a registered PostGIS, Oracle, SQL Server, MySQL or MariaDB table or a hosted layer, and query a
               GeoParquet file where it lies. Identity, relationships and attachments are
               declared rather than reverse-engineered. A query answers as JSON, GeoJSON or PBF,
               filters by time where a layer has a time field, and keeps Z and M.</p>
@@ -539,8 +539,8 @@ pre .k{color:var(--accent)}
           <div class="gap">
             <i class="sw none"><span class="vh">Not built.</span></i>
             <div>
-              <h3>PostGIS, Oracle, MySQL and MariaDB, for databases</h3>
-              <p>No SQL Server, no file geodatabase served in place. <b>Oracle since
+              <h3>PostGIS, Oracle, SQL Server, MySQL and MariaDB, for databases</h3>
+              <p>No file geodatabase served in place. <b>Oracle since
               v1.0.441</b>: a registered database&rsquo;s <span class="nm">SDO_GEOMETRY</span> tables are
               queried and edited in place, with Z and M, GlobalIDs, row versions and related records, and
               with attachments and a history where an administrator switches them on, as for a registered
@@ -550,9 +550,9 @@ pre .k{color:var(--accent)}
               connected user create triggers. ArcGIS Pro has no MySQL connection; it reaches these layers through the
               FeatureServer. The console registers both beside PostGIS. <b>MariaDB 10.6 or later since v1.0.447</b>,
               as a dialect of the same provider and to the same scope; a publish says MariaDB&rsquo;s validity was not
-              measured, and counts rows held in another reference than the column&rsquo;s. No registered source serves vector
+              measured, and counts rows held in another reference than the column&rsquo;s. <b>SQL Server 2016 or later since v1.0.449</b>: geometry and geography tables queried and edited in place, x and y, without attachments, a history or related records yet, registered through the admin API; it does not run on the demo&rsquo;s arm64 server. No registered source serves vector
               tiles. The other engines are deferred, not cancelled. <b>GeoParquet files are the one thing served where they
-              lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading: no edits, no
+              lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading (a DuckDB database file or a MotherDuck database is edited since v1.0.449, where it can be opened for writing): no edits, no
               attachments, no related records, and a distance filter only in a projected reference.
               Every other spatial relation is decided by the geometry engine the Geometry service runs.</p>
             </div>

@@ -74,7 +74,7 @@ and [docs/reviews/](docs/reviews/) has the OGC CITE runs behind them.
 On the front page on purpose. Each is a limit today, not a smaller version of something
 that works.
 
-- **PostGIS, Oracle, MySQL and MariaDB, for databases.** ~~No Oracle,~~ No SQL Server, ~~no MySQL,~~ no file geodatabase
+- **PostGIS, Oracle, SQL Server, MySQL and MariaDB, for databases.** ~~No Oracle,~~ ~~No SQL Server,~~ ~~no MySQL,~~ No file geodatabase
   served in place. **Oracle since v1.0.441**
   ([ADR-205](docs/adr/ADR-205-a-registered-oracle-database-is-served-like-postgis.md)): a registered
   database's `SDO_GEOMETRY` tables are queried and edited in place, with Z and M, GlobalIDs, row versions and
@@ -91,11 +91,17 @@ that works.
   v1.0.447). **MariaDB 10.6 or later since v1.0.447**, as a dialect of the same provider
   ([ADR-209](docs/adr/ADR-209-mariadb-is-a-dialect-of-the-mysql-provider.md)): registered as a MySQL source, told apart when connected,
   to MySQL's scope. MariaDB cannot say whether a shape is valid, and does not enforce a column's reference, so a publish
-  says validity was not measured and counts any rows held in another reference. No
+  says validity was not measured and counts any rows held in another reference. **SQL Server 2016 or later since
+  v1.0.449** ([ADR-210](docs/adr/ADR-210-a-registered-sql-server-database-is-served-to-read.md)): `geometry` and
+  `geography` tables queried and edited in place, x and y, a `geography` box drawn as the client drew it and a clockwise
+  polygon turned the way SQL Server reads it — without attachments, a history or related records yet, registered through
+  the admin API (`kind: "sqlserver"`). The host loads ICU for its driver and pins the invariant culture. SQL Server does
+  not run on arm64, so the demo does not carry it. No
   registered source serves vector tiles ([ADR-206](docs/adr/ADR-206-vector-tiles-are-served-from-the-datastore-only.md)).
   The other engines are deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a. **GeoParquet files are the one
   thing served where they lie** — in a folder on the server, or over `https://` and `s3://` — and
-  only for reading: no edits, no attachments, no related records, and a distance filter only
+  only for reading (a DuckDB database file or a MotherDuck database is **edited since v1.0.449**,
+  [ADR-211](docs/adr/ADR-211-attached-duckdb-and-motherduck-tables-are-edited.md), where it can be opened for writing): no edits, no attachments, no related records, and a distance filter only
   in a projected reference — every other spatial relation is decided by the geometry engine the
   Geometry service runs ([ADR-066](docs/adr/ADR-066-geoparquet-layers-read-by-duckdb.md) §3a,
   [ADR-067](docs/adr/ADR-067-duckdb-sources-beyond-a-local-folder.md)). A remote file is read over
@@ -268,7 +274,8 @@ It is then a FeatureServer at
 
 **A folder of GeoParquet files instead of a database.** Put the folder under `./geoparquet`
 (compose mounts it read-only at `/data/geoparquet`, the only directory the server reads files
-from), register it by name, and publish a file the same way — its schema is `main` and its table
+from — mount it writable if a DuckDB database file in it is to be edited, and know that while it is registered no
+other program can open that file), register it by name, and publish a file the same way — its schema is `main` and its table
 is the file name. The reference, the geometry column and the identity are read from the file, and
 a publication that disagrees with them is refused.
 
