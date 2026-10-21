@@ -76,6 +76,13 @@ internal interface ISqlEngine
     /// <summary>The reference a table holds against the one declared, or null when it could not be asked.</summary>
     Task<(int? Stored, string? Complaint)?> ReferenceAsync(
         string locator, string schema, string table, string column, int declared, CancellationToken cancellationToken);
+
+    /// <summary>Adds columns that are not there — the editor-tracking columns, ADR-212 — and says which it added.</summary>
+    Task<IReadOnlyList<string>> AddColumnsAsync(
+        string locator, string schema, string table, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken);
+
+    /// <summary>Forgets a layer's cached columns, after columns were added.</summary>
+    void ColumnsChanged(PublishedLayer layer);
 }
 
 /// <summary>The registered SQL engines, chosen by locator — ADR-208.</summary>
@@ -146,9 +153,14 @@ internal sealed class OracleEngine : ISqlEngine
         await OracleTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
             ? (found.Stored, found.Complaint)
             : null;
+
+    public Task<IReadOnlyList<string>> AddColumnsAsync(
+        string locator, string schema, string table, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken) =>
+        OracleTableChecks.AddColumnsAsync(locator, schema, table, columns, cancellationToken);
+
+    public void ColumnsChanged(PublishedLayer layer) => OracleFeatureSource.Forget(layer.ConnectionString, layer.Definition);
 }
 
-/// <summary>MySQL behind the seam — ADR-208.</summary>
 internal sealed class MySqlEngine : ISqlEngine
 {
     public string Kind => DataSourceKinds.MySql;
@@ -206,12 +218,14 @@ internal sealed class MySqlEngine : ISqlEngine
         await MySqlTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
             ? (found.Stored, found.Complaint)
             : null;
+
+    public Task<IReadOnlyList<string>> AddColumnsAsync(
+        string locator, string schema, string table, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken) =>
+        MySqlTableChecks.AddColumnsAsync(locator, schema, table, columns, cancellationToken);
+
+    public void ColumnsChanged(PublishedLayer layer) => MySqlFeatureSource.Forget(layer.ConnectionString, layer.Definition);
 }
 
-/// <summary>
-/// SQL Server behind the seam — ADR-210: read and edited (Q-188); attachments, a history and relationships are refused with
-/// the reason until they are built.
-/// </summary>
 internal sealed class SqlServerEngine : ISqlEngine
 {
     public string Kind => DataSourceKinds.SqlServer;
@@ -245,7 +259,8 @@ internal sealed class SqlServerEngine : ISqlEngine
         PublishedLayer layer, string globalIdColumn, IReadOnlyCollection<Guid> globalIds, CancellationToken cancellationToken) =>
         SqlServerFeatureWriter.ObjectIdsOfAsync(layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
 
-    public IAttachmentStore Attachments(PublishedLayer layer) => new SqlServerReadOnly(layer.Definition);
+    public IAttachmentStore Attachments(PublishedLayer layer) =>
+        new SqlServerAttachmentStore(layer.ConnectionString, layer.Definition, layer.AttachmentQuotaBytes);
 
     public IFeatureHistory History(PublishedLayer layer) => new SqlServerReadOnly(layer.Definition);
 
@@ -268,4 +283,11 @@ internal sealed class SqlServerEngine : ISqlEngine
         await SqlServerTableChecks.ReferenceAsync(locator, schema, table, column, declared, cancellationToken).ConfigureAwait(false) is { } found
             ? (found.Stored, found.Complaint)
             : null;
+
+    public Task<IReadOnlyList<string>> AddColumnsAsync(
+        string locator, string schema, string table, IReadOnlyList<(string Name, bool Moment)> columns, CancellationToken cancellationToken) =>
+        SqlServerTableChecks.AddColumnsAsync(locator, schema, table, columns, cancellationToken);
+
+    public void ColumnsChanged(PublishedLayer layer) => SqlServerFeatureSource.Forget(layer.ConnectionString, layer.Definition);
 }
+

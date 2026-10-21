@@ -102,6 +102,13 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-212: a table made in the customer's database is an administrator's to ask for, as the tracking columns are.
+        if (string.Equals(request.In, AttachmentPlaces.Source, StringComparison.Ordinal)
+            && !await Authorize.RequireAsync(context, Privilege.AdminManageAllContent).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (string.Equals(layer.AttachmentsIn, request.In, StringComparison.Ordinal))
         {
             await Results.Json(new { name, @in = request.In, changed = false }).ExecuteAsync(context).ConfigureAwait(false);
@@ -177,7 +184,9 @@ internal static partial class AdminEndpoints
             changed = true,
             removed,
             note = request.In is null
-                ? $"Attachments are off. The {removed:N0} it held were removed."
+                ? removed == 0
+                    ? "Attachments are off. There were no files to delete."
+                    : $"Attachments are off. {removed:N0} file{(removed == 1 ? " was" : "s were")} deleted."
                 : $"Attachments are on, kept {Where(request.In)}.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -206,8 +215,8 @@ internal static partial class AdminEndpoints
 
     private static string Where(string? place) => place switch
     {
-        AttachmentPlaces.Source => "beside its table, in its own database",
-        AttachmentPlaces.Datastore => "in the datastore",
+        AttachmentPlaces.Source => "in its own database, beside its table",
+        AttachmentPlaces.Datastore => "in Graticula's datastore",
         _ => "nowhere",
     };
 

@@ -49,7 +49,7 @@ public sealed class OwnershipAccessScreenTests : ConsoleTest
 
             await ClickAsync(stop);
             await WaitForAsync(
-                $"window.__writes.some(w => w.startsWith('DELETE') && w.includes('/admin/hosted/{layer}/editor-tracking'))",
+                $"window.__writes.some(w => w.startsWith('DELETE') && w.includes('/admin/layers/{layer}/editor-tracking'))",
                 "Stop recording sent no request.");
 
             NothingWentWrong(await PageErrorsAsync());

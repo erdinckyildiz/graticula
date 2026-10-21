@@ -94,9 +94,11 @@ that works.
   says validity was not measured and counts any rows held in another reference. **SQL Server 2016 or later since
   v1.0.449** ([ADR-210](docs/adr/ADR-210-a-registered-sql-server-database-is-served-to-read.md)): `geometry` and
   `geography` tables queried and edited in place, x and y, a `geography` box drawn as the client drew it and a clockwise
-  polygon turned the way SQL Server reads it — without attachments, a history or related records yet, registered through
+  polygon turned the way SQL Server reads it — with attachments since v1.0.450, without a history or related records yet, registered through
   the admin API (`kind: "sqlserver"`). The host loads ICU for its driver and pins the invariant culture. SQL Server does
-  not run on arm64, so the demo does not carry it. No
+  not run on arm64, so the demo does not carry it. **On every registered database but DuckDB** an administrator
+  switches on, from the console, attachments and the recording of who created and last edited each feature and when —
+  the four columns added to the table in one step since v1.0.450 ([ADR-212](docs/adr/ADR-212-editor-tracking-on-a-registered-layer.md)). No
   registered source serves vector tiles ([ADR-206](docs/adr/ADR-206-vector-tiles-are-served-from-the-datastore-only.md)).
   The other engines are deferred, not cancelled — [v1-scope.md](docs/v1-scope.md) §3a. **GeoParquet files are the one
   thing served where they lie** — in a folder on the server, or over `https://` and `s3://` — and

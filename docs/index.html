@@ -550,7 +550,7 @@ pre .k{color:var(--accent)}
               connected user create triggers. ArcGIS Pro has no MySQL connection; it reaches these layers through the
               FeatureServer. The console registers both beside PostGIS. <b>MariaDB 10.6 or later since v1.0.447</b>,
               as a dialect of the same provider and to the same scope; a publish says MariaDB&rsquo;s validity was not
-              measured, and counts rows held in another reference than the column&rsquo;s. <b>SQL Server 2016 or later since v1.0.449</b>: geometry and geography tables queried and edited in place, x and y, without attachments, a history or related records yet, registered through the admin API; it does not run on the demo&rsquo;s arm64 server. No registered source serves vector
+              measured, and counts rows held in another reference than the column&rsquo;s. <b>SQL Server 2016 or later since v1.0.449</b>: geometry and geography tables queried and edited in place, x and y, with attachments since v1.0.450, without a history or related records yet, registered through the admin API; it does not run on the demo&rsquo;s arm64 server. No registered source serves vector
               tiles. The other engines are deferred, not cancelled. <b>GeoParquet files are the one thing served where they
               lie</b> &mdash; on the server, over https or in S3 &mdash; and only for reading (a DuckDB database file or a MotherDuck database is edited since v1.0.449, where it can be opened for writing): no edits, no
               attachments, no related records, and a distance filter only in a projected reference.

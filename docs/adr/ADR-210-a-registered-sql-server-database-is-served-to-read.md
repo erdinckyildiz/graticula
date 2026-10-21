@@ -123,7 +123,7 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
    values said by column), and through the local fixture's FeatureServer `applyEdits` 12 of 12 — a place added with
    Turkish letters, moved and renamed, one sent in EPSG:3857 stored in 4326, a building polygon added to the indexed
    `geometry` table, all deleted.
-5. **Attachments, a history and relationships** (ADR-207) on a SQL Server layer, as MySQL and Oracle have them.
+5. **Attachments, a history and relationships** (ADR-207) on a SQL Server layer, as MySQL and Oracle have them. **PARTLY DISCHARGED 2026-10-21** — attachments, by the owner's word, [ADR-212](ADR-212-editor-tracking-on-a-registered-layer.md): kept beside the table and used end to end through FeatureServer. A history and relationships are still refused saying so.
 
 ## 6. Consequences
 
