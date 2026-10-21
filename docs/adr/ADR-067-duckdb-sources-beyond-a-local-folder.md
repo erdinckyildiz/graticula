@@ -14,6 +14,11 @@
 
 ---
 
+> **AMENDED 2026-10-21 by [ADR-211](ADR-211-attached-duckdb-and-motherduck-tables-are-edited.md), by owner decision.** A
+> DuckDB file and a MotherDuck database are attached **read-write** and their tables are edited, under the same sandbox
+> with `<file>.wal.checkpoint` allowed beside the file and its log; read only only where the read-write attach is
+> refused. §5.3 and §5.4's `READ_ONLY` below are what was true before. GeoParquet files are unchanged: read only.
+
 ## 1. Context
 
 [ADR-066](ADR-066-geoparquet-layers-read-by-duckdb.md) made one DuckDB-backed source: a folder of

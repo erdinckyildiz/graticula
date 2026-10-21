@@ -874,7 +874,8 @@ internal sealed partial class GeoParquetSources : IDisposable
                 file.CandidateObjectIdColumn,
                 PrimaryKeyColumn: null,
                 file.IdentityCandidates,
-                Writable: false,
+                Writable: opened.IsWritable && file.CandidateObjectIdColumn is { } key
+                    && !string.Equals(key, GeoParquetFolder.RowNumberColumn, StringComparison.Ordinal),
                 WideIdentityCandidates: file.WideIdentityCandidates));
         }
 
