@@ -48,6 +48,22 @@ internal static class SqlServerConnections
     }
 
     /// <summary>
+    /// Whether this credential may change rows of a base table — its <c>UPDATE</c> permission, on a table rather than a
+    /// view, which is what every edit but an add needs; a refusal of the rest is said per edit.
+    /// </summary>
+    public static async Task<bool> CanWriteAsync(SqlConnection connection, string schema, string table, CancellationToken cancellationToken)
+    {
+        await using SqlCommand command = new(
+            "select case when exists (select 1 from INFORMATION_SCHEMA.TABLES "
+            + "where TABLE_SCHEMA = @s and TABLE_NAME = @t and TABLE_TYPE = 'BASE TABLE') "
+            + "and has_perms_by_name(quotename(@s) + '.' + quotename(@t), 'OBJECT', 'UPDATE') = 1 then 1 else 0 end",
+            connection);
+        command.Parameters.AddWithValue("@s", schema);
+        command.Parameters.AddWithValue("@t", table);
+        return Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) == 1;
+    }
+
+    /// <summary>
     /// An open connection. Every statement here is written for SQL Server's defaults through this driver —
     /// <c>QUOTED_IDENTIFIER ON</c>, so a double-quoted name is a name, and <c>ANSI_NULLS ON</c>.
     /// </summary>

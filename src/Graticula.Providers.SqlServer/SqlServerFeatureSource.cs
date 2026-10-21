@@ -36,7 +36,7 @@ namespace Graticula.Providers.SqlServer;
 /// Z or M.
 /// </para>
 /// </remarks>
-public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries
+public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, IFeatureVersions
 {
     private const int ProjectionBatch = 512;
 
@@ -294,8 +294,9 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries
         List<FieldDescription> fields = [.. table.Columns.Select(c => new FieldDescription(
             c.Name, c.Type, c.Nullable && !string.Equals(c.Name, _layer.IdentityColumn, StringComparison.Ordinal), c.MaxLength))];
 
-        // Read only (ADR-210 §5): never writable, whatever the grant says.
-        return new LayerDescription(fields, await ExtentOfTableAsync(connection, table, cancellationToken).ConfigureAwait(false), false)
+        bool writable = await SqlServerConnections.CanWriteAsync(connection, _layer.SchemaName, _layer.TableName, cancellationToken).ConfigureAwait(false);
+
+        return new LayerDescription(fields, await ExtentOfTableAsync(connection, table, cancellationToken).ConfigureAwait(false), writable)
         {
             AnswersDistance = _engine is not null,
             AnswersHaving = true,
@@ -306,6 +307,25 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries
             SpatiallyIndexed = !table.Geography,
         };
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// <b>SQL Server keeps no row version unless a table has a <c>rowversion</c> column</b>, so a row's version is a hash of
+    /// what it holds — MySQL's rule (ADR-208 §5.5), the same expression the writer's precondition compares.
+    /// </remarks>
+    public Task<string?> VersionOfAsync(long identity, CancellationToken cancellationToken) =>
+        Bounded(async token =>
+        {
+            await using SqlConnection connection = await OpenAsync(token).ConfigureAwait(false);
+            SqlServerTable table = await TableAsync(connection, token).ConfigureAwait(false);
+
+            await using SqlCommand command = new(
+                $"select {SqlServerFeatureWriter.VersionSqlOf(table.Columns.Select(c => c.Name), _layer.GeometryColumn, "t")} from {From} t where {Id} = @id",
+                connection);
+            command.Parameters.AddWithValue("@id", identity);
+
+            return await command.ExecuteScalarAsync(token).ConfigureAwait(false) as string;
+        }, cancellationToken);
 
     /// <summary>The table's extent, from <c>EnvelopeAggregate</c> over its shapes as planar ones.</summary>
     private async Task<Envelope?> ExtentOfTableAsync(SqlConnection connection, SqlServerTable table, CancellationToken cancellationToken)

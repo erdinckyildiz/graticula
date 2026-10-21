@@ -116,7 +116,7 @@ public sealed class SqlServerFeatureSourceTests : IAsyncLifetime
 
         Assert.Equal(ProbeOutcome.Usable, probed.Outcome);
         Assert.Contains(probed.Tables, t => t.TableName == "zz_places" && t.SchemaName == "dbo" && t.Srid == 4326
-            && t.GeometryType == "Point" && t.CandidateObjectIdColumn == "objectid" && !t.Writable);
+            && t.GeometryType == "Point" && t.CandidateObjectIdColumn == "objectid" && t.Writable);
         Assert.Contains(probed.Tables, t => t.TableName == "zz_geo" && t.Srid == 4326);
         Assert.Contains(probed.Skipped!, s => s.Name == "dbo.zz_mixed" && s.Reason.Contains("more than one reference", StringComparison.Ordinal));
         Assert.Contains(probed.Skipped!, s => s.Name == "dbo.zz_empty" && s.Reason.Contains("no shape yet", StringComparison.Ordinal));
@@ -138,7 +138,7 @@ public sealed class SqlServerFeatureSourceTests : IAsyncLifetime
         LayerDescription described = await Places().DescribeAsync(None);
         Envelope extent = Assert.NotNull(described.Extent);
         Assert.Equal((27.14, 36.60, 35.15, 42.03), (extent.MinX, extent.MinY, extent.MaxX, extent.MaxY));
-        Assert.False(described.Writable);
+        Assert.True(described.Writable);
         Assert.Contains(described.Fields, f => f.Name == "ad" && f.Type == FieldType.Text && f.MaxLength == 50);
     }
 
@@ -234,12 +234,12 @@ public sealed class SqlServerFeatureSourceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task An_edit_is_refused_with_the_reason()
+    public async Task What_is_not_built_yet_is_refused_with_the_reason()
     {
         SqlServerReadOnly refused = new(new LayerDefinition("Places", "dbo", "zz_places", "shape", 4326, "objectid", "objectid", isHosted: false));
 
-        QueryNotSupportedException no = await Assert.ThrowsAsync<QueryNotSupportedException>(() => refused.ApplyAsync(null!, None));
-        Assert.Contains("reads and does not edit", no.Message, StringComparison.Ordinal);
+        QueryNotSupportedException no = await Assert.ThrowsAsync<QueryNotSupportedException>(() => refused.EnableAsync(None));
+        Assert.Contains("does not keep a history of it yet", no.Message, StringComparison.Ordinal);
         Assert.False(await refused.IsOnAsync(None));
     }
 

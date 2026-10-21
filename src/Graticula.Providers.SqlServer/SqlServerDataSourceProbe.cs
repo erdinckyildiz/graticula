@@ -19,9 +19,6 @@ namespace Graticula.Providers.SqlServer;
 /// table is skipped with that reason, and one whose rows disagree is skipped with how many disagree, rather than offered
 /// and then served in two references at once.
 /// </para>
-/// <para>
-/// <b>Read only</b> (ADR-210 §5): every table is offered as not writable, whatever the grant says.
-/// </para>
 /// </remarks>
 public sealed class SqlServerDataSourceProbe : IDataSourceProbe
 {
@@ -68,7 +65,7 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
             string message = tables.Count == 0
                 ? "Connected, and nothing here can be published: no table with a geometry or geography column whose rows "
                   + "hold one SRID, and a single whole-number primary key, is in this database."
-                : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published, to read.";
+                : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published.";
 
             return new ProbeResult(ProbeOutcome.Usable, message, version, $"SQL Server spatial {version}", tables, skipped);
         }
@@ -173,7 +170,8 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
                 continue;
             }
 
-            tables.Add(new SourceTable(row.Schema, row.Table, row.Column, reference, type, key, key, [key], Writable: false));
+            tables.Add(new SourceTable(row.Schema, row.Table, row.Column, reference, type, key, key, [key],
+                Writable: await SqlServerConnections.CanWriteAsync(connection, row.Schema, row.Table, cancellation).ConfigureAwait(false)));
         }
 
         return (tables, skipped);

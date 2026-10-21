@@ -208,7 +208,10 @@ internal sealed class MySqlEngine : ISqlEngine
             : null;
 }
 
-/// <summary>SQL Server behind the seam — ADR-210: read only, so every member that would change the database refuses.</summary>
+/// <summary>
+/// SQL Server behind the seam — ADR-210: read and edited (Q-188); attachments, a history and relationships are refused with
+/// the reason until they are built.
+/// </summary>
 internal sealed class SqlServerEngine : ISqlEngine
 {
     public string Kind => DataSourceKinds.SqlServer;
@@ -225,19 +228,22 @@ internal sealed class SqlServerEngine : ISqlEngine
     public IFeatureWriter Writer(
         PublishedLayer layer, IReadOnlyList<FieldDescription> fields, IProjector projector, EditorTracking? tracking,
         LayerSubtypes? subtypes, TimeSpan timeout) =>
-        new SqlServerReadOnly(layer.Definition);
+        new SqlServerFeatureWriter(layer.ConnectionString, layer.Definition, fields, projector, tracking, subtypes, timeout);
 
     public Task<IReadOnlyList<EditOutcome>> ApplyTogetherAsync(
         string locator, IReadOnlyList<LayerConnections.LayerEdit> edits, IProjector projector, TimeSpan timeout,
         CancellationToken cancellationToken) =>
-        throw new QueryNotSupportedException(
-            "These layers are served from a registered SQL Server database, which this build reads and does not edit (ADR-210 §5).");
+        SqlServerFeatureWriter.ApplyTogetherAsync(
+            locator,
+            [.. edits.Select(e => new SqlServerFeatureWriter.LayerBatch(
+                e.Layer.Definition, e.Description.Fields, e.Description.Tracking, e.Description.Subtypes, e.Batch))],
+            projector,
+            timeout,
+            cancellationToken);
 
     public Task<IReadOnlyDictionary<Guid, long>> ObjectIdsOfAsync(
         PublishedLayer layer, string globalIdColumn, IReadOnlyCollection<Guid> globalIds, CancellationToken cancellationToken) =>
-        throw new QueryNotSupportedException(
-            $"Layer '{layer.Definition.Name}' is served from a registered SQL Server database, which this build reads and does "
-            + "not edit, so it takes no GlobalIDs to look up (ADR-210 §5).");
+        SqlServerFeatureWriter.ObjectIdsOfAsync(layer.ConnectionString, layer.Definition, globalIdColumn, globalIds, cancellationToken);
 
     public IAttachmentStore Attachments(PublishedLayer layer) => new SqlServerReadOnly(layer.Definition);
 

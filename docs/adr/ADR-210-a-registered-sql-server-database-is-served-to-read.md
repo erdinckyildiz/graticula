@@ -1,10 +1,10 @@
-# ADR-210 — A registered SQL Server database is served to read
+# ADR-210 — A registered SQL Server database is served to read, and edited
 
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-10-21, by owner decision: *"benim canım sql server denemek istiyor"*, and after SQL Server was found not to run on the arm64 VPS but to be installed on the development machine as SQL Server 2025 Express LocalDB, *"ya ben çalışabildiğini kanıtlamak istiyorum. performans umurumda değil"* — proof that it works, speed not the question. That the proof is **reading only** is `INFERRED` and listed in §5 for confirmation ([Q-188](../open-questions.md)). |
+| **Decided** | 2026-10-21, by owner decision: *"benim canım sql server denemek istiyor"*, and after SQL Server was found not to run on the arm64 VPS but to be installed on the development machine as SQL Server 2025 Express LocalDB, *"ya ben çalışabildiğini kanıtlamak istiyorum. performans umurumda değil"* — proof that it works, speed not the question. That the proof is **reading only** was `INFERRED` (§5.5) and the owner answered it the same day: *"tüm bağlanan db lerde yazma olmalı"*, *"Biz bu db leri hem okuma hem yazma için kullanacağız"* — every connected database is read **and written** ([Q-188](../open-questions.md)). §5.5 is amended accordingly. |
 | **Reverses** | — |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -90,9 +90,15 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
    other shape, relation or distance is decided here, as for every registered engine (EngineRelations).
 4. **`geography` is read as planar coordinates**: boxed as `geometry` of SRID 0 over its WKB, so a box is the box the
    client drew. The cost is its index.
-5. **Read only — `INFERRED`, for confirmation (Q-188).** Every table is offered as not writable, a layer describes
-   itself as not writable, and an edit, an attachment, a history or a relationship is refused saying so; a history is
-   *off*, so a layer can be removed.
+5. ~~**Read only — `INFERRED`, for confirmation (Q-188).**~~ **Edited, by owner decision 2026-10-21 (Q-188).**
+   `SqlServerFeatureWriter` is `MySqlFeatureWriter` in T-SQL under the same `EditColumns` rules: adds, updates and
+   deletes in one transaction with a savepoint each; a new key through `OUTPUT inserted` into a table variable (so a
+   trigger does not refuse it), from an `IDENTITY` column or a default, or the add is refused with the reason; GlobalIDs
+   in a `uniqueidentifier` minted and looked up; a row's version a SHA-1 of its columns and shape as JSON, compared in
+   the `where`; ownership in the `where`; Z and M refused. **A `geography` polygon sent clockwise is reoriented** — SQL
+   Server reads a ring's left as its inside, so ArcGIS's clockwise ring would otherwise be the rest of the Earth. A table
+   is offered writable where the credential holds `UPDATE` on a base table. Attachments, a history and relationships
+   are still refused saying so, and a history answers *off*, so a layer can be removed (condition 5).
 6. **The host runs with ICU and the invariant culture pinned.** `InvariantGlobalization` is false for
    `Graticula.Host` (and the provider's tests) alone; `Main` sets the process's cultures to the invariant one before
    anything else, so formatting and casing stay what they were, and a Turkish Windows does not upper-case `i` as `İ`.
@@ -112,6 +118,12 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
 3. **The console** offers SQL Server in *Add a source* beside PostGIS, Oracle and MySQL or MariaDB, through the
    ux-designer review every screen gets — today it is registered through the API only, as Oracle and MySQL were first.
 4. **The owner confirms §5.5** — reading only — or asks for editing, which would be ADR-208's writer in T-SQL.
+   **DISCHARGED 2026-10-21** — editing asked for and built: the provider suite 15 of 15 against LocalDB (a clockwise
+   `geography` square stored as 9.5 thousand km², not the planet less it; a stale version refused; required and long
+   values said by column), and through the local fixture's FeatureServer `applyEdits` 12 of 12 — a place added with
+   Turkish letters, moved and renamed, one sent in EPSG:3857 stored in 4326, a building polygon added to the indexed
+   `geometry` table, all deleted.
+5. **Attachments, a history and relationships** (ADR-207) on a SQL Server layer, as MySQL and Oracle have them.
 
 ## 6. Consequences
 

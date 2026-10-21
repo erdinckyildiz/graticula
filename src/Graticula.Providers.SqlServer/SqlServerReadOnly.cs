@@ -9,14 +9,14 @@ using Graticula.Features;
 namespace Graticula.Providers.SqlServer;
 
 /// <summary>
-/// What a SQL Server layer answers to everything but reading — ADR-210 §5: it is served to read, and an edit, an
-/// attachment, a history or a relationship is refused with that sentence rather than half done.
+/// What a SQL Server layer answers for what is not built yet — attachments, a history and relationships (ADR-210): each
+/// is refused with that sentence rather than half done. Editing is <see cref="SqlServerFeatureWriter"/>'s.
 /// </summary>
 /// <remarks>
 /// <b>A history is "off", not refused</b>: a layer's removal asks whether one is on before it goes (ADR-207), and a
 /// SQL Server layer never has one, so the answer is no rather than an error that would keep it from being removed.
 /// </remarks>
-public sealed class SqlServerReadOnly : IFeatureWriter, IAttachmentStore, IFeatureHistory, IRelatedRecords
+public sealed class SqlServerReadOnly : IAttachmentStore, IFeatureHistory, IRelatedRecords
 {
     private readonly string _layer;
 
@@ -29,11 +29,8 @@ public sealed class SqlServerReadOnly : IFeatureWriter, IAttachmentStore, IFeatu
     }
 
     private QueryNotSupportedException No(string what) => new(
-        $"Layer '{_layer}' is served from a registered SQL Server database, which this build reads and does not {what} "
-        + "(ADR-210 §5).");
-
-    /// <inheritdoc />
-    public Task<EditOutcome> ApplyAsync(EditBatch batch, CancellationToken cancellationToken) => throw No("edit");
+        $"Layer '{_layer}' is served from a registered SQL Server database, and this build does not {what} it yet "
+        + "(ADR-210).");
 
     /// <inheritdoc />
     public Task<IReadOnlyList<AttachmentInfo>> ListAsync(long featureId, CancellationToken cancellationToken) =>
