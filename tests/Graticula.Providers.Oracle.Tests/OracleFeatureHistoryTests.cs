@@ -61,7 +61,10 @@ public sealed class OracleFeatureHistoryTests
         EditOutcome edited = await writer.ApplyAsync(
             new EditBatch([], [new FeatureUpdate(1, new Dictionary<string, object?> { ["LABEL"] = "changed" }, null)], [2], Editor: "ayse"),
             None);
-        Assert.True(edited.AllSucceeded);
+        // Says which edit failed and why: it failed once in CI (v1.0.451's push run) and passed on the rerun, and a bare
+        // `Expected: True` left nothing to go on.
+        Assert.True(edited.AllSucceeded, string.Join("; ", edited.Updates.Concat(edited.Deletes)
+            .Where(r => !r.Succeeded).Select(r => $"{r.Identity}: {r.Error}")));
 
         await ExecuteAsync($"update {Table} set label = 'by sql' where objectid = 1");
 
