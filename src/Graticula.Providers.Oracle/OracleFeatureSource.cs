@@ -203,9 +203,20 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         bool parted = !distinct && query.IncludeGeometry && (table.Ordinates & query.KeepOrdinates) != GeometryOrdinates.None;
 
+        // <b>A page is chosen first, and only its shapes are converted.</b> Oracle evaluates SDO_UTIL.TO_WKBGEOMETRY for
+        // every row it sorts, before the offset and the fetch take the page: on the VPS, 200,000 points ordered by their
+        // key took 28 s for the first thousand and 23 s for the thousand at offset 100,000, where PostGIS took 78 ms.
+        // So a read asks for identities and attributes first, in its order, and for the shapes of each thousand of those
+        // rows as they arrive — a map drawn from 200,000 points timed out at 30 s before this, in one statement.
+        // <b>Points need neither pass</b>: where the index promises points and no Z or M is asked for, a row's shape is
+        // its two numbers, read with its attributes — the second pass cost a page of a thousand 52 ms on the VPS, and a
+        // single feature by its id 78 ms against 28 ms in one statement.
+        bool inlinePoints = !distinct && table.Points && !parted && (query.IncludeGeometry || query.ReturnCentroid);
+        bool twoPass = !distinct && !inlinePoints && (query.IncludeGeometry || query.ReturnCentroid);
+
         if (distinct)
         {
-            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(Source(query, table));
+            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             sql.Append(" group by ").Append(string.Join(", ", schema.Names.Distinct(StringComparer.Ordinal).Select(LayerDefinition.Quote)));
         }
@@ -213,10 +224,12 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
             // A centroid is the output shape's label point, so the shape is read for it even when it is not returned.
-            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
+            sql.Append(inlinePoints
+                ? $", {PointOrdinate(1)} as g, {PointOrdinate(2)} as gy"
+                : (query.IncludeGeometry || query.ReturnCentroid) && !twoPass ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
 
             // Z and M come from the shape's parts, because Oracle's WKB of a shape with them is not WKB (SdoShape).
-            if (parted)
+            if (parted && !twoPass)
             {
                 sql.Append(", ").Append(SdoShape.PartsSql("t", Shape)).Append(" as z");
             }
@@ -235,6 +248,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         await using OracleCommand command = statement.Command(connection, _timeout);
         await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         reader.SuppressGetDecimalInvalidCastException = true;
+        List<Feature>? paged = twoPass ? [] : null;
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -258,29 +272,75 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             int geometryOrdinal = schema.Count + 1;
             Geometry? geometry = reader.IsDBNull(geometryOrdinal)
                 ? null
+                : inlinePoints
+                    ? new Point(Convert.ToDouble(reader.GetValue(geometryOrdinal), CultureInfo.InvariantCulture),
+                        Convert.ToDouble(reader.GetValue(geometryOrdinal + 1), CultureInfo.InvariantCulture))
                 : parted && !reader.IsDBNull(geometryOrdinal + 1)
                     && SdoShape.ToWkb(SdoShape.ParseParts(reader.GetString(geometryOrdinal + 1))) is { } full
                         ? WkbReader.Read(full, query.KeepOrdinates, out _)
                         : WkbReader.Read((byte[])reader.GetValue(geometryOrdinal));
 
             Feature feature = new(id, geometry, schema, values);
+            IReadOnlyList<Feature> ready = [feature];
 
-            if (!reshape)
+            // In two passes the rows wait for their shapes, a chunk at a time, while this reader stays open: Oracle keeps
+            // two cursors on one connection, so memory is a chunk whatever the read's size.
+            if (paged is not null)
             {
-                yield return Finished(feature, query);
-                continue;
-            }
+                paged.Add(feature);
 
-            batch.Add(feature);
-
-            if (batch.Count == ProjectionBatch)
-            {
-                foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
+                if (paged.Count < ShapeChunk)
                 {
-                    yield return Finished(done, query);
+                    continue;
                 }
 
-                batch.Clear();
+                ready = await WithShapesAsync(connection, query, table, schema, paged, parted, cancellationToken).ConfigureAwait(false);
+                paged.Clear();
+            }
+
+            foreach (Feature one in ready)
+            {
+                if (!reshape)
+                {
+                    yield return Finished(one, query);
+                    continue;
+                }
+
+                batch.Add(one);
+
+                if (batch.Count == ProjectionBatch)
+                {
+                    foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
+                    {
+                        yield return Finished(done, query);
+                    }
+
+                    batch.Clear();
+                }
+            }
+        }
+
+        if (paged is { Count: > 0 })
+        {
+            foreach (Feature one in await WithShapesAsync(connection, query, table, schema, paged, parted, cancellationToken).ConfigureAwait(false))
+            {
+                if (!reshape)
+                {
+                    yield return Finished(one, query);
+                    continue;
+                }
+
+                batch.Add(one);
+
+                if (batch.Count == ProjectionBatch)
+                {
+                    foreach (Feature done in await ReshapeAsync(batch, query, cancellationToken).ConfigureAwait(false))
+                    {
+                        yield return Finished(done, query);
+                    }
+
+                    batch.Clear();
+                }
             }
         }
 
@@ -291,6 +351,85 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
                 yield return Finished(done, query);
             }
         }
+    }
+
+    /// <summary>A point's x (1) or y (2), from SDO_POINT where it is there and from its ordinates where it is not.</summary>
+    private string PointOrdinate(int axis)
+    {
+        string name = axis == 1 ? "x" : "y";
+        return $"coalesce(t.{Shape}.sdo_point.{name}, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, {axis.ToString(CultureInfo.InvariantCulture)}))";
+    }
+
+    /// <summary>How many rows wait for their shapes at once in a two-pass read.</summary>
+    private const int ShapeChunk = 1_000;
+
+    /// <summary>A chunk of rows with their shapes, in the chunk's order.</summary>
+    private async Task<IReadOnlyList<Feature>> WithShapesAsync(
+        OracleConnection connection, FeatureQuery query, OracleTable table, FeatureSchema schema, List<Feature> rows, bool parted,
+        CancellationToken cancellationToken)
+    {
+        Dictionary<string, Geometry?> shapes = await ShapesOfAsync(
+            connection, query, table, [.. rows.Select(f => long.Parse(f.Id, CultureInfo.InvariantCulture))], parted, cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. rows.Select(bare => new Feature(
+            bare.Id, shapes.GetValueOrDefault(bare.Id), schema, [.. Enumerable.Range(0, schema.Count).Select(i => bare[i])]))];
+    }
+
+    /// <summary>The shapes of a page's rows, by identity — the second pass of a bounded read.</summary>
+    private async Task<Dictionary<string, Geometry?>> ShapesOfAsync(
+        OracleConnection connection, FeatureQuery query, OracleTable table, IReadOnlyList<long> ids, bool parted,
+        CancellationToken cancellationToken)
+    {
+        // <b>Points are their two numbers</b>, where the index promises points and no Z or M is asked for; and <b>the ids
+        // drive the join</b>, so each is one probe of the key's index. Written as `in (select … from json_table(…))` this
+        // cost Oracle 330 ms a page on the VPS — the shapes converted first and matched after — against 20 ms for the
+        // same rows by their keys.
+        bool points = table.Points && !parted;
+        StringBuilder sql = new($"select t.{Id}, ");
+
+        sql.Append(points
+            ? $"{PointOrdinate(1)}, {PointOrdinate(2)}"
+            : $"sdo_util.to_wkbgeometry({Flat(table).Replace(Shape, "t." + Shape, StringComparison.Ordinal)})");
+
+        if (parted)
+        {
+            sql.Append(", ").Append(SdoShape.PartsSql("t", Shape));
+        }
+
+        sql.Append(" from json_table(:gids, '$[*]' columns (v number path '$')) j join ").Append(Source(query, table))
+           .Append(" t on t.").Append(Id).Append(" = j.v");
+
+        // The WKB comes inline with its row, as Statement.Command has it: without this ODP.NET fetches each BLOB in a round
+        // trip of its own, and a page of 1,421 shapes took 28 s over the test tunnel (found with dotnet-stack).
+        await using OracleCommand command = new(sql.ToString(), connection)
+        {
+            BindByName = true,
+            CommandTimeout = (int)Math.Ceiling(_timeout.TotalSeconds),
+            InitialLOBFetchSize = -1,
+        };
+
+        command.Parameters.Add("gids", OracleDbType.Clob, JsonSerializer.Serialize(ids), System.Data.ParameterDirection.Input);
+
+        Dictionary<string, Geometry?> shapes = new(ids.Count, StringComparer.Ordinal);
+
+        await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        reader.SuppressGetDecimalInvalidCastException = true;
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            string id = Convert.ToInt64(reader.GetDecimal(0), CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture);
+
+            shapes[id] = reader.IsDBNull(1)
+                ? null
+                : points
+                    ? new Point(Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture), Convert.ToDouble(reader.GetValue(2), CultureInfo.InvariantCulture))
+                : parted && !reader.IsDBNull(2) && SdoShape.ToWkb(SdoShape.ParseParts(reader.GetString(2))) is { } full
+                    ? WkbReader.Read(full, query.KeepOrdinates, out _)
+                    : WkbReader.Read((byte[])reader.GetValue(1));
+        }
+
+        return shapes;
     }
 
     /// <summary>
@@ -500,19 +639,19 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         {
             statement.Sql.Append("select count(*) from (select distinct ")
                 .Append(string.Join(", ", query.Fields.Select(LayerDefinition.Quote)))
-                .Append(" from ").Append(Source(query, table));
+                .Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             statement.Sql.Append(')');
         }
         else if (ceiling is { } most)
         {
-            statement.Sql.Append("select count(*) from (select 1 from ").Append(Source(query, table));
+            statement.Sql.Append("select count(*) from (select 1 from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             statement.Sql.Append(" fetch first ").Append(statement.Bind("ceiling", most)).Append(" rows only)");
         }
         else
         {
-            statement.Sql.Append("select count(*) from ").Append(Source(query, table));
+            statement.Sql.Append("select count(*) from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
 
@@ -539,7 +678,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
 
-        statement.Sql.Append("select sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(Source(query, table));
+        statement.Sql.Append("select sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
 
         Envelope extent = Envelope.Empty;
@@ -612,7 +751,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(Source(query, table));
+        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
         statement.Sql.Append(" order by ").Append(Id);
 
@@ -961,6 +1100,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         int? srid = null;
         GeometryOrdinates ordinates = GeometryOrdinates.None;
+        bool points = false;
 
         // <b>What the column stores: its metadata's dimensions, and a measure where one is named or a row says so</b> —
         // a third dimension is an elevation unless it is called M, as Oracle's linear referencing names it, or the first
@@ -970,7 +1110,11 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             select m.srid,
                    (select count(*) from table(m.diminfo)),
                    (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
-                   (select r.{Shape}.sdo_gtype from {From} r where r.{Shape} is not null and rownum = 1)
+                   (select r.{Shape}.sdo_gtype from {From} r where r.{Shape} is not null and rownum = 1),
+                   (select count(*) from all_sdo_index_info i, all_sdo_index_metadata x
+                     where i.table_owner = m.owner and i.table_name = m.table_name and i.column_name = m.column_name
+                       and x.sdo_index_owner = i.sdo_index_owner and x.sdo_index_name = i.index_name
+                       and x.sdo_layer_gtype = 'POINT')
               from all_sdo_geom_metadata m
              where m.owner = :o and m.table_name = :t and m.column_name = :c
             """, connection) { BindByName = true })
@@ -995,6 +1139,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
                 bool measured = named || sampled / 100 % 10 > 0;
 
+                // A spatial index made with LAYER_GTYPE=POINT is Oracle's promise that the column holds points only: it
+                // refuses any other shape.
+                points = Convert.ToInt32(reader.GetValue(4), CultureInfo.InvariantCulture) > 0;
+
                 ordinates = dimensions switch
                 {
                     >= 4 => GeometryOrdinates.Z | GeometryOrdinates.M,
@@ -1006,7 +1154,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         OracleTable table = new(columns, srid ?? throw new InvalidOperationException(
             $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, "
-            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates);
+            + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates, points,
+            points ? await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false) : null);
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
@@ -1049,7 +1198,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             ranked.Append("partition by ").Append(string.Join(", ", top.GroupBy.Select(LayerDefinition.Quote))).Append(' ');
         }
 
-        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(Source(query, table));
+        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(Source(query, table)).Append(" t");
 
         if (filters.Clauses.Count > 0)
         {
@@ -1116,20 +1265,57 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             return new Filters(attributes, parameters);
         }
 
+        bool indexOnly = shape is null && query.BoundingBox is null
+            && query.Spatial is { Relation: SpatialRelation.IndexIntersects };
+        bool pointBoxes = !indexOnly && table.Points && byEngine is null && (shape is null || IsBox(shape));
+
         // The index's answer, kept for a box-only query too large to refine here.
         List<string> inOracle = [.. attributes];
+        bool[] compared = new bool[boxes.Count];
 
         for (int i = 0; i < boxes.Count; i++)
         {
+            // <b>A box over a good share of a point layer is not asked of the index</b> but compared, which is exact on
+            // its own, because a scan is cheaper than the geodetic index's answer once that answer is more than a few
+            // rows in a hundred: on the VPS, 200,000 points took SDO_FILTER 230–420 ms for a box holding all of them
+            // and 210 ms for one holding 24,596, against 60–80 ms compared; a box holding 1,768 cost both about 60 ms.
+            // A projected index was not measured. A stale extent costs speed only, never an answer.
+            if (table.Points && !indexOnly && Wide(boxes[i], table.Extent))
+            {
+                inOracle.Add(InBox(boxes[i], "inbox" + i.ToString(CultureInfo.InvariantCulture), parameters));
+                compared[i] = true;
+                continue;
+            }
+
             inOracle.Add(BoxClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), table.Srid, parameters));
         }
 
         // <b>Index-intersects is the index's answer, as `&&` is PostGIS's</b> — esriSpatialRelIndexIntersects asks for
         // exactly that. Nothing is read twice for it; a bounding box or another relation beside it is exact.
-        if (shape is null && query.BoundingBox is null
-            && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
+        if (indexOnly)
         {
             return new Filters(inOracle, parameters);
+        }
+
+        // <b>A box against points is decided in Oracle, exactly.</b> A point is inside an axis-aligned box when each
+        // coordinate is between the box's — the exact pass's answer and PostGIS's, boundary included — so it is written
+        // as that comparison beside SDO_FILTER, whose geodetic index answers wide (ADR-205 §4), and nothing is carried
+        // here. Only where the spatial index promises points (LAYER_GTYPE=POINT). A point's numbers are read from
+        // SDO_POINT — SDO_GEOM.SDO_MIN_MBR_ORDINATE, which reads them wherever they are kept, cost 177 s against 0.43 s
+        // for 200,000 points, so it is only the fallback for a point kept in the ordinate array (COALESCE stops early).
+        if (pointBoxes)
+        {
+            List<string> exact = [.. inOracle];
+
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                if (!compared[i])
+                {
+                    exact.Add(InBox(boxes[i], "inbox" + i.ToString(CultureInfo.InvariantCulture), parameters));
+                }
+            }
+
+            return new Filters(exact, parameters);
         }
 
         List<Geometry>? kept = byEngine is null ? null : [];
@@ -1180,13 +1366,19 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
     {
         Statement statement = new(candidates);
 
-        statement.Sql.Append("select ").Append(Id).Append(", sdo_util.to_wkbgeometry(").Append(Flat(table)).Append(") from ").Append(relation);
+        // <b>Points are read as their two numbers</b>, where the spatial index promises points: converting each to WKB
+        // cost Oracle about 25 microseconds a row, 5 s for 200,000 candidates on the VPS.
+        statement.Sql.Append("select ").Append(Id).Append(table.Points
+            ? $", coalesce(t.{Shape}.sdo_point.x, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 1)), "
+              + $"coalesce(t.{Shape}.sdo_point.y, sdo_geom.sdo_min_mbr_ordinate(t.{Shape}, 2))"
+            : $", sdo_util.to_wkbgeometry({Flat(table)})").Append(" from ").Append(relation).Append(" t");
         statement.AppendWhere();
 
         List<long> matched = [];
 
         await using OracleCommand command = statement.Command(connection, _timeout);
         await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        reader.SuppressGetDecimalInvalidCastException = true;
 
         while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -1195,7 +1387,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
                 continue;
             }
 
-            Geometry geometry = WkbReader.Read((byte[])reader.GetValue(1));
+            Geometry geometry = table.Points
+                ? new Point(Convert.ToDouble(reader.GetValue(1), CultureInfo.InvariantCulture), Convert.ToDouble(reader.GetValue(2), CultureInfo.InvariantCulture))
+                : WkbReader.Read((byte[])reader.GetValue(1));
             Envelope own = geometry.Envelope;
 
             if (boxes.Any(b => !own.Intersects(b))
@@ -1247,6 +1441,43 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         return $"sdo_filter({Shape}, sdo_geometry(2003, {srid.ToString(CultureInfo.InvariantCulture)}, null, "
             + $"sdo_elem_info_array(1, 1003, 3), sdo_ordinate_array(:{name}a, :{name}b, :{name}c, :{name}d))) = 'TRUE'";
     }
+
+    /// <summary>A point inside a box, decided by its coordinates.</summary>
+    private string InBox(Envelope box, string name, List<(string Name, object Value)> parameters)
+    {
+        parameters.Add((name + "a", box.MinX));
+        parameters.Add((name + "b", box.MaxX));
+        parameters.Add((name + "c", box.MinY));
+        parameters.Add((name + "d", box.MaxY));
+        return $"{PointOrdinate(1)} between :{name}a and :{name}b and {PointOrdinate(2)} between :{name}c and :{name}d";
+    }
+
+    /// <summary>
+    /// The share of a point layer's extent past which a box is compared rather than asked of the index — an area's share
+    /// standing for a share of rows, which is where the two cost the same on a geodetic index (see RowFiltersAsync).
+    /// </summary>
+    private const double WideShare = 0.05;
+
+    /// <summary>Whether a box covers enough of the layer's extent that the spatial index would return most rows.</summary>
+    private static bool Wide(Envelope box, Envelope? extent)
+    {
+        if (extent is not { } e || !box.Intersects(e))
+        {
+            return false;
+        }
+
+        double overlap = (Math.Min(box.MaxX, e.MaxX) - Math.Max(box.MinX, e.MinX)) * (Math.Min(box.MaxY, e.MaxY) - Math.Max(box.MinY, e.MinY));
+        double whole = (e.MaxX - e.MinX) * (e.MaxY - e.MinY);
+
+        return whole <= 0 ? box.Contains(e) : overlap >= WideShare * whole;
+    }
+
+    /// <summary>Whether a filter shape is an axis-aligned rectangle, so its box is the shape.</summary>
+    private static bool IsBox(Geometry shape) =>
+        shape is Polygon { Holes.Count: 0 } polygon
+        && polygon.Shell.Coordinates is { Count: 5 } ring
+        && Enumerable.Range(0, 5).All(i => (ring.X(i) == polygon.Envelope.MinX || ring.X(i) == polygon.Envelope.MaxX)
+                                           && (ring.Y(i) == polygon.Envelope.MinY || ring.Y(i) == polygon.Envelope.MaxY));
 
     private static Polygon Rectangle(Envelope box) =>
         new(new LinearRing(XySequence.Wrap(
@@ -1535,7 +1766,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
     private sealed record OracleColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, OracleGuids.Storage? Guid = null);
 
-    private sealed record OracleTable(IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None)
+    private sealed record OracleTable(
+        IReadOnlyList<OracleColumn> Columns, int Srid, GeometryOrdinates Ordinates = GeometryOrdinates.None, bool Points = false,
+        Envelope? Extent = null)
     {
         public FieldType TypeOf(string name) =>
             Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal))?.Type ?? FieldType.Unknown;

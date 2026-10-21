@@ -2058,7 +2058,19 @@ internal static partial class AdminEndpoints
             foreach (PublishedLayer layer in (await published.ListAsync(cancellation).ConfigureAwait(false))
                          .Where(l => l.ServiceId == target.Id && !l.Definition.IsHosted))
             {
-                if (await KeptForRegisteredAsync(connections, layer, cancellation).ConfigureAwait(false) is { } kept)
+                string? kept;
+
+                try
+                {
+                    kept = await KeptForRegisteredAsync(connections, layer, cancellation).ConfigureAwait(false);
+                }
+                catch (System.Data.Common.DbException silent)
+                {
+                    await Refuse(context, 503, Unchecked($"Layer '{layer.Definition.Name}' of '{name}'", silent)).ConfigureAwait(false);
+                    return;
+                }
+
+                if (kept is not null)
                 {
                     await Refuse(context, 409,
                         $"Layer '{layer.Definition.Name}' of '{name}' keeps {kept}, which this server made for it. Switch "
@@ -11812,6 +11824,16 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Why a registered layer is not removed while its database does not answer: whether a history trigger this server made
+    /// is still on its table cannot be read, and ADR-207 removes nothing that would leave one recording to nobody. Found
+    /// 2026-10-21, when a layer of a stopped Oracle answered its delete with 500.
+    /// </summary>
+    private static string Unchecked(string what, System.Data.Common.DbException silent) =>
+        $"{what} is served from a database that did not answer ({silent.Message.Split('\n')[0].Trim()}), so whether it keeps "
+        + "a history this server made for it cannot be checked, and it is not removed without that (ADR-207). Remove it once "
+        + "the database answers again; nothing was deleted.";
+
     /// <summary>What this server made for a registered layer and keeps — attachments, a history — or null for nothing.</summary>
     private static async Task<string?> KeptForRegisteredAsync(
         LayerConnections connections, PublishedLayer layer, CancellationToken cancellation)
@@ -11868,8 +11890,19 @@ internal static partial class AdminEndpoints
         // <b>ADR-207: what this server made for a registered layer goes before the layer does.</b> Its attachments and its
         // history live in tables beside the customer's table, or in the datastore, and a trigger on that table goes on
         // recording every edit after nothing here reads it — so unpublishing first would leave them to nobody.
-        if (!going.Definition.IsHosted
-            && await KeptForRegisteredAsync(connections, going, cancellation).ConfigureAwait(false) is { } kept)
+        string? kept = null;
+
+        try
+        {
+            kept = going.Definition.IsHosted ? null : await KeptForRegisteredAsync(connections, going, cancellation).ConfigureAwait(false);
+        }
+        catch (System.Data.Common.DbException silent)
+        {
+            await Refuse(context, 503, Unchecked($"'{name}'", silent)).ConfigureAwait(false);
+            return;
+        }
+
+        if (kept is not null)
         {
             await Refuse(context, 409,
                 $"'{name}' keeps {kept}, which this server made for it. Switch {(kept.Contains(" and ", StringComparison.Ordinal) ? "them" : "it")} "

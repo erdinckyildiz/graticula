@@ -72,6 +72,10 @@ JSON reads, the GUID storages — and everything else is shared and tested once 
 §1a, measured with `D:/temp/mariadb-probe.py` and two follow-ups against MariaDB 11.8.9 on the test server,
 2026-10-20; the MySQL column from ADR-208 §1a.
 
+**Speed, 2026-10-21:** 200,000 points through the REST face beside PostGIS — every answer the same, and within about
+twice PostGIS's time on every query, faster on a distance (33 ms against 90) —
+[registered-engine-speed.md](../research/registered-engine-speed.md).
+
 ## 5. Decision
 
 **A registered MariaDB database is served by `Graticula.Providers.MySql` as a dialect**, to the scope ADR-208 gives

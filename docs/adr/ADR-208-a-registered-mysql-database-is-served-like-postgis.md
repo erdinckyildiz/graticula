@@ -62,6 +62,11 @@ records, the table checks and the pruning — with Oracle moved behind it too.
 
 §1a, measured with `D:/temp/mysql-probe.py` against MySQL 8.4.11 on the test server, 2026-10-20.
 
+**Speed, 2026-10-21:** a box against a point layer and a distance from a point are decided in the database and here
+respectively, not by reading every candidate's WKB — [registered-engine-speed.md](../research/registered-engine-speed.md).
+That was timed on MariaDB, not on MySQL 8.4; the SQL is the same and MySQL's own run is CI's `mysql` job, which checks
+answers, not time.
+
 ## 5. Decision
 
 **A registered MySQL 8.0 or later database is served as a registered PostGIS or Oracle one is**, through
