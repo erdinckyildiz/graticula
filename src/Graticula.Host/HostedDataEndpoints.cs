@@ -3391,7 +3391,8 @@ internal static class HostedDataEndpoints
             tracks = portal.Select(p => new { column = p.Name, role = p.Role.ToString().ToLowerInvariant() }),
             note = "Features added or changed from now on record who did it and when. Features that were already "
                  + "there have no creator, so they belong to no one: where editors are limited to their own features, "
-                 + "changing those needs the layer's owner or an administrator.",
+                 + "changing those needs the layer's owner or an administrator. ArcGIS Pro and Field Maps keep a "
+                 + "layer's fields from when they opened it: remove and add the layer again there to see the new ones.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
     /// <summary>

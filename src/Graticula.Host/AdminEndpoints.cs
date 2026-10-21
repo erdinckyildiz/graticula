@@ -12044,6 +12044,11 @@ internal static partial class AdminEndpoints
 
         contexts.Forget(layer);
 
+        // <b>And the engine's own column list</b> (ADR-212): Oracle, MySQL and SQL Server keep a
+        // table's columns for a minute below the shape forgotten above, so a refresh after an
+        // ALTER answered *refreshed* and went on serving the old columns until that ran out.
+        SqlEngines.For(layer.ConnectionString)?.ColumnsChanged(layer);
+
         // <b>Tiles go too, and the shape change alone would not have removed
         // them.</b> A fingerprint change makes entries built from the old
         // columns unreachable, which is structural invalidation and correct —
@@ -12052,6 +12057,12 @@ internal static partial class AdminEndpoints
         // pictures. Refresh means *forget what you know about this layer*, so
         // it means both.
         int purged = tiles.Purge(layer.Id);
+
+        // The same rows under its views (ADR-113), as a schema change purges them.
+        foreach (Guid shown in layer.ViewLayers)
+        {
+            purged += tiles.Purge(shown);
+        }
 
         await AuditAsync(context, audit, "layer.refresh", name,
             Detail(new { found = true, tilesPurged = purged }),

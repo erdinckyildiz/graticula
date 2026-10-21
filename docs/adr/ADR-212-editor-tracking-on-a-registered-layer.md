@@ -65,6 +65,15 @@ history triggers in the customer's database. The four tracking columns are a sma
    SQL Server `LOCK_TIMEOUT`, Oracle `ddl_lock_timeout`), as the hosted path's does (ADR-058 §5g): otherwise one long
    reader holds the `ALTER`, and every query of the layer queues behind it. Oracle's column check is case-blind, so a
    `CREATED_USER` already there is reused rather than given a quoted twin.
+2c. **A column added from outside needs no restart of any service** — amended 2026-10-21, on the owner's question
+   whether one should be asked for, as ArcGIS Server asks. A table's shape is kept by table, not by service, for 30
+   seconds, so every layer and view over it reads the new columns within that; `POST /admin/layers/{name}/refresh` does
+   it at once. **Refresh did not, on Oracle, MySQL and MariaDB, and SQL Server**: their engines keep the columns a
+   minute below the shape, and Refresh forgot only the shape — so it answered *refreshed* and served the old columns
+   for up to a minute more. Measured on SQL Server: a column added outside was missing 36 seconds later with no refresh,
+   and listed straight after one once Refresh forgets the engine's columns too. Refresh now also empties the tiles of
+   the layer's views, as a schema change does. **What does need a reload is the client**: ArcGIS Pro and Field Maps keep
+   a layer's fields from when they opened it, and the tracking answer says so.
 3. **SQL Server keeps attachments beside its table**, as the other engines do.
 4. **The DuckDB file and MotherDuck** are not given either, by the owner's word; their writer signs columns that are
    given roles, as every writer does.
