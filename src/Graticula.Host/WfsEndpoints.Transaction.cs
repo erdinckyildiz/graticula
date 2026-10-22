@@ -277,7 +277,7 @@ internal static partial class WfsEndpoints
             IFeatureWriter writer = connections.WriterFor(plan.Layer, plan.Described.Fields, plan.Described.Tracking, plan.Described.Subtypes);
             EditOutcome outcome = await writer.ApplyAsync(
                     new EditBatch(plan.Adds, plan.Updates, plan.Deletes,
-                        Editor: current.Principal.Name,
+                        Editor: current.QualifiedName,
                         OwnOnly: Program.OwnOnlyFor(context, plan.Layer, plan.Described)),
                     cancellation)
                 .ConfigureAwait(false);
@@ -484,7 +484,7 @@ internal static partial class WfsEndpoints
         return audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id,
-                current.Principal.Name,
+                current.QualifiedName,
                 CallerAddress.Of(context)?.ToString(),
                 "wfs.transaction",
                 plan.Layer.Definition.Name,

@@ -367,6 +367,7 @@ internal static class QueryResponseCaching
             [nameof(PublishedLayer.ServiceCopyrightText)] = "the documents' copyrightText, never in a query's answer",
             [nameof(PublishedLayer.ConnectionString)] = "a secret; the data source name and definition identify the data",
             [nameof(PublishedLayer.PublishedSrid)] = "derived from ServedSrid and Definition.Srid",
+            [nameof(PublishedLayer.IsTable)] = "derived from Definition.GeometryColumn, which is fingerprinted (ADR-213)",
             [nameof(PublishedLayer.IsRunning)] = "derived from Status",
             [nameof(PublishedLayer.ViewOf)] = "says whose rows a view reads, not which; the filter is ViewDefinition",
             [nameof(PublishedLayer.HasViews)] = "whether others read this layer's rows, which changes none of them",

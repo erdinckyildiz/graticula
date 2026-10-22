@@ -182,7 +182,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Removes a map.</summary>
-    private static async Task DeleteWebMapAsync(
+    internal static async Task DeleteWebMapAsync(
         HttpContext context, string id, IWebMapStore maps, IAuditLog audit, RecycleBinService recycle, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;

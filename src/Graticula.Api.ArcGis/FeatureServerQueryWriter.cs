@@ -128,7 +128,8 @@ public sealed class FeatureServerQueryWriter
     /// <param name="geometryType">
     /// The layer's declared geometry type. Declared rather than inferred from the
     /// first feature, because ArcGIS puts it in the header — before any row has
-    /// been seen — and a layer with no matching rows still has a type.
+    /// been seen — and a layer with no matching rows still has a type. Null for a table (ADR-213), whose answer
+    /// names no geometry type and no reference, as ArcGIS's does.
     /// </param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>How many features were written.</returns>
@@ -136,7 +137,7 @@ public sealed class FeatureServerQueryWriter
         Utf8JsonWriter writer,
         IFeatureSource source,
         FeatureQuery query,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(writer);
@@ -208,7 +209,7 @@ public sealed class FeatureServerQueryWriter
         FeatureSchema schema,
         int objectIdIndex,
         FeatureQuery query,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         CancellationToken cancellationToken)
     {
         writer.WriteStartObject();
@@ -219,7 +220,14 @@ public sealed class FeatureServerQueryWriter
         writer.WriteString(
             "objectIdFieldName", query.Distinct ? string.Empty : _layer.IntegerIdentityColumn);
         writer.WriteString("globalIdFieldName", GlobalIds.FieldOf([.. _fields.Values]) ?? string.Empty);
-        writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(geometryType));
+
+        // <b>A table's answer names neither a geometry type nor a reference — ADR-213.</b> Measured against Esri's
+        // sample server (ServiceRequest/FeatureServer/1, returnGeometry=true): objectIdFieldName, globalIdFieldName,
+        // fields and features, and nothing about a shape the rows do not have.
+        if (geometryType is { } kind)
+        {
+            writer.WriteString("geometryType", ArcGisGeometryWriter.TypeName(kind));
+        }
 
         // <b>`hasZ` and `hasM` from what the answer carries — ADR-077, step 3.</b> The first row is in hand
         // before a byte is written, so the header says what its geometry has rather than what was asked:
@@ -245,23 +253,10 @@ public sealed class FeatureServerQueryWriter
         // somewhere in the Gulf of Guinea without any error to explain it.
         int srid = query.OutSrid ?? _layer.Srid;
 
-        writer.WriteStartObject("spatialReference");
-
-        // <b>A written reference has no code to report, and reporting the layer's would be a
-        // lie about coordinates that have already been transformed.</b> `ST_Transform` to a
-        // definition returns SRID 0, and `wkt` is what the specification has always offered for
-        // exactly this.
-        if (query.OutWkt is { Length: > 0 } definition)
+        if (geometryType is not null)
         {
-            writer.WriteString("wkt", definition);
+            WriteReference(writer, srid, query.OutWkt);
         }
-        else
-        {
-            writer.WriteNumber("wkid", srid);
-            writer.WriteNumber("latestWkid", srid);
-        }
-
-        writer.WriteEndObject();
 
         // <b>The layer document's types and aliases, not a string per column.</b> Until
         // 2026-09-15 this wrote every field as `esriFieldTypeString` with its own name as the
@@ -469,6 +464,28 @@ public sealed class FeatureServerQueryWriter
 
         await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
         return written;
+    }
+
+    /// <summary>The answer's <c>spatialReference</c>: the code it is in, or the definition it was written to.</summary>
+    private static void WriteReference(Utf8JsonWriter writer, int srid, string? wkt)
+    {
+        writer.WriteStartObject("spatialReference");
+
+        // <b>A written reference has no code to report, and reporting the layer's would be a
+        // lie about coordinates that have already been transformed.</b> `ST_Transform` to a
+        // definition returns SRID 0, and `wkt` is what the specification has always offered for
+        // exactly this.
+        if (wkt is { Length: > 0 } definition)
+        {
+            writer.WriteString("wkt", definition);
+        }
+        else
+        {
+            writer.WriteNumber("wkid", srid);
+            writer.WriteNumber("latestWkid", srid);
+        }
+
+        writer.WriteEndObject();
     }
 
     private static void WriteFeature(

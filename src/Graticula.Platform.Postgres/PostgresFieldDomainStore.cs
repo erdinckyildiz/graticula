@@ -26,7 +26,10 @@ public sealed class PostgresFieldDomainStore : IFieldDomainStore
           left join principal p on p.id = fd.owner_principal_id
         """;
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Reads and writes shared domains in a platform store.</summary>
     /// <param name="dataSource">The store.</param>
@@ -34,7 +37,7 @@ public sealed class PostgresFieldDomainStore : IFieldDomainStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -65,7 +68,8 @@ public sealed class PostgresFieldDomainStore : IFieldDomainStore
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             insert into field_domain (name, definition, owner_principal_id)
             values (@name, @definition::jsonb, @owner)
-            on conflict ((lower(name))) do nothing
+            -- ADR-204 §5e item 15: the index is the name within its organisation, and the target names it whole.
+            on conflict ((lower(name)), tenant_id) do nothing
             returning id
             """);
         command.Parameters.AddWithValue("name", domain.Name.Trim());

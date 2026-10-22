@@ -122,7 +122,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
     private string Id => LayerDefinition.Quote(_layer.IdentityColumn);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
 
     private string From => _layer.QuotedTable;
 
@@ -223,8 +223,10 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         // <b>Points need neither pass</b>: where the index promises points and no Z or M is asked for, a row's shape is
         // its two numbers, read with its attributes — the second pass cost a page of a thousand 52 ms on the VPS, and a
         // single feature by its id 78 ms against 28 ms in one statement.
-        bool inlinePoints = !distinct && table.Points && !parted && (query.IncludeGeometry || query.ReturnCentroid);
-        bool twoPass = !distinct && !inlinePoints && (query.IncludeGeometry || query.ReturnCentroid);
+        // A table answers every row without a shape (ADR-213), as the PostGIS source does.
+        bool shaped = !_layer.IsTable && (query.IncludeGeometry || query.ReturnCentroid);
+        bool inlinePoints = !distinct && table.Points && !parted && shaped;
+        bool twoPass = !distinct && !inlinePoints && shaped;
 
         if (distinct)
         {
@@ -238,7 +240,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             // A centroid is the output shape's label point, so the shape is read for it even when it is not returned.
             sql.Append(inlinePoints
                 ? $", {PointOrdinate(1)} as g, {PointOrdinate(2)} as gy"
-                : (query.IncludeGeometry || query.ReturnCentroid) && !twoPass ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
+                : shaped && !twoPass ? $", sdo_util.to_wkbgeometry({Flat(table)}) as g" : ", null as g");
 
             // Z and M come from the shape's parts, because Oracle's WKB of a shape with them is not WKB (SdoShape).
             if (parted && !twoPass)
@@ -254,7 +256,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         FieldType[] types = [.. schema.Names.Select(table.TypeOf)];
         List<Feature> batch = new(ProjectionBatch);
-        bool reshape = (query.IncludeGeometry || query.ReturnCentroid) && !distinct
+        bool reshape = shaped && !distinct
             && (Projects(query) || query.Precision is >= 0 || query.MaxAllowableOffset is > 0);
 
         await using OracleCommand command = statement.Command(connection, _timeout);
@@ -509,7 +511,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
     /// row count is the dictionary's (the last <c>DBMS_STATS</c>), or counted when the table has never been analysed.
     /// </remarks>
     public Task<GeometryWidth?> GeometryWidthAsync(CancellationToken cancellationToken) =>
-        Bounded<GeometryWidth?>(async token =>
+        // A table has no geometry to be wide (ADR-213).
+        _layer.IsTable ? Task.FromResult<GeometryWidth?>(null) : Bounded<GeometryWidth?>(async token =>
         {
             await using OracleConnection connection = await OpenAsync(token).ConfigureAwait(false);
             OracleTable table = await TableAsync(connection, token).ConfigureAwait(false);
@@ -558,7 +561,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
         HistoryKept? kept = await OracleFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
 
-        return new LayerDescription(fields, await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false), writable)
+        Envelope? extent = _layer.IsTable ? null : await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false);
+
+        return new LayerDescription(fields, extent, writable)
         {
             AnswersDistance = _engine is not null,
             AnswersHaving = true,
@@ -566,7 +571,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             AnswersCentroid = true,
             AnswersStatisticExpressions = true,
             AnswersRelations = _engine is not null,
-            SpatiallyIndexed = true,
+            SpatiallyIndexed = _layer.IsTable ? null : true,
             StoredOrdinates = table.Ordinates,
 
             // ADR-207: a history kept beside the table, which historicMoment reads.
@@ -587,7 +592,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         };
 
         command.Parameters.Add("t", OracleDbType.Varchar2, _layer.SchemaName + "." + _layer.TableName, System.Data.ParameterDirection.Input);
-        command.Parameters.Add("c", OracleDbType.Varchar2, _layer.GeometryColumn, System.Data.ParameterDirection.Input);
+        command.Parameters.Add("c", OracleDbType.Varchar2, _layer.RequireGeometryColumn(), System.Data.ParameterDirection.Input);
 
         List<(double X, double Y)> corners = [];
 
@@ -685,6 +690,11 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
 
     private async Task<(Envelope? Extent, long Count)> ExtentBoundedAsync(FeatureQuery query, CancellationToken cancellationToken)
     {
+        if (_layer.IsTable)
+        {
+            throw new QueryNotSupportedException($"'{_layer.Name}' is a table and has no geometry to take an extent of (ADR-213).");
+        }
+
         await using OracleConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         OracleTable table = await TableAsync(connection, cancellationToken).ConfigureAwait(false);
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
@@ -975,7 +985,8 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
                 + "Oracle's dialect.");
         }
 
-        if (query.Spatial is not { } spatial)
+        // A table ignores a spatial filter, as ArcGIS's does (ADR-213), so nothing about one is refused.
+        if (_layer.IsTable || query.Spatial is not { } spatial)
         {
             return;
         }
@@ -1110,6 +1121,15 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
                 + "sees no such table. It was dropped, renamed, or the user lost the right to read it.");
         }
 
+        // <b>A table has no geometry column to find in the spatial metadata — ADR-213</b>: its reference is the one a table
+        // carries, which nothing reads, and it has no ordinates, no points and no extent.
+        if (_layer.IsTable)
+        {
+            OracleTable plain = new(columns, _layer.Srid, GeometryOrdinates.None, false, null);
+            Tables[_tableKey] = (DateTimeOffset.UtcNow, plain);
+            return plain;
+        }
+
         int? srid = null;
         GeometryOrdinates ordinates = GeometryOrdinates.None;
         bool points = false;
@@ -1133,7 +1153,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         {
             command.Parameters.Add("o", OracleDbType.Varchar2, _layer.SchemaName, System.Data.ParameterDirection.Input);
             command.Parameters.Add("t", OracleDbType.Varchar2, _layer.TableName, System.Data.ParameterDirection.Input);
-            command.Parameters.Add("c", OracleDbType.Varchar2, _layer.GeometryColumn, System.Data.ParameterDirection.Input);
+            command.Parameters.Add("c", OracleDbType.Varchar2, _layer.RequireGeometryColumn(), System.Data.ParameterDirection.Input);
 
             await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1165,7 +1185,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         }
 
         OracleTable table = new(columns, srid ?? throw new InvalidOperationException(
-            $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, "
+            $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.RequireGeometryColumn()}, "
             + "which is no longer in the database's spatial metadata (ALL_SDO_GEOM_METADATA)."), ordinates, points,
             points ? await ExtentOfTableAsync(connection, cancellationToken).ConfigureAwait(false) : null);
 
@@ -1231,7 +1251,9 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
         Geometry? shape = null;
         SpatialFilter? byEngine = null;
 
-        if (query.BoundingBox is { } box)
+        // <b>A table has no geometry, so a spatial filter is not applied — ADR-213</b>, as ArcGIS's own table and the PostGIS
+        // source answer.
+        if (!_layer.IsTable && query.BoundingBox is { } box)
         {
             boxes.Add(await ToLayerAsync(Rectangle(box), query, cancellationToken)
                 .ConfigureAwait(false) is { IsEmpty: false } moved
@@ -1250,7 +1272,7 @@ public sealed class OracleFeatureSource : IFeatureSource, IFeatureSummaries, IFe
             attributes.Add($"{Id} in (select j.v from json_table(:ids, '$[*]' columns (v number path '$')) j)");
         }
 
-        if (query.Spatial is { } spatial)
+        if (!_layer.IsTable && query.Spatial is { } spatial)
         {
             Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
 

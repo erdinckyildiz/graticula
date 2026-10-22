@@ -248,7 +248,11 @@ internal sealed class GeodatabaseInspector : BackgroundService
 
             Busy();
 
-            await RunAsync(job, stopping).ConfigureAwait(false);
+            // ADR-204: a job runs as the tenant it was started in, so what it writes is that tenant's.
+            using (Graticula.Platform.Tenancy.TenantScope.EnterJob(job.Tenant))
+            {
+                await RunAsync(job, stopping).ConfigureAwait(false);
+            }
         }
     }
 

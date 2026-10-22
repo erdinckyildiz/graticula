@@ -167,7 +167,13 @@ internal static class MapServerEndpoints
             await TimeOfServiceAsync(service, contexts, cancellation).ConfigureAwait(false),
             service.Description,
             service.CopyrightText,
-            GroupsOf(service));
+            GroupsOf(service),
+
+            // ADR-213: its tables, as ArcGIS's map service lists them; queried at /MapServer/{id}/query, never drawn.
+            [.. service.Tables.Select(t => new FeatureServerMetadataWriter.ServiceTable(t.LayerIndex, t.DisplayName)
+            {
+                CatalogName = t.Definition.Name,
+            })]);
 
         // The portal item this face is, as ArcGIS's service documents name it (ServiceItem).
         string serviceItemId = PortalEndpoints.ItemIdOf(service, "MapServer");
@@ -235,6 +241,22 @@ internal static class MapServerEndpoints
         (IFeatureSource layerSource, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
+        // <b>A table answers as a table — ADR-213</b>: its fields and its query, and nothing a drawing reads.
+        if (layer.IsTable)
+        {
+            return (MapServerMetadataWriter.Table(
+                layer.LayerIndex,
+                layer.DisplayName,
+                FieldsOf(layer, described),
+                FeatureServerMetadataWriter.DisplayField(layer.Definition, described),
+                layer.Cost.PageSize(
+                    await ServerPageSize.OfAsync(context, cancellation).ConfigureAwait(false),
+                    settings.MaximumRecordCount),
+                CapabilityCeilings.Refuses(layer, "Query") ? string.Empty : "Query,Data",
+                layer.Definition.IntegerIdentityColumn,
+                layer.ServiceCopyrightText), described);
+        }
+
         // V-73: measured the way WMS and the FeatureServer measure it, and cached in the same place.
         Graticula.Api.Wms.TimeDimension? time = await WmsEndpoints
             .TimeOfAsync(layerSource, layer, described, contexts, cancellation)
@@ -249,7 +271,7 @@ internal static class MapServerEndpoints
         FeatureServerMetadataWriter.ServiceLayer entry = new(
             layer.LayerIndex,
             layer.DisplayName,
-            layer.GeometryType,
+            layer.RequireGeometryType(),
             servedSrid,
             servedExtent)
         {
@@ -266,21 +288,11 @@ internal static class MapServerEndpoints
         // agreed on the real one. Found by the correctness gate 2026-08-20 by asking
         // four faces about one layer.
         object drawingInfo = FeatureServerMetadataWriter.Drawing(
-            layer.Definition.Name, layer.GeometryType, layer.Symbology, out _);
+            layer.Definition.Name, layer.RequireGeometryType(), layer.Symbology, out _);
 
         object document = MapServerMetadataWriter.Layer(
             entry,
-            [.. described.Fields.Select(f => (object)new
-            {
-                name = f.Name,
-                // V-52: the object id and the GlobalID by their role, as the FeatureServer document names them.
-                type = FeatureServerMetadataWriter.FieldTypeOf(layer.Definition, described, f),
-                // The same label the FeatureServer face gives the same column (ADR-063); two
-                // faces over one layer disagreeing about a label is D-179's shape.
-                alias = f.Label,
-                nullable = f.Nullable,
-                length = FeatureServerMetadataWriter.LengthOf(f),
-            })],
+            FieldsOf(layer, described),
             drawingInfo,
             // The FeatureServer face's own rule, so the two documents of one layer name one field.
             FeatureServerMetadataWriter.DisplayField(layer.Definition, described),
@@ -338,10 +350,20 @@ internal static class MapServerEndpoints
             layers.Add((group.Id, FeatureServerMetadataWriter.GroupLayerDocument(group, CapabilitiesOf(service))));
         }
 
+        // ADR-213: each table's own document, in the array ArcGIS keeps them in.
+        List<object> tables = [];
+
+        foreach (PublishedLayer table in service.Tables)
+        {
+            (object document, _) = await LayerDocumentAsync(context, table, contexts, projector, settings, cancellation)
+                .ConfigureAwait(false);
+            tables.Add(document);
+        }
+
         await Results.Ok(new
         {
             layers = layers.OrderBy(l => l.Id).Select(l => l.Document).ToArray(),
-            tables = Array.Empty<object>(),
+            tables = tables.ToArray(),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -400,17 +422,14 @@ internal static class MapServerEndpoints
             .ServiceAsync(context, catalog, serviceName, cancellation)
             .ConfigureAwait(false);
 
-        if (owning is null)
+        // A service of tables only has no map service at all, at any of its addresses (ADR-213).
+        if (owning is null || !await DrawableAsync(context, owning).ConfigureAwait(false))
         {
             return;
         }
 
         if (owning.Group(layerId) is not null)
         {
-            if (!await DrawableAsync(context, owning).ConfigureAwait(false))
-            {
-                return;
-            }
 
             await Results.Ok(FeatureServerMetadataWriter.GroupLayerDocument(
                     GroupsOf(owning).First(g => g.Id == layerId), CapabilitiesOf(owning)))
@@ -437,7 +456,9 @@ internal static class MapServerEndpoints
                     context.Request.Path,
                     $"{layer.ServiceName} - {layer.Definition.Name} ({layer.LayerIndex})",
                     document,
-                    formats:
+
+                    // A table is not drawn, so it has no WMS to open it in (ADR-213).
+                    formats: layer.IsTable ? [] :
                     [
                         WmsEndpoints.DirectoryLink(
                             layer.Definition.Name,
@@ -454,6 +475,20 @@ internal static class MapServerEndpoints
 
         await Results.Ok(document).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>A layer's or a table's fields, as this face's documents give them.</summary>
+    private static object[] FieldsOf(PublishedLayer layer, LayerDescription described) =>
+        [.. described.Fields.Select(f => (object)new
+        {
+            name = f.Name,
+            // V-52: the object id and the GlobalID by their role, as the FeatureServer document names them.
+            type = FeatureServerMetadataWriter.FieldTypeOf(layer.Definition, described, f),
+            // The same label the FeatureServer face gives the same column (ADR-063); two
+            // faces over one layer disagreeing about a label is D-179's shape.
+            alias = f.Label,
+            nullable = f.Nullable,
+            length = FeatureServerMetadataWriter.LengthOf(f),
+        })];
 
     /// <summary>
     /// Whether a layer's stored style draws labels.
@@ -997,7 +1032,7 @@ internal static class MapServerEndpoints
 
             SymbologyPlan plan = layer.Symbology is { Length: > 0 } stored
                 ? SymbologyPlan.Compile(stored)
-                : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
+                : SymbologyPlan.Default(layer.Definition.Name, layer.RequireGeometryType());
 
             // <b>One entry per class, which is what this response's shape always
             // wanted.</b> [Q-131](../../docs/open-questions.md) closed by finding that
@@ -1020,7 +1055,7 @@ internal static class MapServerEndpoints
                     using IMapCanvas swatch = Graticula.Api.Wms.LegendGraphic.DrawClass(
                         canvases,
                         plan,
-                        layer.GeometryType,
+                        layer.RequireGeometryType(),
                         (Swatch, Swatch),
                         Rgba.Transparent,
                         axis.Field,
@@ -1035,7 +1070,7 @@ internal static class MapServerEndpoints
                 using IMapCanvas swatch = Graticula.Api.Wms.LegendGraphic.DrawClass(
                     canvases,
                     plan,
-                    layer.GeometryType,
+                    layer.RequireGeometryType(),
                     (Swatch, Swatch),
                     Rgba.Transparent,
                     null,
@@ -1049,7 +1084,7 @@ internal static class MapServerEndpoints
                 new FeatureServerMetadataWriter.ServiceLayer(
                     layer.LayerIndex,
                     layer.DisplayName,
-                    layer.GeometryType,
+                    layer.RequireGeometryType(),
                     layer.Definition.Srid,
                     described.Extent)
                 {
@@ -1209,6 +1244,20 @@ internal static class MapServerEndpoints
 
     private static async Task<bool> DrawableAsync(HttpContext context, PublishedService service)
     {
+        // <b>A service of tables only has nothing to draw — ADR-213</b>, so it has no map service, as the services
+        // directory already says by listing none; answering one with no layers sent a web map to add an empty map.
+        if (service.Layers.Count == 0 && service.Tables.Count > 0)
+        {
+            await RefuseAsync(
+                context,
+                404,
+                $"No map service '{service.QualifiedName}'. It holds only tables, which have no geometry to draw; read "
+                + $"them at /rest/services/{service.QualifiedName}/FeatureServer.")
+                .ConfigureAwait(false);
+
+            return false;
+        }
+
         if (service.Limits.AllowsFeatures(dataSupportsIt: true))
         {
             return true;
@@ -1259,7 +1308,7 @@ internal static class MapServerEndpoints
             layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
                 layer.LayerIndex,
                 layer.DisplayName,
-                layer.GeometryType,
+                layer.RequireGeometryType(),
                 srid,
                 extent)
             {

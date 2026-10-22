@@ -25,7 +25,7 @@ internal sealed record SharedDomainRequest(JsonElement? Domain);
 /// <remarks>
 /// <para>
 /// <b>By owner decision, 2026-09-23 and 2026-09-24.</b> Its owner and administrators edit it; one in use is
-/// not deleted, and the refusal says where it is used; names are unique across the server.
+/// not deleted, and the refusal says where it is used; names are unique within an organisation (ADR-204 §5e item 15).
 /// </para>
 /// <para>
 /// <b>An edit is judged against every field that uses it</b>, because it changes all of them at once: a list
@@ -134,7 +134,7 @@ internal static partial class AdminEndpoints
         {
             await Refuse(
                 context, 409,
-                $"There is already a shared domain named '{domain.Name}'. Names are unique across the server; "
+                $"Your organization already has a shared domain named '{domain.Name}'. Names are unique within it; "
                 + "give the column that one, or choose another name.")
                 .ConfigureAwait(false);
             return;
@@ -193,7 +193,7 @@ internal static partial class AdminEndpoints
         {
             await Refuse(
                 context, 409,
-                $"There is already another shared domain named '{domain.Name}'. Names are unique across the server.")
+                $"Your organization already has another shared domain named '{domain.Name}'. Names are unique within it.")
                 .ConfigureAwait(false);
             return;
         }

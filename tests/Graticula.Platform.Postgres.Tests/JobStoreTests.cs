@@ -538,7 +538,7 @@ public sealed class JobStoreTests : PostgresFixture
         await using Npgsql.NpgsqlCommand command = DataSource.CreateCommand(
             "insert into principal (id, kind, name, user_type) "
             + "values (@id, 'user', @name, 'creator') "
-            + "on conflict (name) do update set name = excluded.name "
+            + "on conflict (name, tenant_id) do update set name = excluded.name "
             + "returning id");
 
         Guid id = Guid.NewGuid();

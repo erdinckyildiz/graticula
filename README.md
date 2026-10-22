@@ -47,7 +47,7 @@ Five ArcGIS service types, plus the portal surface Pro, the Maps SDK and the API
 | **Geometry service** | complete | All 22 operations, in the plane of the request's reference, and `lengths`, `areasAndLengths`, `distance`, `buffer` and `densify` on the ellipsoid as well when asked — `geodesic=true`, `calculationType=geodesic` or `preserveShape`, or metres in degrees ([ADR-198](docs/adr/ADR-198-the-geometry-service-measures-on-the-ellipsoid.md)); a geodesic buffer is PostGIS's, made in a projection it picks for each shape — including `buffer`, `intersect`, `union`, `difference`, `cut`, `project`, `autoComplete`, `reshape`, `trimExtend` and `findTransformations`, whose datum transformations come from a register generated from PROJ's and are applied by `project` as named ([ADR-160](docs/adr/ADR-160-datum-transformations-come-from-the-register.md)) |
 | **ArcGIS Pro** | complete | Add a **portal** connection, sign in, browse My Content, add a layer, edit it. Measured against Pro over seven rounds, each read out of the request log ([ADR-040](docs/adr/ADR-040-the-portal-surface-is-how-arcgis-pro-connects.md)). Vector tile services draw in Pro 3.x, classified styles included. **Share As Web Layer with *Copy all data → Feature*** publishes a hosted feature layer into this server's datastore, with the layer's drawing, sharing level and groups, and **Overwrite Web Layer** replaces its data and keeps the item, its address and its sharing; a changed set of layers is refused ([ADR-191](docs/adr/ADR-191-arcgis-pro-publishes-hosted-feature-layers.md)). Add the portal as `https://<host>/studio` — Pro greys publishing for a portal at a root address. Map image, tile and vector tile layers, and *Reference registered data*, are not published from Pro |
 
-| **ArcGIS API for Python** | complete | `GIS(url, username, password)` signs in through the portal's OAuth page as it does against Portal ([ADR-076](docs/adr/ADR-076-oauth-for-registered-apps.md)); content search and `FeatureLayer.append` to a hosted layer ([ADR-105](docs/adr/ADR-105-arcgis-clients-append-through-uploads.md)) |
+| **ArcGIS API for Python** | partial | `GIS(url, username, password)` signs in through the portal's OAuth page as it does against Portal ([ADR-076](docs/adr/ADR-076-oauth-for-registered-apps.md)); content search, `FeatureLayer.append` to a hosted layer ([ADR-105](docs/adr/ADR-105-arcgis-clients-append-through-uploads.md)), and an item's `update`, `delete` and `unshare` for a service or a web map ([ADR-214](docs/adr/ADR-214-the-portals-item-writes-do-what-they-answer.md)). **Not served:** `content.add` of a file, and user and group administration (`portals/self/users`, `community/createGroup`) |
 | **ArcGIS Maps SDK for JavaScript** | complete | An app whose portal is this server, on this origin or another ([ADR-072](docs/adr/ADR-072-cross-origin-reads-without-credentials.md) §5a), signs people in, opens saved web maps, and offers the basemap gallery and its default ([ADR-184](docs/adr/ADR-184-the-basemap-gallery-is-a-group.md)) |
 
 Around them: members, roles with editable privileges, groups and item sharing, with every
@@ -123,13 +123,19 @@ that works.
   There is no SCIM: an account is made at its first sign-in or by hand, and a change of groups
   reaches this server at the person's next sign-in. Nested Active Directory groups are not
   followed, a SAML assertion must not be encrypted, and signing out ends this server's session only.
-- **A second factor and API keys are new, and have no screen yet.** A member with a password here turns on
-  a code from an authenticator app at `/rest/auth/second-factor`, and every sign-in page asks for it; a
-  token request cannot carry one and says so ([ADR-201](docs/adr/ADR-201-a-member-may-have-a-second-factor.md)).
+- **Several organisations in one deployment are new.** Each — a joint venture, say — has its own members,
+  groups, content and administrator at its own host name, and PostgreSQL's row-level security keeps their rows apart;
+  a group may admit another organisation's members, which is the only route between them, and one system
+  administrator runs the machine above them all
+  ([ADR-204](docs/adr/ADR-204-one-deployment-holds-several-organisations.md), [deployment §4](docs/deployment.md)).
+  The server must connect as a role the security binds, and names stay unique across organisations in this version.
+- **A second factor and API keys are new; API keys have no screen yet.** A member with a password here turns on
+  a code from an authenticator app in the console or at `/rest/auth/second-factor`, and every sign-in page asks for
+  it; a token request cannot carry one and says so ([ADR-201](docs/adr/ADR-201-a-member-may-have-a-second-factor.md)).
   Scripts sign in as a service account with an API key, sent as an ArcGIS token, which reaches the ArcGIS
   faces and never administers or owns anything
-  ([ADR-200](docs/adr/ADR-200-service-accounts-sign-in-with-api-keys.md)). Both are made through the
-  administration API until the redesigned console shows them. **A group may be public again**, found by
+  ([ADR-200](docs/adr/ADR-200-service-accounts-sign-in-with-api-keys.md)); service accounts and their keys are
+  made through the administration API until the redesigned console shows them. **A group may be public again**, found by
   anybody in the portal's group search ([ADR-199](docs/adr/ADR-199-a-group-may-be-public.md)).
 - **Terms of use, content categories and favourites are new, and have no screen yet.** An item states its
   licence and sits in the organisation's categories, both in the portal's item document and `categorySchema`;

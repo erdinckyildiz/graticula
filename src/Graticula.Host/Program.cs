@@ -294,7 +294,8 @@ public static class Program
                     */
                     MaxPoolSize = PlatformStorePool,
                 }.ConnectionString)
-                .Build());
+                .Build()
+                .RoutedByTenant(settings.PlatformStore, PlatformStorePool));
 
         builder.Services.AddSingleton(services => new PostgresLayerCatalog(
             services.GetRequiredService<NpgsqlDataSource>(),
@@ -339,6 +340,16 @@ public static class Program
 
         // Where a ranged layer's map opens, found at start rather than on the first ask (InitialExtentWarmer).
         builder.Services.AddHostedService<InitialExtentWarmer>();
+
+        // The services an administrator pinned, kept warm (ADR-218).
+        builder.Services.AddSingleton(services => new PinnedServices(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<PostgresLayerCatalog>(),
+            services.GetRequiredService<ServiceContexts>(),
+            services.GetRequiredService<TimeProvider>(),
+            settings.PinnedServiceLimit,
+            services.GetRequiredService<ILogger<PinnedServices>>()));
+        builder.Services.AddHostedService(services => services.GetRequiredService<PinnedServices>());
 
         // <b>The rasteriser, behind its port, and this is the only line that names
         // the adapter.</b> ADR-041 §5.1: everything that draws asks for
@@ -459,7 +470,9 @@ public static class Program
             settings.ConnectionBudget,
             settings.PerSourceConcurrency,
             wait: null,
-            waitersPerPermit: settings.QueueWaitersPerPermit));
+            waitersPerPermit: settings.QueueWaitersPerPermit,
+            // ADR-204 condition 6: the managed datastore is every organisation's, so each holds a share of it.
+            sharedByOrganisations: SameDatabaseAs(DatastoreConnection(settings.PlatformStore))));
 
         // <b>The GeoParquet folders, ADR-066.</b> Before `LayerConnections`, which reads layers on
         // them, and the probe, which lists their files. With no root configured every folder is
@@ -888,6 +901,15 @@ public static class Program
         // ADR-201 condition 2: whom the organisation requires one of — nobody unless an administrator says so.
         builder.Services.AddSingleton(services => new SecondFactorPolicy(services.GetRequiredService<IServerSettingStore>()));
 
+        // N4, ADR-216: the organisation's id, read before the first request so every address answers the same one.
+        builder.Services.AddHostedService<PortalIdentity>();
+
+        // ADR-204: the tenants, read at start after the organisation's id, and the host each request reaches.
+        builder.Services.AddSingleton<Graticula.Platform.Tenancy.ITenantStore>(services =>
+            new PostgresTenantStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton<TenantDirectory>();
+        builder.Services.AddHostedService(services => services.GetRequiredService<TenantDirectory>());
+
         // ADR-201: a second step at sign-in for a member who turned one on.
         builder.Services.AddSingleton(services => new PostgresSecondFactorStore(services.GetRequiredService<NpgsqlDataSource>()));
         builder.Services.AddSingleton<ISecondFactorStore>(services => services.GetRequiredService<PostgresSecondFactorStore>());
@@ -1136,7 +1158,9 @@ public static class Program
         app.Use(async (context, next) =>
         {
             await next(context).ConfigureAwait(false);
-            if (context.Response.StatusCode < 400) usage.CountPath(context.Request.Path.Value);
+            // The organisation from the request, not the scope: the tenant middleware's scope has ended out here.
+            if (context.Response.StatusCode < 400)
+                usage.CountPath(context.Request.Path.Value, context.Features.Get<TenantFeature>()?.Tenant.Id);
         });
 
         app.Use(async (context, next) =>
@@ -1372,6 +1396,10 @@ public static class Program
         // completes, with its status and the query string redacted by
         // `QueryRedaction` — which is a pure function with its own tests, so the
         // redaction can be asserted rather than trusted.
+        // ADR-204: the request's tenant, from its host name — before the request log below, which records the request
+        // under it, and before anything reads the catalogue. A value set by an inner middleware never reaches an outer one.
+        app.Use((context, next) => TenantRouting.ResolveAsync(context, () => next(context)));
+
         ILogger requests = app.Services.GetRequiredService<ILoggerFactory>()
             .CreateLogger("requests");
 
@@ -1510,7 +1538,7 @@ public static class Program
                 outcome,
                 (int)Stopwatch.GetElapsedTime(started).TotalMilliseconds,
                 who is { } resolved && !resolved.Principal.IsAnonymous
-                    ? resolved.Principal.Name
+                    ? resolved.QualifiedName
                     : null,
                 CallerAddress.Of(context)?.ToString(),
                 RequestFacts.Face(context.Request.Path),
@@ -1569,6 +1597,15 @@ public static class Program
 
             context.Features.Set(current);
 
+            // ADR-204: a member of another tenant is an outsider here; the system's acts are the system administrator's.
+            if (await TenantRouting.AfterAuthenticationAsync(context, current).ConfigureAwait(false) is not { } judged)
+            {
+                return;
+            }
+
+            current = judged;
+            context.Features.Set(current);
+
             if (current.TokenWasRejected && InvalidToken.Applies(context.Request.Path))
             {
                 await InvalidToken.WriteAsync(context).ConfigureAwait(false);
@@ -1587,7 +1624,7 @@ public static class Program
             // is the next request seeing the last request's name in the corner,
             // which is a disclosure rather than a cosmetic bug.
             RestDirectory.SignedInAs(
-                current.Principal.IsAnonymous ? null : current.Principal.Name);
+                current.Principal.IsAnonymous ? null : current.QualifiedName);
 
             try
             {
@@ -1859,6 +1896,11 @@ public static class Program
         // too: the showcase's upgrade started a download in the short-lived migration container and left the
         // half-written file behind when that container exited.
         app.Services.GetRequiredService<GeoParquetSources>().BeginMotherDuckInstall();
+
+        // ADR-204 §5e item 12: each organisation's GeoParquet and DuckDB files are under its own folder.
+        TenantDirectory organisations = app.Services.GetRequiredService<TenantDirectory>();
+        app.Services.GetRequiredService<GeoParquetSources>().OrganisationKey =
+            id => organisations.All.FirstOrDefault(t => t.Id == id)?.Key;
 
         Log.Listening(
             logger,
@@ -2158,8 +2200,23 @@ public static class Program
         //
         // <b>Here, because the connection already exists and has just been used.</b> The
         // handshake is the one place that has read from the store before anything is serving.
+        // ADR-204 condition 14: with several tenants, their pools share another request pool's worth — at least two each.
+        int tenants = 1;
+
+        try
+        {
+            await using NpgsqlCommand counted = dataSource.CreateCommand("select count(*) from tenant");
+            tenants = Convert.ToInt32(await counted.ExecuteScalarAsync().ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+        }
+        catch (PostgresException missing) when (missing.SqlState == "42P01")
+        {
+            // A store before migration 100 has one organisation.
+        }
+
         await ConnectionCeilings.CompareAsync(
-            dataSource, Ceiling(services), logger, CancellationToken.None).ConfigureAwait(false);
+            dataSource,
+            Ceiling(services) + (tenants > 1 ? Math.Max(PlatformStorePool, 2 * tenants) : 0),
+            logger, CancellationToken.None).ConfigureAwait(false);
 
         // ADR-204 condition 9: whether the role this server reads as is one row-level security binds. Said here
         // for the same reason as the ceiling -- the connection has just been used, and nothing is serving yet.
@@ -2583,6 +2640,7 @@ public static class Program
         HostedDataEndpoints.Map(app);
         OAuthEndpoints.Map(app);
         ArcGisAdminEndpoints.Map(app);
+        TenantEndpoints.Map(app);
 
         // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).
         ArcGisAppendEndpoints.Map(app);
@@ -2672,15 +2730,31 @@ public static class Program
         Graticula.Host.Oidc.OidcEndpoints.Map(app);
         Graticula.Host.Saml.SamlEndpoints.Map(app);
 
-        app.MapGet("/rest/whoami", (HttpContext context) =>
+        app.MapGet("/rest/whoami", async (HttpContext context, TenantDirectory tenants) =>
         {
             // Small, and it earns its place: it is the only way to confirm from
             // outside that a token resolved to the principal it should, and the
             // authentication tests assert against it.
             RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
+            // ADR-204: whether this caller runs the system — asked here, where a deployment of one tenant does not ask
+            // it on every request — and which organisation the host is.
+            bool system = current.IsSystemAdministrator
+                || (!Graticula.Platform.Tenancy.TenantScope.MultiTenant && !current.Principal.IsAnonymous
+                    && await tenants.HomeOfAsync(current.Principal.Id, context.RequestAborted).ConfigureAwait(false)
+                        is { SystemAdministrator: true });
+            Graticula.Platform.Tenancy.Tenant? here = context.Features.Get<TenantFeature>()?.Tenant;
+
             return Results.Ok(new
             {
+                systemAdministrator = system,
+                outsider = current.Authorization.IsOutsider,
+                organisation = here is null ? null : new
+                {
+                    key = here.Key,
+                    name = here.Name,
+                    multiTenant = Graticula.Platform.Tenancy.TenantScope.MultiTenant,
+                },
                 name = current.Principal.Name,
                 kind = current.Principal.Kind.ToString(),
                 authenticated = !current.Principal.IsAnonymous,
@@ -3264,6 +3338,13 @@ public static class Program
         }
 
         Walk(null, 0);
+
+        // Tables sit in no group, so they follow the tree, as a service document lists them after its layers (ADR-213).
+        foreach (PublishedLayer table in service.Tables)
+        {
+            entries.Add((Label: NameOf(service, table.LayerIndex), Href: $"{path}/{table.LayerIndex}", Depth: 0));
+        }
+
         return entries;
     }
 
@@ -3536,7 +3617,7 @@ public static class Program
     /// <summary>What sits at an index — a layer's name, a group's, or the number.</summary>
     private static string NameOf(PublishedService service, int index)
     {
-        if (service.Layer(index) is { } layer)
+        if (service.LayerOrTable(index) is { } layer)
         {
             return $"{layer.Definition.Name} ({index})";
         }
@@ -3740,7 +3821,7 @@ public static class Program
             layers.Add(new FeatureServerMetadataWriter.ServiceLayer(
                 layer.LayerIndex,
                 layer.DisplayName,
-                layer.GeometryType,
+                layer.RequireGeometryType(),
                 moved is null ? layer.Definition.Srid : service.Srid!.Value,
                 moved ?? described.Extent)
             {
@@ -3753,6 +3834,20 @@ public static class Program
                 Initial = InitialExtents.Known(
                     layer, moved is null ? layer.Definition.Srid : service.Srid!.Value, moved ?? described.Extent,
                     contexts, projector),
+            });
+        }
+
+        // <b>Its tables — ADR-213 — described too</b>, because whether the database takes a write to one is part of
+        // what the service may offer, exactly as it is for a layer. They have no extent to add to the service's.
+        List<FeatureServerMetadataWriter.ServiceTable> tables = [];
+
+        foreach (PublishedLayer table in service.Tables)
+        {
+            (_, LayerDescription described) = await contexts.GetAsync(table, cancellation).ConfigureAwait(false);
+            shapes.Add(described);
+            tables.Add(new FeatureServerMetadataWriter.ServiceTable(table.LayerIndex, table.DisplayName)
+            {
+                CatalogName = table.Definition.Name,
             });
         }
 
@@ -3783,7 +3878,8 @@ public static class Program
             // it service by service and every new service started at 50,000 again. Advertised here as
             // well as enforced in the parser, because a client sizes its paging from this number.
             settings.MaximumRecordCount,
-            service.CopyrightText);
+            service.CopyrightText,
+            tables);
 
         // ADR-113: a view says so, and so does a source with views.
         document = ViewFlags.Apply(context, document, service.ViewOf is not null, service.HasViews, serviceCapabilities);
@@ -3940,6 +4036,19 @@ public static class Program
             layers.Add(one);
         }
 
+        // Its tables, each as its own document says it (ADR-213), in the array ArcGIS keeps them in.
+        List<object> tables = [];
+
+        foreach (PublishedLayer table in owning.Tables)
+        {
+            (object one, LayerDescription described) = await LayerDocumentAsync(
+                context, table, contexts, relationships, catalog, settings, projector,
+                cancellation).ConfigureAwait(false);
+
+            shapes.Add(described);
+            tables.Add(one);
+        }
+
         string serviceCapabilities = CapabilitiesFor(context, owning, WritabilityOf(shapes));
 
         // <b>In index order, which is the order the service document lists them in.</b> A client
@@ -3959,7 +4068,7 @@ public static class Program
         object document = new
         {
             layers = layers.OrderBy(Index).ToArray(),
-            tables = Array.Empty<object>(),
+            tables = tables.ToArray(),
         };
 
         if (RestDirectory.WantsHtml(context.Request.Query["f"], context.Request.Headers.Accept))
@@ -3969,8 +4078,7 @@ public static class Program
                     context.Request.Path,
                     $"{owning.Name} - all layers and tables",
                     document,
-                    [.. owning.Layers
-                        .OrderBy(l => l.LayerIndex)
+                    [.. owning.LayersAndTables
                         .Select(l => (
                             Label: l.Definition.Name,
                             Href: $"/rest/services/{owning.QualifiedName}/FeatureServer/{l.LayerIndex}"))],
@@ -3992,8 +4100,15 @@ public static class Program
     /// </remarks>
     /// <param name="document">A layer or group document.</param>
     /// <returns>Its id, or <see cref="int.MaxValue"/> when it has none.</returns>
-    private static int Index(object document) =>
-        document.GetType().GetProperty("id")?.GetValue(document) is int id ? id : int.MaxValue;
+    private static int Index(object document) => document switch
+    {
+        // A table's document is the dictionary AsTable makes of a layer's (ADR-213).
+        IReadOnlyDictionary<string, object?> fields => fields.TryGetValue("id", out object? id) && id is int number
+            ? number
+            : int.MaxValue,
+        System.Text.Json.Nodes.JsonObject node => node["id"]?.GetValue<int>() ?? int.MaxValue,
+        _ => document.GetType().GetProperty("id")?.GetValue(document) is int id ? id : int.MaxValue,
+    };
 
     /// <summary>
     /// The document one feature layer answers with, wherever it is being asked for.
@@ -4748,7 +4863,7 @@ public static class Program
                 return;
             }
 
-            asked = [.. service.Layers.Select(l => l.LayerIndex)];
+            asked = [.. service.LayersAndTables.Select(l => l.LayerIndex)];
         }
 
         Dictionary<string, object> domains = new(StringComparer.Ordinal);
@@ -5293,7 +5408,7 @@ public static class Program
         // features:edit caller, changes only rows whose creator it is.
         return (description, parsed, parsed.Batch with
         {
-            Editor = context.Features.Get<RequestPrincipal>()!.Principal.Name,
+            Editor = context.Features.Get<RequestPrincipal>()!.QualifiedName,
             OwnOnly = OwnOnlyFor(context, layer, description),
             KeepsGlobalIds = byGlobalId is not null,
         });
@@ -5365,7 +5480,7 @@ public static class Program
         return audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id,
-                current.Principal.Name,
+                current.QualifiedName,
                 CallerAddress.Of(context)?.ToString(),
                 "layer.applyEdits",
                 layerName,
@@ -5441,12 +5556,12 @@ public static class Program
     private static string CapabilitiesFor(
         HttpContext context, PublishedService service, bool? writable)
     {
-        if (service.Layers.Count == 0 || service.Layers.Any(l => !l.Definition.HasIntegerIdentity))
+        if (service.LayersAndTables.Count == 0 || service.LayersAndTables.Any(l => !l.Definition.HasIntegerIdentity))
         {
             return Join(service.Limits.Restrict(["Query"]));
         }
 
-        return CapabilitiesFor(context, service.Layers[0], service.Limits, writable);
+        return CapabilitiesFor(context, service.LayersAndTables[0], service.Limits, writable);
     }
 
     /// <summary>The service-wide answer, for a caller holding a service rather than its shapes.</summary>
@@ -5466,7 +5581,7 @@ public static class Program
     {
         List<LayerDescription> shapes = [];
 
-        foreach (PublishedLayer layer in service.Layers)
+        foreach (PublishedLayer layer in service.LayersAndTables)
         {
             (_, LayerDescription described) =
                 await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
@@ -5959,6 +6074,31 @@ public static class Program
     private static string DatastoreConnection(string platformStore) =>
         new NpgsqlConnectionStringBuilder(platformStore) { SearchPath = null }.ConnectionString;
 
+    /// <summary>
+    /// Whether a budget key names the same database as <paramref name="datastore"/>: host, port and database, not the
+    /// whole string, because a hosted layer's connection may differ from the datastore's in its other keys.
+    /// </summary>
+    private static Func<string, bool> SameDatabaseAs(string datastore)
+    {
+        NpgsqlConnectionStringBuilder theirs = new(datastore);
+
+        return source =>
+        {
+            try
+            {
+                NpgsqlConnectionStringBuilder one = new(source);
+                return string.Equals(one.Host, theirs.Host, StringComparison.OrdinalIgnoreCase)
+                    && one.Port == theirs.Port
+                    && string.Equals(one.Database, theirs.Database, StringComparison.Ordinal);
+            }
+            catch (ArgumentException)
+            {
+                // A key that is not a connection string — an image file's — is no organisation's shared database.
+                return false;
+            }
+        };
+    }
+
     private static async Task BootstrapAsync(IServiceProvider services, ILogger logger)
     {
         IIdentityStore identity = services.GetRequiredService<IIdentityStore>();
@@ -6208,6 +6348,26 @@ public static class Program
 
             await Results.Json(
                 new { error = new { code = 400, message = before, details = Array.Empty<string>() } },
+                statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>A table has no extent to return — ADR-213</b>, and ArcGIS's own answers returnExtentOnly on one with a
+        // 400 (ServiceRequest/FeatureServer/1, 2026-10-21). Its document says supportsReturningQueryExtent false.
+        if (layer.IsTable && shape == QueryShape.Extent)
+        {
+            const string NoExtent = "'returnExtentOnly' cannot be answered: this is a table, and a table has no "
+                + "geometry to take an extent of. Ask for returnCountOnly to count its rows.";
+
+            if (html)
+            {
+                await QueryPage.WriteRefusalAsync(context, layer, described, NoExtent, cancellation)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            await Results.Json(
+                new { error = new { code = 400, message = NoExtent, details = Array.Empty<string>() } },
                 statusCode: StatusCodes.Status400BadRequest).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }

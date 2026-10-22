@@ -699,7 +699,7 @@ internal static partial class AuthEndpoints
         }
 
         (Principal Principal, PasswordHash? Credential)? found = await store
-            .FindForLoginAsync(current.Principal.Name, cancellation).ConfigureAwait(false);
+            .FindForLoginAsync(current.QualifiedName, cancellation).ConfigureAwait(false);
 
         if (found is not { Credential: { } credential }
             || !hasher.Verify(request.CurrentPassword, credential))

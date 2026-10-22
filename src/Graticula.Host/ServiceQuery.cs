@@ -203,7 +203,7 @@ internal static class ServiceQuery
                 return false;
             }
         }
-        else if (LayerDefinitions.TryRead(text, service.Layers, out Dictionary<int, string> clauses, out error))
+        else if (LayerDefinitions.TryRead(text, service.LayersAndTables, out Dictionary<int, string> clauses, out error))
         {
             definitions.AddRange(clauses.Select(clause => new Definition(clause.Key, clause.Value, null)));
         }
@@ -214,7 +214,7 @@ internal static class ServiceQuery
 
         foreach (Definition definition in definitions)
         {
-            if (service.Layer(definition.LayerId) is null)
+            if (service.LayerOrTable(definition.LayerId) is null)
             {
                 error = $"`layerDefs` names layer {definition.LayerId}, which is not a layer of this service "
                     + "that holds features.";

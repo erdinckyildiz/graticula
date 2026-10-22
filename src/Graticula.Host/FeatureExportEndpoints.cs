@@ -108,14 +108,14 @@ internal static class FeatureExportEndpoints
             name = service.Name,
             folder = service.Folder,
             formats = Formats,
-            layers = service.Layers.Select(layer => new
+            layers = service.LayersAndTables.Select(layer => new
             {
                 id = layer.LayerIndex,
                 name = layer.Definition.Name,
-                geometryType = layer.GeometryType.ToString(),
+                geometryType = layer.GeometryType?.ToString(),
                 mayExport = MayExport(layer, caller),
             }),
-            mayExport = service.Layers.Count > 0 && service.Layers.All(layer => MayExport(layer, caller)),
+            mayExport = service.LayersAndTables.Count > 0 && service.LayersAndTables.All(layer => MayExport(layer, caller)),
             maxRows = settings.FeatureExportMaximumRows,
             budget = new
             {
@@ -179,7 +179,7 @@ internal static class FeatureExportEndpoints
         {
             foreach (int id in asked.Distinct().Order())
             {
-                if (service.Layer(id) is not { } layer)
+                if (service.LayerOrTable(id) is not { } layer)
                 {
                     await RefuseAsync(context, 400, $"There is no layer {id} in '{service.Name}'.").ConfigureAwait(false);
                     return;
@@ -191,7 +191,7 @@ internal static class FeatureExportEndpoints
         else
         {
             // Every layer, group layers not being layers: the service's list holds the ones that have rows.
-            layers.AddRange(service.Layers.OrderBy(layer => layer.LayerIndex));
+            layers.AddRange(service.LayersAndTables.OrderBy(layer => layer.LayerIndex));
         }
 
         if (layers.Count == 0)
@@ -644,7 +644,7 @@ internal static class FeatureExportEndpoints
             id = export.Job.Id,
             status = export.Job.Status.ToString().ToLowerInvariant(),
             format = PostgresFeatureExportStore.Wire(export.Format),
-            layers = export.Layers.Select(id => new { id, name = service.Layer(id)?.Definition.Name }),
+            layers = export.Layers.Select(id => new { id, name = service.LayerOrTable(id)?.Definition.Name }),
             layerCount = export.Layers.Count,
             phase = export.Job.Status == JobStatus.Running ? export.Phase.ToString().ToLowerInvariant() : null,
             rows = export.RowsTotal,

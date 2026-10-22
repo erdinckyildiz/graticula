@@ -81,7 +81,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
 
     private string Id => LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
 
     private Task<MySqlConnection> OpenAsync(CancellationToken cancellationToken) =>
         MySqlConnections.OpenAsync(_connectionString, cancellationToken);
@@ -111,7 +111,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
 
         foreach ((string name, FieldType type, MySqlGuids.Storage? guid) in columns)
         {
-            if (string.Equals(name, id, StringComparison.Ordinal) || string.Equals(name, layer.GeometryColumn, StringComparison.Ordinal))
+            if (string.Equals(name, id, StringComparison.Ordinal) || string.Equals(name, layer.RequireGeometryColumn(), StringComparison.Ordinal))
             {
                 continue;
             }
@@ -130,7 +130,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
             select.Append(", ").Append(value).Append(" as ").Append(LayerDefinition.Quote(name));
         }
 
-        select.Append(", h.shape as ").Append(LayerDefinition.Quote(layer.GeometryColumn))
+        select.Append(", h.shape as ").Append(LayerDefinition.Quote(layer.RequireGeometryColumn()))
               .Append(" from ").Append(QualifiedOf(layer)).Append(" h")
               .Append($" where h.gdb_from_date <= {moment} and (h.gdb_to_date is null or h.gdb_to_date > {moment})");
 
@@ -202,6 +202,15 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
     /// <inheritdoc/>
     public async Task<long> EnableAsync(CancellationToken cancellationToken)
     {
+        // <b>Not for a table, yet — ADR-213 condition 7.</b> This history keeps each version's shape in a spatial column with
+        // its own index, and a table has no shape to give it; a PostGIS table keeps its history.
+        if (_layer.IsTable)
+        {
+            throw new InvalidOperationException(
+                $"'{_layer.Name}' is a table in a MySQL database, and a history here keeps a shape with every version; a table "
+                + "has none. Keep this table's history in PostGIS, or keep it without one (ADR-213).");
+        }
+
         if (_layer.IntegerIdentityColumn is null)
         {
             throw new InvalidOperationException(
@@ -655,7 +664,7 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
             string full = reader.GetString(2).ToLowerInvariant();
 
             if (string.Equals(name, _layer.IntegerIdentityColumn ?? _layer.IdentityColumn, StringComparison.Ordinal)
-                || string.Equals(name, _layer.GeometryColumn, StringComparison.Ordinal)
+                || string.Equals(name, _layer.RequireGeometryColumn(), StringComparison.Ordinal)
                 || type is "tinyblob" or "blob" or "mediumblob" or "longblob"
                     or "geometry" or "point" or "linestring" or "polygon" or "multipoint" or "multilinestring" or "multipolygon"
                     or "geometrycollection" or "geomcollection")
@@ -678,12 +687,12 @@ public sealed class MySqlFeatureHistory : IFeatureHistory
 
         command.Parameters.AddWithValue("@s", _layer.SchemaName);
         command.Parameters.AddWithValue("@t", _layer.TableName);
-        command.Parameters.AddWithValue("@c", _layer.GeometryColumn);
+        command.Parameters.AddWithValue("@c", _layer.RequireGeometryColumn());
 
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is { } found and not DBNull
             ? Convert.ToInt32(found, CultureInfo.InvariantCulture)
             : throw new InvalidOperationException(
-                $"{_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn} declares no SRID, which the history's spatial index needs.");
+                $"{_layer.SchemaName}.{_layer.TableName}.{_layer.RequireGeometryColumn()} declares no SRID, which the history's spatial index needs.");
     }
 
     /// <summary>A row's recorded columns as one JSON object, from the row aliased <paramref name="row"/>.</summary>

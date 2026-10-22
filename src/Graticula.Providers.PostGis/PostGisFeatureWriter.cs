@@ -64,7 +64,13 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return Graticula.Geometries.Envelope.Empty;
         }
 
-        string geometry = LayerDefinition.Quote(_layer.GeometryColumn);
+        // A table draws nothing, so an edit to it empties no tile (ADR-213).
+        if (_layer.GeometryColumn is not { } column)
+        {
+            return Graticula.Geometries.Envelope.Empty;
+        }
+
+        string geometry = LayerDefinition.Quote(column);
         string sql =
             "select st_xmin(e), st_ymin(e), st_xmax(e), st_ymax(e) from (select st_extent(st_transform("
             + $"{geometry}, @srid)) as e from {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName)} "
@@ -92,6 +98,18 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         }
     }
     private readonly LayerDefinition _layer;
+
+    /// <summary>
+    /// Why a shape cannot be written to this layer, or null when it can — a table has no column to put it in (ADR-213).
+    /// </summary>
+    /// <remarks>
+    /// <b>Refused rather than dropped.</b> A client that sends a shape to a table believes it is somewhere, and saying
+    /// nothing would leave it believing that. What ArcGIS does here was not measured: its sample server is not ours to
+    /// write to.
+    /// </remarks>
+    private string? TableRefusal => _layer.IsTable
+        ? $"'{_layer.Name}' is a table and keeps no geometry; send the feature's attributes without one."
+        : null;
     private readonly EditorTracking _tracking;
     private readonly LayerSubtypes? _subtypes;
 
@@ -466,6 +484,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         EditBatch batch,
         CancellationToken cancellationToken)
     {
+        if (add.Geometry is not null && TableRefusal is { } table)
+        {
+            return EditResult.Failed(-1, table);
+        }
+
         if (add.Geometry is { IsEmpty: false } shape && declared is { } stores
             && EditColumns.DimensionRefusal(shape, stores, "the layer's geometry column") is { } refused)
         {
@@ -492,7 +515,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         if (add.Geometry is { IsEmpty: false })
         {
             (string stored, repairedSql) = GeometrySql(add.GeometrySrid);
-            columns.Add(LayerDefinition.Quote(_layer.GeometryColumn));
+            columns.Add(LayerDefinition.Quote(_layer.GeometryColumn!));
             values.Add(stored);
         }
 
@@ -643,6 +666,11 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
             return EditResult.Missing(update.Identity);
         }
 
+        if (update.Geometry is not null && TableRefusal is { } table)
+        {
+            return EditResult.Failed(update.Identity, table);
+        }
+
         // ADR-008 §4.5a, made concrete. zmFlag is 0 for 2D, 1 for M, 2 for Z, 3 for ZM — ST_Zmflag's numbers,
         // which are GeometryOrdinates'. A row with a shape is held to what that shape carries; an empty row to
         // what its column declares, and to nothing when the column declares nothing.
@@ -681,7 +709,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         if (update.Geometry is not null)
         {
             (string stored, repairedSql) = GeometrySql(update.GeometrySrid);
-            assignments.Add($"{LayerDefinition.Quote(_layer.GeometryColumn)} = {stored}");
+            assignments.Add($"{LayerDefinition.Quote(_layer.GeometryColumn!)} = {stored}");
         }
 
         string? owner = EditColumns.OwnerOf(batch);
@@ -1047,10 +1075,15 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
               and g.attnum > 0 and not g.attisdropped
             """;
 
+        if (_layer.GeometryColumn is not { } geometryColumn)
+        {
+            return null;
+        }
+
         await using NpgsqlCommand command = new(Sql, connection, transaction);
         command.Parameters.AddWithValue("schema", _layer.SchemaName);
         command.Parameters.AddWithValue("table", _layer.TableName);
-        command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
+        command.Parameters.AddWithValue("geometry", geometryColumn);
 
         object? type = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1074,7 +1107,7 @@ public sealed class PostGisFeatureWriter : IFeatureWriter, Graticula.Tiles.IEdit
         // stores, and what it may hold is the column's declaration.
         string sql =
             $"select {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)}, "
-            + $"st_zmflag({LayerDefinition.Quote(_layer.GeometryColumn)}) "
+            + (_layer.GeometryColumn is { } column ? $"st_zmflag({LayerDefinition.Quote(column)}) " : "null::smallint ")
             + $"from {_layer.QuotedTable} "
             + $"where {LayerDefinition.Quote(_layer.IntegerIdentityColumn!)} = any(@ids)";
 

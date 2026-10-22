@@ -718,14 +718,15 @@ internal static partial class PortalEndpoints
     {
         foreach ((PublishedLayer layer, string from) in layers)
         {
-            if (!definition.DrawingInfos.TryGetValue(from, out string? drawing))
+            // A table draws nothing, so its drawing info, if Pro sent one, has nowhere to go (ADR-213).
+            if (layer.GeometryType is not { } geometryType || !definition.DrawingInfos.TryGetValue(from, out string? drawing))
             {
                 continue;
             }
 
             try
             {
-                SymbologyWrite written = SymbologyConversion.Read(drawing, layer.GeometryType);
+                SymbologyWrite written = SymbologyConversion.Read(drawing, geometryType);
                 await catalog.SetSymbologyAsync(layer.Id, written.Canonical, cancellation).ConfigureAwait(false);
                 warmer.Redraw(layer.Id);
             }

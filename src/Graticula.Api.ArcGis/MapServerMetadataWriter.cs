@@ -57,6 +57,7 @@ public static class MapServerMetadataWriter
     /// <param name="description">The service's description, or null for none.</param>
     /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
     /// <param name="groups">Its group layers, listed with the feature layers by index as the FeatureServer lists them (D-296).</param>
+    /// <param name="tables">Its tables — ADR-213 — which ArcGIS's map service lists beside its layers and draws nothing of.</param>
     /// <returns>The document.</returns>
     public static object Service(
         IReadOnlyList<FeatureServerMetadataWriter.ServiceLayer> layers,
@@ -67,7 +68,8 @@ public static class MapServerMetadataWriter
         (DateTimeOffset? From, DateTimeOffset? Until)? time = null,
         string? description = null,
         string? copyrightText = null,
-        IReadOnlyList<FeatureServerMetadataWriter.ServiceGroup>? groups = null)
+        IReadOnlyList<FeatureServerMetadataWriter.ServiceGroup>? groups = null,
+        IReadOnlyList<FeatureServerMetadataWriter.ServiceTable>? tables = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(capabilities);
@@ -91,7 +93,7 @@ public static class MapServerMetadataWriter
             supportsDynamicLayers = false,
 
             layers = Entries(layers, groups ?? []),
-            tables = Array.Empty<object>(),
+            tables = FeatureServerMetadataWriter.TablesOf(tables),
 
             spatialReference = Reference(srid),
             singleFusedMapCache = false,
@@ -224,6 +226,53 @@ public static class MapServerMetadataWriter
 
             // The FeatureServer document's own timeInfo for the same layer — V-73.
             timeInfo,
+        };
+    }
+
+    /// <summary>A table's document at <c>/MapServer/{id}</c> — ADR-213.</summary>
+    /// <param name="id">Its number in the service.</param>
+    /// <param name="name">Its name.</param>
+    /// <param name="fields">Its fields, as the layer document gives them.</param>
+    /// <param name="displayField">The field a client labels a row with.</param>
+    /// <param name="maxRecordCount">What a query may return.</param>
+    /// <param name="capabilities">What it offers: <c>Query,Data</c>, or nothing under a ceiling.</param>
+    /// <param name="objectIdField">The object id, or null.</param>
+    /// <param name="copyrightText">The service's credits, or null.</param>
+    /// <returns>The document.</returns>
+    /// <remarks>
+    /// <b>The keys a map service's table carries, and none of a layer's drawing ones</b> — no geometry type, extent,
+    /// scales or drawing info, as the FeatureServer face's table document has none. Its query is the same handler's.
+    /// </remarks>
+    public static object Table(
+        int id,
+        string name,
+        IReadOnlyList<object> fields,
+        string? displayField,
+        int maxRecordCount,
+        string capabilities,
+        string? objectIdField,
+        string? copyrightText = null)
+    {
+        ArgumentNullException.ThrowIfNull(fields);
+
+        return new
+        {
+            currentVersion = CurrentVersion,
+            id,
+            name,
+            type = "Table",
+            description = string.Empty,
+            copyrightText = copyrightText ?? string.Empty,
+            displayField = displayField ?? string.Empty,
+            objectIdField,
+            fields,
+            relationships = Array.Empty<object>(),
+            hasAttachments = false,
+            capabilities,
+            maxRecordCount,
+            supportsStatistics = true,
+            supportsAdvancedQueries = true,
+            supportedQueryFormats = "JSON, geoJSON, PBF",
         };
     }
 

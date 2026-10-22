@@ -54,7 +54,16 @@ internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogge
     }
 
     /// <summary>The tree as held.</summary>
-    public IReadOnlyList<ItemCategory> Tree => _held.Tree;
+    /// <summary>
+    /// The request's organisation's categories — ADR-204 §5e item 14: the snapshot holds every organisation's, and the
+    /// tree, its schema and a path's resolution were each organisation's view of all of them.
+    /// </summary>
+    public IReadOnlyList<ItemCategory> Tree => Mine(_held.Tree);
+
+    private static IReadOnlyList<ItemCategory> Mine(IReadOnlyList<ItemCategory> all) =>
+        Graticula.Platform.Tenancy.TenantScope.MultiTenant
+            ? [.. all.Where(c => c.Tenant is null || c.Tenant == Graticula.Platform.Tenancy.TenantScope.Effective)]
+            : all;
 
     /// <summary>A category's path, or null when there is none by that id.</summary>
     public string? PathOf(Guid category) => _paths.TryGetValue(category, out string? path) ? path : null;
@@ -64,15 +73,17 @@ internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogge
     {
         if (Guid.TryParse(named, out Guid id))
         {
-            return _paths.ContainsKey(id) ? id : null;
+            return _paths.ContainsKey(id) && Tree.Any(c => c.Id == id) ? id : null;
         }
 
         string wanted = named.Trim().TrimEnd('/');
         wanted = wanted.StartsWith('/') ? wanted : $"/{Root}/{wanted}";
 
+        HashSet<Guid> mine = [.. Tree.Select(c => c.Id)];
+
         foreach ((Guid key, string path) in _paths)
         {
-            if (string.Equals(path, wanted, StringComparison.OrdinalIgnoreCase))
+            if (mine.Contains(key) && string.Equals(path, wanted, StringComparison.OrdinalIgnoreCase))
             {
                 return key;
             }
@@ -84,7 +95,7 @@ internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogge
     /// <summary>The category schema as ArcGIS's portal answers it: one root, its children nested; empty when none.</summary>
     public object[] Schema()
     {
-        IReadOnlyList<ItemCategory> tree = _held.Tree;
+        IReadOnlyList<ItemCategory> tree = Tree;
 
         if (tree.Count == 0)
         {

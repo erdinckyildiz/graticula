@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
@@ -62,10 +63,13 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
 
             (List<SourceTable> tables, List<SkippedTable> skipped) = await TablesAsync(connection, cancellationToken).ConfigureAwait(false);
 
+            int plain = tables.Count(t => t.GeometryColumn is null);
+
             string message = tables.Count == 0
                 ? "Connected, and nothing here can be published: no table with a geometry or geography column whose rows "
-                  + "hold one SRID, and a single whole-number primary key, is in this database."
-                : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published.";
+                  + "hold one SRID, and none without one, with a single whole-number primary key, is in this database."
+                : $"Connected. {tables.Count - plain} table{(tables.Count - plain == 1 ? "" : "s")} with geometry can be published"
+                  + (plain > 0 ? $", and {plain} without, which publish as tables (ADR-213)." : ".");
 
             return new ProbeResult(ProbeOutcome.Usable, message, version, $"SQL Server spatial {version}", tables, skipped);
         }
@@ -174,7 +178,58 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
                 Writable: await SqlServerConnections.CanWriteAsync(connection, row.Schema, row.Table, cancellation).ConfigureAwait(false)));
         }
 
+        tables.AddRange(await PlainTablesAsync(connection, cancellation).ConfigureAwait(false));
         return (tables, skipped);
+    }
+
+    /// <summary>
+    /// The tables and views with no geometry or geography column and a single whole-number primary key — ADR-213 condition
+    /// 7: each publishes as a table. Never the ones this server keeps beside a layer's: its attachments and their chunks.
+    /// </summary>
+    private static async Task<List<SourceTable>> PlainTablesAsync(SqlConnection connection, CancellationToken cancellation)
+    {
+        const string Sql = """
+            select t.TABLE_SCHEMA, t.TABLE_NAME, k.COLUMN_NAME
+              from INFORMATION_SCHEMA.TABLES t
+              join INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+                on tc.TABLE_SCHEMA = t.TABLE_SCHEMA and tc.TABLE_NAME = t.TABLE_NAME and tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+              join INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+                on k.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA and k.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+              join INFORMATION_SCHEMA.COLUMNS c
+                on c.TABLE_SCHEMA = t.TABLE_SCHEMA and c.TABLE_NAME = t.TABLE_NAME and c.COLUMN_NAME = k.COLUMN_NAME
+             where c.DATA_TYPE in ('tinyint', 'smallint', 'int', 'bigint')
+               and t.TABLE_SCHEMA not in ('sys', 'INFORMATION_SCHEMA')
+               and t.TABLE_NAME not like '%[_][_]attach'
+               and t.TABLE_NAME not like '%[_][_]attach[_]chunk'
+               and not exists (
+                 select 1 from INFORMATION_SCHEMA.COLUMNS g
+                  where g.TABLE_SCHEMA = t.TABLE_SCHEMA and g.TABLE_NAME = t.TABLE_NAME
+                    and g.DATA_TYPE in ('geometry', 'geography'))
+               and (select count(*) from INFORMATION_SCHEMA.KEY_COLUMN_USAGE kk
+                     where kk.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA and kk.CONSTRAINT_NAME = tc.CONSTRAINT_NAME) = 1
+             order by t.TABLE_SCHEMA, t.TABLE_NAME
+            """;
+
+        List<(string Schema, string Table, string Key)> found = [];
+
+        await using (SqlCommand command = new(Sql, connection))
+        await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                found.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+            }
+        }
+
+        List<SourceTable> tables = [];
+
+        foreach ((string schema, string table, string key) in found)
+        {
+            tables.Add(new SourceTable(schema, table, null, 0, null, key, key, [key],
+                Writable: await SqlServerConnections.CanWriteAsync(connection, schema, table, cancellation).ConfigureAwait(false)));
+        }
+
+        return tables;
     }
 
     private static async Task<string?> KeyTypeAsync(SqlConnection connection, string schema, string table, string column, CancellationToken cancellation)

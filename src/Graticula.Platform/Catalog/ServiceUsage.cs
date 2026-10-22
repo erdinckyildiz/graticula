@@ -17,7 +17,8 @@ public sealed record ServiceUse(Guid ServiceId, long Total, long Last30, long La
 /// <param name="Folder">Its folder, or null at the root.</param>
 /// <param name="Name">Its name.</param>
 /// <param name="Requests">How many requests.</param>
-public readonly record struct ServiceCount(string? Folder, string Name, long Requests);
+/// <param name="Tenant">The organisation the requests were made to (ADR-204), or null for the default one.</param>
+public readonly record struct ServiceCount(string? Folder, string Name, long Requests, Guid? Tenant = null);
 
 /// <summary>
 /// Where services' request counts are kept, a row a service a day — ADR-135. Written in batches by the host, never on

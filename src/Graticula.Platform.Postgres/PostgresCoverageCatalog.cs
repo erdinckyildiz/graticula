@@ -42,7 +42,10 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         c.elevation, s.copyright_text
         """;
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Reads coverages from a platform store.</summary>
     /// <param name="dataSource">The store.</param>
@@ -50,7 +53,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -370,7 +373,8 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
 
     /// <inheritdoc/>
     public async Task<bool> ReplaceImageAsync(
-        string? folder, string serviceName, string path, CoverageInfo info, CancellationToken cancellationToken)
+        string? folder, string serviceName, string path, CoverageInfo info, CancellationToken cancellationToken,
+        Guid? serviceId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(serviceName);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -386,9 +390,11 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
              where c.service_id = s.id
                and lower(s.name) = lower(@name)
                and coalesce(s.folder, '') = coalesce(@folder, '')
+               and (@id::uuid is null or s.id = @id::uuid)
             """);
 
         command.Parameters.AddWithValue("name", serviceName);
+        command.Parameters.Add(new NpgsqlParameter("id", NpgsqlTypes.NpgsqlDbType.Uuid) { Value = (object?)serviceId ?? DBNull.Value });
         command.Parameters.AddWithValue("folder", (object?)folder ?? DBNull.Value);
         command.Parameters.AddWithValue("path", path);
         command.Parameters.AddWithValue("srid", info.Srid);

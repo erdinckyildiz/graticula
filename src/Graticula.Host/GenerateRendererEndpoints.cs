@@ -108,6 +108,16 @@ public static class GenerateRendererEndpoints
             return;
         }
 
+        if (layer.GeometryType is not { } geometryType)
+        {
+            await RefuseAsync(
+                context,
+                $"'{layer.Definition.Name}' is a table. A renderer draws features, and a table has none to draw (ADR-213).")
+                .ConfigureAwait(false);
+
+            return;
+        }
+
         string? definition = await ReadDefinitionAsync(context).ConfigureAwait(false);
 
         if (string.IsNullOrWhiteSpace(definition))
@@ -130,7 +140,7 @@ public static class GenerateRendererEndpoints
                 ?? throw new SymbologyException("`classificationDef` is not a JSON object.");
 
             JsonObject renderer = await BuildAsync(
-                asked, source, described, layer.GeometryType, cancellation)
+                asked, source, described, geometryType, cancellation)
                 .ConfigureAwait(false);
 
             await Results.Content(renderer.ToJsonString(), "application/json")

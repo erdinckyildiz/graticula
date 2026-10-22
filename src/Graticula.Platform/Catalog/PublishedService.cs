@@ -56,7 +56,10 @@ public sealed class PublishedService
     /// <param name="owner">Who owns it, or null.</param>
     /// <param name="sharing">Who may read it.</param>
     /// <param name="status">Whether it is served.</param>
-    /// <param name="layers">Its layers, in any order.</param>
+    /// <param name="layers">
+    /// Its layers and its tables, in any order — a table is told from a layer by having no geometry, and lands in
+    /// <see cref="Tables"/> (ADR-213).
+    /// </param>
     /// <param name="groups">Its group layers, in any order.</param>
     /// <param name="style">
     /// The cartographic style somebody wrote for it, or null to keep the
@@ -104,7 +107,10 @@ public sealed class PublishedService
         Status = status;
         Srid = srid;
         Style = style;
-        Layers = [.. layers.OrderBy(l => l.LayerIndex)];
+        List<PublishedLayer> all = [.. layers.OrderBy(l => l.LayerIndex)];
+        Layers = [.. all.Where(l => !l.IsTable)];
+        Tables = [.. all.Where(l => l.IsTable)];
+        LayersAndTables = all;
         Groups = [.. (groups ?? []).OrderBy(g => g.Index)];
         Limits = limits ?? ServiceCapabilityLimits.Unset;
     }
@@ -257,8 +263,24 @@ public sealed class PublishedService
     /// <summary>Whether it is served (ADR-020 §3).</summary>
     public ServiceStatus Status { get; }
 
-    /// <summary>Its layers, ordered by index.</summary>
+    /// <summary>Its layers — the ones with geometry — ordered by index.</summary>
+    /// <remarks>
+    /// <b>Tables are not here, and that is the point of the split (ADR-213).</b> ArcGIS lists a service's
+    /// <c>layers</c> and its <c>tables</c> apart, and every face that draws — a map, a tile, WMS, WFS, KML, a legend —
+    /// reads this list and has nothing to do with a table. Keeping them out here keeps them out of every one of those
+    /// at once, instead of asking each of a hundred loops to remember.
+    /// </remarks>
     public IReadOnlyList<PublishedLayer> Layers { get; }
+
+    /// <summary>Its tables — layers with no geometry, ArcGIS's standalone tables — ordered by index (ADR-213).</summary>
+    /// <remarks>They share the index space with <see cref="Layers"/>, as ArcGIS's do: <c>/FeatureServer/2</c> is one or the other.</remarks>
+    public IReadOnlyList<PublishedLayer> Tables { get; }
+
+    /// <summary>
+    /// Its layers and its tables together, ordered by index — for whatever is about the data rather than about drawing
+    /// it: ownership, sharing, deletion, history, attachments, relationships.
+    /// </summary>
+    public IReadOnlyList<PublishedLayer> LayersAndTables { get; }
 
     /// <summary>Its group layers, ordered by index.</summary>
     public IReadOnlyList<GroupLayer> Groups { get; }
@@ -320,12 +342,19 @@ public sealed class PublishedService
     /// <summary>The address a client builds, without the type segment.</summary>
     public string QualifiedName => Folder is null ? Name : $"{Folder}/{Name}";
 
-    /// <summary>The layer with this index, or null.</summary>
+    /// <summary>The layer with this index, or null — a table is not a layer here (ADR-213).</summary>
     /// <param name="index">The number from the URL.</param>
     /// <returns>The layer, or null if the service has no such layer.</returns>
-    public PublishedLayer? Layer(int index)
+    public PublishedLayer? Layer(int index) => Find(Layers, index);
+
+    /// <summary>The layer or the table with this index, or null — the feature face's question (ADR-213).</summary>
+    /// <param name="index">The number from the URL.</param>
+    /// <returns>The layer or table, or null if the service has neither at that index.</returns>
+    public PublishedLayer? LayerOrTable(int index) => Find(LayersAndTables, index);
+
+    private static PublishedLayer? Find(IReadOnlyList<PublishedLayer> layers, int index)
     {
-        foreach (PublishedLayer layer in Layers)
+        foreach (PublishedLayer layer in layers)
         {
             if (layer.LayerIndex == index)
             {

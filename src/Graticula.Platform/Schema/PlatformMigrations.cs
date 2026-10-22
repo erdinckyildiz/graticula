@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(98);
+    public static SchemaVersion ComponentSchemaVersion => new(105);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -133,7 +133,1006 @@ public static class PlatformMigrations
         ARegisteredLayerMayKeepAttachmentsV96,
         ARegisteredDatabaseMayBeMySqlV97,
         ARegisteredDatabaseMayBeSqlServerV98,
+        ALayerMayBeATableV99,
+        OneDeploymentHoldsSeveralOrganisationsV100,
+        AnOrganisationsLogsAreItsOwnV101,
+        AServiceMayBeKeptWarmV102,
+        AServiceNameIsItsOrganisationsV103,
+        TheOtherNamesAreTheOrganisationsV104,
+        AUsernameIsItsOrganisationsV105,
     ]);
+
+    /// <summary>
+    /// A username is unique within its organisation — ADR-204 §5e item 16, owner decision 2026-10-22: *"bence
+    /// organizasyon başına olsun"*, after *"aynı emaille 2 tenantta olma ihtimali var mı? username'in email olduğunu
+    /// düşünürsek"*.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One rule for what a name means, in one place.</b> <c>graticula_principal_named</c> turns a name into an
+    /// account: a bare name is a member of the request's organisation — the default one where there is none — and
+    /// <c>organisation\name</c> is a member of that organisation, found only where the floor lets this organisation see
+    /// them (an outsider admitted to one of its groups). Every statement that found an account by name now asks it, so an
+    /// administrator's reset, removal or second-factor reset cannot reach an outsider who shares a member's name, and a
+    /// sign-in cannot land on the wrong one. An exact match is preferred over one that differs only in case.
+    /// </para>
+    /// <para>
+    /// <b>Failed sign-ins are counted per organisation</b>, so somebody failing as `ali` at one does not throttle `ali`
+    /// at another. <b>Expand</b>: every name unique across the deployment is unique within its organisation.
+    /// </para>
+    /// </remarks>
+    private static Migration AUsernameIsItsOrganisationsV105 => Migration.Expand(
+        new SchemaVersion(105),
+        "A username is unique within its organisation; a name means one account by one rule (ADR-204).",
+
+        "alter table principal drop constraint if exists principal_name_key",
+
+        "create unique index if not exists principal_name_key on principal (name, tenant_id)",
+
+        """
+        create or replace function graticula_principal_named(named text) returns uuid
+        language sql stable as $f$
+            select p.id
+              from principal p
+             where case
+                     when strpos(named, E'\\') > 0 then
+                          lower(p.name) = lower(substr(named, strpos(named, E'\\') + 1))
+                      and p.tenant_id = (select t.id from tenant t
+                                          where lower(t.key) = lower(left(named, strpos(named, E'\\') - 1)))
+                     else lower(p.name) = lower(named)
+                      and p.tenant_id = coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'::uuid)
+                   end
+             order by (p.name = named or p.name = substr(named, strpos(named, E'\\') + 1)) desc
+             limit 1
+        $f$
+        """,
+
+        // And the other way: how an account is named here — bare for a member, `organisation\name` for an outsider —
+        // so a list that shows both never shows two of one name.
+        """
+        create or replace function graticula_principal_label(name text, tenant uuid) returns text
+        language sql stable as $f$
+            select case
+                     when graticula_tenant() is null or tenant = graticula_tenant() then name
+                     else coalesce((select t.key from tenant t where t.id = tenant) || E'\\', '') || name
+                   end
+        $f$
+        """,
+
+        """
+        alter table login_attempt add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists login_attempt_tenant_name_idx on login_attempt (tenant_id, attempted_name, attempted_at)");
+
+    /// <summary>
+    /// Data sources, groups, field domains, relationships, identity providers and categories are named within their
+    /// organisation — ADR-204 §5e item 15, owner decision 2026-10-22: *"evet tenant başına tabii ki"*.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Expand</b>, as 103: a name unique across the deployment is unique within its organisation. The indexes keep
+    /// their names, so a refusal that reads a constraint's name still reads it; the organisation goes last, so a lookup
+    /// by name still reaches the index.
+    /// </para>
+    /// <para>
+    /// <b>`datastore` stays the deployment's.</b> The managed datastore is every organisation's and is known by that
+    /// name — by the hosted-layer paths, the guards that refuse removing or editing it, the console — so an
+    /// organisation's own source called `datastore` would be taken for it. One row may carry the name, whatever the case.
+    /// </para>
+    /// </remarks>
+    private static Migration TheOtherNamesAreTheOrganisationsV104 => Migration.Expand(
+        new SchemaVersion(104),
+        "Data sources, groups, domains, relationships, identity providers and categories are named within their organisation (ADR-204).",
+
+        "alter table data_source drop constraint if exists data_source_name_key",
+        "create unique index if not exists data_source_name_key on data_source (name, tenant_id)",
+        """
+        create unique index if not exists data_source_datastore_name_reserved
+            on data_source ((lower(name) = 'datastore')) where lower(name) = 'datastore'
+        """,
+
+        "alter table relationship drop constraint if exists relationship_name_key",
+        "create unique index if not exists relationship_name_key on relationship (name, tenant_id)",
+
+        "drop index if exists sharing_group_name_unique",
+        "create unique index sharing_group_name_unique on sharing_group (lower(name), tenant_id)",
+
+        "drop index if exists field_domain_name_key",
+        "create unique index field_domain_name_key on field_domain (lower(name), tenant_id)",
+
+        "drop index if exists identity_provider_name_key",
+        "create unique index identity_provider_name_key on identity_provider (lower(name), tenant_id)",
+
+        "drop index if exists item_category_name_unique",
+        """
+        create unique index item_category_name_unique
+            on item_category (coalesce(parent_id, '00000000-0000-0000-0000-000000000000'), lower(name), tenant_id)
+        """,
+
+        "drop index if exists member_category_name_unique",
+        """
+        create unique index member_category_name_unique
+            on member_category (coalesce(parent_id, '00000000-0000-0000-0000-000000000000'), lower(name), tenant_id)
+        """);
+
+    /// <summary>
+    /// A service's name, and a folder's, is unique within its organisation — ADR-204 §5e item 14, owner decision
+    /// 2026-10-22: *"her bir tenant için servis ismi unique olmalı. farklı tenantlarda aynı servis ismi olabilir."*
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> Every name unique across the deployment is unique within its organisation, so nothing existing
+    /// fails the new indexes, and an older server reading this store is only less strict than it believes.
+    /// <b>The organisation last</b>, so a lookup by folder and name — which on a server of one carries no organisation —
+    /// still reaches the index rather than scanning (`FolderCaseSchemaTests`).
+    /// </remarks>
+    private static Migration AServiceNameIsItsOrganisationsV103 => Migration.Expand(
+        new SchemaVersion(103),
+        "A service's and a folder's name is unique within its organisation (ADR-204).",
+
+        "drop index if exists service_name_in_folder_ci",
+
+        """
+        create unique index service_name_in_folder_ci
+            on service (coalesce(lower(folder), ''), lower(name), tenant_id)
+        """,
+
+        "drop index if exists folder_name_unique",
+
+        "create unique index folder_name_unique on folder (lower(name), tenant_id)");
+
+    /// <summary>
+    /// A service may be pinned, and a pinned one is kept warm — ADR-218, owner decision 2026-10-22.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> Every existing service is unpinned, which is how each was served before.
+    /// </remarks>
+    private static Migration AServiceMayBeKeptWarmV102 => Migration.Expand(
+        new SchemaVersion(102),
+        "A service may be pinned, and is then kept warm (ADR-218).",
+
+        "alter table service add column if not exists pinned boolean not null default false");
+
+    /// <summary>
+    /// An organisation's logs are its own — ADR-204, owner decision 2026-10-22: *"Logları kendine aittir"*. The audit,
+    /// request and Studio-event logs carry the tenant and are floored like its content; the server's process log, which
+    /// every tenant's work writes into together, stays the system administrator's.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand.</b> Every existing row is the default tenant's; a deployment of one reads them as before.
+    /// </remarks>
+    private static Migration AnOrganisationsLogsAreItsOwnV101 => Migration.Expand(
+        new SchemaVersion(101),
+        "An organisation's audit, request and Studio-event logs are its own (ADR-204).",
+
+        """
+        alter table audit_event add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists audit_event_tenant on audit_event (tenant_id)",
+
+        "alter table audit_event enable row level security",
+
+        "alter table audit_event force row level security",
+
+        "drop policy if exists tenant_floor on audit_event",
+
+        """
+        create policy tenant_floor on audit_event
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table request_log add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists request_log_tenant on request_log (tenant_id)",
+
+        """
+        alter table client_event add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists client_event_tenant on client_event (tenant_id)",
+
+        "alter table client_event enable row level security",
+
+        "alter table client_event force row level security",
+
+        "drop policy if exists tenant_floor on client_event",
+
+        """
+        create policy tenant_floor on client_event
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
+    /// <summary>
+    /// One deployment holds several organisations — ADR-204: a <c>tenant</c> table, a <c>tenant_id</c> on every row an
+    /// organisation owns, and PostgreSQL's row-level security refusing another tenant's rows.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Expand, and it changes nothing for a deployment of one.</b> Every existing row is the default tenant's, and the
+    /// floor's policy lets a connection that names no tenant read every row — which is what every connection does until a
+    /// second tenant exists (<c>TenantDataSources</c>): the column, the index and the policy are there, and inert.
+    /// </para>
+    /// <para>
+    /// <b>The column's default is the connection's tenant</b>, so no insert anywhere names it: a statement on a tenant's
+    /// connection writes that tenant's row, and the policy's <c>with check</c> refuses one written for another.
+    /// </para>
+    /// <para>
+    /// <b>A member is seen by another tenant only through a group of that tenant which admits other tenants</b> — the
+    /// one policy that reaches across (ADR-204 §5c). The rest are the tenant's own rows and nothing else.
+    /// </para>
+    /// <para>
+    /// <b>Not floored, deliberately:</b> what is looked up by a secret and never listed (sessions, API keys, credentials,
+    /// second factors, sign-in attempts, OAuth codes and refreshes, SAML assertions), the system's tables (the schema
+    /// stamp, audit, request log, client events, usage, jobs, setup tokens, system services), <c>server_setting</c>
+    /// (whose organisation-level names the store scopes itself), and roles, role privileges and user types, which are
+    /// the deployment's in this version — ADR-204's as-built note says why.
+    /// </para>
+    /// </remarks>
+    private static Migration OneDeploymentHoldsSeveralOrganisationsV100 => Migration.Expand(
+        new SchemaVersion(100),
+        "One deployment holds several organisations; a tenant's rows are floored by row-level security (ADR-204).",
+
+        """
+        create table if not exists tenant (
+            id          uuid primary key,
+            key         text not null unique check (key ~ '^[a-z][a-z0-9_]{0,30}$'),
+            name        text not null check (length(btrim(name)) > 0),
+            hosts       text[] not null default '{}',
+            portal_id   text not null check (portal_id ~ '^[0-9A-F]{16}$'),
+            status      text not null default 'active' check (status in ('active', 'suspended')),
+            created_at  timestamptz not null default now()
+        )
+        """,
+
+        """
+        insert into tenant (id, key, name, portal_id)
+        select '10000000-0000-0000-0000-000000000001', 'default', 'Default',
+               coalesce((select value from server_setting where name = 'portal_id' and value ~ '^[0-9A-F]{16}$'),
+                        upper(substr(md5(random()::text), 1, 16)))
+        on conflict (id) do nothing
+        """,
+
+        """
+        insert into server_setting (name, value, changed_at)
+        select 'portal_id', portal_id, now() from tenant where id = '10000000-0000-0000-0000-000000000001'
+        on conflict (name) do nothing
+        """,
+
+        """
+        create or replace function graticula_tenant() returns uuid
+        language sql stable as $f$ select nullif(current_setting('graticula.tenant', true), '')::uuid $f$
+        """,
+
+        """
+        alter table content_folder add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists content_folder_tenant on content_folder (tenant_id)",
+
+        "alter table content_folder enable row level security",
+
+        "alter table content_folder force row level security",
+
+        "drop policy if exists tenant_floor on content_folder",
+
+        """
+        create policy tenant_floor on content_folder
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table coverage add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists coverage_tenant on coverage (tenant_id)",
+
+        "alter table coverage enable row level security",
+
+        "alter table coverage force row level security",
+
+        "drop policy if exists tenant_floor on coverage",
+
+        """
+        create policy tenant_floor on coverage
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table data_source add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists data_source_tenant on data_source (tenant_id)",
+
+        "alter table data_source enable row level security",
+
+        "alter table data_source force row level security",
+
+        "drop policy if exists tenant_floor on data_source",
+
+        """
+        create policy tenant_floor on data_source
+            using (graticula_tenant() is null or tenant_id = graticula_tenant() or is_datastore)
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table document add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists document_tenant on document (tenant_id)",
+
+        "alter table document enable row level security",
+
+        "alter table document force row level security",
+
+        "drop policy if exists tenant_floor on document",
+
+        """
+        create policy tenant_floor on document
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table feature_export add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists feature_export_tenant on feature_export (tenant_id)",
+
+        "alter table feature_export enable row level security",
+
+        "alter table feature_export force row level security",
+
+        "drop policy if exists tenant_floor on feature_export",
+
+        """
+        create policy tenant_floor on feature_export
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table field_domain add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists field_domain_tenant on field_domain (tenant_id)",
+
+        "alter table field_domain enable row level security",
+
+        "alter table field_domain force row level security",
+
+        "drop policy if exists tenant_floor on field_domain",
+
+        """
+        create policy tenant_floor on field_domain
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table folder add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists folder_tenant on folder (tenant_id)",
+
+        "alter table folder enable row level security",
+
+        "alter table folder force row level security",
+
+        "drop policy if exists tenant_floor on folder",
+
+        """
+        create policy tenant_floor on folder
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table group_layer add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists group_layer_tenant on group_layer (tenant_id)",
+
+        "alter table group_layer enable row level security",
+
+        "alter table group_layer force row level security",
+
+        "drop policy if exists tenant_floor on group_layer",
+
+        """
+        create policy tenant_floor on group_layer
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table item add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists item_tenant on item (tenant_id)",
+
+        "alter table item enable row level security",
+
+        "alter table item force row level security",
+
+        "drop policy if exists tenant_floor on item",
+
+        """
+        create policy tenant_floor on item
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table item_category add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists item_category_tenant on item_category (tenant_id)",
+
+        "alter table item_category enable row level security",
+
+        "alter table item_category force row level security",
+
+        "drop policy if exists tenant_floor on item_category",
+
+        """
+        create policy tenant_floor on item_category
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table item_favorite add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists item_favorite_tenant on item_favorite (tenant_id)",
+
+        "alter table item_favorite enable row level security",
+
+        "alter table item_favorite force row level security",
+
+        "drop policy if exists tenant_floor on item_favorite",
+
+        """
+        create policy tenant_floor on item_favorite
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table item_group add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists item_group_tenant on item_group (tenant_id)",
+
+        "alter table item_group enable row level security",
+
+        "alter table item_group force row level security",
+
+        "drop policy if exists tenant_floor on item_group",
+
+        """
+        create policy tenant_floor on item_group
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table item_in_category add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists item_in_category_tenant on item_in_category (tenant_id)",
+
+        "alter table item_in_category enable row level security",
+
+        "alter table item_in_category force row level security",
+
+        "drop policy if exists tenant_floor on item_in_category",
+
+        """
+        create policy tenant_floor on item_in_category
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table layer add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists layer_tenant on layer (tenant_id)",
+
+        "alter table layer enable row level security",
+
+        "alter table layer force row level security",
+
+        "drop policy if exists tenant_floor on layer",
+
+        """
+        create policy tenant_floor on layer
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table recycle_entry add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists recycle_entry_tenant on recycle_entry (tenant_id)",
+
+        "alter table recycle_entry enable row level security",
+
+        "alter table recycle_entry force row level security",
+
+        "drop policy if exists tenant_floor on recycle_entry",
+
+        """
+        create policy tenant_floor on recycle_entry
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table recycle_row add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists recycle_row_tenant on recycle_row (tenant_id)",
+
+        "alter table recycle_row enable row level security",
+
+        "alter table recycle_row force row level security",
+
+        "drop policy if exists tenant_floor on recycle_row",
+
+        """
+        create policy tenant_floor on recycle_row
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table relationship add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists relationship_tenant on relationship (tenant_id)",
+
+        "alter table relationship enable row level security",
+
+        "alter table relationship force row level security",
+
+        "drop policy if exists tenant_floor on relationship",
+
+        """
+        create policy tenant_floor on relationship
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table service add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists service_tenant on service (tenant_id)",
+
+        "alter table service enable row level security",
+
+        "alter table service force row level security",
+
+        "drop policy if exists tenant_floor on service",
+
+        """
+        create policy tenant_floor on service
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table service_sprite add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists service_sprite_tenant on service_sprite (tenant_id)",
+
+        "alter table service_sprite enable row level security",
+
+        "alter table service_sprite force row level security",
+
+        "drop policy if exists tenant_floor on service_sprite",
+
+        """
+        create policy tenant_floor on service_sprite
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table service_style add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists service_style_tenant on service_style (tenant_id)",
+
+        "alter table service_style enable row level security",
+
+        "alter table service_style force row level security",
+
+        "drop policy if exists tenant_floor on service_style",
+
+        """
+        create policy tenant_floor on service_style
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table tile_export add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists tile_export_tenant on tile_export (tenant_id)",
+
+        "alter table tile_export enable row level security",
+
+        "alter table tile_export force row level security",
+
+        "drop policy if exists tenant_floor on tile_export",
+
+        """
+        create policy tenant_floor on tile_export
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table tile_seed add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists tile_seed_tenant on tile_seed (tenant_id)",
+
+        "alter table tile_seed enable row level security",
+
+        "alter table tile_seed force row level security",
+
+        "drop policy if exists tenant_floor on tile_seed",
+
+        """
+        create policy tenant_floor on tile_seed
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table tile_seed_level add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists tile_seed_level_tenant on tile_seed_level (tenant_id)",
+
+        "alter table tile_seed_level enable row level security",
+
+        "alter table tile_seed_level force row level security",
+
+        "drop policy if exists tenant_floor on tile_seed_level",
+
+        """
+        create policy tenant_floor on tile_seed_level
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table web_map add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists web_map_tenant on web_map (tenant_id)",
+
+        "alter table web_map enable row level security",
+
+        "alter table web_map force row level security",
+
+        "drop policy if exists tenant_floor on web_map",
+
+        """
+        create policy tenant_floor on web_map
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table member_category add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists member_category_tenant on member_category (tenant_id)",
+
+        "alter table member_category enable row level security",
+
+        "alter table member_category force row level security",
+
+        "drop policy if exists tenant_floor on member_category",
+
+        """
+        create policy tenant_floor on member_category
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table principal_category add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists principal_category_tenant on principal_category (tenant_id)",
+
+        "alter table principal_category enable row level security",
+
+        "alter table principal_category force row level security",
+
+        "drop policy if exists tenant_floor on principal_category",
+
+        """
+        create policy tenant_floor on principal_category
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table group_mapping add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists group_mapping_tenant on group_mapping (tenant_id)",
+
+        "alter table group_mapping enable row level security",
+
+        "alter table group_mapping force row level security",
+
+        "drop policy if exists tenant_floor on group_mapping",
+
+        """
+        create policy tenant_floor on group_mapping
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table identity_provider add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists identity_provider_tenant on identity_provider (tenant_id)",
+
+        "alter table identity_provider enable row level security",
+
+        "alter table identity_provider force row level security",
+
+        "drop policy if exists tenant_floor on identity_provider",
+
+        """
+        create policy tenant_floor on identity_provider
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table oauth_app add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists oauth_app_tenant on oauth_app (tenant_id)",
+
+        "alter table oauth_app enable row level security",
+
+        "alter table oauth_app force row level security",
+
+        "drop policy if exists tenant_floor on oauth_app",
+
+        """
+        create policy tenant_floor on oauth_app
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table sharing_group add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists sharing_group_tenant on sharing_group (tenant_id)",
+
+        "alter table sharing_group enable row level security",
+
+        "alter table sharing_group force row level security",
+
+        "drop policy if exists tenant_floor on sharing_group",
+
+        """
+        create policy tenant_floor on sharing_group
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        "alter table sharing_group add column if not exists admits_other_tenants boolean not null default false",
+
+        """
+        alter table sharing_group_member add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists sharing_group_member_tenant on sharing_group_member (tenant_id)",
+
+        "alter table sharing_group_member enable row level security",
+
+        "alter table sharing_group_member force row level security",
+
+        "drop policy if exists tenant_floor on sharing_group_member",
+
+        """
+        create policy tenant_floor on sharing_group_member
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table principal_role add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists principal_role_tenant on principal_role (tenant_id)",
+
+        "alter table principal_role enable row level security",
+
+        "alter table principal_role force row level security",
+
+        "drop policy if exists tenant_floor on principal_role",
+
+        """
+        create policy tenant_floor on principal_role
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table principal_photo add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists principal_photo_tenant on principal_photo (tenant_id)",
+
+        "alter table principal_photo enable row level security",
+
+        "alter table principal_photo force row level security",
+
+        "drop policy if exists tenant_floor on principal_photo",
+
+        """
+        create policy tenant_floor on principal_photo
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table external_identity add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists external_identity_tenant on external_identity (tenant_id)",
+
+        "alter table external_identity enable row level security",
+
+        "alter table external_identity force row level security",
+
+        "drop policy if exists tenant_floor on external_identity",
+
+        """
+        create policy tenant_floor on external_identity
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        """
+        alter table principal add column if not exists tenant_id uuid not null
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """,
+
+        "create index if not exists principal_tenant on principal (tenant_id)",
+
+        "alter table principal enable row level security",
+
+        "alter table principal force row level security",
+
+        "drop policy if exists tenant_floor on principal",
+
+        """
+        create policy tenant_floor on principal
+            using (graticula_tenant() is null or tenant_id = graticula_tenant()
+                   or exists (select 1 from sharing_group_member m join sharing_group g on g.id = m.group_id
+                               where m.principal_id = principal.id and g.admits_other_tenants
+                                 and g.tenant_id = graticula_tenant()))
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        "alter table principal add column if not exists system_admin boolean not null default false",
+
+        """
+        update principal set system_admin = true
+         where id in (select principal_id from principal_role where role_name = 'administrator')
+        """,
+
+        """
+        alter table job add column if not exists tenant_id uuid
+            default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')
+        """);
+
+    /// <summary>
+    /// A published layer may be a table with no geometry — ArcGIS's standalone table, ADR-213.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Expand.</b> Two <c>not null</c>s dropped and a check added that every existing row satisfies, so nothing a
+    /// build before this one wrote changes meaning. A build before this one cannot read a table once one has been
+    /// published — its reader parses <c>geometry_type</c> and refuses a null — which is the same position migrations
+    /// 95, 97 and 98 left it in with a data source of a kind it did not know: the store is readable, and the new row
+    /// is not.
+    /// </para>
+    /// <para>
+    /// <b><c>srid</c> keeps its <c>not null</c></b>: a table carries 4326, which nothing reads (ADR-213 §5c), rather than
+    /// opening a third column to null for a decision that changes no answer.
+    /// </para>
+    /// <para>
+    /// <b>The per-service uniqueness needs a second index for tables</b>, because <c>layer_table_unique_in_service</c>
+    /// includes <c>geometry_column</c> and PostgreSQL counts no two nulls as equal — so without it one table could be
+    /// published into one service twice.
+    /// </para>
+    /// </remarks>
+    private static Migration ALayerMayBeATableV99 => Migration.Expand(
+        new SchemaVersion(99),
+        "A published layer may be a table with no geometry (ADR-213).",
+
+        "alter table layer alter column geometry_column drop not null",
+        "alter table layer alter column geometry_type drop not null",
+        "alter table layer drop constraint if exists layer_table_has_no_geometry",
+
+        """
+        alter table layer add constraint layer_table_has_no_geometry
+            check ((geometry_column is null) = (geometry_type is null))
+        """,
+
+        """
+        create unique index if not exists layer_table_unique_in_service_without_geometry
+            on layer (service_id, data_source_id, schema_name, table_name)
+            where geometry_column is null
+        """);
 
     /// <summary>A registered data source may be a SQL Server database — ADR-210.</summary>
     /// <remarks><b>Expand.</b> A constraint widened, as migrations 95 and 97 widened it for Oracle and MySQL.</remarks>

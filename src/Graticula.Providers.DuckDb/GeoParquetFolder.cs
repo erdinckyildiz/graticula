@@ -134,6 +134,10 @@ public sealed record GeoParquetColumn(string Name, string Type);
 /// The candidates whose values do not fit in 32 bits — V-77: ArcGIS 10.x clients read an object id as a 32-bit
 /// number. Offered all the same, by owner decision, and said.
 /// </param>
+/// <param name="IsTable">
+/// Whether it has no geometry at all and is served as a table — ADR-213 condition 7. Its <paramref name="Geometry"/>
+/// then names no column and no reference, and <paramref name="Kind"/> is null.
+/// </param>
 public sealed record GeoParquetTable(
     string Name,
     string Path,
@@ -147,7 +151,8 @@ public sealed record GeoParquetTable(
     string? Problem,
     string? Relation = null,
     bool SridDeclared = false,
-    IReadOnlyList<string>? WideIdentityCandidates = null);
+    IReadOnlyList<string>? WideIdentityCandidates = null,
+    bool IsTable = false);
 
 /// <summary>
 /// A folder of GeoParquet files, and the sandboxed DuckDB that reads them — ADR-066 §2.
@@ -1082,9 +1087,24 @@ public sealed partial class GeoParquetFolder : IDisposable
 
         if (geometries.Count == 0)
         {
-            return Refused(all.Any(c => string.Equals(c.Type, "BLOB", StringComparison.Ordinal))
-                ? "The table has no GEOMETRY column. A BLOB of well-known binary is not read as one: cast it with st_geomfromwkb into a GEOMETRY column."
-                : "The table has no GEOMETRY column.");
+            // <b>A table with no geometry is served as a table — ADR-213 condition 7</b>, unless a column looks like
+            // geometry kept as bytes, which is a layer somebody meant and is told how to make.
+            if (LooksLikeGeometryBytes(all))
+            {
+                return Refused(
+                    "The table has no GEOMETRY column. A BLOB of well-known binary is not read as one: cast it with st_geomfromwkb into a GEOMETRY column.");
+            }
+
+            (IReadOnlyList<string> keys, string? first, IReadOnlyList<string> wideKeys) = Identities(connection, relation, columns);
+
+            if (AttachedRowNumberRefusal(all, ref keys, ref first) is { } noKey)
+            {
+                return Refused(noKey);
+            }
+
+            return new GeoParquetTable(
+                name, location, rows, version, NoGeometry, columns, null, keys, first, null, relation,
+                WideIdentityCandidates: wideKeys, IsTable: true);
         }
 
         GeoParquetColumn geometry = geometries[0];
@@ -1127,26 +1147,51 @@ public sealed partial class GeoParquetFolder : IDisposable
         // table itself calls `rowid` hides DuckDB's pseudo-column, so the alias would name somebody's data; and on
         // MotherDuck a row's `rowid` is not promised to survive deletes and compaction. Either way the layer needs
         // an integer column of its own that is unique.
-        if (_attached!.IsMotherDuck || all.Any(c => string.Equals(c.Name, "rowid", StringComparison.OrdinalIgnoreCase)))
+        if (AttachedRowNumberRefusal(all, ref candidates, ref preferred) is { } refused)
         {
-            candidates = [.. candidates.Where(c => !string.Equals(c, RowNumberColumn, StringComparison.Ordinal))];
-            preferred = candidates.Count > 0 ? candidates[0] : null;
-
-            if (candidates.Count == 0)
-            {
-                return Refused(
-                    "The table has no integer column that is unique and never null, and a layer here needs one as its "
-                    + (_attached.IsMotherDuck
-                        ? "identity: MotherDuck does not promise that a row keeps its position."
-                        : "identity: the table has a column named rowid, which hides DuckDB's own row number."),
-                    geometry.Name);
-            }
+            return Refused(refused, geometry.Name);
         }
 
         return new GeoParquetTable(
             name, location, rows, version,
             new GeoParquetMetadata(geometry.Name, srid, kind, null, null, null),
             columns, kind, candidates, preferred, null, relation, SridDeclared: typed is null, WideIdentityCandidates: wide);
+    }
+
+    /// <summary>What a table with no geometry says about its geometry: no column, no reference, nothing wrong (ADR-213).</summary>
+    private static readonly GeoParquetMetadata NoGeometry = new(string.Empty, null, null, null, null, null);
+
+    /// <summary>The names a column of geometry kept as bytes usually has, which keep it from being taken for a table.</summary>
+    private static readonly string[] GeometryByteNames =
+        ["geom", "geometry", "the_geom", "wkb", "wkb_geometry", "shape", "geog", "geography"];
+
+    /// <summary>Whether a byte column is named as geometry is — a layer somebody meant, not a table (ADR-213).</summary>
+    private static bool LooksLikeGeometryBytes(IEnumerable<GeoParquetColumn> columns) =>
+        columns.Any(c => (c.Type.StartsWith("BLOB", StringComparison.Ordinal) || c.Type.StartsWith("BINARY", StringComparison.Ordinal))
+            && GeometryByteNames.Contains(c.Name, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The row number only where it is a row number — two findings of a security review. A column the table itself calls
+    /// <c>rowid</c> hides DuckDB's pseudo-column, so the alias would name somebody's data; and on MotherDuck a row's
+    /// <c>rowid</c> is not promised to survive deletes and compaction. Either way the table needs an integer column of its
+    /// own that is unique: the sentence when it has none, or null.
+    /// </summary>
+    private string? AttachedRowNumberRefusal(
+        IReadOnlyList<GeoParquetColumn> all, ref IReadOnlyList<string> candidates, ref string? preferred)
+    {
+        if (!_attached!.IsMotherDuck && !all.Any(c => string.Equals(c.Name, "rowid", StringComparison.OrdinalIgnoreCase)))
+        {
+            return null;
+        }
+
+        candidates = [.. candidates.Where(c => !string.Equals(c, RowNumberColumn, StringComparison.Ordinal))];
+        preferred = candidates.Count > 0 ? candidates[0] : null;
+
+        return candidates.Count > 0 ? null
+            : "The table has no integer column that is unique and never null, and a layer here needs one as its "
+              + (_attached.IsMotherDuck
+                  ? "identity: MotherDuck does not promise that a row keeps its position."
+                  : "identity: the table has a column named rowid, which hides DuckDB's own row number.");
     }
 
     /// <summary>The EPSG code a <c>GEOMETRY('…')</c> type names, or null when it names none.</summary>
@@ -1191,7 +1236,7 @@ public sealed partial class GeoParquetFolder : IDisposable
     {
         ArgumentNullException.ThrowIfNull(table);
 
-        if (table.Relation is null || table.Problem is not null)
+        if (table.Relation is null || table.Problem is not null || table.IsTable)
         {
             return null;
         }
@@ -1480,6 +1525,19 @@ public sealed partial class GeoParquetFolder : IDisposable
                 .ToLowerInvariant();
         }
 
+        // <b>A plain Parquet file with no geometry is served as a table — ADR-213 condition 7.</b> No 'geo' key and no
+        // GEOMETRY column says there is none; a byte column named as geometry is still a layer that was meant, and keeps
+        // the sentence about the missing metadata.
+        if (string.IsNullOrWhiteSpace(geo) && PlainTable(connection, path) is { } plain)
+        {
+            (IReadOnlyList<string> keys, string? first, IReadOnlyList<string> wideKeys) = _remote is not null
+                ? ([RowNumberColumn], RowNumberColumn, [])
+                : Identities(connection, $"read_parquet({Literal(path)})", plain);
+
+            return new GeoParquetTable(
+                name, path, rows, version, NoGeometry, plain, null, keys, first, null, WideIdentityCandidates: wideKeys, IsTable: true);
+        }
+
         GeoParquetMetadata metadata = GeoParquetMetadata.Parse(geo);
 
         if (metadata.Problem is { } unusable)
@@ -1554,6 +1612,27 @@ public sealed partial class GeoParquetFolder : IDisposable
 
         return new GeoParquetTable(
             name, path, rows, version, metadata, columns, kind, candidates, preferred, problem, WideIdentityCandidates: wide);
+    }
+
+    /// <summary>A Parquet file's columns when none of them is geometry, or null when one is or looks like one.</summary>
+    private static List<GeoParquetColumn>? PlainTable(DuckDBConnection connection, string path)
+    {
+        List<GeoParquetColumn> columns = [];
+
+        using DuckDBCommand describe = connection.CreateCommand();
+        describe.CommandText = $"describe select * from read_parquet({Literal(path)})";
+
+        using DuckDBDataReader reader = describe.ExecuteReader();
+
+        while (reader.Read())
+        {
+            columns.Add(new GeoParquetColumn(reader.GetString(0), reader.GetString(1)));
+        }
+
+        return columns.Count == 0
+            || columns.Any(c => c.Type.StartsWith("GEOMETRY", StringComparison.Ordinal))
+            || LooksLikeGeometryBytes(columns)
+            ? null : columns;
     }
 
     private static GeometryKind? SampleKind(DuckDBConnection connection, string relation, string column)

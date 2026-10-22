@@ -141,7 +141,7 @@ public sealed record ImportedFeature(Geometry? Geometry, IReadOnlyDictionary<str
 public sealed record ImportedDataset(
     IReadOnlyList<ImportedFeature> Features,
     IReadOnlyList<InferredColumn> Columns,
-    GeometryKind GeometryType,
+    GeometryKind? GeometryType,
     int Srid);
 
 /// <summary>

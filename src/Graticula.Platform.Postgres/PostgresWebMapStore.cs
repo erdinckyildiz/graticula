@@ -24,14 +24,17 @@ public sealed class PostgresWebMapStore : IWebMapStore
         "m.id, i.title, i.snippet, i.owner_principal_id, p.name, i.sharing, m.document::text, m.created_at, m.modified_at"
         + ", coalesce((select array_agg(gm.group_id) from item_group gm where gm.item_id = i.id), '{}'::uuid[]), coalesce((select array_agg(g.name order by g.name) from item_group gm join sharing_group g on g.id = gm.group_id where gm.item_id = i.id), '{}'::text[]), i.delete_protected, i.tags, i.content_folder_id, i.description, m.thumbnail is not null";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Uses the platform store.</summary>
     /// <param name="dataSource">Its data source.</param>
     public PostgresWebMapStore(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -159,7 +162,7 @@ public sealed class PostgresWebMapStore : IWebMapStore
         ArgumentException.ThrowIfNullOrWhiteSpace(receiver);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "with taker as (select id from principal where lower(name) = lower(@receiver)), "
+            "with taker as (select id from principal where id = graticula_principal_named(@receiver)), "
             + "moved as (update item set owner_principal_id = (select id from taker), content_folder_id = null "
             + "where web_map_id = @id and exists (select 1 from taker) returning web_map_id), "
             + "touched as (update web_map set modified_at = now() where id in (select web_map_id from moved) returning 1) "

@@ -65,20 +65,31 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
                 layer.GetProperty("objectIdField").GetString(),
                 query.GetProperty("objectIdFieldName").GetString());
 
-            // The client has already built a polygon renderer by the time the first
-            // feature arrives.
-            Assert.Equal(
-                layer.GetProperty("geometryType").GetString(),
-                query.GetProperty("geometryType").GetString());
+            // <b>A table — ADR-213 — is consistent by having no geometry on either side</b>: its document names no
+            // geometry type and its answer names none and no reference, as ArcGIS's own table answers.
+            if (layer.GetProperty("type").GetString() == "Table")
+            {
+                Assert.False(layer.TryGetProperty("geometryType", out _), $"'{name}' is a table and its document names a geometry type.");
+                Assert.False(query.TryGetProperty("geometryType", out _), $"'{name}' is a table and its answer names a geometry type.");
+                Assert.False(query.TryGetProperty("spatialReference", out _), $"'{name}' is a table and its answer names a reference.");
+            }
+            else
+            {
+                // The client has already built a polygon renderer by the time the first
+                // feature arrives.
+                Assert.Equal(
+                    layer.GetProperty("geometryType").GetString(),
+                    query.GetProperty("geometryType").GetString());
 
-            int declaredSrid = layer.GetProperty("extent").ValueKind == JsonValueKind.Null
-                ? query.GetProperty("spatialReference").GetProperty("wkid").GetInt32()
-                : layer.GetProperty("extent").GetProperty("spatialReference")
-                    .GetProperty("wkid").GetInt32();
+                int declaredSrid = layer.GetProperty("extent").ValueKind == JsonValueKind.Null
+                    ? query.GetProperty("spatialReference").GetProperty("wkid").GetInt32()
+                    : layer.GetProperty("extent").GetProperty("spatialReference")
+                        .GetProperty("wkid").GetInt32();
 
-            Assert.Equal(
-                declaredSrid,
-                query.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+                Assert.Equal(
+                    declaredSrid,
+                    query.GetProperty("spatialReference").GetProperty("wkid").GetInt32());
+            }
 
             string oid = layer.GetProperty("objectIdField").GetString()!;
 
@@ -230,7 +241,8 @@ public sealed class ArcGisConsistencyTests : ArcGisClient
         foreach ((string name, JsonElement layer, JsonElement query) in
             await EveryLayerAndQueryAsync())
         {
-            if (layer.GetProperty("geometryType").GetString() != "esriGeometryPolygon")
+            // A table (ADR-213) has no geometryType, and so no rings.
+            if (!layer.TryGetProperty("geometryType", out JsonElement kind) || kind.GetString() != "esriGeometryPolygon")
             {
                 continue;
             }

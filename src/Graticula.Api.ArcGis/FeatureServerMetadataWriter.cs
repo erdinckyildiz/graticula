@@ -448,6 +448,20 @@ public static class FeatureServerMetadataWriter
         return union;
     }
 
+    /// <summary>One table's entry in a service document — ADR-213.</summary>
+    /// <param name="Id">Its number within the service; tables share the numbering with layers, as ArcGIS's do.</param>
+    /// <param name="Name">Its name.</param>
+    /// <remarks>
+    /// <b>Two keys, which is all ArcGIS's own service document gives a table</b> — measured against Esri's sample server
+    /// (<c>ServiceRequest/FeatureServer</c>, 2026-10-21): <c>{"id":1,"name":"ServiceRequestComment"}</c>. A client reads the
+    /// rest from the table's own document.
+    /// </remarks>
+    public readonly record struct ServiceTable(int Id, string Name)
+    {
+        /// <summary>The catalogue name when <see cref="Name"/> is the table's title instead, or null.</summary>
+        public string? CatalogName { get; init; }
+    }
+
     /// <summary>One group layer's entry in a service document.</summary>
     /// <param name="Id">Its number within the service.</param>
     /// <param name="Name">Its name.</param>
@@ -491,6 +505,7 @@ public static class FeatureServerMetadataWriter
     /// server will give. Configurable since 2026-08-19; it was a compile-time constant.
     /// </param>
     /// <param name="copyrightText">The service's credits — copyright and attribution — or null for none.</param>
+    /// <param name="tables">Its tables — ADR-213 — in index order; none when null.</param>
     public static object Service(
         IReadOnlyList<ServiceLayer> layers,
         string capabilities,
@@ -498,7 +513,8 @@ public static class FeatureServerMetadataWriter
         IReadOnlyList<ServiceGroup>? groups = null,
         int? maxRecordCount = null,
         int serverMaxRecordCount = MaxRecordCount,
-        string? copyrightText = null)
+        string? copyrightText = null,
+        IReadOnlyList<ServiceTable>? tables = null)
     {
         ArgumentNullException.ThrowIfNull(layers);
         // <b>An empty capabilities string is a real state, and refusing it was a 500 on a public
@@ -559,9 +575,20 @@ public static class FeatureServerMetadataWriter
             // different answers and clients treat them differently, so the
             // field is always written.
             layers = Tree(layers, groups ?? []),
-            tables = Array.Empty<object>(),
+            tables = TablesOf(tables),
         };
     }
+
+    /// <summary>The <c>tables</c> array of a service document — ADR-213 — in index order.</summary>
+    /// <param name="tables">The tables, or null for none.</param>
+    /// <returns>One entry per table.</returns>
+    public static object[] TablesOf(IReadOnlyList<ServiceTable>? tables) =>
+        [.. (tables ?? []).OrderBy(t => t.Id).Select(t => (object)new
+        {
+            id = t.Id,
+            name = t.Name,
+            catalogName = t.CatalogName ?? t.Name,
+        })];
 
     /// <summary>
     /// Groups and feature layers as one list, ordered by index.
@@ -692,7 +719,7 @@ public static class FeatureServerMetadataWriter
 
     /// <summary>The layer document at <c>/rest/services/{name}/FeatureServer/0</c>.</summary>
     /// <param name="layer">The layer definition.</param>
-    /// <param name="geometryType">Its declared geometry type.</param>
+    /// <param name="geometryType">Its declared geometry type, or null for a table — ADR-213 — which answers as one.</param>
     /// <param name="description">Its fields and extent.</param>
     /// <param name="capabilities">What the caller may do.</param>
     /// <param name="servedExtent">The extent already in the served reference, or null.</param>
@@ -745,7 +772,7 @@ public static class FeatureServerMetadataWriter
     /// <param name="attachments">Whether it keeps attachments (ADR-207); null for hosted layers only.</param>
     public static object Layer(
         LayerDefinition layer,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         LayerDescription description,
         string capabilities,
         IEnumerable<object>? relationships = null,
@@ -810,6 +837,15 @@ public static class FeatureServerMetadataWriter
 
         string shownName = displayName is { Length: > 0 } ? displayName : layer.Name;
 
+        // A table has nothing to draw, so it has no drawing info rather than a generated one (ADR-213).
+        object? drawing = null;
+        bool generated = false;
+
+        if (geometryType is { } drawn)
+        {
+            drawing = Drawing(layer.Name, drawn, symbology, out generated);
+        }
+
         object document = new
         {
             currentVersion = CurrentVersion,
@@ -820,7 +856,7 @@ public static class FeatureServerMetadataWriter
             catalogName = layer.Name,
             type = "Feature Layer",
             description = string.Empty,
-            geometryType = ArcGisGeometryWriter.TypeName(geometryType),
+            geometryType = geometryType is { } kind ? ArcGisGeometryWriter.TypeName(kind) : null,
             copyrightText = copyrightText ?? string.Empty,
 
             // <b>-1 for a layer at the top, which is what the specification means by no
@@ -846,6 +882,11 @@ public static class FeatureServerMetadataWriter
             // <b>The layer's GlobalID column where it has one — 2026-09-15.</b> This was always
             // empty, while ADR-013 §2 said hosted layers carried one. See `GlobalIds`.
             globalIdField = GlobalIds.FieldOf(description.Fields) ?? string.Empty,
+
+            // <b>Said where applyEdits honours useGlobalIds=true — the ArcGIS veteran's second review, N8.</b> The layer's
+            // applyEdits has matched features by GlobalID since 2026-09-15, and nothing said so; the JS SDK and Field
+            // Maps decide on this flag whether to send GlobalIDs at all. Only on a layer that has the column and edits.
+            supportsApplyEditsWithGlobalIds = GlobalIds.FieldOf(description.Fields) is not null && !IsStatic(capabilities),
 
             fields = Fields(layer, description, capabilities),
 
@@ -950,7 +991,7 @@ public static class FeatureServerMetadataWriter
             // and the server had no opinion. It is generated rather than authored until
             // somebody stores a style — `drawingInfoGenerated` says which, because a
             // default presented as a decision is a decision nobody made.
-            drawingInfo = Drawing(layer.Name, geometryType, symbology, out bool generated),
+            drawingInfo = drawing,
             drawingInfoGenerated = generated,
 
             maxRecordCount = AdvertisedMaxRecordCount(maxRecordCount, serverMaxRecordCount),
@@ -1007,7 +1048,8 @@ public static class FeatureServerMetadataWriter
             supportsPagination = true,
             supportsOrderBy = true,
             supportsDistinct = true,
-            supportsReturningQueryExtent = true,
+            // A table has no extent to return, and ArcGIS's own answers returnExtentOnly with a 400 (ADR-213).
+            supportsReturningQueryExtent = geometryType is not null,
 
             // <b>The nested object is the one clients actually read.</b> The
             // flat flags above are the older shape and are kept because some
@@ -1027,7 +1069,7 @@ public static class FeatureServerMetadataWriter
                 supportsOrderBy = true,
                 supportsStatistics = true,
                 supportsDistinct = true,
-                supportsReturningQueryExtent = true,
+                supportsReturningQueryExtent = geometryType is not null,
 
                 // <b>queryAttachments answers where attachments do — 2026-09-15.</b>
                 supportsQueryAttachments = attachments ?? layer.IsHosted,
@@ -1130,7 +1172,56 @@ public static class FeatureServerMetadataWriter
             timeInfo = TimeInfo(time),
         };
 
-        return relationshipsKnown ? document : RelationshipsUnknown(document);
+        object answered = relationshipsKnown ? document : RelationshipsUnknown(document);
+        return geometryType is null ? AsTable(answered) : answered;
+    }
+
+    /// <summary>The keys a table's document does not have, because each describes a geometry — ADR-213.</summary>
+    /// <remarks>
+    /// <b>Read off ArcGIS's own table document</b> — Esri's sample server, <c>ServiceRequest/FeatureServer/1</c>, 2026-10-21 —
+    /// which carries none of them. Removed rather than written as null, because that document does not say
+    /// <c>geometryType: null</c>: it has no such key, and a client that tells a table from a layer by the key's presence is
+    /// following ArcGIS.
+    /// </remarks>
+    private static readonly string[] TableLacks =
+    [
+        "geometryType", "extent", "sourceSpatialReference", "minScale", "maxScale", "drawingInfo",
+        "drawingInfoGenerated", "hasZ", "hasM", "allowGeometryUpdates", "supportedSpatialRelationships",
+        "parentLayerId", "subLayerIds",
+    ];
+
+    /// <summary>A layer document turned into a table's: <c>type</c> is <c>Table</c> and the geometry keys are gone.</summary>
+    /// <param name="document">The document, an anonymous object or the dictionary <see cref="RelationshipsUnknown"/> makes.</param>
+    /// <returns>The table's document.</returns>
+    /// <remarks>
+    /// <b>A dictionary for the reason <see cref="RelationshipsUnknown"/> gives</b>: one document written once and narrowed,
+    /// rather than thirty properties written twice and drifting apart.
+    /// </remarks>
+    private static Dictionary<string, object?> AsTable(object document)
+    {
+        Dictionary<string, object?> fields;
+
+        if (document is Dictionary<string, object?> already)
+        {
+            fields = already;
+        }
+        else
+        {
+            fields = new(StringComparer.Ordinal);
+
+            foreach (System.Reflection.PropertyInfo property in document.GetType().GetProperties())
+            {
+                fields[property.Name] = property.GetValue(document);
+            }
+        }
+
+        foreach (string key in TableLacks)
+        {
+            fields.Remove(key);
+        }
+
+        fields["type"] = "Table";
+        return fields;
     }
 
     /// <summary>
@@ -1415,7 +1506,7 @@ public static class FeatureServerMetadataWriter
     /// code</b> and carries its defaults. That is the shape the web map specification's type
     /// object gives, and it is what an editing client offers a person to choose from.
     /// </remarks>
-    private static object[] Types(GeometryKind geometryType, LayerDescription description)
+    private static object[] Types(GeometryKind? geometryType, LayerDescription description)
     {
         if (description.Subtypes is not { } subtypes)
         {
@@ -1459,11 +1550,14 @@ public static class FeatureServerMetadataWriter
             })];
 
     /// <summary>The drawing tool a template offers, from the layer's geometry.</summary>
-    private static string DrawingTool(GeometryKind geometryType) => geometryType switch
+    private static string DrawingTool(GeometryKind? geometryType) => geometryType switch
     {
         GeometryKind.Point or GeometryKind.MultiPoint => "esriFeatureEditToolPoint",
         GeometryKind.LineString or GeometryKind.MultiLineString => "esriFeatureEditToolLine",
         GeometryKind.Polygon or GeometryKind.MultiPolygon => "esriFeatureEditToolPolygon",
+
+        // A table draws nothing (ADR-213), which is what ArcGIS's own table templates say.
+        null => "esriFeatureEditToolNone",
 
         // enum-default-is-deliberate: every kind is named above; a value cast in from outside the
         // enum draws nothing rather than a shape the layer cannot hold.

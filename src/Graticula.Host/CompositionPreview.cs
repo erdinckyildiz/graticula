@@ -142,6 +142,12 @@ internal static class CompositionPreview
 
         foreach (LayerPublication publication in flat)
         {
+            // A table is part of the service and not of its picture: it has nothing to draw (ADR-213).
+            if (publication.GeometryColumn is null)
+            {
+                continue;
+            }
+
             if (!connections.TryGetValue(publication.DataSourceId, out string? connection))
             {
                 connection = await catalog

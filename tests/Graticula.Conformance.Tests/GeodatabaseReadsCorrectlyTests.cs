@@ -90,7 +90,9 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
             JsonElement fixture = JsonDocument.Parse(made).RootElement;
 
             Assert.Equal(2, fixture.GetProperty("layers").GetInt32());
-            Assert.Equal(10, fixture.GetProperty("features").GetInt32());
+
+            // Ten features in the two layers and three rows in the table (ADR-213).
+            Assert.Equal(13, fixture.GetProperty("features").GetInt32());
 
             byte[] archive = Zip(gdb, "probe.gdb");
 
@@ -138,7 +140,7 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
                 // at the seam, and the body went out with a trailing `}}` -- a 400 with an empty
                 // message, which is the least useful refusal there is.
                 $"{{\"archive\":\"{job}\",\"service\":\"{Service}\","
-                + $"\"layers\":[\"places\",\"parcels\"]}}");
+                + $"\"layers\":[\"places\",\"parcels\",\"visits\",\"places__ATTACH\"]}}");
 
             Assert.True(
                 published is HttpStatusCode.OK or HttpStatusCode.Created
@@ -275,9 +277,68 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
                 ?? string.Empty;
 
             Assert.StartsWith("places ", text, StringComparison.Ordinal);
+
+            // <b>The table arrives as a table — ADR-213</b>: in `tables`, beside the two layers, with its rows.
+            JsonElement tables = JsonDocument.Parse(document).RootElement.GetProperty("tables");
+            JsonElement visits = tables.EnumerateArray().Single(t => t.GetProperty("name").GetString() == "visits");
+
+            (HttpStatusCode counted, string count) = await GetAsync(
+                $"{root}/rest/services/hosted/{Service}/FeatureServer/{visits.GetProperty("id").GetInt32()}/query"
+                + "?where=1%3D1&returnCountOnly=true&f=json", token!);
+
+            Assert.Equal(HttpStatusCode.OK, counted);
+            Assert.Equal(3, JsonDocument.Parse(count).RootElement.GetProperty("count").GetInt32());
+
+            // <b>And the archive's relationship class arrives declared — ADR-213 condition 3</b>: `places` names `visits`, and
+            // the first place's two visits are its related records.
+            int visitsId = visits.GetProperty("id").GetInt32();
+            int placesIndex = layers.EnumerateArray().Single(l => l.GetProperty("name").GetString() == "places")
+                .GetProperty("id").GetInt32();
+
+            (HttpStatusCode _, string placesDocument) = await GetAsync(
+                $"{root}/rest/services/hosted/{Service}/FeatureServer/{placesIndex}?f=json", token!);
+
+            JsonElement relationship = JsonDocument.Parse(placesDocument).RootElement.GetProperty("relationships")
+                .EnumerateArray().Single(r => r.GetProperty("relatedTableId").GetInt32() == visitsId);
+
+            (HttpStatusCode followed, string relatedAnswer) = await GetAsync(
+                $"{root}/rest/services/hosted/{Service}/FeatureServer/{placesIndex}/queryRelatedRecords"
+                + $"?objectIds=1&relationshipId={relationship.GetProperty("id").GetInt32()}&outFields=minutes&f=json", token!);
+
+            Assert.Equal(HttpStatusCode.OK, followed);
+            Assert.Equal(
+                [5, 20],
+                JsonDocument.Parse(relatedAnswer).RootElement.GetProperty("relatedRecordGroups")[0]
+                    .GetProperty("relatedRecords").EnumerateArray()
+                    .Select(v => v.GetProperty("attributes").GetProperty("minutes").GetInt32()).Order());
+
+            // <b>And `places__ATTACH` arrives as the attachments of `places` — ADR-213 condition 2</b>: two on the first
+            // place and one on the third, matched by REL_OBJECTID, and none on the second.
+            int placesId = layers.EnumerateArray().Single(l => l.GetProperty("name").GetString() == "places")
+                .GetProperty("id").GetInt32();
+
+            foreach ((int place, string[] expected) in new[]
+            {
+                (1, new[] { "first.txt", "again.txt" }),
+                (2, Array.Empty<string>()),
+                (3, new[] { "third.txt" }),
+            })
+            {
+                (HttpStatusCode listed, string infos) = await GetAsync(
+                    $"{root}/rest/services/hosted/{Service}/FeatureServer/{placesId}/{place}/attachments?f=json", token!);
+
+                Assert.Equal(HttpStatusCode.OK, listed);
+                Assert.Equal(
+                    expected.Order(),
+                    JsonDocument.Parse(infos).RootElement.GetProperty("attachmentInfos").EnumerateArray()
+                        .Select(a => a.GetProperty("name").GetString()!).Order());
+            }
         }
         finally
         {
+            // The declared relationship goes with the service's layers only when it is removed first.
+            await DeleteRelationshipsAsync(root, token!);
+
             tidied = await DeleteAsync(
                 $"{root}/admin/featureservices/{Service}?folder=hosted&drop=true", token!);
 
@@ -316,6 +377,25 @@ public sealed class GeodatabaseReadsCorrectlyTests : ArcGisClient
     /// called next.
     /// </para>
     /// </remarks>
+    /// <summary>Removes the relationships an import of this fixture declared — named after the service (ADR-213).</summary>
+    private async Task DeleteRelationshipsAsync(string root, string token)
+    {
+        (HttpStatusCode listed, string body) = await GetAsync($"{root}/admin/relationships", token);
+
+        if (listed != HttpStatusCode.OK)
+        {
+            return;
+        }
+
+        foreach (JsonElement one in JsonDocument.Parse(body).RootElement.GetProperty("relationships").EnumerateArray())
+        {
+            if (one.GetProperty("name").GetString() is { } name && name.StartsWith(Service + "_", StringComparison.Ordinal))
+            {
+                await DeleteAsync($"{root}/admin/relationships/{one.GetProperty("id").GetString()}", token);
+            }
+        }
+    }
+
     internal static string Reader()
     {
         DirectoryInfo? at = new(AppContext.BaseDirectory);

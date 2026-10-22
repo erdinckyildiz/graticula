@@ -151,61 +151,6 @@ internal static partial class PortalEndpoints
     }
 
     /// <summary>
-    /// Portal's item <c>update</c>, which Pro sends after adding an item: for a web map that is the caller's, its
-    /// title, snippet, tags, description and picture are kept; for anything else — a service, whose keywords and
-    /// picture this server derives — success with nothing stored, as before.
-    /// </summary>
-    private static async Task<IResult> UpdateUserItemAsync(
-        HttpContext context, IWebMapStore maps, Graticula.Platform.Admin.IAuditLog audit, string username, string id,
-        CancellationToken cancellation)
-    {
-        IFormCollection form = context.Request.HasFormContentType
-            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
-            : FormCollection.Empty;
-
-        if (!WebMaps.IsId(id) || await maps.FindAsync(id, cancellation).ConfigureAwait(false) is not { } map)
-        {
-            return Results.Ok(new { success = true, id });
-        }
-
-        if (Self(context, username) is not { } current
-            || (map.Owner != current.Principal.Id && !current.Authorization.Allows(Privilege.AdminManageAllContent)))
-        {
-            return PortalError(403, "This map is not yours to change.");
-        }
-
-        string title = First(form, context, "title").Trim();
-        string snippet = First(form, context, "snippet").Trim();
-
-        if (title.Length is > 0 and <= WebMaps.MaximumTitleLength || snippet.Length is > 0 and <= WebMaps.MaximumSnippetLength)
-        {
-            await maps.UpdateAsync(map.Id,
-                title.Length is > 0 and <= WebMaps.MaximumTitleLength ? title : map.Title,
-                snippet.Length is > 0 and <= WebMaps.MaximumSnippetLength ? snippet : map.Snippet,
-                map.Sharing, map.Document ?? "{}", cancellation).ConfigureAwait(false);
-        }
-
-        if (First(form, context, "tags") is { Length: > 0 } tagText
-            && ItemTags.Normalise(tagText.Split(','), out _) is { Count: > 0 } tags)
-        {
-            await maps.SetTagsAsync(map.Id, tags, cancellation).ConfigureAwait(false);
-        }
-
-        if (First(form, context, "description") is { Length: > 0 } description)
-        {
-            await maps.SetDescriptionAsync(map.Id, description, cancellation).ConfigureAwait(false);
-        }
-
-        bool picture = await KeepThumbnailAsync(form, maps, map.Id, cancellation).ConfigureAwait(false);
-
-        await AdminEndpoints.AuditAsync(
-            context, audit, "webmap.update", map.Id, AdminEndpoints.Detail(new { from = "Pro", thumbnail = picture }),
-            succeeded: true, cancellation).ConfigureAwait(false);
-
-        return Results.Ok(new { success = true, id = map.Id });
-    }
-
-    /// <summary>
     /// Sets a web map's scope and groups from a share form — the map half of <c>ShareOneAsync</c>, by the rules Studio
     /// shares a map by; null when <paramref name="id"/> is not a map.
     /// </summary>

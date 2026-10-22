@@ -966,7 +966,10 @@ internal static class HostedDataEndpoints
 
     /// <summary>What a caller sends to design a feature class.</summary>
     /// <param name="Name">The service name.</param>
-    /// <param name="GeometryType">Point, LineString, Polygon, or their Multi forms, optionally with Z, M or ZM (ADR-080).</param>
+    /// <param name="GeometryType">
+    /// Point, LineString, Polygon, or their Multi forms, optionally with Z, M or ZM (ADR-080) — or <c>Table</c> for a
+    /// table with no geometry (ADR-213).
+    /// </param>
     /// <param name="Fields">Its attribute columns.</param>
     /// <param name="Sharing">Who may read it. Private unless said otherwise.</param>
     /// <param name="CacheSeconds">
@@ -1052,15 +1055,32 @@ internal static class HostedDataEndpoints
 
         // <b>A Z, M or ZM suffix declares the column's ordinates — ADR-080.</b> `PointZ` makes a table that
         // holds an elevation, which is what a surveyed layer defined before its first feature needs.
-        GeometryOrdinates ordinates = Ordinates.OfTypeName(design.GeometryType);
+        // <b>`Table` designs a table — ADR-213</b>: the same hosted table and the same fields, with no geometry column,
+        // for the rows a layer's features are related to — an inspection, a reading, a visit.
+        bool table = string.Equals(design.GeometryType?.Trim(), "Table", StringComparison.OrdinalIgnoreCase);
+        GeometryOrdinates ordinates = table ? GeometryOrdinates.None : Ordinates.OfTypeName(design.GeometryType);
+        GeometryKind? kind = null;
 
-        if (!Enum.TryParse(Ordinates.WithoutOrdinates(design.GeometryType), ignoreCase: true, out GeometryKind kind)
-            || !Enum.IsDefined(kind))
+        if (!table)
+        {
+            if (!Enum.TryParse(Ordinates.WithoutOrdinates(design.GeometryType), ignoreCase: true, out GeometryKind shape)
+                || !Enum.IsDefined(shape))
+            {
+                await Fail(context, 400,
+                    "'geometryType' must be one of Point, MultiPoint, LineString, MultiLineString, "
+                    + "Polygon or MultiPolygon, optionally followed by Z, M or ZM for a layer that stores an "
+                    + "elevation or a measure — PointZ, MultiLineStringZM — or Table for a table with no geometry.")
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            kind = shape;
+        }
+        else if (design.ParentLayerId is not null || design.Srid is not null)
         {
             await Fail(context, 400,
-                "'geometryType' must be one of Point, MultiPoint, LineString, MultiLineString, "
-                + "Polygon or MultiPolygon, optionally followed by Z, M or ZM for a layer that stores an "
-                + "elevation or a measure — PointZ, MultiLineStringZM.").ConfigureAwait(false);
+                "A table sits beside a service's layers and has no geometry, so it takes neither a "
+                + "'parentLayerId' nor an 'srid'.").ConfigureAwait(false);
             return;
         }
 
@@ -1131,9 +1151,9 @@ internal static class HostedDataEndpoints
 
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
-        int srid = design.Srid ?? PostGisImporter.StoredSrid;
+        int srid = table ? Graticula.Catalog.LayerDefinition.TableSrid : design.Srid ?? PostGisImporter.StoredSrid;
 
-        if (srid <= 0 || !await importer.KnowsSridAsync(srid, cancellation).ConfigureAwait(false))
+        if (!table && (srid <= 0 || !await importer.KnowsSridAsync(srid, cancellation).ConfigureAwait(false)))
         {
             await Fail(context, 400,
                 $"'srid' {srid} is not a spatial reference this datastore knows. Send an EPSG code "
@@ -1152,7 +1172,7 @@ internal static class HostedDataEndpoints
             published = await catalog.PublishLayerAsync(
                 new LayerPublication(
                     design.Name, datastore, result.SchemaName, result.TableName,
-                    "geom", "objectid", "objectid", result.StoredSrid, kind, sharing,
+                    table ? null : "geom", "objectid", "objectid", result.StoredSrid, kind, sharing,
                     string.IsNullOrWhiteSpace(design.ServiceName)
                         ? null
                         : design.ServiceName.Trim(),
@@ -1183,7 +1203,7 @@ internal static class HostedDataEndpoints
                     table = $"{result.SchemaName}.{result.TableName}",
                     fields = fields.Count,
                     domains = bound.Count,
-                    geometryType = kind.ToString(),
+                    geometryType = kind?.ToString() ?? "Table",
                 }),
                 true),
             cancellation).ConfigureAwait(false);
@@ -1196,7 +1216,7 @@ internal static class HostedDataEndpoints
             name = design.Name,
             table = $"{result.SchemaName}.{result.TableName}",
             rows = 0,
-            geometryType = kind.ToString(),
+            geometryType = kind?.ToString() ?? "Table",
             fields = fields.Select(f => new
             {
                 f.Name,
@@ -1205,10 +1225,13 @@ internal static class HostedDataEndpoints
                 domain = bound.FirstOrDefault(b => b.Matches(PostGisImporter.ColumnNameFor(f.Name))).Domain?.Name,
             }),
             sharing = sharing.ToString().ToLowerInvariant(),
-            services = Services(published.ServiceName, published.LayerIndex),
-            note = "The feature class is empty. Add features through the FeatureServer's "
-                 + "applyEdits. Its extent is unknown until it has one, so a client will show it "
-                 + "as covering the world.",
+            services = Services(published.ServiceName, published.LayerIndex, drawn: !table),
+            note = table
+                ? "The table is empty. Add rows through the FeatureServer's applyEdits, without a geometry; it is "
+                  + "listed under the service's tables, beside its layers, and is not drawn."
+                : "The feature class is empty. Add features through the FeatureServer's "
+                  + "applyEdits. Its extent is unknown until it has one, so a client will show it "
+                  + "as covering the world.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -1299,6 +1322,7 @@ internal static class HostedDataEndpoints
     /// </summary>
     /// <param name="serviceName">The service the layer landed in.</param>
     /// <param name="layerIndex">Its number within that service.</param>
+    /// <param name="drawn">Whether it is drawn — false for a table, which has no tiles (ADR-213).</param>
     /// <remarks>
     /// <b>These two strings are the whole answer to "what URL did I just
     /// create", and they were wrong for one request.</b> A layer designed into a
@@ -1307,14 +1331,16 @@ internal static class HostedDataEndpoints
     /// an index inside it. A creation response that hands back a 404 is worse
     /// than one that hands back no link at all.
     /// </remarks>
-    private static object Services(string serviceName, int layerIndex) => new
+    private static object Services(string serviceName, int layerIndex, bool drawn = true) => new
     {
         feature =
             $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{serviceName}"
             + $"/FeatureServer/{layerIndex}",
-        tiles =
-            $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{serviceName}"
-            + "/VectorTileServer",
+
+        // A table is not drawn, so it has no tiles to link to (ADR-213).
+        tiles = drawn
+            ? $"/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{serviceName}/VectorTileServer"
+            : null,
     };
 
     /// <summary>The datastore's data source id, or empty when it is not registered.</summary>

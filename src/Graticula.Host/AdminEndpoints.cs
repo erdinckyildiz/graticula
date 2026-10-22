@@ -639,6 +639,7 @@ internal static partial class AdminEndpoints
         MapHistory(app);         // ADR-078 — AdminEndpoints.History.cs
         MapAttachments(app);     // ADR-207 — AdminEndpoints.Attachments.cs
         MapSprite(app);          // ADR-092 — AdminEndpoints.Sprite.cs
+        MapPinning(app);         // ADR-218 — AdminEndpoints.Pinning.cs
         MapStyles(app);          // ADR-094 — AdminEndpoints.Styles.cs
         MapTileSeed(app);        // ADR-093 — AdminEndpoints.TileSeed.cs
         MapTileExport(app);      // ADR-098 — AdminEndpoints.TileExport.cs
@@ -1283,6 +1284,9 @@ internal static partial class AdminEndpoints
                 sharing = PostgresSharing(service.Sharing),
                 status = Wire(service.Status),
                 layers = service.Layers.Count,
+
+                // ADR-213: its tables, apart from its layers.
+                tables = service.Tables.Count,
                 scope,
 
                 // ADR-075, D-271: whether this caller may change the item — share it, restyle it.
@@ -1356,7 +1360,7 @@ internal static partial class AdminEndpoints
                 // the thing it is for; counting layers to decide would have called every coverage a
                 // residue on the day they joined this listing. The question is *is there anything in
                 // it*, and layers are only how a feature service answers that.
-                empty = service.Layers.Count == 0
+                empty = service.LayersAndTables.Count == 0
                     && !string.Equals(service.Kind, "ImageServer", StringComparison.Ordinal),
 
                 updated = admin.Updated == default ? (DateTimeOffset?)null : admin.Updated,
@@ -1459,7 +1463,7 @@ internal static partial class AdminEndpoints
 
             bool owned = service.Owner == current.Principal.Id;
 
-            foreach (PublishedLayer layer in service.Layers)
+            foreach (PublishedLayer layer in service.LayersAndTables)
             {
                 object entry = new
                 {
@@ -1483,7 +1487,7 @@ internal static partial class AdminEndpoints
                     // The same rule the tile endpoint applies, asked of the same object rather than
                     // written out a second time.
                     tileable = VectorTileEndpoints.Tileable(layer),
-                    geometry = layer.GeometryType.ToString(),
+                    geometry = layer.GeometryType?.ToString(),
 
                     // Why it is visible, in the evaluator's own words: owner, organisation, or
                     // public. A publisher reading *organization* knows why they cannot restyle
@@ -1862,6 +1866,9 @@ internal static partial class AdminEndpoints
                 s.Description,
                 owner = s.OwnerName,
                 s.Layers,
+
+                // ADR-213: its tables, apart from its layers, so a listing can say "1 layer · 3 tables".
+                s.Tables,
                 s.Groups,
 
                 // Said rather than left to be derived from two numbers, because it is
@@ -2002,7 +2009,7 @@ internal static partial class AdminEndpoints
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async Task DeleteServiceAsync(
+    internal static async Task DeleteServiceAsync(
         HttpContext context,
         string name,
         string? folder,
@@ -2629,6 +2636,14 @@ internal static partial class AdminEndpoints
                     if (!TryReadPublication(child, out LayerPublication? one, out string? bad))
                     {
                         error = $"Entry {at}, in group '{named}': {bad}";
+                        return false;
+                    }
+
+                    // A table sits beside the service's layers, never in a group — ArcGIS's tree is the layers' (ADR-213).
+                    if (one!.GeometryColumn is null)
+                    {
+                        error = $"Entry {at}, in group '{named}': '{one.Name}' is a table. A table sits beside a service's "
+                            + "layers, not inside a group layer; put it outside the group, after the layers.";
                         return false;
                     }
 
@@ -3361,6 +3376,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // A table draws nothing, so it has no symbology to read or write (ADR-213).
+        if (await RefusedAsTableAsync(context, readable).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (await catalog.FindLayerForSymbologyAsync(readable.Id, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
@@ -3553,6 +3574,12 @@ internal static partial class AdminEndpoints
         // layer the caller may not read is refused before its field is judged.
         if (await ReadableLayerAsync(context, layers, name, cancellation).ConfigureAwait(false)
             is not { } layer)
+        {
+            return;
+        }
+
+        // A table draws nothing, so it has no symbology to read or write (ADR-213).
+        if (await RefusedAsTableAsync(context, layer).ConfigureAwait(false))
         {
             return;
         }
@@ -3861,6 +3888,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // A table draws nothing, so it has no symbology to read or write (ADR-213).
+        if (await RefusedAsTableAsync(context, layer).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (await catalog.FindLayerForSymbologyAsync(layer.Id, cancellation).ConfigureAwait(false)
             is not { } symbolised)
         {
@@ -4132,6 +4165,12 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // A table draws nothing, so it has no symbology to read or write (ADR-213).
+        if (await RefusedAsTableAsync(context, owned).ConfigureAwait(false))
+        {
+            return;
+        }
+
         if (await catalog.FindLayerForSymbologyAsync(owned.Id, cancellation).ConfigureAwait(false)
             is not { } layer)
         {
@@ -4327,6 +4366,12 @@ internal static partial class AdminEndpoints
         // owned it (D-276).
         if (await ManagedLayerAsync(context, published, name, "reset the symbology of", cancellation).ConfigureAwait(false)
             is not { } owned)
+        {
+            return;
+        }
+
+        // A table draws nothing, so it has no symbology to read or write (ADR-213).
+        if (await RefusedAsTableAsync(context, owned).ConfigureAwait(false))
         {
             return;
         }
@@ -4837,7 +4882,7 @@ internal static partial class AdminEndpoints
         // What is served changed, so what the serving path holds for this service is read again.
         if (await owners.FindServiceAsync(at, name, cancellation).ConfigureAwait(false) is { } changed)
         {
-            foreach (PublishedLayer layer in changed.Layers)
+            foreach (PublishedLayer layer in changed.LayersAndTables)
             {
                 contexts.Forget(layer);
             }
@@ -6217,6 +6262,9 @@ internal static partial class AdminEndpoints
             deleteLocked = found.DeleteLocked,
             memberList = Wire(found.MemberList),
             membersMayLeave = found.MembersMayLeave,
+
+            // ADR-204 §5c: whether members of other organisations may be added — the console's switch reads it.
+            admitsOtherTenants = await groups.AdmitsOtherTenantsAsync(found.Name, cancellation).ConfigureAwait(false),
 
             // <b>Whether *this* caller may walk out, worked out here rather than on the
             // screen.</b> The page would otherwise derive it from three fields and get it
@@ -7970,6 +8018,18 @@ internal static partial class AdminEndpoints
         {
             foreach (LayerPublication layer in node.Children ?? (node.Layer is { } one ? [one] : []))
             {
+                if (await TableSourceRefusalAsync(catalog, layer, cancellation).ConfigureAwait(false) is { } notHere)
+                {
+                    await Refuse(context, 422, notHere).ConfigureAwait(false);
+                    return;
+                }
+
+                if (await GeodatabaseRefusalAsync(catalog, layer, cancellation).ConfigureAwait(false) is { } versioned)
+                {
+                    await Refuse(context, 422, versioned).ConfigureAwait(false);
+                    return;
+                }
+
                 if (await GeoParquetRefusalAsync(catalog, geoParquet, projector, layer, cancellation)
                         .ConfigureAwait(false) is { } refusal)
                 {
@@ -8252,7 +8312,7 @@ internal static partial class AdminEndpoints
 
         SourceQuiesce.Held held = quiesce.Hold(
             connection,
-            current.Principal.Name,
+            current.QualifiedName,
             request?.Seconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null,
             string.IsNullOrWhiteSpace(request?.Why) ? null : request!.Why!.Trim());
 
@@ -8960,6 +9020,13 @@ internal static partial class AdminEndpoints
                 .Select(layer => layer.Id),
         ];
 
+        if (!string.Equals(existing.Value.Name, PostgresAdminCatalog.DatastoreName, StringComparison.Ordinal)
+            && DatastoreNameRefusal(request.Name) is { } reserved)
+        {
+            await Refuse(context, 409, reserved).ConfigureAwait(false);
+            return;
+        }
+
         if (!await catalog.UpdateDataSourceAsync(
                 id, request.Name, connection, cancellation).ConfigureAwait(false))
         {
@@ -9082,7 +9149,8 @@ internal static partial class AdminEndpoints
                 Detail(new { outcome = "duplicate" }), succeeded: false, cancellation)
                 .ConfigureAwait(false);
 
-            await Refuse(context, 409, $"A data source named '{request.Name}' already exists.")
+            await Refuse(context, 409, DatastoreNameRefusal(request.Name)
+                    ?? $"Your organization already has a data source named '{request.Name}'.")
                 .ConfigureAwait(false);
             return;
         }
@@ -9283,7 +9351,7 @@ internal static partial class AdminEndpoints
         int changed = 0;
 
         foreach (PublishedLayer layer in (listing.Services ?? [])
-                     .SelectMany(service => service.Layers)
+                     .SelectMany(service => service.LayersAndTables)
                      .Where(layer => string.Equals(layer.ConnectionString, connectionString, StringComparison.Ordinal))
                      .OrderBy(layer => layer.Definition.Name, StringComparer.Ordinal))
         {
@@ -9427,6 +9495,123 @@ internal static partial class AdminEndpoints
     /// <b>False when the locator cannot be read</b>, so a source sealed with another key takes the
     /// PostGIS path it always took and fails there with the sentence that path already has.
     /// </remarks>
+    /// <summary>
+    /// Why a table cannot be published from this publication's source, or null when it can or it is not a table — ADR-213
+    /// §5e.
+    /// </summary>
+    /// <remarks>
+    /// <b>A table is PostGIS's alone, for now.</b> The other engines' sources read a geometry column on every request, and
+    /// a file has one by definition; a table published over either would be refused by its first query instead of here,
+    /// where the publisher can still do something about it. <b>One rule for both doors</b> — a single layer and a
+    /// composition — because a guard on one and not the other is D-46.
+    /// </remarks>
+    /// <summary>
+    /// Why a registered table cannot be published because an enterprise geodatabase versions or archives it — ADR-217,
+    /// the ArcGIS veteran's N6 — or null: a hosted layer, a file, a table nothing marks, or a database that could not be
+    /// asked.
+    /// </summary>
+    private static async Task<string?> GeodatabaseRefusalAsync(
+        IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
+    {
+        // Asked of the databases a geodatabase lives in — PostgreSQL, SQL Server and Oracle — and of no file.
+        if (await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation).ConfigureAwait(false)
+                is not { Length: > 0 } connection
+            || GeoParquetLocator.KindOf(connection) is not (DataSourceKinds.PostGis or DataSourceKinds.SqlServer or DataSourceKinds.Oracle))
+        {
+            return null;
+        }
+
+        if (SqlEngines.For(connection) is { } sql)
+        {
+            return await sql.GeodatabaseRefusalAsync(connection, publication.SchemaName, publication.TableName, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        // PostgreSQL: the columns, and the registry a geodatabase keeps as sde.sde_table_registry.
+        try
+        {
+            await using NpgsqlConnection open = new(connection);
+            await open.OpenAsync(cancellation).ConfigureAwait(false);
+
+            List<string> columns = [];
+
+            await using (NpgsqlCommand command = new(
+                "select column_name from information_schema.columns where table_schema = @s and table_name = @t", open))
+            {
+                command.Parameters.AddWithValue("s", publication.SchemaName);
+                command.Parameters.AddWithValue("t", publication.TableName);
+                await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+                {
+                    columns.Add(reader.GetString(0));
+                }
+            }
+
+            long? versioned = null;
+
+            await using (NpgsqlCommand command = new(
+                """
+                select r.registration_id from sde.sde_table_registry r
+                 where to_regclass('sde.sde_table_registry') is not null
+                   and lower(r.owner) = lower(@s) and lower(r.table_name) = lower(@t)
+                   and to_regclass(quote_ident(@s) || '.a' || r.registration_id) is not null
+                """, open))
+            {
+                command.Parameters.AddWithValue("s", publication.SchemaName);
+                command.Parameters.AddWithValue("t", publication.TableName);
+
+                try
+                {
+                    if (await command.ExecuteScalarAsync(cancellation).ConfigureAwait(false) is { } id and not DBNull)
+                    {
+                        versioned = Convert.ToInt64(id, System.Globalization.CultureInfo.InvariantCulture);
+                    }
+                }
+                catch (PostgresException missing) when (missing.SqlState is "42P01" or "3F000" or "42501")
+                {
+                    // No geodatabase registry here, or not readable: the columns still say what they say.
+                }
+            }
+
+            return GeodatabaseClasses.Refusal($"{publication.SchemaName}.{publication.TableName}", columns, versioned);
+        }
+        catch (Exception e) when (e is NpgsqlException or ArgumentException or InvalidOperationException or TimeoutException)
+        {
+            return null;
+        }
+    }
+
+    private static async Task<string?> TableSourceRefusalAsync(
+        IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
+    {
+        if (publication.GeometryColumn is not null)
+        {
+            return null;
+        }
+
+        string connection = await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
+            .ConfigureAwait(false) ?? string.Empty;
+
+        string kind = GeoParquetLocator.KindOf(connection);
+
+        return TablesServedBy.Contains(kind)
+            ? null
+            : $"'{publication.SchemaName}.{publication.TableName}' was not published: a table with no geometry is "
+              + $"published from {string.Join(", ", TablesServedBy)}. A {kind} source serves layers with geometry only (ADR-213).";
+    }
+
+    /// <summary>
+    /// The kinds of source whose readers serve a table with no geometry column — ADR-213 condition 7, one engine at a time
+    /// as each is measured against its own database. The Publish screen's <c>pubWhyNot</c> in console.js carries the same
+    /// list, so a row says it before the server refuses it; widen both together.
+    /// </summary>
+    private static readonly string[] TablesServedBy =
+    [
+        DataSourceKinds.PostGis, DataSourceKinds.SqlServer, DataSourceKinds.MySql, DataSourceKinds.Oracle,
+        DataSourceKinds.GeoParquet, DataSourceKinds.GeoParquetRemote, DataSourceKinds.DuckDb, DataSourceKinds.MotherDuck,
+    ];
+
     private static async Task<bool> IsGeoParquetAsync(
         IAdminCatalog catalog, Guid dataSourceId, CancellationToken cancellation)
     {
@@ -9483,9 +9668,33 @@ internal static partial class AdminEndpoints
     /// about a table of the same name in the wrong place, which is a worse failure than
     /// not asking.
     /// </remarks>
+    /// <summary>Refuses a symbology request for a table, which has nothing to draw — ADR-213.</summary>
+    /// <returns>Whether the refusal was written.</returns>
+    private static async Task<bool> RefusedAsTableAsync(HttpContext context, PublishedLayer layer)
+    {
+        if (!layer.IsTable)
+        {
+            return false;
+        }
+
+        await Refuse(
+                context, 400,
+                $"'{layer.Definition.Name}' is a table. A table has no geometry, so it is not drawn and has no "
+                + "symbology (ADR-213).")
+            .ConfigureAwait(false);
+
+        return true;
+    }
+
     private static async Task<GeometryValidity?> ValidityOfSourceAsync(
         IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
     {
+        // A table has no geometry to measure, and unmeasured publishes (ADR-213).
+        if (publication.GeometryColumn is not { } column)
+        {
+            return null;
+        }
+
         try
         {
             if (await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
@@ -9503,7 +9712,7 @@ internal static partial class AdminEndpoints
             if (SqlEngines.For(connection) is { } sql)
             {
                 return await sql.ValidityAsync(
-                        connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
+                        connection, publication.SchemaName, publication.TableName, column,
                         TimeSpan.FromSeconds(30), cancellation)
                     .ConfigureAwait(false) is { } measured
                     ? new GeometryValidity(measured.Rows, measured.Invalid, measured.Reasons)
@@ -9524,7 +9733,7 @@ internal static partial class AdminEndpoints
                 source,
                 publication.SchemaName,
                 publication.TableName,
-                publication.GeometryColumn,
+                column,
                 cancellation).ConfigureAwait(false);
         }
         catch (Exception e) when (e is NpgsqlException or ArgumentException
@@ -9550,6 +9759,12 @@ internal static partial class AdminEndpoints
     private static async Task<DeclaredReference?> DeclaredReferenceOfSourceAsync(
         IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
     {
+        // A table has no geometry to measure, and unmeasured publishes (ADR-213).
+        if (publication.GeometryColumn is not { } column)
+        {
+            return null;
+        }
+
         try
         {
             if (await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation)
@@ -9567,7 +9782,7 @@ internal static partial class AdminEndpoints
             if (SqlEngines.For(connection) is { } sql)
             {
                 return await sql.ReferenceAsync(
-                        connection, publication.SchemaName, publication.TableName, publication.GeometryColumn,
+                        connection, publication.SchemaName, publication.TableName, column,
                         publication.Srid, cancellation)
                     .ConfigureAwait(false) is { } found
                     ? new DeclaredReference(publication.Srid, found.Stored, found.Complaint)
@@ -9587,7 +9802,7 @@ internal static partial class AdminEndpoints
                 source,
                 publication.SchemaName,
                 publication.TableName,
-                publication.GeometryColumn,
+                column,
                 publication.Srid,
                 cancellation).ConfigureAwait(false);
         }
@@ -9717,6 +9932,18 @@ internal static partial class AdminEndpoints
         // two questions below are not asked of it and the ones that matter for a file are.
         bool fromFile = await IsGeoParquetAsync(catalog, publication.DataSourceId, cancellation)
             .ConfigureAwait(false);
+
+        if (await TableSourceRefusalAsync(catalog, publication, cancellation).ConfigureAwait(false) is { } notHere)
+        {
+            await Refuse(context, 400, notHere).ConfigureAwait(false);
+            return;
+        }
+
+        if (await GeodatabaseRefusalAsync(catalog, publication, cancellation).ConfigureAwait(false) is { } versioned)
+        {
+            await Refuse(context, 422, versioned).ConfigureAwait(false);
+            return;
+        }
 
         if (fromFile)
         {
@@ -9867,10 +10094,15 @@ internal static partial class AdminEndpoints
                     sharing = PostgresSharing(publication.Sharing),
                     arcGisServable = publication.ObjectIdColumn is not null,
 
+                    // A table — ADR-213 — said as one, so the response does not describe geometry it has none of.
+                    table = publication.GeometryColumn is null,
+
                     // <b>What PostGIS makes of the source (D-53).</b> Reported on every
                     // publish, including the ones that did not ask, because the whole
-                    // defect was that nobody was told.
-                    geometry = validity is null
+                    // defect was that nobody was told. Null for a table, which has no geometry to scan.
+                    geometry = publication.GeometryColumn is null
+                        ? null
+                        : validity is null
                         ? new
                         {
                             valid = (bool?)null,
@@ -10351,6 +10583,16 @@ internal static partial class AdminEndpoints
         {
             await Refuse(context, 400, "A member needs a name to sign in with.")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        // <b>No backslash — ADR-204 §5e item 16.</b> `organisation\name` is how a member of another organisation is
+        // named, so a name holding one would read as somebody else's.
+        if (name.Contains('\\', StringComparison.Ordinal))
+        {
+            await Refuse(context, 400,
+                $"'{name}' cannot be a member's name: a backslash separates an organization from a name, as in "
+                + "'atos\\ali@firma.com'.").ConfigureAwait(false);
             return;
         }
 
@@ -12073,8 +12315,12 @@ internal static partial class AdminEndpoints
             name,
             refreshed = true,
             tilesPurged = purged,
-            note = "The next request re-reads this table's columns and extent from the data "
-                 + "source, and any cached tiles are gone. This clears the caches of the server "
+            // A table (ADR-213) has neither an extent nor tiles, so its note says columns only.
+            note = (layer.IsTable
+                       ? "The next request re-reads this table's columns from the data source. "
+                       : "The next request re-reads this table's columns and extent from the data "
+                         + "source, and any cached tiles are gone. ")
+                 + "This clears the caches of the server "
                  + "that answered the call; another server over the same platform store keeps its "
                  + "own until they expire.",
         }).ExecuteAsync(context).ConfigureAwait(false);
@@ -12131,11 +12377,26 @@ internal static partial class AdminEndpoints
         if (string.IsNullOrWhiteSpace(request.Name)
             || string.IsNullOrWhiteSpace(request.SchemaName)
             || string.IsNullOrWhiteSpace(request.TableName)
-            || string.IsNullOrWhiteSpace(request.GeometryColumn)
             || string.IsNullOrWhiteSpace(request.IdentityColumn))
         {
-            error = "name, schemaName, tableName, geometryColumn and identityColumn are required.";
+            error = "name, schemaName, tableName and identityColumn are required, and geometryColumn for a layer "
+                + "with geometry; without one the table is published as a table.";
             return false;
+        }
+
+        // <b>No geometry column is a table — ADR-213.</b> ArcGIS's standalone table: rows with attributes and no shape,
+        // queried, edited and related like a layer and drawn by nothing. A geometry type or a reference sent with it
+        // would describe a column that is not there, so either is refused rather than ignored.
+        if (string.IsNullOrWhiteSpace(request.GeometryColumn))
+        {
+            if (!string.IsNullOrWhiteSpace(request.GeometryType))
+            {
+                error = $"geometryType '{request.GeometryType}' was sent without a geometryColumn. A table has no "
+                    + "geometry, so it has no geometry type; send both for a layer, or neither for a table.";
+                return false;
+            }
+
+            return TryReadTable(request, out publication, out error);
         }
 
         if (request.Srid <= 0)
@@ -12222,6 +12483,51 @@ internal static partial class AdminEndpoints
             request.CacheSeconds,
             string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim(),
             symbology);
+
+        return true;
+    }
+
+    /// <summary>
+    /// The publication of a table — ADR-213: the request's names, its sharing and its service, and no geometry, reference
+    /// or symbology.
+    /// </summary>
+    private static bool TryReadTable(PublishRequest request, out LayerPublication? publication, out string? error)
+    {
+        publication = null;
+
+        if (!TryReadScope(request.Sharing ?? "private", out SharingScope scope, out error))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.Symbology))
+        {
+            error = "symbology was sent for a table. A table has no geometry, so it is not drawn and has no symbology.";
+            return false;
+        }
+
+        // A table sits in no group: ArcGIS lists tables beside the layer tree, not in it.
+        if (request.ParentLayerId is not null)
+        {
+            error = "parentLayerId was sent for a table. A table sits beside a service's layers, not inside a group layer.";
+            return false;
+        }
+
+        publication = new LayerPublication(
+            request.Name!,
+            request.DataSourceId,
+            request.SchemaName!,
+            request.TableName!,
+            GeometryColumn: null,
+            request.IdentityColumn!,
+            string.IsNullOrWhiteSpace(request.ObjectIdColumn) ? null : request.ObjectIdColumn,
+            Graticula.Catalog.LayerDefinition.TableSrid,
+            GeometryType: null,
+            scope,
+            string.IsNullOrWhiteSpace(request.ServiceName) ? null : request.ServiceName.Trim(),
+            ParentLayerIndex: null,
+            request.CacheSeconds,
+            string.IsNullOrWhiteSpace(request.Folder) ? null : request.Folder.Trim());
 
         return true;
     }
@@ -12864,6 +13170,17 @@ internal static partial class AdminEndpoints
 
     internal static string Detail(object value) => JsonSerializer.Serialize(value);
 
+    /// <summary>
+    /// Why a data source may not be called <paramref name="name"/>, or null — ADR-204 §5e item 15, owner decision
+    /// 2026-10-22: *"sistemde tek bir datastore olabilir. herkesin kendi registered database'i olabilir ama datastore
+    /// tek."* The managed datastore is every organisation's and is known by its name, so no other source takes it.
+    /// </summary>
+    internal static string? DatastoreNameRefusal(string? name) =>
+        string.Equals(name?.Trim(), PostgresAdminCatalog.DatastoreName, StringComparison.OrdinalIgnoreCase)
+            ? $"'{name!.Trim()}' is the name of this server's datastore, the one every organization on it shares. "
+                + "Give your own database another name."
+            : null;
+
     internal static Task AuditAsync(
         HttpContext context,
         IAuditLog audit,
@@ -12878,7 +13195,7 @@ internal static partial class AdminEndpoints
         return audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id,
-                current.Principal.Name,
+                current.QualifiedName,
                 CallerAddress.Of(context)?.ToString(),
                 action,
                 resource,

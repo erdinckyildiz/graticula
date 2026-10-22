@@ -72,7 +72,22 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
 
     private string Id => LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn);
 
-    private string Geometry => LayerDefinition.Quote(_layer.GeometryColumn);
+    /// <summary>
+    /// The row's shape as the history stores it, from <paramref name="row"/> — <c>null</c> for a table, whose history keeps
+    /// attributes and an empty <c>geom</c> (ADR-213).
+    /// </summary>
+    private string ShapeOf(string row) =>
+        _layer.GeometryColumn is { } column ? $"{row}.{LayerDefinition.Quote(column)}" : "null::geometry";
+
+    /// <summary>The row's attributes as JSON, its geometry taken out — a table has none to take.</summary>
+    private string AttributesOf(string row) =>
+        _layer.GeometryColumn is { } column ? $"to_jsonb({row}) - '{Literal(column)}'" : $"to_jsonb({row})";
+
+    /// <summary>A version's attributes with its shape put back under the column's name — a table's have none to put back.</summary>
+    private static string Rebuilt(LayerDefinition layer) =>
+        layer.GeometryColumn is { } column
+            ? $"h.attributes || jsonb_build_object('{Literal(column)}', h.geom::text)"
+            : "h.attributes";
 
     /// <summary>
     /// The relation a query at <paramref name="parameter"/> reads instead of the table: every column
@@ -107,11 +122,8 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
 
         string table = layer.QuotedTable;
         string history = $"{LayerDefinition.Quote(layer.SchemaName)}.{LayerDefinition.Quote(layer.TableName + Suffix)}";
-        string geometry = layer.GeometryColumn.Replace("'", "''", StringComparison.Ordinal);
-
         return $"(select p.* from {history} h, "
-            + $"lateral jsonb_populate_record(null::{table}, "
-            + $"h.attributes || jsonb_build_object('{geometry}', h.geom::text)) p "
+            + $"lateral jsonb_populate_record(null::{table}, {Rebuilt(layer)}) p "
             + $"where h.gdb_from_date <= @{parameter} "
             + $"and (h.gdb_to_date is null or h.gdb_to_date > @{parameter})"
             + (box is null ? ") " : $" and {box}) ")
@@ -439,13 +451,12 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
         await using (NpgsqlCommand seed = new(
             $"""
              insert into {Qualified} (objectid, gdb_from_date, opened_by, from_role, attributes, geom)
-             select t.{Id}, now(), 'seed', session_user, to_jsonb(t) - @geometry, t.{Geometry}
+             select t.{Id}, now(), 'seed', session_user, {AttributesOf("t")}, {ShapeOf("t")}
              from {_layer.QuotedTable} t
              """,
             connection,
             transaction) { CommandTimeout = 0 })
         {
-            seed.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
             seeded = await seed.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -690,7 +701,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
 
         string versionRow =
             $"(select jsonb_populate_record(null::{_layer.QuotedTable}, "
-            + $"h.attributes || jsonb_build_object(@geometry, h.geom::text)) as r "
+            + $"{Rebuilt(_layer)}) as r "
             + $"from {Qualified} h where h.history_id = @version and h.objectid = @id)";
 
         // Which columns the table has now: a version written before a column was dropped still
@@ -759,7 +770,6 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
         {
             write.Parameters.AddWithValue("id", objectId);
             write.Parameters.AddWithValue("version", historyId);
-            write.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
             await write.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
@@ -836,8 +846,6 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
     private string FunctionSql()
     {
         string id = LayerDefinition.Quote(_layer.IntegerIdentityColumn!);
-        string geometry = LayerDefinition.Quote(_layer.GeometryColumn);
-        string geometryKey = Literal(_layer.GeometryColumn);
 
         return $$"""
             create or replace function {{QualifiedFunction}}() returns trigger
@@ -867,7 +875,7 @@ public sealed class PostGisFeatureHistory : IFeatureHistory
                     insert into {{Qualified}} (objectid, gdb_from_date, opened_by, from_editor, from_role, attributes, geom,
                                                restored_from)
                     values (new.{{id}}, greatest(now(), coalesce(v_closed, now())), lower(tg_op), v_editor,
-                            session_user, to_jsonb(new) - '{{geometryKey}}', new.{{geometry}}, v_restored);
+                            session_user, {{AttributesOf("new")}}, {{ShapeOf("new")}}, v_restored);
                 end if;
 
                 return null;

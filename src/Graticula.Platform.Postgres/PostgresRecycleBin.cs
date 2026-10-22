@@ -36,13 +36,16 @@ public sealed class PostgresRecycleBin : IRecycleBin
 
     private static readonly HashSet<string> Roots = new(StringComparer.Ordinal) { "service", "web_map", "item" };
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store.</summary>
     public PostgresRecycleBin(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <summary>One foreign key into a table: the child, its columns, the parent's, and what a delete does.</summary>

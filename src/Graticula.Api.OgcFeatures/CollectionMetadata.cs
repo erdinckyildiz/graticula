@@ -26,7 +26,7 @@ namespace Graticula.Api.OgcFeatures;
 /// <param name="Title">Something for a person to read.</param>
 /// <param name="Description">A longer description, or null.</param>
 /// <param name="Srid">The EPSG code its geometry is stored in.</param>
-/// <param name="GeometryType">What shape its features are.</param>
+/// <param name="GeometryType">What shape its features are, or null for a table whose features have none (ADR-213).</param>
 /// <param name="Extent">Where its features are, in WGS 84 longitude/latitude, or null.</param>
 /// <param name="Fields">Its attribute columns, geometry excluded.</param>
 /// <param name="TemporalField">The column carrying its time, or null when it has none.</param>
@@ -45,7 +45,7 @@ public sealed record CollectionMetadata(
     string Title,
     string? Description,
     int Srid,
-    GeometryKind GeometryType,
+    GeometryKind? GeometryType,
     Envelope? Extent,
     IReadOnlyList<FieldDescription> Fields,
     string? TemporalField = null,

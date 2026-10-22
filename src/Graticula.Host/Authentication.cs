@@ -740,6 +740,26 @@ internal sealed class RequestPrincipal
     /// </summary>
     public bool TokenOutsideScope { get; init; }
 
+    /// <summary>
+    /// Whether the principal administers the system — ADR-204 §5d: the flag on their row, at their own tenant's host,
+    /// where the deployment holds several tenants. Never set otherwise, where nothing asks it.
+    /// </summary>
+    public bool IsSystemAdministrator { get; init; }
+
+    /// <summary>
+    /// The key of the organisation this principal belongs to when it is not the request's — an outsider admitted
+    /// through a group — or null for a member here (ADR-204 §5e item 16).
+    /// </summary>
+    public string? HomeOrganisation { get; init; }
+
+    /// <summary>
+    /// The name that names this principal and nobody else here: the bare name for a member, <c>organisation\name</c>
+    /// for an outsider, whose bare name may be one of this organisation's own members' (ADR-204 §5e item 16). What is
+    /// written where a name is stored — the editor of a row, the audit and request logs — and what own-account pages
+    /// look the caller up by.
+    /// </summary>
+    public string QualifiedName => HomeOrganisation is { } home ? $"{home}\\{Principal.Name}" : Principal.Name;
+
     /// <summary>Why a Basic credential on an OGC face opened no session, or null — ADR-178.</summary>
     public BasicRefusal? BasicRefusal { get; init; }
 

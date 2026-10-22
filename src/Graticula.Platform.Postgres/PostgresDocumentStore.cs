@@ -28,14 +28,17 @@ public sealed class PostgresDocumentStore : IDocumentStore
         "from item i join document d on d.item_id = i.id join principal p on p.id = i.owner_principal_id "
         + "where i.kind = 'document'";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Uses the platform store.</summary>
     /// <param name="dataSource">Its data source.</param>
     public PostgresDocumentStore(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -220,7 +223,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
         }
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "with taker as (select id from principal where lower(name) = lower(@receiver)), "
+            "with taker as (select id from principal where id = graticula_principal_named(@receiver)), "
             + "moved as (update item set owner_principal_id = (select id from taker), content_folder_id = null "
             + "where id = @id::uuid and kind = 'document' and exists (select 1 from taker) returning id), "
             + "touched as (update document set modified_at = now() where item_id in (select id from moved) returning 1) "

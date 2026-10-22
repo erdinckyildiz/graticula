@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -363,10 +364,13 @@ public sealed partial class PostGisImporter
         // index every tile request is a sequential scan; without ANALYZE,
         // ST_EstimatedExtent returns nothing and the service publishes with a
         // whole-world extent, which looks like a broken layer.
-        await ExecuteAsync(
-            connection, transaction,
-            $"create index on {Qualified(table)} using gist (geom)",
-            cancellationToken).ConfigureAwait(false);
+        if (dataset.GeometryType is not null)
+        {
+            await ExecuteAsync(
+                connection, transaction,
+                $"create index on {Qualified(table)} using gist (geom)",
+                cancellationToken).ConfigureAwait(false);
+        }
 
         // After the rows, like the spatial index: one build is cheaper than keeping it through the copy.
         await IndexGlobalIdsAsync(connection, transaction, table, dataset.Columns.Select(c => c.Name), cancellationToken)
@@ -383,6 +387,82 @@ public sealed partial class PostGisImporter
         // provenance to report. The reference in and the reference stored are
         // the same one.
         return new ImportResult(HostedSchema, table, rows, dataset.Srid, dataset.Srid, null, stored, flattened);
+    }
+
+    /// <summary>
+    /// The object id of the row in a hosted table this importer wrote whose GlobalID is the one given, or null — the
+    /// feature a geodatabase attachment names by <c>REL_GLOBALID</c> (ADR-213 condition 2).
+    /// </summary>
+    /// <param name="schemaName">The table's schema.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="globalId">The GlobalID as the archive wrote it, braces or not.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The object id, or null when no row carries it.</returns>
+    /// <remarks>
+    /// <b>Compared as text without braces and case</b>: the importer carries an archive's GlobalID column over as the
+    /// text OGR reads — <c>{92750EB0-…}</c> — and the attachment table writes the same value the same way, but a column
+    /// this server made is a <c>uuid</c>, which prints without them.
+    /// </remarks>
+    public async Task<long?> FeatureByGlobalIdAsync(
+        string schemaName, string tableName, string globalId, CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(schemaName, tableName, "find a feature by its GlobalID in");
+        ArgumentException.ThrowIfNullOrWhiteSpace(globalId);
+
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand command = new(
+            $"select objectid from {Qualified(tableName)} "
+            + $"where lower(btrim({LayerDefinition.Quote(Graticula.Features.GlobalIds.Column)}::text, '{{}}')) = lower(btrim(@id, '{{}}')) "
+            + "limit 1",
+            connection);
+        command.Parameters.AddWithValue("id", globalId);
+
+        try
+        {
+            return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is { } found and not DBNull
+                ? Convert.ToInt64(found, CultureInfo.InvariantCulture)
+                : null;
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UndefinedColumn)
+        {
+            // A table with no GlobalID column has no feature an attachment can name this way.
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Attaches a file to a row of a hosted table this importer wrote, as an attachment the layer serves — ADR-213
+    /// condition 2, a geodatabase's attachments carried over as attachments.
+    /// </summary>
+    /// <param name="schemaName">The table's schema.</param>
+    /// <param name="tableName">The table.</param>
+    /// <param name="featureId">The row's object id.</param>
+    /// <param name="name">The file's name.</param>
+    /// <param name="contentType">Its media type.</param>
+    /// <param name="content">Its bytes.</param>
+    /// <param name="quotaBytes">The layer's attachment quota.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The attachment's id.</returns>
+    /// <remarks>
+    /// <b>Through the attachment store the layer itself is served from</b>, so the table, its chunks, its foreign key to
+    /// the row and the quota are the ones an <c>addAttachment</c> would have made.
+    /// </remarks>
+    public Task<int> AttachAsync(
+        string schemaName,
+        string tableName,
+        long featureId,
+        string name,
+        string contentType,
+        Stream content,
+        long quotaBytes,
+        CancellationToken cancellationToken)
+    {
+        RefuseOutsideHosted(schemaName, tableName, "attach a file to");
+
+        LayerDefinition table = new(tableName, schemaName, tableName, null, LayerDefinition.TableSrid, "objectid", "objectid", true);
+
+        return new PostGisAttachmentStore(_dataSource, table, quotaBytes)
+            .AddAsync(featureId, name, contentType, null, content, cancellationToken);
     }
 
     /// <summary>
@@ -446,7 +526,7 @@ public sealed partial class PostGisImporter
     /// </remarks>
     public Task<ImportResult> DefineAsync(
         IReadOnlyList<FieldDescription> fields,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         int srid,
         string requestedName,
         CancellationToken cancellationToken) =>
@@ -454,7 +534,7 @@ public sealed partial class PostGisImporter
 
     /// <summary>Creates an empty hosted table whose geometry column declares Z, M or both — ADR-080.</summary>
     /// <param name="fields">The columns.</param>
-    /// <param name="geometryType">The geometry kind.</param>
+    /// <param name="geometryType">The geometry kind, or null for a table with no geometry column — ADR-213.</param>
     /// <param name="srid">The reference system.</param>
     /// <param name="requestedName">The layer's name, from which the table's is made.</param>
     /// <param name="ordinates">Which of Z and M the column declares.</param>
@@ -462,7 +542,7 @@ public sealed partial class PostGisImporter
     /// <returns>Where it was made.</returns>
     public async Task<ImportResult> DefineAsync(
         IReadOnlyList<FieldDescription> fields,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         int srid,
         string requestedName,
         GeometryOrdinates ordinates,
@@ -477,9 +557,13 @@ public sealed partial class PostGisImporter
 
         StringBuilder sql = new();
         sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (")
-           .Append(" objectid integer generated always as identity primary key,")
-           .Append(CultureInfo.InvariantCulture,
-               $" geom geometry({GeometryTypeName(geometryType, ordinates)}, {srid})");
+           .Append(" objectid integer generated always as identity primary key");
+
+        // A table has no geometry column (ADR-213); everything else about it is a hosted layer's.
+        if (geometryType is { } kind)
+        {
+            sql.Append(CultureInfo.InvariantCulture, $", geom geometry({GeometryTypeName(kind, ordinates)}, {srid})");
+        }
 
         foreach (FieldDescription field in fields)
         {
@@ -506,10 +590,13 @@ public sealed partial class PostGisImporter
             await ExecuteAsync(connection, transaction, sql.ToString(), cancellationToken)
                 .ConfigureAwait(false);
 
-            await ExecuteAsync(
-                connection, transaction,
-                $"create index on {Qualified(table)} using gist (geom)",
-                cancellationToken).ConfigureAwait(false);
+            if (geometryType is not null)
+            {
+                await ExecuteAsync(
+                    connection, transaction,
+                    $"create index on {Qualified(table)} using gist (geom)",
+                    cancellationToken).ConfigureAwait(false);
+            }
 
             await IndexGlobalIdsAsync(connection, transaction, table, fields.Select(f => f.Name), cancellationToken)
                 .ConfigureAwait(false);
@@ -1506,9 +1593,14 @@ public sealed partial class PostGisImporter
         StringBuilder sql = new();
 
         sql.Append(CultureInfo.InvariantCulture, $"create table {Qualified(table)} (\n")
-           .Append("  objectid integer generated always as identity primary key,\n")
-           .Append(CultureInfo.InvariantCulture,
-               $"  geom geometry({GeometryTypeName(dataset.GeometryType, ordinates)}, {dataset.Srid})");
+           .Append("  objectid integer generated always as identity primary key");
+
+        // A table has no geometry column (ADR-213).
+        if (dataset.GeometryType is { } kind)
+        {
+            sql.Append(CultureInfo.InvariantCulture,
+                $",\n  geom geometry({GeometryTypeName(kind, ordinates)}, {dataset.Srid})");
+        }
 
         foreach (InferredColumn column in dataset.Columns)
         {
@@ -1692,28 +1784,25 @@ public sealed partial class PostGisImporter
         IAsyncEnumerable<ImportedFeature> features,
         CancellationToken cancellationToken)
     {
-        StringBuilder columns = new("geom");
-
-        foreach (InferredColumn column in dataset.Columns)
-        {
-            columns.Append(", ").Append(LayerDefinition.Quote(ColumnNameFor(column.Name)));
-        }
+        // <b>A table's rows carry no shape — ADR-213</b>, so there is no WKB to stage and nothing to stamp a
+        // reference on: the copy is the attributes alone.
+        bool shaped = dataset.GeometryType is not null;
 
         // Loaded in the file's own SRID; the column declares the stored one, so
         // the geometry is written to a temporary column-compatible value only
         // after transformation. Simplest correct order: load into a text column
         // of WKB, then transform in one statement.
-        await ExecuteAsync(
-            connection, transaction,
-            $"alter table {Qualified(table)} add column import_wkb bytea",
-            cancellationToken).ConfigureAwait(false);
-
-        StringBuilder copyColumns = new("import_wkb");
-
-        foreach (InferredColumn column in dataset.Columns)
+        if (shaped)
         {
-            copyColumns.Append(", ").Append(LayerDefinition.Quote(ColumnNameFor(column.Name)));
+            await ExecuteAsync(
+                connection, transaction,
+                $"alter table {Qualified(table)} add column import_wkb bytea",
+                cancellationToken).ConfigureAwait(false);
         }
+
+        List<string> copied = shaped ? ["import_wkb"] : [];
+        copied.AddRange(dataset.Columns.Select(column => LayerDefinition.Quote(ColumnNameFor(column.Name))));
+        string copyColumns = string.Join(", ", copied);
 
         int rows = 0;
         int flattened = 0;
@@ -1732,7 +1821,7 @@ public sealed partial class PostGisImporter
                 await writer.StartRowAsync(cancellationToken).ConfigureAwait(false);
 
                 // ADR-080: what the column does not declare is dropped here, a row at a time, and counted.
-                Geometry? geometry = feature.Geometry;
+                Geometry? geometry = shaped ? feature.Geometry : null;
 
                 if (geometry is { IsEmpty: false } shape && (Ordinates.Of(shape) & ~stored) != GeometryOrdinates.None)
                 {
@@ -1740,14 +1829,14 @@ public sealed partial class PostGisImporter
                     flattened++;
                 }
 
-                if (geometry is null)
+                if (shaped && geometry is null)
                 {
                     await writer.WriteNullAsync(cancellationToken).ConfigureAwait(false);
                 }
-                else
+                else if (shaped)
                 {
                     await writer.WriteAsync(
-                        WkbWriter.ToArray(geometry), NpgsqlDbType.Bytea, cancellationToken)
+                        WkbWriter.ToArray(geometry!), NpgsqlDbType.Bytea, cancellationToken)
                         .ConfigureAwait(false);
                 }
 
@@ -1770,6 +1859,11 @@ public sealed partial class PostGisImporter
         // (Q-96). Transforming here was cheaper per tile and destroyed the only
         // copy of the survey coordinates — and for a national grid it is a datum
         // change, not a formula.
+        if (!shaped)
+        {
+            return (rows, flattened);
+        }
+
         await ExecuteAsync(
             connection, transaction,
             $"""

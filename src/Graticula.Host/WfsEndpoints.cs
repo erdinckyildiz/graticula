@@ -479,8 +479,8 @@ internal static partial class WfsEndpoints
             TitleOf(layer),
             Abstract: null,
             layer.Definition.Srid,
-            layer.GeometryType,
-            layer.Definition.GeometryColumn,
+            layer.RequireGeometryType(),
+            layer.Definition.RequireGeometryColumn(),
             fields,
             extent,
 
@@ -598,8 +598,8 @@ internal static partial class WfsEndpoints
                 TitleOf(layer),
                 null,
                 layer.Definition.Srid,
-                layer.GeometryType,
-                layer.Definition.GeometryColumn,
+                layer.RequireGeometryType(),
+                layer.Definition.RequireGeometryColumn(),
                 [],
                 null,
                 Published: layer.PublishedSrid)),
@@ -802,8 +802,8 @@ internal static partial class WfsEndpoints
             TitleOf(layer),
             null,
             layer.Definition.Srid,
-            layer.GeometryType,
-            layer.Definition.GeometryColumn,
+            layer.RequireGeometryType(),
+            layer.Definition.RequireGeometryColumn(),
             described.Fields,
             described.Extent,
             Published: layer.PublishedSrid);
@@ -1306,7 +1306,7 @@ internal static partial class WfsEndpoints
         if (!TryFields(
                 request.PropertyNames,
                 described,
-                layer.Definition.GeometryColumn,
+                layer.Definition.RequireGeometryColumn(),
                 out IReadOnlyList<string>? fields,
                 out fault))
         {
@@ -1339,7 +1339,7 @@ internal static partial class WfsEndpoints
                     // The geometry column joins the list because a null check may now name
                     // it — see `FilterReader.TryNull`. Nothing else can reach it: the
                     // reader refuses the geometry for every other predicate before this.
-                    [.. described.Fields.Select(f => f.Name), layer.Definition.GeometryColumn],
+                    [.. described.Fields.Select(f => f.Name), layer.Definition.RequireGeometryColumn()],
                     LayerDefinition.Quote,
                     out ParsedWhere emitted,
                     out string? error,
@@ -1599,9 +1599,9 @@ internal static partial class WfsEndpoints
         }
 
         if (string.Equals(
-                name, layer.Definition.GeometryColumn, StringComparison.OrdinalIgnoreCase))
+                name, layer.Definition.RequireGeometryColumn(), StringComparison.OrdinalIgnoreCase))
         {
-            property = layer.Definition.GeometryColumn;
+            property = layer.Definition.RequireGeometryColumn();
             isGeometry = true;
             return true;
         }

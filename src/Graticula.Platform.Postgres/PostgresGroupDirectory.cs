@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Tenancy;
 using Npgsql;
 
 namespace Graticula.Platform.Postgres;
@@ -19,14 +20,17 @@ namespace Graticula.Platform.Postgres;
 /// </remarks>
 public sealed class PostgresGroupDirectory : IGroupDirectory
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the directory.</summary>
     /// <param name="dataSource">The platform store.</param>
     public PostgresGroupDirectory(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -67,7 +71,10 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                 or g.owner_principal_id = @who
                 or exists (select 1 from sharing_group_member m
                             where m.group_id = g.id and m.principal_id = @who)
-                or g.visibility in ('organization', 'public')
+                or g.visibility = 'public'
+                -- ADR-204: the organisation is the group's own tenant's, not an outsider's who reached its host.
+                or (g.visibility = 'organization'
+                    and exists (select 1 from principal o where o.id = @who and o.tenant_id = g.tenant_id))
              order by g.name
             """;
 
@@ -252,6 +259,19 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         }
 
         Guid? who = await PrincipalAsync(member, usersOnly: true, cancellationToken).ConfigureAwait(false);
+
+        // <b>A member of another tenant, into a group that admits them — ADR-204 §5c.</b> Not this tenant's to see until
+        // they are in it, so they are found on the store's own pool — and <b>named with their organisation</b>,
+        // `organisation\name` (§5e item 16): a name is unique only within its organisation, so a bare one is this
+        // organisation's member and never somebody else's of the same name.
+        if (who is null && member.Contains('\\', StringComparison.Ordinal) && TenantScope.MultiTenant
+            && await AdmitsOtherTenantsAsync(id, cancellationToken).ConfigureAwait(false))
+        {
+            await using NpgsqlCommand outsider = _root.CreateCommand(
+                "select id from principal where id = graticula_principal_named(@name) and disabled_at is null and kind = 'user'");
+            outsider.Parameters.AddWithValue("name", member);
+            who = await outsider.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid found ? found : null;
+        }
 
         if (who is null)
         {
@@ -663,9 +683,9 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         // `added_by` is a left join because it is null for the owner and for every row written before
         // the column existed.
         const string Sql = """
-            select p.name,
+            select graticula_principal_label(p.name, p.tenant_id),
                    case when g.owner_principal_id = p.id then 'owner' else m.membership end,
-                   p.display_name, m.added_at, addedby.name
+                   p.display_name, m.added_at, graticula_principal_label(addedby.name, addedby.tenant_id)
               from sharing_group g
               join sharing_group_member m on m.group_id = g.id
               join principal p on p.id = m.principal_id
@@ -719,6 +739,8 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
              where p.disabled_at is null
                and p.kind = 'user'
                and p.name <> 'anonymous'
+               -- ADR-204 §5e item 16: this organisation's members; another's is admitted by `organisation\name`.
+               and (graticula_tenant() is null or p.tenant_id = graticula_tenant())
                and not exists (
                      select 1
                        from sharing_group g
@@ -759,10 +781,11 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
                         when s.folder is null then s.name else s.folder || '/' || s.name end,
                    it.sharing, coalesce(s.kind, case it.kind when 'document' then 'Document' else 'Web map' end),
                    gi.shared_at, sharedby.name,
+                   -- A layer with geometry: a table has no picture to draw an item with (ADR-213).
                    (select l.name from layer l
-                     where l.service_id = s.id order by l.layer_index limit 1),
+                     where l.service_id = s.id and l.geometry_column is not null order by l.layer_index limit 1),
                    (select l.layer_index from layer l
-                     where l.service_id = s.id order by l.layer_index limit 1),
+                     where l.service_id = s.id and l.geometry_column is not null order by l.layer_index limit 1),
                    it.web_map_id
               from sharing_group g
               join item_group gi on gi.group_id = g.id
@@ -840,6 +863,37 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         });
     }
 
+    /// <inheritdoc/>
+    public async Task<GroupChange> SetAdmitsOtherTenantsAsync(string name, bool admits, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update sharing_group set admits_other_tenants = @admits where lower(name) = lower(@name)");
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("admits", admits);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1 ? GroupChange.Done : GroupChange.Absent;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> AdmitsOtherTenantsAsync(string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select admits_other_tenants from sharing_group where lower(name) = lower(@name)");
+        command.Parameters.AddWithValue("name", name);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
+    }
+
+    private async Task<bool> AdmitsOtherTenantsAsync(Guid group, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand("select admits_other_tenants from sharing_group where id = @id");
+        command.Parameters.AddWithValue("id", group);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
+    }
+
     /// <summary>A principal's id by name, or null when there is none that may be named here.</summary>
     /// <param name="name">The name.</param>
     /// <param name="usersOnly">
@@ -856,7 +910,7 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         string name, bool usersOnly, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "select id from principal where lower(name) = lower(@name) and disabled_at is null"
+            "select id from principal where id = graticula_principal_named(@name) and disabled_at is null"
             + (usersOnly ? " and kind = 'user'" : string.Empty));
 
         command.Parameters.AddWithValue("name", name);

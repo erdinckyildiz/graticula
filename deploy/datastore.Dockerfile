@@ -45,3 +45,12 @@ ENV GRATICULA_DATASTORE_VERSION=1
 
 # Runs once, on an empty data directory, in filename order.
 COPY datastore/ /docker-entrypoint-initdb.d/
+
+# <b>Three hundred connections, not PostgreSQL's hundred — owner decision 2026-10-22, ADR-204 condition 14.</b> The
+# server alone may hold 94 (its request pool, ADR-046's worker budget, the job pool and the grant listener), and each
+# organisation beyond the first adds its pools' share — at least 24 in all, two per organisation — so a second
+# organisation on the stock hundred is refused by the database under load, and the server says at startup that it does
+# not fit. A command-line setting, so it holds on every start and on a volume made before this line, where an
+# initdb script would not run. Each idle slot costs PostgreSQL a few hundred bytes of shared memory; a connection
+# costs only while it is open.
+CMD ["postgres", "-c", "max_connections=300"]

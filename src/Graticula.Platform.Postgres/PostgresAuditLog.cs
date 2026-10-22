@@ -16,7 +16,10 @@ namespace Graticula.Platform.Postgres;
 /// </remarks>
 public sealed class PostgresAuditLog : IAuditLog
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the log.</summary>
     /// <param name="dataSource">The platform store pool.</param>
@@ -24,7 +27,7 @@ public sealed class PostgresAuditLog : IAuditLog
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>

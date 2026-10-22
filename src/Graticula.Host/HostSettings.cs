@@ -283,7 +283,12 @@ internal sealed record HostSettings(
 
     // <b>The largest document a member may file — ADR-188 §5.6.</b> 64 MB, the data upload's number, and a setting
     // for the same reason: a document is read whole into memory on its way in and on its way out.
-    long DocumentMaximumBytes = Graticula.Platform.Catalog.Documents.DefaultMaximumBytes)
+    long DocumentMaximumBytes = Graticula.Platform.Catalog.Documents.DefaultMaximumBytes,
+
+    // <b>The most services kept warm at once — ADR-218.</b> Fifty: a pin costs a description every twenty seconds and
+    // keeps a connection of its data source's pool open, which is cheap for one and is not for everything, and
+    // ADR-007 §4.12's rule is that if everything is pinned nothing is.
+    int PinnedServiceLimit = 50)
 {
     /// <summary>What may be built from one uploaded file: the defaults with this deployment's counts.</summary>
     public ImportLimits Import => ImportLimits.Default with
@@ -748,7 +753,8 @@ internal sealed record HostSettings(
             Math.Max(1L, keys.Value("ShapefileMaxMB", ArchiveLimits.DefaultShapefileBytes / 1048576)) * 1048576,
             Math.Max(1, keys.Value("ImportMaxFeatures", ImportLimits.Default.Features)),
             Math.Max(1L, keys.Value("ImportMaxVertices", ImportLimits.Default.Vertices)),
-            Math.Max(1L, keys.Value("DocumentMaxMB", Graticula.Platform.Catalog.Documents.DefaultMaximumBytes / 1048576)) * 1048576);
+            Math.Max(1L, keys.Value("DocumentMaxMB", Graticula.Platform.Catalog.Documents.DefaultMaximumBytes / 1048576)) * 1048576,
+            Math.Max(0, keys.Value("PinnedServiceLimit", 50)));
     }
 
     /// <summary>

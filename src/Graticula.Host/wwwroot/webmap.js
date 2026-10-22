@@ -2632,7 +2632,8 @@ wm$("addList").addEventListener("click", async event => {
       : `Added ${added} layer${added === 1 ? "" : "s"} from ${name}.`);
     if (added > 0) wmMarkDirty();
   } catch (e) {
-    wmSayIn("addStatus", `${name} could not be added: ${e.message}`, true);
+    // A service of tables alone is not a failure to add; it is a service with nothing to draw (ADR-213).
+    wmSayIn("addStatus", e.tablesOnly ? e.message : `${name} could not be added: ${e.message}`, !e.tablesOnly);
   } finally {
     t.removeAttribute("aria-disabled");
     wmDrawAddList();
@@ -2654,6 +2655,18 @@ async function wmAddService(name, type, onlyLayer = null) {
   if (type === "FeatureServer") {
     const document_ = await wmFetch(`${url}?f=json`);
     const layers = (document_.layers || []).filter(l => l.type !== "Group Layer" && (l.subLayerIds || []).length === 0);
+
+    // <b>A table is never drawn (ADR-213)</b>: a service of tables alone, or a link naming one of its tables, has
+    // nothing for a map. Said, rather than falling through to the next face, which drew an empty map image.
+    const tables = document_.tables || [];
+    const askedTable = onlyLayer !== null && tables.some(t => String(t.id) === String(onlyLayer));
+    if (askedTable || (layers.length === 0 && tables.length > 0)) {
+      const refused = new Error(askedTable
+        ? `${tables.find(t => String(t.id) === String(onlyLayer)).name} is a table: rows without a location, so there is nothing to draw.`
+        : `${name.split("/").pop()} holds only tables: rows without a location, so there is nothing to draw.`);
+      refused.tablesOnly = true;
+      throw refused;
+    }
 
     // <b>Last layer first, so layer 0 is drawn on top</b> — the order ArcGIS draws a service in, and
     // the order its layer list reads. A web map's operational layers are bottom first.
@@ -3748,10 +3761,10 @@ function wmSaySummary(lead = "") {
  * The tabs, Add layer and Save offered to edit a map that is not there. Said in the header, and in full in the panel
  * with the ways on — the header is one line and cuts a long sentence short.
  */
-function wmShowNotFound(title, said, markup) {
+function wmShowNotFound(title, said, markup, bad = true) {
   wmDrawSaved();
   wm$("title").textContent = title;
-  wmSay(said, true);
+  wmSay(said, bad);
   wm$("tabs").hidden = true;
   for (const tab of WM_TABS) wm$(`pane-${tab}`).hidden = true;
   wm$("headSave").hidden = true;
@@ -3861,6 +3874,7 @@ async function wmStart() {
         if (added > 0) break;
       } catch (e) {
         failures.push(e);
+        if (e.tablesOnly) break;
       }
     }
 
@@ -3882,6 +3896,15 @@ async function wmStart() {
     const missing = failures.length > 0 && failures.every(e => e.status === 404);
     const first = failures[0];
     wmState.meta.title = service;
+    const tablesOnly = failures.find(e => e.tablesOnly);
+    if (tablesOnly) {
+      const item = `/studio/service/${service.split("/").map(encodeURIComponent).join("/")}?tab=data`;
+      // A state, not a failure: said in the neutral colour, once in the header and in full in the panel.
+      wmShowNotFound("Nothing to draw", "Tables are not drawn on a map.",
+        `<p>${wmEscape(tablesOnly.message)}</p><p>Its rows are read and edited on the item's
+          <a href="${wmEscape(item)}">Data</a> tab.</p>`, false);
+      return;
+    }
     wmShowNotFound("Service not found", missing
       ? `No service ${service} that you can open.`
       : `${service} could not be opened.`, missing

@@ -83,6 +83,12 @@ internal interface ISqlEngine
 
     /// <summary>Forgets a layer's cached columns, after columns were added.</summary>
     void ColumnsChanged(PublishedLayer layer);
+
+    /// <summary>
+    /// Why a table cannot be published because an enterprise geodatabase versions or archives it — ADR-217 — or null,
+    /// also when it could not be asked.
+    /// </summary>
+    Task<string?> GeodatabaseRefusalAsync(string locator, string schema, string table, CancellationToken cancellationToken);
 }
 
 /// <summary>The registered SQL engines, chosen by locator — ADR-208.</summary>
@@ -159,6 +165,9 @@ internal sealed class OracleEngine : ISqlEngine
         OracleTableChecks.AddColumnsAsync(locator, schema, table, columns, cancellationToken);
 
     public void ColumnsChanged(PublishedLayer layer) => OracleFeatureSource.Forget(layer.ConnectionString, layer.Definition);
+
+    public Task<string?> GeodatabaseRefusalAsync(string locator, string schema, string table, CancellationToken cancellationToken) =>
+        OracleTableChecks.GeodatabaseRefusalAsync(locator, schema, table, cancellationToken);
 }
 
 internal sealed class MySqlEngine : ISqlEngine
@@ -224,6 +233,10 @@ internal sealed class MySqlEngine : ISqlEngine
         MySqlTableChecks.AddColumnsAsync(locator, schema, table, columns, cancellationToken);
 
     public void ColumnsChanged(PublishedLayer layer) => MySqlFeatureSource.Forget(layer.ConnectionString, layer.Definition);
+
+    // ArcGIS keeps no enterprise geodatabase in MySQL, so nothing here can be one (ADR-217).
+    public Task<string?> GeodatabaseRefusalAsync(string locator, string schema, string table, CancellationToken cancellationToken) =>
+        Task.FromResult<string?>(null);
 }
 
 internal sealed class SqlServerEngine : ISqlEngine
@@ -289,5 +302,8 @@ internal sealed class SqlServerEngine : ISqlEngine
         SqlServerTableChecks.AddColumnsAsync(locator, schema, table, columns, cancellationToken);
 
     public void ColumnsChanged(PublishedLayer layer) => SqlServerFeatureSource.Forget(layer.ConnectionString, layer.Definition);
+
+    public Task<string?> GeodatabaseRefusalAsync(string locator, string schema, string table, CancellationToken cancellationToken) =>
+        SqlServerTableChecks.GeodatabaseRefusalAsync(locator, schema, table, cancellationToken);
 }
 

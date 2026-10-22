@@ -125,7 +125,10 @@ internal sealed partial class CoveragePyramids : BackgroundService
 
             // The catalogue says how many levels it has; it is told.
             using ICoverageReader reader = await _readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
-            await _coverages.ReplaceImageAsync(coverage.Folder, coverage.ServiceName, coverage.Path, reader.Info, cancellation)
+            // By its service's id as well: this pass runs outside any organisation and sees every one's same-named
+            // services (ADR-204 §5e item 14).
+            await _coverages.ReplaceImageAsync(
+                    coverage.Folder, coverage.ServiceName, coverage.Path, reader.Info, cancellation, coverage.ServiceId)
                 .ConfigureAwait(false);
             Built(_log, coverage.QualifiedName, reader.Info.Overviews.Count);
         }

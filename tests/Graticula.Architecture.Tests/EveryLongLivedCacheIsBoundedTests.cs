@@ -66,6 +66,9 @@ public sealed class EveryLongLivedCacheIsBoundedTests
     private static readonly Dictionary<string, string> Bounds = new(StringComparer.Ordinal)
     {
         ["LayerExportEndpoints.Formats"] = "fixed: the three export formats (ADR-107)",
+        ["TenantDataSources.Roots"] = "one per platform pool the host registers to route by tenant: two (ADR-204)",
+        ["Tenancy._homes"] = "one per member who has signed in, each re-read after thirty seconds (ADR-204)",
+        ["TenantDataSources.Pools"] = "one per registered platform pool per tenant, emptied whenever the tenants are read again (ADR-204)",
         ["ExportOutputs.Pictures"] = "at most MaximumPictures (1,024) and MaximumBytes (256 MB), each kept ten minutes, oldest forgotten first (D-299)",
         ["PortalEndpoints.ProPublish.Staged"] = "at most MaximumStaged (256) service definitions from Pro, oldest forgotten first, and none whose scratch folder was swept (ADR-191)",
         ["InitialExtents.Found"] = "one per published layer per reference it is served in; a changed range replaces the layer's entry",
@@ -108,6 +111,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["LogEndpoints._seen"] = "explicit capacity; cleared when full",
         ["GeneratedSprites.Composed"] = "explicit capacity of 32 composed sprite pictures; cleared when full (ADR-099)",
         ["ServiceContexts._entries"] = "one per table, and expires",
+        ["ConnectionBudget._shared"] = "one per data source key the budget is asked for",
+        ["ConnectionBudget._shares"] = "one per organisation per shared data source; emptied when the number of organisations changes",
+        ["PinnedServices._warmed"] = "one per pinned service, under Graticula:PinnedServiceLimit; an unpinned one is removed each round",
+        ["PinnedServices._read"] = "one per layer of a pinned service; removed with its service each round",
         ["ServiceThumbnails._held"] =
             "explicit capacity of 256 pictures with oldest-drawn eviction; an evicted "
             + "picture is read back from disk (D-58, ADR-071)",
@@ -126,6 +133,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["TileExporter._running"] = "one per export this worker is running, which is one at a time; removed when the export ends (ADR-098)",
         ["TileExportStaging._tiles"] = "one per non-empty tile of the export being written, capped by maxExportTilesCount; gone with the export (ADR-098)",
         ["CatalogFallback._last"] = "explicit capacity; cleared when full",
+        ["CatalogFallback._listings"] = "one per organisation (tens, A-086), each replacing its own",
         ["DatumShiftNotices._seen"] =
             "explicit ceiling of 256 layer-and-reference pairs; stops recording rather "
             + "than evicting, because eviction would let the same notice be logged twice "

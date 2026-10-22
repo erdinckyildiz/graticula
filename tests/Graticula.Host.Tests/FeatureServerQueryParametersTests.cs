@@ -87,6 +87,36 @@ public sealed class FeatureServerQueryParametersTests
         Assert.Contains(parameter, Refuse((parameter, "anything")), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("_", "1729000000000")]
+    [InlineData("dojo.preventCache", "1729000000000")]
+    [InlineData("lang", "tr")]
+    [InlineData("locale", "tr-TR")]
+    [InlineData("text", "")]
+    [InlineData("fullText", "")]
+    [InlineData("uniqueIds", "")]
+    [InlineData("returnUniqueIdsOnly", "false")]
+    [InlineData("applyVCSProjection", "false")]
+    [InlineData("timeRelation", "esriTimeRelationOverlaps")]
+    [InlineData("outTimeReference", "")]
+    [InlineData("Where", "1=1")]
+    [InlineData("OUTFIELDS", "*")]
+    public void What_ArcGIS_ignores_or_sends_at_its_default_is_answered(string parameter, string value)
+    {
+        // <b>The ArcGIS veteran's second review, N3 (2026-10-21).</b> Each was a 400 here and an answer on Esri's
+        // sampleserver6: a cache-buster from JS 3.x or jQuery, a default written out, a name in another case.
+        Parse((parameter, value));
+    }
+
+    [Theory]
+    [InlineData("text", "Ankara")]
+    [InlineData("returnUniqueIdsOnly", "true")]
+    [InlineData("timeRelation", "esriTimeRelationAfterStartOverlapsEnd")]
+    public void A_value_that_would_change_the_answer_is_still_refused(string parameter, string value)
+    {
+        Assert.Contains(parameter, Refuse((parameter, value)), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void A_having_clause_is_parsed_and_a_subquery_in_one_is_refused()
     {

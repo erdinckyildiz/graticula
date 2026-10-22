@@ -209,8 +209,13 @@ internal sealed class BasicCredentials
     /// a memory image gives an offline guess nothing to test against. The name is taken exactly as sent; two names that
     /// differ only in case are two credentials here, whatever the store makes of them.
     /// </summary>
+    /// <remarks>
+    /// <b>The organisation is part of the credential — ADR-204 §5e item 16.</b> A name is unique only within one, so the
+    /// same name and password sent to two organisations' hosts are two accounts' and must not reuse one session.
+    /// </remarks>
     private string KeyOf(string name, string password) =>
-        Convert.ToHexString(HMACSHA256.HashData(_secret, Encoding.UTF8.GetBytes(name + "\0" + password)));
+        Convert.ToHexString(HMACSHA256.HashData(_secret, Encoding.UTF8.GetBytes(
+            Graticula.Platform.Tenancy.TenantScope.Effective.ToString("N") + "\0" + name + "\0" + password)));
 }
 
 /// <summary>Why a Basic credential on an OGC face opened no session — ADR-178.</summary>

@@ -69,7 +69,8 @@ internal sealed partial class ServiceUsageCounter : BackgroundService
 
     /// <summary>Counts a request when its path is a service's face: <c>/rest/services/[folder/]name/Face…</c>.</summary>
     /// <param name="path">The request's path.</param>
-    public void CountPath(string? path)
+    /// <param name="tenant">The organisation it was made to (ADR-204), or null for the default one.</param>
+    public void CountPath(string? path, Guid? tenant = null)
     {
         if (string.IsNullOrEmpty(path))
         {
@@ -87,17 +88,19 @@ internal sealed partial class ServiceUsageCounter : BackgroundService
         // `name/Face` or `folder/name/Face`.
         if (at + 2 < parts.Length && Faces.Contains(parts[at + 2]))
         {
-            Count(null, parts[at + 1]);
+            Count(null, parts[at + 1], tenant);
         }
         else if (at + 3 < parts.Length && Faces.Contains(parts[at + 3]))
         {
-            Count(parts[at + 1], parts[at + 2]);
+            Count(parts[at + 1], parts[at + 2], tenant);
         }
     }
 
-    private void Count(string? folder, string name)
+    private void Count(string? folder, string name, Guid? tenant)
     {
-        string key = $"{folder?.ToLowerInvariant()}/{name.ToLowerInvariant()}";
+        // <b>The organisation is part of what was used — ADR-204 §5e item 14:</b> two organisations may each have
+        // `hosted/Parcels`, and one tally for both credited each with the other's traffic.
+        string key = $"{tenant:N}/{folder?.ToLowerInvariant()}/{name.ToLowerInvariant()}";
         ConcurrentDictionary<string, Tally> counts = _counts;
         if (!counts.TryGetValue(key, out Tally? tally))
         {
@@ -106,7 +109,7 @@ internal sealed partial class ServiceUsageCounter : BackgroundService
                 return;
             }
 
-            tally = counts.GetOrAdd(key, _ => new Tally(folder, name));
+            tally = counts.GetOrAdd(key, _ => new Tally(folder, name, tenant));
         }
 
         Interlocked.Increment(ref tally.Requests);
@@ -118,7 +121,7 @@ internal sealed partial class ServiceUsageCounter : BackgroundService
     public async Task FlushAsync(CancellationToken cancellation)
     {
         ConcurrentDictionary<string, Tally> taken = Interlocked.Exchange(ref _counts, new(StringComparer.Ordinal));
-        ServiceCount[] batch = [.. taken.Values.Where(t => t.Requests > 0).Select(t => new ServiceCount(t.Folder, t.Name, t.Requests))];
+        ServiceCount[] batch = [.. taken.Values.Where(t => t.Requests > 0).Select(t => new ServiceCount(t.Folder, t.Name, t.Requests, t.Tenant))];
         DateOnly today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         try
@@ -132,7 +135,7 @@ internal sealed partial class ServiceUsageCounter : BackgroundService
             // The counts go back to be written next time rather than being lost with a failed write.
             foreach ((string key, Tally tally) in taken)
             {
-                Tally into = _counts.GetOrAdd(key, _ => new Tally(tally.Folder, tally.Name));
+                Tally into = _counts.GetOrAdd(key, _ => new Tally(tally.Folder, tally.Name, tally.Tenant));
                 Interlocked.Add(ref into.Requests, tally.Requests);
             }
 
@@ -168,8 +171,10 @@ internal sealed partial class ServiceUsageCounter : BackgroundService
         Message = "Service usage could not be written; the counts are kept and written again in a minute.")]
     private partial void LogWriteFailed(Exception exception);
 
-    private sealed class Tally(string? folder, string name)
+    private sealed class Tally(string? folder, string name, Guid? tenant)
     {
+        public Guid? Tenant { get; } = tenant;
+
         public string? Folder { get; } = folder;
 
         public string Name { get; } = name;

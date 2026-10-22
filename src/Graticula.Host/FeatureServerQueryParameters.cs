@@ -84,7 +84,11 @@ internal static class FeatureServerQueryParameters
         //                           has asked us to create on their table.
         //   uniqueIds /
         //   returnUniqueIdsOnly   — a 12.1 concept with no counterpart here.
-        "fullText", "uniqueIds", "returnUniqueIdsOnly",
+        //
+        // <b>Refused when they ask for something, not when they are sent empty or false — the ArcGIS veteran's second
+        // review, N3 (2026-10-21).</b> A client that sends ArcGIS's defaults explicitly was refused for asking for
+        // exactly what it would get; those three are now AcceptedAtDefault and AcceptedWhenFalse, which refuse the
+        // value that would change the answer and pass the one that would not.
     ];
 
     /// <summary>
@@ -117,8 +121,16 @@ internal static class FeatureServerQueryParameters
     /// refuses anything absent from it, and had their sentence corrected.
     /// </para>
     /// </remarks>
-    private static readonly Dictionary<string, string> IgnoredParameters = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> IgnoredParameters = new(StringComparer.OrdinalIgnoreCase)
     {
+        // <b>Cache-busters and the caller's language — N3.</b> The JS API 3.x sends `dojo.preventCache`, jQuery `_`, and
+        // newer clients `lang`/`locale`; ArcGIS ignores all four, and a Web AppBuilder or jQuery app was refused here on
+        // its first query. None names data: a stamp, and the language of messages this server writes in English anyway.
+        ["_"] = "a cache-busting stamp that names no data",
+        ["dojo.preventCache"] = "a cache-busting stamp that names no data",
+        ["lang"] = "the language of the answer's messages, which are written in English; it changes no data",
+        ["locale"] = "the language of the answer's messages, which are written in English; it changes no data",
+
         // Read by the f=pbf path, where coordinates are integers on a grid and this names the grid
         // (ADR-073). A json answer has no grid to apply it to and is written at full precision.
         ["quantizationParameters"] = "honoured for f=pbf; a json answer is written at full precision",
@@ -193,9 +205,13 @@ internal static class FeatureServerQueryParameters
     /// Only the value that cannot change the answer is let through.
     /// </para>
     /// </remarks>
-    private static readonly Dictionary<string, string> AcceptedWhenFalse = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, string> AcceptedWhenFalse = new(StringComparer.OrdinalIgnoreCase)
     {
         ["returnTrueCurves"] = "curves are returned as the vertices that approximate them",
+
+        // N3: sent false by clients that write out every default.
+        ["returnUniqueIdsOnly"] = "unique ids are an ArcGIS 12.1 concept with no counterpart in this server",
+        ["applyVCSProjection"] = "no layer here has a vertical coordinate system to project",
 
         // V-76: the default of each is the answer this server gives; the other value asks for something it does not.
         ["returnQueryGeometry"] = "the query geometry is not echoed back in the answer",
@@ -206,9 +222,16 @@ internal static class FeatureServerQueryParameters
     /// Parameters accepted only at their ArcGIS default, each with that default and the reason another value is
     /// refused — V-76.
     /// </summary>
-    private static readonly Dictionary<string, (string Default, string Otherwise)> AcceptedAtDefault = new(StringComparer.Ordinal)
+    private static readonly Dictionary<string, (string Default, string Otherwise)> AcceptedAtDefault = new(StringComparer.OrdinalIgnoreCase)
     {
         ["featureEncoding"] = ("esriDefault", "only the default encoding is written; compact geometry is not"),
+
+        // N3: each empty, or at ArcGIS's own default, asks for nothing; given a value, it would change the answer.
+        ["text"] = ("", "a literal search on the display field is not implemented; ask for it with where"),
+        ["fullText"] = ("", "full-text search needs a tsvector column and an index on your table"),
+        ["uniqueIds"] = ("", "unique ids are an ArcGIS 12.1 concept with no counterpart in this server"),
+        ["timeRelation"] = ("esriTimeRelationOverlaps", "a time filter here is the overlap of the window and the feature's time"),
+        ["outTimeReference"] = ("", "every date is written in UTC; no other time zone is produced"),
     };
 
     /// <summary>Parses, or explains why not.</summary>
@@ -499,8 +522,7 @@ internal static class FeatureServerQueryParameters
     /// <summary>Why a refused parameter is refused, said specifically.</summary>
     private static string WhyRefused(string name) => name switch
     {
-        "fullText" => "Full-text search needs a tsvector column and an index on your table.",
-        _ => "Unique ids are an ArcGIS 12.1 concept with no counterpart in this server.",
+        _ => $"'{name}' cannot be answered here.",
     };
 
     /// <summary>What the caller asked the response to be.</summary>
@@ -559,7 +581,7 @@ internal static class FeatureServerQueryParameters
 
 
     /// <summary>Every parameter this class understands, in any capacity.</summary>
-    private static readonly HashSet<string> Known = new(StringComparer.Ordinal)
+    private static readonly HashSet<string> Known = new(StringComparer.OrdinalIgnoreCase)
     {
         "where", "objectIds",
         "geometry", "geometryType", "spatialRel", "relationParam", "distance", "units",
@@ -641,9 +663,11 @@ internal static class FeatureServerQueryParameters
 
         foreach (string name in parameters.Keys)
         {
+            // <b>Names in any case — N3.</b> ArcGIS reads `Where` as `where`, and so does every value read here (the query
+            // collection is case-insensitive); only this list compared them exactly, so `Where=1=1` was refused.
             if (Known.Contains(name)
                 || IgnoredParameters.ContainsKey(name)
-                || Array.IndexOf(RefusedParameters, name) >= 0)
+                || RefusedParameters.Contains(name, StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }

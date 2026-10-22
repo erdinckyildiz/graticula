@@ -524,6 +524,22 @@ public interface IGroupDirectory
     /// </returns>
     Task<GroupChange> LeaveAsync(Guid acting, string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Marks a group as admitting members of other tenants, or not — ADR-204 §5c: the only route between organisations.
+    /// Its tenant's administrator's to set.
+    /// </summary>
+    /// <param name="name">The group.</param>
+    /// <param name="admits">Whether it admits them.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened.</returns>
+    Task<GroupChange> SetAdmitsOtherTenantsAsync(string name, bool admits, CancellationToken cancellationToken);
+
+    /// <summary>Whether a group admits members of other tenants — ADR-204 §5c; false for a group there is not.</summary>
+    /// <param name="name">The group.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether it admits them.</returns>
+    Task<bool> AdmitsOtherTenantsAsync(string name, CancellationToken cancellationToken);
+
     /// <summary>Which members a group has, and what each is.</summary>
     /// <param name="name">The group.</param>
     /// <param name="cancellationToken">Cancellation.</param>

@@ -30,7 +30,10 @@ public sealed class PostgresFeatureExportStore : IFeatureExportStore
         "e.service_id, e.format, e.layers, e.rows_total, e.rows_written, e.phase, e.estimated_bytes, e.bytes, "
         + "e.token, e.file_name, e.expires_at, e.removed_at";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store over a data source.</summary>
     /// <param name="dataSource">The platform store.</param>
@@ -38,7 +41,7 @@ public sealed class PostgresFeatureExportStore : IFeatureExportStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <summary>The stored name of a format, which is also its name on the wire.</summary>

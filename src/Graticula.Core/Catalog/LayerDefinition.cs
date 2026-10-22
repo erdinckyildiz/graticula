@@ -27,8 +27,13 @@ public sealed partial class LayerDefinition
     /// <param name="name">The published name.</param>
     /// <param name="schemaName">The database schema holding the table.</param>
     /// <param name="tableName">The table.</param>
-    /// <param name="geometryColumn">The geometry column.</param>
-    /// <param name="srid">The column's spatial reference identifier.</param>
+    /// <param name="geometryColumn">
+    /// The geometry column, or <see langword="null"/> for a table with none — ADR-213.
+    /// </param>
+    /// <param name="srid">
+    /// The column's spatial reference identifier. A table has no column to declare one and carries 4326, which
+    /// nothing reads (ADR-213 §5c).
+    /// </param>
     /// <param name="identityColumn">
     /// The declared identity column (Q-57). Never inferred, never synthesised.
     /// </param>
@@ -45,7 +50,7 @@ public sealed partial class LayerDefinition
         string name,
         string schemaName,
         string tableName,
-        string geometryColumn,
+        string? geometryColumn,
         int srid,
         string identityColumn,
         string? integerIdentityColumn,
@@ -57,7 +62,7 @@ public sealed partial class LayerDefinition
         Name = name;
         SchemaName = RequireIdentifier(schemaName, nameof(schemaName));
         TableName = RequireIdentifier(tableName, nameof(tableName));
-        GeometryColumn = RequireIdentifier(geometryColumn, nameof(geometryColumn));
+        GeometryColumn = geometryColumn is null ? null : RequireIdentifier(geometryColumn, nameof(geometryColumn));
         IdentityColumn = RequireIdentifier(identityColumn, nameof(identityColumn));
         IntegerIdentityColumn = integerIdentityColumn is null
             ? null
@@ -75,8 +80,36 @@ public sealed partial class LayerDefinition
     /// <summary>The table.</summary>
     public string TableName { get; }
 
-    /// <summary>The geometry column.</summary>
-    public string GeometryColumn { get; }
+    /// <summary>The geometry column, or <see langword="null"/> for a table — ADR-213.</summary>
+    /// <remarks>
+    /// <b>Null rather than a name nobody reads</b>, so that every place that would put a geometry into SQL, a tile or a
+    /// map has to say what it does for a table instead of being handed a column that is not there.
+    /// </remarks>
+    public string? GeometryColumn { get; }
+
+    /// <summary>
+    /// <see langword="true"/> when this is a table with no geometry — ArcGIS's standalone table, ADR-213.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.MemberNotNullWhen(false, nameof(GeometryColumn))]
+    public bool IsTable => GeometryColumn is null;
+
+    /// <summary>
+    /// The reference a table carries, which nothing reads — ADR-213 §5c. A table has no column to declare one, and the
+    /// catalogue's <c>srid</c> stays <c>not null</c> rather than opening a third column to null for no answer.
+    /// </summary>
+    public const int TableSrid = 4326;
+
+    /// <summary>The geometry column, for a reader that serves nothing else — a tile, a map, a provider with no tables.</summary>
+    /// <exception cref="InvalidOperationException">This is a table.</exception>
+    /// <remarks>
+    /// <b>A method, so that nothing reflecting over this type's properties — a serialiser, a fingerprint — calls it on a
+    /// table.</b> <b>For the places that cannot meet a table rather than the places that must handle one.</b> Only PostGIS publishes
+    /// a table (ADR-213 §5), every other provider's registration requires a geometry column, and the drawing faces leave
+    /// tables out of what they draw; a table reaching one of them is a defect, and this says which.
+    /// </remarks>
+    /// <returns>The geometry column.</returns>
+    public string RequireGeometryColumn() => GeometryColumn ?? throw new InvalidOperationException(
+        $"'{Name}' is a table and has no geometry column; it cannot be drawn or read by a source that needs one (ADR-213).");
 
     /// <summary>The column's spatial reference identifier.</summary>
     public int Srid { get; }

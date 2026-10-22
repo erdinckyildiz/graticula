@@ -88,6 +88,12 @@ public sealed class IgnoredParameterTests : ArcGisClient
         ["multipatchOption"] = "xyFootprint",
         ["featureEncoding"] = "esriDefault",
 
+        // The ArcGIS veteran's N3 (ADR-215): cache-busters from JS 3.x and jQuery, and the caller's language.
+        ["_"] = "1790000000000",
+        ["dojo.preventCache"] = "1790000000000",
+        ["lang"] = "tr",
+        ["locale"] = "tr-TR",
+
         // The ArcGIS API for Python's own paging switch, sent on every query (2026-10-14).
         ["returnAllRecords"] = "true",
 

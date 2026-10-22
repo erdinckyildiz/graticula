@@ -580,7 +580,7 @@ internal static partial class WmsEndpoints
             TitleOf(layer),
             Abstract: null,
             layer.Definition.Srid,
-            layer.GeometryType,
+            layer.RequireGeometryType(),
             Drawable(described.Extent),
             Geographic: null,
             Queryable: true,
@@ -603,7 +603,7 @@ internal static partial class WmsEndpoints
                 canvases,
                 layer.Symbology is { Length: > 0 } stored
                     ? SymbologyPlan.Compile(stored)
-                    : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType),
+                    : SymbologyPlan.Default(layer.Definition.Name, layer.RequireGeometryType()),
                 (20, 20)))
         {
             // ADR-070: GetMap leaves the layer out of a map outside these, so the document says so.
@@ -926,7 +926,7 @@ internal static partial class WmsEndpoints
             // `drawingInfo` reading every pasted ArcGIS renderer takes, and kept for this request only.
             string? styled = request.Sld.FirstOrDefault(one => string.Equals(one.Name, layer!.Definition.Name, StringComparison.OrdinalIgnoreCase))
                 is { DrawingInfo: { } sent }
-                ? CimEsri.FromDrawingInfo(sent, layer!.GeometryType).Renderer.ToJsonString()
+                ? CimEsri.FromDrawingInfo(sent, layer!.RequireGeometryType()).Renderer.ToJsonString()
                 : null;
 
             await DrawLayerAsync(
@@ -1046,7 +1046,7 @@ internal static partial class WmsEndpoints
 
         SymbologyPlan plan = chosen is { Length: > 0 } stored
             ? SymbologyPlan.Compile(stored)
-            : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
+            : SymbologyPlan.Default(layer.Definition.Name, layer.RequireGeometryType());
 
         MapRenderer.Pass pass = renderer.Begin(plan);
 
@@ -1469,13 +1469,13 @@ internal static partial class WmsEndpoints
 
         if (layer.Symbology is { Length: > 0 } stored)
         {
-            DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(stored, layer.Definition.Name, layer.GeometryType);
+            DerivedDrawingInfo derived = SymbologyConversion.ToDrawingInfo(stored, layer.Definition.Name, layer.RequireGeometryType());
             return (layer.Definition.Name, derived.DrawingInfo, derived.Losses);
         }
 
         return (layer.Definition.Name,
             System.Text.Json.JsonSerializer.SerializeToNode(
-                Graticula.Api.ArcGis.FeatureServerMetadataWriter.DrawingInfo(layer.Definition.Name, layer.GeometryType)),
+                Graticula.Api.ArcGis.FeatureServerMetadataWriter.DrawingInfo(layer.Definition.Name, layer.RequireGeometryType())),
             ["This layer has no stored style; this is its generated one."]);
     }
 
@@ -1521,7 +1521,7 @@ internal static partial class WmsEndpoints
 
         SymbologyPlan plan = layer.Symbology is { Length: > 0 } stored
             ? SymbologyPlan.Compile(stored)
-            : SymbologyPlan.Default(layer.Definition.Name, layer.GeometryType);
+            : SymbologyPlan.Default(layer.Definition.Name, layer.RequireGeometryType());
 
         // <b>WIDTH and HEIGHT size a swatch, not the image.</b> A classified style
         // draws a row per class and the image is as tall as it needs to be — see
@@ -1531,7 +1531,7 @@ internal static partial class WmsEndpoints
         using IMapCanvas canvas = LegendGraphic.Draw(
             canvases,
             plan,
-            layer.GeometryType,
+            layer.RequireGeometryType(),
             (request.Width, request.Height),
             request.Transparent ? Rgba.Transparent : Rgba.White);
 

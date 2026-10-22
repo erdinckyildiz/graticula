@@ -265,6 +265,13 @@ Before relying on any of it, run two and check at least: a sharing change on one
 node taking effect on the other, a session revoked on one being refused by the
 other, and the tile cache fan-out actually costing what §1.2 says it does.
 
+**The plan for doing it properly is [ADR-012](adr/ADR-012-clustering.md)** (2026-10-22, nothing of it built): an
+inventory of every piece of state a second node would get wrong today — uploaded imagery, exports and the recycle
+bin's files on the node's disk, Pro's publishing staging in memory, sweeps that would run once per node — and the
+phases that fix it, one PostgreSQL remaining the only coordinator. Its purpose is the owner's: a second node
+shares the work to raise throughput, which it does only where the node rather than PostgreSQL is the limit — measured
+first (its condition 1).
+
 ---
 
 ## 2. Backup and restore
@@ -479,3 +486,62 @@ Turkey's provinces, districts, major roads, country polygon and place names — 
 from Overpass — were imported and served as this server's tiles on 2026-08-16, 118 KB for a z6 tile of
 provinces (ADR-020 §4d). That run predates the Settings card; choosing them as the ground on the showcase is
 [ADR-086](adr/ADR-086-the-operator-chooses-the-map-ground.md) condition 1.
+
+## 4. More than one organisation
+
+One deployment can hold several organisations — a joint venture kept out of the main organisation, with
+its own members, groups, content and administrator — each reached at its own host name
+([ADR-204](adr/ADR-204-one-deployment-holds-several-organisations.md)). Until a second one is made nothing
+about the deployment changes; the existing organisation is called `default` and keeps everything it had.
+
+### 4.1 Before the second organisation
+
+- **The server must connect as a role that row-level security binds** — §0.3. A superuser or a `BYPASSRLS`
+  role reads every organisation's rows whatever the policies say, so the server refuses to make a second
+  organisation over one, and says so.
+- **Each organisation needs its host name**: a DNS record pointing at the server, and a certificate that
+  covers it — or a wildcard of both. `jv1.example.com` reaches the organisation that lists it.
+- **PostgreSQL must allow more connections than its default hundred.** The server may hold 94 with one
+  organisation, and each further one adds its pools' share; the datastore image starts with
+  `max_connections=300` (since 2026-10-22). A PostgreSQL of your own needs the same — the server says at startup
+  whether its connections fit.
+- **Give the default organisation its own host names too**, if a request at an unknown host should be
+  refused (`421`). While it lists none, it answers every host no other organisation claims, which keeps
+  access by address working.
+
+### 4.2 Making, changing and removing one
+
+The system administrator — the deployment's first account, and every administrator there was before the
+upgrade to schema 100 — does it from the console's Server › Organizations, or the API:
+
+```text
+POST   /admin/tenants              {"key":"jv1","name":"JV One","hosts":["jv1.example.com"],"administrator":"jv1admin"}
+PUT    /admin/tenants/jv1          {"hosts":[...], "name":..., "suspended":true|false}
+DELETE /admin/tenants/jv1          refused while it owns members, services, maps or groups
+DELETE /admin/tenants/jv1?purge=true   removes it with everything it owns in the catalogue
+```
+
+The answer to `POST` carries the first administrator's password, once; it must be changed at the first
+sign-in at the organisation's host. A purge leaves the organisation's hosted tables in the datastore.
+
+### 4.3 What crosses between organisations
+
+Only a group whose organisation's administrator marked it as admitting others
+(`PUT /admin/groups/{name}/tenants`). A member of another organisation is then added to it by username, signs in
+at this organisation's host, and reads what is shared into that group — nothing shared with the organisation,
+and no privilege here. Usernames are unique across every organisation, and so, in this version, are service,
+folder and group names.
+
+### 4.4 What is the system's
+
+While more than one organisation exists, backups, the server's process log, health, usage, the general settings,
+the map ground, style origins, the geometry service setting and changes to roles answer only the system
+administrator. An organisation's administrator runs its members, groups, content, categories, identity providers,
+its own basemap gallery — and, by owner decision on 2026-10-22, its own Server: its services, publishing, data
+sources, its own jobs and its own audit and request logs (ADR-204 §5e items 10–11). The managed datastore, the
+Geometry service and the other system services are shown to it and are not its to stop or pause.
+
+Each organisation holds a share of the managed datastore — two thirds of its permits with two organisations, less
+with more — so one organisation's heavy work queues behind its own. Each registers GeoParquet folders and DuckDB
+files from its own folder, `<GeoParquetRoot>/organizations/<key>/`, which the system administrator makes. Every
+organisation is a single-tenant portal to its ArcGIS clients (ADR-204 §5e item 12).

@@ -80,6 +80,7 @@ A key is the column's own name. A reviewer reading a diff sees the column that c
 | `item.content_folder_id` | `content_folder`: the folder's title, under the service's owner |
 | `relationship.origin_layer_id`, `related_layer_id` | `origin`, `related`: `{"folder", "service", "layer"}`, the layer by index |
 | `item_group.group_id` | an entry of `shared_with`: the group's name |
+| `tenant_id` (every table) | not carried: a manifest is applied into the organisation of the host it is applied at ([ADR-204](adr/ADR-204-one-deployment-holds-several-organisations.md)) |
 | a shared domain inside `layer.field_overrides`, stored `{"id": …}` | `{"shared_domain": "<name>"}` |
 
 Dropped and not replaced: `item_group.shared_by`, who shared it, which is history.

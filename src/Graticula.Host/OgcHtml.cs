@@ -81,7 +81,7 @@ internal static class OgcHtml
             body.Append($"<tr><td><a href=\"{self}?f=html\">"
                 + $"{collection.Id}</a></td>"
                 + $"<td>{collection.Title}</td>"
-                + $"<td>{collection.GeometryType.ToString()}</td>"
+                + $"<td>{collection.GeometryType?.ToString() ?? "none (a table)"}</td>"
                 + $"<td>EPSG:{collection.Srid.ToString(CultureInfo.InvariantCulture)}</td>"
                 + $"<td><a href=\"{self}/items?f=html\">items</a></td></tr>");
         }
@@ -111,7 +111,7 @@ internal static class OgcHtml
         body.Append(Html.Markup("<table class=\"props\">"));
 
         Row(body, "id", collection.Id);
-        Row(body, "geometry", collection.GeometryType.ToString());
+        Row(body, "geometry", collection.GeometryType?.ToString() ?? "none (a table)");
         Row(body, "storageCrs", collection.StorageCrs);
 
         if (collection.Extent is { IsEmpty: false } extent)

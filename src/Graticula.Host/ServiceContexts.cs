@@ -345,6 +345,28 @@ internal sealed class ServiceContexts
     private static Lazy<Task<LayerDescription>> Describe(IFeatureSource source) =>
         new(() => source.DescribeAsync(CancellationToken.None));
 
+    /// <summary>
+    /// Describes a layer's table again and replaces its entry once the answer is in — ADR-218, for a pinned service.
+    /// </summary>
+    /// <remarks>
+    /// <b>Replaced after, never removed before.</b> A request arriving while this runs reads the entry it would have
+    /// read, so renewing ahead of <see cref="Lifetime"/> means no request ever meets an expired one. A failure leaves
+    /// the old entry, which expires as it would have, and is thrown to the caller.
+    /// </remarks>
+    public async Task RenewAsync(PublishedLayer layer)
+    {
+        ArgumentNullException.ThrowIfNull(layer);
+
+        IFeatureSource source = _connections.SourceFor(layer);
+        Key key = Key.Of(layer);
+        Entry renewed = NewEntry(source, _clock.GetUtcNow());
+
+        LayerDescription described = await renewed.Description.Value.ConfigureAwait(false);
+
+        _entries[key] = renewed;
+        _known[key] = described;
+    }
+
     /// <summary>A fresh entry for a source, valid from now.</summary>
     /// <remarks>
     /// <b>The describe is not given the caller's cancellation token</b>, and that
@@ -493,7 +515,7 @@ internal sealed class ServiceContexts
     public void Forget(Guid layerId) => _times.TryRemove(layerId, out _);
 
     /// <summary>What makes two layers the same table.</summary>
-    private readonly record struct Key(string Connection, string Schema, string Table, string Geometry)
+    private readonly record struct Key(string Connection, string Schema, string Table, string? Geometry)
     {
         public static Key Of(PublishedLayer layer) => new(
             layer.ConnectionString,

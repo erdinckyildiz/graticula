@@ -164,7 +164,7 @@ public sealed class GeoParquetFeatureSource
 
     private string Id => GeoParquetFolder.Quote(_layer.IdentityColumn);
 
-    private string Shape => GeoParquetFolder.Quote(_layer.GeometryColumn);
+    private string Shape => GeoParquetFolder.Quote(_layer.RequireGeometryColumn());
 
     /// <inheritdoc />
     public FeatureSchema SchemaFor(FeatureQuery query)
@@ -241,14 +241,15 @@ public sealed class GeoParquetFeatureSource
             sql.Append(", ").Append(GeoParquetFolder.Quote(field));
         }
 
-        sql.Append(query.IncludeGeometry ? $", st_aswkb({Shape})" : ", null::blob");
+        // A table answers every row without a shape (ADR-213), as the PostGIS source does.
+        sql.Append(query.IncludeGeometry && !_layer.IsTable ? $", st_aswkb({Shape})" : ", null::blob");
         sql.Append(" from ").Append(GeoParquetFolder.TableExpression(table, RowNumbers));
 
         statement.AppendWhere();
         AppendOrderAndPaging(statement, query, schema);
 
         List<Feature> batch = new(ProjectionBatch);
-        bool reshape = query.IncludeGeometry
+        bool reshape = query.IncludeGeometry && !_layer.IsTable
             && (Projects(query) || query.Precision is >= 0 || query.MaxAllowableOffset is > 0);
 
         using DuckDBConnection connection = _folder.Open();
@@ -459,6 +460,11 @@ public sealed class GeoParquetFeatureSource
     {
         ArgumentNullException.ThrowIfNull(query);
         Refuse(query);
+
+        if (_layer.IsTable)
+        {
+            throw new QueryNotSupportedException($"'{_layer.Name}' is a table and has no geometry to take an extent of (ADR-213).");
+        }
 
         GeoParquetTable table = Table();
         Filters filters = await FiltersAsync(query, table, cancellationToken).ConfigureAwait(false);
@@ -837,8 +843,18 @@ public sealed class GeoParquetFeatureSource
                 + problem);
         }
 
-        if (!string.Equals(table.Geometry.Column, _layer.GeometryColumn, StringComparison.Ordinal)
-            || table.Geometry.Srid != _layer.Srid)
+        // <b>A table stays a table — ADR-213</b>: one published without geometry that now has some, or the other way
+        // round, is a different relation under the same name, and republishing reads it again.
+        if (_layer.IsTable != table.IsTable)
+        {
+            throw new InvalidOperationException(
+                $"Layer '{_layer.Name}' was published from {(_layer.IsTable ? "a table without geometry" : "a relation with geometry")}, "
+                + $"and '{table.Path}' is now {(table.IsTable ? "one without" : "one with")}. Republishing reads it again.");
+        }
+
+        if (!table.IsTable
+            && (!string.Equals(table.Geometry.Column, _layer.GeometryColumn, StringComparison.Ordinal)
+                || table.Geometry.Srid != _layer.Srid))
         {
             throw new InvalidOperationException(
                 $"Layer '{_layer.Name}' was published from a file whose geometry was "
@@ -888,7 +904,9 @@ public sealed class GeoParquetFeatureSource
         Geometry? shape = null;
         SpatialFilter? byEngine = null;
 
-        if (query.BoundingBox is { } box)
+        // <b>A table has no geometry, so a spatial filter is not applied — ADR-213</b>, as ArcGIS's own table and the
+        // PostGIS source answer.
+        if (!_layer.IsTable && query.BoundingBox is { } box)
         {
             boxes.Add(await ToLayerAsync(Rectangle(box), query, cancellationToken)
                 .ConfigureAwait(false) is { IsEmpty: false } moved
@@ -907,7 +925,7 @@ public sealed class GeoParquetFeatureSource
             attributes.Add($"{Id} in (select unnest($ids))");
         }
 
-        if (query.Spatial is { } spatial)
+        if (!_layer.IsTable && query.Spatial is { } spatial)
         {
             Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
 

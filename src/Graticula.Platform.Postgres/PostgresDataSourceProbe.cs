@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
@@ -142,9 +143,9 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                     return new ProbeResult(
                         ProbeOutcome.UnusableGeometry,
                         "Connected, with PostGIS present, but this credential can see no table "
-                        + "with a geometry column carrying a declared SRID. Either there is "
-                        + "nothing to publish, or select has not been granted on the tables you "
-                        + "expect — geometry_columns only shows what you may read.",
+                        + "with a geometry column carrying a declared SRID, and no table without one. "
+                        + "Either there is nothing to publish, or select has not been granted on the "
+                        + "tables you expect — only what you may read is listed.",
                         serverVersion,
                         postgis,
                         []);
@@ -156,9 +157,14 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                 // encrypts and authenticates nothing -- exactly like a `VerifyFull` one.
                 // ADR-014 3 already asked for verification on a remote source; nothing
                 // enforced it and nothing said it.
+                // Layers and tables said apart (ADR-213): a table is published as one, beside the layers.
+                int plain = tables.Count(t => t.GeometryColumn is null);
+                int spatial = tables.Count - plain;
                 string connected =
-                    $"Connected. PostGIS {postgis}, {tables.Count} publishable "
-                    + $"table{(tables.Count == 1 ? string.Empty : "s")} visible to this credential.";
+                    $"Connected. PostGIS {postgis}, {spatial} publishable "
+                    + $"table{(spatial == 1 ? string.Empty : "s")} with geometry"
+                    + (plain > 0 ? $" and {plain} without, which publish as tables," : string.Empty)
+                    + " visible to this credential.";
 
                 if (TransportPosture.Caution(builder) is { } warning)
                 {
@@ -237,7 +243,8 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
               n.nspname,
               c.relname,
               a.attname,
-              postgis_typmod_srid(a.atttypmod) as srid,
+              -- A table has no geometry column (ADR-213): no reference and no type, 0 and null as for a bare column.
+              coalesce(postgis_typmod_srid(a.atttypmod), 0) as srid,
               nullif(upper(postgis_typmod_type(a.atttypmod)), 'GEOMETRY') as geometry_type,
               (
                 -- A unique integer column, preferring a single-column primary
@@ -302,12 +309,23 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
               -- relation that accepts some writes. Understating a capability produces a
               -- refusal somebody can ask about; overstating one produces an edit that fails
               -- after the client believed it, which is what this row is.
+              --
+              -- <b>A table asks the relation instead</b> (ADR-213): there is no geometry column to ask, and
+              -- `pg_relation_is_updatable`'s insert, update and delete bits (4, 8, 16) are the same answer.
               pg_catalog.has_table_privilege(c.oid, 'INSERT, UPDATE, DELETE')
-                and pg_catalog.pg_column_is_updatable(c.oid, a.attnum, true) as writable
+                and coalesce(
+                  pg_catalog.pg_column_is_updatable(c.oid, a.attnum, true),
+                  (pg_catalog.pg_relation_is_updatable(c.oid, true) & 28) = 28) as writable
             from pg_class c
             join pg_namespace n on n.oid = c.relnamespace
-            join pg_attribute a on a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
-            join pg_type t on t.oid = a.atttypid and t.typname = 'geometry'
+            -- <b>Left, so a relation with no geometry column comes back once, as a table — ADR-213.</b> One with
+            -- several still comes back once per column, as before.
+            left join lateral (
+              select a.attname, a.attnum, a.atttypmod
+              from pg_attribute a
+              join pg_type t on t.oid = a.atttypid and t.typname = 'geometry'
+              where a.attrelid = c.oid and a.attnum > 0 and not a.attisdropped
+            ) a on true
             where c.relkind in ('r', 'v', 'm', 'f', 'p')
               and not pg_is_other_temp_schema(c.relnamespace)
               and n.nspname not in ('pg_catalog', 'information_schema', 'topology')
@@ -316,7 +334,32 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
               -- reported, so the list still shows what the credential may read and nothing
               -- more.
               and pg_catalog.has_table_privilege(c.oid, 'SELECT')
-              and postgis_typmod_srid(a.atttypmod) > 0
+              and (
+                postgis_typmod_srid(a.atttypmod) > 0
+                -- <b>A table: no geometry or geography column at all</b> (ADR-213) — a relation whose shape is in a
+                -- geography column, or in a bare geometry column with no reference, is still not one.
+                or (a.attname is null
+                    and not exists (
+                      select 1 from pg_attribute g join pg_type gt on gt.oid = g.atttypid
+                      where g.attrelid = c.oid and g.attnum > 0 and not g.attisdropped
+                        and gt.typname in ('geometry', 'geography'))
+                    -- <b>Never this server's own tables.</b> A platform store kept in the same database as the
+                    -- data — the ordinary small deployment — would otherwise offer its members and credentials
+                    -- for publishing; its schema is the one holding `platform_schema`. Nor the tables this
+                    -- server keeps beside a layer's: attachments, their chunks, and history.
+                    and not exists (
+                      select 1 from pg_class m
+                      where m.relnamespace = c.relnamespace and m.relname = 'platform_schema' and m.relkind = 'r')
+                    -- The recycle bin's schema (RecycleBin.Schema): deleted layers' rows, waiting to be restored.
+                    and n.nspname <> 'graticula_recycle'
+                    -- Nor an extension's own relations — PostGIS's spatial_ref_sys and its two catalogue views.
+                    and not exists (
+                      select 1 from pg_depend d
+                      where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')
+                    and c.relname not like '%\_\_attach'
+                    and c.relname not like '%\_\_attach\_chunk'
+                    and c.relname not like '%\_\_history')
+              )
             order by n.nspname, c.relname
             """;
 
@@ -331,7 +374,7 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
             tables.Add(new SourceTable(
                 reader.GetString(0),
                 reader.GetString(1),
-                reader.GetString(2),
+                reader.IsDBNull(2) ? null : reader.GetString(2),
                 reader.GetInt32(3),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetString(5),

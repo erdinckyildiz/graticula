@@ -42,7 +42,10 @@ public sealed class PostgresLogReader : ILogReader
     /// </remarks>
     public const int MostRows = 500;
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the reader.</summary>
     /// <param name="dataSource">The platform store pool.</param>
@@ -50,7 +53,7 @@ public sealed class PostgresLogReader : ILogReader
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -121,6 +124,7 @@ public sealed class PostgresLogReader : ILogReader
         List<NpgsqlParameter> parameters = [];
 
         Window(sql, parameters, query);
+        OwnTenant(sql, parameters);
         Exact(sql, parameters, "principal_name", query.Principal);
 
         if (query.Status is { } status)
@@ -209,6 +213,7 @@ public sealed class PostgresLogReader : ILogReader
              where occurred_at >= @since
                and service is not null
                and (@service::text is null or lower(service) = lower(@service::text))
+               and (@tenant::uuid is null or tenant_id = @tenant::uuid)
              group by service
              order by 6 desc, 2 desc
              limit @limit
@@ -217,6 +222,7 @@ public sealed class PostgresLogReader : ILogReader
         command.Parameters.AddWithValue("since", since);
         command.Parameters.Add(new NpgsqlParameter("service", NpgsqlDbType.Text) { Value = (object?)service ?? DBNull.Value });
         command.Parameters.AddWithValue("limit", Math.Clamp(limit, 1, 1000));
+        command.Parameters.Add(new NpgsqlParameter("tenant", NpgsqlDbType.Uuid) { Value = (object?)NarrowedTo() ?? DBNull.Value });
 
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -379,4 +385,22 @@ public sealed class PostgresLogReader : ILogReader
 
         return rows;
     }
+
+    /// <summary>
+    /// The tenant the request log is narrowed to — ADR-204: the work's own where there are several tenants, and none
+    /// otherwise. The request log is written with <c>COPY</c>, which a forced row-level policy refuses, so it is narrowed
+    /// here rather than by the floor the other logs have.
+    /// </summary>
+    private static Guid? NarrowedTo() =>
+        Graticula.Platform.Tenancy.TenantScope.MultiTenant ? Graticula.Platform.Tenancy.TenantScope.Current : null;
+
+    private static void OwnTenant(StringBuilder sql, List<NpgsqlParameter> parameters)
+    {
+        if (NarrowedTo() is { } tenant)
+        {
+            sql.Append(" and tenant_id = @tenant");
+            parameters.Add(new NpgsqlParameter("tenant", NpgsqlDbType.Uuid) { Value = tenant });
+        }
+    }
+
 }

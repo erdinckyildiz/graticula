@@ -749,7 +749,7 @@ internal static partial class OgcFeaturesEndpoints
     /// The account making an edit, which a tracked layer's rows are signed with — ADR-064.
     /// </summary>
     private static string Editor(HttpContext context) =>
-        context.Features.Get<RequestPrincipal>()!.Principal.Name;
+        context.Features.Get<RequestPrincipal>()!.QualifiedName;
 
     /// <summary>
     /// 204 when the one edit worked, 404 when the row was not there, 412 when a stated
@@ -871,7 +871,7 @@ internal static partial class OgcFeaturesEndpoints
         return audit.RecordAsync(
             new AuditEvent(
                 current.Principal.Id,
-                current.Principal.Name,
+                current.QualifiedName,
                 CallerAddress.Of(context)?.ToString(),
                 $"ogc.{what}",
                 target.Collection.Id,

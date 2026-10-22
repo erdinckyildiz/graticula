@@ -264,6 +264,7 @@ internal static partial class PortalEndpoints
         MapProPublish(app);
         MapProShare(app);
         MapProPublishCapture(app);
+        MapItemWrites(app);
     }
 
     /// <summary>
@@ -633,8 +634,13 @@ internal static partial class PortalEndpoints
             // Enterprise portal answers "ArcGIS Enterprise" here and gives its own
             // name in `name`; matching that is how a client decides which sign-in
             // flow to use. Saying "Graticula" in both sent Pro to arcgis.com.
-            name = "Graticula",
+            // ADR-204: a tenant's portal is called by its organisation's name.
+            name = context.Features.Get<TenantFeature>() is { Tenant.IsDefault: false } named ? named.Tenant.Name : "Graticula",
             portalName = "ArcGIS Enterprise",
+            // <b>Single-tenant, always — ADR-204 §5e item 12.</b> Each organisation has its own host and is its own
+            // portal to its clients, as an Enterprise portal is. The first build said `multitenant` once a second
+            // organisation existed, which no portal says beside `isPortal: true`, and it changed the answer the main
+            // organisation's clients get the moment a joint venture was made (the ArcGIS veteran's review).
             portalMode = "singletenant",
             // The Web Adaptor name and the host with it, as an Enterprise portal under a path says them.
             customBaseUrl = context.Request.PathBase.Value?.Trim('/') ?? string.Empty,
@@ -653,7 +659,8 @@ internal static partial class PortalEndpoints
             supportsHostedServices = true,
 
             // An Enterprise portal says whether its members may share with everyone; Pro greys *Everyone* without
-            // it. Said only while Pro's publishing calls are recorded (dev, PortalEndpoints.ProCapture).
+            // it. Said wherever publishing from Pro is served — Graticula:PublishFromPro, on by default — not only while
+            // Pro's calls are recorded, as this read until 2026-10-22 (the veteran's E8).
             canSharePublic = Publishing(context),
 
             // <b>The ports the caller reached, not the defaults — V-58.</b> A client that rebuilds a
@@ -2632,7 +2639,7 @@ internal static partial class PortalEndpoints
             // file was offered to Pro as hosted, and Pro's hosted-only actions (overwrite, append,
             // delete data with the item) pointed at somebody else's database or at a file.
             typeKeywords = Keywords(
-                face, service.Layers.Count > 0 && service.Layers.All(l => l.Definition.IsHosted), service.ViewOf is not null),
+                face, service.LayersAndTables.Count > 0 && service.LayersAndTables.All(l => l.Definition.IsHosted), service.ViewOf is not null),
             description = service.Description,
             snippet = service.Description,
             // Portal's Credits, which a map's attribution shows: the service's own.
@@ -2784,13 +2791,6 @@ internal static partial class PortalEndpoints
         $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
 
     /// <summary>
-    /// A portal id that is the same for every request to one deployment.
-    /// </summary>
-    /// <remarks>
-    /// Derived from the origin rather than generated, because a client caches it
-    /// and a portal whose id changes is a portal that has been replaced.
-    /// </remarks>
-    /// <summary>
     /// Whether <paramref name="id"/> names this portal: its id, or <c>self</c>, which every ArcGIS portal answers for its
     /// own organisation. <c>portals/self/categorySchema</c> answered 400 while the same route under the id answered
     /// (veteran review V-86, 2026-10-17).
@@ -2799,8 +2799,28 @@ internal static partial class PortalEndpoints
         string.Equals(id, "self", StringComparison.OrdinalIgnoreCase)
         || string.Equals(id, PortalId(context), StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// A portal id that is the same for every request to one deployment, at every address it answers.
+    /// </summary>
+    /// <remarks>
+    /// It was derived from the origin, path base included, on the reasoning that a client caches it and a portal whose
+    /// id changes is a portal that has been replaced — and so one deployment had an id per address (N4). It is now made
+    /// once and kept (<see cref="PortalIdentity"/>); the origin's hash is only the fallback for a server with no store.
+    /// </remarks>
     private static string PortalId(HttpContext context)
     {
+        // ADR-204: each organisation's own id, at its own hosts.
+        if (context.Features.Get<TenantFeature>() is { Tenant.IsDefault: false } tenant)
+        {
+            return tenant.Tenant.PortalId;
+        }
+
+        // N4, ADR-216: the stored id, the same at every address; the address's hash only where there is no store.
+        if (PortalIdentity.Current is { } kept)
+        {
+            return kept;
+        }
+
         byte[] hash = System.Security.Cryptography.SHA256.HashData(
             System.Text.Encoding.UTF8.GetBytes(Origin(context)));
 

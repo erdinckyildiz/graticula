@@ -75,7 +75,7 @@ public sealed class OracleFeatureHistory : IFeatureHistory
 
     private string Id => LayerDefinition.Quote(_layer.IntegerIdentityColumn ?? _layer.IdentityColumn);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
 
     private Task<OracleConnection> OpenAsync(CancellationToken cancellationToken) =>
         OracleConnections.OpenAsync(_connectionString, cancellationToken);
@@ -103,7 +103,7 @@ public sealed class OracleFeatureHistory : IFeatureHistory
 
         foreach ((string name, FieldType type, OracleGuids.Storage? guid) in columns)
         {
-            if (string.Equals(name, id, StringComparison.Ordinal) || string.Equals(name, layer.GeometryColumn, StringComparison.Ordinal))
+            if (string.Equals(name, id, StringComparison.Ordinal) || string.Equals(name, layer.RequireGeometryColumn(), StringComparison.Ordinal))
             {
                 continue;
             }
@@ -122,7 +122,7 @@ public sealed class OracleFeatureHistory : IFeatureHistory
             select.Append(", ").Append(value).Append(" as ").Append(LayerDefinition.Quote(name));
         }
 
-        select.Append(", h.SHAPE as ").Append(LayerDefinition.Quote(layer.GeometryColumn))
+        select.Append(", h.SHAPE as ").Append(LayerDefinition.Quote(layer.RequireGeometryColumn()))
               .Append(" from ").Append(QualifiedOf(layer)).Append(" h")
               .Append($" where h.GDB_FROM_DATE <= {moment} and (h.GDB_TO_DATE is null or h.GDB_TO_DATE > {moment})");
 
@@ -193,6 +193,16 @@ public sealed class OracleFeatureHistory : IFeatureHistory
     /// <inheritdoc/>
     public async Task<long> EnableAsync(CancellationToken cancellationToken)
     {
+        // <b>Not for a table, yet — ADR-213 condition 7.</b> This history keeps each version's shape in an SDO_GEOMETRY
+        // column with its own spatial metadata and index, and a table has no shape to give it; a PostGIS table keeps its
+        // history.
+        if (_layer.IsTable)
+        {
+            throw new InvalidOperationException(
+                $"'{_layer.Name}' is a table in an Oracle database, and a history here keeps a shape with every version; a "
+                + "table has none. Keep this table's history in PostGIS, or keep it without one (ADR-213).");
+        }
+
         if (_layer.IntegerIdentityColumn is null)
         {
             throw new InvalidOperationException(
@@ -247,7 +257,7 @@ public sealed class OracleFeatureHistory : IFeatureHistory
                       insert into user_sdo_geom_metadata (table_name, column_name, diminfo, srid)
                       select '{Literal(TableName)}', 'SHAPE', m.diminfo, m.srid from all_sdo_geom_metadata m
                        where m.owner = '{Literal(_layer.SchemaName)}' and m.table_name = '{Literal(_layer.TableName)}'
-                         and m.column_name = '{Literal(_layer.GeometryColumn)}'
+                         and m.column_name = '{Literal(_layer.RequireGeometryColumn())}'
                       """,
                      $"create index {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName + "__HIST_OID")} on {Qualified} (OBJECTID, GDB_FROM_DATE)",
                      $"create index {LayerDefinition.Quote(_layer.SchemaName)}.{LayerDefinition.Quote(_layer.TableName + "__HIST_FROM")} on {Qualified} (GDB_FROM_DATE)",

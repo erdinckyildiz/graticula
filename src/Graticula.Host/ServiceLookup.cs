@@ -274,7 +274,7 @@ internal static class ServiceLookup
             return null;
         }
 
-        if (service.Layer(layerId) is not { } layer)
+        if (service.LayerOrTable(layerId) is not { } layer)
         {
             // <b>A group layer exists at this index and has no features.</b>
             // Answering "no layer 1" about an index the service document
@@ -310,12 +310,12 @@ internal static class ServiceLookup
                     StatusCodes.Status404NotFound,
                     "Not found",
                     $"The service '{serviceName}' has no layer {layerId}. It has "
-                    + (service.Layers.Count == 0
+                    + (service.LayersAndTables.Count == 0
                         ? "no layers yet."
-                        : $"{service.Layers.Count}: "
+                        : $"{service.LayersAndTables.Count}: "
                           + string.Join(
                               ", ",
-                              service.Layers.Select(
+                              service.LayersAndTables.Select(
                                   l => $"{l.LayerIndex} ({l.Definition.Name})"))))
                 .ConfigureAwait(false);
 

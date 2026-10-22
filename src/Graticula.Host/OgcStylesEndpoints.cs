@@ -318,7 +318,7 @@ internal static class OgcStylesEndpoints
             // The first layer of a name is the one a tile carries under it (VectorTileEndpoints.GeneratedStyle).
             List<(string, Graticula.Geometries.GeometryKind)> layers = [.. service.Layers
                 .DistinctBy(l => l.Definition.Name, StringComparer.Ordinal)
-                .Select(l => (l.Definition.Name, l.GeometryType))];
+                .Select(l => (l.Definition.Name, l.RequireGeometryType()))];
 
             // The symbology style first: every service has it, and it is the default while no stored style is.
             styles.Add(new OgcStyle(

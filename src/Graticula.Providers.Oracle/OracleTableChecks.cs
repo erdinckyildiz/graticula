@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Catalog;
+using Graticula.Platform.Admin;
 using Oracle.ManagedDataAccess.Client;
 
 namespace Graticula.Providers.Oracle;
@@ -242,6 +243,71 @@ public static class OracleTableChecks
             }
 
             return new Reference(stored, null);
+        }
+        catch (OracleException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Why a table cannot be published because an enterprise geodatabase versions or archives it — ADR-217 — or null.
+    /// Null as well when the database could not be asked: the other checks of a publish say so in their own words.
+    /// </summary>
+    /// <param name="locator">The data source's locator.</param>
+    /// <param name="schema">The table's owner.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The sentence, or null.</returns>
+    public static async Task<string?> GeodatabaseRefusalAsync(
+        string locator, string schema, string table, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using OracleConnection connection = await OracleConnections.OpenAsync(
+                OracleConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+
+            List<string> columns = [];
+
+            await using (OracleCommand command = new(
+                "select column_name from all_tab_columns where owner = :o and table_name = :t", connection) { BindByName = true })
+            {
+                command.Parameters.Add("o", schema);
+                command.Parameters.Add("t", table);
+                await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    columns.Add(reader.GetString(0));
+                }
+            }
+
+            long? versioned = null;
+
+            // The registry an Oracle geodatabase keeps as SDE.TABLE_REGISTRY, readable only where granted; a table it
+            // registered as versioned has its adds and deletes in A<id> and D<id> under its owner.
+            try
+            {
+                await using OracleCommand command = new(
+                    """
+                    select r.registration_id from sde.table_registry r
+                     where r.owner = :o and r.table_name = :t
+                       and exists (select 1 from all_tables a where a.owner = r.owner and a.table_name = 'A' || r.registration_id)
+                    """, connection) { BindByName = true };
+                command.Parameters.Add("o", schema);
+                command.Parameters.Add("t", table);
+
+                if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is { } id and not DBNull)
+                {
+                    versioned = Convert.ToInt64(id, System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+            catch (OracleException missing) when (missing.Number == 942)
+            {
+                // No geodatabase here, or its registry is not readable by this user: the columns still say what they say.
+            }
+
+            return GeodatabaseClasses.Refusal($"{schema}.{table}", columns, versioned);
         }
         catch (OracleException)
         {

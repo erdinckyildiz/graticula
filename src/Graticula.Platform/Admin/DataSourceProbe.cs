@@ -48,7 +48,7 @@ public enum ProbeOutcome
 /// <summary>A candidate layer found on a data source.</summary>
 /// <param name="SchemaName">Its schema.</param>
 /// <param name="TableName">Its table or view.</param>
-/// <param name="GeometryColumn">The geometry column.</param>
+/// <param name="GeometryColumn">The geometry column, or null for a table with none — ADR-213.</param>
 /// <param name="Srid">Its SRID, or 0 if undeclared.</param>
 /// <param name="GeometryType">The declared geometry type, or null if mixed.</param>
 /// <param name="CandidateObjectIdColumn">
@@ -86,7 +86,7 @@ public enum ProbeOutcome
 public readonly record struct SourceTable(
     string SchemaName,
     string TableName,
-    string GeometryColumn,
+    string? GeometryColumn,
     int Srid,
     string? GeometryType,
     string? CandidateObjectIdColumn,

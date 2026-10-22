@@ -33,7 +33,10 @@ public sealed class PostgresTileSeedStore : ITileSeedStore
         "s.service_id, s.min_zoom, s.max_zoom, s.min_x, s.min_y, s.max_x, s.max_y, s.whole, "
         + "s.concurrency, s.total, s.paused_until, s.paused_because";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store over a data source.</summary>
     /// <param name="dataSource">The platform store.</param>
@@ -41,7 +44,7 @@ public sealed class PostgresTileSeedStore : ITileSeedStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>

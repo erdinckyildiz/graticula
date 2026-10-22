@@ -81,7 +81,11 @@ public sealed class OracleFeatureWriter : IFeatureWriter
 
     private string Id => LayerDefinition.Quote(_layer.IntegerIdentityColumn!);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
+
+    /// <summary>Why a shape cannot be written to a table — it has no column to put one in (ADR-213), as on PostGIS.</summary>
+    private string TableRefusal =>
+        $"'{_layer.Name}' is a table and keeps no geometry; send the feature's attributes without one.";
 
     private string Table => _layer.QuotedTable;
 
@@ -358,11 +362,19 @@ public sealed class OracleFeatureWriter : IFeatureWriter
 
     private async Task<TableFacts> FactsAsync(OracleConnection connection, CancellationToken cancellationToken)
     {
+        // <b>A table (ADR-213) has no row in the spatial metadata</b>: its reference is the one it carries, which nothing
+        // reads, it declares two dimensions it never uses, and its key is asked of the same dictionary as a layer's.
         await using OracleCommand command = Command(
-            """
-            select m.srid,
-                   (select count(*) from table(m.diminfo)),
-                   (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
+            (_layer.IsTable
+                ? """
+                  select :s, 2, 0,
+                  """
+                : """
+                  select m.srid,
+                         (select count(*) from table(m.diminfo)),
+                         (select count(*) from table(m.diminfo) d where upper(d.sdo_dimname) = 'M'),
+                  """)
+            + """
                    (select case when c.identity_column = 'YES' or c.data_default_vc is not null
                                   -- The way Oracle tables made before identity columns number their rows: a sequence
                                   -- read by a row trigger before the insert.
@@ -373,14 +385,29 @@ public sealed class OracleFeatureWriter : IFeatureWriter
                                 then 1 else 0 end
                       from all_tab_columns c
                      where c.owner = m.owner and c.table_name = m.table_name and c.column_name = :k)
-              from all_sdo_geom_metadata m
-             where m.owner = :o and m.table_name = :t and m.column_name = :c
-            """, connection);
+            """
+            + (_layer.IsTable
+                ? """
+                    from (select cast(:o as varchar2(128)) as owner, cast(:t as varchar2(128)) as table_name from dual) m
+                  """
+                : """
+                    from all_sdo_geom_metadata m
+                   where m.owner = :o and m.table_name = :t and m.column_name = :c
+                  """), connection);
+
+        if (_layer.IsTable)
+        {
+            command.Parameters.Add("s", _layer.Srid);
+        }
 
         command.Parameters.Add("k", _layer.IntegerIdentityColumn);
         command.Parameters.Add("o", _layer.SchemaName);
         command.Parameters.Add("t", _layer.TableName);
-        command.Parameters.Add("c", _layer.GeometryColumn);
+
+        if (!_layer.IsTable)
+        {
+            command.Parameters.Add("c", _layer.RequireGeometryColumn());
+        }
 
         await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -471,6 +498,11 @@ public sealed class OracleFeatureWriter : IFeatureWriter
                 $"'{_layer.IntegerIdentityColumn}' is this table's key and the database does not make it — it is neither "
                 + "an identity column, nor given a default, nor filled by a trigger before the insert — so this server cannot add a row without inventing a number "
                 + "the table's own users did not choose. Updates and deletes are answered (ADR-205).");
+        }
+
+        if (add.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(-1, TableRefusal);
         }
 
         if (add.Geometry is { IsEmpty: false } shape
@@ -569,6 +601,11 @@ public sealed class OracleFeatureWriter : IFeatureWriter
         }
 
         string[]? expected = Expected(batch, update.Identity);
+
+        if (update.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(update.Identity, TableRefusal);
+        }
 
         if (update.Geometry is not null
             && (ordinates ?? facts.Declared) is var holds
@@ -816,9 +853,12 @@ public sealed class OracleFeatureWriter : IFeatureWriter
             return found;
         }
 
+        // A table's rows keep no shape (ADR-213): each is found, with none.
         await using OracleCommand command = Command(
-            $"select r.{Id}, case when r.{Shape} is null then null else r.{Shape}.get_dims() end, "
-            + $"case when r.{Shape} is null then null else r.{Shape}.get_lrs_dim() end "
+            (_layer.IsTable
+                ? $"select r.{Id}, null, null "
+                : $"select r.{Id}, case when r.{Shape} is null then null else r.{Shape}.get_dims() end, "
+                  + $"case when r.{Shape} is null then null else r.{Shape}.get_lrs_dim() end ")
             + $"from {Table} r where r.{Id} in (select j.v from json_table(:ids, '$[*]' columns (v number path '$')) j)",
             connection);
 

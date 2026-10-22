@@ -13,13 +13,16 @@ namespace Graticula.Platform.Postgres;
 /// <summary>Terms of use, content categories and favourites in the platform store — ADR-202, migration 93.</summary>
 public sealed class PostgresItemAnnotationStore : IItemAnnotationStore
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store.</summary>
     public PostgresItemAnnotationStore(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -29,7 +32,10 @@ public sealed class PostgresItemAnnotationStore : IItemAnnotationStore
         Dictionary<Guid, IReadOnlyList<Guid>> categories = [];
         List<ItemCategory> tree = [];
 
-        await using NpgsqlConnection connection = await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
+        // <b>Every organisation's, on the store's own pool — ADR-204 §5e item 14.</b> One snapshot serves the process
+        // and is narrowed per request by `ItemAnnotations`; loaded on an organisation's pool, a refresh from its request
+        // replaced every other organisation's categories with its own.
+        await using NpgsqlConnection connection = await _root.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
         await using (NpgsqlCommand command = new("select id, license_info from item where license_info is not null", connection))
         await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -52,7 +58,8 @@ public sealed class PostgresItemAnnotationStore : IItemAnnotationStore
 
         await using (NpgsqlCommand command = new(
             """
-            select c.id, c.parent_id, c.name, (select count(*) from item_in_category a where a.category_id = c.id)
+            select c.id, c.parent_id, c.name, (select count(*) from item_in_category a where a.category_id = c.id),
+                   c.tenant_id
               from item_category c order by lower(c.name)
             """, connection))
         await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
@@ -63,7 +70,8 @@ public sealed class PostgresItemAnnotationStore : IItemAnnotationStore
                     reader.GetGuid(0),
                     reader.IsDBNull(1) ? null : reader.GetGuid(1),
                     reader.GetString(2),
-                    (int)reader.GetInt64(3)));
+                    (int)reader.GetInt64(3),
+                    reader.GetGuid(4)));
             }
         }
 

@@ -78,7 +78,11 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
 
     private string Id => LayerDefinition.Quote(_layer.IntegerIdentityColumn!);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
+
+    /// <summary>Why a shape cannot be written to a table — it has no column to put one in (ADR-213), as on PostGIS.</summary>
+    private string TableRefusal =>
+        $"'{_layer.Name}' is a table and keeps no geometry; send the feature's attributes without one.";
 
     private string Table => _layer.QuotedTable;
 
@@ -307,17 +311,18 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
     {
         MySqlDialect dialect = MySqlDialect.Of(connection);
 
+        // A table (ADR-213) has no spatial column; its reference is the one it carries, which nothing reads.
         await using MySqlCommand command = Command(
             $"""
-            select (select g.srs_id from {dialect.GeometryColumns} g
-                     where g.table_schema = @db and g.table_name = @tab and g.column_name = @col),
+            select {(_layer.IsTable ? "@srid" : $"(select g.srs_id from {dialect.GeometryColumns} g where g.table_schema = @db and g.table_name = @tab and g.column_name = @col)")},
                    (select count(*) from information_schema.columns c
                      where c.table_schema = @db and c.table_name = @tab and c.column_name = @key and c.extra like '%auto_increment%')
             """, connection, transaction);
 
         command.Parameters.AddWithValue("@db", _layer.SchemaName);
         command.Parameters.AddWithValue("@tab", _layer.TableName);
-        command.Parameters.AddWithValue("@col", _layer.GeometryColumn);
+        command.Parameters.AddWithValue("@col", (object?)_layer.GeometryColumn ?? DBNull.Value);
+        command.Parameters.AddWithValue("@srid", _layer.Srid);
         command.Parameters.AddWithValue("@key", _layer.IntegerIdentityColumn);
 
         await using MySqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -369,6 +374,11 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
                 $"'{_layer.IntegerIdentityColumn}' is this table's key and the database does not make it — it is not "
                 + "AUTO_INCREMENT — so this server cannot add a row without inventing a number the table's own users did not "
                 + "choose. Updates and deletes are answered (ADR-208).");
+        }
+
+        if (add.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(-1, TableRefusal);
         }
 
         if (add.Geometry is { IsEmpty: false } shape
@@ -448,6 +458,11 @@ public sealed class MySqlFeatureWriter : IFeatureWriter
         EditBatch batch, CancellationToken cancellationToken)
     {
         string[]? expected = Expected(batch, update.Identity);
+
+        if (update.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(update.Identity, TableRefusal);
+        }
 
         if (update.Geometry is not null
             && EditColumns.DimensionRefusal(update.Geometry, GeometryOrdinates.None, "a MySQL layer's geometry column") is { } lossy)

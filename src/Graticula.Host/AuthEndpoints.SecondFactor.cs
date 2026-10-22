@@ -54,7 +54,7 @@ internal static partial class AuthEndpoints
         // `available`: a password here, so one can be set up here. `required`: the organisation requires one of this member
         // (ADR-201 condition 2) — so a page can say so before the next sign-in does.
         bool available = current.Principal.Kind == PrincipalKind.User
-            && await store.FindForLoginAsync(current.Principal.Name, cancellation).ConfigureAwait(false) is { Credential: not null };
+            && await store.FindForLoginAsync(current.QualifiedName, cancellation).ConfigureAwait(false) is { Credential: not null };
         SecondFactorRequirement requirement = await policy.ReadAsync(cancellation).ConfigureAwait(false);
         bool administrator = (await store.RolesOfAsync(current.Principal.Id, cancellation).ConfigureAwait(false))
             .Contains(Roles.Administrator, StringComparer.Ordinal);
@@ -78,7 +78,7 @@ internal static partial class AuthEndpoints
             return;
         }
 
-        if (await store.FindForLoginAsync(current.Principal.Name, cancellation).ConfigureAwait(false) is not { Credential: not null })
+        if (await store.FindForLoginAsync(current.QualifiedName, cancellation).ConfigureAwait(false) is not { Credential: not null })
         {
             await Refuse(context, 409, "This account signs in through your organisation's identity provider or directory, "
                 + "and its second step is set there.").ConfigureAwait(false);

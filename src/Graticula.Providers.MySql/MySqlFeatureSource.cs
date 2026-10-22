@@ -112,7 +112,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     private string Id => LayerDefinition.Quote(_layer.IdentityColumn);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
 
     private string From => _layer.QuotedTable;
 
@@ -217,7 +217,8 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         else
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
-            sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", {table.Dialect.Wkb(Shape)} as g" : ", null as g");
+            // A table answers every row without a shape (ADR-213), as the PostGIS source does.
+            sql.Append((query.IncludeGeometry || query.ReturnCentroid) && !_layer.IsTable ? $", {table.Dialect.Wkb(Shape)} as g" : ", null as g");
             sql.Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
@@ -333,18 +334,26 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     /// <summary>The SQL of a row's version: a SHA-1 of its columns and its shape, each named so a null is not lost.</summary>
     /// <param name="columns">The table's columns other than the shape.</param>
-    /// <param name="shape">The geometry column.</param>
+    /// <param name="shape">The geometry column, or null for a table, whose version is its columns alone (ADR-213).</param>
     /// <param name="alias">The row's alias, or the table's name.</param>
     /// <returns>The expression.</returns>
-    internal static string VersionSqlOf(IEnumerable<string> columns, string shape, string alias) =>
-        "sha1(concat_ws('|', "
-        + string.Join(", ", columns.Select(c =>
-            $"concat('{c.Replace("'", "''", StringComparison.Ordinal)}=', coalesce(hex({alias}.{LayerDefinition.Quote(c)}), '~'))"))
-        + $", coalesce(hex(st_asbinary({alias}.{LayerDefinition.Quote(shape)})), '~')))";
+    internal static string VersionSqlOf(IEnumerable<string> columns, string? shape, string alias)
+    {
+        List<string> parts = [.. columns.Select(c =>
+            $"concat('{c.Replace("'", "''", StringComparison.Ordinal)}=', coalesce(hex({alias}.{LayerDefinition.Quote(c)}), '~'))")];
+
+        if (shape is not null)
+        {
+            parts.Add($"coalesce(hex(st_asbinary({alias}.{LayerDefinition.Quote(shape)})), '~')");
+        }
+
+        return "sha1(concat_ws('|', " + string.Join(", ", parts) + "))";
+    }
 
     /// <inheritdoc />
     public Task<GeometryWidth?> GeometryWidthAsync(CancellationToken cancellationToken) =>
-        Bounded<GeometryWidth?>(async token =>
+        // A table has no geometry to be wide (ADR-213).
+        _layer.IsTable ? Task.FromResult<GeometryWidth?>(null) : Bounded<GeometryWidth?>(async token =>
         {
             await using MySqlConnection connection = await OpenAsync(token).ConfigureAwait(false);
             await using MySqlCommand command = new(
@@ -385,7 +394,9 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
         HistoryKept? kept = await MySqlFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
 
-        return new LayerDescription(fields, await ExtentOfTableAsync(connection, table.Dialect, cancellationToken).ConfigureAwait(false), writable)
+        Envelope? extent = _layer.IsTable ? null : await ExtentOfTableAsync(connection, table.Dialect, cancellationToken).ConfigureAwait(false);
+
+        return new LayerDescription(fields, extent, writable)
         {
             AnswersDistance = _engine is not null,
             AnswersHaving = true,
@@ -393,7 +404,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             AnswersCentroid = true,
             AnswersStatisticExpressions = true,
             AnswersRelations = _engine is not null,
-            SpatiallyIndexed = true,
+            SpatiallyIndexed = _layer.IsTable ? null : true,
 
             // ADR-207: a history kept beside the table, which historicMoment reads.
             Archived = kept is not null,
@@ -493,6 +504,11 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
 
     private async Task<(Envelope? Extent, long Count)> ExtentBoundedAsync(FeatureQuery query, CancellationToken cancellationToken)
     {
+        if (_layer.IsTable)
+        {
+            throw new QueryNotSupportedException($"'{_layer.Name}' is a table and has no geometry to take an extent of (ADR-213).");
+        }
+
         await using MySqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         MySqlTable table = await TableAsync(connection, cancellationToken).ConfigureAwait(false);
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
@@ -786,7 +802,8 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
                 $"{Here}, and a statistic expression reached it without its parsed form, so it cannot be written in MySQL's dialect.");
         }
 
-        if (query.Spatial is not { } spatial)
+        // A table ignores a spatial filter, as ArcGIS's does (ADR-213), so nothing about one is refused.
+        if (_layer.IsTable || query.Spatial is not { } spatial)
         {
             return;
         }
@@ -909,6 +926,22 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         bool isTable = true;
         bool points = false;
 
+        // <b>A table has no geometry column to be found among the spatial ones — ADR-213</b>: what kind of relation it is
+        // comes from the schema, and its reference is the one a table carries, which nothing reads.
+        if (_layer.IsTable)
+        {
+            await using MySqlCommand kind = new(
+                "select table_type from information_schema.tables where table_schema = @db and table_name = @tab", connection);
+            kind.Parameters.AddWithValue("@db", _layer.SchemaName);
+            kind.Parameters.AddWithValue("@tab", _layer.TableName);
+
+            MySqlTable plain = new(
+                columns, _layer.Srid, await kind.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is not "VIEW",
+                MySqlDialect.Of(connection));
+            Tables[_tableKey] = (DateTimeOffset.UtcNow, plain);
+            return plain;
+        }
+
         await using (MySqlCommand command = new(
             $"""
             select g.srs_id, (select t.table_type from information_schema.tables t
@@ -920,7 +953,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         {
             command.Parameters.AddWithValue("@db", _layer.SchemaName);
             command.Parameters.AddWithValue("@tab", _layer.TableName);
-            command.Parameters.AddWithValue("@col", _layer.GeometryColumn);
+            command.Parameters.AddWithValue("@col", _layer.RequireGeometryColumn());
 
             await using MySqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
@@ -933,7 +966,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         }
 
         MySqlTable table = new(columns, srid ?? throw new InvalidOperationException(
-            $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, which "
+            $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.RequireGeometryColumn()}, which "
             + "is no longer a spatial column with an SRID."), isTable, MySqlDialect.Of(connection), points);
 
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
@@ -990,7 +1023,9 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
         Geometry? shape = null;
         SpatialFilter? byEngine = null;
 
-        if (query.BoundingBox is { } box)
+        // <b>A table has no geometry, so a spatial filter is not applied — ADR-213</b>, as ArcGIS's own table and the PostGIS
+        // source answer.
+        if (!_layer.IsTable && query.BoundingBox is { } box)
         {
             boxes.Add(await ToLayerAsync(Rectangle(box), query, cancellationToken).ConfigureAwait(false) is { IsEmpty: false } moved
                 ? moved.Envelope
@@ -1008,7 +1043,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             attributes.Add($"{Id} in (select j.v from json_table(@ids, '$[*]' columns (v bigint path '$')) j)");
         }
 
-        if (query.Spatial is { } spatial)
+        if (!_layer.IsTable && query.Spatial is { } spatial)
         {
             Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
 
@@ -1041,7 +1076,7 @@ public sealed class MySqlFeatureSource : IFeatureSource, IFeatureSummaries, IFea
             inMySql.Add(BoxClause(boxes[i], "box" + i.ToString(CultureInfo.InvariantCulture), table, parameters));
         }
 
-        if (shape is null && query.BoundingBox is null && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
+        if (!_layer.IsTable && shape is null && query.BoundingBox is null && query.Spatial is { Relation: SpatialRelation.IndexIntersects })
         {
             return new Filters(inMySql, parameters);
         }

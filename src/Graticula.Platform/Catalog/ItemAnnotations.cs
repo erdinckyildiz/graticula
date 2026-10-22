@@ -10,7 +10,8 @@ namespace Graticula.Platform.Catalog;
 /// <param name="ParentId">Its parent, or null at the top.</param>
 /// <param name="Name">What it is called.</param>
 /// <param name="Items">How many items are in it.</param>
-public sealed record ItemCategory(Guid Id, Guid? ParentId, string Name, int Items);
+/// <param name="Tenant">The organisation it is in (ADR-204), or null where that was not read.</param>
+public sealed record ItemCategory(Guid Id, Guid? ParentId, string Name, int Items, Guid? Tenant = null);
 
 /// <summary>What is said about every item at once, for the portal's documents — ADR-202.</summary>
 /// <param name="Licenses">Each item's terms of use, where it has some.</param>

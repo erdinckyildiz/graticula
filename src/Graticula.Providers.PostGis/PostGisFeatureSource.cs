@@ -314,6 +314,12 @@ public sealed class PostGisFeatureSource
     /// </remarks>
     public async Task<GeometryWidth?> GeometryWidthAsync(CancellationToken cancellationToken)
     {
+        // A table has no geometry to be wide (ADR-213), and no statistic is the truth about it.
+        if (_layer.GeometryColumn is not { } geometryColumn)
+        {
+            return null;
+        }
+
         const string Sql = """
             select
               c.reltuples,
@@ -333,7 +339,7 @@ public sealed class PostGisFeatureSource
         await using NpgsqlCommand command = Command(Sql);
         command.Parameters.AddWithValue("schema", _layer.SchemaName);
         command.Parameters.AddWithValue("table", _layer.TableName);
-        command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
+        command.Parameters.AddWithValue("geometry", geometryColumn);
 
         await using NpgsqlDataReader reader =
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -387,7 +393,10 @@ public sealed class PostGisFeatureSource
         // of large polygons that is the difference between an attribute table
         // and a download, and it is the single cheapest thing a client can do
         // to make a grid view fast.
-        if (query.IncludeGeometry)
+        //
+        // <b>A table answers every row without one</b>, whatever was asked — ADR-213, and ArcGIS's own
+        // answer to returnGeometry=true on a table, measured against Esri's sample server.
+        if (query.IncludeGeometry && !_layer.IsTable)
         {
             sql.Append(", st_asbinary(").Append(OutputGeometry(query)).Append(')');
         }
@@ -399,7 +408,9 @@ public sealed class PostGisFeatureSource
         // returnCentroid: a point inside the shape, after the geometry so the sequential reader meets it last.
         if (query.ReturnCentroid)
         {
-            sql.Append(", st_asbinary(st_pointonsurface(").Append(OutputGeometry(query)).Append("))");
+            sql.Append(_layer.IsTable
+                ? ", null::bytea"
+                : $", st_asbinary(st_pointonsurface({OutputGeometry(query)}))");
         }
 
         sql.Append(" from ").Append(From(query));
@@ -432,7 +443,7 @@ public sealed class PostGisFeatureSource
     /// </remarks>
     private string OutputGeometry(FeatureQuery query)
     {
-        string expression = LayerDefinition.Quote(_layer.GeometryColumn);
+        string expression = LayerDefinition.Quote(Geometry);
 
         if (query.OutSrid is { } srid && srid != _layer.Srid)
         {
@@ -468,6 +479,15 @@ public sealed class PostGisFeatureSource
     }
 
     /// <summary>The reference the caller's filter geometry is in.</summary>
+    /// <summary>The geometry column, which a table does not have.</summary>
+    /// <remarks>
+    /// <b>Thrown rather than answered with nothing</b>: every caller is about to put the column into SQL, and a face that
+    /// let a spatial filter or an extent through to a table has already said something to its client that is not true
+    /// (ADR-213). The ArcGIS face drops a table's spatial filter before it gets here, as ArcGIS does.
+    /// </remarks>
+    private string Geometry => _layer.GeometryColumn ?? throw new InvalidOperationException(
+        $"'{_layer.Name}' is a table and has no geometry to filter, measure or draw (ADR-213).");
+
     private int FilterSrid(FeatureQuery query) => query.FilterSrid ?? _layer.Srid;
 
     /// <summary>An SRID as a SQL literal — an int, so it cannot be anything else.</summary>
@@ -520,7 +540,13 @@ public sealed class PostGisFeatureSource
             clauses.Add($"{id} in (select {id} from ({ranked}) graticula_ranked where graticula_rank <= @top_count)");
         }
 
-        if (query.BoundingBox is not null)
+        // <b>A table has no geometry, so a spatial filter on it tests nothing and is not applied — ADR-213.</b>
+        // ArcGIS's own answer, measured on Esri's sample server: ServiceRequest/FeatureServer/1 counts 8 rows with an
+        // envelope and 8 without. Ignored here rather than at each face, because this is where a table is known to be
+        // one and the faces build their queries without asking.
+        bool spatial = !_layer.IsTable;
+
+        if (spatial && query.BoundingBox is not null)
         {
             // && is the index-backed bounding-box overlap operator. This is the
             // pushdown: the index answers it, and rows that fail never leave the
@@ -532,14 +558,14 @@ public sealed class PostGisFeatureSource
             // row, which turns a bounding-box query into a full scan — the one
             // shape of this that must not be written.
             clauses.Add(
-                $"{LayerDefinition.Quote(_layer.GeometryColumn)} && {ToLayerReference(
+                $"{LayerDefinition.Quote(Geometry)} && {ToLayerReference(
                     $"st_makeenvelope(@minx, @miny, @maxx, @maxy, {Literal(FilterSrid(query))})",
                     query)}");
         }
 
-        if (query.Spatial is { } spatial)
+        if (spatial && query.Spatial is { } relation)
         {
-            clauses.Add(SpatialClause(spatial, query));
+            clauses.Add(SpatialClause(relation, query));
         }
 
         if (query.Identities.Count > 0)
@@ -587,7 +613,7 @@ public sealed class PostGisFeatureSource
     /// </remarks>
     private string SpatialClause(SpatialFilter spatial, FeatureQuery query)
     {
-        string column = LayerDefinition.Quote(_layer.GeometryColumn);
+        string column = LayerDefinition.Quote(Geometry);
 
         // <b>The SRID is attached here, in SQL, and it has to be.</b> Plain WKB
         // carries no spatial reference, so a bound filter arrives as SRID 0 and
@@ -824,6 +850,12 @@ public sealed class PostGisFeatureSource
     {
         const string Column = "h.geom";
         List<string> boxes = [];
+
+        // A table's history keeps no shape, and its query ignores a spatial filter (ADR-213).
+        if (_layer.IsTable)
+        {
+            return null;
+        }
 
         if (query.BoundingBox is not null)
         {
@@ -1369,7 +1401,7 @@ public sealed class PostGisFeatureSource
 
         return new LayerDescription(
             fields,
-            await ReadExtentAsync(cancellationToken).ConfigureAwait(false),
+            _layer.IsTable ? null : await ReadExtentAsync(cancellationToken).ConfigureAwait(false),
             writable)
         {
             StoredOrdinates = ordinates,
@@ -1535,7 +1567,8 @@ public sealed class PostGisFeatureSource
                       select pg_catalog.pg_column_is_updatable(c.oid, g.attnum, true)
                       from pg_attribute g
                       where g.attrelid = c.oid
-                        and g.attname = @geometry
+                        -- A table has no geometry, and its identity column answers for the relation (ADR-213).
+                        and g.attname = coalesce(@geometry, @identity)
                         and g.attnum > 0
                         and not g.attisdropped
                     ),
@@ -1601,7 +1634,7 @@ public sealed class PostGisFeatureSource
               on a.attrelid = r.oid
               and a.attnum > 0
               and not a.attisdropped
-              and a.attname <> @geometry
+              and a.attname is distinct from @geometry
               and pg_catalog.has_column_privilege(r.oid, a.attnum, 'SELECT')
             left join pg_type t on t.oid = a.atttypid
             left join pg_type bt on bt.oid = nullif(t.typbasetype, 0)
@@ -1611,7 +1644,11 @@ public sealed class PostGisFeatureSource
         await using NpgsqlCommand command = Command(Sql);
         command.Parameters.AddWithValue("schema", _layer.SchemaName);
         command.Parameters.AddWithValue("table", _layer.TableName);
-        command.Parameters.AddWithValue("geometry", _layer.GeometryColumn);
+        command.Parameters.Add(new NpgsqlParameter("geometry", NpgsqlTypes.NpgsqlDbType.Text)
+        {
+            Value = (object?)_layer.GeometryColumn ?? DBNull.Value,
+        });
+        command.Parameters.AddWithValue("identity", _layer.IdentityColumn);
 
         List<FieldDescription> fields = [];
         bool? writable = null;
@@ -1687,7 +1724,7 @@ public sealed class PostGisFeatureSource
     {
         Envelope? estimated = await TryExtentAsync(
             $"select st_estimatedextent({Literal(_layer.SchemaName)}, {Literal(_layer.TableName)}, "
-            + $"{Literal(_layer.GeometryColumn)})::text",
+            + $"{Literal(Geometry)})::text",
             cancellationToken).ConfigureAwait(false);
 
         if (estimated is not null)
@@ -1696,7 +1733,7 @@ public sealed class PostGisFeatureSource
         }
 
         return await TryExtentAsync(
-            $"select st_extent(g)::text from (select {LayerDefinition.Quote(_layer.GeometryColumn)} "
+            $"select st_extent(g)::text from (select {LayerDefinition.Quote(Geometry)} "
             + $"as g from {_layer.QuotedTable} limit 10000) s",
             cancellationToken).ConfigureAwait(false);
     }

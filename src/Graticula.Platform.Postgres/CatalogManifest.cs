@@ -45,20 +45,22 @@ public static class CatalogManifest
     /// <summary>
     /// How one table becomes manifest objects: what is dropped and which <c>uuid</c> or <c>bytea</c> columns are
     /// handled. A <c>uuid</c> or <c>bytea</c> column not named here stops the export.
+    /// <b><c>tenant_id</c> is dropped from every table — ADR-204.</b> A manifest describes a catalogue, not whose it is: it
+    /// is applied into the tenant of the server and host it is applied at, which the column's default supplies.
     /// </summary>
     private sealed record Table(string Name, string[] Drop, string[] Handled);
 
-    private static readonly Table DataSources = new("data_source", ["id", "connection_secret"], ["id", "connection_secret"]);
-    private static readonly Table Folders = new("folder", [], ["owner_principal_id"]);
-    private static readonly Table Domains = new("field_domain", ["id"], ["id", "owner_principal_id"]);
-    private static readonly Table Services = new("service", ["id"], ["id", "owner_principal_id", "view_of", "content_folder_id"]);
-    private static readonly Table Layers = new("layer", ["id", "service_id"], ["id", "service_id", "data_source_id"]);
-    private static readonly Table Groups = new("group_layer", ["id", "service_id"], ["id", "service_id"]);
-    private static readonly Table Coverages = new("coverage", ["id", "service_id"], ["id", "service_id"]);
-    private static readonly Table Styles = new("service_style", ["service_id"], ["service_id"]);
-    private static readonly Table Sprites = new("service_sprite", ["service_id"], ["service_id", "image"]);
-    private static readonly Table SharedWith = new("sharing_group_item", ["service_id", "shared_by"], ["group_id", "service_id", "shared_by"]);
-    private static readonly Table Relationships = new("relationship", ["id"], ["id", "origin_layer_id", "related_layer_id"]);
+    private static readonly Table DataSources = new("data_source", ["id", "connection_secret", "tenant_id"], ["id", "connection_secret", "tenant_id"]);
+    private static readonly Table Folders = new("folder", ["tenant_id"], ["owner_principal_id", "tenant_id"]);
+    private static readonly Table Domains = new("field_domain", ["id", "tenant_id"], ["id", "owner_principal_id", "tenant_id"]);
+    private static readonly Table Services = new("service", ["id", "tenant_id"], ["id", "owner_principal_id", "view_of", "content_folder_id", "tenant_id"]);
+    private static readonly Table Layers = new("layer", ["id", "service_id", "tenant_id"], ["id", "service_id", "data_source_id", "tenant_id"]);
+    private static readonly Table Groups = new("group_layer", ["id", "service_id", "tenant_id"], ["id", "service_id", "tenant_id"]);
+    private static readonly Table Coverages = new("coverage", ["id", "service_id", "tenant_id"], ["id", "service_id", "tenant_id"]);
+    private static readonly Table Styles = new("service_style", ["service_id", "tenant_id"], ["service_id", "tenant_id"]);
+    private static readonly Table Sprites = new("service_sprite", ["service_id", "tenant_id"], ["service_id", "image", "tenant_id"]);
+    private static readonly Table SharedWith = new("sharing_group_item", ["service_id", "shared_by", "tenant_id"], ["group_id", "service_id", "shared_by", "tenant_id"]);
+    private static readonly Table Relationships = new("relationship", ["id", "tenant_id"], ["id", "origin_layer_id", "related_layer_id", "tenant_id"]);
 
     private static readonly Table[] Covered =
         [DataSources, Folders, Domains, Services, Layers, Groups, Coverages, Styles, Sprites, SharedWith, Relationships];
@@ -288,7 +290,7 @@ public static class CatalogManifest
                 read.Rows[table.Name] = await RowsAsync(connection, transaction, table.Name, cancellationToken).ConfigureAwait(false);
             }
 
-            await using (NpgsqlCommand command = new("select id, name from principal", connection, transaction))
+            await using (NpgsqlCommand command = new("select id, graticula_principal_label(name, tenant_id) from principal", connection, transaction))
             await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
             {
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))

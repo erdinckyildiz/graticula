@@ -305,7 +305,7 @@ internal static class TileFaces
 
             layers.Add(new TileLayerInfo(
                 layer.Definition.Name,
-                DimensionOf(layer.GeometryType),
+                DimensionOf(layer.RequireGeometryType()),
                 VectorTileEndpoints.AttributesOf(layer, described),
                 min,
                 max));

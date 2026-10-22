@@ -16,7 +16,10 @@ namespace Graticula.Platform.Postgres;
 /// <summary><see cref="IAdminCatalog"/> over the platform store.</summary>
 public sealed class PostgresAdminCatalog : IAdminCatalog
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
     private readonly SecretProtector _secrets;
 
     /// <summary>Creates a whole service and everything in it, or none of it.</summary>
@@ -286,7 +289,11 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             insert.Parameters.AddWithValue("name", layer.Name);
             insert.Parameters.AddWithValue("schema", layer.SchemaName);
             insert.Parameters.AddWithValue("table", layer.TableName);
-            insert.Parameters.AddWithValue("geometry", layer.GeometryColumn);
+            insert.Parameters.Add(new NpgsqlParameter("geometry", NpgsqlDbType.Text)
+            {
+                // Null for a table (ADR-213); a typed parameter, because an untyped null tells PostgreSQL nothing.
+                Value = (object?)layer.GeometryColumn ?? DBNull.Value,
+            });
             insert.Parameters.AddWithValue("identity", layer.IdentityColumn);
 
             // <b>Stamped only when there is a document, which is what the column means.</b>
@@ -302,7 +309,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             // is text and `GeometryType` is an enum; Npgsql refuses to write one without being
             // told a type, and the refusal is a 500 rather than a mistranslation — which is the
             // better failure, and is how this was found on the first live composition.
-            insert.Parameters.AddWithValue("type", layer.GeometryType.ToString());
+            insert.Parameters.Add(new NpgsqlParameter("type", NpgsqlDbType.Text)
+            {
+                // Null for a table (ADR-213). Not ToString() on the nullable, which answers "" for null and would write a
+                // geometry type that is neither a type nor its absence.
+                Value = layer.GeometryType is { } kind ? kind.ToString() : DBNull.Value,
+            });
             insert.Parameters.AddWithValue("service", serviceId);
             insert.Parameters.AddWithValue("index", at);
             insert.Parameters.AddWithValue("parent", (object?)parent ?? DBNull.Value);
@@ -331,7 +343,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(secrets);
 
-        _dataSource = dataSource;
+        _root = dataSource;
         _secrets = secrets;
     }
 
@@ -627,10 +639,19 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         command.Parameters.AddWithValue("name", publication.Name);
         command.Parameters.AddWithValue("schema", publication.SchemaName);
         command.Parameters.AddWithValue("table", publication.TableName);
-        command.Parameters.AddWithValue("geometry", publication.GeometryColumn);
+        command.Parameters.Add(new NpgsqlParameter("geometry", NpgsqlDbType.Text)
+        {
+            // Null for a table (ADR-213); a typed parameter, because an untyped null tells PostgreSQL nothing.
+            Value = (object?)publication.GeometryColumn ?? DBNull.Value,
+        });
         command.Parameters.AddWithValue("identity", publication.IdentityColumn);
         command.Parameters.AddWithValue("srid", publication.Srid);
-        command.Parameters.AddWithValue("type", publication.GeometryType.ToString());
+        command.Parameters.Add(new NpgsqlParameter("type", NpgsqlDbType.Text)
+        {
+            // Null for a table (ADR-213). Not ToString() on the nullable, which answers "" for null and would write a
+            // geometry type that is neither a type nor its absence.
+            Value = publication.GeometryType is { } kind ? kind.ToString() : DBNull.Value,
+        });
         command.Parameters.AddWithValue("owner", owner);
         command.Parameters.AddWithValue("sharing", Wire(publication.Sharing));
         command.Parameters.Add(new NpgsqlParameter("objectid", NpgsqlDbType.Text)
@@ -1162,16 +1183,18 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         // The cover is the lowest-numbered layer, which is layer 0 for everything published
         // here and the first surviving one after a delete. Ordered rather than assumed: index
         // 0 is not reserved, and a service whose first layer was unpublished still has a
-        // member to draw and to address.
+        // member to draw and to address. <b>A layer with geometry — ADR-213</b>: a table has no picture,
+        // and a service of tables only has no cover. Layers and tables are counted apart.
         const string Sql = """
             select s.id, s.name, s.folder, s.kind, i.sharing, s.status, i.description, p.name,
-                   (select count(*) from layer l where l.service_id = s.id),
+                   (select count(*) from layer l where l.service_id = s.id and l.geometry_column is not null),
                    (select count(*) from group_layer g where g.service_id = s.id),
                    (select l.name from layer l
-                     where l.service_id = s.id order by l.layer_index limit 1),
+                     where l.service_id = s.id and l.geometry_column is not null order by l.layer_index limit 1),
                    (select l.layer_index from layer l
-                     where l.service_id = s.id order by l.layer_index limit 1),
-                   s.updated_at, s.created_at
+                     where l.service_id = s.id and l.geometry_column is not null order by l.layer_index limit 1),
+                   s.updated_at, s.created_at,
+                   (select count(*) from layer l where l.service_id = s.id and l.geometry_column is null)
             from service s
             join item i on i.service_id = s.id
             left join principal p on p.id = i.owner_principal_id
@@ -1201,7 +1224,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                     ? null
                     : new AdminServiceCover(reader.GetString(10), reader.GetInt32(11)),
                 reader.GetFieldValue<DateTimeOffset>(12),
-                reader.GetFieldValue<DateTimeOffset>(13)));
+                reader.GetFieldValue<DateTimeOffset>(13))
+            {
+                Tables = (int)reader.GetInt64(14),
+            });
         }
 
         return services;
@@ -1508,6 +1534,12 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
         if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        // A table has no geometry type and nothing to symbolise (ADR-213); the endpoints refuse it before asking.
+        if (await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
@@ -2545,7 +2577,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         ArgumentException.ThrowIfNullOrWhiteSpace(receiver);
 
         const string Sql = """
-            with taker as (select id from principal where lower(name) = lower(@receiver)),
+            with taker as (select id from principal where id = graticula_principal_named(@receiver)),
                  moved as (update item i set owner_principal_id = (select id from taker), content_folder_id = null
                              from service s
                             where i.service_id = s.id

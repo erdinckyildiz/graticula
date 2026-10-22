@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Catalog;
 using Graticula.Geometries;
+using Graticula.Platform.Admin;
 using Microsoft.Data.SqlClient;
 
 namespace Graticula.Providers.SqlServer;
@@ -166,6 +167,67 @@ public static class SqlServerTableChecks
             }
 
             return new Reference(srid, null);
+        }
+        catch (SqlException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Why a table cannot be published because an enterprise geodatabase versions or archives it — ADR-217 — or null.
+    /// Null as well when the database could not be asked: the other checks of a publish say so in their own words.
+    /// </summary>
+    /// <param name="locator">The data source's locator.</param>
+    /// <param name="schema">The table's schema.</param>
+    /// <param name="table">The table.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The sentence, or null.</returns>
+    public static async Task<string?> GeodatabaseRefusalAsync(
+        string locator, string schema, string table, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using SqlConnection connection = await SqlServerConnections.OpenAsync(
+                SqlServerConnections.For(locator, pooling: true), cancellationToken).ConfigureAwait(false);
+
+            List<string> columns = [];
+
+            await using (SqlCommand command = new(
+                "select COLUMN_NAME from INFORMATION_SCHEMA.COLUMNS where TABLE_SCHEMA = @s and TABLE_NAME = @t", connection))
+            {
+                command.Parameters.AddWithValue("@s", schema);
+                command.Parameters.AddWithValue("@t", table);
+                await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    columns.Add(reader.GetString(0));
+                }
+            }
+
+            // The registry a SQL Server geodatabase keeps in its `sde` schema; a table it registered as versioned has its
+            // adds and deletes in `a<id>` and `d<id>` beside it.
+            long? versioned = null;
+
+            await using (SqlCommand command = new(
+                """
+                if object_id(N'sde.SDE_table_registry') is not null
+                    select r.registration_id from sde.SDE_table_registry r
+                     where r.table_name = @t and r.owner = @s
+                       and object_id(quotename(@s) + N'.' + quotename(N'a' + cast(r.registration_id as nvarchar(20)))) is not null
+                """, connection))
+            {
+                command.Parameters.AddWithValue("@s", schema);
+                command.Parameters.AddWithValue("@t", table);
+
+                if (await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is { } id and not DBNull)
+                {
+                    versioned = Convert.ToInt64(id, System.Globalization.CultureInfo.InvariantCulture);
+                }
+            }
+
+            return GeodatabaseClasses.Refusal($"{schema}.{table}", columns, versioned);
         }
         catch (SqlException)
         {

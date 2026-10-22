@@ -958,7 +958,7 @@ function drawGroupSettings(one) {
         <button type="button" class="primary" id="gsSave" disabled>Save changes</button>
       </div>
     </div>
-
+    ${drawGroupTenants(one)}
     <section class="dangercard" aria-labelledby="gsDelete">
       <h3 id="gsDelete">Deletion</h3>
       <div class="dangerrow">
@@ -978,6 +978,9 @@ function drawGroupSettings(one) {
         <button type="button" class="danger" id="groupDelete"${one.deleteLocked ? " disabled" : ""}>Delete group</button>
       </div>` : ""}
     </section>`;
+
+  // A switch whose state this page does not know is drawn as neither, and says so (see `drawGroupTenants`).
+  if ($("gsAdmits") && groupAdmitsKnown(one) === undefined) $("gsAdmits").indeterminate = true;
 
   // Dirty tracking, so Save and Discard wait until there is something to save. The lock is deliberately not part
   // of it: it writes on its own, because a safety switch left unsaved is believed to be on when it is off.
@@ -1005,6 +1008,34 @@ function drawGroupSettings(one) {
     drawGroupSettings(one);
     $("gsTitle").focus();
   };
+}
+
+/** Whether a group admits other organizations' members: the server's word if it gave one, else what this page set. */
+function groupAdmitsKnown(one) {
+  return typeof one?.admitsOtherTenants === "boolean" ? one.admitsOtherTenants : groupAdmits.get(one?.name);
+}
+
+/**
+ * Settings › Other organizations — ADR-204 §5c. Only on a server of several organizations, and only to this
+ * organization's administrator, who alone may set it; to anybody else it is a switch that would be refused.
+ */
+function drawGroupTenants(one) {
+  if (!isOrgAdministrator()) return "";
+  const admits = groupAdmitsKnown(one);
+
+  return `
+    <section class="gsform gsec tenantcard" aria-labelledby="gsTenants">
+      <h3 id="gsTenants">Other organizations</h3>
+      <label class="dangerswitch"><input type="checkbox" id="gsAdmits"${admits ? " checked" : ""}
+        aria-describedby="gsAdmitsHint">Admit members of other organizations</label>
+      <p class="hint" id="gsAdmitsHint">This is the only way members of another organization reach content here. In
+        this group they read what is shared into it, and nothing that is shared with the organization. It takes effect
+        the moment it is ticked.</p>
+      <p class="hint" id="gsAdmitsUnknown"${admits === undefined ? "" : " hidden"}>This server does not report whether
+        the group already admits them, so the switch shows neither. Ticking it turns admission on; clearing it turns it
+        off.</p>
+      <p class="hint" id="gsAdmitsSays" role="status" aria-live="polite"></p>
+    </section>`;
 }
 
 /** A group setting's value: a text field's text, or the chosen radio in a fieldset that carries the id. */
@@ -2093,7 +2124,21 @@ async function loadApps() {
 
 async function loadRoles() {
   const answer = await api("/admin/roles") || {};
-  const roles = answer.roles || [];
+  // <b>Read, not changed, by an organization's administrator — ADR-204 §5e.4.</b> Roles are the deployment's in this
+  // version and every write under `/admin/roles` is the system administrator's while there are several organizations,
+  // so to anybody else each role is drawn as the administrator's always was: its ticks shown, nothing to save.
+  const readOnly = systemOnlyHidden();
+  const roles = (answer.roles || []).map(r => readOnly ? { ...r, editable: false, removable: false } : r);
+  $("roleNew").hidden = readOnly;
+  // The page's own first line says every role can be changed, which is not true for this reader.
+  const rolesLede = document.querySelector("#view-roles .pagehead p:not(#rolesWhose)");
+  if (rolesLede) rolesLede.hidden = readOnly;
+  $("rolesWhose").hidden = !isMultiTenant();
+  $("rolesWhose").textContent = !isMultiTenant() ? ""
+    : readOnly
+      ? "Roles are the server's, the same in every organization on it, so only its system administrator changes them. "
+        + "Which role each of your members holds is yours, under Members."
+      : "Roles are the server's, the same in every organization on it: a change here changes what their members can do too.";
   const catalogue = answer.catalogue || [];
 
   if (!roles.some(r => r.name === roleOpen)) roleOpen = roles[0]?.name ?? null;
@@ -2152,7 +2197,9 @@ async function loadRoles() {
   $("roleEditorName").innerHTML = h(chosen.name);
   $("roleEditorSays").textContent = [
     chosen.description || "",
-    chosen.members
+    readOnly
+      ? (chosen.members ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"} here.` : "Held by nobody here.")
+      : chosen.members
       ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"}: saving changes what they can do, at their next request.`
       : "Held by nobody, so saving changes nothing yet.",
   ].filter(Boolean).join(" ");
@@ -2268,6 +2315,7 @@ async function loadRoles() {
 
   $("roleCompatibility").innerHTML = chosen.editable
     ? `<p class="hint" id="roleCompatibilityLine">${roleCompatibilityText(anyAdmin)}</p>`
+    : readOnly ? `<p class="hint">${roleCompatibilityText(anyAdmin)}</p>`
     : `<p class="hint"><b>This role cannot be edited or removed.</b> An administrator passes every
          privilege check whatever is ticked here, so the ticks are what it holds and not what limits it.
          To take administrative power from somebody, change their role.</p>`;
@@ -2420,6 +2468,11 @@ const SURFACES = {
     tabs: [
       ["services", "Services"],
       ["sources", "Site"],
+      // <b>Organizations — ADR-204 §5d, the system administrator's and nobody else's.</b> A function rather than a
+      // privilege list, because being the system administrator is a flag on the account, not a privilege a role grants:
+      // `whoami` says it, and an organization's own administrator holds every privilege and is still not it.
+      ["organizations", "Organizations", () => isSystemAdministrator()],
+      // Each organization's own logs (owner decision 2026-10-22); the server's process log among them is the system's.
       ["logs", "Logs"],
     ],
   },
@@ -2491,8 +2544,22 @@ const SUBPAGES = {
 const ORG_SETTINGS = [["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
   ["utilities", "Utility services"]];
 
-/** Whether this reader sees a tab: one with no third entry is everybody's, one with a list needs any of it. */
-const tabAllowed = ([, , needs]) => !needs || needs.some(may);
+/**
+ * Whether this reader sees a tab: one with no third entry is everybody's, one with a list needs any of it, and one with
+ * a function asks it (Organizations, ADR-204: a flag on the account rather than a privilege).
+ */
+/**
+ * The Server screens that are the machine's rather than an organization's — ADR-204 §5d: answered only to the system
+ * administrator while the server holds several organizations (`TenantRouting.SystemOnly`). An organization's own
+ * administrator keeps the rest of Server — its services, publishing and data sources — by owner decision 2026-10-22,
+ * *"Kiracıların kendi yöneticileri de serverlarına girebilecek"*.
+ */
+const SYSTEM_SCREENS = new Set(["organizations", "operations", "settings"]);
+
+/** Whether the system's screens are hidden from this reader: several organizations, and not the system administrator. */
+const systemOnlyHidden = () => !!whoNow?.organisation?.multiTenant && !whoNow?.systemAdministrator;
+
+const tabAllowed = ([, , needs]) => !needs || (typeof needs === "function" ? !!needs() : needs.some(may));
 
 /** Which sidebar row a subpage lights, from `SUBPAGES`. */
 const ROW_OF = Object.fromEntries(Object.entries(SUBPAGES)
@@ -2537,6 +2604,9 @@ const SCREEN_SURFACE = {
   // source addresses and paths — most of what somebody probing a deployment wants — so it
   // sits behind `admin:manageServer` with the rest of Server. ADR-045.
   logs: "server",
+
+  // ADR-204 §5d: the organizations this server holds, which only the system administrator manages.
+  organizations: "server",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
   // A screen absent from this table falls through to its surface's home, so `/server/group/planning`
@@ -2656,6 +2726,14 @@ function route() {
 
   const rest = path.replace(/^#\/?/, "").split("/").filter(Boolean)
     .map(decodeURIComponent);
+
+  // ADR-204 §5d: a system screen asked for by an organization's administrator is a navigation to their services, with
+  // the reason — the server would answer every request on it 403.
+  if (surface === "server" && systemOnlyHidden() && SYSTEM_SCREENS.has(rest[0])) {
+    toast("That page is the system administrator's while this server holds several organizations.");
+    navigateTo(surfaceHref("server", SURFACES.server.home), true);
+    return;
+  }
 
   // <b>A hash that names a surface is from earlier today</b>, when the surface lived in the
   // hash rather than the path: `#/server/services` becomes `/server/services`. Translated in
@@ -3093,7 +3171,8 @@ function drawSurfaces(surface) {
   // which view is on.
   const slots = { services: "pageAction", content: "pageActionContent" };
 
-  const markup = config.action
+  // A member of another organization makes nothing here (ADR-204 §5c), so Studio's New item is not offered to them.
+  const markup = config.action && !(surface === "studio" && isOutsider())
     ? `<button class="primary" id="${config.action.id}"><span class="plus"
          aria-hidden="true">+</span>${h(config.action.label)}</button>`
     : "";
@@ -3167,7 +3246,7 @@ function drawSubpages(screen) {
       .find(([name]) => name === row)?.[1] || row);
     view.prepend(strip);
   }
-  strip.innerHTML = SUBPAGES[row].map(([name, label]) =>
+  strip.innerHTML = SUBPAGES[row].filter(([name]) => !(systemOnlyHidden() && SYSTEM_SCREENS.has(name))).map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
 }
 
@@ -3193,7 +3272,8 @@ function drawOrgNav(view, screen) {
     side.setAttribute("aria-label", "Settings");
     strip.after(side);
   }
-  side.innerHTML = ORG_SETTINGS.map(([name, label]) =>
+  // Utility services holds only the geometry service, which is the server's while there are several organizations.
+  side.innerHTML = ORG_SETTINGS.filter(([name]) => !(name === "utilities" && systemOnlyHidden())).map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
 }
 
@@ -3241,6 +3321,7 @@ function openScreen(surface, screen, folder) {
     section("resources", drawStatusWidgets);
   }
   if (screen === "settings") section("settings", loadSettings);
+  if (screen === "organizations") section("organizations", loadTenants, "tnRows");
   if (screen === "orgsettings") section("settings", loadOrgSettings);
   if (screen === "utilities") section("settings", loadGeometryService);
   if (screen === "sources") section("data sources", loadSources, "sources");
@@ -3248,7 +3329,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "logs") {
     // `?source=server&q=name` is where a failing service's *Read its warnings* lands: that log, filtered to it.
     const asked = hashQuery.get("source");
-    if (asked && LOG_SOURCES.some(([key]) => key === asked)) {
+    if (asked && visibleLogSources().some(([key]) => key === asked)) {
       logSource = asked;
       logOwn = "";
       logCursor = null;
@@ -4281,6 +4362,9 @@ async function loadMyContent() {
   const button = $("newMap");
 
   if (button) {
+    // Not offered at all to a member of another organization, who can save nothing here; disabled for a member whose
+    // role cannot, as it always was.
+    button.hidden = isOutsider();
     button.disabled = maps.mayCreate === false;
     button.title = maps.mayCreate === false
       ? "Your role cannot create content, so it cannot save a map. You can still open maps shared with you."
@@ -4310,7 +4394,11 @@ function drawMyContent() {
   // renders its own note and its own rows, and the strip beside it showed no current tab at all —
   // which reads as a rendering fault rather than as *you are somewhere the strip does not list*.
   // Design review 2026-08-19.
+  // <b>A member of another organization owns nothing here and is shown none of its organization-wide content</b>
+  // (ADR-204 §5c), so *Mine* and *Organization* would be two tabs that always read 0.
   const scopes = CONTENT_SCOPES.filter(([key]) =>
+    !(isOutsider() && (key === "mine" || key === "organization")))
+    .filter(([key]) =>
     key === "all"
     || key !== "administrative"
     || (counts.administrative || 0) > 0
@@ -4427,7 +4515,11 @@ function drawMyContent() {
   //
   // <b>A first run names both ways in, as buttons</b> (ADR-079 condition 2's review, 2026-10-14): it named only
   // *New item*, as text, and the server's note above it said everything here belonged to somebody else.
-  $("contentRows").innerHTML = total === 0
+  $("contentRows").innerHTML = total === 0 && isOutsider()
+    ? `<tr><td colspan="4" class="empty">Nothing is shared with you here yet. What ${
+        h(whoNow?.organisation?.name || "this organization")}'s groups share with you, and what it shares with everyone,
+        appears here.</td></tr>`
+    : total === 0
     ? `<tr><td colspan="4" class="empty">${answer.note ? `${h(answer.note)} ` : "Nothing here yet. "}
          <button type="button" class="linkbtn" data-empty-new="newLayer">New item</button> publishes a layer from a
          file or a database; <button type="button" class="linkbtn" data-empty-new="newMap">New map</button> starts a
@@ -5560,6 +5652,7 @@ async function showService(qualified) {
   if ($("serviceStoppedNote")) { $("serviceStoppedNote").hidden = true; $("serviceStoppedNote").innerHTML = ""; }
   // The previous service's layers are not this one's; Server's General page read them until these arrived.
   serviceLayers = [];
+  serviceTables = [];
 
   // A different service, so the previous answer about tiles is somebody else's.
   visTiled = null;
@@ -5826,6 +5919,11 @@ async function showService(qualified) {
     // `drawServiceDetails`, which is where the item that holds all three arrives.
     serviceEntries = layers.length;
     serviceDoc = doc;
+    // ADR-213: the tables, set before the layers are drawn because everything that draws reads both.
+    serviceTables = (doc.tables || []).map(one => ({
+      ...one, type: "Table", isTable: true,
+      ...(one.catalogName && one.catalogName !== one.name ? { shown: one.name, name: one.catalogName } : {}),
+    }));
     drawServiceBounds(doc);
     drawServiceLayers(layers, qualified);
   } catch (e) {
@@ -6063,6 +6161,9 @@ function drawServiceTabs() {
     // Visualization and the new tab was left out, so a service with nothing drawable kept a tab
     // whose only content was a sentence saying there was nothing to draw. Two tabs under one
     // named rule applying it differently is the plainest way to look like two products.
+    // <b>A table has rows and nothing to draw (ADR-213)</b>, so it brings Data and not Visualization: a service of
+    // tables alone is an item with Overview, Data and Settings, as Portal's is.
+    if (key === "data" && serviceTables.length > 0) return true;
     if (key === "data" || key === "visualization" || key === "symbology") {
       // A service that is not answering still has layers; its tabs stay in their place, disabled, below.
       return serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"))
@@ -6153,12 +6254,19 @@ function writeItemAddress() {
   if (routeHash() !== next) history.replaceState(null, "", pathOf(next));
 }
 
-/** The layer the item is on: the one chosen, or the first that is not a group. */
-function itemLayerNow() {
+/**
+ * The layer the item is on: the one chosen, or the first that is not a group.
+ *
+ * <b>Per tab since tables (ADR-213).</b> Data reads a layer or a table; Visualization draws layers only, so a table
+ * chosen on Data is kept for Data and Visualization shows the layer it last drew, or the first.
+ */
+function itemLayerNow(tab = serviceTab) {
   const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
-  const chosen = dataLayerIndex ?? visLayerIndex;
-  if (chosen !== null && drawable.some(l => String(l.id) === String(chosen))) return String(chosen);
-  return drawable.length ? String(drawable[0].id ?? 0) : null;
+  const vis = tab === "visualization";
+  const rows = vis ? drawable : serviceDataEntries();
+  const chosen = vis ? (visLayerIndex ?? dataLayerIndex) : (dataLayerIndex ?? visLayerIndex);
+  if (chosen !== null && rows.some(l => String(l.id) === String(chosen))) return String(chosen);
+  return rows.length ? String(rows[0].id ?? 0) : null;
 }
 
 /** The item head's Layer select, shown on the tabs that are about one layer. */
@@ -6168,18 +6276,26 @@ function drawItemLayer() {
   if (!field || !select) return;
 
   const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
-  const shown = (serviceTab === "data" || serviceTab === "visualization") && drawable.length > 1;
+  // Data offers the tables under the layers; Visualization offers what it can draw (ADR-213).
+  const tables = serviceTab === "data" ? serviceTables : [];
+  const shown = (serviceTab === "data" || serviceTab === "visualization") && drawable.length + tables.length > 1;
 
   field.hidden = !shown;
   if (!shown) return;
 
+  // The label names what the list holds: "Layer", as Portal labels it with its tables in the list; a service of tables
+  // alone is choosing a table.
+  const label = field.firstChild;
+  if (label && label.nodeType === Node.TEXT_NODE) {
+    label.textContent = drawable.length === 0 ? "Table" : "Layer";
+  }
+
   const now = itemLayerNow();
-  select.innerHTML = drawable.map(l => `<option value="${h(String(l.id ?? 0))}"${
-    String(l.id) === now ? " selected" : ""}>${h(l.shown || l.name || `layer ${l.id}`)}</option>`).join("");
+  select.innerHTML = layerOptionsMarkup(drawable, tables, now);
 
   select.onchange = () => {
     dataLayerIndex = select.value;
-    visLayerIndex = select.value;
+    if (!serviceIsTableAt(select.value)) visLayerIndex = select.value;
     writeItemAddress();
     if (serviceTab === "data") drawServiceData();
     if (serviceTab === "visualization") drawServiceVis();
@@ -6193,8 +6309,11 @@ function showServiceTab(which) {
   serviceTab = which;
 
   // The layer is the item's, so both tabs start from the same one (ADR-102 step 1).
-  const layer = itemLayerNow();
-  if (layer !== null) { dataLayerIndex = layer; visLayerIndex = layer; }
+  const layer = itemLayerNow(which);
+  if (layer !== null) {
+    if (which !== "visualization") dataLayerIndex = layer;
+    if (!serviceIsTableAt(layer)) visLayerIndex = layer;
+  }
 
   for (const [key, id] of [["overview", "serviceOverview"], ["data", "serviceData"],
                            ["visualization", "serviceVis"],
@@ -6478,6 +6597,73 @@ async function fillLayerSymbologyStates(layers) {
 let serviceLayers = [];
 
 /**
+ * The open service's tables — ADR-213: rows with no geometry, the document's `tables` array, numbered with the layers.
+ *
+ * <b>Kept apart from `serviceLayers` rather than mixed into it</b>, as the server keeps `Layers` and `Tables` apart:
+ * forty-odd places on this page read `serviceLayers` to draw, tile or preview, and a table in any of them is a request
+ * that answers 400. The places that are about the data — Data, fields, history, editing, the layer lists, the delete
+ * sentence — read `serviceDataEntries()`, which holds both.
+ */
+let serviceTables = [];
+
+/** Whether an index of the open service is one of its tables. */
+const serviceIsTableAt = index => index !== null && index !== undefined
+  && serviceTables.some(t => String(t.id) === String(index));
+
+/** The open service's layers that hold data — not its groups — followed by its tables, in the service's numbering. */
+function serviceDataEntries() {
+  return [...serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group")), ...serviceTables];
+}
+
+/** The open service's layers (not groups) and tables, counted from its document; null until the document has arrived. */
+function serviceCounted() {
+  if (!serviceDoc || serviceOpenKind === "ImageServer") return null;
+  return {
+    layers: serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group")).length,
+    tables: serviceTables.length,
+  };
+}
+
+/** Whether the open service holds tables and nothing that draws — no map, no preview, no tiles (ADR-213 §5g). */
+const serviceTablesOnly = () => serviceCounted()?.layers === 0 && serviceCounted()?.tables > 0;
+
+/**
+ * Server › Capabilities for a service of tables alone (ADR-213 §5g): it offers no vector tiles whatever the box says,
+ * so the box and the grid are shown off and disabled, and the sentence under them says why. Disabled sends nothing,
+ * so saving the page does not change the stored choice for the day a layer joins the service.
+ */
+function capTilesFollowTables() {
+  const box = $("capTiles");
+  const hint = $("capTilesHint");
+  if (!box || !hint || !serviceTablesOnly()) return;
+  box.checked = false;
+  box.disabled = true;
+  if ($("capTileScheme")) $("capTileScheme").disabled = true;
+  hint.textContent = "Not for this service: it holds only tables, which have no geometry and are never drawn.";
+}
+
+/** "1 layer · 3 tables": a count in the two units a service holds, the second only when there is one. */
+function layersAndTablesSaid(layers, tables) {
+  const parts = [];
+  if (layers > 0 || tables === 0) parts.push(`${num(layers)} layer${layers === 1 ? "" : "s"}`);
+  if (tables > 0) parts.push(`${num(tables)} table${tables === 1 ? "" : "s"}`);
+  return parts.join(" · ");
+}
+
+/**
+ * A `<select>`'s options for layers and tables, the tables under their own heading as Portal lists them; a
+ * service with no layers lists its tables without the heading, which would then be a heading over everything.
+ */
+function layerOptionsMarkup(layers, tables, selected) {
+  const option = l => `<option value="${h(String(l.id ?? 0))}"${String(l.id) === String(selected) ? " selected" : ""}>${
+    h(l.shown || l.name || `layer ${l.id}`)}</option>`;
+  if (tables.length === 0) return layers.map(option).join("");
+  if (layers.length === 0) return tables.map(option).join("");
+  return `<optgroup label="Layers">${layers.map(option).join("")}</optgroup>`
+    + `<optgroup label="Tables">${tables.map(option).join("")}</optgroup>`;
+}
+
+/**
  * Whether the open service has a tile face — null until asked — [D-264](../../../docs/architecture-debt.md).
  *
  * <b>Asked of the server, like `offersTiles`' other caller.</b> The preview read the service's *folder*
@@ -6564,9 +6750,25 @@ function drawServiceLayers(layers, qualified) {
     if (!ordered.some(([had]) => had === one)) ordered.push([one, false]);
   }
 
-  box.innerHTML = ordered.length === 0
+  // <b>The tables under the layers, under their own heading (ADR-213)</b>, as Portal's item page lists them. The
+  // heading over the card says which of the two the service holds, so a service of tables alone does not say *Layers*.
+  const itemOf = qualified.split("/").map(encodeURIComponent).join("/");
+  const tableRows = serviceTables.map(table => `<tr>
+        <td class="lid">${num(table.id ?? 0)}</td>
+        <td class="lsw"><span class="rowicon tableicon">${icon("table")}</span></td>
+        <td class="name"><a href="#/service/${itemOf}?tab=data&layer=${table.id ?? 0}">${h(table.shown || table.name || "")}</a>
+          <div class="rowmeta">table · id ${num(table.id ?? 0)}</div></td>
+      </tr>`).join("");
+  $("serviceLayersHead").textContent = serviceTables.length === 0 ? "Layers"
+    : ordered.length === 0 ? "Tables" : "Layers and tables";
+
+  box.innerHTML = ordered.length === 0 && serviceTables.length === 0
     ? `<tr><td colspan="2" class="empty">This service holds no layers. A service can exist before its
          layers do, which is the order you need when the structure matters.</td></tr>`
+    : ordered.length === 0
+    ? `${tableRows}<tr><td colspan="3" class="empty tablesonly">${serviceTables.length === 1 ? "A table holds"
+         : "Tables hold"} rows without a location, so this service draws no map. Rows are read and edited on
+         <a href="#/service/${itemOf}?tab=data">Data</a>.</td></tr>`
     : ordered.map(([layer, nested]) => {
       const group = (layer.type || "").toLowerCase().includes("group");
       const geometry = GEOMETRY_NAMES[layer.geometryType]
@@ -6612,7 +6814,8 @@ function drawServiceLayers(layers, qualified) {
         -->
 
       </tr>`;
-    }).join("");
+    }).join("") + (tableRows
+      ? `<tr class="lsection"><th colspan="3" scope="rowgroup">Tables</th></tr>${tableRows}` : "");
 
   // <b>One request a layer, in order, and only for the layers that draw.</b> The same rule the
   // Symbology tab follows: a service of thirty layers must not open thirty requests as the first
@@ -6625,6 +6828,12 @@ function drawServiceLayers(layers, qualified) {
   // the sentence under Delete both depend on the answer, so both are drawn again when it lands.
   drawServiceDelete();
   drawServiceTabs();
+  capTilesFollowTables();
+  probeServiceTiles();
+  // Settings › General may have been drawn before the document said this service holds only tables.
+  if (serviceTablesOnly() && $("generalOgc") && serviceOpen && $("generalOgc").querySelector("[data-ogc-face]")) {
+    drawOgcSetting(serviceOpen.name, serviceOpen.folder);
+  }
 }
 
 /**
@@ -6745,11 +6954,13 @@ async function drawServiceDetails(qualified, knownKind) {
   // genuinely technical numbers. Setting `root` and `4` in mono dilutes the one place monospace still
   // means something on this page: the address. `.facts2` is the same content's own idiom one screen over
   // — the group page's Overview lists a standing, an owner, a date and two counts in it.
-  const manages = !item || item.manages !== false;
+  // `Utilities` is the reserved folder of the server's own services, whose sharing is the system administrator's while
+  // there are several organizations (ADR-204 §5d): one row for all of them.
+  const manages = (!item || item.manages !== false) && !(systemOnlyHidden() && /^Utilities\//i.test(qualified));
 
   const actions = $("itemActions");
   actions.innerHTML = `
-      ${item && item.status === "stopped" ? "" : `<a class="btn primary"
+      ${(item && item.status === "stopped") || serviceTablesOnly() ? "" : `<a class="btn primary"
         href="/studio/webmap.html?service=${encodeURIComponent(qualified)}">Open in Map Viewer</a>`}
       ${manages ? `<button type="button" data-share="${h(qualified)}">Share</button>` : ""}
 
@@ -6761,7 +6972,7 @@ async function drawServiceDetails(qualified, knownKind) {
       ${(() => {
         // <b>The main action, Share and Download stay in sight; the rest is one ⋯</b> (owner, 2026-10-17: the head
         // card was a wall of seven equal buttons). The menu is drawn only when it holds something.
-        const more = `      ${knownKind || !serviceLayers.some(l => !(l.type || "").toLowerCase().includes("group"))
+        const more = `      ${knownKind || serviceDataEntries().length === 0
         // Settings › Feature layer's *Export data* is Extract, and it is about others: the owner may always
         // take their own data away, as in Portal; anybody else only when the service offers Extract.
         || !(manages || String(serviceDoc?.capabilities || "").split(",").map(one => one.trim()).includes("Extract"))
@@ -6907,9 +7118,16 @@ async function drawServiceDetails(qualified, knownKind) {
       // administrative listing carries the answer and Studio's reader may not have it, so the
       // row is absent rather than guessed.
       ...(source ? [["Source", source]] : []),
-      ...(spatial ? [["Coordinates", spatial]] : []),
-      ...(kind === "ImageServer" ? [] : [["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
-        num(item.layers || serviceLayers.length || 0)}</span>`]]),
+      // A service of tables alone has no coordinates: the reference its document carries is a value nothing reads (ADR-213 §5c).
+      ...(spatial && !serviceTablesOnly() ? [["Coordinates", spatial]] : []),
+      // ADR-213: a table is counted as a table. The listing's `layers` counts both, so the document's split wins once
+      // it has arrived; a service of tables alone has no Layers row to say 0 in.
+      ...(kind === "ImageServer" || (serviceCounted()?.layers === 0 && serviceCounted()?.tables > 0) ? []
+        : [["Layers", `<span title="${num(serviceEntries)} entr${serviceEntries === 1 ? "y" : "ies"} in the service document, which counts a group layer and what is nested under it">${
+        num(serviceCounted()?.layers ?? (item.layers || serviceLayers.length || 0))}</span>`]]),
+      ...(kind !== "ImageServer" && serviceCounted()?.tables > 0
+        ? [["Tables", `<span title="Rows without a location, read and edited on Data and never drawn">${
+          num(serviceCounted().tables)}</span>`]] : []),
       // ADR-113: a view names its source, and a source its views — filled in below.
       ...(item.isView ? [["View of", `<span id="svcViewOf" class="val">…</span>`]] : []),
       ...(item.hasViews ? [["Views", `<span id="svcViews" class="val">…</span>`]] : []),
@@ -6985,7 +7203,8 @@ function drawServiceData() {
   const views = $("dataViews");
   if (!picker || !views) return;
 
-  const publishable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+  // A table is read here as a layer is (ADR-213): its rows, its fields, its history.
+  const publishable = serviceDataEntries();
 
   // <b>What the address asked for, if it asked, and the first drawable layer otherwise.</b> An
   // Overview row's *Data* button carries its own layer; without this the picker chose the first
@@ -6997,9 +7216,7 @@ function drawServiceData() {
 
   picker.innerHTML = publishable.length === 0
     ? `<option value="">this service holds no layers</option>`
-    : publishable.map(l =>
-        `<option value="${num(l.id ?? 0)}"${String(l.id) === wanted ? " selected" : ""}>${
-          h(l.shown || l.name || `layer ${l.id}`)}</option>`).join("");
+    : layerOptionsMarkup(publishable.filter(l => !l.isTable), serviceTables, wanted);
 
   picker.disabled = publishable.length === 0;
 
@@ -7009,7 +7226,7 @@ function drawServiceData() {
 
   picker.onchange = () => {
     dataLayerIndex = picker.value;
-    visLayerIndex = picker.value;
+    if (!serviceIsTableAt(picker.value)) visLayerIndex = picker.value;
     writeItemAddress();
     loadServiceData();
   };
@@ -7213,7 +7430,7 @@ async function loadServiceData() {
     const fields = document.fields || [];
 
     if (dataView === "history") {
-      const layerName = (serviceLayers.find(one => String(one.id) === String(index)) || {}).name || "";
+      const layerName = (serviceDataEntries().find(one => String(one.id) === String(index)) || {}).name || "";
       const described = { ...layerNamed(layerName), ...(content.get(layerName) || {}) };
 
       box.innerHTML = layerHistoryMarkup(described, layerName);
@@ -7238,7 +7455,7 @@ async function loadServiceData() {
 
       // <b>One Fields view — the layer's editor, then its columns to add or remove (ADR-102 step 9).</b> They
       // were two screens, this tab and the layer page's Fields, each with its own table of the same columns.
-      const layerName = (serviceLayers.find(one => String(one.id) === String(index)) || {}).name || "";
+      const layerName = (serviceDataEntries().find(one => String(one.id) === String(index)) || {}).name || "";
       const described = { ...layerNamed(layerName), ...(content.get(layerName) || {}) };
 
       box.innerHTML = `
@@ -7828,7 +8045,14 @@ function drawServiceHead(item) {
   // <b>One thumbnail — this card's, as Portal has it — and Redraw under it.</b> A second copy in Overview's right
   // column was the same picture twice, and at phone width it came before the description it repeats (design
   // review 2026-10-01). The cover is a layer's (ADR-071); Redraw is offered to whoever manages the item.
-  const coverId = /\/FeatureServer\/(\d+)$/.exec(item.cover?.url || "")?.[1];
+  let coverId = /\/FeatureServer\/(\d+)$/.exec(item.cover?.url || "")?.[1];
+  // <b>A table is never drawn (ADR-213 §5g)</b>, and the listing may still name one as the cover: the picture is then
+  // the first layer's, or none. Until the document says which entries are tables the picture waits rather than
+  // asking for one that answers 404 — a stopped or unreadable service is said below as before.
+  const drawableNow = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+  if (coverId !== undefined && serviceIsTableAt(coverId)) coverId = drawableNow[0] ? String(drawableNow[0].id ?? 0) : undefined;
+  const coverUrl = coverId === undefined ? null : `/rest/services/${item.name}/FeatureServer/${coverId}`;
+  const coverWaits = item.kind !== "ImageServer" && !serviceDoc && !serviceUnread;
   const coverLayer = coverId === undefined ? null : serviceLayers.find(one => String(one.id) === coverId);
 
   const imagery = item.kind === "ImageServer";
@@ -7841,9 +8065,14 @@ function drawServiceHead(item) {
         : imagery
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt=""
              data-thumb="${h(thumbnailFor(`/rest/services/${item.name}/ImageServer`))}&v=${Date.now()}"></div>`
-        : item.cover
+        : coverWaits && item.cover
+        ? `<div class="thumb empty" title="Reading the service"></div>`
+        : serviceTablesOnly()
+        ? `<div class="thumb empty" data-note="Tables only, nothing to draw"
+             title="This service holds tables: rows without a location, so there is no map to show."></div>`
+        : item.cover && coverUrl
         ? `<div class="thumbcol"><img class="thumb" id="layerThumb" alt="" loading="lazy"
-             data-thumb="${h(thumbnailFor(item.cover.url))}">${item.manages !== false && coverLayer ? `
+             data-thumb="${h(thumbnailFor(coverUrl))}">${item.manages !== false && coverLayer ? `
            <button type="button" class="tiny" data-redraw-thumb="${h(coverLayer.name || "")}"
              title="Drawn once and kept; redraw it after the data has changed">Redraw thumbnail</button>
            <p class="hint" id="thumbSays" role="status" aria-live="polite"></p>` : ""}</div>`
@@ -7878,7 +8107,9 @@ function drawServiceHead(item) {
   if (sub) {
     sub.textContent = [
       itemTypeName(item.kind) + (item.isView ? " (view)" : ""),
-      imagery ? "" : `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
+      imagery ? "" : serviceCounted()
+        ? layersAndTablesSaid(serviceCounted().layers, serviceCounted().tables)
+        : `${num(item.layers || 0)} layer${(item.layers || 0) === 1 ? "" : "s"}`,
       item.owner ? `owner ${item.owner}` : "",
     ].filter(Boolean).join(" · ");
   }
@@ -8152,6 +8383,21 @@ function drawServiceVis() {
   if (!picker || !modes) return;
 
   const drawable = serviceLayers.filter(l => !(l.type || "").toLowerCase().includes("group"));
+
+  // <b>The tables are named here and not offered (ADR-213)</b>: a table has no geometry, so a choice of it would be a
+  // map of nothing. The sentence says where its rows are instead of leaving a reader to wonder where it went.
+  const tablesNote = $("visTables");
+  if (tablesNote) {
+    const names = serviceTables.map(t => `<b>${h(t.shown || t.name || "")}</b>`);
+    const listed = names.length <= 1 ? names.join("")
+      : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+    const first = serviceTables[0];
+    tablesNote.hidden = serviceTables.length === 0;
+    tablesNote.innerHTML = serviceTables.length === 0 ? "" : `${listed} ${serviceTables.length === 1 ? "is a table" : "are tables"}:
+      rows without a location, so ${serviceTables.length === 1 ? "it is" : "they are"} not drawn. ${
+        serviceOpen && first ? `<a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${
+          first.id ?? 0}">Read ${serviceTables.length === 1 ? "its" : "their"} rows on Data</a>.` : ""}`;
+  }
 
   if (drawable.length === 0) {
     $("mapPanel").hidden = true;
@@ -8430,14 +8676,18 @@ function serviceDeleteTakes() {
 
   // Layers as the page head counts them — a group holds no table (design review 2026-10-01: *3 layers* above,
   // *unpublishes 4 layers* here).
-  const count = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
+  // ADR-213: a table goes with the service as a layer does, and is counted as what it is.
+  const layers = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).length;
+  const tables = serviceTables.length;
+  const count = layers + tables;
 
   // Hosted is the layers' own fact, not the folder's name — the one irreversible sentence on the page does not
   // rest on a guess Overview's details refuse to make. The folder is only the fallback before layers are read.
-  const hosted = serviceLayers.some(one => layerNamed(one.name || "").hosted)
-    || (!serviceLayers.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
+  const all = [...serviceLayers, ...serviceTables];
+  const hosted = all.some(one => layerNamed(one.name || "").hosted)
+    || (!all.some(one => layerNamed(one.name || "").url) && (serviceOpen?.folder || "") === "hosted");
 
-  return { count, hosted };
+  return { count, hosted, layers, tables };
 }
 
 /**
@@ -8472,7 +8722,10 @@ function drawServiceDelete() {
 
   if (surfaceOfPath() !== "studio") return;
 
-  const { count, hosted: hostedHere } = serviceDeleteTakes();
+  const { count, hosted: hostedHere, layers: layersHere, tables: tablesHere } = serviceDeleteTakes();
+  // "2 layers", "1 layer · 3 tables" read as "1 layer and 3 tables" in a sentence; the stopped page counts entries.
+  const what = layersHere === undefined ? `${num(count)} layer${count === 1 ? "" : "s"}`
+    : layersAndTablesSaid(layersHere, tablesHere).replace(" · ", " and ");
 
   // <b>What actually goes, per the owner's correction.</b> The old sentence said the tables are not
   // dropped, which was true of the server and wrong as a policy: *"servis hosted sa ve silindiyse,
@@ -8502,11 +8755,11 @@ function drawServiceDelete() {
     : count === 0
     ? `This service holds no layers, so deleting it removes the service and no data.`
     : hostedHere
-      ? `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b> and
-         <b>takes their tables out of the datastore</b>. Hosted data belongs to the service that holds it,
+      ? `Deleting this service unpublishes <b>${what}</b> and
+         <b>takes their data out of the datastore</b>. Hosted data belongs to the service that holds it,
          so it waits with the service in the recycle bin for 14 days, and is restored with it (ADR-203).`
-      : `Deleting this service unpublishes <b>${num(count)} layer${count === 1 ? "" : "s"}</b>. These
-         are registered layers: they point at a database that is not ours, so <b>no table is
+      : `Deleting this service unpublishes <b>${what}</b>. These
+         are registered: they point at a database that is not ours, so <b>no table is
          dropped</b> — the registration goes and the data stays exactly as it is.`;
 
   button.disabled = lock.checked || serviceStewardship?.manages === false;
@@ -8741,26 +8994,12 @@ async function drawFeatureFacts(name, folder) {
                  ["Extract", "Export data"]];
   const path = (folder ? `${folder}/` : "") + name;
 
-  box.innerHTML = `
-    <fieldset class="offered" ${st.manages ? "" : "disabled"}>
-      <legend>What clients may do</legend>
-      ${words.map(([op, label]) => `
-        <label class="check"><input type="checkbox" data-offer="${op}" ${offered(op) ? "checked" : ""}
-          ${allowed(op) ? "" : "disabled"}> ${h(label)}${allowed(op) ? ""
-          : ` <span class="rowmeta">— not allowed by the server administrator</span>`}</label>`).join("")}
-    </fieldset>
-    ${st.manages ? `<div class="row" style="margin-top:10px">
-      <button type="button" class="primary" id="offerSave">Save</button></div>` : ""}
-    <p class="hint" id="offerSays" role="status" aria-live="polite">Query is always offered. ${st.manages
-      ? "Adding, updating and deleting that you turn off are refused to every client, including ArcGIS Pro and "
-        + "Field Maps. Export data decides whether people other than you may take the layer away as a file here; "
-        + "you and administrators always may."
-      : "Only the item's owner or an administrator changes this."}</p>
-    <h4>Layers</h4>
-    <div id="featureLayers">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one => `
+  // One block a layer, and a table gets the same block (ADR-213) — editing, history, attachments and who edits are
+  // about its rows — less the title, which only WMS, WFS and OGC API Features show and none of them serves a table.
+  const featureBlocks = list => list.map(one => `
       <div class="layerblock">
-        <b id="layerName-${h(one.name || "")}">${h(one.name || "")}</b> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
-        ${st.manages ? layerTitleMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
+        <b id="layerName-${h(one.name || "")}">${h(one.name || "")}</b> <span class="rowmeta">${one.isTable ? "table · " : ""}id ${num(one.id ?? 0)}</span>
+        ${st.manages && !one.isTable ? layerTitleMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
         ${st.manages ? layerTimeMarkup({ ...layerNamed(one.name || ""), ...(content.get(one.name || "") || {}) }, one.name || "") : ""}
         ${st.manages && stewarded(layerNamed(one.name || "")) ? `
         ${layerNamed(one.name || "").hosted ? "" : `
@@ -8796,8 +9035,28 @@ async function drawFeatureFacts(name, folder) {
             aria-describedby="ownWhy-${h(one.name || "")}">
           Editors can only update and delete the features they add</label>
           <span class="rowmeta" id="ownWhy-${h(one.name || "")}" data-own-only-why="${h(one.name || "")}"></span></div>` : ""}
-      </div>`).join("")}</div>
-    ${st.manages ? `<p class="hint">A layer's <b>title</b> is what WMS, WFS and OGC API Features list it as. Left
+      </div>`).join("");
+
+  box.innerHTML = `
+    <fieldset class="offered" ${st.manages ? "" : "disabled"}>
+      <legend>What clients may do</legend>
+      ${words.map(([op, label]) => `
+        <label class="check"><input type="checkbox" data-offer="${op}" ${offered(op) ? "checked" : ""}
+          ${allowed(op) ? "" : "disabled"}> ${h(label)}${allowed(op) ? ""
+          : ` <span class="rowmeta">— not allowed by the server administrator</span>`}</label>`).join("")}
+    </fieldset>
+    ${st.manages ? `<div class="row" style="margin-top:10px">
+      <button type="button" class="primary" id="offerSave">Save</button></div>` : ""}
+    <p class="hint" id="offerSays" role="status" aria-live="polite">Query is always offered. ${st.manages
+      ? "Adding, updating and deleting that you turn off are refused to every client, including ArcGIS Pro and "
+        + "Field Maps. Export data decides whether people other than you may take the layer away as a file here; "
+        + "you and administrators always may."
+      : "Only the item's owner or an administrator changes this."}</p>
+    <h4>${serviceTables.length === 0 ? "Layers" : serviceLayers.some(one => !(one.type || "").toLowerCase().includes("group")) ? "Layers and tables" : "Tables"}</h4>
+    <div id="featureLayers">${featureBlocks(serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")))}${
+      serviceTables.length && serviceLayers.some(one => !(one.type || "").toLowerCase().includes("group"))
+        ? `<h5 class="tablesub">Tables</h5>` : ""}${featureBlocks(serviceTables)}</div>
+    ${st.manages && !serviceTablesOnly() ? `<p class="hint">A layer's <b>title</b> is what WMS, WFS and OGC API Features list it as. Left
       empty, they show its name. ArcGIS clients always show the name, because they use it to find the layer.</p>` : ""}
     ${st.manages ? `<p class="hint">A layer's <b>time column</b> is when each feature happened. Left empty, the server
       uses the layer's one date column, or publishes no time when it has none or several — name one when the table
@@ -8807,8 +9066,8 @@ async function drawFeatureFacts(name, folder) {
       creates a table beside it, named after it with __ATTACH as ArcGIS does, so the database's backups and other tools
       see them; it needs the right to create a table. <b>In Graticula's datastore</b> writes nothing to that database.
       Moving between the two is not offered: turning attachments off deletes the files.</p>` : ""}
-    ${st.manages ? `<details class="removelayer"><summary>Remove a layer…</summary>
-      <div class="row">${serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group")).map(one =>
+    ${st.manages ? `<details class="removelayer"><summary>${serviceTablesOnly() ? "Remove a table…" : "Remove a layer…"}</summary>
+      <div class="row">${serviceDataEntries().map(one =>
         `<button type="button" class="tiny danger" data-delete="${h(one.name || "")}">Remove ${h(one.name || "")}</button>`).join("")}</div>
     <p class="hint">Removing a layer unpublishes it; a hosted layer's table goes with it, a registered
       one stays where it is. It is refused while the item is protected from deletion (General).</p></details>` : ""}
@@ -8913,6 +9172,12 @@ function drawServiceSettings(name, folder) {
 
   box.hidden = false;
   section("capabilities", () => loadServiceCapabilities(name, folder));
+
+  // ADR-218: drawn at once from what was last read, so a tab switch does not flash *Reading…*, then read again.
+  if (surfaceOfPath() === "server" && mine.includes("limits")) {
+    drawServicePin();
+    section("whether it is kept warm", () => loadServicePin(name, folder));
+  }
   if (open === "imagery") drawCoverageDisplay(name, folder, null);
   if (open === "images") drawCoverageImages(name, folder);
   if (open === "classes") drawCoverageClasses(name, folder);
@@ -8990,7 +9255,10 @@ let serviceTileAsked = null;
  */
 function probeServiceTiles() {
   if (!serviceOpen || surfaceOfPath() !== "studio" || serviceTileAsked === serviceOpen.qualified
-    || serviceOpenKind === "ImageServer") return;
+    || serviceOpenKind === "ImageServer" || serviceTablesOnly()) return;
+  // Not before the document: a service of tables alone has no tile face and answers 400 (ADR-213 §5g), and only the
+  // document says which it is. `drawServiceLayers` asks again when it lands.
+  if (!serviceDoc) return;
   const asked = serviceOpen.qualified;
   serviceTileAsked = asked;
 
@@ -9876,6 +10144,27 @@ function serviceSettingsMarkup(name, folder) {
         The inherited values were placeholders, which look like values; a reader could not tell a page size typed here
         from the server's. The boxes are empty when nothing is set, and the line under each says which applies.
       -->
+      <!--
+        <b>Kept warm first, and with its own button — ADR-218.</b> It is Server Manager's *minimum instances*, which
+        sits on the Pooling page, and Parameters is where that page's settings went. It acts at once rather than with
+        Save, as Stop does: the server answers with a limit it may refuse, and a refusal named after somebody has
+        pressed Save for five other boxes is a refusal nobody connects to this one. Above the boxes, so the one
+        button that is not Save is never read as Save's neighbour. Filled by loadServicePin.
+      -->
+      <div id="servicePinBox" hidden>
+        <h4>Kept warm</h4>
+        <div class="pinrow">
+          <p class="pinstate" id="servicePinState">Reading whether it is kept warm…</p>
+          <button type="button" id="servicePinToggle" hidden aria-describedby="servicePinState">Keep warm</button>
+        </div>
+        <p class="hint" id="servicePinCount"></p>
+        <p class="hint" id="servicePinSays" role="status" aria-live="polite"></p>
+        <ul class="pinlist" id="servicePinFull" hidden aria-labelledby="servicePinSays"></ul>
+        <p class="hint">A service kept warm answers its first request after a quiet spell, or after a restart, as
+          fast as its hundredth: the server renews its table descriptions every 20 seconds and keeps a database
+          connection open for it. Otherwise that first request waits about 70 ms longer after five idle minutes. It
+          costs a connection, not a process. <span id="servicePinApplies">Applies at once; Save is not needed.</span></p>
+      </div>
       <p class="hint">Leave a box empty to follow the server. A value typed here applies to every layer in this
         service, and is held down to the server's own limit rather than refused.</p>
       <h4>Response</h4>
@@ -13465,10 +13754,16 @@ async function loadServiceLimits(name, folder) {
     + `<dt>Vertices per request</dt>`
     + fixed(num(limits.maximumVertices), "input size bounds the work, so a cap is the right limit here.");
 
-  $("limNote").textContent = "";
+  // <b>Read, not set, by anybody but the system administrator while there are several organizations — ADR-204 §5d.</b>
+  // A system service is one row for every organization, so its limits are the server's to change.
+  const theirs = systemOnlyHidden();
+  for (const id of ["limDeadline", "limWait", "limPreflight", "limIdle"]) $(id).disabled = theirs;
+  $("limNote").textContent = theirs
+    ? "These are the server's, used by every organization on it, so only its system administrator changes them."
+    : "";
 
-  $("limSave").hidden = false;
-  $("limClear").hidden = false;
+  $("limSave").hidden = theirs;
+  $("limClear").hidden = theirs;
   panel.hidden = false;
   return limits;
 }
@@ -15090,7 +15385,9 @@ const FAILING_MINUTES = 15;
 
 /** Reads the failures again unless they were read in the last 30 seconds; keeps the last answer if refused. */
 async function readServiceFailures(force = false) {
-  if (!may("admin:manageServer")) return serviceFailing;
+  // The counts come from `/admin/health/services`, the system's (ADR-204 §5d): not asked for by anybody else while the
+  // server holds several organizations, so no row says *failing* to them and nothing is refused on every screen.
+  if (!may("admin:manageServer") || systemOnlyHidden()) return serviceFailing;
   if (!force && Date.now() - serviceFailingAt < 30000) return serviceFailing;
   try {
     const r = await api(`/admin/health/services?minutes=${FAILING_MINUTES}&limit=1000`);
@@ -15155,7 +15452,8 @@ function drawServiceSummary(rows) {
     `<span class="dot ${stopped ? "degraded" : "unknown"}" aria-hidden="true"></span>${num(stopped)} stopped`,
     ...(refusing ? [`<span class="dot degraded" aria-hidden="true"></span>${num(refusing)} refusing`] : []),
   ].join(`<span class="sep" aria-hidden="true">·</span>`)
-    + ` <a href="#/operations">Server status</a>`;
+    // Site › Status is the system's while there are several organizations (ADR-204 §5d), so it is not linked for others.
+    + (systemOnlyHidden() ? "" : ` <a href="#/operations">Server status</a>`);
 }
 
 /**
@@ -15167,7 +15465,7 @@ function drawServiceSummary(rows) {
  */
 async function drawResourceWidget() {
   const widget = $("resourceWidget");
-  if (!widget || !may("admin:manageServer")) return;
+  if (!widget || !may("admin:manageServer") || systemOnlyHidden()) return;
 
   let health;
   try {
@@ -15534,7 +15832,11 @@ async function loadServices() {
       // and one quiet line of facts. The verbs are labelled buttons on the right (owner, 2026-10-17).
       const label = r.name;
       const stopVerb = stopped ? "Start" : "Stop";
-      const sharingFact = r.system
+      // <b>A system service is the server's, not an organization's — ADR-204 §5d.</b> `system_service` is one row for
+      // every organization, so its Stop and its sharing are the system administrator's while there are several; to
+      // anybody else the row is a fact with the reason, never a control that would stop it for everyone.
+      const theirs = r.system && systemOnlyHidden();
+      const sharingFact = theirs ? pill(r.sharing) : r.system
         ? `<select data-service-share="${h(r.name)}" aria-label="Who can reach ${h(label)}">${SCOPES.map(v =>
             `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
         : `<a href="${surfaceHref("studio",
@@ -15552,7 +15854,7 @@ async function loadServices() {
       // Delete was drawn on every row and disabled on every service that held a layer, with the reason in `title`,
       // which touch and keyboard never see. A verb is drawn when it can act; otherwise the row says, in text, what to
       // do instead and links to where it is done.
-      const stopControl = r.system || r.cover
+      const stopControl = theirs ? "" : r.system || r.cover
         ? `<button class="rowbtn" ${r.system
               ? `data-system-status="${h(r.name)}" data-system-folder="${h(r.folder || "")}"`
               : `data-service-status="${h(r.cover.name)}" data-service-qualified="${h(r.qualified || "")}"`}
@@ -15575,8 +15877,8 @@ async function loadServices() {
             <a href="${page}?tab=settings&amp;section=layers">Layers</a></p>` : "";
 
       return `<tr class="pick svcrow${failing ? " failing" : ""}" data-service="${h(r.qualified)}">
-        <td class="tick"><input type="checkbox" data-svc-pick="${h(r.qualified)}"${servicePicked.has(r.qualified) ? " checked" : ""}
-          aria-label="Select ${h(label)}"></td>
+        <td class="tick">${theirs ? "" : `<input type="checkbox" data-svc-pick="${h(r.qualified)}"${servicePicked.has(r.qualified) ? " checked" : ""}
+          aria-label="Select ${h(label)}">`}</td>
         <td class="thumbcell">${r.cover && !stopped
           ? `<img class="thumb" alt="" loading="lazy"
                data-thumb="${h(thumbnailFor(r.cover.url))}">`
@@ -15588,6 +15890,8 @@ async function loadServices() {
           ${r.description ? `<p class="svcdesc">${h(r.description)}</p>` : ""}
           <div class="svcmeta">${facts}</div>
           ${deleteWhy}
+          ${theirs ? `<p class="rowwhy">The server's own, used by every organization on it: its system administrator
+            starts, stops and shares it.</p>` : ""}
           ${failing ? `<p class="svcfail">${h(failingSays(failing))}
             <a href="${failingLogHref(r.qualified)}">Read its warnings</a></p>` : ""}
         </td>
@@ -18890,6 +19194,7 @@ async function loadServiceCapabilities(name, folderGiven) {
   if ($("capFeatures")) $("capFeatures").checked = c.servesFeatures !== false;
   if ($("capTiles") && !$("capTiles").disabled) $("capTiles").checked = c.servesTiles !== false;
   await loadTileScheme(service, folder);
+  capTilesFollowTables();
 
   // An unset ceiling is every operation the caller's privileges allow, so the boxes
   // start ticked and unticking one is the narrowing.
@@ -19225,7 +19530,8 @@ function serverAboutMarkup() {
   const groups = serviceLayers.length - drawable.length;
   const faces = serviceOpenKind === "ImageServer"
     ? [["Image service", "ImageServer"]]
-    : [["Feature access", "FeatureServer"], ["Map image", "MapServer"],
+    // A service of tables alone is listed under FeatureServer only — no map image to draw (ADR-213 §5g).
+    : [["Feature access", "FeatureServer"], ...(serviceTablesOnly() ? [] : [["Map image", "MapServer"]]),
        ...(tileLayerOf() ? [["Vector tiles", "VectorTileServer"]] : [])];
   const item = `/studio/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}`;
   return `
@@ -19236,6 +19542,8 @@ function serverAboutMarkup() {
       <dt>Kind</dt><dd>${serviceOpenKind === "ImageServer" ? "Image service" : "Feature service"}</dd>
       ${serviceOpenKind === "ImageServer" ? "" : `<dt>Layers</dt><dd>${num(drawable.length)}${
         groups ? ` · ${num(groups)} group${groups === 1 ? "" : "s"}` : ""}</dd>`}
+      ${serviceOpenKind !== "ImageServer" && serviceTables.length
+        ? `<dt>Tables</dt><dd>${num(serviceTables.length)}</dd>` : ""}
       <dt>Item</dt><dd><a href="${h(item)}">Open the item in Studio</a> — sharing, style and fields are set there</dd>
     </dl>
     <h4>Addresses</h4>
@@ -19321,17 +19629,28 @@ function drawServerHero() {
   const status = (row || system).status;
   const stopped = status === "stopped";
   const failing = row ? failingOf({ ...row, qualified }) : failingOf({ ...system, qualified });
-  const cover = row?.cover ? `/rest/services/${row.qualified}/FeatureServer/${row.cover.layerIndex}` : null;
+  // ADR-213: the listing may name a table as the cover, and a table is never drawn — the first layer's picture, or none;
+  // and none is asked for until the service's document has said which entries are tables.
+  const firstDrawn = serviceLayers.find(l => !(l.type || "").toLowerCase().includes("group"));
+  const coverIndex = row?.cover && serviceIsTableAt(row.cover.layerIndex) ? firstDrawn?.id : row?.cover?.layerIndex;
+  const cover = row?.cover && coverIndex !== undefined && coverIndex !== null
+    ? `/rest/services/${row.qualified}/FeatureServer/${coverIndex}` : null;
+  const coverWaits = kind === "FeatureServer" && !serviceDoc && !serviceUnread;
 
   // <b>No picture is fetched for a stopped service</b> (finding 8): it answers 503, and the grey box said nothing.
   const picture = system ? ""
     : `<div class="herothumb">${stopped ? `<div class="thumb empty">Stopped</div>`
       : kind === "ImageServer"
         ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(`/rest/services/${row.qualified}/ImageServer`))}">`
+        : coverWaits ? `<div class="thumb empty" title="Reading the service"></div>`
+        : serviceTablesOnly() ? `<div class="thumb empty" data-note="Tables only, nothing to draw"
+            title="This service holds tables: rows without a location, so there is no map to show."></div>`
         : cover ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(cover))}">`
         : `<div class="thumb empty">No layer to draw</div>`}</div>`;
 
-  const toggle = system
+  // A system service is started and stopped for every organization at once: the system administrator's (ADR-204 §5d).
+  const toggle = system && systemOnlyHidden() ? ""
+    : system
     ? `<button type="button" class="${stopped ? "primary" : ""}" data-system-status="${h(system.name)}"
         data-system-folder="${h(system.folder || "")}" data-to="${stopped ? "start" : "stop"}"
         >${glyph(stopped ? "play" : "stop")} ${stopped ? "Start service" : "Stop service"}</button>`
@@ -19346,7 +19665,8 @@ function drawServerHero() {
     <div class="herotext">
       <h2>${wrapName(system ? system.name : row.name)}</h2>
       <p>${words[kind] || kind}${(row?.folder || system?.folder) ? ` in ${h(row?.folder || system?.folder)}` : ""}
-        ${pill(failing ? "failing" : status)}${row ? refusingSays(row.refusing) : ""}${system ? ` <span class="rowmeta">no layers</span>` : ""}</p>
+        ${pill(failing ? "failing" : status)}${row ? refusingSays(row.refusing) : ""}${system ? ` <span class="rowmeta">no layers</span>` : ""}<span
+          id="heroPin">${row ? servicePinPill(qualified) : ""}</span></p>
       ${failing ? `<p class="herofail">${h(failingSays(failing))} <a href="${failingLogHref(qualified)}">Read its warnings</a></p>` : ""}
       <div class="urlrow">
         <span class="key" id="heroUrlKey">Service URL</span>
@@ -19391,24 +19711,208 @@ function drawStoppedNote(stoppedAnyway = false) {
     Its settings can still be changed.</p>${startHere}`;
 }
 
+/**
+ * Whether the open service is kept warm — ADR-218 — as the server last said: `{ qualified, name, folder, pinned,
+ * warmedAt, pinnedOnServer, limit }`, or null before it has been read. One per page, replaced on every answer.
+ */
+let servicePin = null;
+
+/** The timer that reads the pin again while Parameters is showing, so *renewed 12 seconds ago* does not freeze. */
+let servicePinTimer = null;
+
+/** The quiet badge the head card carries for a service kept warm, so the fact is on every tab, not only Parameters. */
+function servicePinPill(qualified) {
+  return servicePin?.qualified === qualified && servicePin.pinned
+    ? `<span class="pill p-pinned" title="Kept warm: its first request after a quiet spell answers like its hundredth"
+        >Kept warm</span>` : "";
+}
+
+/** How long ago the server renewed a pinned service, as a person says it; the exact time is in the title. */
+function servicePinAgo(iso) {
+  const at = new Date(iso);
+  const seconds = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
+  const words = seconds < 5 ? "just now"
+    : seconds < 90 ? `${seconds} seconds ago`
+    : seconds < 5400 ? `${Math.round(seconds / 60)} minutes ago`
+    : `${Math.round(seconds / 3600)} hours ago`;
+  return `<time datetime="${h(iso)}" title="${h(HISTORY_TIME_FULL.format(at))}">${h(words)}</time>`;
+}
+
+/**
+ * Reads the open service's pin and draws it — the Parameters section and the head card's badge.
+ *
+ * <b>Asked on every Server service page, whichever tab is open</b>, because the head card's badge is on all of them.
+ * Not for a system service, which has no tables to keep warm and never reaches `drawServiceSettings`.
+ */
+async function loadServicePin(name, folder) {
+  clearTimeout(servicePinTimer);
+  if (surfaceOfPath() !== "server" || !serviceOpen) return;
+  const qualified = serviceOpen.qualified;
+
+  let answer;
+  try {
+    answer = await api(`/admin/services/${encodeURIComponent(name)}/pinned?folder=${encodeURIComponent(folder || "")}`);
+  } catch (e) {
+    if (serviceOpen?.qualified !== qualified) return;
+    servicePin = null;
+    drawServicePin(`Could not read whether it is kept warm: ${e.message}`);
+    return;
+  }
+
+  if (serviceOpen?.qualified !== qualified) return;
+  servicePin = { ...answer, qualified };
+  drawServicePin();
+
+  // Again while the section is on screen: every 20 s, the warmer's own round, and sooner while the first is awaited.
+  const showing = () => serviceOpen?.qualified === qualified && $("page-limits")?.classList.contains("on");
+  if (showing()) {
+    servicePinTimer = setTimeout(() => { if (showing()) loadServicePin(name, folder); },
+      servicePin.pinned && !servicePin.warmedAt ? 4000 : 20000);
+  }
+}
+
+/**
+ * Draws what `servicePin` holds into the section and the badge. <b>Changes text and attributes in place and never
+ * replaces the button</b>, so a reader who pressed it keeps focus on it — redrawing a control under the reader's
+ * focus is the fault this console's new screens have shipped with every time.
+ */
+function drawServicePin(failed = null) {
+  const box = $("servicePinBox");
+  const hero = $("heroPin");
+  if (hero && serviceOpen) hero.innerHTML = servicePinPill(serviceOpen.qualified);
+  if (!box) return;
+
+  // Not on an image service: its Parameters page is not offered, and it has no tables to describe.
+  box.hidden = serviceOpenKind === "ImageServer";
+
+  const state = $("servicePinState");
+  const button = $("servicePinToggle");
+  const count = $("servicePinCount");
+  // A pin read for the service opened before this one is not this one's.
+  const p = servicePin?.qualified === serviceOpen?.qualified ? servicePin : null;
+
+  if (failed || !p) {
+    state.textContent = failed || "Reading whether it is kept warm…";
+    button.hidden = true;
+    count.textContent = "";
+    return;
+  }
+
+  const row = SERVICE_ROWS.find(s => s.qualified === p.qualified);
+  const stopped = row?.status === "stopped";
+  // Three missed rounds: the warmer is renewing it every 20 s, so a minute without one means it could not.
+  const late = p.warmedAt && Date.now() - new Date(p.warmedAt).getTime() > 60000;
+
+  state.innerHTML = !p.pinned
+    ? `<b>Not kept warm.</b>`
+    : stopped
+    ? `<b>Kept warm</b> once it is started. A stopped service is not renewed.`
+    : !p.warmedAt
+    ? `<b>Kept warm.</b> The server renews it within a few seconds.`
+    : late
+    ? `<b>Kept warm, but last renewed ${servicePinAgo(p.warmedAt)}.</b> The server could not reach one of its
+        tables since; <a href="${failingLogHref(p.qualified)}">read its warnings</a>.`
+    : `<b>Kept warm.</b> Last renewed ${servicePinAgo(p.warmedAt)}.`;
+
+  const others = p.pinnedOnServer - (p.pinned ? 1 : 0);
+  count.textContent = `${num(p.pinnedOnServer)} of ${num(p.limit)} services on this server are kept warm`
+    + (p.pinned && others > 0 ? `, this one and ${num(others)} other${others === 1 ? "" : "s"}.`
+      : p.pinned ? ", this one alone." : ".");
+
+  // Changing it spends the server's capacity, so it is the server administrator's (ADR-218 §5.3). Anybody else who
+  // manages the service is told the state and who sets it, with no control that would only be refused.
+  const mayChange = may("admin:manageServer");
+  button.hidden = !mayChange;
+  button.textContent = p.pinned ? "Stop keeping warm" : "Keep warm";
+  const applies = $("servicePinApplies");
+  if (applies) applies.textContent = mayChange ? "Applies at once; Save is not needed." : "Set by a server administrator.";
+}
+
+/** Keeps the open service warm, or stops, from the Parameters section's button. */
+async function setServicePin(button) {
+  const p = servicePin;
+  if (!p || !serviceOpen || button.getAttribute("aria-busy") === "true") return;
+
+  const says = $("servicePinSays");
+  const full = $("servicePinFull");
+  const want = !p.pinned;
+  const qualified = p.qualified;
+  says.textContent = "";
+  full.hidden = true;
+  full.innerHTML = "";
+
+  // Busy rather than disabled: a disabled button gives its focus back to the page, and the reader who pressed it
+  // would be left at the top of the document.
+  button.setAttribute("aria-busy", "true");
+  button.textContent = want ? "Keeping warm…" : "Stopping…";
+
+  try {
+    const answer = await api(
+      `/admin/services/${encodeURIComponent(serviceOpen.name)}/pinned?folder=${encodeURIComponent(serviceOpen.folder || "")}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: want }),
+      });
+    if (serviceOpen?.qualified !== qualified) return;
+    servicePin = { ...answer, qualified };
+    drawServicePin();
+    says.textContent = answer.pinned
+      ? `${qualified} is kept warm from now on.`
+      : `${qualified} is no longer kept warm; it cools after a quiet spell like any other.`;
+    loadServicePin(serviceOpen.name, serviceOpen.folder);
+  } catch (e) {
+    if (serviceOpen?.qualified !== qualified) return;
+    drawServicePin();
+
+    if (e.status === 409) {
+      // <b>The limit, and which services hold it</b> — ADR-007 §4.12: the administrator is told which, so the next
+      // step is a choice between named services rather than a hunt for them.
+      // Only this organization's names come back (ADR-204); a refusal means every place is taken, so the count is the
+      // limit, and what the list lacks is another organization's.
+      const pinned = e.details || [];
+      const limit = servicePin?.limit || pinned.length;
+      const elsewhere = Math.max(0, limit - pinned.length);
+      // The count beside the button was read before somebody else filled the last place; the refusal is newer.
+      if (servicePin?.qualified === qualified && !/^Your organization/.test(e.message || "")) {
+        servicePin = { ...servicePin, pinnedOnServer: limit }; drawServicePin();
+      }
+      // Refused by the organization's share rather than the server's limit: the server's own sentence says which.
+      says.textContent = /^Your organization/.test(e.message || "") ? e.message
+        : `The server already keeps ${num(limit)} services warm, which is its limit`
+          + (elsewhere ? `, ${num(elsewhere)} of them another organization's` : "")
+          + (pinned.length ? ". Stop keeping one of these warm first, or raise Graticula:PinnedServiceLimit:"
+            : ". Raise Graticula:PinnedServiceLimit, or ask the server's administrator.");
+      full.innerHTML = pinned.map(one => `<li><a href="#/service/${one.split("/").map(encodeURIComponent).join("/")
+        }?section=limits">${h(one)}</a></li>`).join("");
+      full.hidden = pinned.length === 0;
+    } else {
+      says.textContent = e.message;
+    }
+  } finally {
+    button.removeAttribute("aria-busy");
+  }
+}
+
+document.addEventListener("click", event => {
+  const button = event.target instanceof Element ? event.target.closest("#servicePinToggle") : null;
+  if (button) setServicePin(button);
+});
+
 function serverLayersMarkup() {
   const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
   const groups = serviceLayers.filter(one => (one.type || "").toLowerCase().includes("group"));
-  if (drawable.length === 0) return `<p class="hint">This service holds no layers.</p>`;
+  if (drawable.length === 0 && serviceTables.length === 0) return `<p class="hint">This service holds no layers.</p>`;
 
   const item = serviceOpen
     ? `/studio/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}` : null;
 
   // <b>The facts every layer shares are said once</b> (UX sweep 2026-10-19, finding 21): each block repeated its
   // owner and the service's own addresses, which General already lists. A block keeps what is the layer's own.
-  const owners = [...new Set(drawable.map(one => layerNamed(one.name || "").owner).filter(Boolean))];
+  const owners = [...new Set([...drawable, ...serviceTables].map(one => layerNamed(one.name || "").owner).filter(Boolean))];
 
-  return `
-    <p class="hint">What the server knows about each layer${owners.length === 1 ? `, all owned by ${h(owners[0])}` : ""}.
-      Its fields, style, time column and visible range are the publisher's, set in
-      ${item ? `<a href="${h(item)}">the item in Studio</a>` : "the item in Studio"}. The service's own addresses are
-      on General.</p>
-    ${drawable.map(one => {
+  // ADR-213: a table is listed as a layer is — its source, its address, re-reading its columns — under its own
+  // heading, and without what needs a geometry: no map to show it on, no extent to re-read.
+  const block = (one, table) => {
       const name = one.name || "";
       const l = layerNamed(name);
       const place = placeOf(name);
@@ -19416,11 +19920,11 @@ function serverLayersMarkup() {
       return `
       <div class="srvlayer" id="srvLayer-${h(String(one.id ?? 0))}" tabindex="-1">
         <div class="row">
-          <h4>${h(name)}</h4> <span class="rowmeta">id ${num(one.id ?? 0)}</span>
+          <h4>${h(name)}</h4> <span class="rowmeta">${table ? "table · " : ""}id ${num(one.id ?? 0)}</span>
           ${pill(l.hosted ? "hosted" : "registered")}
           <span style="flex:1"></span>
-          <button type="button" class="tiny" data-show="${h(name)}">Show on map</button>
-          <button type="button" class="tiny" data-refresh="${h(name)}">Re-read columns and extent</button>
+          ${table ? "" : `<button type="button" class="tiny" data-show="${h(name)}">Show on map</button>`}
+          <button type="button" class="tiny" data-refresh="${h(name)}">${table ? "Re-read columns" : "Re-read columns and extent"}</button>
         </div>
         <dl class="facts2">
           <dt>Source table</dt><dd><code>${h(l.table || "—")}</code></dd>
@@ -19432,7 +19936,19 @@ function serverLayersMarkup() {
             : "Not in the services directory while the service is stopped."}</dd>
         </dl>
       </div>`;
-    }).join("")}
+  };
+
+  const what = drawable.length === 0 ? "table" : serviceTables.length ? "layer and table" : "layer";
+  return `
+    <p class="hint">What the server knows about each ${what}${owners.length === 1 ? `, all owned by ${h(owners[0])}` : ""}.
+      ${drawable.length === 0 ? "Its fields and editing are" : "Its fields, style, time column and visible range are"} the publisher's, set in
+      ${item ? `<a href="${h(item)}">the item in Studio</a>` : "the item in Studio"}. The service's own addresses are
+      on General.</p>
+    ${drawable.map(one => block(one, false)).join("")}
+    ${serviceTables.length ? `<h3 class="srvtables">Tables</h3>
+      <p class="hint">Rows without a location, numbered with the layers. A table is queried and edited like a layer and is
+        never drawn.</p>
+      ${serviceTables.map(one => block(one, true)).join("")}` : ""}
     ${groups.length ? `<p class="hint srvgroups"><b>Group layer${groups.length === 1 ? "" : "s"}:</b> ${groups.map(g =>
       `${h(g.name || "")} <span style="color: var(--muted)">id ${num(g.id ?? 0)}${Array.isArray(g.subLayerIds)
         ? `, holding ${num(g.subLayerIds.length)} layer${g.subLayerIds.length === 1 ? "" : "s"}` : ""}</span>`).join("; ")}.
@@ -19604,6 +20120,59 @@ function pubLayers() {
   return out;
 }
 
+/**
+ * The entries of the composition that draw: every layer, and none of its tables (ADR-213).
+ *
+ * <b>Asked separately from {@link pubLayers} because the two questions are different.</b> A name has to be
+ * unique across both, and the Publish button counts both; the preview, the extent, *Zoom to* and the
+ * reprojection sentence are about what has a location, which a table does not.
+ *
+ * @returns {object[]} the layers, groups flattened, in draw order
+ */
+function pubDrawable() {
+  return pubLayers().filter(n => n.kind !== "table");
+}
+
+/**
+ * What the composition will publish, counted in the words the Publish button uses.
+ *
+ * @returns {string} for example `2 layers and 1 table`
+ */
+function pubCountSays() {
+  const all = pubLayers();
+  const tables = all.filter(n => n.kind === "table").length;
+  const layers = all.length - tables;
+  const said = [
+    layers || !tables ? `${num(layers)} layer${layers === 1 ? "" : "s"}` : "",
+    tables ? `${num(tables)} table${tables === 1 ? "" : "s"}` : "",
+  ].filter(Boolean);
+
+  return said.join(" and ");
+}
+
+/**
+ * The composition as `POST /admin/publish` and its preview and extent take it.
+ *
+ * <b>Written once, because it was written three times.</b> Publishing, drawing and zooming each mapped the
+ * tree into nodes in their own copy, which is D-46's shape; a table is the first entry the three must treat
+ * alike, so the copies became one before it arrived.
+ *
+ * <b>Tables after the layers, in the order the Contents shows them</b> — the service numbers both in one
+ * sequence, so the order sent is the numbering a client will address. <b>Left out where nothing draws</b>
+ * (`drawing`): the preview and the extent read only layers, and sending a table to them would only make
+ * renaming one redraw the picture.
+ *
+ * @param {boolean} drawing whether this is for the picture rather than for the publish
+ * @returns {object[]} the nodes
+ */
+function pubNodesWire(drawing) {
+  return pubTree
+    .filter(node => !(drawing && node.kind === "table"))
+    .map(node => node.kind === "group"
+      ? { group: node.name, layers: node.children.map(pubWire) }
+      : { layer: pubWire(node) });
+}
+
 /** A node, the list holding it, and where in that list it sits. */
 function pubFind(id) {
   for (let i = 0; i < pubTree.length; i++) {
@@ -19630,9 +20199,18 @@ function pubDetach(id) {
   return found.node;
 }
 
-/** A group with nothing in it is not a group. */
+/**
+ * A group with nothing in it is not a group — and the tables go after the layers.
+ *
+ * <b>Kept in order here rather than by every gesture that can move a node.</b> ArcGIS lists a service's
+ * tables after its layers and numbers them on from the last layer (ADR-213 §5b), and Pro's contents pane
+ * puts *Standalone Tables* under the map's layers; a table dragged above a layer would otherwise publish
+ * with an index the Contents did not show. The partition is stable, so the order inside each half is the
+ * operator's.
+ */
 function pubTidy() {
   pubTree = pubTree.filter(n => n.kind !== "group" || n.children.length > 0);
+  pubTree = [...pubTree.filter(n => n.kind !== "table"), ...pubTree.filter(n => n.kind === "table")];
 }
 
 /**
@@ -19662,6 +20240,9 @@ async function loadPublish() {
       id: d.id,
       name: d.name,
       summary: d.summary,
+
+      // Only a PostGIS source publishes a table (ADR-213 §5e); the row says so before the server would.
+      kind: d.kind,
       open: false,
       schemas: null,
       why: null,
@@ -20085,15 +20666,20 @@ async function pubShoot(force) {
     says.hidden = !why;
   };
 
-  const layers = pubLayers();
+  const layers = pubDrawable();
 
   if (!layers.length) {
     // <b>The ground, and nothing said over it.</b> An empty map is a map; a sentence explaining
     // that there is nothing to draw is a sentence explaining what the reader can see.
+    //
+    // <b>Except when the composition is not empty.</b> Tables alone draw nothing (ADR-213 §5g), and a bare
+    // map beside three entries in Contents reads as a preview that failed — so that case is said.
     pubShotOf = "";
     image.hidden = true;
     pubShotLayer?.setSource(null);
-    note("");
+    note(pubLayers().length
+      ? "Tables have no location, so there is nothing to draw. Add a layer to see it here."
+      : "");
     $("pubDrawSays").textContent = "";
     return;
   }
@@ -20105,9 +20691,7 @@ async function pubShoot(force) {
   // panning decides, and this never happens again.
   const at = pubFramed ? pubMapExtent() : null;
 
-  const nodes = pubTree.map(node => node.kind === "group"
-    ? { group: node.name, layers: node.children.map(pubWire) }
-    : { layer: pubWire(node) });
+  const nodes = pubNodesWire(true);
 
   const body = JSON.stringify({ name: pubServiceName || "preview",
     srid: pubServedSrid() || null, nodes });
@@ -20402,6 +20986,40 @@ async function pubProbe(db) {
   }
 }
 
+/**
+ * Why a database table cannot be composed, or null when it can.
+ *
+ * <b>One answer for the row, the click and the drag</b>, so the sentence under a dimmed row and the gesture
+ * that refuses it cannot disagree.
+ *
+ * <b>A table without geometry is composable since ADR-213</b> — as a table, from a PostGIS source, when it
+ * has an object id. Another engine's source reads a geometry column on every request, so the server refuses
+ * one there (§5e) and the row says so first.
+ *
+ * @param {object} db the database the table is in
+ * @param {object} t the table, as the capability read reports it
+ * @returns {?string} the reason, or null
+ */
+function pubWhyNot(db, t) {
+  if (t.why) return t.why;
+
+  // The kinds whose readers serve a table — AdminEndpoints.TablesServedBy, which refuses the rest with a sentence.
+  if (!t.geometryColumn && db?.kind
+      && !["postgis", "sqlserver", "mysql", "oracle", "geoparquet", "geoparquet-remote", "duckdb", "motherduck"].includes(db.kind)) {
+    return "No geometry column, and a table without one is published from PostGIS, SQL Server, MySQL, Oracle or DuckDB.";
+  }
+
+  // The same sentence for a layer and a table: the row's glyph already says which it would have been.
+  if (!t.objectIdColumn) return "No integer column this server can use as an ArcGIS object id.";
+
+  return null;
+}
+
+/** Whether a database table can be composed, as a layer or as a table. */
+function pubCanCompose(db, t) {
+  return pubWhyNot(db, t) === null;
+}
+
 /** Adds a table to the composition, if it can be. */
 function pubAdd(dbId, schema, table) {
   const db = pubDatabases.find(d => d.id === dbId);
@@ -20409,7 +21027,7 @@ function pubAdd(dbId, schema, table) {
     ?.find(s => s.name === schema)?.tables
     ?.find(t => t.tableName === table);
 
-  if (!found || !found.objectIdColumn || !found.geometryColumn) return;
+  if (!found || !pubCanCompose(db, found)) return;
 
   // <b>Once per composition, and said rather than ignored.</b> A table may be in as many
   // services as anybody likes since migration 40, and still only once inside one of them —
@@ -20417,6 +21035,28 @@ function pubAdd(dbId, schema, table) {
   // is indistinguishable from a drag that missed.
   if (found.used) {
     toast(`${found.tableName} is already in this composition.`);
+    return;
+  }
+
+  // <b>A table without a geometry column arrives as a table (ADR-213)</b>, at the end of the Tables
+  // section rather than on top: it is not drawn, so *on top* means nothing for it, and the Contents
+  // lists tables after the layers as the service will.
+  if (!found.geometryColumn) {
+    pubTree.push({
+      kind: "table",
+      id: `T${++pubSeq}`,
+      name: pubFreeName(found.tableName),
+      source: dbId,
+      sourceName: db.name,
+      schema: found.schemaName,
+      table: found.tableName,
+      identity: found.objectIdColumn,
+    });
+
+    found.used = true;
+    pubPicked = new Set();
+    pubTidy();
+    pubDraw();
     return;
   }
 
@@ -20626,14 +21266,18 @@ function pubRename(id) {
     one service may not share a name — the server refuses `layer_name_unique_in_service` — and
     saying so as somebody types is the same information at the moment it is useful.
   */
+  const what = found.node.kind === "group" ? "group" : found.node.kind === "table" ? "table" : "layer";
+
   askName({
-    title: found.node.kind === "group" ? "Rename group" : "Rename layer",
-    label: found.node.kind === "group" ? "Group name" : "Layer name",
+    title: `Rename ${what}`,
+    label: `${what[0].toUpperCase()}${what.slice(1)} name`,
     value: found.node.name,
-    check: wanted => found.node.kind === "layer"
+
+    // A table's name shares the service's one namespace with its layers' (layer_name_unique_in_service).
+    check: wanted => found.node.kind !== "group"
       && pubLayers().some(l =>
         l.id !== id && l.name.toLowerCase() === wanted.toLowerCase())
-      ? `Another layer in this service is already called ${wanted}.`
+      ? `Another layer or table in this service is already called ${wanted}.`
       : null,
     then: wanted => {
       found.node.name = wanted;
@@ -20644,6 +21288,13 @@ function pubRename(id) {
 
 /** Puts a layer back: it stops being in the composition and becomes draggable again. */
 function pubRemove(id) {
+  // <b>Where the cursor goes when the row holding it is removed.</b> The redraw cannot put it back on a row
+  // that no longer exists, so it fell to `<body>` and the next Tab started from the top of the page. It goes to
+  // the row that took this one's place, or the one above, or the map's own button when the list is empty.
+  const rows = pubRows().map(n => n.id);
+  const at = rows.indexOf(id);
+  const hadFocus = Boolean(document.activeElement?.closest?.(`[data-pubnode="${CSS.escape(id)}"]`));
+
   const gone = pubDetach(id);
 
   if (!gone) return;
@@ -20662,11 +21313,19 @@ function pubRemove(id) {
   pubTidy();
   pubPicked.delete(id);
   pubDraw();
+
+  if (hadFocus) {
+    const left = pubRows().map(n => n.id);
+    const next = left[Math.min(at, left.length - 1)];
+
+    (next ? pubFocusFind({ what: "data-pubnode", which: next }) : $("pubRootMenu"))?.focus();
+  }
 }
 
 /** Wraps the selected nodes in a group, keeping their order. */
 function pubGroup() {
-  const rows = pubRows().filter(n => pubPicked.has(n.id));
+  // A table never goes into a group (ADR-213, the server refuses it): a selection holding one groups the rest.
+  const rows = pubRows().filter(n => pubPicked.has(n.id) && n.kind !== "table");
 
   if (rows.length < 2) return;
 
@@ -20776,6 +21435,30 @@ function pubNode(node, inside) {
       + (open ? node.children.map(c => pubNode(c, true)).join("") : "");
   }
 
+  /*
+    <b>A table: no twist, no tick, no reference, no symbol (ADR-213).</b> Each of those is about drawing —
+    the twist opens the symbol, the tick is `defaultVisibility`, the badge is the reference the geometry is
+    stored in — and a table has nothing drawn. The table glyph stands where the tick does, so the names
+    still start in one column; the badge says *table* where a layer's says its reference, which is the
+    fact somebody scanning the right edge is reading for.
+  */
+  if (node.kind === "table") {
+    return `<div class="pubnode pubtablenode ${picked}"
+        draggable="true" tabindex="0" role="option" aria-selected="${pubPicked.has(node.id)}"
+        data-pubnode="${h(node.id)}">
+        <div class="pubrow">
+          <span class="pubindex">${num(at)}</span>
+          <span class="pubtwistgap" aria-hidden="true"></span>
+          <span class="pubtableglyph" aria-hidden="true">${icon("table")}</span>
+          <span class="pubname" title="${h(node.sourceName)} · ${h(node.schema)}.${h(node.table)}"
+            >${h(node.name)}</span>
+          <span class="pubsr">table</span>
+          <button class="pubkill" data-pubkill="${h(node.id)}"
+            aria-label="Remove ${h(node.name)}">&#10005;</button>
+        </div>
+      </div>`;
+  }
+
   // <b>The reprojection mark is drawn only where there is one.</b> An arrow beside every layer
   // is decoration; beside the three of eleven whose tables are stored in something else, it is
   // the answer to *what is this service actually doing to my data*.
@@ -20857,7 +21540,7 @@ function openPubSymbol(id) {
   const node = found?.node;
   const dialog = $("pubsymbol");
 
-  if (!node || !dialog || node.kind === "group") return;
+  if (!node || !dialog || node.kind === "group" || node.kind === "table") return;
 
   const kind = pubSwatchKind(node);
   const fill = node.symbol?.fill || PUB_DEFAULT_FILL;
@@ -21106,7 +21789,6 @@ const PUB_REFERENCES = [
  */
 async function openPublishDialog() {
   const dialog = $("publish");
-  const layers = pubLayers();
 
   const folders = [...new Set([
     ...(await api("/admin/folders").catch(() => null))?.folders?.map(f => f.name || f) ?? [],
@@ -21206,18 +21888,34 @@ async function openPublishDialog() {
 
   $("publishFoot").innerHTML = `
     <button type="button" class="ghost" id="pbCancel">Cancel</button>
-    <button type="button" class="primary" id="pbGo">Publish ${num(layers.length)}
-      layer${layers.length === 1 ? "" : "s"}</button>`;
+    <button type="button" class="primary" id="pbGo">Publish ${h(pubCountSays())}</button>`;
+
+  const drawn = pubDrawable();
+
+  // <b>A service of tables alone offers no vector tiles (ADR-213 §5g)</b>, so the tick is not offered as
+  // though it would: off, disabled, and the sentence beside it says why.
+  if (!drawn.length) {
+    $("pbTiles").checked = false;
+    $("pbTiles").disabled = true;
+    $("pbTiles").closest("label").querySelector("span").innerHTML =
+      "<b>VectorTileServer</b> — <span class=\"val\">not for tables: they have nothing to draw</span>";
+  }
 
   const warp = () => {
     const wanted = pubServedSrid();
-    const moved = layers.filter(l => wanted && l.srid !== wanted);
+    const moved = drawn.filter(l => wanted && l.srid !== wanted);
+
+    // A table has no reference to be served in, so the sentence counts the layers and says nothing of tables.
+    if (!drawn.length) {
+      $("pbWarp").textContent = "Tables carry no coordinates, so the reference changes nothing in them.";
+      return;
+    }
 
     $("pbWarp").innerHTML = wanted === 0
       ? "Every layer answers in whatever its own table is stored in."
       : moved.length === 0
         ? `Every layer is already stored in EPSG:${epsg(wanted)}, so nothing is reprojected.`
-        : `<b>${num(moved.length)} of ${num(layers.length)}</b> will be reprojected on the way
+        : `<b>${num(moved.length)} of ${num(drawn.length)} layers</b> will be reprojected on the way
            out: ${moved.map(l => `${h(l.name)} (EPSG:${epsg(l.srid)})`).join(", ")}.`;
   };
 
@@ -21412,8 +22110,7 @@ function pubNameArm() {
   const button = $("pbGo");
   if (!button) return;
 
-  const count = pubLayers().length;
-  const plural = count === 1 ? "" : "s";
+  const count = pubCountSays();
   const blocked = pubNameSaid.reason === "taken"
     || pubNameSaid.reason === "system"
     || pubNameSaid.reason === "folder";
@@ -21423,8 +22120,8 @@ function pubNameArm() {
   button.disabled = blocked || (pubNameSaid.replaceable && !replacing);
   button.classList.toggle("danger", replacing);
   button.textContent = replacing
-    ? `Replace with ${num(count)} layer${plural}`
-    : `Publish ${num(count)} layer${plural}`;
+    ? `Replace with ${count}`
+    : `Publish ${count}`;
 }
 
 /** Sends the composition, and turns a refusal into a sentence on the dialog. */
@@ -21442,9 +22139,7 @@ async function sendPublish() {
 
   const srid = pubServedSrid() || null;
 
-  const nodes = pubTree.map(node => node.kind === "group"
-    ? { group: node.name, layers: node.children.map(pubWire) }
-    : { layer: pubWire(node) });
+  const nodes = pubNodesWire(false);
 
   refused.hidden = true;
   button.disabled = true;
@@ -21503,6 +22198,19 @@ async function sendPublish() {
 
 /** One composed layer, as `POST /admin/publish` takes it. */
 function pubWire(layer) {
+  // <b>A table is a layer with no geometry keys at all</b> — not nulls: the absence of `geometryColumn` is
+  // what the server reads as *table* (ADR-213 §5e), and no symbology because the server refuses one by name.
+  if (layer.kind === "table") {
+    return {
+      name: layer.name,
+      dataSourceId: layer.source,
+      schemaName: layer.schema,
+      tableName: layer.table,
+      identityColumn: layer.identity,
+      objectIdColumn: layer.identity,
+    };
+  }
+
   return {
     name: layer.name,
     dataSourceId: layer.source,
@@ -21653,6 +22361,11 @@ function pubTreeKey(event) {
   if (!row) return;
 
   if (event.key === "Enter" || event.key === " ") {
+    // <b>Only the row's own press.</b> The row holds buttons — remove, the twist, the tick — and turning their
+    // Enter into a click on the row made *Remove* unreachable from the keyboard: it selected the row instead.
+    // Found walking a table row on 2026-10-22; every layer row had the same fault.
+    if (event.target !== row) return;
+
     event.preventDefault();
 
     row.dispatchEvent(new MouseEvent("click", {
@@ -21752,6 +22465,11 @@ function pubMenuAt(x, y, id) {
 
   const found = id ? pubFind(id) : null;
   const group = found?.node.kind === "group";
+  const table = found?.node.kind === "table";
+
+  // <b>Grouping counts only what can be grouped.</b> A table never goes into a group (ADR-213), so a selection
+  // of two layers and a table offers *Group 2 layers*, and one layer and a table offers no grouping at all.
+  const groupable = [...pubPicked].filter(p => pubFind(p)?.node.kind !== "table").length;
   const several = Boolean(id) && pubPicked.size > 1;
 
   const item = (act, label, off) =>
@@ -21776,24 +22494,22 @@ function pubMenuAt(x, y, id) {
   */
   const only = several && found ? `“${found.node.name}”` : "";
 
+  // A table has no place to zoom to and no symbol, so neither is offered for one (ADR-213).
+  const noun = group ? "group" : table ? "table" : "layer";
+
   menu.innerHTML = id
     ? [
-        item("zoom", group
-          ? (only ? `Zoom to ${only}` : "Zoom to group")
-          : (only ? `Zoom to ${only}` : "Zoom to layer"), noMap),
-        group ? "" : item("symbol", only ? `Symbol of ${only}…` : "Symbol…"),
-        item("rename", only
-          ? `Rename ${only}`
-          : (group ? "Rename group" : "Rename layer")),
+        table ? "" : item("zoom", only ? `Zoom to ${only}` : `Zoom to ${noun}`, noMap),
+        group || table ? "" : item("symbol", only ? `Symbol of ${only}…` : "Symbol…"),
+        item("rename", only ? `Rename ${only}` : `Rename ${noun}`),
         "<hr>",
-        several ? item("group", `Group ${num(pubPicked.size)} layers`) : "",
+        several && groupable > 1 ? item("group", `Group ${num(groupable)} layers`) : "",
         group ? item("ungroup", "Ungroup") : "",
-        item("remove", only
-          ? `Remove ${only}`
-          : (group ? "Remove group" : "Remove layer")),
+        item("remove", only ? `Remove ${only}` : `Remove ${noun}`),
       ].filter(Boolean).join("")
     : [
-        item("zoom", "Zoom to everything", noMap),
+        // Disabled rather than absent when only tables are composed: the reason is temporary, as it is for the map.
+        item("zoom", "Zoom to everything", noMap || pubDrawable().length === 0),
         item("rename", "Rename service"),
         "<hr>",
 
@@ -21882,13 +22598,11 @@ async function pubZoomTo(id) {
   // A group is its children; a layer is itself; the root is everything.
   const wanted = found
     ? (found.node.kind === "group" ? found.node.children : [found.node])
-    : pubLayers();
+    : pubDrawable();
 
-  if (!wanted.length) return;
+  if (!wanted.length || wanted.every(n => n.kind === "table")) return;
 
-  const nodes = pubTree.map(node => node.kind === "group"
-    ? { group: node.name, layers: node.children.map(pubWire) }
-    : { layer: pubWire(node) });
+  const nodes = pubNodesWire(true);
 
   try {
     const answer = await api(`/admin/publish/extent?outSR=${PUB_MAP_SR}`, {
@@ -21990,6 +22704,26 @@ function pubOver(event) {
   const group = event.target.closest?.("[data-pubgroup]");
   const over = event.target.closest?.("[data-pubnode]");
 
+  /*
+    <b>A table is moved among the tables, and the pointer says so (ADR-213).</b> It cannot go into a group —
+    the server refuses that — and it cannot go above a layer, because the service numbers tables after the
+    layers. So over a group, or over anything that is not a table, the drop is refused where it would land
+    rather than accepted and quietly put back by {@link pubTidy}.
+  */
+  if (pubFind(pubDragging.id)?.node.kind === "table") {
+    const onto = over ? pubFind(over.dataset.pubnode)?.node : null;
+
+    if (onto && onto.kind !== "table") { event.dataTransfer.dropEffect = "none"; return; }
+    if (over && over.dataset.pubnode !== pubDragging.id) over.classList.add("over");
+    return;
+  }
+
+  // And the other way round: a layer or a group dropped among the tables would be put back above them.
+  if (over && pubFind(over.dataset.pubnode)?.node.kind === "table") {
+    event.dataTransfer.dropEffect = "none";
+    return;
+  }
+
   if (group) { group.closest("[data-pubnode]").classList.add("into"); return; }
   if (over && over.dataset.pubnode !== pubDragging.id) over.classList.add("over");
 }
@@ -22005,7 +22739,15 @@ function pubDrop(event) {
   } else {
     const into = event.target.closest?.("[data-pubgroup]");
     const over = event.target.closest?.("[data-pubnode]");
-    const moved = pubDetach(pubDragging.id);
+    const dragged = pubFind(pubDragging.id)?.node;
+    const onto = over ? pubFind(over.dataset.pubnode)?.node : null;
+
+    // A table lands only beside another table, or below everything; a layer never among the tables. Anything
+    // else is the refusal {@link pubOver} drew (ADR-213).
+    const refused = dragged?.kind === "table"
+      ? Boolean(onto) && onto.kind !== "table"
+      : onto?.kind === "table";
+    const moved = refused ? null : pubDetach(pubDragging.id);
 
     if (moved) {
       if (into && moved.kind === "layer") {
@@ -22160,8 +22902,18 @@ function pubDraw() {
         aria-label="Rename this service or change its reference">&#8942;</button>
     </div>`;
 
+  // <b>Tables under their own heading, after the layers</b> — where Pro's contents pane puts *Standalone
+  // Tables* and where the service document lists `tables` (ADR-213). {@link pubTidy} keeps them last.
+  const drawnNodes = pubTree.filter(n => n.kind !== "table");
+  const tableNodes = pubTree.filter(n => n.kind === "table");
+
   tree.innerHTML = pubTree.length
-    ? root + pubTree.map(n => pubNode(n, false)).join("")
+    ? root + drawnNodes.map(n => pubNode(n, false)).join("")
+      + (tableNodes.length
+        ? `<div class="pubsection">Tables
+            <span class="val">not drawn — rows without a location</span></div>`
+          + tableNodes.map(n => pubNode(n, false)).join("")
+        : "")
     : root + `<div class="pubempty">Click or drag a table here from Databases.<br>
         <span style="font-size:11.5px">The order you build is the order it is served in —
         the top is drawn on top. Select two and right-click to group them. Right-click <b>Map</b>,
@@ -22205,19 +22957,28 @@ function pubDraw() {
       if (!schema.open) continue;
 
       for (const t of schema.tables) {
-        const can = Boolean(t.objectIdColumn) && Boolean(t.geometryColumn) && !t.why;
+        const why = pubWhyNot(db, t);
+        const can = why === null;
 
-        // <b>Publishable or not, and nothing in between.</b> A table without a geometry column
-        // or without an integer this server can use as an object id cannot become a layer at
-        // all, and the row below says which. Everything else can be dragged, however many
-        // services already serve it.
+        // <b>A table without geometry becomes a table, and the row says it (ADR-213).</b> The table glyph
+        // stands where a layer's shape does, and the badge says *table* where a layer's says its reference,
+        // so the one difference a reader needs before dragging is on the row rather than in a tooltip.
+        const asTable = !t.geometryColumn && !t.why;
+
+        // <b>Publishable or not, and nothing in between.</b> A table without an integer this
+        // server can use as an object id cannot be published at all, nor can one without a
+        // geometry column from a source other than PostGIS ({@link pubWhyNot}), and the row
+        // below says which. Everything else can be dragged — as a layer, or as a table when it
+        // has no geometry — however many services already serve it.
         // <b>Only a publishable table takes focus.</b> One that cannot become a layer is not
         // a control — tabbing through sixty of them to reach the one that works is worse than
         // not offering them, and the row already says why it is refused.
         html += `<div class="pubtable ${can ? "" : "no"}"
             ${can ? `draggable="true" tabindex="0" role="button"` : ""}
             data-pubtable="${h(db.id)}|${h(schema.name)}|${h(t.tableName)}"
-            title="${can ? "Click or drag into Contents" : "cannot be published"}">
+            data-pubkind="${asTable ? "table" : "layer"}"
+            title="${can ? (asTable ? "Click or drag into Contents — it is published as a table"
+              : "Click or drag into Contents") : "cannot be published"}">
           <!--
             <b>The shape, not a status light — owner instruction 2026-09-06:</b> *tabloların
             point mi line mı poligon mu olduğunu bir simge ile gösterir misin.* This was a dot
@@ -22229,20 +22990,16 @@ function pubDraw() {
             than a symbol's colour: here the shape is the fact, and a colour would imply a
             symbol nothing has chosen yet.
           -->
-          <span class="pubgeom ${h(pubShapeOf(t.geometryType))} ${can ? "" : "no"}"
-            title="${h(t.geometryType || "no geometry")}"
-            aria-hidden="true"></span>
+          ${asTable
+            ? `<span class="pubtableglyph ${can ? "" : "no"}" aria-hidden="true">${icon("table")}</span>`
+            : `<span class="pubgeom ${h(pubShapeOf(t.geometryType))} ${can ? "" : "no"}"
+                title="${h(t.geometryType || "no geometry")}"
+                aria-hidden="true"></span>`}
           <span title="${h(schema.name)}.${h(t.tableName)}">${h(t.tableName)}</span>
-          <span class="pubsrid">${t.srid ? "EPSG:" + epsg(t.srid) : "—"}</span>
+          <span class="pubsrid">${asTable ? "table" : t.srid ? "EPSG:" + epsg(t.srid) : "—"}</span>
         </div>`;
 
-        if (!can) {
-          html += `<div class="pubwhy">${t.why
-            ? h(t.why)
-            : t.geometryColumn
-              ? "No integer column this server can use as an ArcGIS object id."
-              : "No geometry column — a table without one is not a feature class."}</div>`;
-        }
+        if (!can) html += `<div class="pubwhy">${h(why)}</div>`;
       }
     }
   }
@@ -22317,7 +23074,7 @@ async function loadSources() {
         <td class="num">${num(d.layerCount)}<span class="cardonly"> layer${d.layerCount === 1 ? "" : "s"}</span></td>
         <td class="acts"><button class="tiny" data-probe="${h(d.id)}"
             data-probe-name="${h(d.name)}">Test connection</button>
-          ${d.quiesced
+          ${d.name === "datastore" && systemOnlyHidden() ? "" : d.quiesced
             ? ` <button class="tiny primary" data-source-resume="${h(d.id)}"
                   data-source-name="${h(d.name)}">Resume</button>`
             : ` <button class="tiny" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
@@ -22326,7 +23083,11 @@ async function loadSources() {
                   data-source-shared-layers="${num(sharedLayers(dataSources, d))}"
                   >Pause…</button>`}${
             d.name === "datastore"
-              ? ` <span class="managed">set by Graticula:PlatformStore</span>`
+              // ADR-204 §5d.1: the managed datastore stays the system's, and pausing it pauses every organization's
+              // hosted layers, so only the system administrator is offered Pause while there are several.
+              ? systemOnlyHidden()
+                ? ` <span class="managed">Shared by every organization; its system administrator pauses it</span>`
+                : ` <span class="managed">set by Graticula:PlatformStore</span>`
               : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-kind="${h(d.kind)}"
                     data-source-summary="${h(d.summary || "")}"
@@ -24059,8 +24820,21 @@ async function loadSettings() {
  */
 async function loadOrgSettings() {
   groundSay("");
-  const settings = await api("/admin/settings") || {};
-  await drawGround(settings.ground || {});
+  // <b>The ground is the server's and the gallery is the organization's — ADR-204 §5d.</b> `/admin/settings` and its
+  // ground answer only the system administrator while there are several organizations, and this read used to come
+  // first, so its 403 stopped the page before the organization's own basemaps were read at all.
+  const system = systemOnlyHidden();
+  $("groundCard").hidden = system;
+  $("groundWhose").hidden = !system;
+  $("groundWhose").textContent = system
+    ? "Your own tile services means the server's map ground, which its system administrator chooses for every "
+      + "organization on it. With none chosen, maps start on OpenStreetMap."
+    : "";
+  $("groundEveryone").hidden = !(isMultiTenant() && isSystemAdministrator());
+  if (!system) {
+    const settings = await api("/admin/settings") || {};
+    await drawGround(settings.ground || {});
+  }
   await loadBasemaps();
 }
 
@@ -24134,7 +24908,9 @@ function drawBasemaps(r, preview = undefined) {
     answer("osm", "OpenStreetMap", "Its public tiles. Nothing to set up."),
     ...entries.map(e => answer(e.id, h(e.title),
       e.kind === "map" ? "A web map in the basemap gallery." : "A tile service in the basemap gallery.")),
-    answer("", "Your own tile services", "The services chosen under Map ground below, or OpenStreetMap while none are."),
+    answer("", "Your own tile services", systemOnlyHidden()
+      ? "The server's map ground, or OpenStreetMap while none is chosen."
+      : "The services chosen under Map ground below, or OpenStreetMap while none are."),
   ].join("");
   drawBasemapDefaultSays(saved.defaultMissing && galleryId === savedGallery);
 
@@ -24158,7 +24934,9 @@ function drawBasemapDefaultSays(missing = false) {
     : value === "osm" ? "New maps start on OpenStreetMap."
       : value ? `New maps start on ${title || "this basemap"}.`
         : ground.length ? `New maps start on your own tile services: ${[...ground].reverse().join(", ")}.`
-          : "New maps start on OpenStreetMap until a tile service is chosen below.";
+          : systemOnlyHidden()
+            ? "New maps start on the server's map ground, or on OpenStreetMap while it has none."
+            : "New maps start on OpenStreetMap until a tile service is chosen below.";
 }
 
 /** Whether the Map ground card below is what new maps start on, said on that card. */
@@ -24251,6 +25029,11 @@ async function saveMapSettings() {
 /** Settings' Geometry service — ADR-149: this server's own, or another the portal names to its clients. */
 async function loadGeometryService() {
   geometryServiceSay("");
+  // The server's while there are several organizations (ADR-204 §5d): said, not read, because the read is refused.
+  $("geometryCard").hidden = systemOnlyHidden();
+  $("geometryWhose").hidden = !systemOnlyHidden();
+  $("geometryEveryone").hidden = !(isMultiTenant() && isSystemAdministrator());
+  if (systemOnlyHidden()) return;
   // Enter saves, as the page-size box on this screen does; typing clears a refusal (the ux review, 2026-10-03).
   $("geometryService").onkeydown = e => {
     if (e.key === "Enter") { e.preventDefault(); $("geometryServiceSave").click(); }
@@ -24883,8 +25666,8 @@ const ITEM_ROUTES = [
     id: "design",
     icon: "featurelayer",
     title: "Define your own layer",
-    lede: "Specify the fields and the geometry. Creates an empty layer you fill through the feature "
-        + "service.",
+    lede: "Specify the fields and the geometry, or no geometry for a table. Creates an empty layer you fill "
+        + "through the feature service.",
     form: "designForm",
     submit: "Create empty layer",
   },
@@ -25184,18 +25967,31 @@ function drawRouteForm(id) {
   return drawRegisteredForm();
 }
 
+/** What the design form makes, said for a layer and for a table (ADR-213). */
+const DESIGN_SAYS = {
+  layer: `For data you are going to collect. Creates an empty feature class you fill
+      through the feature service. <code>objectid</code> and <code>geom</code> are made for you,
+      stored in Web Mercator so the layer can serve tiles.`,
+  table: `For rows without a location — inspections, readings, visits — often related to a layer's features.
+      Creates an empty table you fill through the feature service, as ArcGIS's standalone table. <code>objectid</code>
+      is made for you; there is no geometry, so it is never drawn and has no coordinate system or tiles.`,
+};
+
 /** Define your own layer: fields, geometry, sharing. */
 function drawDesignForm() {
   $("addItemBody").innerHTML = `
-    <p class="hint">For data you are going to collect. Creates an empty feature class you fill
-      through the feature service. <code>objectid</code> and <code>geom</code> are made for you,
-      stored in Web Mercator so the layer can serve tiles.</p>
+    <p class="hint" id="dSays">${DESIGN_SAYS.layer}</p>
     <form id="designForm" autocomplete="off">
       <div class="row">
         <label class="field">Name<input type="text" id="dName" placeholder="inspections" required></label>
-        <label class="field">Geometry<select id="dGeom">
+        <label class="field">Geometry<select id="dGeom" aria-describedby="dSays">
+          <optgroup label="A layer, drawn on a map">
           <option>Point</option><option>MultiPoint</option><option>LineString</option>
           <option>MultiLineString</option><option selected>Polygon</option><option>MultiPolygon</option>
+          </optgroup>
+          <optgroup label="No geometry">
+          <option value="Table">Table</option>
+          </optgroup>
         </select></label>
         <label class="field">Sharing<select id="dShare">
           <option value="private" selected>private</option>
@@ -25215,6 +26011,13 @@ function drawDesignForm() {
     <div id="newResult" class="group" style="display:none"></div>`;
 
   $("designForm").addEventListener("submit", createDesigned);
+  // ADR-213: a table has no geometry column, no reference and no tiles, so the sentence and the button say what is
+  // made. Wired on the select itself rather than the shared change listener, which returns early on this screen.
+  $("dGeom").addEventListener("change", () => {
+    const table = $("dGeom").value === "Table";
+    $("dSays").innerHTML = table ? DESIGN_SAYS.table : DESIGN_SAYS.layer;
+    if ($("itemSubmit")) $("itemSubmit").textContent = table ? "Create empty table" : "Create empty layer";
+  });
   $("dAdd").addEventListener("click", () => addFieldRow());
   addFieldRow();
 
@@ -25835,6 +26638,23 @@ let inspecting = null;
  * queue can have a notification channel; until then this says how long it has been waiting, because a
  * spinner with no elapsed time is indistinguishable from a stuck one.
  */
+/**
+ * Why following a background job failed, in words the reader can act on.
+ *
+ * <b>ADR-204 §5d made `/admin/jobs` the system's while there are several organizations</b>, and a File Geodatabase,
+ * GeoPackage or KML is read by a job — so everybody else's upload of one stops at its first progress read with the
+ * server's sentence about the system's administration, which names nothing they did. Until the server answers a job to
+ * the member who started it, the console says what happened and what still works.
+ */
+function jobRefusedSays(e) {
+  if (e?.status === 403 && systemOnlyHidden()) {
+    return "The server took the file, but while it holds several organizations only its system administrator can "
+      + "follow the job that reads it, so this screen cannot go on. A zipped shapefile or a GeoJSON file is read "
+      + "at once and works.";
+  }
+  return e?.message || String(e);
+}
+
 async function watchInspect(opened, asked) {
   inspecting = {
     opened,
@@ -25865,7 +26685,8 @@ async function watchInspect(opened, asked) {
       inspecting.job = await api(`/admin/jobs/${encodeURIComponent(opened.job)}`);
       inspecting.status = inspecting.job.status;
     } catch (e) {
-      inspecting.error = e.message || String(e);
+      inspecting.error = jobRefusedSays(e);
+      inspecting.refused = e?.status === 403;
       drawAddItem();
       return;
     }
@@ -25909,8 +26730,10 @@ function drawInspect() {
 
   if (state.error) {
     $("addItemTitle").textContent = "Lost track of the job";
-    $("addItemBody").innerHTML = `<p class="hint">${h(state.error)} The job itself is unaffected — it
-      is the server's, and its record is at <code>${h(state.opened.watch)}</code>.</p>`;
+    // Announced, because it arrives on its own seconds after the upload; the job's address is not offered to a reader
+    // the server just refused it to.
+    $("addItemBody").innerHTML = `<p class="hint" role="alert">${h(state.error)}${state.refused ? "" : ` The job itself
+      is unaffected — it is the server's, and its record is at <code>${h(state.opened.watch)}</code>.`}</p>`;
     return;
   }
 
@@ -25987,10 +26810,11 @@ function drawInspected(job) {
 
   $("addItemBody").innerHTML = `
     <p class="hint">The archive holds ${num(layers.length)} layer${layers.length === 1 ? "" : "s"},
-      ${num(publishable.length)} of which can become a feature layer. The rest are attachment or
-      relationship tables — they carry no geometry, so they are listed and cannot be ticked. A feature
-      class with <b>no features</b> can be published: it becomes an empty layer with the fields the
-      archive declares.</p>
+      ${num(publishable.length)} of which can be published. A class with no geometry becomes a
+      <b>table</b> in the service, beside its layers, as ArcGIS publishes one. An attachment table
+      becomes the <b>attachments</b> of the class it is named after, so tick it with that class. A
+      feature class with <b>no features</b> can be published:
+      it becomes an empty layer with the fields the archive declares.</p>
 
     <label class="field">Service name
       <input id="gdbService" value="${h(inspecting.asked.name || "")}" maxlength="128"
@@ -26006,7 +26830,7 @@ function drawInspected(job) {
       <table class="gdbpick">
         <thead><tr>
           <th class="tick"><input type="checkbox" id="gdbAll" aria-label="Every feature class"></th>
-          <th>Feature class</th><th>Geometry</th><th>Features</th><th>Fields</th>
+          <th>Feature class</th><th>Geometry</th><th>Rows</th><th>Fields</th>
           <th>Coordinate system</th>
         </tr></thead>
         <tbody>${layers.map(layer => {
@@ -26021,13 +26845,17 @@ function drawInspected(job) {
                   // <b>`aria-label` beside the `title`, because a title is a mouse.</b> A reader who
                   // never hovers had only the row's own cells — `none — a table` — to infer from,
                   // which is one inference more than the sentence costs. Design review 2026-08-19.
-                  const why = "a table with no geometry cannot become a feature layer";
+                  const why = "the reader could not say what kind of class this is";
 
                   return `<span class="val" title="${h(why)}"
                     aria-label="${h(`Cannot be published: ${why}`)}">—</span>`;
                 })()}</td>
             <td>${h(name)}</td>
-            <td>${h(GEOMETRY_NAMES[layer.geometry] || layer.geometry || "none")}</td>
+            <td>${layer.geometry === "wkbNone"
+                  ? (isAttachmentTable(layer)
+                    ? `attachments of ${h(attachedTo(layer))}`
+                    : "none — a table")
+                  : h(GEOMETRY_NAMES[layer.geometry] || layer.geometry || "none")}</td>
             <td>${layer.features === null || layer.features === undefined
                   ? '<span class="val">unknown</span>'
                   : layer.features === 0
@@ -26035,7 +26863,9 @@ function drawInspected(job) {
                     : num(layer.features)}</td>
             <td>${num((layer.fields || []).length)}</td>
             <td>${layer.srid ? `EPSG:${h(String(layer.srid))}`
-                  : '<span class="val">not identified</span>'}</td>
+                  : layer.geometry === "wkbNone"
+                    ? '<span class="val">none needed</span>'
+                    : '<span class="val">not identified</span>'}</td>
           </tr>`;
         }).join("")}</tbody>
       </table>
@@ -26088,11 +26918,14 @@ function drawInspected(job) {
 }
 
 /**
- * Whether a layer the reader described can become a feature layer at all.
+ * Whether a layer the reader described can be published at all.
  *
- * <b>One reason it cannot: no geometry.</b> That is an attachment or relationship table — one of the
- * owner's archives holds six of them beside six feature classes — and there is nothing to create a
- * geometry column as.
+ * <b>A class with no geometry can, since ADR-213: it becomes a table.</b> It could not before — there
+ * was nothing to create a geometry column as, and this server had no table to make instead. <b>An
+ * attachment table could not either, for a day</b>: one of the owner's archives holds six of them beside
+ * six feature classes, and each holds the files of the class it is named after, which belong on that layer rather
+ * than beside it. <b>Since condition 2 of ADR-213 it can</b>: the import stores each file on the feature
+ * it names, so it is ticked like the rest and the row says whose attachments it holds.
  *
  * <b>An empty feature class *is* publishable again, and the round trip is why.</b> For half a day this
  * also refused `features === 0`, because every import path in this server built its columns by reading
@@ -26102,7 +26935,21 @@ function drawInspected(job) {
  * before anybody filled it in is the ordinary case, and ArcGIS publishes those.
  */
 function canPublish(layer) {
-  return Boolean(layer.geometry) && layer.geometry !== "wkbNone";
+  return Boolean(layer.geometry);
+}
+
+/**
+ * Whether a geodatabase class holds another class's attachments — ADR-213. ArcGIS names it `<class>__ATTACH`; one of the
+ * owner's archives, exported, has `<class>_ATTACH`, so the one underscore is the rule, as `GeodatabaseImporter` has it.
+ */
+function isAttachmentTable(layer) {
+  const name = String(layer.name || "");
+  return name.length > 7 && name.toUpperCase().endsWith("_ATTACH");
+}
+
+/** The class an attachment table belongs to: its name without `_ATTACH` and ArcGIS's second underscore. */
+function attachedTo(layer) {
+  return String(layer.name || "").slice(0, -"_ATTACH".length).replace(/_+$/, "");
 }
 
 /**
@@ -26235,7 +27082,8 @@ async function watchPublish(opened, service) {
       publishing.job = await api(`/admin/jobs/${encodeURIComponent(opened.job)}`);
       publishing.status = publishing.job.status;
     } catch (e) {
-      publishing.error = e.message || String(e);
+      publishing.error = jobRefusedSays(e);
+      publishing.refused = e?.status === 403;
       drawAddItem();
       return;
     }
@@ -26285,8 +27133,8 @@ function drawPublish() {
 
   if (state.error) {
     $("addItemTitle").textContent = "Lost track of the job";
-    $("addItemBody").innerHTML = `<p class="hint">${h(state.error)} The publish itself is unaffected —
-      it is the server's, and its record is at <code>${h(state.opened.watch)}</code>.</p>`;
+    $("addItemBody").innerHTML = `<p class="hint" role="alert">${h(state.error)}${state.refused ? "" : ` The publish
+      itself is unaffected — it is the server's, and its record is at <code>${h(state.opened.watch)}</code>.`}</p>`;
     return;
   }
 
@@ -27612,17 +28460,29 @@ async function handleClick(event) {
 
     const names = answer.candidates || [];
 
-    if (names.length === 0) {
+    // <b>A member of another organization is named, not listed — ADR-204 §5c.</b> The candidates are this
+    // organization's; somebody from another one is added by the exact name they sign in with, and only to a group
+    // that admits other organizations, which the server checks. Offered only to the one who can set that.
+    const other = isOrgAdministrator();
+
+    if (names.length === 0 && !other) {
       toast("Every member is already in this group.");
       return;
     }
 
     $("groupPicker").innerHTML = `
       <div class="picker">
-        <label for="groupPickFilter">Add a member</label>
+        ${names.length ? `<label for="groupPickFilter">Add a member</label>
         <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
         <select id="groupPickWho" size="8" aria-label="Members who could join">${names.map(n =>
-          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>
+          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>` : ""}
+        ${other ? `<label for="groupPickOther">${names.length ? "Or a" : "A"} member of another organization, as
+          organization\\name</label>
+        <input id="groupPickOther" type="text" autocomplete="off" spellcheck="false" placeholder="atos\\ali@firma.com"
+          aria-describedby="groupPickOtherHint">
+        <p class="hint" id="groupPickOtherHint">Their organization's key, a backslash, then the name they sign in with
+          there — a name alone is one of this organization's members. Only once Settings lets this group admit members
+          of other organizations.</p>` : ""}
         <div class="row">
           <label><input type="checkbox" id="groupPickManager"> as a manager</label>
           <button class="primary" id="groupPickAdd">Add</button>
@@ -27634,7 +28494,7 @@ async function handleClick(event) {
       </div>`;
 
     $("groupPicker").hidden = false;
-    $("groupPickFilter")?.focus();
+    ($("groupPickFilter") || $("groupPickOther"))?.focus();
     return;
   }
 
@@ -27788,7 +28648,7 @@ async function handleClick(event) {
   }
 
   if (t.id === "groupPickAdd") {
-    const who = $("groupPickWho")?.value;
+    const who = $("groupPickOther")?.value.trim() || $("groupPickWho")?.value;
     if (!who || !groupOpen) return;
 
     try {
@@ -28762,36 +29622,42 @@ async function handleClick(event) {
   }
 
   if (t.id === "exportDataOpen" && serviceOpen) {
-    const drawable = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group"));
+    // ADR-213: a table's rows are exported as a layer's are; a service of tables alone is offered the formats that
+    // hold rows, and not the five whose point is a geometry it does not have.
+    const drawable = serviceDataEntries();
+    const onlyTables = serviceTablesOnly();
     // The layer's own reference, named — "the layer's own coordinate system" said nothing a reader could check.
     const sr = serviceDoc?.spatialReference;
     const own = sr ? `EPSG:${sr.latestWkid || sr.wkid} (the layer's own)` : "the layer's own reference";
     const tiled = tileLayerOf();
     $("exportDataBody").innerHTML = `
-      <fieldset class="offered" id="exportDataLayers"><legend>Layers</legend>
+      <fieldset class="offered" id="exportDataLayers"><legend>${onlyTables ? "Tables"
+        : serviceTables.length ? "Layers and tables" : "Layers"}</legend>
         ${drawable.map(one => `<label class="check"><input type="checkbox" data-export-layer="${h(String(one.id ?? 0))}" checked>
-          ${h(one.name || `layer ${one.id}`)}</label>`).join("")}
+          ${h(one.name || `layer ${one.id}`)}${one.isTable && !onlyTables ? ` <span class="rowmeta">table</span>` : ""}</label>`).join("")}
       </fieldset>
-      <fieldset class="offered formats"><legend>With the geometry</legend>
+      <fieldset class="offered formats"${onlyTables ? " hidden" : ""}><legend>With the geometry</legend>
         ${[["gpkg", "GeoPackage", `${own} · any GIS`],
            ["fgdb", "File Geodatabase (zipped)", `${own} · ArcGIS Pro`],
            ["shapefile", "Shapefile (zipped)", `${own} · any desktop GIS`],
            ["kml", "KML", "WGS 84 · Google Earth"],
            ["geojson", "GeoJSON", "WGS 84 · the web"],
            ["esrijson", "Esri JSON", `${own} · a feature collection as ArcGIS clients read it`]].map(([value, name, said], i) =>
-          `<label class="check"><input type="radio" name="exportDataFormat" value="${value}"${i === 0 ? " checked" : ""}>
+          `<label class="check"><input type="radio" name="exportDataFormat" value="${value}"${i === 0 && !onlyTables ? " checked" : ""}>
             <span><b>${name}</b><span class="hint">${said}</span></span></label>`).join("")}
       </fieldset>
       <fieldset class="offered formats"><legend>As a table</legend>
-        <label class="check"><input type="radio" name="exportDataFormat" value="csv">
-          <span><b>CSV</b><span class="hint">attributes · X and Y for points, WKT otherwise · WGS 84</span></span></label>
+        <label class="check"><input type="radio" name="exportDataFormat" value="csv"${onlyTables ? " checked" : ""}>
+          <span><b>CSV</b><span class="hint">${onlyTables ? "every column, a row a line"
+            : "attributes · X and Y for points, WKT otherwise · WGS 84"}</span></span></label>
         <label class="check"><input type="radio" name="exportDataFormat" value="xlsx">
-          <span><b>Excel</b><span class="hint">attributes only · no geometry</span></span></label>
+          <span><b>Excel</b><span class="hint">${onlyTables ? "a sheet a table" : "attributes only · no geometry"}</span></span></label>
       </fieldset>
       ${tiled ? `<p class="hint">Tiles for offline use — a VTPK for ArcGIS Field Maps and Pro, or PMTiles — are built as
         packages in <a href="#/service/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}?tab=settings&section=tiles">Settings › Tile layer</a>.</p>` : ""}
-      <p class="hint">Every row of the chosen layers is written by the server, up to two million in all. GeoPackage,
-        File Geodatabase, KML and Excel hold every layer in one file; the others write a file per layer, in one zip.</p>`;
+      <p class="hint">${onlyTables ? `Every row of the chosen tables is written by the server, up to two million in all. Excel
+        holds every table in one file; CSV writes a file per table, in one zip.` : `Every row of the chosen layers is written by the server, up to two million in all. GeoPackage,
+        File Geodatabase, KML and Excel hold every layer in one file; the others write a file per layer, in one zip.`}</p>`;
     // The answer stands in the footer, in view at any width (design review 2026-10-01).
     $("exportDataFoot").innerHTML = `<p class="hint fill" id="exportDataSays" role="status" aria-live="polite"></p>
       <button type="button" class="ghost" id="exportDataCancel">Cancel</button>
@@ -28883,17 +29749,19 @@ async function handleClick(event) {
 
     // <b>The confirmation names the tables, because that is the irreversible part.</b> *Are you sure*
     // in front of a drop has not said anything; *drops 55 tables* has.
-    const { count, hosted } = serviceDeleteTakes();
+    const { count, hosted, layers, tables } = serviceDeleteTakes();
+    // ADR-213: "its 1 layer and 3 tables", and a table-only service says tables.
+    const its = layers === undefined ? `${count} layer${count === 1 ? "" : "s"}`
+      : layersAndTablesSaid(layers, tables).replace(" · ", " and ");
 
     if (!await askServerConfirm({
-      title: `Delete ${serviceOpen.name}${count ? ` and its ${count} layer${count === 1 ? "" : "s"}` : ""}?`,
+      title: `Delete ${serviceOpen.name}${count ? ` and its ${its}` : ""}?`,
       body: count === null
         ? "Its layers could not be read, so this cannot say whether any data goes with it."
         : count === 0
         ? "It holds no layers, so no data goes with it."
         : hosted
-          ? `Its ${count === 1 ? "table leaves" : `${count} tables leave`} the datastore with it and `
-            + `${count === 1 ? "waits" : "wait"} in the recycle bin `
+          ? `${count === 1 ? "Its" : "Their"} data leaves the datastore with it and waits in the recycle bin `
             + "for 14 days, where it can be restored."
           : "These are registered layers, so their tables are not touched; only the registration goes.",
       action: "Delete this service",
@@ -29737,6 +30605,12 @@ async function whoami() {
   // place the console needs to know who it is beyond drawing the banner.
   signedInAs = me.authenticated ? (me.name || "") : "";
   whoNow = me.authenticated ? me : null;
+
+  // <b>An organization's administrator keeps Server — owner decision 2026-10-22.</b> Until then this removed
+  // `admin:manageServer` from them while there were several organizations; now only the system's screens are hidden
+  // (`SYSTEM_SCREENS`), and what Server lists for them is their own organization's, which the floor makes so.
+
+  drawTenancy(me);
   if ($("myProfile")) {
     $("myProfile").hidden = !signedInAs;
     $("myProfile").href = `/studio/user/${encodeURIComponent(signedInAs)}`;
@@ -30525,13 +31399,17 @@ async function start() {
   // *checking…* until `refreshHealth` answers, and `refreshHealth` is only called for a reader
   // with `admin:manageServer` — so for a publisher it said *checking…* for ever. The same small
   // lie as the tokenless case, found the same way: by looking at the screen as somebody else.
-  if (!may("admin:manageServer")) {
+  // <b>And not for an organization's administrator while there are several — ADR-204 §5d.</b> The health it reads is the
+  // process's and the platform store's, `/admin/health`, which only the system administrator reaches; the pill said
+  // *Health unknown* to them for ever, over a 403 on every screen.
+  const healthIsMine = may("admin:manageServer") && !systemOnlyHidden();
+  if (!healthIsMine) {
     $("healthDot").hidden = true;
     $("healthLine").hidden = true;
   }
 
   await Promise.all([
-    may("admin:manageServer") ? section("health", refreshHealth) : Promise.resolve(),
+    healthIsMine ? section("health", refreshHealth) : Promise.resolve(),
     may("admin:viewAllContent") ? section("layers", loadLayers) : Promise.resolve(),
   ]);
 
@@ -30621,6 +31499,13 @@ let logRead = 0;
  * writing that as a row here is what stops the shared surface growing a special case per
  * source.
  */
+/**
+ * The logs this reader is shown: each organization's own, and the server's process log — which every organization's
+ * work is written into together — only to the system administrator while there are several (ADR-204, owner decision
+ * 2026-10-22, *"Logları kendine aittir"*).
+ */
+const visibleLogSources = () => LOG_SOURCES.filter(([key]) => !(key === "server" && systemOnlyHidden()));
+
 const LOG_SOURCES = [
   ["audit", "Administration", "action"],
   ["requests", "Requests", "status"],
@@ -30702,7 +31587,17 @@ function drawLogControlsNow() {
     // <b>One tab stop, arrows between the tabs</b> — the ARIA tabs pattern. Every tab was its own stop and
     // the arrows did nothing, so a keyboard reader crossed four buttons to reach the filters. Found by the
     // ux review of the Server warnings tab; it predated that tab.
-    sources.innerHTML = LOG_SOURCES.map(([key, label]) =>
+    if (!visibleLogSources().some(([key]) => key === logSource)) logSource = "audit";
+    // The lede names the logs this reader has: an organization's administrator reads its own three, and the server's
+    // process log is the system administrator's while there are several organizations (owner decision 2026-10-22).
+    if ($("logServerLede")) {
+      $("logServerLede").innerHTML = systemOnlyHidden()
+        ? `All three are ${h(whoNow?.organisation?.name || "this organization")}'s own. The server's own warnings are `
+          + "its system administrator's, because they are about every organization on it."
+        : "<b>Server warnings</b> is what this server itself reported — a layer it could not read, a source it could "
+          + "not reach — held in memory since it last started.";
+    }
+    sources.innerHTML = visibleLogSources().map(([key, label]) =>
       `<button role="tab" aria-selected="${key === logSource}" aria-controls="logRows"
         tabindex="${key === logSource ? "0" : "-1"}"
         class="tiny${key === logSource ? "" : " ghost"}" data-log-source="${key}"
@@ -31281,6 +32176,9 @@ function folderNote(i) {
 function drawFolderBar() {
   const bar = $("contentFolders");
   if (!bar) return;
+
+  // Folders file the reader's own items, and a member of another organization has none here (ADR-204 §5c).
+  if (isOutsider()) { bar.hidden = true; bar.innerHTML = ""; return; }
 
   const relevant = contentScope === "all" || contentScope === "mine";
 
@@ -32320,6 +33218,15 @@ async function drawOgcSetting(name, folder) {
   } catch { box.innerHTML = ""; return; }
   if (serviceOpen !== at || !$("generalOgc")) return;
 
+  // ADR-213 §5g: WMS, WFS, OGC API and KML serve what has a geometry, and a service of tables alone has none — four
+  // switches that turn nothing on and off would be four controls for a feature that does not exist here.
+  if (serviceTablesOnly()) {
+    box.innerHTML = `<h4>OGC services</h4>
+      <p class="hint">None for this service. WMS, WFS, OGC API – Features and KML serve layers with a geometry, and this
+        service holds only tables. ArcGIS clients read and edit its rows through the FeatureServer.</p>`;
+    return;
+  }
+
   const qualified = folder ? `${folder}/${name}` : name;
   const base = `${location.origin}/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}`;
   const image = serviceOpenKind === "ImageServer";
@@ -32345,7 +33252,8 @@ async function drawOgcSetting(name, folder) {
     <legend><h4>OGC services</h4></legend>
     <p class="hint" id="ogcHint">Clients that do not speak ArcGIS reach this ${image ? "image service" : "layer"} through these.
       ArcGIS Server Manager calls them capabilities. The ArcGIS REST service (${image ? "ImageServer" : "FeatureServer and MapServer"})
-      stays on whatever is chosen here.${manages ? "" : " Only its owner or an administrator changes these."}</p>
+      stays on whatever is chosen here.${serviceTables.length && !image ? ` Its ${serviceTables.length === 1 ? "table is" : "tables are"} not
+      served by these: a table has no geometry, so only the FeatureServer has ${serviceTables.length === 1 ? "it" : "them"}.` : ""}${manages ? "" : " Only its owner or an administrator changes these."}</p>
     ${faces.map(([key, label, address]) => `<div class="check-row">
       <label><input type="checkbox" data-ogc-face="${key}"${off.has(key) ? "" : " checked"}${manages ? "" : ' aria-disabled="true"'}
         aria-describedby="ogcAddress-${key}${key === "KML" ? " ogcKmlNeeds" : ""}"> <span>${h(label)}</span></label>
@@ -33356,5 +34264,587 @@ document.addEventListener("keydown", event => {
   if (event.key === "Enter" && event.target.id === "searchQ") {
     const id = ITEM_ID.exec(event.target.value.trim());
     if (id) navigateTo(`#/item/${id[1].toLowerCase()}`);
+  }
+});
+
+
+// ---------------------------------------------------------------- organizations (ADR-204)
+
+/** Whether the server holds more than one organization, as `whoami` last said. */
+const isMultiTenant = () => !!whoNow?.organisation?.multiTenant;
+
+/** Whether the reader is the system administrator: a flag on their account, not a privilege a role grants (§5d). */
+const isSystemAdministrator = () => !!whoNow?.systemAdministrator;
+
+/**
+ * Whether the reader administers the organization this console belongs to, on a server of several — the one who may
+ * let a group admit other organizations' members (ADR-204 §5c). The server's test is the administrator role inside the
+ * host's organization, which a member of another organization never holds here.
+ */
+const isOrgAdministrator = () => isMultiTenant() && !whoNow?.outsider
+  && (whoNow?.roles || []).includes("administrator");
+
+/**
+ * Whether the reader is a member of another organization here (ADR-204 §5c): they hold no privilege in it and own nothing
+ * in it, so nothing that makes, owns or files content is offered to them — every such request is refused.
+ */
+const isOutsider = () => !!whoNow?.outsider;
+
+/** An organization's key: what the server accepts (`TenantEndpoints.CreateAsync`), said before it is sent. */
+const TENANT_KEY = /^[a-z][a-z0-9_]{0,30}$/;
+
+/** The organizations as `/admin/tenants` last listed them. */
+let tenantsKnown = [];
+
+/** The key of the organization the form is changing, or null while it makes a new one. */
+let tenantFormKey = null;
+
+/** Whether the key was typed into; until it is, it follows the name. */
+let tenantKeyTyped = false;
+
+/** The organization the removal dialog is about. */
+let tenantRemoving = null;
+
+/**
+ * What this page itself set on a group's admission of other organizations, by group name.
+ *
+ * <b>Because the group's own description does not say yet.</b> `GET /admin/groups/{name}` carries no
+ * `admitsOtherTenants`; until it does, the switch can only be truthful about what was set from this page, and says so
+ * when it does not know. The server's field wins the moment it is there.
+ */
+const groupAdmits = new Map();
+
+/**
+ * Which organization this console is, where the server holds more than one — in the bar and in the window's title, so
+ * two tabs on two organizations cannot be taken for each other — and, to a member of another organization, what they
+ * are looking at.
+ */
+function drawTenancy(me) {
+  const org = me?.organisation;
+  const several = !!org?.multiTenant;
+  const called = org?.name || org?.key || "";
+
+  const badge = $("tenantName");
+  if (badge) {
+    badge.hidden = !several;
+    $("tenantNameText").textContent = several ? called : "";
+    badge.title = several ? `This console is ${called}'s` : "";
+  }
+
+  document.title = several && called ? `${called} · Graticula` : "Graticula console";
+
+  // The sign-in card names the organization too: it is the one page where the reader has not yet said who they are,
+  // and the host name alone does not tell somebody which organization's password to type.
+  if ($("signinTitle")) $("signinTitle").textContent = several && called ? `Sign in to ${called}` : "Sign in to Graticula";
+
+  const notice = $("outsiderNotice");
+  if (notice) {
+    const outsider = !!me?.authenticated && !!me?.outsider;
+    notice.hidden = !outsider;
+    // They make no group here: `groups:create` is a privilege, and an outsider holds none (ADR-204 §5c).
+    if ($("groupNew")) $("groupNew").hidden = outsider;
+    const lede = document.querySelector("#view-content .pagehead p");
+    if (lede) {
+      lede.textContent = outsider
+        ? "What this organization's groups share with you, and what it shares with everyone."
+        : "What you own, and what other people have shared with you.";
+    }
+    $("outsiderNoticeText").innerHTML = outsider
+      ? `<b>You are signed in as a member of another organization.</b> In ${h(called || "this organization")} you see
+         only what its groups share with you, and what it shares with everyone.`
+      : "";
+  }
+}
+
+/** A line under the Organizations heading, read out when it changes; `bad` marks a refusal. */
+function tenantSay(message, bad = false) {
+  const line = $("tnSays");
+  if (!line) return;
+  line.textContent = message || "";
+  line.classList.toggle("bad-inline", !!bad);
+}
+
+/** Organizations — the list, and the sentence under it that says how host names are answered. */
+async function loadTenants() {
+  const answer = await api("/admin/tenants") || {};
+  const tenants = answer.tenants || [];
+  tenantsKnown = tenants;
+
+  $("tnCount").textContent = `${num(tenants.length)} organization${tenants.length === 1 ? "" : "s"}`;
+
+  $("tnRows").innerHTML = tenants.length === 0
+    ? `<tr><td colspan="5" class="empty">The server listed no organizations, which it cannot hold: its own is always
+        there. Reload the page; if it stays empty, the server's log says why.</td></tr>`
+    : tenants.map(t => {
+      const hosts = (t.hosts || []).length
+        ? t.hosts.map(x => `<div><code>${h(x)}</code></div>`).join("")
+        : t.isDefault
+          ? `<span class="faint">Every host name no other organization lists</span>`
+          : `<span class="faint">None</span>`;
+
+      // The default organization is changed and never suspended or removed: the server refuses both, and the system's
+      // administration is reached through it.
+      const acts = [
+        `<button class="tiny" type="button" data-tn-edit="${h(t.key)}" aria-label="Change ${h(t.name)}">Change&hellip;</button>`,
+        t.isDefault ? "" : t.suspended
+          ? `<button class="tiny" type="button" data-tn-resume="${h(t.key)}" aria-label="Resume ${h(t.name)}">Resume</button>`
+          : `<button class="tiny" type="button" data-tn-suspend="${h(t.key)}" aria-label="Suspend ${h(t.name)}">Suspend&hellip;</button>`,
+        t.isDefault ? "" : `<button class="tiny danger" type="button" data-tn-remove="${h(t.key)}"
+          aria-label="Remove ${h(t.name)}">Remove&hellip;</button>`,
+      ].join("");
+
+      return `<tr data-tn="${h(t.key)}">
+        <td class="name"><b>${h(t.name)}</b>
+          <div class="rowmeta">key <code>${h(t.key)}</code>${t.isDefault ? " · the server's own organization" : ""}</div></td>
+        <td data-l="Host names"><span>${hosts}</span></td>
+        <td data-l="Status"><span>${t.suspended
+          ? `<span class="pill p-stopped">Suspended</span>`
+          : `<span class="pill p-active">Active</span>`}</span></td>
+        <td class="val" data-l="Organization ID"><span><code>${h(t.portalId)}</code></span></td>
+        <td class="act tnacts">${acts}</td>
+      </tr>`;
+    }).join("");
+
+  // <b>How a host name is answered, which changes the moment a second organization exists</b> (ADR-204 §5e.6): until
+  // then every host reaches the server's own; after it, only the host names an organization lists reach it, and the
+  // server's own takes the rest only while it lists none.
+  const own = tenants.find(t => t.isDefault);
+  const note = $("tnNote");
+  if (note) {
+    note.innerHTML = tenants.length <= 1
+      ? `This server holds only its own organization, so every host name reaches it. A new organization is reached only
+         at the host names you give it. Once there are two, Server answers only the system administrator; each
+         organization's own administrators keep Studio.`
+      : own && (own.hosts || []).length === 0
+        ? `<b>${h(own.name)}</b> lists no host names, so it answers every host name no other organization lists,
+           this server's IP address included.`
+        : `A host name no organization lists is refused.`;
+  }
+}
+
+/** Opens the organization form: a new one when `key` is empty, otherwise a change to that one. */
+function openTenantForm(key) {
+  const t = key ? tenantsKnown.find(x => x.key === key) : null;
+  tenantFormKey = t ? t.key : null;
+  tenantKeyTyped = false;
+
+  $("tnDialogTitle").textContent = t ? `Change ${t.name}` : "New organization";
+  $("tnSave").textContent = t ? "Save changes" : "Create organization";
+  $("tnName").value = t ? t.name : "";
+  $("tnKey").value = "";
+  $("tnHosts").value = t ? (t.hosts || []).join("\n") : "";
+  $("tnAdmin").value = "";
+  $("tnKeyRow").hidden = !!t;
+  $("tnAdminRow").hidden = !!t;
+  $("tnKeyFixed").hidden = !t;
+  $("tnKeyFixed").innerHTML = t ? `Key <code>${h(t.key)}</code>, fixed when it was made.` : "";
+
+  // The server's own organization with host names stops answering every other host: said where they are typed.
+  $("tnHostsHint").textContent = t?.isDefault
+    ? "Optional for the server's own organization. While it lists none it answers every host name no other "
+      + "organization lists; once it lists some, a host name nobody lists is refused."
+    : "The first is the address its people sign in at. Each needs a DNS record that points at this server, and a "
+      + "certificate that covers it.";
+
+  sayTenantKey();
+  dialogSay("tnFormSays", "");
+  $("tnDialog").showModal();
+  $("tnName").focus();
+}
+
+/** An organization's key, from its name, until somebody types one: `Acme Surveying` is `acme_surveying`. */
+function tenantKeyFromName(name) {
+  return String(name || "").toLowerCase().replace(/ı/g, "i")
+    .normalize("NFKD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^[^a-z]+/, "").slice(0, 31).replace(/_+$/, "");
+}
+
+/** Says what the key will be and whether the server will take it, as it is typed. */
+function sayTenantKey() {
+  const field = $("tnKey");
+  if (!field) return true;
+  const key = field.value.trim();
+  const taken = !!key && tenantsKnown.some(t => t.key === key);
+  const shaped = !key || (TENANT_KEY.test(key) && key !== "default");
+
+  $("tnKeyHint").innerHTML = taken
+    ? `<b>${h(key)} is taken</b> by another organization.`
+    : !shaped
+      ? `<b>Use lower-case letters, digits and underscores</b>, starting with a letter, at most 31.`
+      : `Lower-case letters, digits and underscores, starting with a letter. It names the organization to this server
+         and cannot be changed later.`;
+
+  if (taken || !shaped) field.setAttribute("aria-invalid", "true");
+  else field.removeAttribute("aria-invalid");
+
+  return !taken && shaped;
+}
+
+/** Host names as typed, one per line or separated by spaces or commas, without a scheme, a port or a path. */
+function tenantHostsTyped() {
+  return [...new Set($("tnHosts").value.split(/[\s,]+/)
+    .map(x => x.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/:?#].*$/, ""))
+    .filter(Boolean))];
+}
+
+/** Sends the organization form: makes one, or saves a change to one. */
+async function saveTenantForm() {
+  const button = $("tnSave");
+  const name = $("tnName").value.trim();
+  const hosts = tenantHostsTyped();
+  const editing = tenantsKnown.find(t => t.key === tenantFormKey) || null;
+
+  if (!name) {
+    dialogSay("tnFormSays", "An organization needs a name: it is what its people see at the top of every page.");
+    $("tnName").focus();
+    return;
+  }
+
+  if (hosts.length === 0 && !editing?.isDefault) {
+    dialogSay("tnFormSays", "Give it at least one host name: it is the only way its people reach it.");
+    $("tnHosts").focus();
+    return;
+  }
+
+  const key = $("tnKey").value.trim();
+  const administrator = $("tnAdmin").value.trim();
+
+  if (!editing) {
+    // A key the server would refuse is said under the field, which takes the focus and reads its own hint out.
+    if (key && !sayTenantKey()) {
+      $("tnKey").focus();
+      return;
+    }
+    if (!key) {
+      dialogSay("tnFormSays", "An organization needs a key: it names it to this server.");
+      $("tnKey").focus();
+      return;
+    }
+    if (!administrator) {
+      dialogSay("tnFormSays", "Name its first administrator: nobody else can sign in to it until they do.");
+      $("tnAdmin").focus();
+      return;
+    }
+  }
+
+  const said = button.textContent;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = editing ? "Saving…" : "Creating…";
+  dialogSay("tnFormSays", "");
+
+  try {
+    if (editing) {
+      await api(`/admin/tenants/${encodeURIComponent(editing.key)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, hosts }),
+      });
+
+      $("tnDialog").close();
+      await section("organizations", loadTenants, "tnRows");
+      (document.querySelector(`[data-tn-edit="${CSS.escape(editing.key)}"]`) || $("tnNew")).focus();
+      tenantSay(`${name} is saved.`);
+      return;
+    }
+
+    const made = await api("/admin/tenants", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, name, hosts, administrator }),
+    });
+
+    // The list first, then the password: closing the password puts the reader on the new row, which has to exist by
+    // then (a quick close found it missing and fell back to New organization).
+    $("tnDialog").close();
+    await section("organizations", loadTenants, "tnRows");
+    tenantSay(`${name} is created.`);
+    showTenantIssued(made || {});
+
+    // The server may hold several organizations from now on, which changes what the bar says and who Server is for.
+    await whoami().catch(() => null);
+  } catch (e) {
+    // <b>Made, and its answer lost.</b> Measured 2026-10-22: with the database out of connections the server wrote the
+    // organization and its administrator and then answered 503, so the password never reached this page. The list is
+    // the truth; read it, and say what to do if it holds what was asked for.
+    if ((e.status || 0) >= 500) {
+      await section("organizations", loadTenants, "tnRows");
+      if (tenantsKnown.some(t => t.key === key)) {
+        dialogSay("tnFormSays", `The server made ${name} but its answer did not arrive, so the first administrator's `
+          + `password never reached this page. Remove ${name} with everything it owns, then make it again.`);
+        return;
+      }
+    }
+    dialogSay("tnFormSays", e.message);
+    // At the foot of a body that scrolls, so brought into view: at 390 pixels it was under the footer.
+    $("tnFormSays").scrollIntoView({ block: "nearest" });
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.textContent = said;
+  }
+}
+
+/** The first administrator's password and where they sign in, shown once. */
+function showTenantIssued(made) {
+  const t = made.tenant || {};
+  const who = made.administrator || {};
+  const host = (t.hosts || [])[0] || "";
+  const at = host ? `https://${host}${location.port ? `:${location.port}` : ""}/studio/` : "";
+
+  $("tnIssuedTitle").textContent = `${t.name || t.key || "The organization"} is created`;
+  $("tnIssuedWho").textContent = who.name || "its first administrator";
+  $("tnIssuedPassword").value = who.password || "";
+  $("tnIssuedAt").value = at;
+  $("tnIssuedDns").innerHTML = host
+    ? `That address reaches ${h(t.name || t.key)} once DNS points <code>${h(host)}</code> at this server and the
+       server's certificate covers it.`
+    : "";
+  $("tnIssuedSays").textContent = "";
+  $("tnIssued").dataset.key = t.key || "";
+
+  // Modal, so the page behind it cannot be pressed while the secret is on screen; the field has the focus and its text
+  // is selected, which is the copy that works when a browser refuses the clipboard.
+  $("tnIssued").showModal();
+  $("tnIssuedPassword").focus();
+  $("tnIssuedPassword").select();
+}
+
+/** Copies a read-only field, selecting it first so a refused clipboard still leaves it ready to copy by hand. */
+async function copyTenantField(fieldId, button, what) {
+  const field = $(fieldId);
+  if (!field) return;
+  field.focus();
+  field.select();
+  try {
+    await navigator.clipboard.writeText(field.value);
+    $("tnIssuedSays").textContent = `The ${what} is copied.`;
+    copiedHere(button);
+  } catch {
+    $("tnIssuedSays").textContent = `This browser would not let the page copy it. The ${what} is selected: copy it `
+      + "with the keyboard.";
+  }
+}
+
+/** Suspends an organization after asking, or resumes it at once. */
+async function setTenantSuspended(key, suspended) {
+  const t = tenantsKnown.find(x => x.key === key);
+  if (!t) return;
+
+  if (suspended && !await askServerConfirm({
+    title: `Suspend ${t.name}?`,
+    body: `Nobody can sign in to ${t.name} or read anything it publishes until it is resumed: every request to its `
+      + "host names is refused. Nothing is deleted.",
+    action: "Suspend",
+  })) return;
+
+  try {
+    await api(`/admin/tenants/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ suspended }),
+    });
+  } catch (e) {
+    tenantSay(e.message, true);
+    return;
+  }
+
+  await section("organizations", loadTenants, "tnRows");
+
+  // The button that was pressed went with the redraw; its opposite is where the reader is.
+  const next = document.querySelector(`[data-tn-${suspended ? "resume" : "suspend"}="${CSS.escape(key)}"]`);
+  (next || $("tnNew")).focus();
+  tenantSay(suspended ? `${t.name} is suspended. Resume it to let its people back in.` : `${t.name} is active again.`);
+}
+
+/** Opens the removal dialog, at its first step: remove it if it holds nothing. */
+function openTenantRemoval(key) {
+  const t = tenantsKnown.find(x => x.key === key);
+  if (!t) return;
+  tenantRemoving = t;
+
+  $("tnRemoveTitle").textContent = `Remove ${t.name}`;
+  $("tnRemoveBody").hidden = false;
+  $("tnRemoveBody").textContent = `${t.name} is removed only if it holds nothing: no members, groups or content. `
+    + "Its host names stop answering.";
+  $("tnPurge").hidden = true;
+  $("tnPurgeKey").value = "";
+  $("tnPurgeKey").removeAttribute("aria-invalid");
+  $("tnPurgeKeyIs").textContent = t.key;
+  $("tnRemoveGo").hidden = false;
+  $("tnPurgeGo").hidden = true;
+  $("tnPurgeGo").disabled = true;
+  dialogSay("tnRemoveSays", "");
+
+  $("tnRemove").showModal();
+  $("tnRemoveCancel").focus();
+}
+
+/** Closes the removal dialog, back to the row it was opened from. */
+function closeTenantRemoval() {
+  $("tnRemove").close();
+  const key = tenantRemoving?.key;
+  (key && document.querySelector(`[data-tn-remove="${CSS.escape(key)}"]`) || $("tnNew")).focus();
+}
+
+/** The first step: a plain removal, which the server refuses while the organization still holds anything. */
+async function removeTenant() {
+  const t = tenantRemoving;
+  if (!t) return;
+  const go = $("tnRemoveGo");
+  go.disabled = true;
+  go.setAttribute("aria-busy", "true");
+
+  try {
+    await api(`/admin/tenants/${encodeURIComponent(t.key)}`, { method: "DELETE" });
+    $("tnRemove").close();
+    await section("organizations", loadTenants, "tnRows");
+    $("tnNew").focus();
+    tenantSay(`${t.name} is removed.`);
+    await whoami().catch(() => null);
+  } catch (e) {
+    if (e.status !== 409) {
+      dialogSay("tnRemoveSays", e.message);
+      return;
+    }
+
+    // <b>What it still holds is the server's sentence</b>, cut before the part addressed to a client of the API (the
+    // query parameter), which this dialog says in words below it.
+    const holds = /still holds (.+?);/.exec(e.message)?.[1];
+    $("tnRemoveHolds").textContent = holds
+      ? `${t.name} still holds ${holds}, so it was not removed.`
+      : e.message;
+    $("tnRemoveBody").hidden = true;
+    $("tnPurge").hidden = false;
+    go.hidden = true;
+    $("tnPurgeGo").hidden = false;
+    $("tnPurgeKey").focus();
+  } finally {
+    go.disabled = false;
+    go.removeAttribute("aria-busy");
+  }
+}
+
+/** The second step: the organization with everything it owns, once its key is typed. */
+async function purgeTenant() {
+  const t = tenantRemoving;
+  if (!t || $("tnPurgeKey").value.trim() !== t.key) return;
+  const go = $("tnPurgeGo");
+  go.disabled = true;
+  go.setAttribute("aria-busy", "true");
+  go.textContent = "Removing…";
+
+  try {
+    await api(`/admin/tenants/${encodeURIComponent(t.key)}?purge=true`, { method: "DELETE" });
+    $("tnRemove").close();
+    await section("organizations", loadTenants, "tnRows");
+    $("tnNew").focus();
+    tenantSay(`${t.name} is removed, with everything it owned. Tables it published to the datastore are still there.`);
+    await whoami().catch(() => null);
+  } catch (e) {
+    dialogSay("tnRemoveSays", e.message);
+    go.disabled = false;
+  } finally {
+    go.removeAttribute("aria-busy");
+    go.textContent = "Remove with everything";
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest?.("button");
+  if (!t) return;
+
+  if (t.id === "tnNew") { openTenantForm(null); return; }
+  if (t.id === "tnSave") { await saveTenantForm(); return; }
+  if (t.id === "tnCancel" || t.id === "tnDialogClose") {
+    $("tnDialog").close();
+    (tenantFormKey && document.querySelector(`[data-tn-edit="${CSS.escape(tenantFormKey)}"]`) || $("tnNew")).focus();
+    return;
+  }
+
+  if (t.id === "tnIssuedCopy") { await copyTenantField("tnIssuedPassword", t, "password"); return; }
+  if (t.id === "tnIssuedAtCopy") { await copyTenantField("tnIssuedAt", t, "address"); return; }
+  if (t.id === "tnIssuedDone") { closeTenantIssued(); return; }
+
+  if (t.id === "tnRemoveGo") { await removeTenant(); return; }
+  if (t.id === "tnPurgeGo") { await purgeTenant(); return; }
+  if (t.id === "tnRemoveCancel" || t.id === "tnRemoveClose") { closeTenantRemoval(); return; }
+
+  if (t.dataset.tnEdit) { openTenantForm(t.dataset.tnEdit); return; }
+  if (t.dataset.tnSuspend) { await setTenantSuspended(t.dataset.tnSuspend, true); return; }
+  if (t.dataset.tnResume) { await setTenantSuspended(t.dataset.tnResume, false); return; }
+  if (t.dataset.tnRemove) { openTenantRemoval(t.dataset.tnRemove); }
+});
+
+document.addEventListener("input", event => {
+  const id = event.target.id;
+
+  if (id === "tnName" && !tenantFormKey && !tenantKeyTyped) {
+    $("tnKey").value = tenantKeyFromName(event.target.value);
+    sayTenantKey();
+  }
+  if (id === "tnKey") {
+    tenantKeyTyped = event.target.value.trim() !== "";
+    sayTenantKey();
+  }
+  if (id === "tnPurgeKey" && tenantRemoving) {
+    $("tnPurgeGo").disabled = event.target.value.trim() !== tenantRemoving.key;
+  }
+});
+
+// Enter in a one-line field sends the form it is in, as a form would; a textarea keeps Enter for its next line.
+document.addEventListener("keydown", event => {
+  if (event.key !== "Enter" || event.target.tagName !== "INPUT") return;
+  if (event.target.closest("#tnDialog")) { event.preventDefault(); saveTenantForm(); }
+  else if (event.target.id === "tnPurgeKey" && !$("tnPurgeGo").disabled) { event.preventDefault(); purgeTenant(); }
+});
+
+/**
+ * <b>The password does not outlive its dialog</b>: closed by its button or by Escape, the field is emptied, and the
+ * reader lands on the new organization's row rather than wherever the browser puts focus back.
+ */
+function closeTenantIssued() {
+  const dialog = $("tnIssued");
+  if (dialog.open) dialog.close();
+  $("tnIssuedPassword").value = "";
+  const key = dialog.dataset.key;
+  (key && document.querySelector(`[data-tn-edit="${CSS.escape(key)}"]`) || $("tnNew"))?.focus();
+}
+
+$("tnIssued")?.addEventListener("close", () => {
+  if ($("tnIssuedPassword").value) closeTenantIssued();
+});
+
+/**
+ * A group's admission of other organizations' members — ADR-204 §5c. It writes the moment it is ticked, as
+ * *Protect from deletion* does, because it is not one of the settings Save sends and must not look unsaved.
+ */
+document.addEventListener("change", async event => {
+  if (event.target.id !== "gsAdmits" || !groupOpen) return;
+
+  const box = event.target;
+  const want = box.checked;
+  const line = $("gsAdmitsSays");
+  box.disabled = true;
+
+  try {
+    await api(`/admin/groups/${encodeURIComponent(groupOpen)}/tenants`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ admitsOtherTenants: want }),
+    });
+    groupAdmits.set(groupOpen, want);
+    if ($("gsAdmitsUnknown")) $("gsAdmitsUnknown").hidden = true;
+    if (line) {
+      line.textContent = want
+        ? "This group admits members of other organizations. Add them on Members by the name they sign in with."
+        : "This group no longer admits members of other organizations.";
+    }
+  } catch (e) {
+    box.checked = !want;
+    if (line) line.textContent = e.message;
+  } finally {
+    box.disabled = false;
+    box.focus();
   }
 });

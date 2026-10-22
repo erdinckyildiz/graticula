@@ -61,7 +61,7 @@ public sealed class PublishScreenTests : ConsoleTest
         // learned on 2026-09-05, where listening only for what a real mouse sends made a
         // control this suite could not press.
         string chosen = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#pubDbTree [data-pubtable][draggable=true]')"
+            "document.querySelector('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]')"
             + "?.getAttribute('data-pubtable') || ''") ?? string.Empty;
 
         Assert.False(
@@ -410,10 +410,10 @@ public sealed class PublishScreenTests : ConsoleTest
         await ClickAsync("#pubDbTree [data-pubdb]");
 
         await WaitForAsync(
-            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]').length > 0",
             "This database offers no publishable table.");
 
-        await ClickAsync("#pubDbTree [data-pubtable][draggable=true]");
+        await ClickAsync("#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]");
 
         await WaitForAsync(
             "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
@@ -516,10 +516,10 @@ public sealed class PublishScreenTests : ConsoleTest
         await ClickAsync("#pubDbTree [data-pubdb]");
 
         await WaitForAsync(
-            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]').length > 0",
             "This database offers no publishable table.");
 
-        await ClickAsync("#pubDbTree [data-pubtable][draggable=true]");
+        await ClickAsync("#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]");
 
         await WaitForAsync(
             "!!document.querySelector('#pubTree [data-pubsym]')",
@@ -920,10 +920,10 @@ public sealed class PublishScreenTests : ConsoleTest
         await ClickAsync("#pubDbTree [data-pubdb]");
 
         await WaitForAsync(
-            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]').length > 0",
             "No free table to compose with.");
 
-        await ClickAsync("#pubDbTree [data-pubtable][draggable=true]");
+        await ClickAsync("#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]");
 
         await WaitForAsync(
             "document.querySelectorAll('#pubTree [data-pubnode]').length === 1",
@@ -1135,14 +1135,14 @@ public sealed class PublishScreenTests : ConsoleTest
         await ClickAsync("#pubDbTree [data-pubdb]");
 
         await WaitForAsync(
-            "document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]').length > 0",
+            "document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]').length > 0",
             "Opening a database offered no publishable table.");
 
         // <b>A point, on purpose.</b> Falling through to *area* is the failure, so a polygon
         // table would pass a broken screen — which is how this shipped.
         string picked = await Browser.EvaluateAsync<string>("""
         (() => {
-          const rows = [...document.querySelectorAll('#pubDbTree [data-pubtable][draggable=true]')];
+          const rows = [...document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]')];
           const dot = rows.find(r => r.querySelector('.pubgeom.dot'))
             || rows.find(r => r.querySelector('.pubgeom.line'))
             || rows[0];
@@ -1233,12 +1233,13 @@ public sealed class PublishScreenTests : ConsoleTest
         Assert.Equal(
             0,
             await Browser.EvaluateAsync<int>(
-                "document.querySelectorAll('#pubDbTree [data-pubtable]').length"
-                + " - document.querySelectorAll('#pubDbTree [data-pubtable] .pubgeom').length"));
+                // A table without geometry carries no shape mark (ADR-213); every other row carries one.
+                "document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table])').length"
+                + " - document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table]) .pubgeom').length"));
 
         // <b>The shape and the type it claims, compared row by row.</b>
         string wrong = await Browser.EvaluateAsync<string>("""
-        [...document.querySelectorAll('#pubDbTree [data-pubtable] .pubgeom')]
+        [...document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table]) .pubgeom')]
           .map(m => {
             const said = (m.getAttribute("title") || "").toLowerCase();
             const wanted = said.includes("point") ? "dot"
@@ -1258,7 +1259,7 @@ public sealed class PublishScreenTests : ConsoleTest
         // *area* for everything would satisfy the comparison above on a fixture of polygons.
         Assert.True(
             await Browser.EvaluateAsync<int>(
-                "new Set([...document.querySelectorAll('#pubDbTree [data-pubtable] .pubgeom')]"
+                "new Set([...document.querySelectorAll('#pubDbTree [data-pubtable]:not([data-pubkind=table]) .pubgeom')]"
                 + ".map(m => m.classList.contains('dot') ? 'dot'"
                 + " : m.classList.contains('line') ? 'line' : 'fill')).size") > 1,
             "Every table in this database draws the same shape, so either the fixture holds one "
@@ -1315,7 +1316,7 @@ public sealed class PublishScreenTests : ConsoleTest
         // The one thing that genuinely cannot be composed with is a table this server cannot
         // address — no geometry column, or no integer to use as an object id.
         string servable = await Browser.EvaluateAsync<string>(
-            "document.querySelector('#pubDbTree [data-pubtable][draggable=true]')"
+            "document.querySelector('#pubDbTree [data-pubtable]:not([data-pubkind=table])[draggable=true]')"
             + "?.getAttribute('data-pubtable') || ''") ?? string.Empty;
 
         Assert.False(

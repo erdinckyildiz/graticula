@@ -503,7 +503,10 @@ than having one silently dropped.
   constantly is pinned by policy (§4.5). Recorded and visible, never silent.
 - **Administrator: explicit pin.** This is condition 4's manual override made
   concrete, and it is the mechanism for a service under an SLA — exactly
-  ArcGIS's documented use case.
+  ArcGIS's documented use case. **Built 2026-10-22, alone, by owner decision — [ADR-218](ADR-218-a-pinned-service-is-kept-warm.md).**
+  What it keeps is what was measured to go cold — the shape, the pool's connection and the first read after a
+  restart — and points 3 and 4 above have no counterpart in one process: there is one worker, and the connection is
+  kept by using it rather than by a floor. Auto-pinning stays deferred.
 
 **This is a per-service configuration knob, which A-008 warned against.** The
 resolution is that it is an *exception* surface, not the primary one. ArcGIS's

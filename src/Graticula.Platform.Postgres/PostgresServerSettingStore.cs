@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
+using Graticula.Platform.Tenancy;
 using Npgsql;
 
 namespace Graticula.Platform.Postgres;
@@ -11,7 +13,10 @@ namespace Graticula.Platform.Postgres;
 /// </summary>
 public sealed class PostgresServerSettingStore : IServerSettingStore
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Reads and writes settings in a platform store.</summary>
     /// <param name="dataSource">The store.</param>
@@ -19,13 +24,32 @@ public sealed class PostgresServerSettingStore : IServerSettingStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
+
+    /// <summary>
+    /// The settings an organisation makes for itself rather than the system for the machine — ADR-204 §5d: kept per
+    /// tenant, under a name that carries the tenant, for every tenant but the default, whose rows keep the names they
+    /// always had. The rest are the system's and are one per deployment.
+    /// </summary>
+    private static readonly HashSet<string> Organisational = new(StringComparer.Ordinal)
+    {
+        "basemap_gallery", "default_basemap", "secondFactor.required",
+    };
+
+    /// <summary>The name a setting is stored under for the tenant of the work in progress.</summary>
+    /// <param name="name">The setting's own name.</param>
+    /// <returns>The stored name.</returns>
+    public static string Scoped(string name) =>
+        Organisational.Contains(name) && TenantScope.Current is { } tenant && tenant != TenantScope.DefaultTenant
+            ? $"t:{tenant:N}:{name}"
+            : name;
 
     /// <inheritdoc/>
     public async Task<StoredSetting?> ReadAsync(string name, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        name = Scoped(name);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             "select value, changed_at from server_setting where name = @name");
@@ -48,6 +72,7 @@ public sealed class PostgresServerSettingStore : IServerSettingStore
         string name, string? value, Guid? changedBy, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        name = Scoped(name);
 
         await using NpgsqlConnection connection =
             await _dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);

@@ -994,6 +994,21 @@ button:hover .ico { opacity: 1; }
 .pill.p-hosted, .pill.p-registered { background: var(--surface-2); color: var(--muted); }
 .pill.p-hosted::before, .pill.p-registered::before { display: none; }
 
+/* <b>Kept warm (ADR-218) is a state, and a calm one</b>: nothing is wrong with a pinned service, so it wears the neutral
+   ground and no colour — the head card's started/stopped pill stays the one that is read first. */
+.pill.p-pinned { background: var(--surface-2); color: var(--muted); }
+#heroPin:empty { display: none; }
+#servicePinSays:empty { margin: 0; }
+
+/* The Parameters page's Kept warm section: the state, then its one button beside it rather than across the page. */
+.pinrow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-2) var(--gap-4);
+          margin: var(--gap-3) 0; }
+.pinstate { margin: 0; flex: 0 1 auto; color: var(--ink); }
+.pinlist { margin: 0 0 var(--gap-3); padding-left: var(--gap-5); font-size: var(--t-small); columns: 2 220px; }
+.pinlist li { margin-bottom: var(--gap-1); break-inside: avoid; }
+/* The page's own lead-in about the boxes starts a new group after this section, not a fourth line of it. */
+#servicePinBox:not([hidden]) + .hint { margin-top: var(--gap-6); }
+
 .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
           margin-right: 7px; vertical-align: 0; border: 1px solid rgba(0, 0, 0, .3); }
 
@@ -6078,3 +6093,76 @@ ol.sfsteps > li > b { margin-left: -30px; }
 @media (pointer: coarse) {
   .sfqr, .sfqr-said { display: none; }
 }
+
+/* ---------------------------------------------------- tables in a service (ADR-213)
+   A table sits under the layers, under its own heading, as Portal's item page lists it. The heading is a row of
+   the same table so the ids stay in one column; it reads as a caption, not as a data row. */
+#serviceLayerRows tr.lsection th {
+  padding: var(--gap-4) var(--gap-4) var(--gap-1); text-align: left; font-size: var(--t-small);
+  font-weight: 600; color: var(--muted); background: transparent; border-bottom: 1px solid var(--rule);
+}
+#serviceLayerRows .tableicon { margin: 0 0 0 var(--gap-1); }
+#serviceLayerRows td.empty.tablesonly { color: var(--muted); }
+/* Server › service › Layers: the tables after the layers, under a heading of the same weight as the section's own. */
+#page-layers h3.srvtables { margin: var(--gap-5) 0 var(--gap-1); font-size: var(--t-small); font-weight: 600;
+  color: var(--ink); text-transform: none; letter-spacing: 0; }
+#serviceVis .vistables { margin: 0 0 var(--gap-3); }
+/* Settings › Feature layer: the tables after the layers, under a caption that reads as one, not as an eleventh-size label. */
+#featureLayers h5.tablesub { margin: var(--gap-5) 0 0; font-size: var(--t-small); font-weight: 600; color: var(--muted);
+  text-transform: none; letter-spacing: 0; }
+/* A link inside a sentence is underlined, as every other in-text link on this page is (axe link-in-text-block). */
+#visTables a, #serviceLayerRows td.tablesonly a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Publish › tables (ADR-213 condition 5). A table in Databases and in Contents carries the console's table
+   glyph where a layer carries its shape; in Contents it stands in the tick's column, after a gap the width of
+   the twist, so every name starts at one x. The glyph is the muted ink, not the accent: a layer's shape is
+   coloured because it previews a symbol, and a table has none. */
+.pubtableglyph { display: inline-flex; flex: none; color: var(--muted); }
+.pubtableglyph svg { width: 14px; height: 14px; }
+.pubtableglyph.no { color: var(--faint); }
+.pubtable .pubtableglyph { margin-left: -2px; }
+.pubtwistgap { flex: none; width: 14px; }
+/* The Tables heading is a caption inside the tree, not a row: no hover, no focus, no drop target. */
+.pubsection { display: flex; align-items: baseline; gap: 8px; margin: 12px 8px 3px; padding: 6px 8px 4px;
+  border-top: 1px solid var(--rule); font-size: var(--t-small); font-weight: 600; color: var(--muted); }
+.pubsection .val { font-weight: 400; font-size: var(--t-tiny); color: var(--faint); }
+
+/* ---------------------------------------------------------------- organizations (ADR-204) */
+
+/* Which organization this console is, first in the reader's line, in the ink rather than the muted grey around it:
+   it is the fact that tells two tabs apart. Shown only where the server holds more than one. */
+#utilbar > #tenantName { order: -2; display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+                          max-width: 32ch; color: var(--ink); }
+#utilbar > #tenantName[hidden] { display: none; }
+#utilbar > #tenantName b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+#utilbar > #tenantName svg { width: 14px; height: 14px; flex: none; color: var(--accent-ink); }
+@media (max-width: 760px) { #utilbar > #tenantName { max-width: 40vw; } }
+
+/* A member of another organization: information, not a warning, so the accent's tone rather than the amber one. */
+.factornotice.tenantnotice { border-color: var(--accent-line); background: var(--accent-soft); }
+.factornotice.tenantnotice > .ico { color: var(--accent-ink); }
+
+/* The list's verbs sit on one line where there is room and wrap where there is not. */
+#tnRows td.tnacts { text-align: right; }
+#tnRows td.tnacts button + button { margin-left: var(--gap-2); }
+#tnRows td.name .rowmeta code { font-size: .95em; }
+#tnNote { margin-top: var(--gap-3); }
+
+/* The dialogs' own labels, and a read-only value beside the button that copies it. */
+.tnlabel { display: block; font-weight: 600; margin: var(--gap-4) 0 6px; }
+.copyrow { display: flex; gap: var(--gap-2); align-items: stretch; }
+.copyrow > input { flex: 1 1 auto; min-width: 0; font-family: var(--mono); }
+.copyrow > button { flex: none; }
+#tnIssuedOnce { margin-top: 0; }
+#tnRemove .tnholds { color: var(--alert); font-weight: 600; margin-top: 0; }
+#tnPurgeKey { width: 100%; font-family: var(--mono); }
+#tnDialog .picker > div[hidden], #tnDialog .picker > p[hidden] { display: none; }
+#tnDialog .picker input, #tnDialog .picker textarea { width: 100%; }
+#tnDialog .picker > label, #tnDialog .picker > div > label { margin-top: var(--gap-3); }
+#tnDialog .picker > label:first-child { margin-top: 0; }
+
+/* Settings › Other organizations: its own card between the settings Save sends and deletion, because it writes on its
+   own as the deletion lock does. */
+.gsform.tenantcard { margin-top: var(--gap-5); }
+.gsform.tenantcard .dangerswitch { margin: var(--gap-2) 0 var(--gap-3); }
+.gsform.tenantcard > .hint { margin: 0 0 var(--gap-2); }

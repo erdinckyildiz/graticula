@@ -360,7 +360,7 @@ internal static partial class ArcGisAdminEndpoints
 
         CatalogAnswer answer = await services.FindServiceAsync(folder, serviceName, cancellation).ConfigureAwait(false);
 
-        if (answer.Service?.Layer(layerId) is not { } layer)
+        if (answer.Service?.LayerOrTable(layerId) is not { } layer)
         {
             await RefuseAsync(
                 context, 404,

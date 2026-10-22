@@ -12,7 +12,7 @@ namespace Graticula.Platform.Admin;
 /// <remarks>
 /// <para>
 /// <b>By owner decision, 2026-09-23 and 2026-09-24.</b> A domain is shared, as a geodatabase shares it; its
-/// owner and administrators edit it; one in use is not deleted; its name is unique across the server.
+/// owner and administrators edit it; one in use is not deleted; its name is unique within its organisation (ADR-204).
 /// </para>
 /// <para>
 /// <b>The store keeps and counts; it does not judge.</b> Whether a domain fits the columns that use it needs

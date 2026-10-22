@@ -338,7 +338,7 @@ public sealed class PostGisTileSource : ITileSource
         // position, so it is escaped rather than quoted as an identifier.
         string safeName = layerName.Replace("'", "''", StringComparison.Ordinal);
 
-        string column = LayerDefinition.Quote(_layer.GeometryColumn);
+        string column = LayerDefinition.Quote(_layer.RequireGeometryColumn());
 
         // <b>Native to the tile's grid, which is Web Mercator unless the service chose another</b> —
         // ADR-096. For a Mercator service every expression below is the text it was before schemes existed.

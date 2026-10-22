@@ -79,7 +79,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        PublishedLayer[] hosted = [.. source.Layers.Where(l => l.Definition.IsHosted && l.Definition.IntegerIdentityColumn is not null)];
+        // Its tables too (ADR-213 condition 9): a view of a field service carries the inspections with the sites.
+        PublishedLayer[] hosted = [.. source.LayersAndTables.Where(l => l.Definition.IsHosted && l.Definition.IntegerIdentityColumn is not null)];
 
         if (hosted.Length == 0)
         {
@@ -278,9 +279,9 @@ internal static partial class AdminEndpoints
                 name = s.Name,
                 folder = s.Folder,
                 sharing = s.Sharing.ToString().ToLowerInvariant(),
-                layers = s.Layers.Select(l => new { id = l.LayerIndex, definition = l.ViewDefinition }),
+                layers = s.LayersAndTables.Select(l => new { id = l.LayerIndex, definition = l.ViewDefinition }),
             }),
-            layers = service.Layers.Select(l => new { id = l.LayerIndex, name = l.Definition.Name, definition = l.ViewDefinition }),
+            layers = service.LayersAndTables.Select(l => new { id = l.LayerIndex, name = l.Definition.Name, definition = l.ViewDefinition }),
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -310,7 +311,7 @@ internal static partial class AdminEndpoints
         PublishedService view = (await published.FindServiceAsync(at, name, cancellation).ConfigureAwait(false))!;
 
         if (view.ViewOf is not { } sourceId
-            || view.Layers.FirstOrDefault(l => l.LayerIndex == index) is not { } layer)
+            || view.LayersAndTables.FirstOrDefault(l => l.LayerIndex == index) is not { } layer)
         {
             await Refuse(context, 404, $"'{name}' is not a view with a layer {index}.").ConfigureAwait(false);
             return;

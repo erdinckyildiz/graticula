@@ -81,7 +81,11 @@ public sealed class SqlServerFeatureWriter : IFeatureWriter
 
     private string Id => LayerDefinition.Quote(_layer.IntegerIdentityColumn!);
 
-    private string Shape => LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => LayerDefinition.Quote(_layer.RequireGeometryColumn());
+
+    /// <summary>Why a shape cannot be written to a table — it has no column to put one in (ADR-213), as on PostGIS.</summary>
+    private string TableRefusal =>
+        $"'{_layer.Name}' is a table and keeps no geometry; send the feature's attributes without one.";
 
     private string Table => _layer.QuotedTable;
 
@@ -216,14 +220,22 @@ public sealed class SqlServerFeatureWriter : IFeatureWriter
 
     /// <summary>The SQL of a row's version: a SHA-1 of its columns and its shape as JSON, nulls named.</summary>
     /// <param name="columns">The table's columns other than the shape.</param>
-    /// <param name="shape">The geometry column.</param>
+    /// <param name="shape">The geometry column, or null for a table, whose version is its columns alone (ADR-213).</param>
     /// <param name="alias">The row's alias.</param>
     /// <returns>The expression, forty hexadecimal characters.</returns>
-    internal static string VersionSqlOf(IEnumerable<string> columns, string shape, string alias) =>
-        "convert(varchar(40), hashbytes('SHA1', (select "
-        + string.Join(", ", columns.Select(c => $"{alias}.{LayerDefinition.Quote(c)}"))
-        + $"{(columns.Any() ? ", " : string.Empty)}{alias}.{LayerDefinition.Quote(shape)}.STAsBinary() as {LayerDefinition.Quote("graticula_shape")} "
-        + "for json path, without_array_wrapper, include_null_values)), 2)";
+    internal static string VersionSqlOf(IEnumerable<string> columns, string? shape, string alias)
+    {
+        List<string> parts = [.. columns.Select(c => $"{alias}.{LayerDefinition.Quote(c)}")];
+
+        if (shape is not null)
+        {
+            parts.Add($"{alias}.{LayerDefinition.Quote(shape)}.STAsBinary() as {LayerDefinition.Quote("graticula_shape")}");
+        }
+
+        return "convert(varchar(40), hashbytes('SHA1', (select "
+            + string.Join(", ", parts)
+            + " for json path, without_array_wrapper, include_null_values)), 2)";
+    }
 
     /// <summary>A batch in a transaction the caller owns.</summary>
     private async Task<EditOutcome> ApplyWithinAsync(
@@ -299,21 +311,22 @@ public sealed class SqlServerFeatureWriter : IFeatureWriter
 
         command.Parameters.AddWithValue("@s", _layer.SchemaName);
         command.Parameters.AddWithValue("@t", _layer.TableName);
-        command.Parameters.AddWithValue("@g", _layer.GeometryColumn);
+        command.Parameters.AddWithValue("@g", (object?)_layer.GeometryColumn ?? DBNull.Value);
         command.Parameters.AddWithValue("@k", _layer.IntegerIdentityColumn!);
         command.Parameters.AddWithValue("@u", (object?)_columns.GlobalId ?? DBNull.Value);
 
         await using SqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
         await reader.ReadAsync(cancellationToken).ConfigureAwait(false);
 
-        if (reader.IsDBNull(0))
+        // A table (ADR-213) has no spatial column to be asked about.
+        if (!_layer.IsTable && reader.IsDBNull(0))
         {
             throw new InvalidOperationException(
                 $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, which is "
                 + "no longer a spatial column.");
         }
 
-        bool geography = string.Equals(reader.GetString(0), "geography", StringComparison.OrdinalIgnoreCase);
+        bool geography = !reader.IsDBNull(0) && string.Equals(reader.GetString(0), "geography", StringComparison.OrdinalIgnoreCase);
         bool identity = !reader.IsDBNull(1) && Convert.ToInt32(reader.GetValue(1), CultureInfo.InvariantCulture) == 1;
         bool defaulted = !reader.IsDBNull(2);
         bool global = !reader.IsDBNull(3) && string.Equals(reader.GetString(3), "uniqueidentifier", StringComparison.OrdinalIgnoreCase);
@@ -345,6 +358,11 @@ public sealed class SqlServerFeatureWriter : IFeatureWriter
                 $"'{_layer.IntegerIdentityColumn}' is this table's key and the database does not make it — it is not an "
                 + "IDENTITY column and has no default — so this server cannot add a row without inventing a number the "
                 + "table's own users did not choose. Updates and deletes are answered (ADR-210).");
+        }
+
+        if (add.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(-1, TableRefusal);
         }
 
         if (add.Geometry is { IsEmpty: false } shape
@@ -431,6 +449,11 @@ public sealed class SqlServerFeatureWriter : IFeatureWriter
         EditBatch batch, CancellationToken cancellationToken)
     {
         string[]? expected = Expected(batch, update.Identity);
+
+        if (update.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(update.Identity, TableRefusal);
+        }
 
         if (update.Geometry is not null
             && EditColumns.DimensionRefusal(update.Geometry, GeometryOrdinates.None, "a SQL Server layer's geometry column") is { } lossy)

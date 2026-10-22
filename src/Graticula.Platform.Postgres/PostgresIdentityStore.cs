@@ -21,7 +21,10 @@ namespace Graticula.Platform.Postgres;
 /// </remarks>
 public sealed class PostgresIdentityStore : IIdentityStore
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store.</summary>
     /// <param name="dataSource">The platform store pool.</param>
@@ -29,7 +32,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -91,7 +94,7 @@ public sealed class PostgresIdentityStore : IIdentityStore
                    c.algorithm, c.parameters, c.password_hash
             from principal p
             left join local_credential c on c.principal_id = p.id
-            where p.name = @name
+            where p.id = graticula_principal_named(@name)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -125,7 +128,10 @@ public sealed class PostgresIdentityStore : IIdentityStore
         // to shift between them.
         const string Sql = """
             select
-              count(*) filter (where attempted_name = @name) as for_account,
+              -- ADR-204 §5e item 16: the account is a name within an organisation, so its failures are too.
+              count(*) filter (where attempted_name = @name
+                                 and tenant_id = coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'))
+                as for_account,
               count(*) filter (where @address is not null and source_address = @address) as for_address
             from login_attempt
             where succeeded = false and attempted_at >= @since

@@ -1,0 +1,251 @@
+using System;
+using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Xunit;
+
+namespace Graticula.Console.Tests;
+
+/// <summary>
+/// What the console offers each reader once a server holds a second organization — ADR-204 §5d and the owner's decisions
+/// of 2026-10-22: an organization's own administrator has its own Server (services, publishing, data sources, its own
+/// logs) and only Organizations, Site › Status, Site › General and the server's process log stay the system
+/// administrator's; a member of another organization owns and makes nothing here.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>The rule is: no control that answers 403, and nothing that is somebody else's.</b> So each page is opened as the
+/// reader, at their organization's own host name, and the console's own record of what it asked the server
+/// (<c>window.__calls</c>) is read for a refusal — a screen that looks right while its loader was refused is the failure
+/// this suite exists for, because the 403 toast is gone seven seconds later.
+/// </para>
+/// <para>
+/// <b>Every organization made here is purged in <c>finally</c>.</b> While a second one exists the whole server answers
+/// differently, and every other test in this suite would be measuring that instead.
+/// </para>
+/// </remarks>
+public sealed class OrganizationReadersTests : ConsoleTest
+{
+    /// <summary>A request at another host name of this server, with a token issued there.</summary>
+    private async Task<(int Status, string Body)> AtHostAsync(
+        string host, string? token, HttpMethod method, string path, object? body = null)
+    {
+        Uri root = new(Root);
+        using HttpRequestMessage request = new(method, new Uri($"{Root}{path}"));
+        request.Headers.Host = $"{host}:{root.Port}";
+
+        if (token is not null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        if (body is not null)
+        {
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        }
+
+        using HttpResponseMessage response = await Http.SendAsync(request);
+        return ((int)response.StatusCode, await response.Content.ReadAsStringAsync());
+    }
+
+    /// <summary>
+    /// Signs in with a password the server issued, replaces it as the server requires before anything else, and signs
+    /// in again: the token of an account that can be used.
+    /// </summary>
+    private async Task<(string Token, string Password)> SettledTokenAsync(string host, string name, string issued)
+    {
+        (int s, string b) = await AtHostAsync(host, null, HttpMethod.Post, "/rest/auth/login", new { name, password = issued });
+        Assert.True(s == 200, $"Signing in as {name} at {host} answered {s}: {b}");
+        string first = JsonDocument.Parse(b).RootElement.GetProperty("token").GetString()!;
+
+        string chosen = "Zz" + Guid.NewGuid().ToString("N")[..20] + "!7";
+        (s, b) = await AtHostAsync(host, first, HttpMethod.Post, "/rest/auth/password",
+            new { currentPassword = issued, newPassword = chosen });
+        Assert.True(s is >= 200 and < 300, $"Replacing {name}'s issued password answered {s}: {b}");
+
+        (s, b) = await AtHostAsync(host, null, HttpMethod.Post, "/rest/auth/login", new { name, password = chosen });
+        Assert.True(s == 200, $"Signing in again as {name} at {host} answered {s}: {b}");
+        return (JsonDocument.Parse(b).RootElement.GetProperty("token").GetString()!, chosen);
+    }
+
+    private async Task<string[]> TenantKeysAsync()
+    {
+        (int status, string body) = await AdminAsync(HttpMethod.Get, "/admin/tenants");
+        Assert.True(status == 200, $"GET /admin/tenants answered {status}: {body}");
+        return [.. JsonDocument.Parse(body).RootElement.GetProperty("tenants").EnumerateArray().Select(t => t.GetProperty("key").GetString()!)];
+    }
+
+    /// <summary>Makes an organization and returns its host and its administrator's usable token.</summary>
+    private async Task<(string Host, string Token)> MakeOrganizationAsync(string key)
+    {
+        string host = $"{key}.localhost";
+        (int made, string answer) = await AdminAsync(HttpMethod.Post, "/admin/tenants",
+            JsonSerializer.Serialize(new { key, name = "Zz Readers", hosts = new[] { host }, administrator = $"{key}_admin" }));
+        Assert.True(made == 201, $"Making {key} answered {made}: {answer}");
+
+        string issued = JsonDocument.Parse(answer).RootElement.GetProperty("administrator").GetProperty("password").GetString()!;
+        return (host, (await SettledTokenAsync(host, $"{key}_admin", issued)).Token);
+    }
+
+    private async Task PurgeAsync(string key)
+    {
+        if ((await TenantKeysAsync()).Contains(key))
+        {
+            (int purged, string said) = await AdminAsync(HttpMethod.Delete, $"/admin/tenants/{key}?purge=true");
+            Assert.True(purged == 200, $"Purging {key} answered {purged}: {said}. The server still holds a second organization.");
+        }
+    }
+
+    /// <summary>Every request this page made that the server refused with 403.</summary>
+    private async Task<string> RefusedAsync() =>
+        await Browser.EvaluateAsync<string>(
+            "(window.__calls || []).filter(c => c.s === 403).map(c => c.u).join(', ')") ?? string.Empty;
+
+    private async Task NothingRefusedAsync(string page)
+    {
+        string refused = await RefusedAsync();
+        Assert.True(refused.Length == 0, $"{page} asked for something the server refuses this reader: {refused}");
+    }
+
+    [Fact]
+    public async Task An_organizations_administrator_has_services_data_sources_and_its_own_logs_and_nothing_of_the_systems()
+    {
+        Assert.Equal(["default"], await TenantKeysAsync());
+        string key = "zzr" + Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            (string host, string token) = await MakeOrganizationAsync(key);
+
+            // Services: Server's bar is Services, Site and Logs — no Organizations — and the health pill, which reads
+            // the process's health, is not drawn.
+            await OpenOnHostAsync(host, "/server/#/services", token);
+            await WaitForAsync("document.getElementById('view-services')?.classList.contains('on') && !!document.querySelector('#services tr')",
+                "Services did not draw for an organization's administrator.");
+            Assert.Equal("services,sources,logs", await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#tabs a')].filter(a => a.getClientRects().length).map(a => a.dataset.tab).join(',')"));
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#healthDot")), "The health pill is drawn, over a read only the system administrator may make.");
+
+            // The geometry service is the server's: no Stop and no sharing to change, and the row says whose it is.
+            await OpenOnHostAsync(host, "/server/#/services/Utilities", token);
+            await WaitForAsync("!!document.querySelector('#services tr[data-service=\"Utilities/Geometry\"]')", "The Utilities folder listed no Geometry service.");
+            Assert.False(await Browser.EvaluateAsync<bool>(
+                "!!document.querySelector('#services [data-system-status], #services select[data-service-share], #services [data-svc-pick=\"Utilities/Geometry\"]')"),
+                "The server's own geometry service offers an organization's administrator Stop, sharing or selection — each acts for every organization.");
+            Assert.Contains("system administrator", await Browser.EvaluateAsync<string>(
+                "document.querySelector('#services tr[data-service=\"Utilities/Geometry\"]').textContent") ?? string.Empty, StringComparison.Ordinal);
+            await NothingRefusedAsync("Services");
+
+            // Site is Data sources alone; the managed datastore is listed and cannot be paused from here.
+            await OpenOnHostAsync(host, "/server/#/sources", token);
+            await WaitForAsync("!!document.querySelector('#sources [data-probe]')", "Data sources listed nothing for an organization's administrator.");
+            Assert.Equal("sources", await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#view-sources nav.subpages a')].map(a => a.getAttribute('href').split('/').pop()).join(',')"));
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#sources [data-source-quiesce], #sources [data-source-resume]')"),
+                "The shared datastore offers Pause to an organization's administrator, which pauses every organization's hosted layers.");
+            await NothingRefusedAsync("Data sources");
+
+            // Logs: the organization's three, not the server's process log.
+            await OpenOnHostAsync(host, "/server/#/logs", token);
+            await WaitForAsync("!!document.querySelector('#logSources [data-log-source=audit]')", "Logs drew no sources.");
+            Assert.Equal("audit,requests,studio", await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#logSources [data-log-source]')].map(b => b.dataset.logSource).join(',')"));
+            Assert.DoesNotContain("Server warnings", await Browser.EvaluateAsync<string>("document.getElementById('logServerLede').textContent") ?? string.Empty, StringComparison.Ordinal);
+            await NothingRefusedAsync("Logs");
+
+            // A system screen asked for by address goes back to Services.
+            await OpenOnHostAsync(host, "/server/#/settings", token);
+            await WaitForAsync("document.getElementById('view-services')?.classList.contains('on')",
+                "Site › General opened for an organization's administrator instead of returning to Services.");
+
+            // Organization › Map: the gallery is theirs and is read; the ground card is the server's and is absent.
+            await OpenOnHostAsync(host, "/studio/#/orgsettings", token);
+            await WaitForAsync("!document.getElementById('basemapGallery').disabled",
+                "The basemap gallery was never read — the page stopped on a refused read before it.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#groundCard")), "The map ground card is shown to an organization's administrator; it is the server's.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#groundWhose")), "Nothing says whose the map ground is.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#view-orgsettings nav.subpages a[href$=\"utilities\"]')"),
+                "Settings offers Utility services, whose one setting is the server's.");
+            await NothingRefusedAsync("Organization › Map");
+
+            // Member roles: read, never changed.
+            await OpenOnHostAsync(host, "/studio/#/roles", token);
+            await WaitForAsync("!!document.querySelector('#roleRows tr[data-role]') && !document.getElementById('roleEditor').hidden",
+                "Member roles drew no roles.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleNew")), "New role is offered; the server refuses every change to a role from this reader.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleSave")), "Save privileges is offered to an organization's administrator.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#roleRows [data-role-delete]')"), "Delete is offered on a role.");
+            Assert.True(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('#rolePrivileges input[data-privilege]')].every(b => b.disabled)"),
+                "A privilege can be ticked.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#rolesWhose")), "Nothing says roles are the server's.");
+            await NothingRefusedAsync("Member roles");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await PurgeAsync(key);
+        }
+    }
+
+    [Fact]
+    public async Task A_member_of_another_organization_is_offered_nothing_that_makes_or_owns_content_there()
+    {
+        Assert.Equal(["default"], await TenantKeysAsync());
+        string key = "zzr" + Guid.NewGuid().ToString("N")[..8];
+        string outsider = "zz_out_" + Guid.NewGuid().ToString("N")[..8];
+        string group = key + "_shared";
+
+        try
+        {
+            (string host, string adminToken) = await MakeOrganizationAsync(key);
+
+            (int made, string answer) = await AdminAsync(HttpMethod.Post, "/admin/members",
+                JsonSerializer.Serialize(new { name = outsider, role = "publisher", userType = "creator" }));
+            Assert.True(made == 201, $"Making {outsider} answered {made}: {answer}");
+            string issued = JsonDocument.Parse(answer).RootElement.GetProperty("password").GetString()!;
+            // Settled at home, where the account lives; it is a member of this organization only through the group.
+            (_, string password) = await SettledTokenAsync(new Uri(Root).Host, outsider, issued);
+
+            (int s, string b) = await AtHostAsync(host, adminToken, HttpMethod.Post, "/admin/groups", new { name = group, title = "Zz shared", itemUpdate = "none" });
+            Assert.True(s == 201, $"Making {group} answered {s}: {b}");
+            (s, b) = await AtHostAsync(host, adminToken, HttpMethod.Put, $"/admin/groups/{group}/tenants", new { admitsOtherTenants = true });
+            Assert.True(s == 200, $"Admitting other organizations to {group} answered {s}: {b}");
+            // Named with their organization (ADR-204 §5e item 16): a bare name is one of this organization's members.
+            string qualified = $"default\\{outsider}";
+            (s, b) = await AtHostAsync(host, adminToken, HttpMethod.Put, $"/admin/groups/{group}/members/{Uri.EscapeDataString(qualified)}", new { });
+            Assert.True(s == 200, $"Adding {qualified} to {group} answered {s}: {b}");
+
+            // Admitted, the account signs in at the organization's host — as an outsider, by that name.
+            (s, b) = await AtHostAsync(host, null, HttpMethod.Post, "/rest/auth/login", new { name = qualified, password });
+            Assert.True(s == 200, $"{outsider} could not sign in at {host}: {s} {b}");
+            string token = JsonDocument.Parse(b).RootElement.GetProperty("token").GetString()!;
+
+            await OpenOnHostAsync(host, "/studio/#/content", token);
+            await WaitForAsync(Shown("#outsiderNotice") + " && !!document.querySelector('#contentRows td')",
+                "Content did not draw for a member of another organization.");
+
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#newLayer")), "New item is offered to a member of another organization, who holds no privilege here.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#newMap")), "New map is offered to a member of another organization.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#contentRows [data-empty-new]')"),
+                "The empty list offers New item or New map to a member of another organization.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#contentFolders")), "Folders are offered to somebody who owns nothing here.");
+            Assert.Equal("all,group,public", await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#contentScopes a')].map(a => a.getAttribute('href').split('/').pop()).join(',')"));
+
+            await OpenOnHostAsync(host, "/studio/#/groups", token);
+            await WaitForAsync($"!!document.querySelector('#view-groups a[href*=\"{group}\"]')", "Groups did not list the group that admits them.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#groupNew")), "New group is offered to a member of another organization.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await PurgeAsync(key);
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{outsider}");
+        }
+    }
+}

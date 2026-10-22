@@ -79,11 +79,11 @@ public sealed record LayerPublication(
     Guid DataSourceId,
     string SchemaName,
     string TableName,
-    string GeometryColumn,
+    string? GeometryColumn,
     string IdentityColumn,
     string? ObjectIdColumn,
     int Srid,
-    GeometryKind GeometryType,
+    GeometryKind? GeometryType,
     SharingScope Sharing,
     string? ServiceName = null,
     int? ParentLayerIndex = null,
@@ -340,8 +340,18 @@ public readonly record struct AdminService(
     /// </remarks>
     public bool IsEmpty =>
         Layers == 0
+        && Tables == 0
         && Groups == 0
         && !string.Equals(Kind, "ImageServer", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// How many tables it holds — ADR-213 — counted apart from <see cref="Layers"/>, which are the ones with geometry.
+    /// </summary>
+    /// <remarks>
+    /// <b>In <see cref="IsEmpty"/> too</b>: a service of tables only holds data, and the sweep of empty services must not
+    /// offer to remove it.
+    /// </remarks>
+    public int Tables { get; init; }
 }
 
 /// <summary>

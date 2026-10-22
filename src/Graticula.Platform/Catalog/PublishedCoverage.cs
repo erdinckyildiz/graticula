@@ -306,9 +306,14 @@ public interface ICoverageCatalog
     /// <param name="path">Where the image now is.</param>
     /// <param name="info">What it now is.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="serviceId">
+    /// The service, when the caller has it — work outside a request, which sees every organisation's same-named
+    /// services (ADR-204 §5e item 14).
+    /// </param>
     /// <returns>Whether the coverage exists.</returns>
     System.Threading.Tasks.Task<bool> ReplaceImageAsync(
-        string? folder, string serviceName, string path, CoverageInfo info, System.Threading.CancellationToken cancellationToken);
+        string? folder, string serviceName, string path, CoverageInfo info, System.Threading.CancellationToken cancellationToken,
+        Guid? serviceId = null);
 
     /// <summary>Replaces how a coverage is drawn — ADR-123 — or clears it back to the default with null.</summary>
     /// <param name="folder">The folder, or null for the root.</param>

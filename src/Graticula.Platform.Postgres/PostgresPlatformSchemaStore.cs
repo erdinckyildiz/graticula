@@ -20,13 +20,16 @@ public sealed class PostgresPlatformSchemaStore : IPlatformSchemaStore
     /// <summary>PostgreSQL <c>undefined_table</c>. The bootstrap signal.</summary>
     private const string UndefinedTable = "42P01";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates a store over an existing data source.</summary>
     public PostgresPlatformSchemaStore(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>

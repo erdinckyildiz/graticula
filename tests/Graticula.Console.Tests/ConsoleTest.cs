@@ -851,6 +851,34 @@ public abstract class ConsoleTest : IAsyncLifetime
     }
 
     /// <summary>
+    /// Opens a console address on another host name of the same server — an organization's own, ADR-204 §5a — with a
+    /// token issued there planted, as <see cref="OpenAsync"/> does for the configured one.
+    /// </summary>
+    /// <param name="host">The host name, such as <c>acme.localhost</c>, which Chrome resolves to the loopback.</param>
+    /// <param name="address">The path and hash, such as <c>/server/#/services</c>.</param>
+    /// <param name="token">A bearer token issued at that host.</param>
+    protected async Task OpenOnHostAsync(string host, string address, string token)
+    {
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(address);
+        ArgumentNullException.ThrowIfNull(token);
+
+        string plant = Plant(token, []);
+
+        if (_planted != plant)
+        {
+            await Browser.PlantAsync(plant);
+            _planted = plant;
+        }
+
+        await WarmAsync();
+
+        Uri root = new(Root);
+        await Browser.NavigateAsync("about:blank");
+        await Browser.NavigateAsync($"{root.Scheme}://{host}:{root.Port}{address}");
+    }
+
+    /// <summary>
     /// Reaches the origin once before the first page under test, and waits for the browser's
     /// certificate verifier to settle.
     /// </summary>
@@ -1173,6 +1201,15 @@ public abstract class ConsoleTest : IAsyncLifetime
           window.fetch = async (input, init) => {
             const url = typeof input === "string" ? input : input.url;
             const method = ((init && init.method) || (input && input.method) || "GET").toUpperCase();
+
+            // <b>A write a test let through on purpose — ADR-218's pin.</b> Empty unless the test sets it after the page
+            // opens, and matched against the address, so a test can let exactly its own route reach the server and still
+            // have every other click trapped. The test that does so owes the server its undo.
+            if (method !== "GET" && method !== "HEAD"
+                && (window.__letWritesTo || []).some(part => url.includes(part))) {
+              window.__writes.push(method + " " + url + " (sent)");
+              return real(input, init);
+            }
 
             if (method !== "GET" && method !== "HEAD") {
               // <b>The fields, not only the method and the URL.</b> Knowing that a form posted

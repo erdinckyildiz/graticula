@@ -223,7 +223,10 @@ public sealed class PostgresLayerCatalog
     /// </remarks>
     private const string NotImagery = "where s.kind is distinct from 'ImageServer'";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>The sources this process has failed to open, by name.</summary>
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte>
@@ -236,7 +239,7 @@ public sealed class PostgresLayerCatalog
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(secrets);
 
-        _dataSource = dataSource;
+        _root = dataSource;
         _secrets = secrets;
     }
 
@@ -456,6 +459,15 @@ public sealed class PostgresLayerCatalog
         return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
     }
 
+    /// <summary>
+    /// A geometry type this build does not know. The column has a check constraint, so this means the constraint and
+    /// <see cref="GeometryKind"/> have drifted apart — a schema change that forgot its code.
+    /// </summary>
+    private static InvalidOperationException Diverged(string layerName, string declared) => new(
+        $"Layer '{layerName}' declares geometry type '{declared}', which this "
+        + "build does not know. The schema's check constraint and GeometryKind have "
+        + "diverged.");
+
     private PublishedLayer Map(NpgsqlDataReader reader)
     {
         string layerName = reader.GetString(1);
@@ -464,21 +476,20 @@ public sealed class PostgresLayerCatalog
             name: layerName,
             schemaName: reader.GetString(2),
             tableName: reader.GetString(3),
-            geometryColumn: reader.GetString(4),
+            // Null for a table, which has no geometry (ADR-213, migration 99).
+            geometryColumn: reader.IsDBNull(4) ? null : reader.GetString(4),
             srid: reader.GetInt32(5),
             identityColumn: reader.GetString(6),
             integerIdentityColumn: reader.IsDBNull(7) ? null : reader.GetString(7),
             isHosted: reader.GetBoolean(8));
 
-        if (!Enum.TryParse(reader.GetString(9), out GeometryKind geometryType))
+        GeometryKind? geometryType = null;
+
+        if (!reader.IsDBNull(9))
         {
-            // The column has a check constraint, so this means the constraint
-            // and this enum have drifted apart — a schema change that forgot
-            // its code.
-            throw new InvalidOperationException(
-                $"Layer '{layerName}' declares geometry type '{reader.GetString(9)}', which this "
-                + "build does not know. The schema's check constraint and GeometryKind have "
-                + "diverged.");
+            geometryType = Enum.TryParse(reader.GetString(9), out GeometryKind declared)
+                ? declared
+                : throw Diverged(layerName, reader.GetString(9));
         }
 
         // Decrypted here rather than carried around sealed: the connection

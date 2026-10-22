@@ -69,7 +69,7 @@ public sealed class FeatureCollectionPbfWriter
     /// <param name="output">Where the bytes go.</param>
     /// <param name="source">Where features come from.</param>
     /// <param name="query">What to read.</param>
-    /// <param name="geometryType">The layer's declared geometry type.</param>
+    /// <param name="geometryType">The layer's declared geometry type, or null for a table (ADR-213).</param>
     /// <param name="quantization">The integer grid coordinates are written on.</param>
     /// <param name="cancellationToken">Cancellation.</param>
     /// <param name="ordinates">
@@ -81,7 +81,7 @@ public sealed class FeatureCollectionPbfWriter
         Stream output,
         IFeatureSource source,
         FeatureQuery query,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         PbfQuantization quantization,
         CancellationToken cancellationToken,
         GeometryOrdinates ordinates = GeometryOrdinates.None)
@@ -112,8 +112,13 @@ public sealed class FeatureCollectionPbfWriter
             result.String(3, globalId);
         }
 
-        result.UInt(7, (ulong)GeometryTypeOf(geometryType));
-        result.Message(8, Reference(srid, query.OutWkt));
+        // A table is the specification's esriGeometryTypeNone, 127, and has no reference to name (ADR-213).
+        result.UInt(7, geometryType is { } kind ? (ulong)GeometryTypeOf(kind) : NoGeometry);
+
+        if (geometryType is not null)
+        {
+            result.Message(8, Reference(srid, query.OutWkt));
+        }
 
         // <b>`hasZ` and `hasM` — ADR-077 §9.</b> A reader takes the stride of every vertex from these two,
         // so they are the promise each geometry below keeps.
@@ -307,6 +312,9 @@ public sealed class FeatureCollectionPbfWriter
 
         return reference;
     }
+
+    /// <summary>The specification's <c>esriGeometryTypeNone</c>, what a table's answer is.</summary>
+    private const ulong NoGeometry = 127;
 
     /// <summary>The specification's <c>GeometryType</c> number.</summary>
     internal static int GeometryTypeOf(GeometryKind kind) => kind switch

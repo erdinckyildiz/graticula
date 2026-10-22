@@ -15,12 +15,15 @@ public sealed class PostgresContentFolderStore : IContentFolderStore
         (select count(*) from item i where i.content_folder_id = f.id)
         """;
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Uses the platform store.</summary>
     /// <param name="dataSource">Its data source.</param>
     public PostgresContentFolderStore(NpgsqlDataSource dataSource) =>
-        _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
+        _root = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<ContentFolder>> ListAsync(Guid owner, CancellationToken cancellationToken)

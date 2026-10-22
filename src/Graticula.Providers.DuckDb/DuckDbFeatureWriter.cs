@@ -89,7 +89,11 @@ public sealed class DuckDbFeatureWriter : IFeatureWriter
 
     private string Id => GeoParquetFolder.Quote(_layer.IntegerIdentityColumn!);
 
-    private string Shape => GeoParquetFolder.Quote(_layer.GeometryColumn);
+    private string Shape => GeoParquetFolder.Quote(_layer.RequireGeometryColumn());
+
+    /// <summary>Why a shape cannot be written to a table — it has no column to put one in (ADR-213), as on PostGIS.</summary>
+    private string TableRefusal =>
+        $"'{_layer.Name}' is a table and keeps no geometry; send the feature's attributes without one.";
 
     private string Table => "src.main." + GeoParquetFolder.Quote(_layer.TableName);
 
@@ -272,6 +276,11 @@ public sealed class DuckDbFeatureWriter : IFeatureWriter
                 + "table's own users did not choose. Updates and deletes are answered (ADR-211).");
         }
 
+        if (add.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(-1, TableRefusal);
+        }
+
         if (add.Geometry is { IsEmpty: false } shape
             && EditColumns.DimensionRefusal(shape, GeometryOrdinates.None, "a DuckDB layer's geometry column") is { } refused)
         {
@@ -346,6 +355,11 @@ public sealed class DuckDbFeatureWriter : IFeatureWriter
         DuckDBConnection connection, Facts facts, FeatureUpdate update, long? storedSubtype, EditBatch batch, CancellationToken cancellationToken)
     {
         string[]? expected = Expected(batch, update.Identity);
+
+        if (update.Geometry is not null && _layer.IsTable)
+        {
+            return EditResult.Failed(update.Identity, TableRefusal);
+        }
 
         if (update.Geometry is not null
             && EditColumns.DimensionRefusal(update.Geometry, GeometryOrdinates.None, "a DuckDB layer's geometry column") is { } lossy)
@@ -504,12 +518,19 @@ public sealed class DuckDbFeatureWriter : IFeatureWriter
 
     /// <summary>The SQL of a row's version: an MD5 of its columns and its shape as JSON.</summary>
     /// <param name="columns">The table's columns other than the shape.</param>
-    /// <param name="shape">The geometry column.</param>
+    /// <param name="shape">The geometry column, or null for a table, whose version is its columns alone (ADR-213).</param>
     /// <returns>The expression, thirty-two hexadecimal characters.</returns>
-    internal static string VersionSqlOf(IEnumerable<string> columns, string shape) =>
-        "md5(to_json({"
-        + string.Join(", ", columns.Select(c => $"'{c.Replace("'", "''", StringComparison.Ordinal)}': {GeoParquetFolder.Quote(c)}"))
-        + $"{(columns.Any() ? ", " : string.Empty)}'graticula_shape': st_aswkb({GeoParquetFolder.Quote(shape)})}})::varchar)";
+    internal static string VersionSqlOf(IEnumerable<string> columns, string? shape)
+    {
+        List<string> parts = [.. columns.Select(c => $"'{c.Replace("'", "''", StringComparison.Ordinal)}': {GeoParquetFolder.Quote(c)}")];
+
+        if (shape is not null)
+        {
+            parts.Add($"'graticula_shape': st_aswkb({GeoParquetFolder.Quote(shape)})");
+        }
+
+        return "md5(to_json({" + string.Join(", ", parts) + "})::varchar)";
+    }
 
     private Guid? GlobalOf(DuckDBConnection connection, Facts facts, long identity)
     {

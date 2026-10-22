@@ -320,7 +320,11 @@ internal sealed partial class FeatureExporter : BackgroundService
             // failed for a burst that passes in a second.
             using (ConnectionBudget.Patiently(TimeSpan.FromMinutes(10)))
             {
-                await RunAsync(job, stopping).ConfigureAwait(false);
+                // ADR-204: a job runs as the tenant it was started in, so what it writes is that tenant's.
+                using (Graticula.Platform.Tenancy.TenantScope.EnterJob(job.Tenant))
+                {
+                    await RunAsync(job, stopping).ConfigureAwait(false);
+                }
             }
         }
     }
@@ -499,7 +503,7 @@ internal sealed partial class FeatureExporter : BackgroundService
 
         foreach (int id in state.Layers)
         {
-            if (service.Layer(id) is not { } layer)
+            if (service.LayerOrTable(id) is not { } layer)
             {
                 await FailAsync(
                     job,

@@ -634,10 +634,12 @@ public sealed class DataSourceScreenTests : ConsoleTest
         string strip = await Browser.EvaluateAsync<string>(
             "document.getElementById('probePager').textContent") ?? string.Empty;
 
-        Assert.Contains(
-            all.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            strip,
-            StringComparison.Ordinal);
+        // The strip writes the count for reading — "1,256" past a thousand — so either form is the count; the
+        // plain one alone failed every database with a thousand tables or more.
+        Assert.True(
+            strip.Contains(all.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)
+                || strip.Contains(all.ToString("N0", System.Globalization.CultureInfo.GetCultureInfo("en-US")), StringComparison.Ordinal),
+            $"The pager says '{strip}' and does not name the {all} tables the probe found.");
 
         string first = await Browser.EvaluateAsync<string>(
             "document.getElementById('probeRows').textContent") ?? string.Empty;

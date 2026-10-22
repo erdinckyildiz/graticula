@@ -76,13 +76,13 @@ internal static partial class ArcGisAdminEndpoints
             capabilities = Capabilities(stewardship),
             maxRecordCount = limits?.Cost.MaximumRecordCount,
             layers = service.Layers.OrderBy(l => l.LayerIndex).Select(l => new { id = l.LayerIndex, name = l.Definition.Name }),
-            tables = Array.Empty<object>(),
+            tables = service.Tables.Select(l => new { id = l.LayerIndex, name = l.Definition.Name }),
             adminServiceInfo = new
             {
                 name = service.Name,
                 type = "FeatureServer",
                 status = new { configuredState = service.Status.ToString().ToUpperInvariant(), realTimeState = service.Status.ToString().ToUpperInvariant() },
-                database = new { datasource = new { name = service.Layers.Count > 0 ? service.Layers[0].DataSourceName : null } },
+                database = new { datasource = new { name = service.LayersAndTables.Count > 0 ? service.LayersAndTables[0].DataSourceName : null } },
             },
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
@@ -220,7 +220,7 @@ internal static partial class ArcGisAdminEndpoints
                 requestDeadline: cost.RequestDeadline)), cancellation).ConfigureAwait(false);
         }
 
-        foreach (PublishedLayer layer in service.Layers)
+        foreach (PublishedLayer layer in service.LayersAndTables)
         {
             contexts.Forget(layer);
         }

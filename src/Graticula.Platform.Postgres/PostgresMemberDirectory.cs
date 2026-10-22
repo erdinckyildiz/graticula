@@ -20,14 +20,17 @@ namespace Graticula.Platform.Postgres;
 /// </remarks>
 public sealed class PostgresMemberDirectory : IMemberDirectory
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the directory.</summary>
     /// <param name="dataSource">The platform store.</param>
     public PostgresMemberDirectory(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -61,7 +64,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             """
             insert into principal (id, kind, name, display_name, user_type)
             values (@id, 'user', @name, @display, @type)
-            on conflict (name) do nothing
+            on conflict (name, tenant_id) do nothing
             """,
             connection,
             transaction))
@@ -151,6 +154,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                                  where pc.principal_id = p.id), '{"{}"}') as categories
                 from principal p
                 where p.kind = 'user'
+                  -- ADR-204: this organisation's members; one of another reached through a group is not one of them.
+                  and (graticula_tenant() is null or p.tenant_id = graticula_tenant())
             )
             select m.id, m.name, m.display_name, m.user_type, m.disabled_at, m.created_at, m.roles, m.owns,
                    m.last_sign_in, count(*) over () as total, m.email, m.photo_at, m.categories
@@ -260,6 +265,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             from principal p
             left join principal_role r on r.principal_id = p.id
             where p.kind = 'user'
+              and (graticula_tenant() is null or p.tenant_id = graticula_tenant())
             group by p.id, p.name, p.display_name, p.user_type, p.disabled_at, p.created_at
             order by lower(p.name)
             """;
@@ -310,7 +316,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             """
             update principal as p set user_type = @type
             from principal as was
-            where was.id = p.id and p.name = @name and p.kind = 'user'
+            where was.id = p.id and p.id = graticula_principal_named(@name) and p.kind = 'user'
             returning was.user_type
             """,
             connection);
@@ -342,7 +348,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         Guid id;
 
         await using (NpgsqlCommand find = new(
-            "select id from principal where name = @name and kind = 'user'",
+            "select id from principal where id = graticula_principal_named(@name) and kind = 'user'",
             connection,
             transaction))
         {
@@ -417,8 +423,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             """
             update principal
                set disabled_at = case when @disabled then now() else null end
-             where name = @name and kind = 'user'
-             returning (select q.disabled_at is not null from principal q where q.name = @name)
+             where id = graticula_principal_named(@name) and kind = 'user'
+             returning (select q.disabled_at is not null from principal q where q.id = graticula_principal_named(@name))
             """);
 
         command.Parameters.AddWithValue("name", name);
@@ -460,7 +466,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                    coalesce((select array_agg(r.id) from recycle_entry r
                               where r.owner_principal_id = p.id), '{}')
               from principal p
-             where lower(p.name) = lower(@name)
+             where p.id = graticula_principal_named(@name)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -563,7 +569,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             groups.CommandText = """
                 delete from sharing_group g
                  using principal p
-                 where p.id = g.owner_principal_id and lower(p.name) = lower(@name)
+                 where p.id = g.owner_principal_id and p.id = graticula_principal_named(@name)
                 """;
 
             groups.Parameters.AddWithValue("name", name);
@@ -585,11 +591,11 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                         where lower(p.name) = lower(@name) and s.kind = 'service')
                      + (select count(*) from folder f
                          join principal p on p.id = f.owner_principal_id
-                        where lower(p.name) = lower(@name))
+                        where p.id = graticula_principal_named(@name))
                      -- The recycle bin is emptied by the caller, through the path that drops its tables and files.
                      + (select count(*) from recycle_entry r
                          join principal p on p.id = r.owner_principal_id
-                        where lower(p.name) = lower(@name))
+                        where p.id = graticula_principal_named(@name))
                 """;
 
             owned.Parameters.AddWithValue("name", name);
@@ -647,7 +653,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                      join principal_role ar on ar.principal_id = a.id
                     where ar.role_name = 'administrator' and a.disabled_at is null)
               from principal p
-             where lower(p.name) = lower(@name)
+             where p.id = graticula_principal_named(@name)
                for no key update of p
             """;
 
@@ -678,7 +684,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // record says *when* rather than only *whether* — and writing the boolean name from
         // memory answered 42703 on every removal until it was read out of the schema.
         target.CommandText =
-            "select disabled_at is not null from principal where lower(name) = lower(@to)";
+            "select disabled_at is not null from principal where id = graticula_principal_named(@to)";
         target.Parameters.AddWithValue("to", transferTo);
 
         object? disabled = await target.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -706,8 +712,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         CancellationToken cancellationToken)
     {
         const string Sql = """
-            with giver as (select id from principal where lower(name) = lower(@from)),
-                 taker as (select id from principal where lower(name) = lower(@to)),
+            with giver as (select id from principal where id = graticula_principal_named(@from)),
+                 taker as (select id from principal where id = graticula_principal_named(@to)),
                  s as (update item set owner_principal_id = (select id from taker)
                         where owner_principal_id = (select id from giver) and kind = 'service' returning 1),
                  f as (update folder set owner_principal_id = (select id from taker)
@@ -764,8 +770,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // folder the taker already has by title takes the giver's items and the giver's copy goes, since a title is
         // unique per owner; every other folder changes hands as it is.
         const string Folders = """
-            with giver as (select id from principal where lower(name) = lower(@from)),
-                 taker as (select id from principal where lower(name) = lower(@to)),
+            with giver as (select id from principal where id = graticula_principal_named(@from)),
+                 taker as (select id from principal where id = graticula_principal_named(@to)),
                  pairs as (select g.id as was, t.id as now
                              from content_folder g
                              join content_folder t on lower(t.title) = lower(g.title)
@@ -779,8 +785,8 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // An item waiting in the recycle bin is filed too, in a folder whose id it keeps: one of the giver's copies about to
         // go below would leave it filed nowhere, and its restore refused. It is refiled in the taker's folder of that title.
         const string KeptFolders = """
-            with giver as (select id from principal where lower(name) = lower(@from)),
-                 taker as (select id from principal where lower(name) = lower(@to)),
+            with giver as (select id from principal where id = graticula_principal_named(@from)),
+                 taker as (select id from principal where id = graticula_principal_named(@to)),
                  pairs as (select g.id as was, t.id as now
                              from content_folder g
                              join content_folder t on lower(t.title) = lower(g.title)
@@ -795,15 +801,15 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // a delete and an update of one table in one statement would see the same snapshot.
         const string Merged = """
             delete from content_folder g
-             where g.owner_principal_id = (select id from principal where lower(name) = lower(@from))
+             where g.owner_principal_id = (select id from principal where id = graticula_principal_named(@from))
                and exists (select 1 from content_folder t
-                            where t.owner_principal_id = (select id from principal where lower(name) = lower(@to))
+                            where t.owner_principal_id = (select id from principal where id = graticula_principal_named(@to))
                               and lower(t.title) = lower(g.title))
             """;
 
         const string Remaining = """
             update content_folder set owner_principal_id = (select id from principal where lower(name) = lower(@to))
-             where owner_principal_id = (select id from principal where lower(name) = lower(@from))
+             where owner_principal_id = (select id from principal where id = graticula_principal_named(@from))
             """;
 
         foreach (string step in new[] { Folders, KeptFolders, Merged, Remaining })
@@ -849,7 +855,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             exports.CommandText = """
                 delete from job
                  where kind = 'feature.export'
-                   and owner_principal_id in (select id from principal where lower(name) = lower(@name))
+                   and owner_principal_id in (select id from principal where id = graticula_principal_named(@name))
                 """;
             exports.Parameters.AddWithValue("name", name);
 
@@ -866,7 +872,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                 delete from web_map
                  where id in (select web_map_id from item
                                where web_map_id is not null
-                                 and owner_principal_id in (select id from principal where lower(name) = lower(@name)))
+                                 and owner_principal_id in (select id from principal where id = graticula_principal_named(@name)))
                 """;
             maps.Parameters.AddWithValue("name", name);
 
@@ -882,7 +888,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
             documents.CommandText = """
                 delete from item
                  where kind = 'document'
-                   and owner_principal_id in (select id from principal where lower(name) = lower(@name))
+                   and owner_principal_id in (select id from principal where id = graticula_principal_named(@name))
                 """;
             documents.Parameters.AddWithValue("name", name);
 
@@ -893,7 +899,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
 
         await using NpgsqlCommand command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "delete from principal where lower(name) = lower(@name)";
+        command.CommandText = "delete from principal where id = graticula_principal_named(@name)";
         command.Parameters.AddWithValue("name", name);
 
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -949,7 +955,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                 : "update recycle_row k set row = jsonb_set(k.row, array[@column], 'null'::jsonb)")
                 + """
                  where k.table_name = @table
-                   and k.row->>@column = (select id::text from principal where lower(name) = lower(@name))
+                   and k.row->>@column = (select id::text from principal where id = graticula_principal_named(@name))
                 """;
             forget.Parameters.AddWithValue("table", table);
             forget.Parameters.AddWithValue("column", column);
@@ -973,7 +979,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
                 (principal_id, algorithm, parameters, password_hash, must_change)
             select p.id, @algorithm, @parameters::jsonb, @hash, true
               from principal p
-             where p.name = @name and p.kind = 'user'
+             where p.id = graticula_principal_named(@name) and p.kind = 'user'
             on conflict (principal_id) do update
                set algorithm = @algorithm,
                    parameters = @parameters::jsonb,

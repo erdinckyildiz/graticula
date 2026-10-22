@@ -414,7 +414,7 @@ internal static partial class AdminEndpoints
         try
         {
             outcome = await connections.HistoryFor(layer)
-                .RestoreAsync(objectId, request.Version, current.Principal.Name, description.Tracking, cancellation)
+                .RestoreAsync(objectId, request.Version, current.QualifiedName, description.Tracking, cancellation)
                 .ConfigureAwait(false);
         }
         catch (Exception e) when (e is DbException or InvalidOperationException)

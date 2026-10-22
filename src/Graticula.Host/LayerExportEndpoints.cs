@@ -115,7 +115,7 @@ internal static class LayerExportEndpoints
             return;
         }
 
-        if (service.Layer(layerId) is not { } layer)
+        if (service.LayerOrTable(layerId) is not { } layer)
         {
             await RefuseAsync(context, 404, $"There is no layer {layerId} in '{service.Name}'.").ConfigureAwait(false);
             return;

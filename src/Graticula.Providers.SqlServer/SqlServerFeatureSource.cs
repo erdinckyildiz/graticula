@@ -115,12 +115,13 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
     private string Id => "t." + LayerDefinition.Quote(_layer.IdentityColumn);
 
-    private string Shape => "t." + LayerDefinition.Quote(_layer.GeometryColumn);
+    private string Shape => "t." + LayerDefinition.Quote(_layer.RequireGeometryColumn());
 
     private string From => _layer.QuotedTable;
 
     /// <summary>A shape as WKB in longitude–latitude order, two-dimensional.</summary>
-    private string Wkb => Shape + ".STAsBinary()";
+    // A table answers every row without a shape (ADR-213), as the PostGIS source does.
+    private string Wkb => _layer.IsTable ? "cast(null as varbinary(max))" : Shape + ".STAsBinary()";
 
     /// <summary>
     /// An ORDER BY key where nulls fall as PostgreSQL's — last ascending, first descending — rather than SQL Server's,
@@ -308,7 +309,9 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
         bool writable = await SqlServerConnections.CanWriteAsync(connection, _layer.SchemaName, _layer.TableName, cancellationToken).ConfigureAwait(false);
 
-        return new LayerDescription(fields, await ExtentOfTableAsync(connection, table, cancellationToken).ConfigureAwait(false), writable)
+        Envelope? extent = _layer.IsTable ? null : await ExtentOfTableAsync(connection, table, cancellationToken).ConfigureAwait(false);
+
+        return new LayerDescription(fields, extent, writable)
         {
             AnswersDistance = _engine is not null,
             AnswersHaving = true,
@@ -316,7 +319,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
             AnswersCentroid = true,
             AnswersStatisticExpressions = true,
             AnswersRelations = _engine is not null,
-            SpatiallyIndexed = !table.Geography,
+            SpatiallyIndexed = _layer.IsTable ? null : !table.Geography,
         };
     }
 
@@ -430,6 +433,11 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
     private async Task<(Envelope? Extent, long Count)> ExtentBoundedAsync(FeatureQuery query, CancellationToken cancellationToken)
     {
+        if (_layer.IsTable)
+        {
+            throw new QueryNotSupportedException($"'{_layer.Name}' is a table and has no geometry to take an extent of (ADR-213).");
+        }
+
         await using SqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         SqlServerTable table = await TableAsync(connection, cancellationToken).ConfigureAwait(false);
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
@@ -737,7 +745,8 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
                 $"{Here}, and a statistic expression reached it without its parsed form, so it cannot be written in T-SQL.");
         }
 
-        if (query.Spatial is not { } spatial)
+        // A table ignores a spatial filter, as ArcGIS's does (ADR-213), so nothing about one is refused.
+        if (_layer.IsTable || query.Spatial is not { } spatial)
         {
             return;
         }
@@ -829,7 +838,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
                 string name = reader.GetString(0);
                 string type = reader.GetString(1);
 
-                if (string.Equals(name, _layer.GeometryColumn, StringComparison.Ordinal))
+                if (_layer.GeometryColumn is { } shape && string.Equals(name, shape, StringComparison.Ordinal))
                 {
                     geography = string.Equals(type, "geography", StringComparison.OrdinalIgnoreCase);
                     continue;
@@ -851,14 +860,16 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
             }
         }
 
-        if (columns.Count == 0 || geography is not { } isGeography)
+        // A table (ADR-213) has no geometry column to find; a layer that has lost its own is misregistered.
+        if (columns.Count == 0 || (!_layer.IsTable && geography is null))
         {
             throw new InvalidOperationException(
-                $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}.{_layer.GeometryColumn}, and "
+                $"Layer '{_layer.Name}' is served from {_layer.SchemaName}.{_layer.TableName}"
+                + (_layer.GeometryColumn is { } column ? $".{column}" : string.Empty) + ", and "
                 + "this database user sees no such table and column. It was dropped, renamed, or the user lost the right to read it.");
         }
 
-        SqlServerTable table = new(columns, _layer.Srid, isGeography);
+        SqlServerTable table = new(columns, _layer.Srid, geography ?? false);
         Tables[_tableKey] = (DateTimeOffset.UtcNow, table);
         return table;
     }
@@ -924,12 +935,14 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
             attributes.Add($"{Id} in (select cast(j.[value] as bigint) from openjson(@ids) j)");
         }
 
-        if (query.BoundingBox is { } bbox)
+        // <b>A table has no geometry, so a spatial filter tests nothing and is not applied — ADR-213</b>, as ArcGIS's own
+        // table answers and as the PostGIS source does.
+        if (!_layer.IsTable && query.BoundingBox is { } bbox)
         {
             boxes.Add(bbox);
         }
 
-        if (query.Spatial is { } spatial)
+        if (!_layer.IsTable && query.Spatial is { } spatial)
         {
             Geometry filter = await ToLayerAsync(spatial.Geometry, query, cancellationToken).ConfigureAwait(false);
 

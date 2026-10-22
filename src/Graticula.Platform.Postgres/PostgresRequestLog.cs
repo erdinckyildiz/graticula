@@ -50,10 +50,14 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
 
     private static readonly TimeSpan Idle = TimeSpan.FromSeconds(2);
 
-    private readonly ConcurrentQueue<RequestEntry> _queue = new();
+    /// <summary>The entries waiting to be written, each with the tenant of the request it describes (ADR-204).</summary>
+    private readonly ConcurrentQueue<(RequestEntry Entry, Guid Tenant)> _queue = new();
     private readonly SemaphoreSlim _work = new(0);
     private readonly CancellationTokenSource _stopping = new();
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
     private readonly Task _flusher;
 
     private long _queued;
@@ -65,7 +69,7 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
         _flusher = Task.Run(() => FlushForeverAsync(_stopping.Token));
     }
 
@@ -88,7 +92,8 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
             return;
         }
 
-        _queue.Enqueue(entry);
+        // The batch is written later, by nobody's request, so the tenant is taken now.
+        _queue.Enqueue((entry, Graticula.Platform.Tenancy.TenantScope.Effective));
         Interlocked.Increment(ref _queued);
 
         // Release rather than Wait: this is the producer, and it must not be the thing
@@ -170,7 +175,7 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
                 """
                 copy request_log
                   (method, path, query, status, duration_ms, principal_name,
-                   source_address, face, service, bytes)
+                   source_address, face, service, bytes, tenant_id)
                 from stdin (format binary)
                 """,
                 cancellationToken)
@@ -178,8 +183,9 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
 
         int written = 0;
 
-        while (written < Batch && _queue.TryDequeue(out RequestEntry entry))
+        while (written < Batch && _queue.TryDequeue(out (RequestEntry Entry, Guid Tenant) queued))
         {
+            RequestEntry entry = queued.Entry;
             Interlocked.Decrement(ref _queued);
             written++;
 
@@ -209,6 +215,8 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
             {
                 await writer.WriteNullAsync(cancellationToken).ConfigureAwait(false);
             }
+
+            await writer.WriteAsync(queued.Tenant, NpgsqlDbType.Uuid, cancellationToken).ConfigureAwait(false);
         }
 
         await writer.CompleteAsync(cancellationToken).ConfigureAwait(false);
@@ -253,7 +261,10 @@ public sealed class PostgresRequestLog : IRequestLog, IAsyncDisposable
 /// </remarks>
 public sealed class PostgresClientEventLog : IClientEventLog
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the log.</summary>
     /// <param name="dataSource">The platform store pool.</param>
@@ -261,7 +272,7 @@ public sealed class PostgresClientEventLog : IClientEventLog
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>

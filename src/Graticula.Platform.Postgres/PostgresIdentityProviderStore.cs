@@ -26,7 +26,10 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
           from identity_provider ip
         """;
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Reads and writes providers in a platform store.</summary>
     /// <param name="dataSource">The store.</param>
@@ -34,7 +37,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -71,7 +74,8 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
                  auto_create, default_role, default_user_type, enabled, kind, groups_claim, ldap, saml)
             values (@name, @issuer, @client, @secret, @version, @scopes, @claim, @auto, @role, @type, @enabled,
                     @kind, @groups, @ldap::jsonb, @saml::jsonb)
-            on conflict ((lower(name))) do nothing
+            -- ADR-204 §5e item 15: the index is the name within its organisation, and the target names it whole.
+            on conflict ((lower(name)), tenant_id) do nothing
             returning id
             """);
         Bind(command, settings);
@@ -237,9 +241,13 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         Guid id = Guid.NewGuid();
         string? name = null;
 
+        // <b>A directory's `DOMAIN\user` becomes `DOMAIN.user`</b> — ADR-204 §5e item 16: a backslash separates an
+        // organisation from a name here, so a name holding one would read as another organisation's member.
+        accountName = accountName.Replace('\\', '.');
+
         // <b>The account's name here is the first free of the one asked and its numbered variants</b>, because it
-        // is this server's namespace, where a local account may already have it — and ADR-088 keeps the two apart
-        // rather than joining them by name.
+        // is this organisation's namespace, where a local account may already have it — and ADR-088 keeps the two
+        // apart rather than joining them by name. Another organisation's account of the name is no clash (§5e item 16).
         for (int n = 1; n <= (numberIfTaken ? 1000 : 1) && name is null; n++)
         {
             string candidate = n == 1 ? accountName : string.Create(CultureInfo.InvariantCulture, $"{accountName}{n}");
@@ -247,7 +255,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
             await using NpgsqlCommand principal = new("""
                 insert into principal (id, kind, name, display_name, user_type)
                 values (@id, 'user', @name, @display, @type)
-                on conflict (name) do nothing
+                on conflict (name, tenant_id) do nothing
                 """, connection, transaction);
             principal.Parameters.AddWithValue("id", id);
             principal.Parameters.AddWithValue("name", candidate);

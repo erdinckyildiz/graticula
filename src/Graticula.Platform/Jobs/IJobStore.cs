@@ -134,6 +134,9 @@ public enum JobStatus
 /// Which version of the request shape <paramref name="Detail"/> is written in. A worker
 /// claims a job only when it speaks that version or later.
 /// </param>
+/// <param name="Tenant">
+/// The tenant it was started in — ADR-204; read on a claim only, so its worker runs as that tenant.
+/// </param>
 public sealed record JobRecord(
     Guid Id,
     JobKind Kind,
@@ -147,7 +150,8 @@ public sealed record JobRecord(
     DateTimeOffset? Started,
     DateTimeOffset? Finished,
     string? ClaimedBy = null,
-    int Protocol = 1);
+    int Protocol = 1,
+    Guid? Tenant = null);
 
 /// <summary>
 /// A record of long work, so a request that cannot be answered now can be answered later.

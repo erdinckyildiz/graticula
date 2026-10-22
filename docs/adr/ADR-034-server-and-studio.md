@@ -484,7 +484,9 @@ after the form has two more screens, and both are the dialog's own rather than a
    become a layer, and one field: the name of the **single service** they all go into. Everything
    publishable is ticked on arrival, because *all of it* is what somebody uploading a geodatabase almost
    always means and unticking three is quicker than ticking fifty-two. A table with no geometry is
-   listed and cannot be ticked — with the reason, rather than being hidden.
+   listed and cannot be ticked — with the reason, rather than being hidden. *(Changed 2026-10-21 by
+   [ADR-213](ADR-213-a-layer-may-be-a-table.md): a table with no geometry is ticked and published as a table; an
+   attachment table is still listed and cannot be ticked, because its files belong on its layer.)*
 
    **An empty feature class *is* offered, and its count column says what it becomes.** For half a day
    it was not: the tick was withheld because the importer could not build columns without rows, which is

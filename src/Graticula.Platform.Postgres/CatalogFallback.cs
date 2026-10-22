@@ -112,7 +112,9 @@ public sealed class CatalogFallback
     private readonly TimeProvider _time;
     private readonly TimeSpan _window;
 
-    private readonly ConcurrentDictionary<(string Folder, string Name),
+    // <b>Keyed by organisation as well — ADR-204 §5e item 14.</b> Two organisations may each have `hosted/Parcels`;
+    // keyed by name alone, an outage served one's public service at the other's address.
+    private readonly ConcurrentDictionary<(Guid Tenant, string Folder, string Name),
         (PublishedService Service, long Stamp)> _last = new();
 
     private readonly Func<CancellationToken, Task<IReadOnlyList<PublishedService>>>? _list;
@@ -132,7 +134,9 @@ public sealed class CatalogFallback
     /// </remarks>
     private sealed record Listing(IReadOnlyList<PublishedService> Services, long Stamp);
 
-    private volatile Listing? _listing;
+    // One listing per organisation: a single slot served the last organisation's public services to every other
+    // during an outage (ADR-204 §5e item 14).
+    private readonly ConcurrentDictionary<Guid, Listing> _listings = new();
 
     /// <summary>Wraps the real catalogue.</summary>
     /// <param name="catalog">The catalogue.</param>
@@ -200,7 +204,7 @@ public sealed class CatalogFallback
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
-        (string, string) key = (folder ?? string.Empty, name.ToLowerInvariant());
+        (Guid, string, string) key = (Graticula.Platform.Tenancy.TenantScope.Effective, folder ?? string.Empty, name.ToLowerInvariant());
 
         /*
           <b>Not asked at all when it failed moments ago, which is the second half of
@@ -306,7 +310,7 @@ public sealed class CatalogFallback
             IReadOnlyList<PublishedService> services =
                 await _list(cancellationToken).ConfigureAwait(false);
 
-            _listing = new Listing(services, _time.GetTimestamp());
+            _listings[Graticula.Platform.Tenancy.TenantScope.Effective] = new Listing(services, _time.GetTimestamp());
 
             _health?.Succeeded();
 
@@ -341,7 +345,7 @@ public sealed class CatalogFallback
     /// </remarks>
     private CatalogListing RememberedListing()
     {
-        if (_listing is not { } remembered)
+        if (!_listings.TryGetValue(Graticula.Platform.Tenancy.TenantScope.Effective, out Listing? remembered))
         {
             return new CatalogListing(null, Blind: true, Age: TimeSpan.Zero);
         }
@@ -369,7 +373,7 @@ public sealed class CatalogFallback
     /// store being known to have failed — because they produce the same answer and two
     /// copies of it is two places for the window check to drift.
     /// </remarks>
-    private CatalogAnswer Remembered((string, string) key)
+    private CatalogAnswer Remembered((Guid, string, string) key)
     {
         if (!_last.TryGetValue(key, out (PublishedService Service, long Stamp) remembered))
         {
@@ -383,7 +387,7 @@ public sealed class CatalogFallback
             : new CatalogAnswer(remembered.Service, Blind: true, Age: age);
     }
 
-    private void Remember((string, string) key, PublishedService service)
+    private void Remember((Guid, string, string) key, PublishedService service)
     {
         if (_last.Count >= Capacity && !_last.ContainsKey(key))
         {

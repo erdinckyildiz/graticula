@@ -112,6 +112,12 @@ or force best-effort on a native service during a transition.
 written before the migration requirement was fully absorbed, and it was too pure
 to survive it.
 
+> **Narrowed again 2026-10-22 by [ADR-215](ADR-215-what-arcgis-ignores-is-not-refused.md)**
+> (the ArcGIS veteran's N3): on the ArcGIS query surface, parameter names match in
+> any case, cache-busters and the caller's language are accepted and ignored, and a
+> parameter sent at ArcGIS's own default is accepted. A value that would change the
+> answer, and a parameter nobody has named, are still refused — §2 holds for those.
+
 ## 3. Alternatives considered
 
 ### Alternative A — Query AST compiled per provider, with capability negotiation

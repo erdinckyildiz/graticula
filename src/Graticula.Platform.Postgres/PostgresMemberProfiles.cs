@@ -12,14 +12,17 @@ namespace Graticula.Platform.Postgres;
 /// <summary>Profiles, photos and member categories in the platform store — migration 90.</summary>
 public sealed class PostgresMemberProfiles : IMemberProfiles
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store over the platform store's pool.</summary>
     /// <param name="dataSource">The platform store.</param>
     public PostgresMemberProfiles(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -32,7 +35,7 @@ public sealed class PostgresMemberProfiles : IMemberProfiles
                    coalesce((select array_agg(pc.category_id) from principal_category pc where pc.principal_id = p.id),
                             '{}')
             from principal p
-            where p.kind = 'user' and p.name = @name
+            where p.kind = 'user' and p.id = graticula_principal_named(@name)
             """);
         command.Parameters.AddWithValue("name", name);
 
@@ -65,7 +68,7 @@ public sealed class PostgresMemberProfiles : IMemberProfiles
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             update principal
                set display_name = @display, email = @email, bio = @bio, profile_visibility = @visibility
-             where kind = 'user' and name = @name
+             where kind = 'user' and id = graticula_principal_named(@name)
             """);
         command.Parameters.AddWithValue("name", name);
         command.Parameters.Add(new NpgsqlParameter("display", NpgsqlDbType.Text) { Value = Blank(edit.DisplayName) });
@@ -82,7 +85,7 @@ public sealed class PostgresMemberProfiles : IMemberProfiles
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             select ph.content_type, ph.content, ph.updated_at
             from principal_photo ph join principal p on p.id = ph.principal_id
-            where p.kind = 'user' and p.name = @name
+            where p.kind = 'user' and p.id = graticula_principal_named(@name)
             """);
         command.Parameters.AddWithValue("name", name);
 
@@ -100,7 +103,7 @@ public sealed class PostgresMemberProfiles : IMemberProfiles
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             insert into principal_photo (principal_id, content_type, content)
-            select p.id, @type, @content from principal p where p.kind = 'user' and p.name = @name
+            select p.id, @type, @content from principal p where p.kind = 'user' and p.id = graticula_principal_named(@name)
             on conflict (principal_id) do update
                set content_type = excluded.content_type, content = excluded.content, updated_at = now()
             """);
@@ -116,7 +119,7 @@ public sealed class PostgresMemberProfiles : IMemberProfiles
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
             delete from principal_photo ph using principal p
-             where p.id = ph.principal_id and p.kind = 'user' and p.name = @name
+             where p.id = ph.principal_id and p.kind = 'user' and p.id = graticula_principal_named(@name)
             """);
         command.Parameters.AddWithValue("name", name);
 

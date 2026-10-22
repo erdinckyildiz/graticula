@@ -36,7 +36,10 @@ public sealed class PostgresTileExportStore : ITileExportStore
     /// <remarks>See <see cref="ExportBudget.HeldSql"/>, which both stores read.</remarks>
     private const string HeldSql = ExportBudget.HeldSql;
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store over a data source.</summary>
     /// <param name="dataSource">The platform store.</param>
@@ -44,7 +47,7 @@ public sealed class PostgresTileExportStore : ITileExportStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <summary>The stored name of a format, which is also its name on the wire.</summary>

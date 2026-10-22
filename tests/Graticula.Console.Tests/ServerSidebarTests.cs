@@ -38,13 +38,17 @@ public sealed class ServerSidebarTests : ConsoleTest
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.dataset.tab).join(',')")
             ?? string.Empty;
 
-        Assert.Equal("services,sources,logs", rows);
+        // <b>Organizations is the system administrator's, ADR-204 §5d</b> — a fourth tab for them and for nobody else, so
+        // which three or four is asked of the server rather than assumed of the fixture.
+        bool system = await Browser.EvaluateAsync<bool>("!!whoNow?.systemAdministrator");
+
+        Assert.Equal(system ? "services,sources,organizations,logs" : "services,sources,logs", rows);
 
         string labels = await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.textContent.trim()).join(',')")
             ?? string.Empty;
 
-        Assert.Equal("Services,Site,Logs", labels);
+        Assert.Equal(system ? "Services,Site,Organizations,Logs" : "Services,Site,Logs", labels);
 
         NothingWentWrong(await PageErrorsAsync());
     }

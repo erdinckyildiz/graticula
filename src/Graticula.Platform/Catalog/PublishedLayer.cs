@@ -23,7 +23,7 @@ public sealed class PublishedLayer
         LayerDefinition definition,
         string dataSourceName,
         string connectionString,
-        GeometryKind geometryType,
+        GeometryKind? geometryType,
         Guid? owner,
         SharingScope sharing,
         ServiceStatus status,
@@ -55,6 +55,13 @@ public sealed class PublishedLayer
         Definition = definition;
         DataSourceName = dataSourceName;
         ConnectionString = connectionString;
+
+        if (geometryType is null != definition.IsTable)
+        {
+            throw new ArgumentException(
+                "A table has no geometry type and a layer must have one (ADR-213).", nameof(geometryType));
+        }
+
         GeometryType = geometryType;
         Owner = owner;
         Sharing = sharing;
@@ -394,8 +401,24 @@ public sealed class PublishedLayer
     /// Declared rather than inferred from the first row, because ArcGIS puts it
     /// in the response header before any feature has been read — and a layer
     /// whose query matches nothing still has a type.
+    /// <b>Null for a table</b>, which has no geometry to type — ADR-213; always null exactly when
+    /// <see cref="LayerDefinition.GeometryColumn"/> is.
     /// </remarks>
-    public GeometryKind GeometryType { get; }
+    public GeometryKind? GeometryType { get; }
+
+    /// <summary>Whether this is a table with no geometry — ADR-213.</summary>
+    public bool IsTable => Definition.IsTable;
+
+    /// <summary>The geometry type, for a face that draws or serves only layers with geometry.</summary>
+    /// <exception cref="InvalidOperationException">This is a table.</exception>
+    /// <remarks>
+    /// <b>Beside <see cref="LayerDefinition.RequireGeometryColumn()"/> and for the same places</b>: WMS, WFS, the map and
+    /// tile faces leave tables out of what they list, so a table reaching one of them is a defect, and this names it
+    /// rather than drawing nothing (ADR-213).
+    /// </remarks>
+    /// <returns>The geometry type.</returns>
+    public GeometryKind RequireGeometryType() => GeometryType ?? throw new InvalidOperationException(
+        $"'{Definition.Name}' is a table and has no geometry type; it cannot be drawn or served as features with a shape (ADR-213).");
 
     /// <summary>
     /// Who owns it, or null for a layer registered before ownership existed.

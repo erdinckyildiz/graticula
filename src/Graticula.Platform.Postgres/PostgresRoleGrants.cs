@@ -41,7 +41,10 @@ public sealed partial class PostgresRoleGrants : IRoleGrants, IDisposable
     /// <summary>How long a held answer may be used without a write telling us otherwise.</summary>
     public static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(30);
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
     private readonly ILogger<PostgresRoleGrants> _log;
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _reading = new(1, 1);
@@ -64,7 +67,7 @@ public sealed partial class PostgresRoleGrants : IRoleGrants, IDisposable
         ArgumentNullException.ThrowIfNull(dataSource);
         ArgumentNullException.ThrowIfNull(log);
 
-        _dataSource = dataSource;
+        _root = dataSource;
         _log = log;
         _clock = clock ?? TimeProvider.System;
     }

@@ -239,19 +239,30 @@ public sealed class GeodatabaseScreenTests : ConsoleTest
 
             // <b>One row cannot be ticked, and it was two until D-106 closed the same afternoon.</b>
             // The empty feature class became publishable — the archive declares its fields, so it lands
-            // as an empty layer — leaving only the attachment table, which has no geometry and
-            // therefore nothing to create a column as. This test asserted two and failed on the change,
-            // which is the assertion doing its job: the fixture's shapes did not move, the rule did.
+            // as an empty layer — leaving only the attachment table. This test asserted two and failed on
+            // the change, which is the assertion doing its job: the fixture's shapes did not move, the rule did.
+            // <b>And none since 2026-10-21 (ADR-213)</b>: a class with no geometry is a table, and an attachment table
+            // becomes its class's attachments, so every row is ticked and the attachment row says whose files it holds.
             string[] said = await Browser.EvaluateAsync<string[]>(
                 """
                 [...document.querySelectorAll('.gdbpick td.tick span.val')]
                   .map(s => s.getAttribute('aria-label') || '')
                 """) ?? [];
 
-            Assert.Single(said);
+            Assert.Empty(said);
 
-            Assert.All(said, one => Assert.StartsWith("Cannot be published:", one, StringComparison.Ordinal));
-            Assert.Contains("no geometry", said[0], StringComparison.Ordinal);
+            Assert.True(
+                await Browser.EvaluateAsync<bool>(
+                    """
+                    (() => {
+                      const row = [...document.querySelectorAll('.gdbpick tbody tr')]
+                        .find(r => r.textContent.includes('AECOM_Arch_ATTACH'));
+                      return row !== undefined
+                          && row.querySelector('.gdbPick') !== null
+                          && /attachments of AECOM_Arch/.test(row.textContent);
+                    })()
+                    """),
+                "The attachment table is not offered, or its row does not say whose attachments it holds.");
 
             // And the empty one is offered, with its count reading as a schema rather than as a zero.
             Assert.True(

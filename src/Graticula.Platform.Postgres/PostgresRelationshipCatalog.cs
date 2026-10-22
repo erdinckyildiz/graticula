@@ -22,14 +22,17 @@ public sealed class PostgresRelationshipCatalog
         "id, name, origin_layer_id, origin_key, related_layer_id, related_key, "
         + "cardinality, composite, number";
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the catalogue.</summary>
     /// <param name="dataSource">The platform store.</param>
     public PostgresRelationshipCatalog(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <summary>Declares a relationship.</summary>

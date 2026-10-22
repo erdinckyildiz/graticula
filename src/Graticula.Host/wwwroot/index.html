@@ -143,6 +143,13 @@
         and its sections and nothing else.
       -->
       <div id="utilbar">
+      <!--
+        <b>Which organization this console is, where the server holds more than one — ADR-204.</b> Two tabs open on
+        two organizations look identical otherwise; the name here and in the window's title tells them apart.
+      -->
+      <span id="tenantName" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5.6" cy="6" r="2.1"/><circle cx="11" cy="6.6" r="1.7"/><path d="M1.9 13c.3-2.2 1.8-3.4 3.7-3.4S9 10.8 9.3 13"/><path d="M10.3 9.9c1.6.1 2.7 1.1 3 3.1"/></svg><span
+        class="sr-only">Organization: </span><b id="tenantNameText"></b></span>
       <nav id="surfaces" hidden>
         <a data-surface="server">Server</a>
         <a data-surface="studio">Studio</a>
@@ -205,7 +212,7 @@
   <form class="panel" id="signinForm" method="post" action="">
     <div class="signin-head">
       <div>
-        <h2>Sign in to Graticula</h2>
+        <h2 id="signinTitle">Sign in to Graticula</h2>
         <!-- Filled from location.host: which server this is, which is the question the head answers. -->
         <p class="signin-where" id="signinWhere"></p>
       </div>
@@ -349,6 +356,16 @@
     read. Dismissed for the session only, so the next sign-in asks again. Shown by `drawFactorNotice` to an
     administrator whose own account could have a factor here and has none; nobody else ever sees it.
   -->
+  <!--
+    <b>A member of another organization, said before anything else on the page — ADR-204 §5a.</b> They are signed in
+    and yet see almost nothing here, and without this line that reads as a broken console or a lost account.
+  -->
+  <div class="factornotice tenantnotice" id="outsiderNotice" role="note" aria-label="Another organization" hidden>
+    <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8v.01"/></svg>
+    <p id="outsiderNoticeText"></p>
+  </div>
+
   <div class="factornotice" id="factorNotice" role="note" aria-label="Two-step sign-in" hidden>
     <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
       stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6l-8-3z"/><path d="M12 8v5M12 16.5v.01"/></svg>
@@ -669,7 +686,7 @@
         <div class="composerbody pubcanvas" id="pubShot">
           <div id="pubMap"></div>
           <img id="pubShotImg" alt="" hidden>
-          <div class="pubmapsays" id="pubMapSays" hidden></div>
+          <div class="pubmapsays" id="pubMapSays" role="status" aria-live="polite" hidden></div>
         </div>
       </section>
 
@@ -788,11 +805,15 @@
       kalır." The operator picks this server's own tile services as the ground under every map; with none
       picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.
     -->
-    <div class="panel pad settingcard">
+    <!-- ADR-204 §5d: the ground is the server's, one for every organization, so an organization's administrator is told
+         whose it is in `#groundWhose` instead of being shown a card whose every read and save the server refuses. -->
+    <p class="hint settingcard" id="groundWhose" hidden></p>
+    <div class="panel pad settingcard" id="groundCard">
       <div class="cardhead"><h4>Map ground</h4><span class="pill" id="groundInUse" hidden></span></div>
       <p class="hint">Your own vector tile services, such as an OpenStreetMap extract you imported, drawn under the data
         when the default basemap is <b>Your own tile services</b>. With none chosen, OpenStreetMap's public tiles are
-        drawn. People who chose their own ground in the viewer keep it.</p>
+        drawn. People who chose their own ground in the viewer keep it.<span id="groundEveryone" hidden> It is the
+        server's, so it is the ground of every organization on it.</span></p>
 
       <!--
         <b>Two lists, because the design review of 2026-09-24 found one list doing two jobs.</b> The first
@@ -842,12 +863,16 @@
       <b>ADR-149, the owner's decision of 2026-10-03:</b> the geometry service the portal names to ArcGIS clients —
       this server's own, or another an administrator chooses, as ArcGIS Enterprise's Utility Services setting has it.
     -->
-    <div class="panel pad settingcard">
+    <!-- ADR-204 §5d: the geometry service named to clients is the server's while there are several organizations. -->
+    <p class="hint settingcard" id="geometryWhose" hidden>The geometry service ArcGIS clients use is the server's: its
+      system administrator chooses it for every organization on it, so there is nothing to set here.</p>
+    <div class="panel pad settingcard" id="geometryCard">
       <h4>Geometry service</h4>
       <p class="hint">The geometry service ArcGIS clients signed in to this portal use for measuring, buffering and
         projecting — what Portal's clients read from it. Leave it empty to use this server's own. Name another, such as
         an ArcGIS Server's, and clients use that one instead; it answers them under its own sharing. ArcGIS Enterprise
-        has this under Organization › Settings › Utility services › Geometry.</p>
+        has this under Organization › Settings › Utility services › Geometry.<span id="geometryEveryone" hidden> It is
+        the server's, so every organization on it uses the same one.</span></p>
 
       <label for="geometryService" style="display:block">Another geometry service's address:</label>
       <input type="url" id="geometryService" disabled spellcheck="false" autocomplete="off" style="width:100%"
@@ -1093,8 +1118,8 @@
       something, who did it, and from where. <b>Requests</b> is one row per HTTP request, with
       its status and how long it took. <b>Studio viewer</b> is what the map viewer reported
       from a browser, which is where a failure that never reached the server shows up.
-      <b>Server warnings</b> is what this server itself reported — a layer it could not read, a
-      source it could not reach — held in memory since it last started.</p>
+      <span id="logServerLede"><b>Server warnings</b> is what this server itself reported — a layer it could not read, a
+      source it could not reach — held in memory since it last started.</span></p>
 
     <!-- The log being read, as a column on the left — Server Manager's Logs page lists its views there (ADR-187 step 4). -->
     <div id="logSources"></div>
@@ -1149,6 +1174,144 @@
     </div>
 
     <p><button class="ghost" id="logMore" hidden>Older</button></p>
+  </section>
+
+  <!-- ------------------------------------------------ SERVER · organizations -->
+  <!--
+    <b>ADR-204 §5d: the organizations this server holds, and the system administrator's alone.</b> The tab exists only
+    for a reader `whoami` calls the system administrator; a tenant's own administrator never sees it. The list is the
+    data sources table's shape — a row per thing, its verbs on the row — because that is the nearest screen that does
+    the same job for the same reader.
+  -->
+  <section class="view" id="view-organizations">
+    <div class="pagehead">
+      <div>
+        <h2>Organizations</h2>
+        <p>Each organization is a portal of its own on this server, with its own members, groups and content, reached
+          at its own host name. A host name works once DNS points it at this server and the server's certificate
+          covers it.</p>
+      </div>
+      <div class="right">
+        <span class="val" id="tnCount"></span>
+        <button class="primary" id="tnNew" type="button">New organization</button>
+      </div>
+    </div>
+
+    <p class="hint" id="tnSays" role="status" aria-live="polite"></p>
+
+    <div class="panel widetable">
+      <table class="rowblocks" id="tnTable">
+        <thead><tr>
+          <th>Organization</th><th>Host names</th><th>Status</th><th>Organization ID</th>
+          <th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="tnRows"></tbody>
+      </table>
+    </div>
+    <p class="hint" id="tnNote"></p>
+
+    <!-- New organization and Change, one form: the key and the first administrator are asked only when it is made. -->
+    <dialog id="tnDialog" class="formdialog" aria-labelledby="tnDialogTitle">
+      <header class="dialoghead">
+        <h3 id="tnDialogTitle">New organization</h3>
+        <button type="button" class="tiny ghost" id="tnDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+        <div class="picker">
+          <label for="tnName">Name</label>
+          <input id="tnName" type="text" autocomplete="off" placeholder="Acme Surveying">
+
+          <div id="tnKeyRow">
+            <label for="tnKey">Key</label>
+            <input id="tnKey" type="text" autocomplete="off" spellcheck="false" placeholder="acme"
+              aria-describedby="tnKeyHint">
+            <p class="hint" id="tnKeyHint"></p>
+          </div>
+          <p class="hint" id="tnKeyFixed" hidden></p>
+
+          <label for="tnHosts">Host names, one per line</label>
+          <textarea id="tnHosts" rows="3" spellcheck="false" placeholder="maps.acme.example"
+            aria-describedby="tnHostsHint"></textarea>
+          <p class="hint" id="tnHostsHint">The first is the address its people sign in at. Each needs a DNS record that
+            points at this server, and a certificate that covers it.</p>
+
+          <div id="tnAdminRow">
+            <label for="tnAdmin">First administrator&rsquo;s user name</label>
+            <input id="tnAdmin" type="text" autocomplete="off" spellcheck="false" placeholder="acme_admin"
+              aria-describedby="tnAdminHint">
+            <p class="hint" id="tnAdminHint">A new account, made inside the organization. The name must not be in use
+              anywhere on this server. The server picks the password and shows it to you once.</p>
+          </div>
+
+          <p class="bad-inline" id="tnFormSays" role="alert" hidden></p>
+        </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="tnCancel">Cancel</button>
+        <button type="button" class="primary" id="tnSave">Create organization</button>
+      </footer>
+    </dialog>
+
+    <!--
+      <b>The first administrator's password, the one moment it exists.</b> Modal for the reason `#issued` is: the page
+      behind it must not be pressed while a secret is on screen. A Copy button as well as a selected field, because the
+      field is the fallback when a browser refuses the clipboard, and the button is what a reader looks for.
+    -->
+    <dialog id="tnIssued" class="formdialog" aria-labelledby="tnIssuedTitle" aria-describedby="tnIssuedOnce">
+      <header class="dialoghead">
+        <h3 id="tnIssuedTitle" tabindex="-1">Organization created</h3>
+      </header>
+      <div class="dialogbody">
+        <p id="tnIssuedOnce"><b>This password is shown only now.</b> Copy it and give it to
+          <b id="tnIssuedWho"></b>. It has to be changed the first time they sign in.</p>
+        <label class="tnlabel" for="tnIssuedPassword">Password</label>
+        <div class="copyrow">
+          <input id="tnIssuedPassword" type="text" readonly spellcheck="false" autocomplete="off">
+          <button type="button" id="tnIssuedCopy">Copy</button>
+        </div>
+        <label class="tnlabel" for="tnIssuedAt">They sign in at</label>
+        <div class="copyrow">
+          <input id="tnIssuedAt" type="text" readonly spellcheck="false">
+          <button type="button" id="tnIssuedAtCopy">Copy</button>
+        </div>
+        <p class="hint" id="tnIssuedDns"></p>
+        <p class="hint" id="tnIssuedSays" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="primary" id="tnIssuedDone">I have copied it</button>
+      </footer>
+    </dialog>
+
+    <!--
+      <b>Removing is two acts, and the server is the one that says which applies.</b> A plain removal goes through only
+      when the organization holds nothing; a new one always holds its first administrator, so the second step — with
+      everything it owns, behind its key typed out — is the usual path, and the dialog says why it is being asked.
+    -->
+    <dialog id="tnRemove" class="formdialog" aria-labelledby="tnRemoveTitle" aria-describedby="tnRemoveBody">
+      <header class="dialoghead">
+        <h3 id="tnRemoveTitle" tabindex="-1">Remove organization</h3>
+        <button type="button" class="tiny ghost" id="tnRemoveClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+        <p id="tnRemoveBody"></p>
+        <div id="tnPurge" hidden>
+          <p class="tnholds" id="tnRemoveHolds" role="alert"></p>
+          <p><b>Remove it with everything it owns.</b> Its members, groups, content, roles and settings are deleted, and
+            this cannot be undone. Tables it published to this server's datastore stay there.</p>
+          <label class="tnlabel" for="tnPurgeKey">Type <b id="tnPurgeKeyIs"></b> to confirm</label>
+          <input id="tnPurgeKey" type="text" autocomplete="off" spellcheck="false">
+        </div>
+        <p class="bad-inline" id="tnRemoveSays" role="alert" hidden></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="tnRemoveCancel">Cancel</button>
+        <button type="button" class="danger" id="tnRemoveGo">Remove</button>
+        <button type="button" class="danger" id="tnPurgeGo" hidden disabled>Remove with everything</button>
+      </footer>
+    </dialog>
   </section>
 
   <!--
@@ -1536,6 +1699,9 @@
       <div>
         <h2>Member roles</h2>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
+        <!-- ADR-204 §5e.4: roles are the deployment's in this version, and changing one is the system administrator's
+             while there are several organizations. Said to both readers, because it changes what a save means. -->
+        <p class="hint" id="rolesWhose" hidden></p>
       </div>
       <div class="right">
         <span class="val" id="roleCount"></span>
@@ -2228,6 +2394,8 @@
         <span style="flex:1"></span>
         <nav class="segmented solid" id="visModes"></nav>
       </div>
+      <!-- ADR-213: the service's tables, named, and why they are not here; filled by drawServiceVis. -->
+      <p class="hint vistables" id="visTables" hidden></p>
     <!-- Visualization's Style panel: the layer's style editor, drawn here by drawVisStyle (ADR-102). -->
     <div id="visStyleHost" class="stylehost" hidden></div>
     <div class="panel" id="mapPanel">

@@ -328,7 +328,8 @@ internal static class InventoryScan
 
         if (isTable || geometry.Length == 0)
         {
-            Stays("A table without geometry: this build publishes feature layers and lists no tables in a FeatureServer.");
+            // ADR-213 condition 10: a table comes, as a table, beside the service's layers.
+            notes.Add("A table without geometry: it is published as a table, beside the service's layers (ADR-213).");
         }
         else if (geometry is not ("esriGeometryPoint" or "esriGeometryMultipoint" or "esriGeometryPolyline" or "esriGeometryPolygon"))
         {

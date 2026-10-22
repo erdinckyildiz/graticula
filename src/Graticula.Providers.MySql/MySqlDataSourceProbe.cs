@@ -62,10 +62,13 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
             (List<SourceTable> tables, List<SkippedTable> skipped) =
                 await TablesAsync(connection, connection.Database, dialect, cancellationToken).ConfigureAwait(false);
 
+            int plain = tables.Count(t => t.GeometryColumn is null);
+
             string message = tables.Count == 0
                 ? "Connected, and nothing here can be published: no table with a spatial column that has an SRID and a "
-                  + "spatial index, and a single whole-number key, is in this database."
-                : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published.";
+                  + "spatial index, and none without one, with a single whole-number key, is in this database."
+                : $"Connected. {tables.Count - plain} table{(tables.Count - plain == 1 ? "" : "s")} with geometry can be published"
+                  + (plain > 0 ? $", and {plain} without, which publish as tables (ADR-213)." : ".");
 
             return new ProbeResult(ProbeOutcome.Usable, message, version, $"{dialect.Name} spatial {version}", tables, skipped);
         }
@@ -197,7 +200,67 @@ public sealed class MySqlDataSourceProbe : IDataSourceProbe
                     && await MySqlConnections.CanWriteAsync(connection, database, row.Table, cancellation).ConfigureAwait(false)));
         }
 
+        tables.AddRange(await PlainTablesAsync(connection, database, cancellation).ConfigureAwait(false));
         return (tables, skipped);
+    }
+
+    /// <summary>
+    /// The tables and views with no spatial column and a single whole-number primary key — ADR-213 condition 7: each
+    /// publishes as a table. Never the ones this server keeps beside a layer's: its attachments, their chunks, its history.
+    /// </summary>
+    private static async Task<List<SourceTable>> PlainTablesAsync(
+        MySqlConnection connection, string database, CancellationToken cancellation)
+    {
+        const string Sql = """
+            select t.table_name, t.table_type, max(k.column_name), max(c.data_type), count(*)
+              from information_schema.tables t
+              join information_schema.key_column_usage k
+                on k.table_schema = t.table_schema and k.table_name = t.table_name and k.constraint_name = 'PRIMARY'
+              join information_schema.columns c
+                on c.table_schema = t.table_schema and c.table_name = t.table_name and c.column_name = k.column_name
+             where t.table_schema = @db
+               and t.table_name not like '%\_\_attach'
+               and t.table_name not like '%\_\_attach\_chunk'
+               and t.table_name not like '%\_\_history'
+               and not exists (
+                 select 1 from information_schema.columns g
+                  where g.table_schema = t.table_schema and g.table_name = t.table_name
+                    and g.data_type in ('geometry', 'point', 'linestring', 'polygon', 'multipoint', 'multilinestring',
+                                        'multipolygon', 'geometrycollection', 'geomcollection'))
+             group by t.table_name, t.table_type
+            having count(*) = 1
+             order by t.table_name
+            """;
+
+        List<(string Table, string Kind, string Key, string KeyType)> found = [];
+
+        await using (MySqlCommand command = new(Sql, connection))
+        {
+            command.Parameters.AddWithValue("@db", database);
+
+            await using MySqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                found.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)));
+            }
+        }
+
+        List<SourceTable> tables = [];
+
+        foreach ((string table, string kind, string key, string keyType) in found)
+        {
+            if (keyType is not ("tinyint" or "smallint" or "mediumint" or "int" or "bigint"))
+            {
+                continue;
+            }
+
+            tables.Add(new SourceTable(database, table, null, 0, null, key, key, [key],
+                Writable: kind == "BASE TABLE"
+                    && await MySqlConnections.CanWriteAsync(connection, database, table, cancellation).ConfigureAwait(false)));
+        }
+
+        return tables;
     }
 
     /// <summary>The ArcGIS-style geometry type a MySQL column type names, or null for <c>geometry</c>, which holds any.</summary>

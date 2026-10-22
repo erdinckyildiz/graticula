@@ -15,13 +15,16 @@ namespace Graticula.Platform.Postgres;
 /// </remarks>
 public sealed class PostgresSecondFactorStore : ISecondFactorStore
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store.</summary>
     public PostgresSecondFactorStore(NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <summary>
@@ -36,6 +39,8 @@ public sealed class PostgresSecondFactorStore : ISecondFactorStore
               from principal p
               join local_credential c on c.principal_id = p.id
              where p.kind = 'user' and p.disabled_at is null
+               -- ADR-204: the organisation's requirement covers its own members, not outsiders of the same name.
+               and (graticula_tenant() is null or p.tenant_id = graticula_tenant())
                and (not @administrators
                     or exists (select 1 from principal_role r where r.principal_id = p.id and r.role_name = 'administrator'))
                and not exists (select 1 from principal_second_factor f

@@ -158,24 +158,29 @@ public static class OgcDocuments
 
         json.WriteStartObject("extent");
 
-        json.WriteStartObject("spatial");
-        json.WriteStartArray("bbox");
-        json.WriteStartArray();
+        // <b>A table has no spatial extent at all — ADR-213 condition 8</b>: its features have no geometry, so it is
+        // not that the extent is unknown. The extent's `spatial` member is optional, and its absence is that claim.
+        if (collection.GeometryType is not null)
+        {
+            json.WriteStartObject("spatial");
+            json.WriteStartArray("bbox");
+            json.WriteStartArray();
 
-        // <b>The whole world when the extent is unknown, and that is the honest
-        // answer.</b> `extent` is required; omitting the bbox would say the
-        // collection has no extent, which is a different claim from not knowing it.
-        Envelope box = collection.Extent ?? new Envelope(-180, -90, 180, 90);
+            // <b>The whole world when the extent is unknown, and that is the honest
+            // answer.</b> `extent` is required; omitting the bbox would say the
+            // collection has no extent, which is a different claim from not knowing it.
+            Envelope box = collection.Extent ?? new Envelope(-180, -90, 180, 90);
 
-        json.WriteNumberValue(box.MinX);
-        json.WriteNumberValue(box.MinY);
-        json.WriteNumberValue(box.MaxX);
-        json.WriteNumberValue(box.MaxY);
+            json.WriteNumberValue(box.MinX);
+            json.WriteNumberValue(box.MinY);
+            json.WriteNumberValue(box.MaxX);
+            json.WriteNumberValue(box.MaxY);
 
-        json.WriteEndArray();
-        json.WriteEndArray();
-        json.WriteString("crs", OgcNames.Crs84);
-        json.WriteEndObject();
+            json.WriteEndArray();
+            json.WriteEndArray();
+            json.WriteString("crs", OgcNames.Crs84);
+            json.WriteEndObject();
+        }
 
         json.WriteStartObject("temporal");
         json.WriteStartArray("interval");

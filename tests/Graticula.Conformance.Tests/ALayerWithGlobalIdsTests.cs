@@ -61,6 +61,8 @@ public sealed class ALayerWithGlobalIdsTests : ArcGisClient
             JsonElement document = await GetJsonAsync(feature);
 
             Assert.Equal("globalid", document.GetProperty("globalIdField").GetString());
+            // The veteran's N8: applyEdits honours useGlobalIds=true here, and the document says so.
+            Assert.True(document.GetProperty("supportsApplyEditsWithGlobalIds").GetBoolean());
             JsonElement field = document.GetProperty("fields").EnumerateArray().Single(f => f.GetProperty("name").GetString() == "globalid");
             Assert.Equal("esriFieldTypeGlobalID", field.GetProperty("type").GetString());
             Assert.False(field.GetProperty("editable").GetBoolean());

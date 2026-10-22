@@ -148,9 +148,9 @@ internal sealed partial class GeoParquetSources : IDisposable
 
         string file = Normalise(Path.GetFullPath(Path.IsPathRooted(requested)
             ? requested.Trim()
-            : Path.Combine(Root, requested.Trim())));
+            : Path.Combine(AreaFor() ?? Root, requested.Trim())));
 
-        if (DuckDbFileRefusal(file) is { } refused)
+        if ((DuckDbFileRefusal(file) ?? AreaRefusal(file)) is { } refused)
         {
             why = refused;
             return false;
@@ -564,11 +564,17 @@ internal sealed partial class GeoParquetSources : IDisposable
 
         string folder = Normalise(Path.GetFullPath(Path.IsPathRooted(requested)
             ? requested.Trim()
-            : Path.Combine(Root, requested.Trim())));
+            : Path.Combine(AreaFor() ?? Root, requested.Trim())));
 
         if (!Inside(folder))
         {
             why = $"'{requested}' is outside {Root}, the only directory this server may read GeoParquet from.";
+            return false;
+        }
+
+        if (AreaRefusal(folder) is { } elsewhere)
+        {
+            why = elsewhere;
             return false;
         }
 
@@ -857,6 +863,24 @@ internal sealed partial class GeoParquetSources : IDisposable
 
         foreach (GeoParquetTable file in files)
         {
+            // <b>A table without geometry is listed as one — ADR-213 condition 7</b>: no geometry column, no reference.
+            if (file.IsTable && file.Problem is null)
+            {
+                tables.Add(new SourceTable(
+                    GeoParquetTableSchema,
+                    file.Name,
+                    null,
+                    0,
+                    null,
+                    file.CandidateObjectIdColumn,
+                    PrimaryKeyColumn: null,
+                    file.IdentityCandidates,
+                    Writable: opened.IsWritable && file.CandidateObjectIdColumn is { } tableKey
+                        && !string.Equals(tableKey, GeoParquetFolder.RowNumberColumn, StringComparison.Ordinal),
+                    WideIdentityCandidates: file.WideIdentityCandidates));
+                continue;
+            }
+
             if (file.Problem is { } problem || file.Kind is null || file.Geometry.Srid is null)
             {
                 skipped.Add(new SkippedTable(
@@ -885,7 +909,8 @@ internal sealed partial class GeoParquetSources : IDisposable
                 : $"{opened.EngineVersion} read {files.Count} table{(files.Count == 1 ? string.Empty : "s")} in '{folder}': "
                   + $"{tables.Count} can be published"
                   + (skipped.Count == 0 ? "." : $", and {skipped.Count} cannot — each says why.")
-                  + " Its layers are read-only.")
+                  // ADR-211 made a writable database's tables editable; only one opened to read says read-only.
+                  + (opened.IsWritable ? string.Empty : " Its layers are read-only."))
             : opened.IsRemote
             ? (files.Count == 0
                 ? $"{opened.EngineVersion} found no .parquet files at '{folder}'."
@@ -1065,13 +1090,26 @@ internal sealed partial class GeoParquetSources : IDisposable
             return $"{called} cannot be published: {problem}";
         }
 
-        if (!string.Equals(publication.GeometryColumn, file.Geometry.Column, StringComparison.Ordinal))
+        // <b>A table is published as a table, and a layer as a layer — ADR-213 condition 7.</b>
+        if (file.IsTable != (publication.GeometryColumn is null))
+        {
+            return file.IsTable
+                ? $"{called} has no geometry column, so it is published as a table: send no geometry column or type."
+                : $"{called} keeps its geometry in '{file.Geometry.Column}', so it is published as a layer with it.";
+        }
+
+        if (!file.IsTable && publication.GeometryType is null)
+        {
+            return $"{called} keeps its geometry in '{file.Geometry.Column}'; a layer published from it says its geometry type.";
+        }
+
+        if (!file.IsTable && !string.Equals(publication.GeometryColumn, file.Geometry.Column, StringComparison.Ordinal))
         {
             return $"{called} keeps its geometry in '{file.Geometry.Column}', "
                 + $"not '{publication.GeometryColumn}'.";
         }
 
-        if (publication.Srid != file.Geometry.Srid)
+        if (!file.IsTable && publication.Srid != file.Geometry.Srid)
         {
             return $"{called} says its coordinates are in EPSG:{file.Geometry.Srid}, "
                 + $"and the publication declares EPSG:{publication.Srid}. "
@@ -1096,7 +1134,7 @@ internal sealed partial class GeoParquetSources : IDisposable
                 + "the only column measured unique; send the same name for both.";
         }
 
-        if (file.Kind is not { } kind || Family(kind) != Family(publication.GeometryType))
+        if (!file.IsTable && (file.Kind is not { } kind || Family(kind) != Family(publication.GeometryType!.Value)))
         {
             return $"{called} holds {(file.Kind?.ToString() ?? "no")} geometry, "
                 + $"not {publication.GeometryType}.";
@@ -1245,6 +1283,66 @@ internal sealed partial class GeoParquetSources : IDisposable
         GeometryKind.LineString or GeometryKind.MultiLineString => 1,
         _ => 2,
     };
+
+    /// <summary>The folder under the root that holds every other organisation's area — ADR-204 §5e item 12.</summary>
+    public const string OrganisationsFolder = "organizations";
+
+    /// <summary>An organisation's key by its id, set once the tenants are known; null on a server of one.</summary>
+    public Func<Guid, string?>? OrganisationKey { get; set; }
+
+    /// <summary>
+    /// The folder the request's organisation registers files from: its own <c>organizations/&lt;key&gt;</c> under the
+    /// root, or the root for the main organisation and for anything outside an organisation.
+    /// </summary>
+    /// <remarks>
+    /// <b>ADR-204 §5e item 12, from the ArcGIS veteran's review.</b> The row-level floor keeps an organisation's
+    /// catalogue rows its own; it does not reach files, and one root for the whole deployment let an organisation's
+    /// administrator register the folder another publishes from and serve it as its own.
+    /// </remarks>
+    public string? AreaFor()
+    {
+        if (Root is null
+            || !Graticula.Platform.Tenancy.TenantScope.MultiTenant
+            || Graticula.Platform.Tenancy.TenantScope.Current is not { } organisation
+            || organisation == Graticula.Platform.Tenancy.TenantScope.DefaultTenant)
+        {
+            return Root;
+        }
+
+        return OrganisationKey?.Invoke(organisation) is { Length: > 0 } key
+            ? Normalise(Path.GetFullPath(Path.Combine(Root, OrganisationsFolder, key)))
+            : null;
+    }
+
+    /// <summary>Why the request's organisation may not register <paramref name="path"/>, or null when it may.</summary>
+    private string? AreaRefusal(string path)
+    {
+        if (Root is null || !Graticula.Platform.Tenancy.TenantScope.MultiTenant
+            || Graticula.Platform.Tenancy.TenantScope.Current is null)
+        {
+            return null;
+        }
+
+        StringComparison comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string others = Normalise(Path.GetFullPath(Path.Combine(Root, OrganisationsFolder)));
+
+        if (AreaFor() is not { } area)
+        {
+            return "Your organization has no folder of its own on this server yet.";
+        }
+
+        if (string.Equals(area, Root, comparison))
+        {
+            // The main organisation: the root, except the other organisations' folders under it.
+            return string.Equals(path, others, comparison) || path.StartsWith(others + "/", comparison)
+                ? $"'{path}' is another organization's folder on this server."
+                : null;
+        }
+
+        return string.Equals(path, area, comparison) || path.StartsWith(area + "/", comparison)
+            ? null
+            : $"'{path}' is outside {area}, your organization's folder on this server.";
+    }
 
     private bool Inside(string folder)
     {

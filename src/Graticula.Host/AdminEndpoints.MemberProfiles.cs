@@ -57,7 +57,7 @@ internal static partial class AdminEndpoints
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         bool signedIn = current.Principal.Kind != PrincipalKind.Anonymous;
-        return (signedIn && string.Equals(current.Principal.Name, name, StringComparison.Ordinal),
+        return (signedIn && string.Equals(current.QualifiedName, name, StringComparison.Ordinal),
             current.Authorization.Allows(Privilege.AdminManageMembers),
             signedIn);
     }
@@ -69,7 +69,8 @@ internal static partial class AdminEndpoints
         return self || manager || profile.Visibility switch
         {
             "public" => true,
-            "organization" => signedIn,
+            // ADR-204: the organisation is this tenant's; a member of another who reached its host is not of it.
+            "organization" => signedIn && context.Features.Get<RequestPrincipal>()?.Authorization.IsOutsider != true,
 
             // A profile's visibility is not a sharing scope and has no `group`: anything else is private.
             // enum-default-is-deliberate: private

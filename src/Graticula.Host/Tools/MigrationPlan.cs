@@ -47,7 +47,8 @@ internal static class MigrationPlan
         Table? Target,
         IReadOnlyDictionary<string, string> Aliases,
         JsonElement? DrawingInfo,
-        string Note);
+        string Note,
+        bool IsTable = false);
 
     /// <summary>What <c>apply</c> asks of the symbology route: keep a picture it cannot use as a loss (ADR-099 §5.1).</summary>
     internal const string SymbologyQuery = "?pictures=keep";
@@ -65,10 +66,16 @@ internal static class MigrationPlan
     }
 
     /// <summary>The one table a layer's name matches, or why there is none.</summary>
-    internal static (Table? Table, string Note) Match(string layerName, IReadOnlyList<Table> tables)
+    /// <param name="layerName">The source layer's name.</param>
+    /// <param name="tables">The target data source's tables.</param>
+    /// <param name="isTable">
+    /// Whether the source is a table — ADR-213 — which matches a table with no geometry column, as a layer matches one
+    /// with.
+    /// </param>
+    internal static (Table? Table, string Note) Match(string layerName, IReadOnlyList<Table> tables, bool isTable = false)
     {
         string wanted = Normalise(layerName);
-        Table[] found = [.. tables.Where(t => t.GeometryColumn is not null && Normalise(t.Name) == wanted)];
+        Table[] found = [.. tables.Where(t => (t.GeometryColumn is null) == isTable && Normalise(t.Name) == wanted)];
 
         return found.Length switch
         {
@@ -76,7 +83,9 @@ internal static class MigrationPlan
                 $"The table {found[0].Schema}.{found[0].Name} matches by name and has no integer object-id column, "
                 + "so it cannot be served through the ArcGIS surface. Add one, or pick another table."),
             1 => (found[0], $"Matched {found[0].Schema}.{found[0].Name} by name. Check it before applying."),
-            0 => (null, "No table with a geometry column has this name. Fill in schema and table by hand, or leave it out."),
+            0 => (null, isTable
+                ? "No table without a geometry column has this name. Fill in schema and table by hand, or leave it out."
+                : "No table with a geometry column has this name. Fill in schema and table by hand, or leave it out."),
             _ => (null,
                 $"{found.Length} tables match by name ({string.Join(", ", found.Select(t => $"{t.Schema}.{t.Name}"))}). "
                 + "Choose one by hand."),
@@ -119,6 +128,9 @@ internal static class MigrationPlan
                 ["folder"] = e.Folder,
                 ["sourceLayer"] = e.LayerId,
                 ["name"] = e.LayerName,
+
+                // ADR-213: a table is published with no geometry column, and the plan says which entries are tables.
+                ["kind"] = e.IsTable ? "table" : "layer",
                 ["schema"] = e.Target?.Schema,
                 ["table"] = e.Target?.Name,
                 ["geometryColumn"] = e.Target?.GeometryColumn,
@@ -224,16 +236,22 @@ internal static class MigrationPlan
             JsonElement document = await InventoryScan.GetAsync(http, $"{services}/{name}/{type}", token, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (!document.TryGetProperty("layers", out JsonElement layers) || layers.ValueKind != JsonValueKind.Array)
+            // The service's layers and, since ADR-213, its tables, each listed as the service lists it.
+            List<(JsonElement Listed, bool IsTable)> members = [];
+
+            foreach ((string array, bool isTable) in new[] { ("layers", false), ("tables", true) })
             {
-                continue;
+                if (document.TryGetProperty(array, out JsonElement found) && found.ValueKind == JsonValueKind.Array)
+                {
+                    members.AddRange(found.EnumerateArray().Select(m => (m, isTable)));
+                }
             }
 
             int slash = name.LastIndexOf('/');
             string? folder = slash < 0 ? null : name[..slash];
             string service = slash < 0 ? name : name[(slash + 1)..];
 
-            foreach (JsonElement listedLayer in layers.EnumerateArray())
+            foreach ((JsonElement listedLayer, bool isTable) in members)
             {
                 if (listedLayer.TryGetProperty("subLayerIds", out JsonElement children) && children.ValueKind == JsonValueKind.Array
                     && children.GetArrayLength() > 0)
@@ -246,7 +264,7 @@ internal static class MigrationPlan
                     .ConfigureAwait(false);
 
                 string layerName = layer.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? $"{id}" : $"{id}";
-                (Table? match, string note) = Match(layerName, tables);
+                (Table? match, string note) = Match(layerName, tables, isTable);
 
                 entries.Add(new Entry(
                     service,
@@ -258,7 +276,8 @@ internal static class MigrationPlan
                     layer.TryGetProperty("drawingInfo", out JsonElement drawing) && drawing.ValueKind == JsonValueKind.Object
                         ? drawing.Clone()
                         : null,
-                    note));
+                    note,
+                    isTable));
             }
         }
 
@@ -312,17 +331,20 @@ internal static class MigrationPlan
             string service = Text(layer, "service") ?? name;
             string objectId = Text(layer, "objectIdColumn") ?? "objectid";
 
+            // ADR-213: a table is published with no geometry column, no reference and no geometry type.
+            bool isTable = string.Equals(Text(layer, "kind"), "table", StringComparison.Ordinal);
+
             JsonObject body = new()
             {
                 ["name"] = name,
                 ["dataSourceId"] = id,
                 ["schemaName"] = schema,
                 ["tableName"] = table,
-                ["geometryColumn"] = Text(layer, "geometryColumn") ?? "shape",
+                ["geometryColumn"] = isTable ? null : Text(layer, "geometryColumn") ?? "shape",
                 ["identityColumn"] = objectId,
                 ["objectIdColumn"] = objectId,
-                ["srid"] = layer.TryGetProperty("srid", out JsonElement srid) && srid.TryGetInt32(out int code) ? code : 0,
-                ["geometryType"] = Text(layer, "geometryType"),
+                ["srid"] = isTable ? 0 : layer.TryGetProperty("srid", out JsonElement srid) && srid.TryGetInt32(out int code) ? code : 0,
+                ["geometryType"] = isTable ? null : Text(layer, "geometryType"),
                 ["sharing"] = sharing,
                 ["serviceName"] = service,
                 ["folder"] = Text(layer, "folder"),

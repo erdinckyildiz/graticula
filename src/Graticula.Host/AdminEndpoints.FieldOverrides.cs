@@ -505,7 +505,7 @@ internal static partial class AdminEndpoints
                 }
 
                 refusal = $"There is already a shared domain named '{already.Name}' with other values. Give the column "
-                    + "that domain, or name this one differently: names are unique across the server.";
+                    + "that domain, or name this one differently: names are unique within your organization.";
                 status = 409;
                 return null;
             }

@@ -259,7 +259,7 @@ internal static class VectorTileEndpoints
     /// PostGIS, DuckDB-read or Oracle layer was tiled too (ADR-095, ADR-066 §9, ADR-205 §5c); ADR-206 restored Q-67.
     /// </remarks>
     internal static bool Tileable(PublishedLayer layer) =>
-        Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted);
+        !layer.IsTable && Graticula.Platform.Admin.TileSources.Tiled(layer.Definition.IsHosted);
 
     /// <summary>The kind of a layer's source, read off its locator — <see cref="Graticula.Platform.Admin.DataSourceKinds"/>.</summary>
     private static string KindOf(PublishedLayer layer) =>
@@ -1126,7 +1126,7 @@ internal static class VectorTileEndpoints
             // ADR-033 §5a: each layer's canonical document travels with it, so the
             // tile face draws what the feature face derives from rather than
             // generating a second opinion about the same layer.
-            [.. service.Layers.Select(l => (l.Definition.Name, l.GeometryType, l.Symbology))],
+            [.. service.Layers.Select(l => (l.Definition.Name, l.RequireGeometryType(), l.Symbology))],
             glyphs.Any ? GlyphStore.Fallback : null,
 
             // ADR-070: each layer's range narrows its style layers' zooms. The first layer of a
@@ -1765,7 +1765,7 @@ internal static class VectorTileEndpoints
             layer.Id,
             TileCacheKey.FingerprintOf(
                 layer.Definition.Srid,
-                layer.Definition.GeometryColumn,
+                layer.Definition.RequireGeometryColumn(),
                 attributes.Select(a => a.Name),
                 PostGisTileSource.Extent,
                 PostGisTileSource.Buffer,
@@ -2206,7 +2206,7 @@ internal static class VectorTileEndpoints
     {
         HashSet<string> skip = new(StringComparer.Ordinal)
         {
-            layer.Definition.GeometryColumn,
+            layer.Definition.RequireGeometryColumn(),
         };
 
         return

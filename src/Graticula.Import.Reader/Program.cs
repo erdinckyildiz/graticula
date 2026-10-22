@@ -173,6 +173,18 @@ internal static class Program
             "features" => Features(
                 Text(request, "archive"), Text(request, "layer"), Encoding(request)),
 
+            // <b>ADR-213 condition 2: a feature class's attachments, as attachments.</b> A geodatabase keeps them in a
+            // class beside it — `<class>__ATTACH` — whose rows name their feature by its GlobalID or its object id, and
+            // whose `DATA` is the file. Streamed like `features`, a line per file, because a layer of photographs is
+            // the one table in an archive that is mostly bytes.
+            "attachments" => Attachments(
+                Text(request, "archive"), Text(request, "layer"), Text(request, "parent"), Encoding(request)),
+
+            // <b>ADR-213 condition 3: the archive's relationship classes</b>, through GDAL's relationship API (3.6+), which
+            // reads them from the geodatabase's own catalogue so this process need not — ADR-013 §3 keeps Esri's system
+            // tables out of this repository's reading.
+            "relationships" => Relationships(Text(request, "archive"), Encoding(request)),
+
             // <b>A geodatabase this repository can commit to a test rather than to git —
             // [D-95](../../docs/architecture-debt.md), [Q-138](../../docs/open-questions.md),
             // owner decision 2026-09-03.</b> Nothing automated read a *valid* archive: the only
@@ -475,12 +487,81 @@ internal static class Program
             written += Write(made, wgs84, "places", wkbGeometryType.wkbPoint);
             written += Write(made, wgs84, "parcels", wkbGeometryType.wkbPolygon);
 
+            // ADR-213: a table, and the attachments of `places`, which an archive from ArcGIS Pro carries beside it.
+            written += Visits(made);
+            Attachments(made);
+
             made.FlushCache();
         }
 
         Bound(path);
 
-        return new { path, layers = 2, features = written };
+        return new { path, layers = 2, tables = 1, attachments = FixtureAttachments.Length, features = written };
+    }
+
+    /// <summary>The files the fixture attaches to <c>places</c>: by object id, the first place twice and the third once.</summary>
+    private static readonly (int Place, string Name, string Text)[] FixtureAttachments =
+    [
+        (1, "first.txt", "the first place"),
+        (1, "again.txt", "the first place, again"),
+        (3, "third.txt", "the third place"),
+    ];
+
+    /// <summary>A table with no geometry beside the fixture's layers — ADR-213.</summary>
+    private static int Visits(DataSource into)
+    {
+        Layer visits = into.CreateLayer("visits", null, wkbGeometryType.wkbNone, []);
+
+        foreach ((string field, FieldType type) in new[] { ("place", FieldType.OFTString), ("minutes", FieldType.OFTInteger) })
+        {
+            using FieldDefn defined = new(field, type);
+            visits.CreateField(defined, 1);
+        }
+
+        int written = 0;
+
+        foreach ((string place, int minutes) in new[] { ("places 1", 20), ("places 1", 5), ("places 2", 45) })
+        {
+            using Feature feature = new(visits.GetLayerDefn());
+            feature.SetField("place", place);
+            feature.SetField("minutes", minutes);
+            visits.CreateFeature(feature);
+            written++;
+        }
+
+        visits.SyncToDisk();
+        return written;
+    }
+
+    /// <summary>
+    /// <c>places__ATTACH</c>, as ArcGIS names a feature class's attachment table, keyed by <c>REL_OBJECTID</c> — ADR-213
+    /// condition 2. The files are text, so a test reads them back by eye as well as by byte.
+    /// </summary>
+    private static void Attachments(DataSource into)
+    {
+        Layer attach = into.CreateLayer("places__ATTACH", null, wkbGeometryType.wkbNone, []);
+
+        foreach ((string field, FieldType type) in new[]
+        {
+            ("REL_OBJECTID", FieldType.OFTInteger), ("CONTENT_TYPE", FieldType.OFTString),
+            ("ATT_NAME", FieldType.OFTString), ("DATA", FieldType.OFTBinary),
+        })
+        {
+            using FieldDefn defined = new(field, type);
+            attach.CreateField(defined, 1);
+        }
+
+        foreach ((int place, string name, string text) in FixtureAttachments)
+        {
+            using Feature feature = new(attach.GetLayerDefn());
+            feature.SetField("REL_OBJECTID", place);
+            feature.SetField("CONTENT_TYPE", "text/plain");
+            feature.SetField("ATT_NAME", name);
+            feature.SetFieldBinaryFromHexString("DATA", System.Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(text)));
+            attach.CreateFeature(feature);
+        }
+
+        attach.SyncToDisk();
     }
 
     /// <summary>
@@ -528,6 +609,18 @@ internal static class Program
         if (places.AlterFieldDefn(definition.GetFieldIndex("count"), bounded, AlterDomain) != 0)
         {
             throw new InvalidOperationException("GDAL refused to give the fixture's count field its domain.");
+        }
+
+        // ADR-213 condition 3: a relationship class from each place to its visits, by the place's name, which the import
+        // declares on the server.
+        using OSGeo.GDAL.Relationship visited = new(
+            "PlaceVisits", "places", "visits", OSGeo.GDAL.RelationshipCardinality.GRC_ONE_TO_MANY);
+        visited.SetLeftTableFields(["name"]);
+        visited.SetRightTableFields(["place"]);
+
+        if (!opened.AddRelationship(visited))
+        {
+            throw new InvalidOperationException("GDAL refused to add the fixture's relationship class.");
         }
 
         opened.FlushCache();
@@ -794,6 +887,173 @@ internal static class Program
         Answer(new { ok = true, done = true, features = written, messages = said });
 
         // Nothing for the caller to print: every line is already out.
+        return null;
+    }
+
+    /// <summary>
+    /// The archive's relationship classes, as GDAL reports them — ADR-213 condition 3.
+    /// </summary>
+    /// <param name="archive">The archive.</param>
+    /// <param name="encoding">The archive's encoding, or null.</param>
+    /// <returns>Each one's name, its two classes, their key fields, its cardinality and its kind.</returns>
+    /// <remarks>
+    /// <b>Left is the origin and right the destination</b>, in GDAL's words: the left table's fields are the origin's
+    /// primary key, the right's the destination's foreign key. A many-to-many class names a mapping table as well, and
+    /// is reported so that the importer can say it did not carry it.
+    /// </remarks>
+    private static object Relationships(string archive, string? encoding)
+    {
+        using Dataset source = Open(archive, encoding);
+
+        List<object> found = [];
+
+        foreach (string name in source.GetRelationshipNames(null) ?? [])
+        {
+            // Not disposed: the dataset owns the relationships it hands out, as it owns its layers' definitions.
+            OSGeo.GDAL.Relationship? relationship = source.GetRelationship(name);
+
+            if (relationship is null)
+            {
+                continue;
+            }
+
+            found.Add(new
+            {
+                name,
+                left = relationship.GetLeftTableName(),
+                right = relationship.GetRightTableName(),
+                leftFields = relationship.GetLeftTableFields() ?? [],
+                rightFields = relationship.GetRightTableFields() ?? [],
+                mapping = Nothing(relationship.GetMappingTableName()),
+                cardinality = relationship.GetCardinality().ToString(),
+                kind = relationship.GetRelationshipType().ToString(),
+            });
+        }
+
+        return new { ok = true, relationships = found };
+    }
+
+    /// <summary>
+    /// Streams an attachment table's files, each naming the feature it belongs to — ADR-213 condition 2.
+    /// </summary>
+    /// <param name="archive">The archive.</param>
+    /// <param name="layerName">The attachment table, <c>&lt;class&gt;__ATTACH</c>.</param>
+    /// <param name="parentName">The feature class it belongs to.</param>
+    /// <param name="encoding">The archive's encoding, or null.</param>
+    /// <returns>Null: every line is written as it is read.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>By GlobalID where the table keeps one</b> (<c>REL_GLOBALID</c>, what ArcGIS Pro writes), because the importer
+    /// carries the feature class's GlobalIDs over as they are. <b>By position otherwise</b> (<c>REL_OBJECTID</c>): the
+    /// importer gives the copied rows new object ids 1, 2, 3 … in the order this reader reads them, so an object id is
+    /// translated here into that position — the archive's own ids may have gaps, and the new ones have none.
+    /// </para>
+    /// <para>
+    /// <b>The file is base64 in the line</b>, as a geometry's WKB is: the pipe carries text.
+    /// </para>
+    /// </remarks>
+    private static object? Attachments(string archive, string layerName, string parentName, string? encoding)
+    {
+        List<string> said = [];
+
+        _messages = said;
+
+        using Dataset source = Open(archive, encoding);
+        using Layer layer = source.GetLayerByName(layerName)
+            ?? throw new ArgumentException($"'{layerName}' is not a layer in this archive.");
+        using FeatureDefn definition = layer.GetLayerDefn();
+
+        int Field(string name)
+        {
+            for (int f = 0; f < definition.GetFieldCount(); f++)
+            {
+                using FieldDefn field = definition.GetFieldDefn(f);
+
+                if (string.Equals(field.GetName(), name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return f;
+                }
+            }
+
+            return -1;
+        }
+
+        int globalId = Field("REL_GLOBALID");
+        int objectId = Field("REL_OBJECTID");
+        int data = Field("DATA");
+        int fileName = Field("ATT_NAME");
+        int contentType = Field("CONTENT_TYPE");
+
+        if (data < 0 || (globalId < 0 && objectId < 0))
+        {
+            throw new ArgumentException(
+                $"'{layerName}' has no DATA column, or neither REL_GLOBALID nor REL_OBJECTID, so it is not an attachment "
+                + "table this reader can match to its features.");
+        }
+
+        // The position each of the parent's features is read at, which is the object id the importer gives it.
+        Dictionary<long, long> positions = [];
+
+        if (globalId < 0)
+        {
+            using Layer parent = source.GetLayerByName(parentName)
+                ?? throw new ArgumentException($"'{parentName}' is not a layer in this archive.");
+
+            long position = 0;
+            parent.ResetReading();
+
+            for (Feature feature = parent.GetNextFeature(); feature is not null; feature = parent.GetNextFeature())
+            {
+                using (feature)
+                {
+                    positions[feature.GetFID()] = ++position;
+                }
+            }
+        }
+
+        Answer(new { ok = true, header = true, by = globalId >= 0 ? "globalId" : "position" });
+
+        long written = 0;
+        layer.ResetReading();
+
+        for (Feature feature = layer.GetNextFeature(); feature is not null; feature = layer.GetNextFeature())
+        {
+            using (feature)
+            {
+                if (!feature.IsFieldSetAndNotNull(data))
+                {
+                    continue;
+                }
+
+                string? owner = null;
+                long? position = null;
+
+                if (globalId >= 0 && feature.IsFieldSetAndNotNull(globalId))
+                {
+                    owner = feature.GetFieldAsString(globalId);
+                }
+                else if (objectId >= 0 && feature.IsFieldSetAndNotNull(objectId)
+                         && positions.TryGetValue(feature.GetFieldAsInteger64(objectId), out long at))
+                {
+                    position = at;
+                }
+
+                Answer(new
+                {
+                    globalId = owner,
+                    position,
+                    name = fileName >= 0 && feature.IsFieldSetAndNotNull(fileName) ? feature.GetFieldAsString(fileName) : null,
+                    type = contentType >= 0 && feature.IsFieldSetAndNotNull(contentType) ? feature.GetFieldAsString(contentType) : null,
+                    // OGR gives a binary field as hex text — its own `GetFieldAsString` for `OFTBinary` — and this binding
+                    // has no other way to read one.
+                    data = System.Convert.ToBase64String(System.Convert.FromHexString(feature.GetFieldAsString(data))),
+                });
+
+                written++;
+            }
+        }
+
+        Answer(new { ok = true, done = true, attachments = written, messages = said });
         return null;
     }
 

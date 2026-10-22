@@ -91,9 +91,9 @@ internal static class PortalGroup
             created,
             modified = created,
 
-            // <b>There is no `public`, and that is a fact rather than a gap.</b>
-            // Q-119 removed the *anybody, including anonymous* visibility on
-            // 2026-08-25 because nothing honoured it.
+            // <b>`private`, `org` or `public`, as the group's visibility says (Visibility, below).</b> Q-119 removed
+            // the *anybody, including anonymous* visibility on 2026-08-25 because nothing honoured it, and this said
+            // *there is no `public`* after public groups returned — corrected 2026-10-22, the veteran's E10.
             access = Visibility(group.Visibility),
             isInvitationOnly = group.JoinPolicy == GroupJoinPolicy.Invitation,
             autoJoin = group.JoinPolicy == GroupJoinPolicy.Self,

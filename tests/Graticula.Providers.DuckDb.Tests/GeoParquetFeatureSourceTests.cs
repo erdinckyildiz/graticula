@@ -882,6 +882,10 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
             using DuckDBCommand command = plain.CreateCommand();
             command.CommandText = $"copy (select 1 as a) to '{_temporary.File("plain.parquet").Replace('\\', '/')}' (format parquet)";
             command.ExecuteNonQuery();
+
+            // ADR-213: geometry kept as bytes with no 'geo' key is a layer somebody meant, not a table.
+            command.CommandText = $"copy (select 1 as a, encode('x') as geom) to '{_temporary.File("bytes.parquet").Replace('\\', '/')}' (format parquet)";
+            command.ExecuteNonQuery();
         }
 
         File.Copy(_temporary.File("grid.parquet"), _temporary.File("has-dash.parquet"));
@@ -890,7 +894,10 @@ public sealed class GeoParquetFeatureSourceTests : IDisposable
 
         Assert.Null(problems["grid"]);
         Assert.True(problems["unknown_crs"]!.Contains("unknown", StringComparison.Ordinal), problems["unknown_crs"]);
-        Assert.Contains("not GeoParquet", problems["plain"], StringComparison.Ordinal);
+        // A Parquet file with no geometry at all is served as a table (ADR-213 condition 7).
+        Assert.Null(problems["plain"]);
+        Assert.True(_folder.List().Single(t => t.Name == "plain").IsTable);
+        Assert.Contains("not GeoParquet", problems["bytes"], StringComparison.Ordinal);
         Assert.Contains("plain identifier", problems["has-dash"], StringComparison.Ordinal);
     }
 

@@ -98,17 +98,25 @@ public sealed class AnonymousAccessConformanceTests : ArcGisClient
 
             JsonElement document = JsonDocument.Parse(body).RootElement;
 
-            if (!document.TryGetProperty("layers", out JsonElement layers)
-                || layers.ValueKind != JsonValueKind.Array
-                || layers.GetArrayLength() == 0)
+            // <b>A table is something to read as much as a layer is — ADR-213</b>, so a service that holds only tables
+            // offers them in `tables`, as ArcGIS's does, and that is not an empty service.
+            List<JsonElement> offered =
+            [
+                .. document.TryGetProperty("layers", out JsonElement layers) && layers.ValueKind == JsonValueKind.Array
+                    ? layers.EnumerateArray() : [],
+                .. document.TryGetProperty("tables", out JsonElement tables) && tables.ValueKind == JsonValueKind.Array
+                    ? tables.EnumerateArray() : [],
+            ];
+
+            if (offered.Count == 0)
             {
-                empty.Add($"{service} → its service document offers no layers");
+                empty.Add($"{service} → its service document offers no layers and no tables");
                 continue;
             }
 
             bool any = false;
 
-            foreach (JsonElement layer in layers.EnumerateArray())
+            foreach (JsonElement layer in offered)
             {
                 if (!layer.TryGetProperty("id", out JsonElement id))
                 {

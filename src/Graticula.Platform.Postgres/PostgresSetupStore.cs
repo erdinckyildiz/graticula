@@ -11,7 +11,10 @@ namespace Graticula.Platform.Postgres;
 /// <summary><see cref="ISetupStore"/> over the platform store.</summary>
 public sealed class PostgresSetupStore : ISetupStore
 {
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store.</summary>
     /// <param name="dataSource">The platform store pool.</param>
@@ -19,7 +22,7 @@ public sealed class PostgresSetupStore : ISetupStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -98,7 +101,8 @@ public sealed class PostgresSetupStore : ISetupStore
         Guid id = Guid.NewGuid();
 
         await using (NpgsqlCommand principal = new(
-            "insert into principal (id, kind, name, display_name) values (@id, 'user', @name, @display)",
+            // ADR-204 §5d: the first account administers the system as well as the default organisation.
+            "insert into principal (id, kind, name, display_name, system_admin) values (@id, 'user', @name, @display, true)",
             connection,
             transaction))
         {

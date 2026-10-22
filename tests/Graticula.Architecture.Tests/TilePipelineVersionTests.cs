@@ -225,7 +225,11 @@ public sealed class TilePipelineVersionTests
         // styles and `resources/info` answer POST as well as GET; the tile, font and sprite routes are untouched.
         // <b>Moved again 2026-10-18, and the version did not move.</b> The service document names its portal item
         // (`serviceItemId`, ServiceItem) and its page links it; no tile byte, key or route changed.
-        "f835f1acda9692b8dbfb66d5a20549a09e35d9cdef719eaa8d067175f1a611e6";
+        // <b>Moved again 2026-10-21 for ADR-213, and the version did not move.</b> A layer's geometry column and type
+        // became nullable for tables, and the tile source and the style read them through `RequireGeometryColumn()` and
+        // `RequireGeometryType()`, which answer the same names for every layer a tile draws; a table is never in a tile.
+        // And `Tileable` answers false for a table, which only ever took a table out of tile lists it was never in.
+        "20007ac3060123713c446659dad5ff3d95886457d34f2f30cd8299119b1e6587";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

@@ -669,9 +669,11 @@ internal static partial class OgcFeaturesEndpoints
                 continue;
             }
 
-            foreach (PublishedLayer layer in service.Layers)
+            // <b>Its tables too — ADR-213 condition 8.</b> Part 1 lets a feature have a null geometry, so a table is a
+            // collection whose features all do: no spatial extent, and a bbox that selects none of them.
+            foreach (PublishedLayer layer in service.LayersAndTables)
             {
-                if (layer.Definition.GeometryColumn is { Length: > 0 })
+                if (layer.IsTable || layer.Definition.GeometryColumn is { Length: > 0 })
                 {
                     layers.Add(layer);
                 }
@@ -767,8 +769,10 @@ internal static partial class OgcFeaturesEndpoints
         (IFeatureSource source, LayerDescription described) =
             await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
 
-        Envelope? geographic = await GeographicAsync(
-            projector, described.Extent, layer.Definition.Srid, cancellation).ConfigureAwait(false);
+        // A table has no extent to move (ADR-213).
+        Envelope? geographic = layer.IsTable
+            ? null
+            : await GeographicAsync(projector, described.Extent, layer.Definition.Srid, cancellation).ConfigureAwait(false);
 
         // <b>The same measurement the WMS face makes, from the same cache.</b> This
         // reported the column and left the interval empty, so a collection document
@@ -955,7 +959,14 @@ internal static partial class OgcFeaturesEndpoints
         SpatialFilter? spatial = null;
         int? filterSrid = null;
 
-        if (request.Bbox is { } bbox)
+        // <b>A table's features have no geometry, and one with none intersects no box</b> — the rule
+        // `OgcExtentConformanceTests` holds this face to (ADR-213 condition 8). So a bbox selects nothing, said without
+        // the round trip, and not the ArcGIS face's answer, which ignores a spatial filter on a table as ArcGIS does.
+        if (request.Bbox is not null && layer.IsTable)
+        {
+            empty = true;
+        }
+        else if (request.Bbox is { } bbox)
         {
             List<Polygon> boxes = [];
 

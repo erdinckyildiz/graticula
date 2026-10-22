@@ -55,7 +55,10 @@ public sealed class PostgresJobStore : IJobStore
         .Select(Wire)
         .ToArray();
 
-    private readonly NpgsqlDataSource _dataSource;
+    private readonly NpgsqlDataSource _root;
+
+    /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
+    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
 
     /// <summary>Creates the store over a data source.</summary>
     /// <param name="dataSource">The platform store.</param>
@@ -63,7 +66,7 @@ public sealed class PostgresJobStore : IJobStore
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        _dataSource = dataSource;
+        _root = dataSource;
     }
 
     /// <inheritdoc/>
@@ -125,12 +128,15 @@ public sealed class PostgresJobStore : IJobStore
               from job
              where id = @id
                and (@all or owner_principal_id = @who)
+               -- ADR-204: an organisation reads its own jobs; the table is the system's queue and has no floor.
+               and (@tenant::uuid is null or tenant_id = @tenant::uuid)
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("who", asking);
         command.Parameters.AddWithValue("all", administrator);
+        command.Parameters.Add(Narrowed());
 
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -150,6 +156,7 @@ public sealed class PostgresJobStore : IJobStore
               from job
              where (@all or owner_principal_id = @who)
                and (not @unfinished or status in ('queued', 'running'))
+               and (@tenant::uuid is null or tenant_id = @tenant::uuid)
              order by created_at desc
              limit 200
             """;
@@ -158,6 +165,7 @@ public sealed class PostgresJobStore : IJobStore
         command.Parameters.AddWithValue("who", asking);
         command.Parameters.AddWithValue("all", all);
         command.Parameters.AddWithValue("unfinished", unfinishedOnly);
+        command.Parameters.Add(Narrowed());
 
         List<JobRecord> answer = [];
 
@@ -216,7 +224,7 @@ public sealed class PostgresJobStore : IJobStore
                    lease_until = now() + @lease, attempts = attempts + 1
              where id in (select id from taken)
             returning id, kind, status, progress, owner_principal_id, subject, detail, failure,
-                      created_at, started_at, finished_at, claimed_by, protocol
+                      created_at, started_at, finished_at, claimed_by, protocol, tenant_id
             """;
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
@@ -228,8 +236,9 @@ public sealed class PostgresJobStore : IJobStore
         await using NpgsqlDataReader reader = await command
             .ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
+        // ADR-204: the tenant the job was started in, so its worker runs as that tenant.
         return await reader.ReadAsync(cancellationToken).ConfigureAwait(false)
-            ? Read(reader)
+            ? Read(reader) with { Tenant = reader.IsDBNull(13) ? null : reader.GetGuid(13) }
             : null;
     }
 
@@ -515,4 +524,16 @@ public sealed class PostgresJobStore : IJobStore
         // the field count which query it is looking at.
         reader.IsDBNull(11) ? null : reader.GetString(11),
         reader.GetInt32(12));
+
+    /// <summary>
+    /// The tenant a request's job reads are narrowed to — ADR-204: its own where there are several tenants, none
+    /// otherwise. The job table is the system's queue and carries the tenant without a floor.
+    /// </summary>
+    private static NpgsqlParameter Narrowed() => new("tenant", NpgsqlTypes.NpgsqlDbType.Uuid)
+    {
+        Value = Graticula.Platform.Tenancy.TenantScope.MultiTenant && Graticula.Platform.Tenancy.TenantScope.Current is { } tenant
+            ? tenant
+            : DBNull.Value,
+    };
+
 }

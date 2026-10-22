@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -10,12 +11,14 @@ using Graticula.Features;
 using Graticula.Formats;
 using Graticula.Geometries;
 using Graticula.Platform.Admin;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Jobs;
 using Graticula.Platform.Postgres;
 using Graticula.Providers.PostGis;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 
 namespace Graticula.Host;
 
@@ -131,7 +134,8 @@ internal sealed class GeodatabaseImporter : BackgroundService
         PostGisImporter importer,
         IAdminCatalog catalog,
         IFieldDomainStore domains,
-        ILogger<GeodatabaseImporter> log)
+        ILogger<GeodatabaseImporter> log,
+        PostgresRelationshipCatalog relationships)
     {
         ArgumentNullException.ThrowIfNull(jobs);
         ArgumentNullException.ThrowIfNull(signal);
@@ -141,6 +145,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(domains);
         ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(relationships);
 
         _jobs = jobs;
         _signal = signal;
@@ -150,7 +155,10 @@ internal sealed class GeodatabaseImporter : BackgroundService
         _catalog = catalog;
         _domains = domains;
         _log = log;
+        _relationships = relationships;
     }
+
+    private readonly PostgresRelationshipCatalog _relationships;
 
     protected override async Task ExecuteAsync(CancellationToken stopping)
     {
@@ -209,7 +217,11 @@ internal sealed class GeodatabaseImporter : BackgroundService
             // that has been running for an hour is not failed for a burst that passes in a second.
             using (ConnectionBudget.Patiently(TimeSpan.FromMinutes(10)))
             {
-                await RunAsync(job, stopping).ConfigureAwait(false);
+                // ADR-204: a job runs as the tenant it was started in, so what it writes is that tenant's.
+                using (Graticula.Platform.Tenancy.TenantScope.EnterJob(job.Tenant))
+                {
+                    await RunAsync(job, stopping).ConfigureAwait(false);
+                }
             }
         }
     }
@@ -259,14 +271,73 @@ internal sealed class GeodatabaseImporter : BackgroundService
         string archive = _scratch.PathFor(asked.Archive);
         List<object> done = [];
         int landed = 0;
+        int skipped = 0;
+
+        // The hosted table each class landed in, for its attachments — which are read after every class, so a class's
+        // attachment table may come before it in the archive's order.
+        Dictionary<string, string> tables = new(StringComparer.OrdinalIgnoreCase);
+
+        // The catalogue id each class landed as, for the archive's relationship classes (ADR-213 condition 3).
+        Dictionary<string, Guid> published = new(StringComparer.OrdinalIgnoreCase);
 
         try
         {
-            foreach (string layer in asked.Layers ?? [])
+            foreach (string layer in (asked.Layers ?? []).OrderBy(IsAttachmentTable))
             {
                 if (working.IsCancellationRequested)
                 {
                     break;
+                }
+
+                // <b>An attachment table becomes its class's attachments — ADR-213 condition 2.</b> ArcGIS Pro sends one
+                // beside every feature class that keeps attachments; until 2026-10-21 any of them failed the whole publish,
+                // and for a day after that they were skipped and the photos left behind. Its class has landed by now (the
+                // order above puts every attachment table last); when it has not, there is nothing to attach to, and that
+                // is said rather than failed, because the class's own failure is already in the report.
+                if (IsAttachmentTable(layer))
+                {
+                    if (!tables.TryGetValue(AttachedTo(layer), out string? table))
+                    {
+                        skipped++;
+                        done.Add(new
+                        {
+                            layer,
+                            published = false,
+                            skipped = true,
+                            why = $"'{layer}' holds the attachments of '{AttachedTo(layer)}', which was not published, so "
+                                + "there is nothing to attach them to.",
+                        });
+
+                        continue;
+                    }
+
+                    try
+                    {
+                        (int attached, int unmatched) = await AttachAsync(archive, layer, AttachedTo(layer), table, working)
+                            .ConfigureAwait(false);
+
+                        landed++;
+                        done.Add(new
+                        {
+                            layer,
+                            published = true,
+                            attachmentsOf = AttachedTo(layer),
+                            attachments = attached,
+
+                            // Files whose feature is not in the class: the archive's own orphans, said and not stored.
+                            unmatched = unmatched > 0 ? unmatched : (int?)null,
+                        });
+                    }
+                    catch (OperationCanceledException) when (working.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception refused)
+                    {
+                        done.Add(new { layer, published = false, why = refused.Message });
+                    }
+
+                    continue;
                 }
 
                 try
@@ -275,6 +346,13 @@ internal sealed class GeodatabaseImporter : BackgroundService
                         .ConfigureAwait(false);
 
                     landed++;
+
+                    if (made.Table is { } madeTable)
+                    {
+                        tables[layer] = madeTable;
+                    }
+
+                    published[layer] = made.LayerId;
 
                     // <b>`flattened` is in the report even when it is zero</b>, because *this layer
                     // kept its elevation* and *this server did not look* are different answers and a
@@ -345,7 +423,14 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 return;
             }
 
-            bool all = done.Count > 0 && landed == done.Count;
+            // Every layer landed, apart from the attachment tables skipped above — which are said in the report.
+            bool all = landed > 0 && landed + skipped == done.Count;
+
+            // ADR-213 condition 3: the archive's relationship classes between the classes that landed. Reported apart from
+            // the layers, and never a reason the job failed — a layer without its relationship is still a layer.
+            List<object> related = published.Count > 1
+                ? await RelateAsync(archive, asked.Service!, published, working).ConfigureAwait(false)
+                : [];
 
             await _jobs.FinishAsync(
                 job.Id,
@@ -357,6 +442,7 @@ internal sealed class GeodatabaseImporter : BackgroundService
                     published = landed,
                     of = done.Count,
                     layers = done,
+                    relationships = related.Count > 0 ? related : null,
                 }),
                 all
                     ? null
@@ -457,7 +543,14 @@ internal sealed class GeodatabaseImporter : BackgroundService
         IReadOnlyList<string>? Domains = null,
         string? Subtypes = null,
         IReadOnlyList<string>? NotCarried = null,
-        GeometryOrdinates Kept = GeometryOrdinates.None);
+        GeometryOrdinates Kept = GeometryOrdinates.None)
+    {
+        /// <summary>The hosted table the layer was made in — where its attachments go (ADR-213 condition 2).</summary>
+        public string? Table { get; init; }
+
+        /// <summary>The published layer's catalogue id — what a relationship names (ADR-213 condition 3).</summary>
+        public Guid LayerId { get; init; }
+    }
 
     /// <summary>What a layer's header said about values: each field's domain, and the table's subtypes.</summary>
     /// <param name="Domains">Each source field's domain, by the archive's own field name.</param>
@@ -750,6 +843,13 @@ internal sealed class GeodatabaseImporter : BackgroundService
             ? code.GetInt32()
             : 0;
 
+        // <b>A table — ADR-213 — is what the archive itself calls one</b>: OGR reports `wkbNone` for a class with no
+        // geometry column. Read from the header rather than inferred from rows, because a feature class whose shapes
+        // this reader could not read is not a table, and publishing it as one would drop every shape in it silently.
+        bool table = header is not null
+            && header.RootElement.TryGetProperty("geometry", out JsonElement saidGeometry)
+            && saidGeometry.GetString() == "wkbNone";
+
         // <b>The header's own schema, kept before the document is disposed.</b> It is what makes an
         // empty feature class publishable — see below — and reading it out here rather than inside the
         // branch keeps the lifetime of `header` in one place.
@@ -827,6 +927,12 @@ internal sealed class GeodatabaseImporter : BackgroundService
         header?.Dispose();
         trailer?.Dispose();
 
+        if (table)
+        {
+            return await PublishTableAsync(asked, archive, layer, count, declared, columns, values, Read, stopping)
+                .ConfigureAwait(false);
+        }
+
         if (srid <= 0)
         {
             throw new InvalidOperationException(
@@ -886,9 +992,9 @@ internal sealed class GeodatabaseImporter : BackgroundService
                 ],
                 null);
 
-            return await OverridesAsync(
+            return (await OverridesAsync(
                     asked.Owner, emptyAt.Id, declared, definedColumns, values, new Landed(0, 0, Declared: declared.Count, Kept: defined.Stored), stopping)
-                .ConfigureAwait(false);
+                .ConfigureAwait(false)) with { Table = defined.TableName, LayerId = emptyAt.Id };
         }
 
         if (kind is null)
@@ -943,8 +1049,332 @@ internal sealed class GeodatabaseImporter : BackgroundService
             ],
             null);
 
-        return await OverridesAsync(asked.Owner, at.Id, declared, madeColumns, values, new Landed(made.Rows, made.Flattened, Kept: made.Stored), stopping)
-            .ConfigureAwait(false);
+        return (await OverridesAsync(asked.Owner, at.Id, declared, madeColumns, values, new Landed(made.Rows, made.Flattened, Kept: made.Stored), stopping)
+            .ConfigureAwait(false)) with { Table = made.TableName, LayerId = at.Id };
+    }
+
+    /// <summary>
+    /// Declares the archive's relationship classes between the classes this job published — ADR-213 condition 3.
+    /// </summary>
+    /// <returns>One entry per relationship class: declared, or why not.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>As a declaration on this server's own catalogue</b>, the one an administrator makes with
+    /// <c>POST /admin/relationships</c>, so the layer documents list it and <c>queryRelatedRecords</c> follows it.
+    /// The keys are the importer's column names for the archive's fields (<see cref="PostGisImporter.ColumnNameFor"/>).
+    /// </para>
+    /// <para>
+    /// <b>What this server cannot hold is said, not dropped</b>: a many-to-many class (it needs its mapping table and a
+    /// second declaration, ADR-013 §3), and composite behaviour (D-26 — declared as a simple relationship, with the
+    /// cascade named as not carried). An attachment relationship is not a relationship here; its files arrived as
+    /// attachments.
+    /// </para>
+    /// <para>
+    /// <b>Named after the service as well as the class</b>, because a relationship's name is unique on this server and
+    /// two imports of one archive would otherwise collide.
+    /// </para>
+    /// </remarks>
+    private async Task<List<object>> RelateAsync(
+        string archive, string service, Dictionary<string, Guid> published, CancellationToken stopping)
+    {
+        List<object> said = [];
+        JsonDocument answer;
+
+        try
+        {
+            answer = await _reader.AskAsync(new { op = "relationships", archive }, Deadline, stopping).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException unread)
+        {
+            said.Add(new { declared = false, why = $"The archive's relationship classes could not be read: {unread.Message}" });
+            return said;
+        }
+
+        using (answer)
+        {
+            if (!answer.RootElement.TryGetProperty("relationships", out JsonElement found))
+            {
+                return said;
+            }
+
+            foreach (JsonElement one in found.EnumerateArray())
+            {
+                string name = one.GetProperty("name").GetString() ?? "relationship";
+                string left = one.GetProperty("left").GetString() ?? string.Empty;
+                string right = one.GetProperty("right").GetString() ?? string.Empty;
+                string cardinality = one.GetProperty("cardinality").GetString() ?? string.Empty;
+                string kind = one.GetProperty("kind").GetString() ?? string.Empty;
+                string[] leftKeys = [.. one.GetProperty("leftFields").EnumerateArray().Select(f => f.GetString() ?? string.Empty)];
+                string[] rightKeys = [.. one.GetProperty("rightFields").EnumerateArray().Select(f => f.GetString() ?? string.Empty)];
+
+                if (IsAttachmentTable(right) || IsAttachmentTable(left))
+                {
+                    continue;
+                }
+
+                string? refused = cardinality switch
+                {
+                    "GRC_MANY_TO_MANY" => "it is many-to-many, which needs its mapping table and a second declaration this "
+                        + "server does not make (ADR-013 §3)",
+                    _ when !published.ContainsKey(left) || !published.ContainsKey(right)
+                        => $"'{(published.ContainsKey(left) ? right : left)}' was not published in this service",
+                    _ when leftKeys.Length != 1 || rightKeys.Length != 1
+                        => "it joins on more than one field, and a declared relationship joins on one",
+                    _ => null,
+                };
+
+                if (refused is not null)
+                {
+                    said.Add(new { relationship = name, declared = false, why = refused });
+                    continue;
+                }
+
+                // GDAL's many-to-one has the many on the left: the one side is the origin, as ArcGIS's origin is.
+                bool flipped = cardinality == "GRC_MANY_TO_ONE";
+                string origin = flipped ? right : left;
+                string destination = flipped ? left : right;
+
+                LayerRelationship declaration = new(
+                    Guid.Empty,
+                    $"{service}_{name}",
+                    published[origin],
+                    PostGisImporter.ColumnNameFor(flipped ? rightKeys[0] : leftKeys[0]),
+                    published[destination],
+                    PostGisImporter.ColumnNameFor(flipped ? leftKeys[0] : rightKeys[0]),
+                    cardinality == "GRC_ONE_TO_ONE" ? RelationshipCardinality.OneToOne : RelationshipCardinality.OneToMany,
+                    Composite: false);
+
+                try
+                {
+                    await _relationships.DeclareAsync(declaration, stopping).ConfigureAwait(false);
+
+                    said.Add(new
+                    {
+                        relationship = declaration.Name,
+                        declared = true,
+                        origin,
+                        related = destination,
+                        cardinality = declaration.Cardinality.ToString(),
+
+                        // D-26: a composite relationship's cascade is not something this server does, and the archive's is
+                        // said rather than silently dropped.
+                        notCarried = kind == "GRT_COMPOSITE"
+                            ? "composite: deleting an origin feature does not delete its related rows here (D-26)"
+                            : null,
+                    });
+                }
+                catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation)
+                {
+                    said.Add(new { relationship = declaration.Name, declared = false, why = "a relationship of that name already exists" });
+                }
+            }
+        }
+
+        return said;
+    }
+
+    /// <summary>
+    /// A layer just made carries the attachment quota migration 8 gives every layer's row by default — 1 GiB — and the
+    /// archive's files are stored under it, as an upload through <c>addAttachment</c> would be.
+    /// </summary>
+    private const long NewLayerAttachmentQuota = 1L << 30;
+
+    /// <summary>
+    /// Reads an attachment table and stores each file on the feature it names, in the class's hosted table — ADR-213
+    /// condition 2.
+    /// </summary>
+    /// <returns>How many were attached, and how many named a feature the class does not have.</returns>
+    /// <remarks>
+    /// <b>One file at a time from the stream</b>, each its own transaction in the attachment store, so a large archive's
+    /// photographs are never held together; a failure part-way leaves the ones before it attached and is reported with
+    /// the layer.
+    /// </remarks>
+    private async Task<(int Attached, int Unmatched)> AttachAsync(
+        string archive, string layer, string parent, string table, CancellationToken stopping)
+    {
+        List<(string? GlobalId, long? Position, string Name, string Type, byte[] Data)> pending = [];
+        int attached = 0;
+        int unmatched = 0;
+
+        async Task FlushAsync()
+        {
+            foreach ((string? globalId, long? position, string name, string type, byte[] data) in pending)
+            {
+                long? feature = globalId is { Length: > 0 }
+                    ? await _importer.FeatureByGlobalIdAsync(PostGisImporter.HostedSchema, table, globalId, stopping)
+                        .ConfigureAwait(false)
+                    : position;
+
+                if (feature is not { } id)
+                {
+                    unmatched++;
+                    continue;
+                }
+
+                using MemoryStream content = new(data, writable: false);
+
+                try
+                {
+                    await _importer.AttachAsync(
+                            PostGisImporter.HostedSchema, table, id, name, type, content, NewLayerAttachmentQuota, stopping)
+                        .ConfigureAwait(false);
+                    attached++;
+                }
+                catch (AttachmentFeatureMissingException)
+                {
+                    unmatched++;
+                }
+                catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.ForeignKeyViolation)
+                {
+                    // A position past the class's last row: the archive named a feature it does not have.
+                    unmatched++;
+                }
+            }
+
+            pending.Clear();
+        }
+
+        // Read and written in small batches, so the reader's pipe and the store's transactions move together without
+        // this process holding more than a few files.
+        (JsonDocument? header, JsonDocument? trailer) = await _reader.StreamAsync(
+            new { op = "attachments", archive, layer, parent },
+            Deadline,
+            async line =>
+            {
+                JsonElement root = line.RootElement;
+
+                pending.Add((
+                    root.TryGetProperty("globalId", out JsonElement g) && g.ValueKind == JsonValueKind.String ? g.GetString() : null,
+                    root.TryGetProperty("position", out JsonElement p) && p.ValueKind == JsonValueKind.Number ? p.GetInt64() : null,
+                    root.TryGetProperty("name", out JsonElement n) && n.GetString() is { Length: > 0 } named ? named : "attachment",
+                    root.TryGetProperty("type", out JsonElement t) && t.GetString() is { Length: > 0 } typed ? typed : "application/octet-stream",
+                    Convert.FromBase64String(root.GetProperty("data").GetString() ?? string.Empty)));
+
+                if (pending.Count >= 16)
+                {
+                    await FlushAsync().ConfigureAwait(false);
+                }
+            },
+            stopping).ConfigureAwait(false);
+
+        await FlushAsync().ConfigureAwait(false);
+
+        header?.Dispose();
+        trailer?.Dispose();
+
+        return (attached, unmatched);
+    }
+
+    /// <summary>What a geodatabase names a feature class's attachment table with, after the class's own name.</summary>
+    /// <remarks>
+    /// <b>One underscore, not ArcGIS's two</b>: ArcGIS makes <c>&lt;class&gt;__ATTACH</c>, and one of the owner's archives
+    /// holds six named <c>&lt;class&gt;_ATTACH</c> after an export — so the shorter suffix, which covers both, is the rule.
+    /// </remarks>
+    private const string AttachmentSuffix = "_ATTACH";
+
+    /// <summary>Whether a class is a feature class's attachment table rather than a table of its own — ADR-213.</summary>
+    internal static bool IsAttachmentTable(string layer) =>
+        layer.Length > AttachmentSuffix.Length && layer.EndsWith(AttachmentSuffix, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The class an attachment table belongs to — its name without the suffix, and without ArcGIS's second underscore.</summary>
+    private static string AttachedTo(string layer) => layer[..^AttachmentSuffix.Length].TrimEnd('_');
+
+    /// <summary>
+    /// Publishes a class with no geometry as a table — ADR-213: created from the archive's declared fields when it is
+    /// empty, and copied row by row otherwise, into the same service as the archive's layers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>An attachment table is not a table here.</b> A geodatabase keeps a feature class's attachments in a class
+    /// named after it with <c>__ATTACH</c> (or, exported, <c>_ATTACH</c>) on the end, and publishing that as a table would hand a client a list of
+    /// blobs beside a layer whose own attachments are empty. It is skipped by the job, and refused here by name, until attachments are
+    /// carried over as attachments (ADR-213 §5f).
+    /// </para>
+    /// <para>
+    /// <b>No reference is asked for</b>, because a table has none; it carries <see cref="LayerDefinition.TableSrid"/>,
+    /// which nothing reads.
+    /// </para>
+    /// </remarks>
+    private async Task<Landed> PublishTableAsync(
+        Request asked,
+        string archive,
+        string layer,
+        int count,
+        List<FieldDescription> declared,
+        IReadOnlyDictionary<string, InferredColumn> columns,
+        Declared values,
+        Func<JsonElement, ImportedFeature> read,
+        CancellationToken stopping)
+    {
+        if (IsAttachmentTable(layer))
+        {
+            throw new InvalidOperationException(
+                $"'{layer}' is a geodatabase attachment table: it holds the files attached to "
+                + $"'{AttachedTo(layer)}', not rows of its own. This server does not yet carry a "
+                + "geodatabase's attachments over, and publishing them as a table would put the files beside the layer "
+                + "instead of on it (ADR-213).");
+        }
+
+        SharingScope scope = Enum.TryParse(asked.Sharing, ignoreCase: true, out SharingScope parsed)
+            ? parsed
+            : SharingScope.Private;
+
+        ImportResult made;
+        LayerDescription madeColumns;
+        Landed landed;
+
+        if (count == 0)
+        {
+            made = await _importer
+                .DefineAsync(declared, geometryType: null, LayerDefinition.TableSrid, layer, GeometryOrdinates.None, stopping)
+                .ConfigureAwait(false);
+
+            madeColumns = new(
+                [
+                    new FieldDescription("objectid", FieldType.Integer, false, null),
+                    .. declared.Select(d => d with { Name = PostGisImporter.ColumnNameFor(d.Name) }),
+                ],
+                null);
+
+            landed = new Landed(0, 0, Declared: declared.Count);
+        }
+        else
+        {
+            ImportedDataset dataset = new([], [.. columns.Values], GeometryType: null, LayerDefinition.TableSrid);
+
+            made = await CopyAgainAsync(archive, layer, dataset, GeometryOrdinates.None, read, stopping)
+                .ConfigureAwait(false);
+
+            madeColumns = new(
+                [
+                    new FieldDescription("objectid", FieldType.Integer, false, null),
+                    .. dataset.Columns.Select(c => new FieldDescription(
+                        PostGisImporter.ColumnNameFor(c.Name), c.Type, c.Nullable, null)),
+                ],
+                null);
+
+            landed = new Landed(made.Rows, 0);
+        }
+
+        PublishedLayerAddress at = await _catalog.PublishLayerAsync(
+            new LayerPublication(
+                layer,
+                asked.Datastore,
+                made.SchemaName,
+                made.TableName,
+                GeometryColumn: null,
+                "objectid",
+                "objectid",
+                LayerDefinition.TableSrid,
+                GeometryType: null,
+                scope,
+                ServiceName: asked.Service,
+                Folder: asked.Folder ?? "hosted"),
+            asked.Owner,
+            stopping).ConfigureAwait(false);
+
+        return (await OverridesAsync(asked.Owner, at.Id, declared, madeColumns, values, landed, stopping)
+            .ConfigureAwait(false)) with { Table = made.TableName, LayerId = at.Id };
     }
 
     /// <summary>

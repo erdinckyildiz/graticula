@@ -291,6 +291,23 @@ public sealed class PortalConformanceTests : ArcGisClient
     }
 
     [Fact]
+    public async Task The_organisation_is_one_at_every_address_the_portal_answers()
+    {
+        // <b>The ArcGIS veteran's second review, N4 (2026-10-21).</b> The id hashed the address, path base included, so
+        // `/`, `/studio` and `/portal` were three organisations and an item's orgId depended on the path it was read
+        // through. Pro publishes through /studio while a browser reads /.
+        string[] ids =
+        [
+            (await GetJsonAsync("/sharing/rest/portals/self?f=json")).GetProperty("id").GetString()!,
+            (await GetJsonAsync("/arcgis/sharing/rest/portals/self?f=json")).GetProperty("id").GetString()!,
+            (await GetJsonAsync("/studio/sharing/rest/portals/self?f=json")).GetProperty("id").GetString()!,
+            (await GetJsonAsync("/portal/sharing/rest/portals/self?f=json")).GetProperty("id").GetString()!,
+        ];
+
+        Assert.Single(ids.Distinct(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task Every_document_arcgis_pro_walks_through_answers()
     {
         // <b>The chain, as ArcGIS Pro actually walks it.</b> Each of these was

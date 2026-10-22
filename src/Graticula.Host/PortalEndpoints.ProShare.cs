@@ -117,46 +117,6 @@ internal static partial class PortalEndpoints
         return Unknown("Item");
     }
 
-    /// <summary>
-    /// Portal's <c>updateItems</c>, which Pro sends after an overwrite with the item's categories. This portal keeps
-    /// no categories, so an empty list is already true and answers success; any other change is not made and says so.
-    /// </summary>
-    private static async Task<IResult> UpdateItemsAsync(HttpContext context, CancellationToken cancellation)
-    {
-        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
-        List<object> results = [];
-
-        try
-        {
-            using System.Text.Json.JsonDocument items = System.Text.Json.JsonDocument.Parse(
-                First(form, context, "items") is { Length: > 0 } text ? text : "[]");
-
-            foreach (System.Text.Json.JsonElement entry in items.RootElement.EnumerateArray())
-            {
-                foreach (System.Text.Json.JsonProperty item in entry.EnumerateObject())
-                {
-                    bool nothing = item.Value.ValueKind == System.Text.Json.JsonValueKind.Object
-                        && item.Value.EnumerateObject().All(p => p.Name == "categories"
-                            && p.Value.ValueKind == System.Text.Json.JsonValueKind.Array && p.Value.GetArrayLength() == 0);
-
-                    results.Add(nothing
-                        ? new { itemId = item.Name, success = true }
-                        : new
-                        {
-                            itemId = item.Name, success = false,
-                            error = new { code = 400, message = "This portal keeps no categories, and changes only them here.", details = Array.Empty<string>() },
-                        });
-                }
-            }
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return PortalError(400, "'items' is not the JSON the portal API describes.");
-        }
-
-        return Results.Ok(new { results });
-    }
-
     /// <summary>Portal's item <c>share</c>: one item, to everyone, the organization and/or groups.</summary>
     private static async Task<IResult> ShareItemAsync(
         HttpContext context, IAdminCatalog catalog, IGroupDirectory groups, IWebMapStore maps, string username, string id,

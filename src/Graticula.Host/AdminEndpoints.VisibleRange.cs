@@ -219,6 +219,12 @@ internal static partial class AdminEndpoints
                 return new { set = false, note = "The layer was not found again after publishing, so no range was measured." };
             }
 
+            // A table is not drawn, so it has no scale to be drawn at (ADR-213).
+            if (layer.IsTable)
+            {
+                return new { set = false, note = "A table is not drawn, so it has no visible range." };
+            }
+
             VisibleRangeSuggestion.Result result =
                 await SuggestAsync(layer, contexts, projector, cancellation).ConfigureAwait(false);
 

@@ -653,6 +653,21 @@ public sealed class Authorization
         EditableGroups = editableGroups is null ? [] : [.. editableGroups];
     }
 
+    /// <summary>
+    /// Whether the principal is a member of another tenant than the one whose host it reached — ADR-204 §5a: signed in,
+    /// and an outsider here. It reads public content and what a group of this tenant that admits it reaches, and nothing
+    /// shared with this tenant's organisation; it holds no privilege here.
+    /// </summary>
+    public bool IsOutsider { get; private init; }
+
+    /// <summary>This authorization as an outsider's: its groups here, and no privilege, role or administration.</summary>
+    /// <returns>The outsider's authorization.</returns>
+    public Authorization AsOutsider() =>
+        new(UserTypes.Viewer, [], [], administrator: false, beforeCeiling: [], groups: Groups, editableGroups: EditableGroups)
+        {
+            IsOutsider = true,
+        };
+
     /// <summary>Which groups this principal belongs to — ADR-036 §3's membership axis.</summary>
     public ImmutableHashSet<Guid> Groups { get; }
 

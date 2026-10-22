@@ -208,7 +208,12 @@ internal static class LogEndpoints
 
         await Results.Ok(new
         {
-            sources = Sources,
+            // ADR-204: an organisation's own logs; the server's process log, which every organisation writes into, is the
+            // system administrator's while there are several.
+            sources = Graticula.Platform.Tenancy.TenantScope.MultiTenant
+                && context.Features.Get<RequestPrincipal>()?.IsSystemAdministrator != true
+                    ? Sources.Where(s => s != "server").ToArray()
+                    : Sources,
             actions = actions.Select(a => new { action = a.Action, count = a.Count }),
 
             // <b>ADR-045 condition 6: a dropped record is visible.</b> The request log is
@@ -452,7 +457,7 @@ internal static class LogEndpoints
                     detail,
                     context.Features.Get<RequestPrincipal>() is { } who
                         && !who.Principal.IsAnonymous
-                            ? who.Principal.Name
+                            ? who.QualifiedName
                             : null,
                     address,
                     context.Request.Headers.UserAgent.ToString() is { Length: > 0 } agent

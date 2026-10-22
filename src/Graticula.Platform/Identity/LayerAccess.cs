@@ -97,7 +97,9 @@ public static class LayerAccess
             return Reason.Owner;
         }
 
-        if (scope == SharingScope.Organization && !caller.IsAnonymous)
+        // <b>The organisation is the caller's own tenant's — ADR-204 §5b.</b> A member of another tenant who reached this
+        // host is signed in and still not of this organisation.
+        if (scope == SharingScope.Organization && !caller.IsAnonymous && !authorization.IsOutsider)
         {
             return Reason.Organization;
         }

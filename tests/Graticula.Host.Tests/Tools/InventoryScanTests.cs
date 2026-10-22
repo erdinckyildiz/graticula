@@ -41,7 +41,8 @@ public sealed class InventoryScanTests
     [InlineData("""{"name":"h","geometryType":"esriGeometryPoint","drawingInfo":{"renderer":{"type":"heatmap"}}}""", "Partly", "heatmap")]
     [InlineData("""{"name":"v","geometryType":"esriGeometryPoint","isDataVersioned":true}""", "Partly", "versioned")]
     [InlineData("""{"name":"m","geometryType":"esriGeometryMultiPatch"}""", "Stays", "esriGeometryMultiPatch")]
-    [InlineData("""{"name":"t"}""", "Stays", "table without geometry")]
+    // ADR-213 condition 10: a table comes across, as a table.
+    [InlineData("""{"name":"t"}""", "Comes", "published as a table")]
     public void What_does_not_come_across_is_named(string layer, string verdict, string reason)
     {
         Verdict expected = Enum.Parse<Verdict>(verdict);
@@ -85,11 +86,12 @@ public sealed class InventoryScanTests
         Assert.Equal(["Imagery", "Water/Network", "Water/Routing"], services.Select(s => s.Name).Order());
 
         InventoryScan.ServiceReport network = services.Single(s => s.Name == "Water/Network");
-        Assert.Equal(Verdict.Stays, network.Verdict);
+        // Partly since ADR-213: its table comes across now, and only Sync is left behind.
+        Assert.Equal(Verdict.Partly, network.Verdict);
         Assert.Contains(network.Notes, n => n.Contains("Sync", StringComparison.Ordinal));
         Assert.Equal([0, 2], network.Layers.Select(l => l.Id));
         Assert.Equal(Verdict.Partly, network.Layers[0].Verdict);
-        Assert.Equal(Verdict.Stays, network.Layers[1].Verdict);
+        Assert.Equal(Verdict.Comes, network.Layers[1].Verdict);
 
         Assert.Equal(Verdict.Stays, services.Single(s => s.Type == "ImageServer").Verdict);
 

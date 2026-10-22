@@ -399,15 +399,16 @@ public sealed class MultiLayerServiceConformanceTests : ArcGisClient
                     continue;
                 }
 
-                if (!document.TryGetProperty("layers", out JsonElement held))
-                {
-                    continue;
-                }
+                // <b>Its tables too — ADR-213.</b> The catalogue lists a table as it lists a layer, and the directory
+                // keeps it in `tables`, beside `layers` and in the same numbering, as ArcGIS's does.
+                IEnumerable<JsonElement> held =
+                    (document.TryGetProperty("layers", out JsonElement layersHeld) ? layersHeld.EnumerateArray() : [])
+                    .Concat(document.TryGetProperty("tables", out JsonElement tablesHeld) ? tablesHeld.EnumerateArray() : []);
 
-                foreach (JsonElement layer in held.EnumerateArray())
+                foreach (JsonElement layer in held)
                 {
-                    if (string.Equals(layer.GetProperty("type").GetString(), "Group Layer",
-                            StringComparison.Ordinal))
+                    if (layer.TryGetProperty("type", out JsonElement kind)
+                        && string.Equals(kind.GetString(), "Group Layer", StringComparison.Ordinal))
                     {
                         continue;
                     }

@@ -20,12 +20,14 @@ namespace Graticula.Host;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Off unless <c>Graticula:ProPublishCapture</c> is true</b>, which only dev.graticula.com sets. With it on, the
-/// portal names this server as its hosting server, the publishing and sharing privileges are advertised to whoever
-/// may publish here, and Pro's publishing calls — <c>addItem</c>, <c>addPart</c>, <c>commit</c>, <c>status</c>,
-/// <c>publish</c>, <c>isServiceNameAvailable</c> — are answered just far enough for Pro to send the next one. Every
-/// call's fields (never its token) and every uploaded file are written under
-/// <c>Graticula:ProPublishCaptureDirectory</c>; <c>publish</c> then refuses with a sentence saying so.
+/// <b>Two switches now, and only the second is a measuring tool</b> — corrected 2026-10-22, the ArcGIS veteran's E8:
+/// this said *"off unless ProPublishCapture is true"* after publishing had become the default.
+/// <c>Graticula:PublishFromPro</c> (on by default, <c>PublishingFromPro</c>) names this server as the portal's hosting
+/// server, advertises the publishing and sharing privileges, and answers Pro's publishing calls — <c>addItem</c>,
+/// <c>addPart</c>, <c>commit</c>, <c>status</c>, <c>publish</c>, <c>isServiceNameAvailable</c> — for real.
+/// <c>Graticula:ProPublishCapture</c> (off by default, <c>RecordingPro</c>, set only on dev.graticula.com) also writes
+/// every call's fields (never its token) and every uploaded file under <c>Graticula:ProPublishCaptureDirectory</c>,
+/// which is how the sequence below was first measured.
 /// </para>
 /// <para>
 /// <b>Why measure first.</b> The sequence Pro uses to publish a hosted feature layer to an Enterprise portal, and
@@ -70,13 +72,8 @@ internal static partial class PortalEndpoints
         app.MapMethods("/pro-admin/{**rest}", ["GET", "POST"], HostingAdminAsync)
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
 
-        // Pro's last act after a publish sets the service item's typeKeywords; this server derives those from the
-        // service (PortalEndpoints.Keywords), so for a service the answer is success with nothing stored. A web map Pro
-        // added is updated for real — its picture above all (UpdateUserItemAsync, 2026-10-18).
-        app.MapPost($"{Path}/content/users/{{username}}/items/{{id}}/update", UpdateUserItemAsync)
-            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
-        app.MapPost($"{Path}/content/users/{{username}}/{{folderId:length(32)}}/items/{{id}}/update", UpdateUserItemAsync)
-            .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
+        // Pro's last act after a publish sets the service item's typeKeywords, which this server derives; the item update
+        // that answers it, and every other client's, is PortalEndpoints.ItemWrites — mapped whether or not Pro publishes.
 
         if (!RecordingPro(app.Configuration))
         {

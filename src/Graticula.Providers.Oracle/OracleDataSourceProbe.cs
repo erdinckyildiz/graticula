@@ -65,10 +65,14 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
             (List<SourceTable> tables, List<SkippedTable> skipped) =
                 await TablesAsync(connection, cancellationToken).ConfigureAwait(false);
 
+            int plain = tables.Count(t => t.GeometryColumn is null);
+
+            // ADR-205 phase 2 made a table this user may write editable, so "read-only" is no longer the whole list's.
             string message = tables.Count == 0
                 ? "Connected, and nothing here can be published: no table with an SDO_GEOMETRY column registered in "
-                  + "ALL_SDO_GEOM_METADATA has a single integer key this user can read."
-                : $"Connected. {tables.Count} table{(tables.Count == 1 ? "" : "s")} can be published, read-only.";
+                  + "ALL_SDO_GEOM_METADATA, and none without one, has a single integer key this user can read."
+                : $"Connected. {tables.Count - plain} table{(tables.Count - plain == 1 ? "" : "s")} with geometry can be published"
+                  + (plain > 0 ? $", and {plain} without, which publish as tables (ADR-213)." : ".");
 
             return new ProbeResult(ProbeOutcome.Usable, message, version, "Oracle Spatial " + spatial, tables, skipped);
         }
@@ -202,7 +206,61 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
                 Writable: await OracleConnections.CanWriteAsync(connection, row.Owner, row.Table, cancellation).ConfigureAwait(false)));
         }
 
+        tables.AddRange(await PlainTablesAsync(connection, cancellation).ConfigureAwait(false));
         return (tables, skipped);
+    }
+
+    /// <summary>
+    /// The tables with no SDO_GEOMETRY column and a single whole-number primary key — ADR-213 condition 7: each publishes
+    /// as a table. Only in schemas Oracle does not maintain itself, and never the ones this server keeps beside a layer
+    /// (its attachments and its history), a spatial index's own tables, or a table in the recycle bin.
+    /// </summary>
+    private static async Task<List<SourceTable>> PlainTablesAsync(OracleConnection connection, CancellationToken cancellation)
+    {
+        const string Sql = """
+            select t.owner, t.table_name, max(cc.column_name)
+              from all_tables t
+              join all_users u on u.username = t.owner and u.oracle_maintained = 'N'
+              join all_constraints c on c.owner = t.owner and c.table_name = t.table_name and c.constraint_type = 'P'
+              join all_cons_columns cc on cc.owner = c.owner and cc.constraint_name = c.constraint_name
+             where t.dropped = 'NO' and t.nested = 'NO' and t.secondary = 'N'
+               and t.table_name not like '%\_\_ATTACH' escape '\'
+               and t.table_name not like '%\_\_HISTORY' escape '\'
+               and t.table_name not like 'MDRT\_%' escape '\'
+               and t.table_name not like 'MDXT\_%' escape '\'
+               and t.table_name not like 'DR$%'
+               and not exists (select 1 from all_tab_columns g
+                                where g.owner = t.owner and g.table_name = t.table_name and g.data_type = 'SDO_GEOMETRY')
+             group by t.owner, t.table_name
+            having count(*) = 1
+             order by t.owner, t.table_name
+            """;
+
+        List<(string Owner, string Table, string Key)> found = [];
+
+        await using (OracleCommand command = new(Sql, connection))
+        await using (OracleDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                found.Add((reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+            }
+        }
+
+        List<SourceTable> tables = [];
+
+        foreach ((string owner, string table, string key) in found)
+        {
+            if (!await IsWholeNumberAsync(connection, owner, table, key, cancellation).ConfigureAwait(false))
+            {
+                continue;
+            }
+
+            tables.Add(new SourceTable(owner, table, null, 0, null, key, key, [key],
+                Writable: await OracleConnections.CanWriteAsync(connection, owner, table, cancellation).ConfigureAwait(false)));
+        }
+
+        return tables;
     }
 
     private static async Task<bool> IsWholeNumberAsync(
