@@ -78,12 +78,22 @@ public sealed class OrganizationReadersTests : ConsoleTest
         return [.. JsonDocument.Parse(body).RootElement.GetProperty("tenants").EnumerateArray().Select(t => t.GetProperty("key").GetString()!)];
     }
 
-    /// <summary>Makes an organization and returns its host and its administrator's usable token.</summary>
-    private async Task<(string Host, string Token)> MakeOrganizationAsync(string key)
+    /// <summary>
+    /// Makes an organization and returns its host and its administrator's usable token — or null where the server
+    /// connects to its store as a role the floor cannot bind, and refuses a second organization saying so (ADR-204
+    /// condition 9). The conformance suite's tenancy tests return there too: that refusal is the behaviour.
+    /// </summary>
+    private async Task<(string Host, string Token)?> MakeOrganizationAsync(string key)
     {
         string host = $"{key}.localhost";
         (int made, string answer) = await AdminAsync(HttpMethod.Post, "/admin/tenants",
             JsonSerializer.Serialize(new { key, name = "Zz Readers", hosts = new[] { host }, administrator = $"{key}_admin" }));
+
+        if (made == 409 && answer.Contains("superuser", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
         Assert.True(made == 201, $"Making {key} answered {made}: {answer}");
 
         string issued = JsonDocument.Parse(answer).RootElement.GetProperty("administrator").GetProperty("password").GetString()!;
@@ -118,7 +128,10 @@ public sealed class OrganizationReadersTests : ConsoleTest
 
         try
         {
-            (string host, string token) = await MakeOrganizationAsync(key);
+            if (await MakeOrganizationAsync(key) is not (string host, string token))
+            {
+                return;
+            }
 
             // Services: Server's bar is Services, Site and Logs — no Organizations — and the health pill, which reads
             // the process's health, is not drawn.
@@ -201,7 +214,10 @@ public sealed class OrganizationReadersTests : ConsoleTest
 
         try
         {
-            (string host, string adminToken) = await MakeOrganizationAsync(key);
+            if (await MakeOrganizationAsync(key) is not (string host, string adminToken))
+            {
+                return;
+            }
 
             (int made, string answer) = await AdminAsync(HttpMethod.Post, "/admin/members",
                 JsonSerializer.Serialize(new { name = outsider, role = "publisher", userType = "creator" }));

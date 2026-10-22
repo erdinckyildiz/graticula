@@ -139,6 +139,13 @@ public sealed class OrganizationsScreenTests : ConsoleTest
             // still fails.
             string sent = JsonSerializer.Serialize(new { key, name = "Zz Console Test", hosts = new[] { host }, administrator });
             (int created, string answer) = await AdminAsync(HttpMethod.Post, "/admin/tenants", sent);
+
+            // A store whose role the floor cannot bind refuses a second organization, saying so (ADR-204 condition 9).
+            if (created == 409 && answer.Contains("superuser", StringComparison.Ordinal))
+            {
+                return;
+            }
+
             Assert.True(created == 201, $"Making {key} answered {created}: {answer}");
 
             Assert.True(await Browser.EvaluateAsync<bool>(

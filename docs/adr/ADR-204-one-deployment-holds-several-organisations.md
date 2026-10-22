@@ -581,6 +581,10 @@ own.
    step; and **the showcase is handed over**, backup and a rehearsal on a copy first. The showcase's own inventory
    adds one thing the fixture had not: a datastore layer reads the `showcase` schema, which the server did not make,
    so the handover grants the serving role that schema as well.
+   **And CI, found by v1.0.452's run (2026-10-23):** CI's server connects as a superuser, so it refuses a second
+   organisation and every tenancy test — conformance and console — returns at that refusal. The release's own tenancy
+   was therefore proved only on the local fixture with the bound role; **in CI none of it runs**. Owed: CI starts its
+   server on a bound role (`tools/serving-role.sql` after the first migrate), so the tenancy tests run there.
 10. **The reach tables are kept by triggers that run as a role the floor does not bind**, and tested by sharing
     across tenants as a member who belongs to only one of them — the case that left them empty in the prototype.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's
