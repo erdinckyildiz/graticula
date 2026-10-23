@@ -583,8 +583,11 @@ own.
    so the handover grants the serving role that schema as well.
    **And CI, found by v1.0.452's run (2026-10-23):** CI's server connects as a superuser, so it refuses a second
    organisation and every tenancy test — conformance and console — returns at that refusal. The release's own tenancy
-   was therefore proved only on the local fixture with the bound role; **in CI none of it runs**. Owed: CI starts its
-   server on a bound role (`tools/serving-role.sql` after the first migrate), so the tenancy tests run there.
+   was therefore proved only on the local fixture with the bound role; ~~**in CI none of it runs**~~. **Closed the same
+   day:** CI hands the store to `graticula_ci` with `tools/serving-role.sql` after the migration, grants it by default
+   what `gis` makes later, and starts the server as it. The first run made seven organisations (`POST /admin/tenants`
+   answered 201 seven times in its `server.log`), and conformance 875/875 and console 322/322 passed with the tenancy
+   tests running rather than returning.
 10. **The reach tables are kept by triggers that run as a role the floor does not bind**, and tested by sharing
     across tenants as a member who belongs to only one of them — the case that left them empty in the prototype.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's
