@@ -570,6 +570,24 @@ jobs:
         run: |
           src/Graticula.Host/bin/Release/net9.0/Graticula.Host migrate --apply
 
+      # <b>The server serves as a role the floor binds — ADR-204 condition 9.</b> `gis` is the image's
+      # superuser, and over a superuser the server refuses a second organisation, so until 2026-10-23
+      # every tenancy test here returned at that refusal and none of the release's tenancy ran in CI.
+      # The schemas the migration made are handed to `graticula_ci` by the shipped script, and what
+      # `gis` makes afterwards — the seed's test schemas and tables, read through the datastore
+      # connection, which is this role's — is granted to it by default. A test-only password, as
+      # `gis`'s is.
+      - name: hand the store to a role the floor binds
+        run: |
+          export PGPASSWORD=gis
+          psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 \
+            -c "create role graticula_ci login password 'ci-serving-role'" \
+            -c "alter default privileges for role gis grant usage, create on schemas to graticula_ci" \
+            -c "alter default privileges for role gis grant all on tables to graticula_ci" \
+            -c "alter default privileges for role gis grant all on sequences to graticula_ci"
+          PGOPTIONS="-c graticula.serving_role=graticula_ci" \
+            psql -h 127.0.0.1 -U gis -d gis -v ON_ERROR_STOP=1 -f tools/serving-role.sql
+
       # <b>The server runs from its build output, not from `dotnet run`.</b> The
       # overlay worker is copied into an 'overlay' directory beside the host by
       # the host's own build, and a run that starts from source can miss it —
@@ -594,7 +612,7 @@ jobs:
       # It costs a few thousand lines in an artefact that is already forty thousand.
       - name: start the server
         run: |
-          Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=gis;Password=gis;SearchPath=gisserver' \
+          Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=graticula_ci;Password=ci-serving-role;SearchPath=gisserver' \
           Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
           Graticula__Port=8443 \
             nohup env "Logging__LogLevel__Microsoft.AspNetCore.Server.Kestrel=Debug" \
