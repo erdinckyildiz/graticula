@@ -112,6 +112,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["GeneratedSprites.Composed"] = "explicit capacity of 32 composed sprite pictures; cleared when full (ADR-099)",
         ["ServiceContexts._entries"] = "one per table, and expires",
         ["ConnectionBudget._shared"] = "one per data source key the budget is asked for",
+        ["FileSystemTileCache._tenantBytes"] = "one per organisation (tens, A-086)",
         ["ConnectionBudget._shares"] = "one per organisation per shared data source; emptied when the number of organisations changes",
         ["PinnedServices._warmed"] = "one per pinned service, under Graticula:PinnedServiceLimit; an unpinned one is removed each round",
         ["PinnedServices._read"] = "one per layer of a pinned service; removed with its service each round",

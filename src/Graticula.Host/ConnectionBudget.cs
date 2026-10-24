@@ -191,6 +191,37 @@ internal sealed class ConnectionBudget : IDisposable
         return _shares.GetOrAdd(key, _ => new SemaphoreSlim(cap, cap));
     }
 
+    /// <summary>
+    /// The request's organisation's share of this process's whole budget, or null when none applies — ADR-204
+    /// condition 6, the rest of it: the datastore's share kept one organisation off the shared database, and this keeps
+    /// it from filling the process's permits across every source, its own databases included.
+    /// </summary>
+    private SemaphoreSlim? WorkerShareFor(out int share, out string key)
+    {
+        share = 0;
+        key = string.Empty;
+
+        if (_global is null
+            || !Graticula.Platform.Tenancy.TenantScope.MultiTenant
+            || Graticula.Platform.Tenancy.TenantScope.Current is not { } organisation)
+        {
+            return null;
+        }
+
+        int count = Graticula.Platform.Tenancy.TenantScope.Count;
+
+        if (Volatile.Read(ref _sharesFor) != count)
+        {
+            _shares.Clear();
+            Volatile.Write(ref _sharesFor, count);
+        }
+
+        int cap = ShareOf(_worker, count);
+        share = cap;
+        key = "\u0002worker\u0001" + organisation.ToString("N");
+        return _shares.GetOrAdd(key, _ => new SemaphoreSlim(cap, cap));
+    }
+
     /// <summary>What the worker's bound is, or zero when there is none.</summary>
     public int Worker => _worker;
 
@@ -260,6 +291,55 @@ internal sealed class ConnectionBudget : IDisposable
         ArgumentException.ThrowIfNullOrEmpty(source);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        // <b>The organisation's share of the whole process first</b>, then its share of the source, then the source's
+        // and the process's own bounds (ADR-204 condition 6).
+        if (WorkerShareFor(out int workerCap, out string workerKey) is not { } workerShare)
+        {
+            return await EnterSourceShareAsync(source, cancellationToken).ConfigureAwait(false);
+        }
+
+        int waiting = _waiting.AddOrUpdate(workerKey, 1, static (_, n) => n + 1);
+        bool tookWorker;
+
+        try
+        {
+            if (waiting > workerCap * _perPermit)
+            {
+                throw new ConnectionBudgetFullException(
+                    $"Your organization already has {workerCap} database requests in flight on this server, which is "
+                    + $"its share of the {_worker} the server runs at once, and {waiting - 1} more waiting. The share "
+                    + "keeps one organization from taking the whole server (ADR-204). Retry shortly.");
+            }
+
+            tookWorker = await workerShare.WaitAsync(_wait, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _waiting.AddOrUpdate(workerKey, 0, static (_, n) => n > 0 ? n - 1 : 0);
+        }
+
+        if (!tookWorker)
+        {
+            throw new ConnectionBudgetFullException(
+                $"Your organization already has {workerCap} database requests in flight on this server, which is its "
+                + $"share of the {_worker} the server runs at once, and waited {_wait.TotalSeconds:0.#} s for one to "
+                + "finish (ADR-204). Retry shortly.");
+        }
+
+        try
+        {
+            Lease inner = await EnterSourceShareAsync(source, cancellationToken).ConfigureAwait(false);
+            return new Lease(inner.PerSource, inner.Global, inner.Share, workerShare);
+        }
+        catch
+        {
+            workerShare.Release();
+            throw;
+        }
+    }
+
+    private async ValueTask<Lease> EnterSourceShareAsync(string source, CancellationToken cancellationToken)
+    {
         // <b>An organisation's share first, then the source's bound — ADR-204 condition 6.</b> Every organisation's
         // hosted layers are on one datastore; without this, one organisation's export queues every other's.
         if (ShareFor(source, out int cap, out string key) is not { } share)
@@ -492,12 +572,15 @@ internal sealed class ConnectionBudget : IDisposable
     /// <b>A struct, because this is on the query path.</b> One of these is taken per query and the
     /// alternative is an allocation per request for something whose whole content is two references.
     /// </remarks>
-    internal readonly struct Lease(SemaphoreSlim? perSource, SemaphoreSlim? global, SemaphoreSlim? share = null)
+    internal readonly struct Lease(
+        SemaphoreSlim? perSource, SemaphoreSlim? global, SemaphoreSlim? share = null, SemaphoreSlim? workerShare = null)
         : IDisposable
     {
         public SemaphoreSlim? PerSource => perSource;
 
         public SemaphoreSlim? Global => global;
+
+        public SemaphoreSlim? Share => share;
 
         /// <summary>Gives the slots back.</summary>
         public void Dispose()
@@ -505,6 +588,7 @@ internal sealed class ConnectionBudget : IDisposable
             global?.Release();
             perSource?.Release();
             share?.Release();
+            workerShare?.Release();
         }
     }
 

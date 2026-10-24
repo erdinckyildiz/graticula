@@ -95,6 +95,12 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// </remarks>
     private readonly ConcurrentDictionary<Guid, long> _layerBytes = new();
 
+    /// <summary>
+    /// What each organisation's entries hold — ADR-204 condition 6: one organisation's seeding no longer empties the
+    /// others' tiles. Only where there are several; an entry adopted from disk at start is nobody's (the empty id).
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, long> _tenantBytes = new();
+
     /// <summary>What each service's quota has evicted since this process started — the read-back's number.</summary>
     private readonly ConcurrentDictionary<Guid, QuotaEvictions> _quotaEvicted = new();
     /// <summary>When each layer was last purged, for a layer whose directory could not be taken away at once.</summary>
@@ -319,6 +325,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
 
             Touch(key, tile.Length);
             await EvictIfOverBudgetAsync().ConfigureAwait(false);
+            await EvictIfOverShareAsync(WritingTenant(), key.Path()).ConfigureAwait(false);
 
             if (quota is not null)
             {
@@ -356,7 +363,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             if (entry.Key.StartsWith(prefix, StringComparison.Ordinal)
                 && _index.TryRemove(entry.Key, out Entry gone))
             {
-                Count(gone.Layer, -gone.Size);
+                Count(gone.Layer, -gone.Size, gone.Tenant);
                 removed++;
             }
         }
@@ -538,7 +545,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
         long now = _clock.GetUtcNow().ToUnixTimeMilliseconds();
 
         // A key this process made is of the pipeline running now by construction: Path() wrote it.
-        Entry touched = new(size, now, key.Address.Z, Current: true, key.LayerId);
+        Entry touched = new(size, now, key.Address.Z, Current: true, key.LayerId, WritingTenant());
 
         // <b>The bytes are counted after the index has taken the change, and only by the call whose change it
         // took — [D-283](../../docs/architecture-debt.md).</b> This was `AddOrUpdate` with `Interlocked.Add` inside
@@ -553,24 +560,88 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             {
                 if (_index.TryUpdate(path, touched, existing))
                 {
-                    Count(existing.Layer, size - existing.Size);
+                    Count(existing.Layer, size - existing.Size, existing.Tenant);
                     return;
                 }
             }
             else if (_index.TryAdd(path, touched))
             {
-                Count(key.LayerId, size);
+                Count(key.LayerId, size, touched.Tenant);
                 return;
             }
         }
     }
 
     /// <summary>Moves the whole cache's byte count and one layer's by the same delta — the only way either moves.</summary>
-    private void Count(Guid layer, long delta)
+    private void Count(Guid layer, long delta, Guid tenant = default)
     {
         Interlocked.Add(ref _bytes, delta);
         CountLayer(layer, delta);
+
+        if (tenant != Guid.Empty && delta != 0)
+        {
+            _tenantBytes.AddOrUpdate(tenant, delta, (_, held) => held + delta);
+        }
     }
+
+    /// <summary>The organisation a tile is written for, or nobody's while the deployment holds one.</summary>
+    private static Guid WritingTenant() =>
+        Graticula.Platform.Tenancy.TenantScope.MultiTenant && Graticula.Platform.Tenancy.TenantScope.Current is { } tenant
+            ? tenant
+            : Guid.Empty;
+
+    /// <summary>
+    /// The most of the cache one organisation may hold among <paramref name="organisations"/>: <c>2/(n+1)</c> of the
+    /// budget, the share the datastore and the process use (ADR-204 condition 6). A ceiling, not a reservation.
+    /// </summary>
+    internal static long ShareOf(long budget, int organisations) =>
+        organisations <= 1 ? budget : (long)Math.Ceiling(budget * 2.0 / (organisations + 1));
+
+    /// <summary>
+    /// Drops one organisation's entries until it is inside its share — in the order the whole cache evicts in, and
+    /// touching no other organisation's tiles.
+    /// </summary>
+    private async Task EvictIfOverShareAsync(Guid tenant, string written)
+    {
+        if (tenant == Guid.Empty)
+        {
+            return;
+        }
+
+        long share = ShareOf(_budget, Graticula.Platform.Tenancy.TenantScope.Count);
+
+        if (_tenantBytes.GetValueOrDefault(tenant) <= share || !await _evicting.WaitAsync(0).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        try
+        {
+            long target = TargetOf(share);
+
+            foreach (KeyValuePair<string, Entry> entry in
+                     _index.Where(e => e.Value.Tenant == tenant && !string.Equals(e.Key, written, StringComparison.Ordinal))
+                           .OrderBy(e => e.Value.Current)
+                           .ThenByDescending(e => e.Value.Zoom)
+                           .ThenBy(e => e.Value.LastUsed)
+                           .ToList())
+            {
+                if (_tenantBytes.GetValueOrDefault(tenant) <= target)
+                {
+                    break;
+                }
+
+                Evict(entry.Key);
+            }
+        }
+        finally
+        {
+            _evicting.Release();
+        }
+    }
+
+    /// <summary>What one organisation's entries hold — for the share and its tests.</summary>
+    internal long HeldByTenant(Guid tenant) => _tenantBytes.GetValueOrDefault(tenant);
 
     /// <summary>Moves a layer's byte count by a delta.</summary>
     private void CountLayer(Guid layer, long delta)
@@ -803,7 +874,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             return null;
         }
 
-        Count(gone.Layer, -gone.Size);
+        Count(gone.Layer, -gone.Size, gone.Tenant);
 
         try
         {
@@ -1087,7 +1158,8 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// <param name="Zoom">Its level, which eviction orders by before recency.</param>
     /// <param name="Current">Whether the pipeline running now wrote it; a tile it did not write is unreachable.</param>
     /// <param name="Layer">The layer it belongs to, for a service's quota; empty for a path that does not parse.</param>
-    private readonly record struct Entry(long Size, long LastUsed, int Zoom, bool Current, Guid Layer);
+    /// <param name="Tenant">The organisation it was written for (ADR-204), or empty: one organisation, or adopted from disk.</param>
+    private readonly record struct Entry(long Size, long LastUsed, int Zoom, bool Current, Guid Layer, Guid Tenant = default);
 
     /// <summary>What a service's quota has evicted.</summary>
     /// <param name="Entries">How many entries.</param>

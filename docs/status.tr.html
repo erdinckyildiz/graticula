@@ -110,75 +110,75 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>a33cd055</code> · 2026-10-22 19:49</p>
+<p class="stamp">Şu commit’ten üretildi: <code>d1e587c0</code> · 2026-10-24 21:03</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">216</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">436/527</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">82 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">437/527</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">81 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">194 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">açık borç</div><div class="kpi-n">284 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5451</div><div class="kpi-l">test</div><div class="kpi-n">585 kaynak dosya, 259,405 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5456</div><div class="kpi-l">test</div><div class="kpi-n">585 kaynak dosya, 259,561 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-189</b> — [OWNER] What was decided overnight on 2026-10-22, while you slept, and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">105 madde</span></div><p><b>82 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">104 madde</span></div><p><b>81 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">12</div></div>
-<div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">6</div></div>
-<div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:25%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-200 · Service accounts sign in with API </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-202 · An item has terms of use and categ</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-203 · A deleted item waits in the recycl</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-046 · Admission control bounds the queue</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-059 · Quiescing a data source</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-074 · Z and M are read, said out loud, a</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-162 · WMS and WFS at a service&#x27;s own add</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-181 · The ArcGIS REST API version this s</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-188 · A document is an item: a file kept</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-193 · Backup and restore are the server&#x27;</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-199 · A group may be public: anybody fin</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-212 · Editor tracking and attachments on</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-218 · A pinned service is kept warm</div><div class="bar-t"><div class="bar-f" style="width:8%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">11</div></div>
+<div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:55%"></div></div><div class="bar-n">6</div></div>
+<div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:36%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:27%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:27%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-200 · Service accounts sign in with API </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-202 · An item has terms of use and categ</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-203 · A deleted item waits in the recycl</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:18%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-024 · Shapefile import, and the exceptio</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-026 · Serving through a platform-store o</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-046 · Admission control bounds the queue</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-059 · Quiescing a data source</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-074 · Z and M are read, said out loud, a</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-080 · Hosted tables keep the Z and M the</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-081 · Migration publishes an ArcGIS Serv</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-083 · The where clause evaluates ArcGIS&#x27;</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-087 · A domain is a named object that fi</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-088 · Sign-in through an OpenID Connect </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-101 · Studio is walked the way a Portal </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-106 · A layer&#x27;s data can be exported as </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-162 · WMS and WFS at a service&#x27;s own add</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-164 · `generateKml` is a network link to</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-165 · OGC API Features filters in Basic </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-175 · OGC API Maps, over the WMS rendere</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-176 · OGC API Styles, read-only, over th</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-181 · The ArcGIS REST API version this s</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-188 · A document is an item: a file kept</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-193 · Backup and restore are the server&#x27;</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-199 · A group may be public: anybody fin</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-212 · Editor tracking and attachments on</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-218 · A pinned service is kept warm</div><div class="bar-t"><div class="bar-f" style="width:9%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>İnceleme kapıları (§66)</h2>
@@ -398,7 +398,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">201</td><td>A member with a password here may have a second factor at sign-in</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">202</td><td>An item has terms of use and categories, and a member keeps favourites</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/4</td></tr>
 <tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
-<tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">4/16</td></tr>
+<tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">5/16</td></tr>
 <tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">7/8</td></tr>
 <tr><td class="id">206</td><td>Vector tiles are served from the datastore only</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">207</td><td>Attachments and history on registered layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
@@ -548,17 +548,17 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Neyin doğrulandığı</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1501</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.7%"></div></div><div class="bar-n">941</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.4%"></div></div><div class="bar-n">847</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.2%"></div></div><div class="bar-n">559</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.2%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.5%"></div></div><div class="bar-n">322</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.8%"></div></div><div class="bar-n">237</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1506</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.5%"></div></div><div class="bar-n">941</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.2%"></div></div><div class="bar-n">847</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.1%"></div></div><div class="bar-n">559</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.1%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">322</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">237</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.7%"></div></div><div class="bar-n">131</div></div>
-<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.3%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:7.1%"></div></div><div class="bar-n">106</div></div>
-<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.7%"></div></div><div class="bar-n">70</div></div>
+<div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.2%"></div></div><div class="bar-n">124</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:7.0%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.6%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.4%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.9%"></div></div><div class="bar-n">43</div></div>
@@ -566,20 +566,20 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">22</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
-<li><code>a33cd055</code><time>2026-10-22</time><span>Where one node saturates depends on the work: queries and tiles fill PostgreSQL, map images fill the node (ADR-012 condition 1)</span></li>
-<li><code>bef9a364</code><time>2026-10-22</time><span>Two tenancy tests leave nothing behind: the partner member and the main organisation&#x27;s groups</span></li>
-<li><code>ce0d84c9</code><time>2026-10-22</time><span>Every other name is its organisation&#x27;s too, and the datastore stays one for the server (ADR-204 §5e item 15, owner decisions)</span></li>
-<li><code>4a2003e0</code><time>2026-10-22</time><span>A service&#x27;s name is its organisation&#x27;s: two organisations may each have hosted/Parcels, each served at its own host (ADR-204 §5e item 14, owner decision)</span></li>
-<li><code>b1feec76</code><time>2026-10-22</time><span>Every administrative route is the system&#x27;s or an organisation&#x27;s, and each organisation holds a share of the pins (ADR-204 §5e items 12-13)</span></li>
-<li><code>88067b78</code><time>2026-10-22</time><span>Three things the ArcGIS veteran found would block a second organisation: the portal&#x27;s mode, a share of the datastore, a folder of its own (ADR-204 §5e item 12)</span></li>
-<li><code>6d1aa9c0</code><time>2026-10-22</time><span>Clustering after the ArcGIS veteran&#x27;s review: a shared tile cache, site settings, the ArcGIS health check, forwarded headers (ADR-012)</span></li>
-<li><code>967cdbf1</code><time>2026-10-22</time><span>Clustering takes ArcGIS Server&#x27;s site as its model, by owner decision (ADR-012 §1c)</span></li>
-<li><code>fe344236</code><time>2026-10-22</time><span>Pinning in a cluster: every node warms every pinned service, and phase 0 owes four things for it (ADR-012, ADR-218)</span></li>
-<li><code>2da50fc2</code><time>2026-10-22</time><span>Server shows and sets whether a service is kept warm, and a refusal names only the caller&#x27;s own (ADR-218)</span></li>
-<li><code>2ba488ea</code><time>2026-10-22</time><span>A pinned service is kept warm (ADR-218, owner decision)</span></li>
-<li><code>36ac5855</code><time>2026-10-22</time><span>A second node is for sharing the work, by owner decision; the plan&#x27;s first gate is where one node saturates (ADR-012)</span></li>
-<li><code>bdbbdd15</code><time>2026-10-22</time><span>An organisation&#x27;s administrator is audited screen by screen: changes aimed at another&#x27;s member, a system service or the datastore are refused, and jobs and members are its own (ADR-204 §5e item 11)</span></li>
-<li><code>98e60aaa</code><time>2026-10-22</time><span>A restart measured locally: 2.3 s from a killed host to its first catalogue answer (ADR-012 condition 1, partly)</span></li>
+<li><code>d1e587c0</code><time>2026-10-24</time><span>Each organisation holds a share of the process&#x27;s budget and of the tile cache; the showcase serves as a bound role (ADR-204 condition 6, condition 9)</span></li>
+<li><code>ef13e7c0</code><time>2026-10-23</time><span>CI serves as a role the floor binds, so its tenancy tests run (ADR-204 condition 9)</span></li>
+<li><code>1a95743a</code><time>2026-10-23</time><span>The organisation console tests return where the store&#x27;s role refuses a second organisation, as the conformance ones do (ADR-204 condition 9)</span></li>
+<li><code>3fa22905</code><time>2026-10-22</time><span>One deployment holds several organisations, and the ArcGIS veteran&#x27;s findings are closed (ADR-204, ADR-212-218, ADR-012)</span></li>
+<li><code>ebdfd3b7</code><time>2026-10-21</time><span>Refresh forgets the engine&#x27;s columns, so a column added outside is served at once (ADR-212 §2c)</span></li>
+<li><code>f23cb056</code><time>2026-10-21</time><span>Attachments and editor tracking on every registered database, from the console (ADR-212)</span></li>
+<li><code>1382ff9e</code><time>2026-10-21</time><span>A registered SQL Server database is read and edited; a DuckDB file or MotherDuck database is edited (ADR-210, ADR-211, Q-188, D-313)</span></li>
+<li><code>e53ccc4e</code><time>2026-10-21</time><span>Points are decided in MySQL, MariaDB and Oracle, and Oracle answers within twice PostGIS&#x27;s time; four other databases tried (ADR-205, 208, 209, Q-187, D-311, D-312)</span></li>
+<li><code>97f0cecc</code><time>2026-10-20</time><span>A registered MariaDB database is served as a dialect of the MySQL provider, and the console registers Oracle, MySQL and MariaDB (ADR-209, D-310)</span></li>
+<li><code>c755afa1</code><time>2026-10-20</time><span>A registered MySQL database is served as PostGIS and Oracle are: read, edited, related, with attachments and a history (ADR-208)</span></li>
+<li><code>95ecc6ef</code><time>2026-10-20</time><span>An Oracle layer leaves nothing out: Z and M, GlobalIDs, row versions, related records, attachments and a history; and registered PostGIS layers gain attachments and a history too (ADR-205, ADR-207)</span></li>
+<li><code>cf970cf8</code><time>2026-10-20</time><span>An Oracle layer answers every spatial query a PostGIS layer does: all relations, a distance, queryTopFeatures, a having clause, statistic expressions and returnCentroid (ADR-205, ADR-066, Q-183)</span></li>
+<li><code>c06ae2e2</code><time>2026-10-20</time><span>The Pages front page says what v1.0.441 shipped, and the miss is D-46&#x27;s twentieth instance</span></li>
+<li><code>d683df3e</code><time>2026-10-20</time><span>The README says what v1.0.441 shipped: Oracle registered and edited, no registered source tiled; ADR-205 condition 1 discharged by the image</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -376,8 +376,11 @@ superuser.
       makes it, as the root itself is.
     - *Each organisation holds a share of the pins* (ADR-218): the same `2/(n+1)` of the deployment's limit, refused
       past it with the organisation's own pinned services named.
-    - **Not done, and each is a share of something the deployment has one of:** the tile cache's budget and the
-      process's own 64 permits. One organisation can still fill them. **INFERRED** that the
+    - ~~**Not done:** the tile cache's budget and the process's own 64 permits.~~ **Done 2026-10-24:** an organisation
+      holds at most `2/(n+1)` of the process's permits across every source, its own databases included
+      (`ConnectionBudget`, taken before the datastore's share), and of the tile cache's budget — each cache entry
+      knows the organisation it was written for, and a write past the share evicts that organisation's tiles only,
+      in the cache's own order (`FileSystemTileCache`). Tiles adopted from disk at start are nobody's until rewritten. **INFERRED** that the
       datastore was the one to do first, because it is the one every request of every organisation's hosted layers
       passes through.
 
@@ -558,8 +561,9 @@ own.
    [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md)'s admission, so one JV's heavy query queues
    behind that JV's work and not the main organisation's. **PARTLY DISCHARGED 2026-10-22** (§5e item 12): each
    organisation holds at most `2/(n+1)` of the shared datastore's permits, tested by
-   `AnOrganisationsShareOfTheDatastoreTests`. The process's own budget, the tile cache and the pins are still one for
-   everyone.
+   `AnOrganisationsShareOfTheDatastoreTests`. ~~The process's own budget, the tile cache and the pins are still one
+   for everyone.~~ **DISCHARGED 2026-10-24:** the pins (§5e item 12), the process's whole budget and the tile cache
+   are shared the same way, tested by `AnOrganisationsShareOfTheServerTests`.
 7. **The three ArcGIS Online behaviours §4 states from memory are cited from public documentation**, or the sentence
    that relies on them is changed.
 8. **[v1-scope.md](../v1-scope.md) is amended and [Q-181](../open-questions.md) is answered** before a line of the
@@ -588,6 +592,12 @@ own.
    what `gis` makes later, and starts the server as it. The first run made seven organisations (`POST /admin/tenants`
    answered 201 seven times in its `server.log`), and conformance 875/875 and console 322/322 passed with the tenancy
    tests running rather than returning.
+   **And the showcase, 2026-10-24**, as decided: a full backup, a rehearsal on a copy served by a temporary server as
+   `graticula_serving` (every datastore layer answered as it does on the live showcase, no permission refused), then
+   the real store handed over — `gisserver` and `hosted` the role's, the `showcase` schema granted to it — and the
+   server restarted on it through the VPS's `compose.override.yaml`; `compose.yaml` itself is unchanged, as decided.
+   **What remains of this condition is `compose.yaml` for everyone else**, which switches with the first second
+   organisation on a deployment.
 10. **The reach tables are kept by triggers that run as a role the floor does not bind**, and tested by sharing
     across tenants as a member who belongs to only one of them — the case that left them empty in the prototype.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's
