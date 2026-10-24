@@ -240,6 +240,15 @@
     <div id="signinProviders" hidden></div>
     <label for="u">Name</label>
     <input type="text" id="u" autocomplete="username" autofocus>
+    <!--
+      <b>How a member of another organization signs in here</b> — ADR-204 §5e item 16. A bare name is always one of
+      this organization's members, so somebody admitted through a group types their own organization's key and a
+      backslash first, and nothing else on the card says so. Shown by drawTenancy only on a server of several
+      organizations, and tied to the field there rather than here: aria-describedby reads a hidden element's text
+      too, so a server of one would describe the field with a sentence it never shows.
+    -->
+    <p class="hint signin-other" id="signinOther" hidden>From another organization? Sign in as
+      <code>organization\name</code>, with your organization's key before the backslash.</p>
     <label for="p">Password</label>
     <div class="reveal">
       <input id="p" type="password" autocomplete="current-password" aria-describedby="signinError">

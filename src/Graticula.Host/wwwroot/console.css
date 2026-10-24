@@ -1939,6 +1939,9 @@ html[data-session="none"] #main > header { display: none; }
   font-size: var(--t-small); color: var(--muted); text-align: center;
 }
 #signin #u, #signin #p { font-size: 15px; min-height: 42px; padding: 8px 10px; }
+/* ADR-204 §5e item 16: the field's own note, so it sits tight under the field and the next label keeps its gap. */
+#signin .signin-other { margin: var(--gap-1) 0 0; }
+#signin .signin-other code { white-space: nowrap; }
 #signin #p { padding-right: 68px; }
 #signin .signin-refused {
   margin: var(--gap-3) 0 0; padding: 10px 12px; font-size: var(--t-small);
@@ -2549,6 +2552,14 @@ tr.already .name { font-weight: 500; }
 .picker .row label { display: flex; align-items: center; gap: 6px; margin: 0; }
 .picker .row input[type=checkbox] { width: auto; }
 .picker .row > :last-child { margin-left: auto; }
+/* ADR-204 §5e item 16: somebody from another organization, typed. A full-width field, because a qualified name is
+   an organization key and an e-mail address end to end; the browser's default of about 20 characters cut it in two. */
+.picker .pickother { margin-top: var(--gap-3); }
+.picker .pickother input { width: 100%; font-family: var(--mono); font-size: var(--t-small); }
+.picker .pickother .hint { margin: var(--gap-1) 0 0; }
+.picker .hint code, .memberfrom { overflow-wrap: anywhere; }
+.picker #groupPickSays { margin: var(--gap-2) 0 0; }
+.memberfrom { font-weight: 400; }
 
 /*
   <b>The Logs screen. ADR-045.</b> Three rules, and no new concepts: the rows are the table
@@ -6166,3 +6177,6 @@ ol.sfsteps > li > b { margin-left: -30px; }
 .gsform.tenantcard { margin-top: var(--gap-5); }
 .gsform.tenantcard .dangerswitch { margin: var(--gap-2) 0 var(--gap-3); }
 .gsform.tenantcard > .hint { margin: 0 0 var(--gap-2); }
+
+/* ADR-204 §5e item 16: the way to a group's Settings, from the member picker, looks like the link it is. */
+.picker .hint a { text-decoration: underline; text-underline-offset: 2px; }

@@ -2724,7 +2724,10 @@ public static class Program
                     [.. (await providers.ListAsync(cancellation).ConfigureAwait(false))
                         .Where(p => p.Settings is { Enabled: true, Kind: "ldap" })
                         .Select(p => p.Settings.Name)],
-                    context.Request.Host.Value),
+                    context.Request.Host.Value,
+
+                    // ADR-204 §5e item 16: how a member of another organization signs in, said only where there are others.
+                    Graticula.Platform.Tenancy.TenantScope.MultiTenant),
                 "text/html; charset=utf-8"));
 
         Graticula.Host.Oidc.OidcEndpoints.Map(app);

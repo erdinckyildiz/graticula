@@ -217,7 +217,8 @@ internal static class OAuthEndpoints
             bool throttled = failure is LoginFailure.AddressThrottled or LoginFailure.AccountThrottled;
             await SignInPageAsync(
                     context, app, request,
-                    throttled ? "Too many failed sign-in attempts. Wait and try again." : "The name or password is incorrect.",
+                    throttled ? "Too many failed sign-in attempts. Wait and try again."
+                        : "The name or password is incorrect." + OtherOrganizationSentence(name),
                     throttled ? 429 : 401,
                     typedName: name,
 
@@ -727,6 +728,28 @@ internal static class OAuthEndpoints
 
     // ---------------------------------------------------------------- pages
 
+    /// <summary>
+    /// What a refused sign-in adds for a member of another organization who typed their name alone — ADR-204 §5e
+    /// item 16 — or nothing.
+    /// </summary>
+    /// <remarks>
+    /// <b>It depends on nothing an account decides.</b> The server holding several organizations is what
+    /// <c>/rest/whoami</c> already says to anybody, and the typed name is the caller's own; so the sentence is the same
+    /// whether or not that name is an account anywhere, and is no oracle.
+    /// </remarks>
+    private static string OtherOrganizationSentence(string? typedName) =>
+        Graticula.Platform.Tenancy.TenantScope.MultiTenant && !(typedName ?? string.Empty).Contains('\\', StringComparison.Ordinal)
+            ? " If your account is in another organization, sign in as organization\\name."
+            : string.Empty;
+
+    /// <summary>
+    /// How a member of another organization signs in here, under the name field, on a server of several organizations
+    /// — ADR-204 §5e item 16 — or nothing.
+    /// </summary>
+    private const string OtherOrganizationHint =
+        "<p class=\"hint\" id=\"signinOther\">From another organization? Sign in as <code>organization\\name</code>, "
+        + "with your organization's key before the backslash.</p>";
+
     private static async Task SignInPageAsync(
         HttpContext context, OAuthApp app, Request request, string? message, int status, string? typedName = null,
         string? said = null)
@@ -772,7 +795,14 @@ internal static class OAuthEndpoints
             ? "For accounts made on this server."
             : $"For {string.Join(" and ", directories.Select(e.Encode))} accounts and accounts made on this server.";
 
+        bool several = Graticula.Platform.Tenancy.TenantScope.MultiTenant;
         string invalid = message is null ? string.Empty : " aria-invalid=\"true\" aria-describedby=\"signinError\"";
+
+        // ADR-204 §5e item 16: the name field is described by the hint under it too; the password field is not.
+        string nameInvalid = several
+            ? (message is null ? string.Empty : " aria-invalid=\"true\"")
+              + $" aria-describedby=\"{(message is null ? string.Empty : "signinError ")}signinOther\""
+            : invalid;
         bool focus = !providers || message is not null;
 
         string body =
@@ -795,7 +825,8 @@ internal static class OAuthEndpoints
             + Hidden("code_challenge", request.Challenge)
             + Hidden("code_challenge_method", request.ChallengeMethod)
             + $"<label for=\"username\">Name</label><input id=\"username\" name=\"username\" autocomplete=\"username\" required"
-            + $"{(typedName is { Length: > 0 } typed ? $" value=\"{e.Encode(typed)}\"" : string.Empty)}{invalid}{(focus ? " autofocus" : string.Empty)}>"
+            + $"{(typedName is { Length: > 0 } typed ? $" value=\"{e.Encode(typed)}\"" : string.Empty)}{nameInvalid}{(focus ? " autofocus" : string.Empty)}>"
+            + (several ? OtherOrganizationHint : string.Empty)
             + $"<label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required{invalid}>"
             // ADR-201: the second step, for an account that has one.
             + $"<label for=\"code\">Code <span class=\"small\">(only if your account asks for one)</span></label><input id=\"code\" name=\"code\" inputmode=\"numeric\" autocomplete=\"one-time-code\">"
@@ -1013,7 +1044,7 @@ internal static class OAuthEndpoints
             + ".providers a{display:block;padding:11px 12px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:var(--card);"
             + "text-decoration:none;text-align:center;font-weight:600}.providers a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}"
             + ".or{display:flex;align-items:center;gap:10px;color:var(--muted);margin:16px 0}.or::before,.or::after{content:'';flex:1;border-top:1px solid var(--line)}"
-            + ".lead{font-weight:600;margin:0 0 2px}.small{font-size:.85rem;margin:16px 0 0}"
+            + ".lead{font-weight:600;margin:0 0 2px}.hint{font-size:.85rem;color:var(--muted);margin:4px 0 0}.small{font-size:.85rem;margin:16px 0 0}"
             + "button.second{background:transparent;color:var(--accent);border:1px solid var(--accent)}"
             + "h1{font-size:1.4rem;margin:0 0 12px}p{margin:0 0 12px}.where,.code{color:var(--muted);overflow-wrap:anywhere}"
             + "code{font-size:.9em}.bad{color:var(--bad);font-weight:600}"

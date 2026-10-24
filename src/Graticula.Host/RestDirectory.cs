@@ -110,13 +110,18 @@ internal static class RestDirectory
     /// <param name="providers">The providers to offer, by where their sign-in starts and their name.</param>
     /// <param name="directories">The directories whose names and passwords the form takes — ADR-089.</param>
     /// <param name="host">The address this server was reached at, for the card's head, or null.</param>
+    /// <param name="severalOrganizations">
+    /// Whether the server holds more than one organization, which is when the name field says how a member of another
+    /// one signs in — ADR-204 §5e item 16.
+    /// </param>
     /// <returns>The page.</returns>
     public static string SignIn(
         string returnTo,
         string? failed,
         IReadOnlyList<(string Start, string Name)> providers,
         IReadOnlyList<string> directories,
-        string? host = null)
+        string? host = null,
+        bool severalOrganizations = false)
     {
         ArgumentNullException.ThrowIfNull(directories);
 
@@ -196,7 +201,15 @@ internal static class RestDirectory
             + $"<input type=\"hidden\" name=\"f\" value=\"html\">"
             + $"<label class=\"field\" for=\"signin-name\">Name</label>"
             + $"<input id=\"signin-name\" type=\"text\" name=\"name\" autocomplete=\"username\" autofocus"
-            + $"{(failed is null ? Html.Empty : Html.Markup(" aria-describedby=\"signin-refused\""))}>"
+            + $"{Html.Markup(Described(failed is null ? null : "signin-refused", severalOrganizations ? "signin-other" : null))}>"
+
+            // <b>How a member of another organization signs in here</b> — ADR-204 §5e item 16. A bare name is always
+            // one of this host's organization's members; somebody admitted through a group types their own
+            // organization's key and a backslash first. Absent, not hidden, on a server of one.
+            + $"{(severalOrganizations
+                ? Html.Markup("<p class=\"hint other\" id=\"signin-other\">From another organization? Sign in as "
+                    + "<code>organization\\name</code>, with your organization's key before the backslash.</p>")
+                : Html.Empty)}"
             + $"<label class=\"field\" for=\"signin-password\">Password</label>"
             + $"<input id=\"signin-password\" type=\"password\" name=\"password\" autocomplete=\"current-password\">"
             // ADR-201: the second step, for an account that has one; left empty by everybody else.
@@ -216,6 +229,12 @@ internal static class RestDirectory
 
         return Page("/rest/login", body.ToHtml(), bare: true);
     }
+
+    /// <summary>An <c>aria-describedby</c> naming whichever of the ids are present, or nothing.</summary>
+    private static string Described(params string?[] ids) =>
+        ids.Where(i => i is not null).ToArray() is { Length: > 0 } some
+            ? $" aria-describedby=\"{string.Join(' ', some)}\""
+            : string.Empty;
 
     /// <summary>A page that says one thing about a sign-in, with the way back to the form — ADR-088.</summary>
     /// <param name="heading">What happened.</param>
@@ -1497,6 +1516,7 @@ internal static class RestDirectory
               .card-head .mark svg { width: 18px; height: 18px; display: block; }
               .card-body { padding: 16px 22px 22px; }
               .card-body .hint { margin: 0 0 12px; }
+              .card-body .hint.other { margin: 4px 0 0; }
               .card-body ul.providers { max-width: none; }
               .card-body label.field { display: block; font-size: 13.5px; color: var(--muted); margin: 12px 0 4px; }
               .card-body input[type=text], .card-body input[type=password] { width: 100%; padding: 8px 10px; }

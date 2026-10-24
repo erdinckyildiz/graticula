@@ -856,12 +856,11 @@ public abstract class ConsoleTest : IAsyncLifetime
     /// </summary>
     /// <param name="host">The host name, such as <c>acme.localhost</c>, which Chrome resolves to the loopback.</param>
     /// <param name="address">The path and hash, such as <c>/server/#/services</c>.</param>
-    /// <param name="token">A bearer token issued at that host.</param>
-    protected async Task OpenOnHostAsync(string host, string address, string token)
+    /// <param name="token">A bearer token issued at that host, or null to open it as somebody with no session there.</param>
+    protected async Task OpenOnHostAsync(string host, string address, string? token)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(address);
-        ArgumentNullException.ThrowIfNull(token);
 
         string plant = Plant(token, []);
 

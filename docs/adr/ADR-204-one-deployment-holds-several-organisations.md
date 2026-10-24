@@ -459,9 +459,23 @@ superuser.
     Checked live and kept by `AUsernameIsItsOrganisationsTests`: one name made in the main organisation and a JV, each
     signing in at its own host and not the other's, the JV's reset and removal leaving the main one's account, the main
     one admitted to a JV group as `default\name` beside the JV's own and signing in there by it.
-    **INFERRED:** the backslash as the separator (the Windows domain form), outsiders signing in by the qualified name,
-    and the group screen's new wording — not yet reviewed by the ux-designer agent. **Not done:** the sign-in page says
-    nothing to an outsider about the qualified name.
+    **INFERRED:** the backslash as the separator (the Windows domain form), outsiders signing in by the qualified name.
+
+    **The screens say it — design review 2026-10-24.** Every place a name is typed to sign in (the console's card,
+    the services directory's `/rest/login`, and the OAuth page ArcGIS Pro and the Python API open) carries one line
+    under the name field, only while the server holds several organizations: *"From another organization? Sign in as
+    `organization\name`, with your organization's key before the backslash."* A server of one shows nothing. A refused
+    sign-in at such a server whose typed name has no backslash adds *"If your account is in another organization, sign
+    in as organization\name."* — decided only by the deployment being multi-organisation, which `whoami` already says
+    to anybody, and the caller's own input, so it is the same whether or not the name is an account anywhere. The
+    group's Add member offers the qualified-name field only on a group that admits other organizations (otherwise one
+    sentence leads to Settings), checks for the backslash before sending, keeps the picker open with the refusal
+    beside the field, and on success says where and as what the person signs in, since this server sends no mail; a
+    member row of the form `organization\name` reads *From another organization*. Kept by `OutsiderSignInTests`.
+    **INFERRED**, for the owner: the wording; the hint under the field rather than above the form; the extra sentence
+    on a refused bare name; the example key in the group hint (`default`, or `partner` at the main organization's own
+    host); the directory page's refusal getting no extra sentence, since its form round-trip does not carry the
+    typed name.
 
 **State.** As §6 says, plus: the pools per tenant, node-local, emptied whenever the tenants are read again; each
 member's home, read once per thirty seconds.

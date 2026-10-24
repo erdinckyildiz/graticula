@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>d1e587c0</code> · 2026-10-24 21:03</p>
+<p class="stamp">Generated from commit <code>22ede347</code> · 2026-10-24 21:03</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">216</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">437/527</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">81 live · 9 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">open questions</div><div class="kpi-n">194 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">open debts</div><div class="kpi-n">284 repaid · 5 waiting on a trigger · 2 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">20</div><div class="kpi-l">open debts</div><div class="kpi-n">284 repaid · 5 waiting on a trigger · 2 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5456</div><div class="kpi-l">tests</div><div class="kpi-n">585 source files, 259,561 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5458</div><div class="kpi-l">tests</div><div class="kpi-n">585 source files, 259,615 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">2 open</span></div><p><b>Q-189</b> — [OWNER] What was decided overnight on 2026-10-22, while you slept, and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">104 items</span></div><p><b>81 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">105 items</span></div><p><b>81 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>20 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -447,6 +447,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-311</td><td>The admin API publishes a layer from a source its own probe refused.</td><td class="muted-t">The next change to POST /admin/layers, or a second report.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-312</td><td>A registered layer whose database is gone for good cannot be removed.</td><td class="muted-t">An administrator retiring a database, or the owner deciding that a removal may skip the check when told to…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-313</td><td>A registered SQL Server&#x27;s certificate is trusted, not verified.</td><td class="muted-t">A deployment registering a SQL Server across a network it does not control, or a customer asking for verification.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">284 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
@@ -553,7 +554,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.2%"></div></div><div class="bar-n">847</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.1%"></div></div><div class="bar-n">559</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.1%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.4%"></div></div><div class="bar-n">322</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.5%"></div></div><div class="bar-n">324</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">237</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.7%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.2%"></div></div><div class="bar-n">124</div></div>
@@ -566,7 +567,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">22</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>d1e587c0</code><time>2026-10-24</time><span>Each organisation holds a share of the process&#x27;s budget and of the tile cache; the showcase serves as a bound role (ADR-204 condition 6, condition 9)</span></li>
+<li><code>22ede347</code><time>2026-10-24</time><span>Each organisation holds a share of the process&#x27;s budget and of the tile cache; the showcase serves as a bound role (ADR-204 condition 6, condition 9)</span></li>
 <li><code>ef13e7c0</code><time>2026-10-23</time><span>CI serves as a role the floor binds, so its tenancy tests run (ADR-204 condition 9)</span></li>
 <li><code>1a95743a</code><time>2026-10-23</time><span>The organisation console tests return where the store&#x27;s role refuses a second organisation, as the conformance ones do (ADR-204 condition 9)</span></li>
 <li><code>3fa22905</code><time>2026-10-22</time><span>One deployment holds several organisations, and the ArcGIS veteran&#x27;s findings are closed (ADR-204, ADR-212-218, ADR-012)</span></li>

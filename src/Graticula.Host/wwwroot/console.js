@@ -822,7 +822,10 @@ function drawGroupMembers(one) {
           with the group</td></tr>` : ""}
         <tr>
           <td class="name">${h(m.displayName || m.name)}${m.displayName && m.displayName !== m.name
-            ? `<div class="val" style="font-weight:400">${h(m.name)}</div>` : ""}</td>
+            ? `<div class="val" style="font-weight:400">${h(m.name)}</div>` : ""}${
+            // ADR-204 §5e item 16: the server names a member of another organization `organization\name`, and a
+            // member's own name cannot hold a backslash — so the backslash is the mark, and the row says it in words.
+            m.name.includes("\\") ? `<div class="faint memberfrom">From another organization</div>` : ""}</td>
           <td data-l="Standing">${m.standing === "member"
             ? `<span class="val">member</span>`
             : `<b>${h(m.standing)}</b>`}</td>
@@ -28470,31 +28473,59 @@ async function handleClick(event) {
       return;
     }
 
+    // <b>The field only where the server would take what is typed into it</b> — design review 2026-10-24. It was
+    // offered on every group, with a hint ending *"Only once Settings lets this group admit members of other
+    // organizations"*: a control that is refused on most groups, explained in the last clause of three. A group that
+    // does not admit them says so in one sentence, with the way to the switch. Unknown counts as admitting: the
+    // server checks, and its refusal is said beside the field.
+    const admits = other && groupAdmitsKnown(groupNow) !== false;
+    const ours = whoNow?.organisation?.name || whoNow?.organisation?.key || "this organization";
+
+    // A real key where there is one to give: the main organization's, which is where most visitors come from.
+    const example = `${whoNow?.organisation?.key === "default" ? "partner" : "default"}\\ali@firma.com`;
+    const canAdd = names.length > 0 || admits;
+
     $("groupPicker").innerHTML = `
       <div class="picker">
-        ${names.length ? `<label for="groupPickFilter">Add a member</label>
+        ${names.length ? `<label for="groupPickFilter">Add a member${other ? ` of ${h(ours)}` : ""}</label>
         <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
         <select id="groupPickWho" size="8" aria-label="Members who could join">${names.map(n =>
-          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>` : ""}
-        ${other ? `<label for="groupPickOther">${names.length ? "Or a" : "A"} member of another organization, as
-          organization\\name</label>
-        <input id="groupPickOther" type="text" autocomplete="off" spellcheck="false" placeholder="atos\\ali@firma.com"
-          aria-describedby="groupPickOtherHint">
-        <p class="hint" id="groupPickOtherHint">Their organization's key, a backslash, then the name they sign in with
-          there — a name alone is one of this organization's members. Only once Settings lets this group admit members
-          of other organizations.</p>` : ""}
+          `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>`
+        : other ? `<p class="hint">Every member of ${h(ours)} is already in this group.</p>` : ""}
+        ${admits ? `<div class="pickother">
+          <label for="groupPickOther">${names.length ? "Or add somebody" : "Add somebody"} from another
+            organization</label>
+          <input id="groupPickOther" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+            aria-describedby="groupPickOtherHint">
+          <p class="hint" id="groupPickOtherHint">Their organization's key, a backslash, then the name they sign in
+            with there, as in <code>${h(example)}</code>. They sign in here by that same name.</p>
+        </div>` : other ? `<p class="hint" id="groupPickOtherOff">Somebody from another organization can join once this
+          group admits them: turn it on in <a href="#/group/${encodeURIComponent(groupOpen)}/settings">Settings</a>,
+          under Other organizations.</p>` : ""}
+        <p class="bad-inline" id="groupPickSays" role="alert" hidden></p>
         <div class="row">
-          <label><input type="checkbox" id="groupPickManager"> as a manager</label>
-          <button class="primary" id="groupPickAdd">Add</button>
-          <button class="ghost" id="groupPickCancel">Cancel</button>
+          ${canAdd ? `<label><input type="checkbox" id="groupPickManager"> as a manager</label>
+          <button class="primary" id="groupPickAdd">Add</button>` : ""}
+          <button class="ghost" id="groupPickCancel">${canAdd ? "Cancel" : "Close"}</button>
         </div>
-        <p class="hint">A <b>manager</b> may add members and share services, and may not delete the
-          group — ADR-036 §3, which is the difference between delegating work and delegating
-          control.</p>
+        ${canAdd ? `<p class="hint">A <b>manager</b> may add members and share services, and may not delete the
+          group.</p>` : ""}
       </div>`;
 
+    // One of the two ways at a time: what is typed and what is picked would otherwise both be there, and Add would
+    // quietly take the typed one.
+    const typed = $("groupPickOther");
+    const listed = $("groupPickWho");
+    if (typed) {
+      typed.oninput = () => {
+        typed.removeAttribute("aria-invalid");
+        if (listed && typed.value.trim()) listed.selectedIndex = -1;
+      };
+    }
+    if (typed && listed) listed.onchange = () => { typed.value = ""; typed.removeAttribute("aria-invalid"); };
+
     $("groupPicker").hidden = false;
-    ($("groupPickFilter") || $("groupPickOther"))?.focus();
+    ($("groupPickFilter") || typed || $("groupPickCancel"))?.focus();
     return;
   }
 
@@ -28648,8 +28679,36 @@ async function handleClick(event) {
   }
 
   if (t.id === "groupPickAdd") {
-    const who = $("groupPickOther")?.value.trim() || $("groupPickWho")?.value;
-    if (!who || !groupOpen) return;
+    if (!groupOpen) return;
+
+    const typed = $("groupPickOther");
+    const outside = typed?.value.trim() || "";
+    const who = outside || $("groupPickWho")?.value;
+    const field = outside ? typed : $("groupPickWho") || typed;
+
+    // <b>Said beside the fields, and the picker stays open</b> — design review 2026-10-24. A refusal was a toast and
+    // the picker closed under it, so a mistyped organization key took what was typed with it.
+    const say = message => {
+      $("groupPickSays").textContent = message;
+      $("groupPickSays").hidden = false;
+      if (outside) typed.setAttribute("aria-invalid", "true");
+      field?.focus();
+    };
+
+    if (!who) {
+      say(typed && $("groupPickWho") ? "Choose a member from the list, or type the name of somebody from another organization."
+        : typed ? "Type the name of somebody from another organization." : "Choose a member from the list.");
+      return;
+    }
+
+    // A name with no organization in front is one of this organization's own members — so typed here, it would add
+    // somebody other than the person meant, or be refused as unknown. Caught before it is sent.
+    const cut = outside.indexOf("\\");
+    if (outside && (cut <= 0 || cut === outside.length - 1)) {
+      say(`Put their organization's key and a backslash before the name, as in ${
+        $("groupPickOtherHint")?.querySelector("code")?.textContent || "organization\\name"}.`);
+      return;
+    }
 
     try {
       await api(
@@ -28659,11 +28718,18 @@ async function handleClick(event) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ manager: !!$("groupPickManager")?.checked }),
         });
-      toast(`${who} joined ${groupOpen}`, true);
-    } catch (e) { toast(e.message); }
+    } catch (e) {
+      say(e.message || String(e));
+      return;
+    }
 
+    // Somebody from another organization has to be told how to sign in here, and this server sends no mail: the
+    // person adding them is the one who can pass it on.
+    toast(outside ? `${who} joined ${groupOpen}. They sign in at ${location.host} as ${who}.`
+      : `${who} joined ${groupOpen}`, true);
     $("groupPicker").hidden = true;
     await refreshGroup();
+    $("groupAdd")?.focus();
     return;
   }
 
@@ -31025,6 +31091,15 @@ $("signinForm").addEventListener("submit", async event => {
     // unknown, the password wrong, or the account throttled, and each sends the
     // reader somewhere different.
     error.textContent = e.message || String(e);
+
+    // ADR-204 §5e item 16: a bare name here is only ever this organization's member, so somebody from another one who
+    // typed theirs alone is refused with a sentence that does not say why. The extra sentence depends on nothing but
+    // what the page already knows — the server holds several organizations, and the typed name has no backslash — so
+    // it is said whether or not such an account exists anywhere, and tells nobody that one does.
+    if (e.status === 401 && !details.some(d => String(d).startsWith("secondFactor"))
+        && !$("signinOther")?.hidden && !$("u").value.includes("\\")) {
+      error.textContent += " If your account is in another organization, sign in as organization\\name.";
+    }
     error.hidden = false;
 
     // ADR-201: the password was right and a code is needed; the code field gets the focus, not the password. The
@@ -34337,6 +34412,14 @@ function drawTenancy(me) {
   // and the host name alone does not tell somebody which organization's password to type.
   if ($("signinTitle")) $("signinTitle").textContent = several && called ? `Sign in to ${called}` : "Sign in to Graticula";
 
+  // ADR-204 §5e item 16: how a member of another organization signs in here, under the name field, and nowhere on a
+  // server of one. The description is attached here rather than in the markup: a hidden element's text is still read.
+  if ($("signinOther")) {
+    $("signinOther").hidden = !several;
+    if (several) $("u").setAttribute("aria-describedby", "signinOther");
+    else $("u").removeAttribute("aria-describedby");
+  }
+
   const notice = $("outsiderNotice");
   if (notice) {
     const outsider = !!me?.authenticated && !!me?.outsider;
@@ -34834,10 +34917,12 @@ document.addEventListener("change", async event => {
       body: JSON.stringify({ admitsOtherTenants: want }),
     });
     groupAdmits.set(groupOpen, want);
+    // The group as last read keeps the server's word, which wins over this page's; it is this page's now.
+    if (groupNow?.name === groupOpen) groupNow.admitsOtherTenants = want;
     if ($("gsAdmitsUnknown")) $("gsAdmitsUnknown").hidden = true;
     if (line) {
       line.textContent = want
-        ? "This group admits members of other organizations. Add them on Members by the name they sign in with."
+        ? "This group admits members of other organizations. Add them on Members as organization\\name."
         : "This group no longer admits members of other organizations.";
     }
   } catch (e) {
