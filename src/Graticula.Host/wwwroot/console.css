@@ -2616,8 +2616,10 @@ tr.logdetail pre { margin: 0; padding: var(--gap-3) var(--gap-4);
   <b>`!important` on exactly these two, and it is load-bearing rather than lazy.</b>
   `console.js` sets `style.display` inline on both elements once it knows the real answer, and
   an inline style beats a class — so without this the first paint would ignore the attribute.
-  These rules are the *initial* state only: `start()` overrides them deliberately, in both
-  directions, the moment `whoami` has answered.
+  These rules are the *initial* state only: `start()` replaces the attribute the moment `whoami`
+  has answered. It has to change the attribute, not the inline style — an inline `none` does not
+  beat `!important`, which is how the issued-password form came to have the Services screen
+  painted under it. A member who must replace their password gets `data-session="mustchange"`.
 */
 html[data-session="held"] #signin { display: none !important; }
 html[data-session="held"] #app { display: block !important; }

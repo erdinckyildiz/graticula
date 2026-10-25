@@ -31565,15 +31565,17 @@ async function start() {
     return;
   }
 
-  // Confirmed, so the guess the head made is now a fact.
-  document.documentElement.dataset.session = "held";
-
   $("signinCookie").hidden = true;
 
   // <b>Signed in, and holding a password that reaches nothing else.</b> Checked before any screen
   // is drawn, because every one of them would answer 403 — which is how a client behaves against a
   // server enforcing a rule it does not advertise, and `/rest/whoami` advertises this one.
   if (me.mustChangePassword) {
+    // <b>Not "held", and the inline style below cannot make up for it.</b> The stylesheet shows
+    // `#app` with `!important` while the attribute says "held", so a member on their first sign-in
+    // got this form with the Services screen painted under it, and every request that screen made
+    // answered 403. A third value, which no rule matches, leaves `#app` to its inline `none`.
+    document.documentElement.dataset.session = "mustchange";
     $("signin").style.display = "none";
     $("app").style.display = "none";
     $("tabs").style.display = "none";
@@ -31584,9 +31586,13 @@ async function start() {
     $("mustchange").style.display = "";
     $("mustchangeWho").innerHTML =
       `Signed in as <b>${h(me.name)}</b>. This has to be done before anything else works.`;
+    drawUserMenu(me.name);
     $("cCurrent").focus();
     return;
   }
+
+  // Confirmed, so the guess the head made is now a fact.
+  document.documentElement.dataset.session = "held";
 
   $("mustchange").style.display = "none";
   $("signin").style.display = "none";
