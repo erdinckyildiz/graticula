@@ -501,6 +501,43 @@ about the deployment changes; the existing organisation is called `default` and 
   organisation over one, and says so.
 - **Each organisation needs its host name**: a DNS record pointing at the server, and a certificate that
   covers it — or a wildcard of both. `jv1.example.com` reaches the organisation that lists it.
+  **Or a wildcard DNS record and certificates issued on demand**, so a new organisation needs nothing done outside
+  the console: the proxy asks `GET /healthz/certificate?domain=<host>` before it requests one, and this server answers
+  `200` only for a name an organisation lists — never for any name at all, which would spend the certificate
+  authority's weekly limit for the domain on whatever a stranger types. With Caddy:
+
+  ```text
+  {
+      on_demand_tls {
+          ask http://127.0.0.1:5601/healthz/certificate
+      }
+  }
+
+  # The question, asked over plain HTTP inside the proxy: Caddy's `ask` does not skip certificate checks.
+  http://127.0.0.1:5601 {
+      bind 127.0.0.1
+      reverse_proxy https://graticula:8443 {
+          transport http {
+              tls_insecure_skip_verify
+          }
+      }
+  }
+
+  # Every name no other site claims.
+  https:// {
+      tls {
+          on_demand
+      }
+      reverse_proxy https://graticula:8443 {
+          transport http {
+              tls_insecure_skip_verify
+          }
+      }
+  }
+  ```
+
+  `tls_insecure_skip_verify` is for a server with its own self-signed certificate on the same machine; drop it when
+  the server presents one the proxy trusts.
 - **PostgreSQL must allow more connections than its default hundred.** The server may hold 94 with one
   organisation, and each further one adds its pools' share; the datastore image starts with
   `max_connections=300` (since 2026-10-22). A PostgreSQL of your own needs the same — the server says at startup

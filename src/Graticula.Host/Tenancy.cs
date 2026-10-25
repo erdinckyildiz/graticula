@@ -93,6 +93,24 @@ internal sealed class TenantDirectory(ITenantStore store, NpgsqlDataSource root)
         return all.FirstOrDefault(t => t.IsDefault) is { Hosts.Count: 0 } open ? open : null;
     }
 
+    /// <summary>Whether a tenant lists this host name by name — <see cref="Claims(IReadOnlyList{Tenant}, string)"/>.</summary>
+    public bool Claims(string host) => Claims(All, host);
+
+    /// <summary>
+    /// Whether a tenant lists this host name by name: the question a proxy issuing certificates on demand asks before
+    /// it asks a certificate authority for one (<c>/healthz/certificate</c>).
+    /// </summary>
+    /// <remarks>
+    /// <b>Not <see cref="Resolve"/>.</b> A default tenant that lists no host names answers every host, so asking it would
+    /// say yes to any name a wildcard DNS record sends here — and every yes is a certificate requested, against a
+    /// certificate authority's weekly limit for the whole domain. Only a name somebody wrote down is one.
+    /// </remarks>
+    internal static bool Claims(IReadOnlyList<Tenant> all, string host)
+    {
+        string[] name = PostgresTenantStore.Normalised([host]);
+        return name.Length == 1 && all.Any(t => t.Hosts.Contains(name[0], StringComparer.Ordinal));
+    }
+
     /// <summary>
     /// Each member's home and system flag as last read, for thirty seconds — so a deployment of several tenants does not
     /// spend a connection of the root pool on every authenticated request (condition 14).
@@ -422,6 +440,15 @@ internal static class TenantEndpoints
         app.MapDelete("/admin/tenants/{key}", DeleteAsync);
         app.MapPut("/admin/groups/{name}/tenants", AdmitAsync);
         app.MapPost("/admin/tenants/{key}/password", ReissueAsync);
+
+        // A proxy's on-demand TLS asks here before it requests a certificate (Caddy's `ask`, with ?domain=): 200 when an
+        // organisation lists the name, 404 when none does — so a new organisation's host needs no proxy change, and a
+        // name nobody listed spends nothing of the certificate authority's limit. Under /healthz because the proxy asks
+        // by address, which reaches no tenant, and because the answer is the machine's, not an organisation's.
+        app.MapGet("/healthz/certificate", (string? domain, TenantDirectory directory) =>
+            string.IsNullOrWhiteSpace(domain) ? Refused(400, "'domain' names the host a certificate would be issued for.")
+            : directory.Claims(domain) ? Results.Ok(new { domain, issue = true })
+            : Refused(404, $"No organisation on this server lists '{domain}'."));
     }
 
     /// <summary>A tenant's administrator to issue a new password for.</summary>

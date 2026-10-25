@@ -141,7 +141,8 @@ public* exactly as now, over rows the floor has already narrowed to those the re
   very likely connects as the owner — it runs the migrations. A floor that does not apply to the one role that uses it
   is a floor in the documentation only.
 - **Host names cost the operator something.** A tenant per host needs DNS and a certificate per tenant, or a wildcard
-  of both. Path prefixes (`/t/jv1/studio`) need neither — and the middleware in `Program.cs:1162` is already where a
+  of both. *(Since 2026-10-25 a third way for the certificate: issued on demand by the proxy, asking this server
+  first — §5e item 19.)* Path prefixes (`/t/jv1/studio`) need neither — and the middleware in `Program.cs:1162` is already where a
   prefix would be stripped.
 - **Most deployments have one organisation**, and §60 says not to make small deployments pay for large ones. Every
   query now carries a predicate that, in the common case, is always true.
@@ -538,6 +539,17 @@ superuser.
       Online does not offer as a template either (**INFERRED**).
     - Tested by `AnOrganisationsRolesAreItsOwnTests`: one name in two organisations, each member holding its own
       organisation's privileges, a change in one leaving the other's alone, and the built-ins refused to both.
+19. **A new organisation's host needs no change to the proxy — 2026-10-25**, at the owner's question *"her yeni
+    wildcard açtığımda caddy file mı güncellenecek"*. A wildcard DNS record brings every name to the server, but a
+    proxy terminating TLS still needed a site and a certificate per organisation, so making one in the console was
+    not enough to reach it. `GET /healthz/certificate?domain=` answers `200` when an organisation lists the name and
+    `404` when none does — the question a proxy issuing certificates on demand asks first (Caddy's `on_demand_tls`
+    `ask`). **It is not `Resolve`**: a default organisation listing no host names answers every host, and a yes for
+    every name a wildcard sends is a certificate requested for each, against the certificate authority's weekly limit
+    for the whole domain. A suspended organisation's names are still ones, so it answers its `503` over TLS. Under
+    `/healthz` because the proxy asks by address, which reaches no tenant. Tested by
+    `ACertificateIsAskedForOnlyByANameAnOrganisationListsTests`; the Caddy configuration is in the deployment guide
+    §4.1.
 
 **State.** As §6 says, plus: the pools per tenant, node-local, emptied whenever the tenants are read again; each
 member's home, read once per thirty seconds.
