@@ -529,14 +529,21 @@ sign-in at the organisation's host. A purge leaves the organisation's hosted tab
 Only a group whose organisation's administrator marked it as admitting others
 (`PUT /admin/groups/{name}/tenants`). A member of another organisation is then added to it by username, signs in
 at this organisation's host, and reads what is shared into that group — nothing shared with the organisation,
-and no privilege here. Usernames are unique across every organisation, and so, in this version, are service,
-folder and group names.
+and no privilege here. The member sees such groups on their own Groups page, at home, each with a link to open it
+at its organisation's host (ADR-204 §5e item 17.4).
+
+Names are each organisation's own (ADR-204 §5e items 14–16): two organisations may each have a service `Parcels`,
+a group `Field crews` or a member `ayse`. Inside its own organisation a member is named bare; another
+organisation's member is named `key\name` — `default\ayse` — wherever this organisation names them, as when adding
+them to a group. Only the managed datastore's name is the server's.
 
 ### 4.4 What is the system's
 
 While more than one organisation exists, backups, the server's process log, health, usage, the general settings,
-the map ground, style origins, the geometry service setting and changes to roles answer only the system
-administrator. An organisation's administrator runs its members, groups, content, categories, identity providers,
+the map ground, style origins and the geometry service setting answer only the system administrator. The
+built-in roles are every organisation's, so nobody changes their privileges while there is more than one; each
+organisation makes custom roles of its own instead (ADR-204 §5e item 18). An organisation's administrator runs its
+members, custom roles, groups, content, categories, identity providers,
 its own basemap gallery — and, by owner decision on 2026-10-22, its own Server: its services, publishing, data
 sources, its own jobs and its own audit and request logs (ADR-204 §5e items 10–11). The managed datastore, the
 Geometry service and the other system services are shown to it and are not its to stop or pause.

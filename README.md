@@ -128,7 +128,10 @@ that works.
   a group may admit another organisation's members, which is the only route between them, and one system
   administrator runs the machine above them all
   ([ADR-204](docs/adr/ADR-204-one-deployment-holds-several-organisations.md), [deployment §4](docs/deployment.md)).
-  The server must connect as a role the security binds, and names stay unique across organisations in this version.
+  The server must connect as a role the security binds. Names are each organisation's own — services, folders,
+  groups, data sources, usernames and the rest; only the managed datastore's is the server's — and so are custom
+  roles; the built-in roles are shared, and fixed while there are several organisations. A member sees the groups
+  of other organisations they are in on their own Groups page, and opens each at its organisation's host.
 - **A second factor and API keys are new; API keys have no screen yet.** A member with a password here turns on
   a code from an authenticator app in the console or at `/rest/auth/second-factor`, and every sign-in page asks for
   it; a token request cannot carry one and says so ([ADR-201](docs/adr/ADR-201-a-member-may-have-a-second-factor.md)).
