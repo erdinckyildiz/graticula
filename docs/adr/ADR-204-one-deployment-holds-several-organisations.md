@@ -306,8 +306,10 @@ superuser.
    organisation has one. Condition 15. ~~Names stay unique across the deployment.~~ **Reversed the same day by owner
    decisions, in three steps:** services and folders (item 14), every other name but the datastore's (item 15), and
    usernames (item 16) are unique within their organisation.
-4. **Roles, role privileges and user types stay the deployment's**, and changing a role is the system administrator's
-   while there are several tenants. A tenant's custom roles are condition 16.
+4. ~~**Roles, role privileges and user types stay the deployment's**, and changing a role is the system administrator's
+   while there are several tenants. A tenant's custom roles are condition 16.~~ **Changed 2026-10-25 (§5e item 18):**
+   the built-in roles and user types stay the deployment's and nobody changes a built-in role while there are several
+   organisations; a custom role is its organisation's, made and changed by its own administrator.
 5. **A member is seen across tenants through a policy that asks group membership**, not through reach tables kept by
    triggers (§5b). It is the one cross-asking policy, on the member table only; its cost is unmeasured — condition 10
    is not discharged by this.
@@ -489,15 +491,53 @@ superuser.
       (§5e item 16). One person in two organisations is two accounts in both products; here they may share a name.
     - *Different, not decided — owed:*
       1. **Roles per organisation.** ArcGIS Online's administrator makes custom roles, named uniquely within the
-         organisation, by the *Member roles* privilege. Here roles are the deployment's (condition 16). ArcGIS Online is
-         the model to build it on.
+         organisation, by the *Member roles* privilege. ~~Here roles are the deployment's (condition 16). ArcGIS Online is
+         the model to build it on.~~ **Built 2026-10-25 on that model — item 18.**
       2. **Who may join another organisation's group.** ArcGIS Online asks the joining member for a *join external
          groups* privilege, so their own organisation decides. Here the group's organisation admits anyone it names.
       3. **Partnered collaboration** — two organisations agreeing to work together, coordinators who invite their own
          members, and groups limited to the partners. Here there is only the open switch.
       4. **Where the outsider works.** In ArcGIS Online the member keeps one account and the other organisation's group
          appears on *their* Groups page. Here their home token already reaches the other host as an outsider (tested),
-         but their own console does not list the other organisation's groups; they find them by signing in there.
+         ~~but their own console does not list the other organisation's groups; they find them by signing in there.~~
+         **Built 2026-10-25:** `GET /admin/groups` answers `elsewhere` — the groups of other organisations the member
+         is in that still admit outsiders, with whose each is and the address to open it at — read on the root pool,
+         narrowed to the member's own membership rows, and answered at home only — and the member's own Groups page
+         lists them under its own groups, each opening at `/studio/group/{name}` on its organisation's host in a new
+         tab (ux-designer; **INFERRED**: new tab, the title as the link). The member still
+         works in the group at its organisation's host, as an outsider; ArcGIS Online lets them work from home.
+         Tested by `AMembersGroupsElsewhereAreListedAtHomeTests`.
+18. **An organisation's custom roles are its own — 2026-10-25**, the first of item 17's owed four, at the owner's
+    *"sıra ile"*. Migration 106; built on ArcGIS Online's model rather than invented:
+    - **The five built-in roles stay the deployment's** (`tenant_id` null, read by everyone), as ArcGIS Online's
+      default roles are the product's. **While there are several organisations nobody changes one** — not the system
+      administrator either, because a built-in role is every organisation's and a change to it changes every
+      organisation's members. `PUT /admin/roles/{built-in}/privileges` answers `409` with a sentence that says to make
+      a custom role instead, and the listing marks it not editable. On a server of one organisation nothing changes.
+    - **A custom role is its organisation's**, floored like every other organisation table, and named uniquely within
+      it — two organisations may each have a *Field editor* with different privileges. It is stored as usernames are
+      (item 16): bare in the default organisation, `key\name` in any other, so the primary key and every foreign key
+      that hangs from a role name keep working; `graticula_role_named` and `graticula_role_label` turn one into the
+      other, and a request names and reads a role bare. A custom role may not take a built-in's name, in any case, nor
+      hold a backslash (`400`). Every custom role that existed before is the default organisation's.
+    - **An organisation's administrator makes, changes and deletes its own** — `/admin/roles` left the system-only
+      list; the built-ins are refused by the rule above rather than by the path.
+    - **The privilege cache reads every organisation's roles** on the store's own pool, keyed by stored name — read on
+      a request's pool it held one organisation's, and every other organisation's members resolved to nothing until
+      the next refresh.
+    - **Service accounts are given roles their organisation has**, checked by the endpoint rather than left to a
+      foreign key that reads past the floor.
+    - **A custom role may carry any privilege in the catalogue, the administrative ones included** — found by the
+      ux-designer agent's pass, which made one holding `admin:manageServer` as an organisation's administrator. It
+      is not an escalation: the system's acts are refused by the member's system flag, not by a privilege
+      (`TenantRouting`, §5e item 13), so such a role reaches no further than the organisation's own `administrator`
+      role, which that administrator already holds. ArcGIS Online lets a custom role carry administrative
+      privileges too. **INFERRED** that this stays; listed for the owner.
+    - The console (ux-designer, the same day): an organisation's administrator manages its custom roles; a built-in
+      role shows its privileges fixed, with *Copy as a custom role* — every built-in but `administrator`, which ArcGIS
+      Online does not offer as a template either (**INFERRED**).
+    - Tested by `AnOrganisationsRolesAreItsOwnTests`: one name in two organisations, each member holding its own
+      organisation's privileges, a change in one leaving the other's alone, and the built-ins refused to both.
 
 **State.** As §6 says, plus: the pools per tenant, node-local, emptied whenever the tenants are read again; each
 member's home, read once per thirty seconds.
@@ -670,8 +710,10 @@ own.
     host. **DISCHARGED 2026-10-22** for the rest (§5e item 15): data sources, groups, domains, relationships, identity
     providers and categories are named within their organisation, tested by
     `Groups_domains_and_categories_are_named_within_an_organisation_and_the_datastore_name_is_the_servers`.
-16. **A tenant may define roles of its own** without changing another tenant's — today roles are the deployment's
-    (§5e.4).
+16. **A tenant may define roles of its own** without changing another tenant's — ~~today roles are the deployment's
+    (§5e.4)~~. **DISCHARGED 2026-10-25 (§5e item 18):** a custom role is its organisation's, made by its own
+    administrator; the built-in roles are changed by nobody while there are several organisations; tested by
+    `AnOrganisationsRolesAreItsOwnTests`.
 
 ## 11. Dissent
 

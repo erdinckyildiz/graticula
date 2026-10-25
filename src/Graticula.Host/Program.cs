@@ -2762,7 +2762,7 @@ public static class Program
                 kind = current.Principal.Kind.ToString(),
                 authenticated = !current.Principal.IsAnonymous,
                 userType = current.Authorization.UserType,
-                roles = current.Authorization.Roles,
+                roles = current.Authorization.Roles.Select(r => AdminEndpoints.RoleLabel(context, r)),
 
                 // <b>Reported here because this is one of the three calls a caller holding an
                 // issued password may make.</b> Without it a console would sign somebody in, paint

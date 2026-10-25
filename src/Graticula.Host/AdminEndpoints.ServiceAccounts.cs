@@ -102,7 +102,8 @@ internal static partial class AdminEndpoints
     }
 
     private static async Task CreateServiceAccountAsync(
-        HttpContext context, ServiceAccountRequest request, IApiKeyStore keys, IAuditLog audit, CancellationToken cancellation)
+        HttpContext context, ServiceAccountRequest request, IApiKeyStore keys, IAuditLog audit, IRoleDirectory directory,
+        CancellationToken cancellation)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -121,6 +122,16 @@ internal static partial class AdminEndpoints
 
         string userType = string.IsNullOrWhiteSpace(request.UserType) ? UserTypes.Creator : request.UserType.Trim();
         string[] roles = [.. (request.Roles ?? []).Select(r => r.Trim()).Where(r => r.Length > 0).Distinct(StringComparer.Ordinal)];
+
+        // ADR-204 §5e item 18: roles this organisation has, checked here rather than left to a foreign key, which reads
+        // past the floor and would take another organisation's role by its stored name.
+        HashSet<string> defined = [.. (await directory.ListAsync(cancellation).ConfigureAwait(false)).Select(r => r.Name)];
+
+        if (roles.FirstOrDefault(r => !defined.Contains(r)) is { } unknown)
+        {
+            await Refuse(context, 400, $"There is no role '{unknown}' in this organization.").ConfigureAwait(false);
+            return;
+        }
 
         // ADR-015 §2: a machine never administers. Refused rather than dropped, so nobody believes they made one that does.
         if (roles.Contains(Roles.Administrator, StringComparer.Ordinal))

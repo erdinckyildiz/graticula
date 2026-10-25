@@ -20,7 +20,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
 {
     private const string Select = """
         select ip.id, ip.name, ip.issuer, ip.client_id, ip.scopes, ip.username_claim, ip.auto_create,
-               ip.default_role, ip.default_user_type, ip.enabled, ip.client_secret is not null,
+               graticula_role_label(ip.default_role), ip.default_user_type, ip.enabled, ip.client_secret is not null,
                (select count(*)::int from external_identity e where e.provider_id = ip.id),
                ip.kind, ip.groups_claim, ip.ldap::text, ip.saml::text
           from identity_provider ip
@@ -72,7 +72,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
             insert into identity_provider
                 (name, issuer, client_id, client_secret, key_version, scopes, username_claim,
                  auto_create, default_role, default_user_type, enabled, kind, groups_claim, ldap, saml)
-            values (@name, @issuer, @client, @secret, @version, @scopes, @claim, @auto, @role, @type, @enabled,
+            values (@name, @issuer, @client, @secret, @version, @scopes, @claim, @auto, graticula_role_named(@role), @type, @enabled,
                     @kind, @groups, @ldap::jsonb, @saml::jsonb)
             -- ADR-204 §5e item 15: the index is the name within its organisation, and the target names it whole.
             on conflict ((lower(name)), tenant_id) do nothing
@@ -104,7 +104,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         await using NpgsqlCommand command = _dataSource.CreateCommand($"""
             update identity_provider
                set name = @name, issuer = @issuer, client_id = @client, scopes = @scopes, username_claim = @claim,
-                   auto_create = @auto, default_role = @role, default_user_type = @type, enabled = @enabled,
+                   auto_create = @auto, default_role = graticula_role_named(@role), default_user_type = @type, enabled = @enabled,
                    kind = @kind, groups_claim = @groups, ldap = @ldap::jsonb, saml = @saml::jsonb,
                    {secretSet}
                    updated_at = now()
@@ -275,7 +275,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         }
 
         await using (NpgsqlCommand grant = new(
-            "insert into principal_role (principal_id, role_name) values (@principal, @role)", connection, transaction))
+            "insert into principal_role (principal_id, role_name) values (@principal, graticula_role_named(@role))", connection, transaction))
         {
             grant.Parameters.AddWithValue("principal", id);
             grant.Parameters.AddWithValue("role", role);
@@ -347,7 +347,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
     public async Task<IReadOnlyList<GroupMapping>> MappingsAsync(Guid providerId, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand("""
-            select m.external_group, m.role_name, m.group_id, g.name
+            select m.external_group, graticula_role_label(m.role_name), m.group_id, g.name
               from group_mapping m left join sharing_group g on g.id = m.group_id
              where m.provider_id = @provider
              order by lower(m.external_group)
@@ -388,7 +388,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
         {
             await using NpgsqlCommand add = new("""
                 insert into group_mapping (provider_id, external_group, role_name, group_id)
-                values (@provider, @group, @role, @target)
+                values (@provider, @group, graticula_role_named(@role), @target)
                 """, connection, transaction);
             add.Parameters.AddWithValue("provider", providerId);
             add.Parameters.AddWithValue("group", mapping.ExternalGroup.Trim());
@@ -471,7 +471,7 @@ public sealed class PostgresIdentityProviderStore : IIdentityProviderStore
                     "delete from principal_role where principal_id = @p", principalId, cancellationToken).ConfigureAwait(false);
 
                 await using NpgsqlCommand grant = new(
-                    "insert into principal_role (principal_id, role_name) values (@p, @role)", connection, transaction);
+                    "insert into principal_role (principal_id, role_name) values (@p, graticula_role_named(@role))", connection, transaction);
                 grant.Parameters.AddWithValue("p", principalId);
                 grant.Parameters.AddWithValue("role", role);
                 await grant.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

@@ -20,6 +20,9 @@ namespace Graticula.Host;
 /// <param name="Tenant">The tenant.</param>
 internal sealed record TenantFeature(Tenant Tenant);
 
+/// <summary>A group of another tenant a member is in: whose it is, its name and title, and where the member stands.</summary>
+internal sealed record GroupElsewhere(Tenant Tenant, string Name, string? Title, string Standing);
+
 /// <summary>
 /// The deployment's tenants as last read, which host names reach which, and whose home a member is — ADR-204.
 /// </summary>
@@ -109,6 +112,47 @@ internal sealed class TenantDirectory(ITenantStore store, NpgsqlDataSource root)
         return home;
     }
 
+    /// <summary>
+    /// The groups of other tenants a member is in, that still admit other tenants' members — ADR-204 §5e item 17.4,
+    /// ArcGIS Online's external groups on the member's own Groups page. Read on the root pool, because the floor hides
+    /// another tenant's group and its membership rows from this one's; narrowed here to the member's own rows.
+    /// </summary>
+    public async Task<IReadOnlyList<GroupElsewhere>> GroupsElsewhereAsync(
+        Guid principal, Guid here, CancellationToken cancellationToken)
+    {
+        if (All.Count < 2)
+        {
+            return [];
+        }
+
+        await using NpgsqlCommand command = root.CreateCommand(
+            """
+            select g.tenant_id, g.name, g.title,
+                   case when g.owner_principal_id = @principal then 'owner' else m.membership end
+              from sharing_group_member m
+              join sharing_group g on g.id = m.group_id
+             where m.principal_id = @principal
+               and g.admits_other_tenants
+               and g.tenant_id <> @here
+             order by g.tenant_id, lower(coalesce(g.title, g.name))
+            """);
+        command.Parameters.AddWithValue("principal", principal);
+        command.Parameters.AddWithValue("here", here);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        List<GroupElsewhere> found = [];
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (All.FirstOrDefault(t => t.Id == reader.GetGuid(0)) is { Suspended: false } tenant)
+            {
+                found.Add(new GroupElsewhere(
+                    tenant, reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetString(3)));
+            }
+        }
+
+        return found;
+    }
+
     private async Task<(Guid Tenant, bool SystemAdministrator)?> ReadHomeAsync(Guid principal, CancellationToken cancellationToken)
     {
         // The root pool names no tenant, so the floor lets it read every member's row.
@@ -138,11 +182,13 @@ internal static class TenantRouting
         "/admin/settings/style-origins", "/admin/settings/geometry-service", "/admin/settings/ground",
     ];
 
-    /// <summary>Exactly these, and not what is below them: the general settings, and every change to a role.</summary>
+    /// <summary>
+    /// Exactly these, and not what is below them: the general settings. ~~And every change to a role~~ — an
+    /// organisation makes and changes its own roles since ADR-204 §5e item 18, and the built-in ones are refused to
+    /// every organisation while there are several (<c>AdminEndpoints.BuiltInRoleRefusal</c>).
+    /// </summary>
     private static bool SystemOnlyExactly(HttpRequest request) =>
-        (request.Path.Equals("/admin/settings", StringComparison.OrdinalIgnoreCase))
-        || (request.Path.StartsWithSegments("/admin/roles", StringComparison.OrdinalIgnoreCase)
-            && !HttpMethods.IsGet(request.Method) && !HttpMethods.IsHead(request.Method));
+        request.Path.Equals("/admin/settings", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// The administration that is an organisation's own — ADR-204 §5e item 13: every prefix here reaches rows the

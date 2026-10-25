@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(105);
+    public static SchemaVersion ComponentSchemaVersion => new(106);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -140,7 +140,85 @@ public static class PlatformMigrations
         AServiceNameIsItsOrganisationsV103,
         TheOtherNamesAreTheOrganisationsV104,
         AUsernameIsItsOrganisationsV105,
+        AnOrganisationsRolesAreItsOwnV106,
     ]);
+
+    /// <summary>
+    /// An organisation defines roles of its own — ADR-204 condition 16 and §5e item 18, the owner's "sıra ile" after
+    /// ArcGIS Online's documents were read: there the administrator makes custom roles, named uniquely within the
+    /// organisation, and the default roles are the product's.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The built-in roles stay the deployment's</b> (<c>tenant_id</c> null, seen by everyone); <b>a custom role is
+    /// its organisation's</b>, floored like the rest. Its stored name keeps the primary key and the foreign keys that
+    /// hang from it working: the bare name in the default organisation, <c>key\name</c> in any other — the form
+    /// usernames take (migration 105) — and <c>graticula_role_named</c> / <c>graticula_role_label</c> turn one into the
+    /// other, so a request names and reads a role bare. Every custom role there is today was made while there was one
+    /// organisation, so it is the default organisation's.
+    /// </para>
+    /// <para><b>Expand</b>: a reader older than this sees every role it saw.</para>
+    /// </remarks>
+    private static Migration AnOrganisationsRolesAreItsOwnV106 => Migration.Expand(
+        new SchemaVersion(106),
+        "An organisation's custom roles are its own; the built-in roles stay the deployment's (ADR-204).",
+
+        "alter table role add column if not exists tenant_id uuid",
+        "alter table role_privilege add column if not exists tenant_id uuid",
+
+        """
+        update role set tenant_id = '10000000-0000-0000-0000-000000000001'
+         where tenant_id is null and name not in ('administrator', 'publisher', 'user', 'data_editor', 'viewer')
+        """,
+        "update role_privilege p set tenant_id = r.tenant_id from role r where r.name = p.role_name and p.tenant_id is distinct from r.tenant_id",
+
+        "create index if not exists role_tenant on role (tenant_id)",
+        "create index if not exists role_privilege_tenant on role_privilege (tenant_id)",
+
+        "alter table role enable row level security",
+        "alter table role force row level security",
+        "drop policy if exists tenant_floor on role",
+        """
+        create policy tenant_floor on role
+            using (tenant_id is null or graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+        "alter table role_privilege enable row level security",
+        "alter table role_privilege force row level security",
+        "drop policy if exists tenant_floor on role_privilege",
+        """
+        create policy tenant_floor on role_privilege
+            using (tenant_id is null or graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """,
+
+        // A name as the request's organisation means it: a built-in as it is, a custom role of the default
+        // organisation bare, any other organisation's under its key.
+        """
+        create or replace function graticula_role_named(named text) returns text
+        language sql stable returns null on null input as $f$
+            select case
+                     when exists (select 1 from role r where r.name = named and r.tenant_id is null) then named
+                     when graticula_tenant() is null
+                       or graticula_tenant() = '10000000-0000-0000-0000-000000000001'::uuid then named
+                     else (select t.key from tenant t where t.id = graticula_tenant()) || E'\\' || named
+                   end
+        $f$
+        """,
+
+        // And back: the request's own organisation's prefix taken off, anything else left as stored.
+        """
+        create or replace function graticula_role_label(stored text) returns text
+        language sql stable returns null on null input as $f$
+            select case
+                     when strpos(stored, E'\\') > 0
+                      and left(stored, strpos(stored, E'\\') - 1)
+                          = (select t.key from tenant t where t.id = graticula_tenant())
+                     then substr(stored, strpos(stored, E'\\') + 1)
+                     else stored
+                   end
+        $f$
+        """);
 
     /// <summary>
     /// A username is unique within its organisation — ADR-204 §5e item 16, owner decision 2026-10-22: *"bence

@@ -37,7 +37,7 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
         // <b>One statement, because three round trips over three tables is how a screen comes to
         // show a role's privileges beside somebody else's member count.</b>
         const string Sql = """
-            select r.name,
+            select graticula_role_label(r.name),
                    r.description,
                    coalesce(array_agg(p.privilege) filter (where p.privilege is not null), '{}'),
                    (select count(*) from principal_role pr where pr.role_name = r.name)
@@ -120,7 +120,10 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         await using (NpgsqlCommand insert = new(
-            "insert into role (name, description) values (@name, @description) "
+            // ADR-204 §5e item 18: stored as the organisation names it, and marked as the organisation's — explicitly,
+            // because a request on a server of one carries no organisation and the role is still the default one's.
+            "insert into role (name, description, tenant_id) "
+            + "values (graticula_role_named(@name), @description, coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001')) "
             + "on conflict (name) do nothing",
             connection,
             transaction))
@@ -173,7 +176,7 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         await using (NpgsqlCommand exists = new(
-            "select 1 from role where name = @name for update", connection, transaction))
+            "select 1 from role where name = graticula_role_named(@name) for update", connection, transaction))
         {
             exists.Parameters.AddWithValue("name", name);
 
@@ -184,7 +187,7 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
         }
 
         await using (NpgsqlCommand clear = new(
-            "delete from role_privilege where role_name = @name", connection, transaction))
+            "delete from role_privilege where role_name = graticula_role_named(@name)", connection, transaction))
         {
             clear.Parameters.AddWithValue("name", name);
             await clear.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -224,7 +227,7 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
             await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
         await using (NpgsqlCommand held = new(
-            "select count(*) from principal_role where role_name = @name", connection, transaction))
+            "select count(*) from principal_role where role_name = graticula_role_named(@name)", connection, transaction))
         {
             held.Parameters.AddWithValue("name", name);
 
@@ -237,7 +240,7 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
         }
 
         await using (NpgsqlCommand remove = new(
-            "delete from role where name = @name", connection, transaction))
+            "delete from role where name = graticula_role_named(@name)", connection, transaction))
         {
             remove.Parameters.AddWithValue("name", name);
 
@@ -332,7 +335,8 @@ public sealed class PostgresRoleDirectory : IRoleDirectory
         foreach (Privilege privilege in privileges)
         {
             await using NpgsqlCommand add = new(
-                "insert into role_privilege (role_name, privilege) values (@role, @privilege)",
+                "insert into role_privilege (role_name, privilege, tenant_id) "
+                + "select r.name, @privilege, r.tenant_id from role r where r.name = graticula_role_named(@role)",
                 connection,
                 transaction);
 

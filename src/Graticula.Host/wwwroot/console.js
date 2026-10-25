@@ -411,7 +411,7 @@ async function loadGroups() {
     : groups;
 
   $("groupCount").textContent = groups.length === 0
-    ? "no groups"
+    ? (answer.elsewhere || []).length ? "no groups here" : "no groups"
     : needle
       ? `${shown.length} of ${groups.length}`
       : `${groups.length} group${groups.length === 1 ? "" : "s"} — ${h(answer.listing || "")}`;
@@ -437,7 +437,9 @@ async function loadGroups() {
   $("groupRows").innerHTML = groups.length === 0
     ? `<tr><td colspan="6" class="empty">${answer.listing === "every group on the server"
         ? `No groups on this server yet.`
-        : `You are in no groups.`} <b>New group</b> makes one, and whoever makes it owns it.</td></tr>`
+        // Not *no groups* to somebody listed in other organizations' groups below: the sentence would be false.
+        : (answer.elsewhere || []).length ? `You are in none of this organization's groups.` : `You are in no groups.`}
+        <b>New group</b> makes one, and whoever makes it owns it.</td></tr>`
     : shown.length === 0
       ? `<tr><td colspan="6" class="empty">Nothing matches <b>${h(groupFilter)}</b>. The search reads
            a group's name, title, description and owner.</td></tr>`
@@ -461,8 +463,75 @@ async function loadGroups() {
 
   $("groupsPager").innerHTML = pagerFor("groupRows", shown.length);
 
+  drawGroupsElsewhere(answer.elsewhere || [], needle);
+
   // <b>Chosen from what is on screen.</b> It was taken from the unfiltered list, so filtering to
   // exclude the open group left the panel describing a group with no row above it.
+}
+
+/**
+ * The groups of other organizations the reader is in — ADR-204 §5e item 17.4, ArcGIS Online's *external groups*.
+ *
+ * <b>Listed, not managed.</b> `GET /admin/groups` sends them as `elsewhere`, apart from `groups`, and only this draws
+ * them: every other reader of that answer — the sharing pickers above all — reads `groups`, because the server refuses
+ * a share to a group of another organization and a picker that offered one would be offering a refusal.
+ *
+ * <b>Opened at that organization's own address, in a new tab.</b> The reader is an outsider there and may be asked to
+ * sign in again — a session belongs to an address — so leaving their own console in place of it would trade the page
+ * they came from for a sign-in card. The address is the group's own page, `/studio/group/{name}`, which Studio routes;
+ * the server sends no address for an organization that names no host, and the row says so rather than linking nowhere.
+ *
+ * <b>The search box reads these too</b>, by title, name and organization: a reader looking for the partners' group
+ * types its title into the one search box this page has.
+ */
+function drawGroupsElsewhere(elsewhere, needle) {
+  const box = $("groupsElsewhere");
+  if (!box) return;
+
+  box.hidden = elsewhere.length === 0;
+  if (elsewhere.length === 0) {
+    $("groupsElsewhereRows").innerHTML = "";
+    return;
+  }
+
+  const orgOf = g => g.organization?.name || g.organization?.key || "another organization";
+  const shown = needle
+    ? elsewhere.filter(g => [g.name, g.title, g.organization?.name, g.organization?.key]
+        .some(v => (v || "").toLowerCase().includes(needle)))
+    : elsewhere;
+
+  // The name to sign in with there, said only where it is known: at home, where the host's organization is the reader's.
+  const home = !whoNow?.outsider && whoNow?.organisation?.key && signedInAs
+    ? `${whoNow.organisation.key}\\${signedInAs}` : "";
+  $("groupsElsewhereLede").innerHTML = `Groups of other organizations that have added you. They are not managed here:
+    each opens at its organization's own address, in a new tab, where you see what the group shares with you.${home
+      ? ` If it asks you to sign in, your name there is <b class="addr">${h(home)}</b>.` : ""}`;
+
+  $("groupsElsewhereCount").textContent = needle
+    ? `${num(shown.length)} of ${num(elsewhere.length)}`
+    : `${num(elsewhere.length)} group${elsewhere.length === 1 ? "" : "s"}`;
+
+  // <b>The title is the link, as in the table above</b>, with the arrow and the words a new tab is owed; the
+  // organization has a column of its own, so it is not said a second time inside every link. Sorted by organization
+  // and then title as the reader reads them: the server orders by an internal id.
+  const byOrg = [...shown].sort((a, b) => orgOf(a).localeCompare(orgOf(b), undefined, { sensitivity: "base" })
+    || (a.title || a.name).localeCompare(b.title || b.name, undefined, { sensitivity: "base" }));
+  $("groupsElsewhereRows").innerHTML = byOrg.length === 0
+    ? `<tr><td colspan="3" class="empty">None of them matches <b>${h(groupFilter)}</b>.</td></tr>`
+    : byOrg.map(g => `
+      <tr data-elsewhere="${h(g.organization?.key || "")}/${h(g.name)}">
+        <td class="name">${g.url
+          ? `<a href="${h(g.url)}group/${encodeURIComponent(g.name)}" target="_blank" rel="noopener"
+              >${h(g.title || g.name)} <span aria-hidden="true">↗</span><span class="sr-only">, in ${h(orgOf(g))}
+              (opens in a new tab)</span></a>`
+          : `<b>${h(g.title || g.name)}</b>`}${[g.title && g.title !== g.name ? h(g.name) : "",
+            g.url ? "" : "No address to open it at"].filter(Boolean).map(line =>
+            `<div class="val" style="font-weight:400">${line}</div>`).join("")}</td>
+        <td class="val" data-l="Organization"><span>${h(orgOf(g))}</span></td>
+        <td data-l="You are">${g.standing === "member"
+          ? `<span class="val">member</span>`
+          : `<b>${h(g.standing)}</b>`}</td>
+      </tr>`).join("");
 }
 
 /**
@@ -1255,6 +1324,15 @@ async function saveGroupSettings(patch, what) {
  * in, what each requires and what each contains, and this file renders whatever it is given.
  */
 let roleOpen = null;
+
+/**
+ * The built-in role New role is copying, while the dialog was opened by *Copy as a custom role*; null for a role made
+ * empty. Its ticks are read again when Create is pressed, so what is carried over is what the server holds then.
+ */
+let roleCopyFrom = null;
+
+/** Set when a role has just been made, so the list opens on the page that holds it rather than where it was. */
+let roleReveal = false;
 
 /**
  * What a role grants, what carries administrative weight, and how many hold each — for the two
@@ -2127,24 +2205,29 @@ async function loadApps() {
 
 async function loadRoles() {
   const answer = await api("/admin/roles") || {};
-  // <b>Read, not changed, by an organization's administrator — ADR-204 §5e.4.</b> Roles are the deployment's in this
-  // version and every write under `/admin/roles` is the system administrator's while there are several organizations,
-  // so to anybody else each role is drawn as the administrator's always was: its ticks shown, nothing to save.
-  const readOnly = systemOnlyHidden();
-  const roles = (answer.roles || []).map(r => readOnly ? { ...r, editable: false, removable: false } : r);
-  $("roleNew").hidden = readOnly;
-  // The page's own first line says every role can be changed, which is not true for this reader.
+  // <b>An organization's custom roles are its own — ADR-204 §5e item 18.</b> Its administrator makes, changes and
+  // deletes them as the system administrator does, so nobody is drawn a read-only page any more. What is fixed while
+  // there are several organizations is the five built-in roles, for every reader: each is every organization's, and
+  // the server says so by sending `editable: false`. The screen follows that flag rather than deciding it again.
+  const shared = isMultiTenant();
+  const roles = answer.roles || [];
+  $("roleNew").hidden = false;
+  // The page's own first line says every role but the administrator's can be changed, which is not true while
+  // the built-in roles are shared; the line under it says what is.
   const rolesLede = document.querySelector("#view-roles .pagehead p:not(#rolesWhose)");
-  if (rolesLede) rolesLede.hidden = readOnly;
-  $("rolesWhose").hidden = !isMultiTenant();
-  $("rolesWhose").textContent = !isMultiTenant() ? ""
-    : readOnly
-      ? "Roles are the server's, the same in every organization on it, so only its system administrator changes them. "
-        + "Which role each of your members holds is yours, under Members."
-      : "Roles are the server's, the same in every organization on it: a change here changes what their members can do too.";
+  if (rolesLede) rolesLede.hidden = shared;
+  $("rolesWhose").hidden = !shared;
+  $("rolesWhose").textContent = !shared ? ""
+    : "What members may do. The built-in roles are shared by every organization on this server, so their "
+      + "privileges are fixed here. Custom roles are this organization's own, and no other organization sees them.";
   const catalogue = answer.catalogue || [];
 
   if (!roles.some(r => r.name === roleOpen)) roleOpen = roles[0]?.name ?? null;
+  if (roleReveal) {
+    roleReveal = false;
+    const at = roles.findIndex(r => r.name === roleOpen);
+    if (at >= 0) pages.set("roleRows", Math.floor(at / PAGE_SIZE));
+  }
 
   const chosen = roles.find(r => r.name === roleOpen) || null;
 
@@ -2157,8 +2240,9 @@ async function loadRoles() {
           data-privileges="${r.privileges.length}">
         <td class="name"><button type="button" class="rowname"
             data-role="${h(r.name)}"${r.name === roleOpen ? ' aria-current="true"' : ""}>${h(r.name)}</button>
-          <span class="rowmeta">${num(r.privileges.length)} privilege${r.privileges.length === 1 ? "" : "s"} ·
-            ${r.members ? `held by ${num(r.members)}` : "held by nobody"}${r.builtIn ? " · built in" : ""}</span></td>
+          <span class="rowmeta"><span class="nowrap">${num(r.privileges.length)} privilege${r.privileges.length === 1 ? "" : "s"}</span> ·
+            <span class="nowrap">${r.members ? `held by ${num(r.members)}` : "held by nobody"}</span>${r.builtIn
+              ? ' · <span class="nowrap">built in</span>' : ""}</span></td>
         <td class="act" style="text-align:right">${r.removable
           ? `<button class="tiny danger" data-role-delete="${h(r.name)}"
                ${r.members ? "disabled title='Members hold this role'" : ""}>Delete</button>`
@@ -2200,7 +2284,7 @@ async function loadRoles() {
   $("roleEditorName").innerHTML = h(chosen.name);
   $("roleEditorSays").textContent = [
     chosen.description || "",
-    readOnly
+    !chosen.editable
       ? (chosen.members ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"} here.` : "Held by nobody here.")
       : chosen.members
       ? `Held by ${num(chosen.members)} member${chosen.members === 1 ? "" : "s"}: saving changes what they can do, at their next request.`
@@ -2211,13 +2295,24 @@ async function loadRoles() {
   // <b>Set from existing role.</b> Every other role is an option; choosing one copies its ticks
   // into this editor without saving, so the operator can then narrow it. Absent for the
   // administrator, which cannot be edited at all.
+  //
+  // <b>And the other direction where the ticks are fixed: Copy as a custom role.</b> A built-in role that cannot be
+  // changed here — every one of them while there are several organizations — is the natural start of a custom one:
+  // ArcGIS Online's *Set from existing role* lists its default Publisher, User, Data Editor and Viewer among the
+  // templates. It opens New role with this role's ticks to be carried over, so the slot holds one control either way.
+  //
+  // <b>Not the administrator, as there.</b> Its authority is not its ticks (ADR-035 §4b), so a copy would look like an
+  // administrator and be one only as far as fourteen rows go — the misreading the role's own note warns against.
   $("roleFrom").innerHTML = chosen.editable
     ? `<label>Copy privileges from
          <select id="roleFromPick"><option value="">a role…</option>${
            roles.filter(r => r.name !== chosen.name)
              .map(r => `<option value="${h(r.name)}">${h(r.name)} (${r.privileges.length})</option>`)
              .join("")}</select></label>`
-    : "";
+    : chosen.builtIn && chosen.name !== "administrator"
+      ? `<button type="button" id="roleCopy" data-role-copy="${h(chosen.name)}"
+           data-role-copy-count="${chosen.privileges.length}">Copy as a custom role</button>`
+      : "";
 
   const held = new Set(chosen.privileges);
 
@@ -2316,12 +2411,21 @@ async function loadRoles() {
   // is a consequence of what is ticked and the screen says it instead of offering a control.
   const anyAdmin = catalogue.some(c => c.administrative && held.has(c.name));
 
+  // <b>Why the ticks are fixed, said once and beside them.</b> The administrator's reason is its own and comes first:
+  // it would be fixed on a server of one organization too. A shared built-in role says it is shared, and where the
+  // way out is — the button above, in the same head.
   $("roleCompatibility").innerHTML = chosen.editable
     ? `<p class="hint" id="roleCompatibilityLine">${roleCompatibilityText(anyAdmin)}</p>`
-    : readOnly ? `<p class="hint">${roleCompatibilityText(anyAdmin)}</p>`
-    : `<p class="hint"><b>This role cannot be edited or removed.</b> An administrator passes every
+    : chosen.name === "administrator"
+    ? `<p class="hint" id="roleFixedWhy"><b>This role cannot be edited or removed.</b> An administrator passes every
          privilege check whatever is ticked here, so the ticks are what it holds and not what limits it.
-         To take administrative power from somebody, change their role.</p>`;
+         To take administrative power from somebody, change their role.</p>`
+    : chosen.builtIn && shared
+    ? `<p class="hint" id="roleFixedWhy"><b>A built-in role, shared by every organization on this server,</b> so its
+         privileges are fixed here. To give your members a different set, copy it as a custom role and change the
+         copy.</p>
+       <p class="hint">${roleCompatibilityText(anyAdmin)}</p>`
+    : `<p class="hint">${roleCompatibilityText(anyAdmin)}</p>`;
 
   $("roleSaveBar").hidden = !chosen.editable;
   $("roleSave").hidden = !chosen.editable;
@@ -29390,7 +29494,20 @@ async function handleClick(event) {
     return;
   }
 
-  if (t.id === "roleNew") {
+  // <b>New role and Copy as a custom role are one dialog.</b> The copy differs in its title, in the sentence that
+  // says where it starts, and in the ticks it carries; the name is still the reader's to give, because a built-in
+  // role's name is taken in every organization and a suggested `publisher_copy` is a name nobody would choose.
+  const roleCopy = t.closest?.("[data-role-copy]");
+
+  if (t.id === "roleNew" || roleCopy) {
+    roleCopyFrom = roleCopy ? roleCopy.dataset.roleCopy : null;
+    const count = Number(roleCopy?.dataset.roleCopyCount || 0);
+    $("roleDialogTitle").textContent = roleCopyFrom ? `Copy ${roleCopyFrom} as a custom role` : "New role";
+    $("newRoleHint").textContent = roleCopyFrom
+      ? `It starts with ${roleCopyFrom}'s ${num(count)} privilege${count === 1 ? "" : "s"}, which you can change once `
+        + `it is made. Nobody holds it until you give it to a member; ${roleCopyFrom} stays as it is.`
+      : "It starts granting nothing; its privileges are chosen beside the list once it is made, or copied "
+        + "from another role there.";
     $("newRoleName").value = "";
     $("newRoleWhy").value = "";
     dialogSay("newRoleSays", "");
@@ -29408,24 +29525,47 @@ async function handleClick(event) {
     const name = $("newRoleName").value.trim();
     if (!name) { dialogSay("newRoleSays", "A role needs a name."); $("newRoleName").focus(); return; }
 
+    const button = $("roleNewSave");
+    button.disabled = true;
+    let privileges = [];
+
     try {
       // <b>Created empty, and the editor is where privileges are chosen.</b> A creation dialog with
       // eighteen ticks in it would be a second copy of the editor, and `set from existing role`
       // exists precisely so an empty start is a step rather than a burden.
+      //
+      // <b>A copy carries the built-in role's ticks as the server holds them now</b>, read here rather than kept
+      // from when the editor was drawn: the copy is of the role, not of a picture of it.
+      if (roleCopyFrom) {
+        const source = ((await api("/admin/roles") || {}).roles || []).find(r => r.name === roleCopyFrom);
+        privileges = source ? source.privileges : [];
+      }
+
       await api("/admin/roles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description: $("newRoleWhy").value.trim(), privileges: [] }),
+        body: JSON.stringify({ name, description: $("newRoleWhy").value.trim(), privileges }),
       });
       roleOpen = name;
+      roleReveal = true;
       $("roleDialog").close();
-      toast(`${name}: created, granting nothing yet`, true);
+      toast(roleCopyFrom
+        ? `${name}: created with ${roleCopyFrom}'s ${privileges.length} privilege${privileges.length === 1 ? "" : "s"}. `
+          + "Change them here, then give it to members."
+        : `${name}: created, granting nothing yet`, true);
+      roleCopyFrom = null;
     } catch (e) {
       dialogSay("newRoleSays", e.message);
+      $("newRoleName").focus();
       return;
+    } finally {
+      button.disabled = false;
     }
 
     await section("roles", loadRoles, "roleRows");
+    // The button that opened the dialog was redrawn away (Copy) or is far from the new role (New role), so focus
+    // goes to the role just made: the list's row, which is where the reader looks for it.
+    [...document.querySelectorAll("#roleRows button.rowname")].find(b => b.dataset.role === roleOpen)?.focus();
     return;
   }
 

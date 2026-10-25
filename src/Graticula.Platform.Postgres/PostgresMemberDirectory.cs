@@ -102,7 +102,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         }
 
         await using (NpgsqlCommand grant = new(
-            "insert into principal_role (principal_id, role_name) values (@principal, @role)",
+            "insert into principal_role (principal_id, role_name) values (@principal, graticula_role_named(@role))",
             connection,
             transaction))
         {
@@ -144,7 +144,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         string sql = $"""
             with m as (
                 select p.id, p.name, p.display_name, p.user_type, p.disabled_at, p.created_at,
-                       coalesce((select array_agg(r.role_name order by r.role_name)
+                       coalesce((select array_agg(graticula_role_label(r.role_name) order by r.role_name)
                                  from principal_role r where r.principal_id = p.id), '{"{}"}') as roles,
                        (select count(*) from item i where i.owner_principal_id = p.id and i.kind = 'service') as owns,
                        (select max(s.created_at) from session s where s.principal_id = p.id) as last_sign_in,
@@ -260,7 +260,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         // absence should be on the row where somebody looks for the button.
         const string Sql = """
             select p.id, p.name, p.display_name, p.user_type, p.disabled_at, p.created_at,
-                   coalesce(array_agg(r.role_name) filter (where r.role_name is not null), '{}'),
+                   coalesce(array_agg(graticula_role_label(r.role_name)) filter (where r.role_name is not null), '{}'),
                    (select count(*) from item i where i.owner_principal_id = p.id and i.kind = 'service')
             from principal p
             left join principal_role r on r.principal_id = p.id
@@ -367,7 +367,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         List<string> before = [];
 
         await using (NpgsqlCommand held = new(
-            "select role_name from principal_role where principal_id = @principal order by role_name",
+            "select graticula_role_label(role_name) from principal_role where principal_id = @principal order by role_name",
             connection,
             transaction))
         {
@@ -394,7 +394,7 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
         if (role is { Length: > 0 })
         {
             await using NpgsqlCommand grant = new(
-                "insert into principal_role (principal_id, role_name) values (@principal, @role)",
+                "insert into principal_role (principal_id, role_name) values (@principal, graticula_role_named(@role))",
                 connection,
                 transaction);
 

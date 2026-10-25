@@ -484,6 +484,12 @@ public sealed class RolesPageTests : ConsoleTest
 
         Assert.False(from, "Set-from-existing is offered for the one role that cannot be set.");
 
+        // <b>Nor Copy as a custom role — ADR-204 §5e item 18.</b> Its authority is not its ticks, so a copy would look
+        // like an administrator without being one; ArcGIS Online offers no Administrator template either. The other
+        // built-in roles are copied while a server holds several organizations (OrganizationReadersTests).
+        Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('roleCopy')"),
+            "The administrator offers Copy as a custom role.");
+
         string[] errors = await PageErrorsAsync();
         NothingWentWrong(errors);
     }

@@ -34,8 +34,6 @@ public sealed class EveryTableIsATenantsOrTheSystemsTests : PostgresFixture
         ["oauth_code"] = "looked up by a secret, never listed",
         ["oauth_refresh"] = "looked up by a secret, never listed",
         ["saml_assertion_used"] = "looked up by a secret, never listed",
-        ["role"] = "the deployment's roles in this version (ADR-204 as built)",
-        ["role_privilege"] = "the deployment's roles in this version (ADR-204 as built)",
         ["user_type"] = "the deployment's user types",
     };
 

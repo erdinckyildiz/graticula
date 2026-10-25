@@ -145,6 +145,16 @@ public sealed class PostgresTenantStore : ITenantStore
             return owned;
         }
 
+        // An organisation that holds nothing above may still hold custom roles (ADR-204 §5e item 18); they go with it, or a
+        // later organisation of the same key would meet names it cannot see. Their privileges go by the cascade.
+        await using (NpgsqlCommand roles = new(
+            "delete from role where tenant_id = (select id from tenant where key = @key and id <> @default)", connection, transaction))
+        {
+            roles.Parameters.AddWithValue("key", key);
+            roles.Parameters.AddWithValue("default", TenantScope.DefaultTenant);
+            await roles.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await using (NpgsqlCommand delete = new("delete from tenant where key = @key and id <> @default", connection, transaction))
         {
             delete.Parameters.AddWithValue("key", key);

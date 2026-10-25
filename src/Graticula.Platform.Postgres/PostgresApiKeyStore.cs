@@ -69,7 +69,7 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
             await using NpgsqlCommand grant = new(
                 """
                 insert into principal_role (principal_id, role_name, granted_by)
-                values (@principal, @role, @by)
+                values (@principal, graticula_role_named(@role), @by)
                 on conflict (principal_id, role_name) do nothing
                 """, connection, transaction);
             grant.Parameters.AddWithValue("principal", id);
@@ -89,7 +89,7 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             """
             select p.id, p.name, p.display_name, p.user_type, p.created_at, p.disabled_at is not null,
-                   coalesce(array(select r.role_name from principal_role r where r.principal_id = p.id
+                   coalesce(array(select graticula_role_label(r.role_name) from principal_role r where r.principal_id = p.id
                                   order by r.role_name), '{}'),
                    (select count(*) from api_key k where k.principal_id = p.id and k.revoked_at is null
                        and (k.expires_at is null or k.expires_at > now()))

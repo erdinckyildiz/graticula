@@ -5821,7 +5821,8 @@ internal static partial class AdminEndpoints
 
                 // The administrator, and only the administrator. A built-in role's *privileges* are
                 // editable — the owner's rule is about the administrator, not about being built in.
-                editable = !string.Equals(r.Name, Roles.Administrator, StringComparison.Ordinal),
+                editable = !string.Equals(r.Name, Roles.Administrator, StringComparison.Ordinal)
+                    && BuiltInRoleRefusal(r.Name) is null,
 
                 // Built-in roles cannot be deleted, because the migration seed would recreate them
                 // on a fresh store and the two would disagree about what exists.
@@ -5829,7 +5830,7 @@ internal static partial class AdminEndpoints
 
                 // What this process is enforcing right now. Equal to `privileges` unless a refresh
                 // has been missed, which is worth being able to see rather than deduce.
-                inForce = (inForce.TryGetValue(r.Name, out ImmutableHashSet<Privilege>? live)
+                inForce = (inForce.TryGetValue(StoredRoleName(context, r.Name), out ImmutableHashSet<Privilege>? live)
                         ? live
                         : [])
                     .Select(Roles.NameOf).OrderBy(n => n, StringComparer.Ordinal),
@@ -5904,6 +5905,19 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-204 §5e item 18: a backslash separates an organisation from a name, and a built-in's name is taken in
+        // every organisation — ArcGIS Online's rule, that a custom role is not named as a default one.
+        if (request.Name.Contains('\\', StringComparison.Ordinal)
+            || Roles.All.Contains(request.Name.Trim(), StringComparer.OrdinalIgnoreCase))
+        {
+            await Refuse(context, 400, request.Name.Contains('\\', StringComparison.Ordinal)
+                ? $"'{request.Name.Trim()}' cannot be a role's name: a backslash separates an organization from a "
+                    + "name, so a role's name may not hold one."
+                : $"'{request.Name.Trim()}' is a built-in role's name, which is taken in every organization. Choose "
+                    + "another name for the custom role.").ConfigureAwait(false);
+            return;
+        }
+
         (RoleChange outcome, string? detail) = await roles.CreateAsync(
             request.Name.Trim(),
             request.Description?.Trim() ?? string.Empty,
@@ -5954,6 +5968,12 @@ internal static partial class AdminEndpoints
                 "'privileges' is required, and an empty array is how a role is emptied. Omitting it "
                 + "would make *grant nothing* and *leave unchanged* the same request.")
                 .ConfigureAwait(false);
+            return;
+        }
+
+        if (BuiltInRoleRefusal(name) is { } builtIn)
+        {
+            await Refuse(context, 409, builtIn).ConfigureAwait(false);
             return;
         }
 
@@ -6042,8 +6062,12 @@ internal static partial class AdminEndpoints
         RoleChange.BuiltIn => Refuse(context, 409,
             $"'{name}' is one of the five roles this server ships with, and it cannot be removed: "
             + "the schema seed recreates it on a fresh store, so removing it here would leave two "
-            + "answers about which roles exist. Its privileges are editable — PUT "
-            + $"/admin/roles/{name}/privileges — and a role you no longer want can be emptied."),
+            + "answers about which roles exist. "
+            + (BuiltInRoleRefusal(name) is null
+                ? $"Its privileges are editable — PUT /admin/roles/{name}/privileges — and a role you no longer want "
+                    + "can be emptied."
+                : "While this server holds several organizations its privileges are fixed too, because every "
+                    + "organization shares it; make a custom role instead.")),
 
         RoleChange.MissingPrerequisite => Refuse(context, 400,
             $"{detail}. That privilege is useless without the one it requires, so it is refused "
@@ -6119,6 +6143,7 @@ internal static partial class AdminEndpoints
     private static async Task ListGroupsAsync(
         HttpContext context,
         IGroupDirectory groups,
+        TenantDirectory tenants,
         CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
@@ -6134,8 +6159,27 @@ internal static partial class AdminEndpoints
         IReadOnlyList<GroupSummary> mine = await groups
             .ListAsync(current.Principal.Id, all, cancellation).ConfigureAwait(false);
 
+        // ADR-204 §5e item 17.4: the groups of other organisations this member is in, as ArcGIS Online lists external
+        // groups on the member's own Groups page. They are opened at their organisation's address, where the member
+        // reads as an outsider; an organisation that names no address of its own is listed without a link. Answered at
+        // home only: an outsider here is already elsewhere, and their home's groups are not this organisation's to list.
+        Guid here = context.Features.Get<TenantFeature>()?.Tenant.Id ?? Graticula.Platform.Tenancy.TenantScope.DefaultTenant;
+        IReadOnlyList<GroupElsewhere> elsewhere = current.HomeOrganisation is not null
+            ? []
+            : await tenants.GroupsElsewhereAsync(current.Principal.Id, here, cancellation).ConfigureAwait(false);
+        string port = context.Request.Host.Port is { } p ? $":{p}" : string.Empty;
+
         await Results.Json(new
         {
+            elsewhere = elsewhere.Select(g => new
+            {
+                name = g.Name,
+                title = g.Title,
+                standing = g.Standing,
+                organization = new { key = g.Tenant.Key, name = g.Tenant.Name },
+                url = g.Tenant.Hosts.Count == 0 ? null : $"{context.Request.Scheme}://{g.Tenant.Hosts[0]}{port}/studio/",
+            }),
+
             groups = mine.Select(g => new
             {
                 name = g.Name,
@@ -13169,6 +13213,36 @@ internal static partial class AdminEndpoints
         Platform.Postgres.PostgresAdminCatalog.Wire(scope);
 
     internal static string Detail(object value) => JsonSerializer.Serialize(value);
+
+    /// <summary>
+    /// A role's stored name for the request's organisation — ADR-204 §5e item 18: a built-in as it is, a custom role of
+    /// the default organisation bare, any other organisation's under its key. The store's
+    /// <c>graticula_role_named</c> in C#, for the snapshots keyed by stored name.
+    /// </summary>
+    internal static string StoredRoleName(HttpContext context, string label) =>
+        Roles.All.Contains(label, StringComparer.Ordinal)
+        || !Graticula.Platform.Tenancy.TenantScope.MultiTenant
+        || context.Features.Get<TenantFeature>() is not { Tenant: { IsDefault: false } tenant }
+            ? label
+            : $"{tenant.Key}\\{label}";
+
+    /// <summary>A stored role name as the request's organisation reads it: its own key taken off.</summary>
+    internal static string RoleLabel(HttpContext context, string stored) =>
+        context.Features.Get<TenantFeature>() is { Tenant: { IsDefault: false } tenant }
+        && stored.StartsWith(tenant.Key + "\\", StringComparison.Ordinal)
+            ? stored[(tenant.Key.Length + 1)..]
+            : stored;
+
+    /// <summary>
+    /// Why a built-in role's privileges may not change here, or null — ADR-204 §5e item 18: while there are several
+    /// organisations a built-in role is every one's, so changing it would change every organisation's members. As in
+    /// ArcGIS Online, an organisation makes a custom role instead.
+    /// </summary>
+    internal static string? BuiltInRoleRefusal(string name) =>
+        Graticula.Platform.Tenancy.TenantScope.MultiTenant && Roles.All.Contains(name, StringComparer.Ordinal)
+            ? $"'{name}' is a built-in role, which every organization on this server shares, so its privileges are not "
+                + "changed here. Make a custom role with the privileges you want and give it to your members."
+            : null;
 
     /// <summary>
     /// Why a data source may not be called <paramref name="name"/>, or null — ADR-204 §5e item 15, owner decision

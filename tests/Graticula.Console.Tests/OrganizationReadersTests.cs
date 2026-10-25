@@ -184,16 +184,73 @@ public sealed class OrganizationReadersTests : ConsoleTest
                 "Settings offers Utility services, whose one setting is the server's.");
             await NothingRefusedAsync("Organization › Map");
 
-            // Member roles: read, never changed.
+            // Member roles — ADR-204 §5e item 18: the built-in roles are every organization's and fixed, and the
+            // organization makes its own. The custom role is made and deleted through the screen, for real, because a
+            // trapped write would answer 200 to a request the server refuses this reader, which is the failure here.
             await OpenOnHostAsync(host, "/studio/#/roles", token);
-            await WaitForAsync("!!document.querySelector('#roleRows tr[data-role]') && !document.getElementById('roleEditor').hidden",
+            await WaitForAsync("!!document.querySelector('#roleRows tr[data-role=publisher]') && !document.getElementById('roleEditor').hidden",
                 "Member roles drew no roles.");
-            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleNew")), "New role is offered; the server refuses every change to a role from this reader.");
-            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleSave")), "Save privileges is offered to an organization's administrator.");
-            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#roleRows [data-role-delete]')"), "Delete is offered on a role.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#roleNew")), "New role is not offered; an organization's administrator makes its own roles.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#rolesWhose")), "Nothing says the built-in roles are shared and custom roles are this organization's.");
+            Assert.Contains("Custom roles are this organization's own", await Browser.EvaluateAsync<string>(
+                "document.getElementById('rolesWhose').textContent") ?? string.Empty, StringComparison.Ordinal);
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#view-roles .pagehead p:not(#rolesWhose)")),
+                "The single-organization line, which says every role but the administrator's can be changed, is shown.");
+
+            await ClickAsync("#roleRows tr[data-role='publisher'] td.name");
+            await WaitForAsync(Shown("#roleCopy") + " && (document.getElementById('roleEditorName').textContent || '').includes('publisher')",
+                "A shared built-in role offers no Copy as a custom role, so the page names a way out it does not draw.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#roleSave")), "Save privileges is offered on a built-in role every organization shares.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#roleRows [data-role-delete]')"), "Delete is offered on a built-in role.");
             Assert.True(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('#rolePrivileges input[data-privilege]')].every(b => b.disabled)"),
-                "A privilege can be ticked.");
-            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#rolesWhose")), "Nothing says roles are the server's.");
+                "A shared built-in role's privilege can be ticked.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#roleFixedWhy")), "Nothing beside the ticks says why they are fixed.");
+            int publisherHolds = await Browser.EvaluateAsync<int>("document.querySelectorAll('#rolePrivileges input[data-privilege]:checked').length");
+
+            const string Crew = "zz_crew";
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/roles'], true)");
+            await ClickAsync("#roleCopy");
+            await WaitForAsync("document.getElementById('roleDialog').open && document.activeElement?.id === 'newRoleName'",
+                "Copy as a custom role did not open the dialog with the name to give.");
+            Assert.Contains("publisher", await Browser.EvaluateAsync<string>("document.getElementById('roleDialogTitle').textContent") ?? string.Empty,
+                StringComparison.Ordinal);
+            await FilterAsync("newRoleName", Crew);
+            await ClickAsync("#roleNewSave");
+            await WaitForAsync($"!!document.querySelector('#roleRows tr[data-role={Crew}]') && (document.getElementById('roleEditorName').textContent || '').includes('{Crew}')",
+                "The copy was not made and opened.");
+            Assert.Equal(publisherHolds, await Browser.EvaluateAsync<int>("document.querySelectorAll('#rolePrivileges input[data-privilege]:checked').length"));
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#roleSave")), "The organization's own role cannot be saved.");
+            Assert.True(await Browser.EvaluateAsync<bool>("[...document.querySelectorAll('#rolePrivileges input[data-privilege]')].every(b => !b.disabled)"),
+                "The organization's own role has a privilege that cannot be ticked.");
+            Assert.Equal(Crew, await Browser.EvaluateAsync<string>("document.activeElement?.dataset?.role || ''"));
+            await NothingRefusedAsync("Member roles");
+
+            // New role afterwards is New role again, not a second copy of publisher.
+            await ClickAsync("#roleNew");
+            await WaitForAsync("document.getElementById('roleDialog').open", "New role did not open.");
+            Assert.Equal("New role", await Browser.EvaluateAsync<string>("document.getElementById('roleDialogTitle').textContent"));
+            Assert.Contains("starts granting nothing", await Browser.EvaluateAsync<string>("document.getElementById('newRoleHint').textContent") ?? string.Empty,
+                StringComparison.Ordinal);
+            await ClickAsync("#roleNewCancel");
+
+            // The administrator is not offered as a template, shared or not.
+            await ClickAsync("#roleRows tr[data-role='administrator'] td.name");
+            await WaitForAsync("(document.getElementById('roleEditorName').textContent || '').includes('administrator')", "The administrator did not open.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('roleCopy')"), "The administrator offers Copy as a custom role.");
+
+            // It is listed where a member is given a role, and only in this organization.
+            await OpenOnHostAsync(host, "/studio/#/members", token);
+            await WaitForAsync("document.querySelectorAll('#mRole option').length > 0", "Members drew no role choices.");
+            Assert.Contains(Crew, (await Browser.EvaluateAsync<string>("[...document.querySelectorAll('#mRole option')].map(o => o.value).join(',')") ?? string.Empty).Split(','));
+            (int listed, string roles) = await AdminAsync(HttpMethod.Get, "/admin/roles");
+            Assert.True(listed == 200 && !roles.Contains(Crew, StringComparison.Ordinal), $"The default organization sees {Crew}: {listed}.");
+
+            // And deleted from the screen, which nobody holding it allows.
+            await OpenOnHostAsync(host, "/studio/#/roles", token);
+            await WaitForAsync($"!!document.querySelector('#roleRows [data-role-delete={Crew}]')", $"{Crew} offers no Delete.");
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/roles'], true)");
+            await ClickAsync($"#roleRows [data-role-delete={Crew}]");
+            await WaitForAsync($"!document.querySelector('#roleRows tr[data-role={Crew}]')", $"{Crew} was not deleted.");
             await NothingRefusedAsync("Member roles");
 
             NothingWentWrong(await PageErrorsAsync());

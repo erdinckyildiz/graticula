@@ -44,7 +44,10 @@ public sealed partial class PostgresRoleGrants : IRoleGrants, IDisposable
     private readonly NpgsqlDataSource _root;
 
     /// <summary>The tenant's connections where the deployment holds several (ADR-204), otherwise the store's own.</summary>
-    private NpgsqlDataSource _dataSource => TenantDataSources.Route(_root);
+    // <b>The store's own pool, not the organisation's — ADR-204 §5e item 18.</b> One snapshot serves every request, keyed
+    // by the stored name, which is unique across organisations (`key\name`); read on a request's pool it held only that
+    // organisation's custom roles, and every other organisation's resolved to no privileges until its own next refresh.
+    private NpgsqlDataSource _dataSource => _root;
     private readonly ILogger<PostgresRoleGrants> _log;
     private readonly TimeProvider _clock;
     private readonly SemaphoreSlim _reading = new(1, 1);

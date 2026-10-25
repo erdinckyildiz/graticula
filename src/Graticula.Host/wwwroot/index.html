@@ -1412,6 +1412,31 @@
     </div>
     <div id="groupsPager"></div>
 
+    <!--
+      <b>Groups of other organizations the reader is in — ADR-204 §5e item 17.4</b>, as ArcGIS Online lists external
+      groups on a member's own Groups page. Below the reader's own, because those are what this page is for, and not
+      mixed into that table: these cannot be opened, managed or shared to from here, and a row that looked like the
+      others would promise all three. `hidden` until the server lists one, so a server of one organization, and a member
+      in no such group, never sees the heading.
+    -->
+    <div id="groupsElsewhere" hidden>
+      <div class="pagehead sub">
+        <div>
+          <h3 id="groupsElsewhereTitle">In other organizations</h3>
+          <p id="groupsElsewhereLede"></p>
+        </div>
+        <div class="right"><span class="val" id="groupsElsewhereCount"></span></div>
+      </div>
+      <div class="panel">
+        <table class="rowblocks" aria-labelledby="groupsElsewhereTitle">
+          <thead><tr>
+            <th>Group</th><th>Organization</th><th>You are</th>
+          </tr></thead>
+          <tbody id="groupsElsewhereRows"></tbody>
+        </table>
+      </div>
+    </div>
+
   </section>
 
   <!--
@@ -1708,8 +1733,8 @@
       <div>
         <h2>Member roles</h2>
         <p>What members may do. Every role's privileges can be changed except the administrator's, whose authority is a property of the server rather than a set of rows.</p>
-        <!-- ADR-204 §5e.4: roles are the deployment's in this version, and changing one is the system administrator's
-             while there are several organizations. Said to both readers, because it changes what a save means. -->
+        <!-- ADR-204 §5e item 18: while there are several organizations the built-in roles are every one's and fixed, and
+             custom roles are the organization's own. Shown in place of the line above, which is untrue then. -->
         <p class="hint" id="rolesWhose" hidden></p>
       </div>
       <div class="right">
@@ -1729,7 +1754,7 @@
           <input id="newRoleName" type="text" placeholder="field_editor" autocomplete="off" spellcheck="false">
           <label for="newRoleWhy">What it is for</label>
           <input id="newRoleWhy" type="text" autocomplete="off">
-          <p class="hint">It starts granting nothing; its privileges are chosen beside the list once it is made, or copied
+          <p class="hint" id="newRoleHint">It starts granting nothing; its privileges are chosen beside the list once it is made, or copied
             from another role there.</p>
           <p class="bad-inline" id="newRoleSays" role="alert" hidden></p>
         </div>
