@@ -564,7 +564,15 @@ sign-in at the organisation's host. A purge leaves the organisation's hosted tab
 ### 4.3 What crosses between organisations
 
 Only a group whose organisation's administrator marked it as admitting others
-(`PUT /admin/groups/{name}/tenants`). A member of another organisation is then added to it by username, signs in
+(`PUT /admin/groups/{name}/tenants`) — either **any organisation**, or **partner organisations only**.
+
+Two organisations become partners as in ArcGIS Online's partnered collaboration
+([ADR-219](adr/ADR-219-two-organisations-partner-before-their-groups-mix.md)): one's administrator invites the other
+by its host name or key (`POST /admin/partnerships`), the other's accepts or declines, and either suspends, resumes
+or ends it (`PUT /admin/partnerships/{id}`). Each says whether the other may find its members, which lists them when
+adding members to a group. A group limited to partners takes a partner's member only while the partnership is
+active; ending it removes each organisation's members from the other's groups limited to partners, and makes its
+managers plain members in groups open to any organisation. At most 20 at a time. A member of another organisation is then added to it by username, signs in
 at this organisation's host, and reads what is shared into that group — nothing shared with the organisation,
 and no privilege here. The member sees such groups on their own Groups page, at home, each with a link to open it
 at its organisation's host (ADR-204 §5e item 17.4).

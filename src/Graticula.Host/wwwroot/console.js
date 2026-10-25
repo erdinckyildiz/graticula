@@ -1051,8 +1051,8 @@ function drawGroupSettings(one) {
       </div>` : ""}
     </section>`;
 
-  // A switch whose state this page does not know is drawn as neither, and says so (see `drawGroupTenants`).
-  if ($("gsAdmits") && groupAdmitsKnown(one) === undefined) $("gsAdmits").indeterminate = true;
+  // Whether this organization has a partner yet, under the choice that needs one (ADR-219).
+  if ($("gsPartnersNow")) drawGroupPartnerCount();
 
   // Dirty tracking, so Save and Discard wait until there is something to save. The lock is deliberately not part
   // of it: it writes on its own, because a safety switch left unsaved is believed to be on when it is off.
@@ -1088,25 +1088,39 @@ function groupAdmitsKnown(one) {
 }
 
 /**
- * Settings › Other organizations — ADR-204 §5c. Only on a server of several organizations, and only to this
- * organization's administrator, who alone may set it; to anybody else it is a switch that would be refused.
+ * Settings › Other organizations — ADR-204 §5c, and ADR-219 §5.3: only this organization, partner organizations only,
+ * or any organization. Only on a server of several organizations, and only to this organization's administrator, who
+ * alone may set it; to anybody else it is a choice that would be refused.
  */
 function drawGroupTenants(one) {
   if (!isOrgAdministrator()) return "";
   const admits = groupAdmitsKnown(one);
+  const value = admits === undefined ? "" : groupAdmitsValue(admits, one?.partnersOnly);
+  const ours = h(whoNow?.organisation?.name || whoNow?.organisation?.key || "this organization");
+  const option = (v, label, lede) => `
+        <label class="pickrow"><input type="radio" name="gsAdmitsTo" value="${v}"${v === value ? " checked" : ""}>
+          <span><b>${label}</b><span class="lede">${lede}</span></span></label>`;
 
   return `
     <section class="gsform gsec tenantcard" aria-labelledby="gsTenants">
       <h3 id="gsTenants">Other organizations</h3>
-      <label class="dangerswitch"><input type="checkbox" id="gsAdmits"${admits ? " checked" : ""}
-        aria-describedby="gsAdmitsHint">Admit members of other organizations</label>
-      <p class="hint" id="gsAdmitsHint">This is the only way members of another organization reach content here. In
-        this group they read what is shared into it, and nothing that is shared with the organization. It takes effect
-        the moment it is ticked.</p>
-      <p class="hint" id="gsAdmitsUnknown"${admits === undefined ? "" : " hidden"}>This server does not report whether
-        the group already admits them, so the switch shows neither. Ticking it turns admission on; clearing it turns it
-        off.</p>
+      <p class="hint" id="gsAdmitsHint">Members of another organization reach content here only through a group that
+        admits them. In this group they read what is shared into it, and nothing that is shared with the organization.
+        It takes effect the moment it is chosen.</p>
+      <fieldset class="pickset" id="gsAdmitsTo" aria-describedby="gsAdmitsHint">
+        <legend>Who can be added to this group</legend>
+        ${option("only", `Members of ${ours} only`, "Nobody from another organization can be added.")}
+        ${option("partners", "Also members of partner organizations",
+          `Organizations in an active partnered collaboration with ${ours}. If a collaboration ends, its members leave
+           this group.<span id="gsPartnersNow"></span>`)}
+        ${option("any", "Also members of any organization on this server",
+          "Partner or not. If a collaboration ends, its members stay; any who manage this group become members.")}
+      </fieldset>
+      <p class="hint" id="gsAdmitsUnknown"${admits === undefined ? "" : " hidden"}>This server does not report what the
+        group admits, so nothing is chosen. Choosing one sets it.</p>
       <p class="hint" id="gsAdmitsSays" role="status" aria-live="polite"></p>
+      <p class="hint" id="gsAdmitsWay" hidden><a href="#/group/${encodeURIComponent(one?.name || "")}/members">Open
+        Members</a> to see who they are.</p>
     </section>`;
 }
 
@@ -2640,7 +2654,7 @@ const SUBPAGES = {
   sources: [["sources", "Data sources"], ["operations", "Status"], ["settings", "General"]],
   // Organization's screens. It draws them in two levels rather than one column — `ORG_SETTINGS`.
   members: [["members", "Members"], ["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
-    ["utilities", "Utility services"], ["apps", "Apps"]],
+    ["utilities", "Utility services"], ["collaborations", "Collaborations"], ["apps", "Apps"]],
 };
 
 /**
@@ -2649,7 +2663,7 @@ const SUBPAGES = {
  * them or a new entry here rather than a longer page. Apps is a section of Security, where `#/apps` lands.
  */
 const ORG_SETTINGS = [["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
-  ["utilities", "Utility services"]];
+  ["utilities", "Utility services"], ["collaborations", "Collaborations"]];
 
 /**
  * Whether this reader sees a tab: one with no third entry is everybody's, one with a list needs any of it, and one with
@@ -2726,6 +2740,7 @@ const SCREEN_SURFACE = {
   members: "studio",
   orgsettings: "studio",
   utilities: "studio",
+  collaborations: "studio",
   search: "studio",
 
   // <b>Both were missing, and the failure was silent.</b> A screen absent from this table falls
@@ -3380,8 +3395,16 @@ function drawOrgNav(view, screen) {
     strip.after(side);
   }
   // Utility services holds only the geometry service, which is the server's while there are several organizations.
-  side.innerHTML = ORG_SETTINGS.filter(([name]) => !(name === "utilities" && systemOnlyHidden())).map(([name, label]) =>
+  // Collaborations (ADR-219) are between organizations, so only where there are several, and only their administrator's.
+  side.innerHTML = ORG_SETTINGS.filter(([name]) => !(name === "utilities" && systemOnlyHidden())
+    && !(name === "collaborations" && !isOrgAdministrator())).map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
+
+  // On a phone the column is a strip that scrolls sideways, and the page being read may be past its right edge.
+  const here = side.querySelector("[aria-current]");
+  if (here && side.scrollWidth > side.clientWidth) {
+    side.scrollLeft = Math.max(0, here.offsetLeft - side.offsetLeft - 16);
+  }
 }
 
 /**
@@ -3431,6 +3454,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "organizations") section("organizations", loadTenants, "tnRows");
   if (screen === "orgsettings") section("settings", loadOrgSettings);
   if (screen === "utilities") section("settings", loadGeometryService);
+  if (screen === "collaborations") loadPartnerships();
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") {
@@ -28589,20 +28613,27 @@ async function handleClick(event) {
     const example = `${whoNow?.organisation?.key === "default" ? "partner" : "default"}\\ali@firma.com`;
     const canAdd = names.length > 0 || admits;
 
+    // ADR-219 §5.2: partners who let this organization search for their members are among the candidates, named
+    // named with their organization's key and a backslash, so the list is no longer only this organization's; and a group limited to partners says so.
+    const partnersListed = names.some(n => n.includes("\\"));
+    const partnersOnly = admits && !!groupNow?.partnersOnly;
+
     $("groupPicker").innerHTML = `
       <div class="picker">
-        ${names.length ? `<label for="groupPickFilter">Add a member${other ? ` of ${h(ours)}` : ""}</label>
+        ${names.length ? `<label for="groupPickFilter">Add a member${!other ? ""
+          : partnersListed ? ` of ${h(ours)} or a partner organization` : ` of ${h(ours)}`}</label>
         <input id="groupPickFilter" type="search" placeholder="Filter&hellip;" autocomplete="off">
         <select id="groupPickWho" size="8" aria-label="Members who could join">${names.map(n =>
           `<option value="${h(n)}">${h(n)}</option>`).join("")}</select>`
         : other ? `<p class="hint">Every member of ${h(ours)} is already in this group.</p>` : ""}
         ${admits ? `<div class="pickother">
-          <label for="groupPickOther">${names.length ? "Or add somebody" : "Add somebody"} from another
-            organization</label>
+          <label for="groupPickOther">${names.length ? "Or add somebody" : "Add somebody"} from ${partnersOnly
+            ? "a partner organization" : "another organization"}</label>
           <input id="groupPickOther" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
             aria-describedby="groupPickOtherHint">
           <p class="hint" id="groupPickOtherHint">Their organization's key, a backslash, then the name they sign in
-            with there, as in <code>${h(example)}</code>. They sign in here by that same name.</p>
+            with there, as in <code>${h(example)}</code>. They sign in here by that same name.${partnersOnly
+              ? " This group takes only members of organizations in an active partnered collaboration with ours." : ""}</p>
         </div>` : other ? `<p class="hint" id="groupPickOtherOff">Somebody from another organization can join once this
           group admits them: turn it on in <a href="#/group/${encodeURIComponent(groupOpen)}/settings">Settings</a>,
           under Other organizations.</p>` : ""}
@@ -35044,38 +35075,640 @@ $("tnIssued")?.addEventListener("close", () => {
   if ($("tnIssuedPassword").value) closeTenantIssued();
 });
 
-/**
- * A group's admission of other organizations' members — ADR-204 §5c. It writes the moment it is ticked, as
- * *Protect from deletion* does, because it is not one of the settings Save sends and must not look unsaved.
- */
-document.addEventListener("change", async event => {
-  if (event.target.id !== "gsAdmits" || !groupOpen) return;
+// ---------------------------------------------------------------- partnered collaborations (ADR-219)
 
-  const box = event.target;
-  const want = box.checked;
-  const line = $("gsAdmitsSays");
-  box.disabled = true;
+/** The partnerships as `/admin/partnerships` last listed them, and the most that are not ended. */
+let partnershipsKnown = [];
+let partnershipLimit = 20;
+
+/** The invitation the Accept dialog is about. */
+let partnershipAccepting = null;
+
+/** The partner organization's name as this page says it: its name, else its key, else its host. */
+function partnerName(p) {
+  const o = p?.organization || {};
+  return o.name || o.key || o.host || "the other organization";
+}
+
+/** A line under the Collaborations heading, read out when it changes; `bad` marks a refusal. */
+function partnerSay(message, bad = false) {
+  const line = $("pcSays");
+  if (!line) return;
+  line.textContent = message || "";
+  line.classList.toggle("bad-inline", !!bad);
+}
+
+/**
+ * Both directions of member visibility, from this organization's side, in words — ADR-219 §5.2. "Search" is what
+ * it gives: a group manager of the other side sees the members in the list they add people from.
+ */
+function partnerVisibility(p) {
+  const ours = p.status === "pending" && !p.invitedByUs
+    ? "Your choice when you accept"
+    : p.weShareMembers ? "<b>Searchable by them</b>" : "Not searchable by them";
+  const theirs = p.status === "pending" && p.invitedByUs
+    ? "Their choice when they accept"
+    : p.theyShareMembers ? "<b>Searchable by us</b>" : "Not searchable by us";
+  return `<div><span class="pcvlabel">Our members:</span> ${ours}</div>
+    <div><span class="pcvlabel">Their members:</span> ${theirs}</div>`;
+}
+
+/** The status, in a pill that says it in words: amber for suspended, the quiet grey for waiting and ended. */
+function partnerPill(status) {
+  const [cls, label] = {
+    active: ["p-active", "Active"],
+    suspended: ["p-stopped", "Suspended"],
+    pending: ["p-private", "Waiting"],
+    ended: ["p-off", "Ended"],
+  }[status] || ["p-private", status];
+  return `<span class="pill ${cls}">${h(label)}</span>`;
+}
+
+/** The partner's name, its host and key under it — the host is how an administrator recognises an organization. */
+function partnerCell(p) {
+  const o = p.organization || {};
+  const meta = [o.host ? `<code>${h(o.host)}</code>` : "", o.key ? `<span class="pckey">key <code>${h(o.key)}</code></span>` : ""]
+    .filter(Boolean).join(`<span class="sep">·</span>`);
+  return `<td class="name"><b>${h(partnerName(p))}</b>${meta ? `<div class="rowmeta">${meta}</div>` : ""}</td>`;
+}
+
+/**
+ * The dates the server keeps: when it was sent, and since when it has the status it has — `statusChangedAt`, which a
+ * change of member visibility does not move. `changedAt` is not shown: it moves with visibility too.
+ */
+function partnerDates(p) {
+  const by = p.invitedBy ? ` by ${h(p.invitedBy)}` : "";
+  const invited = `<div>Invited ${h(day(p.invitedAt))}${by}</div>`;
+  const at = p.statusChangedAt;
+  const label = { active: "Partners since", suspended: "Suspended since", ended: "Ended on" }[p.status];
+  return invited + (at && label ? `<div>${label} ${h(day(at))}</div>` : "");
+}
+
+/** One list of the page: a heading, one sentence, and its rows; nothing at all when it has none. */
+function partnerList(id, title, lede, rows) {
+  if (rows.length === 0) return "";
+  return `
+    <section class="pclist" id="${id}" aria-labelledby="${id}Title">
+      <div class="pagehead sub">
+        <div>
+          <h3 id="${id}Title">${title} <span class="val">${num(rows.length)}</span></h3>
+          <p>${lede}</p>
+        </div>
+      </div>
+      <div class="panel widetable">
+        <table class="rowblocks">
+          <thead><tr><th>Organization</th><th>Status</th><th>Member visibility</th><th>Dates</th>
+            <th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody>${rows.join("")}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+/** A row of any of the lists; `acts` are its buttons, and the visibility cell carries its own when ours can change. */
+function partnerRow(p, acts) {
+  const them = h(partnerName(p));
+  // Our side's visibility changes while the partnership is ours to change: not once it ended, and not on an
+  // invitation to us, where accepting is the moment it is said (the server refuses it otherwise).
+  const mayToggle = p.status !== "ended" && !(p.status === "pending" && !p.invitedByUs);
+  const toggle = mayToggle
+    ? `<div><button class="linkbtn pcvis" type="button" data-pc-share="${h(p.id)}" data-pc-share-to="${p.weShareMembers ? "no" : "yes"}"
+        aria-label="${p.weShareMembers ? `Stop ${them} searching for our members` : `Let ${them} search for our members`}">${
+        p.weShareMembers ? "Stop them searching for ours" : "Let them search for ours"}</button></div>`
+    : "";
+  return `<tr data-pc="${h(p.id)}">
+    ${partnerCell(p)}
+    <td data-l="Status"><span>${partnerPill(p.status)}</span></td>
+    <td data-l="Member visibility"><span class="pcvisibility">${partnerVisibility(p)}${toggle}</span></td>
+    <td data-l="Dates"><span class="rowmeta pcdates">${partnerDates(p)}</span></td>
+    <td class="act pcacts">${acts}</td>
+  </tr>`;
+}
+
+/**
+ * Collaborations — Organization › Settings, ADR-219. Four lists, each drawn only when it has rows: invitations to us
+ * (they wait on us, so they come first), our partners, invitations we sent, and ended ones kept to be read.
+ */
+async function loadPartnerships() {
+  const lists = $("pcLists");
+  if (!lists) return;
+
+  // <b>Nobody but this organization's administrator, and only where there are several</b>: the server answers 403 and
+  // 409, and the column does not offer the page. An address typed by anybody else is told why rather than refused.
+  if (!isOrgAdministrator()) {
+    $("pcHeadActs").hidden = true;
+    $("pcNote").hidden = true;
+    lists.removeAttribute("aria-busy");
+    lists.innerHTML = `<div class="panel pad settingcard"><p>${isMultiTenant()
+      ? "Partnered collaborations are made and changed by this organization's administrator."
+      : "This server holds one organization, so there is no other to partner with. Collaborations appear here once the "
+        + "system administrator adds a second organization."}</p></div>`;
+    return;
+  }
+
+  $("pcHeadActs").hidden = false;
+  let answer;
+  try {
+    answer = await api("/admin/partnerships") || {};
+  } catch (e) {
+    lists.removeAttribute("aria-busy");
+    lists.innerHTML = `<div class="panel pad settingcard"><p class="bad-inline">Could not read this organization's
+      collaborations: ${h(e.message)}</p><p class="hint">This is not an empty list: the request was refused.</p></div>`;
+    $("pcCount").textContent = "";
+    return;
+  }
+
+  const all = answer.partnerships || [];
+  partnershipsKnown = all;
+  partnershipLimit = answer.limit || 20;
+
+  const open = all.filter(p => p.status !== "ended").length;
+  const full = open >= partnershipLimit;
+  $("pcCount").textContent = `${num(open)} of ${num(partnershipLimit)} collaborations`;
+  $("pcCount").title = "Collaborations that have not ended, of the most an organization may have";
+  $("pcNew").disabled = full;
+  $("pcNew").title = full ? `This organization has ${partnershipLimit}, the most it may have. End one to start another.` : "";
+
+  const incoming = all.filter(p => p.status === "pending" && !p.invitedByUs);
+  const partners = all.filter(p => p.status === "active" || p.status === "suspended");
+  const outgoing = all.filter(p => p.status === "pending" && p.invitedByUs);
+  const ended = all.filter(p => p.status === "ended");
+
+  const tiny = (attr, id, label, aria, cls = "") =>
+    `<button class="tiny${cls}" type="button" data-${attr}="${h(id)}" aria-label="${aria}">${label}</button>`;
+
+  lists.removeAttribute("aria-busy");
+  lists.innerHTML = all.length === 0
+    ? `<div class="panel pad pcempty">
+        <h3>No partnered collaborations yet</h3>
+        <p>A collaboration starts with an invitation to another organization on this server, by its address. Once its
+          administrator accepts, each of your groups that admits partner organizations can take its members, and its
+          groups can take yours.</p>
+        <p class="hint">An organization may have ${num(partnershipLimit)} that have not ended. Invitations to this
+          organization appear here too, for you to accept or decline.</p>
+      </div>`
+    : [
+      partnerList("pcIncoming", "Invitations to you",
+        "Accepting lets your groups and theirs take each other's members. Declining removes the invitation; they can "
+        + "send another.",
+        incoming.map(p => partnerRow(p,
+          tiny("pc-accept", p.id, "Accept&hellip;", `Accept ${h(partnerName(p))}'s invitation`, " primary")
+          + tiny("pc-decline", p.id, "Decline&hellip;", `Decline ${h(partnerName(p))}'s invitation`)))),
+      partnerList("pcPartners", "Partners",
+        "Groups that admit partner organizations take members of these while the collaboration is active. Suspended "
+        + "keeps who is in and lets nobody new in.",
+        partners.map(p => partnerRow(p,
+          (p.status === "active"
+            ? tiny("pc-suspend", p.id, "Suspend&hellip;", `Suspend the collaboration with ${h(partnerName(p))}`)
+            : tiny("pc-resume", p.id, "Resume", `Resume the collaboration with ${h(partnerName(p))}`))
+          + tiny("pc-end", p.id, "End&hellip;", `End the collaboration with ${h(partnerName(p))}`, " danger")))),
+      partnerList("pcOutgoing", "Invitations you sent",
+        "Waiting for the other organization's administrator to accept them, in their own Collaborations page.",
+        outgoing.map(p => partnerRow(p,
+          tiny("pc-withdraw", p.id, "Withdraw&hellip;", `Withdraw the invitation to ${h(partnerName(p))}`)))),
+      partnerList("pcEnded", "Ended",
+        "Kept so either organization can see what was. Deleting one removes it from both organizations' lists.",
+        ended.map(p => partnerRow(p,
+          tiny("pc-delete", p.id, "Delete&hellip;", `Delete the ended collaboration with ${h(partnerName(p))}`, " danger")))),
+    ].join("");
+
+  // The server's own sentence on what a partnership does to groups, under the lists, where it is read once.
+  $("pcNote").hidden = !answer.note || all.length === 0;
+  $("pcNote").textContent = answer.note || "";
+}
+
+/** Where focus goes after a redraw took the pressed button away: a button on the same row, else Start. */
+function partnerFocus(id, ...attrs) {
+  for (const attr of attrs) {
+    const next = document.querySelector(`[data-${attr}="${CSS.escape(id)}"]`);
+    if (next) { next.focus(); return; }
+  }
+  const start = $("pcNew");
+  (start && !start.disabled ? start : $("pcLists"))?.focus?.();
+}
+
+/** The host name or key as typed, without a scheme, a port or a path — an address pasted from a browser works. */
+function partnerAddressTyped() {
+  return ($("pcOrg").value || "").trim().toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "").replace(/[/:?#].*$/, "");
+}
+
+function openPartnerInvite() {
+  $("pcOrg").value = "";
+  $("pcOrg").removeAttribute("aria-invalid");
+  document.querySelector('input[name="pcShare"][value="no"]').checked = true;
+  dialogSay("pcFormSays", "");
+  $("pcDialog").showModal();
+  $("pcOrg").focus();
+}
+
+function closePartnerInvite() {
+  if ($("pcDialog").open) $("pcDialog").close();
+  $("pcNew").focus();
+}
+
+async function sendPartnerInvite() {
+  const organization = partnerAddressTyped();
+  const shareMembers = document.querySelector('input[name="pcShare"]:checked')?.value === "yes";
+
+  if (!organization) {
+    $("pcOrg").setAttribute("aria-invalid", "true");
+    dialogSay("pcFormSays", "Type the other organization's host name, such as maps.acme.example, or its key.");
+    $("pcOrg").focus();
+    return;
+  }
+
+  const button = $("pcSend");
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = "Sending…";
+  dialogSay("pcFormSays", "");
 
   try {
-    await api(`/admin/groups/${encodeURIComponent(groupOpen)}/tenants`, {
+    const made = await api("/admin/partnerships", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ organization, shareMembers }),
+    });
+    $("pcDialog").close();
+    await loadPartnerships();
+    partnerFocus(made?.id || "", "pc-withdraw");
+    const host = made?.organization?.host;
+    partnerSay(`Invitation sent to ${partnerName(made)}. It waits until their administrator accepts it`
+      + `${host ? ` at ${host}` : ""}, in Organization › Settings › Collaborations.`);
+  } catch (e) {
+    $("pcOrg").setAttribute("aria-invalid", "true");
+    dialogSay("pcFormSays", e.message);
+    $("pcOrg").focus();
+  } finally {
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    button.textContent = "Send invitation";
+  }
+}
+
+function openPartnerAccept(id) {
+  const p = partnershipsKnown.find(x => x.id === id);
+  if (!p) return;
+  partnershipAccepting = p;
+  const them = partnerName(p);
+  $("pcAcceptTitle").textContent = `Accept ${them}'s invitation`;
+  $("pcAcceptBody").textContent = `Once you accept, your groups that admit partner organizations can take members of `
+    + `${them}, and theirs can take yours. ${p.theyShareMembers
+      ? `${them} lets you search for its members.`
+      : `${them} does not let you search for its members; a group manager adds one by their name.`}`;
+  document.querySelector('input[name="pcAcceptShare"][value="no"]').checked = true;
+  dialogSay("pcAcceptSays", "");
+  $("pcAccept").showModal();
+  document.querySelector('input[name="pcAcceptShare"]:checked').focus();
+}
+
+function closePartnerAccept() {
+  if ($("pcAccept").open) $("pcAccept").close();
+  partnerFocus(partnershipAccepting?.id || "", "pc-accept");
+}
+
+async function acceptPartnership() {
+  const p = partnershipAccepting;
+  if (!p) return;
+  const shareMembers = document.querySelector('input[name="pcAcceptShare"]:checked')?.value === "yes";
+  const go = $("pcAcceptGo");
+  go.disabled = true;
+  go.setAttribute("aria-busy", "true");
+  dialogSay("pcAcceptSays", "");
+
+  try {
+    await api(`/admin/partnerships/${encodeURIComponent(p.id)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admitsOtherTenants: want }),
+      body: JSON.stringify({ action: "accept", shareMembers }),
     });
-    groupAdmits.set(groupOpen, want);
-    // The group as last read keeps the server's word, which wins over this page's; it is this page's now.
-    if (groupNow?.name === groupOpen) groupNow.admitsOtherTenants = want;
-    if ($("gsAdmitsUnknown")) $("gsAdmitsUnknown").hidden = true;
-    if (line) {
-      line.textContent = want
-        ? "This group admits members of other organizations. Add them on Members as organization\\name."
-        : "This group no longer admits members of other organizations.";
-    }
+    $("pcAccept").close();
+    await loadPartnerships();
+    partnerFocus(p.id, "pc-suspend", "pc-resume");
+    partnerSay(`You are partners with ${partnerName(p)}. ${shareMembers
+      ? "They can search for your members."
+      : "They cannot search for your members."}`);
   } catch (e) {
-    box.checked = !want;
-    if (line) line.textContent = e.message;
+    dialogSay("pcAcceptSays", e.message);
+    // The partnership may have changed under the dialog, as when the inviter withdrew it: the list is the truth.
+    await loadPartnerships();
   } finally {
-    box.disabled = false;
-    box.focus();
+    go.disabled = false;
+    go.removeAttribute("aria-busy");
+  }
+}
+
+/** Sends one change — `accept`, `suspend`, `resume`, `end`, or none with `shareMembers` — and answers the server's. */
+async function changePartnership(id, body) {
+  return await api(`/admin/partnerships/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Suspend asks first, as ArcGIS Online does; resume does not. */
+async function suspendPartnership(id, suspend) {
+  const p = partnershipsKnown.find(x => x.id === id);
+  if (!p) return;
+  const them = partnerName(p);
+
+  if (suspend && !await askServerConfirm({
+    title: `Suspend the collaboration with ${them}?`,
+    body: `Nobody new from ${them} joins your groups that admit partner organizations, and nobody of yours joins theirs, `
+      + `until one of you resumes it. Members already in groups stay, with the roles they have. Either organization can `
+      + `resume it.`,
+    action: "Suspend",
+  })) return;
+
+  try {
+    await changePartnership(id, { action: suspend ? "suspend" : "resume" });
+  } catch (e) {
+    partnerSay(e.message, true);
+    await loadPartnerships();
+    return;
+  }
+
+  await loadPartnerships();
+  partnerFocus(id, suspend ? "pc-resume" : "pc-suspend");
+  partnerSay(suspend
+    ? `The collaboration with ${them} is suspended. Resume it to let new members in again.`
+    : `The collaboration with ${them} is active again.`);
+}
+
+/** The partnership the End dialog is about. */
+let partnershipEnding = null;
+
+/** One affected group, in words: whose it is, and how many leave or stop managing. */
+function partnerEndingGroup(g, them) {
+  const whose = g.ours ? "Your group" : `${h(g.organization || them)}'s group`;
+  const who = g.ours ? `of ${h(them)}` : "of yours";
+  const effects = [
+    g.removed ? `${num(g.removed)} member${g.removed === 1 ? "" : "s"} ${who} leave${g.removed === 1 ? "s" : ""}` : "",
+    g.demoted ? `${num(g.demoted)} manager${g.demoted === 1 ? "" : "s"} ${who} become${g.demoted === 1 ? "s a member" : " members"}`
+      : "",
+  ].filter(Boolean).join("; ");
+  return `<li><b>${h(g.title)}</b> <span class="rowmeta">${whose}</span><div>${effects}.</div></li>`;
+}
+
+/**
+ * End, as ArcGIS Online asks it: which groups change, ours and theirs, and how many people leave or stop managing,
+ * read from the server before anything is sent — and that it cannot be undone.
+ */
+async function endPartnership(id) {
+  const p = partnershipsKnown.find(x => x.id === id);
+  if (!p) return;
+  const them = partnerName(p);
+  partnershipEnding = p;
+
+  const trigger = document.querySelector(`[data-pc-end="${CSS.escape(id)}"]`);
+  if (trigger) { trigger.disabled = true; trigger.setAttribute("aria-busy", "true"); }
+  let preview = null, failed = "";
+  try {
+    preview = await api(`/admin/partnerships/${encodeURIComponent(id)}/ending`);
+  } catch (e) {
+    failed = e.message;
+  } finally {
+    if (trigger) { trigger.disabled = false; trigger.removeAttribute("aria-busy"); }
+  }
+
+  const groups = preview?.groups || [];
+  $("pcEndTitle").textContent = `End the collaboration with ${them}?`;
+  $("pcEndLede").textContent = "This cannot be undone. To work together again, one of you sends a new invitation. "
+    + `Tell ${them}'s administrator before you end it.`;
+  $("pcEndGroupsTitle").hidden = !!failed;
+  $("pcEndGroups").innerHTML = failed
+    ? ""
+    : groups.length === 0
+      ? `<li class="pcnone">No group changes. Neither organization has members of the other in a group limited to
+          partner organizations, and nobody of either manages a group of the other.</li>`
+      : groups.map(g => partnerEndingGroup(g, them)).join("");
+  $("pcEndAfter").textContent = failed
+    ? `Which groups this changes could not be read: ${failed} Ending still removes members of ${them} from your groups `
+      + "limited to partner organizations, and yours from theirs, and makes managers from the other organization members."
+    : groups.length === 0 ? ""
+      : "Members leave groups limited to partner organizations. In groups open to any organization they stay, and "
+        + "managers from the other organization become members.";
+  dialogSay("pcEndSays", "");
+  $("pcEnd").showModal();
+  $("pcEndCancel").focus();
+}
+
+function closePartnerEnd() {
+  if ($("pcEnd").open) $("pcEnd").close();
+  partnerFocus(partnershipEnding?.id || "", "pc-end");
+}
+
+async function confirmPartnershipEnd() {
+  const p = partnershipEnding;
+  if (!p) return;
+  const them = partnerName(p);
+  const go = $("pcEndGo");
+  go.disabled = true;
+  go.setAttribute("aria-busy", "true");
+  go.textContent = "Ending…";
+
+  let answer;
+  try {
+    answer = await changePartnership(p.id, { action: "end" });
+  } catch (e) {
+    dialogSay("pcEndSays", e.message);
+    await loadPartnerships();
+    return;
+  } finally {
+    go.disabled = false;
+    go.removeAttribute("aria-busy");
+    go.textContent = "End collaboration";
+  }
+
+  $("pcEnd").close();
+  await loadPartnerships();
+  partnerFocus(p.id, "pc-delete");
+  const removed = answer?.removed || 0, demoted = answer?.demoted || 0;
+  partnerSay(`The collaboration with ${them} has ended. ${removed === 0 && demoted === 0
+    ? "No group membership changed."
+    : `${num(removed)} group membership${removed === 1 ? " was" : "s were"} removed and ${num(demoted)} manager${
+      demoted === 1 ? " was" : "s were"} made a member.`}`);
+}
+
+/** Withdraw (ours, waiting), decline (theirs, waiting) or delete (ended): one request, three meanings. */
+async function removePartnership(id) {
+  const p = partnershipsKnown.find(x => x.id === id);
+  if (!p) return;
+  const them = partnerName(p);
+  const [title, body, action, done] = p.status === "ended"
+    ? [`Delete the ended collaboration with ${them}?`,
+      `It is removed from both organizations' lists. Nothing else changes: group memberships changed when it ended.`,
+      "Delete", `The ended collaboration with ${them} is deleted.`]
+    : p.invitedByUs
+      ? [`Withdraw the invitation to ${them}?`,
+        `${them}'s administrator can no longer accept it. You can send another later.`,
+        "Withdraw", `The invitation to ${them} is withdrawn.`]
+      : [`Decline ${them}'s invitation?`,
+        `The invitation is removed. ${them} can send another later.`,
+        "Decline", `You declined ${them}'s invitation.`];
+
+  if (!await askServerConfirm({ title, body, action })) return;
+
+  try {
+    await api(`/admin/partnerships/${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch (e) {
+    partnerSay(e.message, true);
+    await loadPartnerships();
+    return;
+  }
+
+  await loadPartnerships();
+  partnerFocus("");
+  partnerSay(done);
+}
+
+/** Our side's member visibility, written the moment it is pressed: it is one switch, not a form. */
+async function sharePartnerMembers(id, share, button) {
+  const p = partnershipsKnown.find(x => x.id === id);
+  if (!p) return;
+  const them = partnerName(p);
+  if (button) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+  }
+
+  try {
+    await changePartnership(id, { shareMembers: share });
+  } catch (e) {
+    partnerSay(e.message, true);
+    await loadPartnerships();
+    partnerFocus(id, "pc-share");
+    return;
+  }
+
+  await loadPartnerships();
+  partnerFocus(id, "pc-share");
+  partnerSay(share
+    ? `${them} can now search for your members.`
+    : `${them} can no longer search for your members. Members of yours already in their groups stay.`);
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest?.("button");
+  if (!t || !t.closest("#view-collaborations")) return;
+
+  if (t.id === "pcNew") { openPartnerInvite(); return; }
+  if (t.id === "pcSend") { await sendPartnerInvite(); return; }
+  if (t.id === "pcCancel" || t.id === "pcDialogClose") { closePartnerInvite(); return; }
+  if (t.id === "pcAcceptGo") { await acceptPartnership(); return; }
+  if (t.id === "pcAcceptCancel" || t.id === "pcAcceptClose") { closePartnerAccept(); return; }
+  if (t.id === "pcEndGo") { await confirmPartnershipEnd(); return; }
+  if (t.id === "pcEndCancel" || t.id === "pcEndClose") { closePartnerEnd(); return; }
+
+  if (t.dataset.pcAccept) { openPartnerAccept(t.dataset.pcAccept); return; }
+  if (t.dataset.pcSuspend) { await suspendPartnership(t.dataset.pcSuspend, true); return; }
+  if (t.dataset.pcResume) { await suspendPartnership(t.dataset.pcResume, false); return; }
+  if (t.dataset.pcEnd) { await endPartnership(t.dataset.pcEnd); return; }
+  if (t.dataset.pcShare) { await sharePartnerMembers(t.dataset.pcShare, t.dataset.pcShareTo === "yes", t); return; }
+  const removing = t.dataset.pcDecline || t.dataset.pcWithdraw || t.dataset.pcDelete;
+  if (removing) await removePartnership(removing);
+});
+
+// Enter in the address field sends the invitation, as a form would.
+document.addEventListener("keydown", event => {
+  if (event.key === "Enter" && event.target.id === "pcOrg") {
+    event.preventDefault();
+    sendPartnerInvite();
   }
 });
+
+$("pcAccept")?.addEventListener("close", () => {
+  // Escape closes it without the Cancel button: focus goes back to the row's Accept all the same.
+  if (document.activeElement === document.body) partnerFocus(partnershipAccepting?.id || "", "pc-accept");
+});
+$("pcDialog")?.addEventListener("close", () => {
+  if (document.activeElement === document.body) $("pcNew")?.focus();
+});
+
+/**
+ * A group's admission of other organizations' members — ADR-204 §5c, and since ADR-219 three answers rather than
+ * two: only this organization, partner organizations only, or any organization. It writes the moment it is chosen,
+ * as *Protect from deletion* does, because it is not one of the settings Save sends and must not look unsaved.
+ *
+ * <b>After any refusal the group is read again</b> and the choice drawn from what the server holds, not from what was
+ * asked or what was there before: a refused change is not proof that nothing changed.
+ */
+document.addEventListener("change", async event => {
+  if (event.target.name !== "gsAdmitsTo" || !groupOpen) return;
+
+  const want = event.target.value;
+  const set = $("gsAdmitsTo");
+  const line = $("gsAdmitsSays");
+  const way = $("gsAdmitsWay");
+  const name = groupOpen;
+  const body = want === "only"
+    ? { admitsOtherTenants: false }
+    : { admitsOtherTenants: true, partnersOnly: want === "partners" };
+
+  set.disabled = true;
+  set.setAttribute("aria-busy", "true");
+  if (way) way.hidden = true;
+  if (line) { line.textContent = "Saving…"; line.classList.remove("bad-inline"); }
+
+  let now = null;
+  try {
+    now = await api(`/admin/groups/${encodeURIComponent(name)}/tenants`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (line) {
+      line.textContent = {
+        only: "Saved. This group admits members of this organization only.",
+        partners: "Saved. This group admits members of partner organizations. Add them on Members.",
+        any: "Saved. This group admits members of any organization on this server. Add them on Members.",
+      }[groupAdmitsValue(now.admitsOtherTenants, now.partnersOnly)];
+    }
+  } catch (e) {
+    if (line) { line.textContent = e.message; line.classList.add("bad-inline"); }
+    if (way) way.hidden = e.status !== 409;
+    now = await api(`/admin/groups/${encodeURIComponent(name)}`).catch(() => null);
+  }
+
+  if (now && typeof now.admitsOtherTenants === "boolean") {
+    groupAdmits.set(name, now.admitsOtherTenants);
+    if (groupNow?.name === name) {
+      groupNow.admitsOtherTenants = now.admitsOtherTenants;
+      groupNow.partnersOnly = !!now.partnersOnly;
+    }
+    const value = groupAdmitsValue(now.admitsOtherTenants, now.partnersOnly);
+    const radio = set.querySelector(`input[value="${value}"]`);
+    if (radio) radio.checked = true;
+    if ($("gsAdmitsUnknown")) $("gsAdmitsUnknown").hidden = true;
+  }
+
+  set.disabled = false;
+  set.removeAttribute("aria-busy");
+  set.querySelector("input:checked")?.focus();
+});
+
+/** The three-way answer from the server's two fields. */
+function groupAdmitsValue(admits, partnersOnly) {
+  return !admits ? "only" : partnersOnly ? "partners" : "any";
+}
+
+/**
+ * Says, under *Partner organizations only*, whether this organization has a partner yet — a group limited to partners
+ * with none admits nobody, which is the first-run state of every organization.
+ */
+async function drawGroupPartnerCount() {
+  const slot = $("gsPartnersNow");
+  if (!slot) return;
+  try {
+    const all = (await api("/admin/partnerships"))?.partnerships || [];
+    const active = all.filter(p => p.status === "active").length;
+    slot.innerHTML = active === 0
+      ? ` This organization has no active partner yet: <a href="#/collaborations">start a collaboration</a>.`
+      : ` This organization has ${num(active)} active partner${active === 1 ? "" : "s"}
+         (<a href="#/collaborations">Collaborations</a>).`;
+  } catch {
+    slot.textContent = "";
+  }
+}

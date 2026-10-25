@@ -497,7 +497,9 @@ superuser.
       2. **Who may join another organisation's group.** ArcGIS Online asks the joining member for a *join external
          groups* privilege, so their own organisation decides. Here the group's organisation admits anyone it names.
       3. **Partnered collaboration** — two organisations agreeing to work together, coordinators who invite their own
-         members, and groups limited to the partners. Here there is only the open switch.
+         members, and groups limited to the partners. ~~Here there is only the open switch.~~ **Built 2026-10-26 —
+         [ADR-219](ADR-219-two-organisations-partner-before-their-groups-mix.md):** partnerships, each side's member
+         visibility, and groups limited to partners; coordinators are not built.
       4. **Where the outsider works.** In ArcGIS Online the member keeps one account and the other organisation's group
          appears on *their* Groups page. Here their home token already reaches the other host as an outsider (tested),
          ~~but their own console does not list the other organisation's groups; they find them by signing in there.~~

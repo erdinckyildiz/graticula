@@ -35,6 +35,7 @@ public sealed class EveryTableIsATenantsOrTheSystemsTests : PostgresFixture
         ["oauth_refresh"] = "looked up by a secret, never listed",
         ["saml_assertion_used"] = "looked up by a secret, never listed",
         ["user_type"] = "the deployment's user types",
+        ["partnership"] = "two tenants' at once; its own policy shows a row to either party and nobody else (ADR-219 §5.6)",
     };
 
     [Fact]

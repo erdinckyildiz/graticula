@@ -2641,6 +2641,7 @@ public static class Program
         OAuthEndpoints.Map(app);
         ArcGisAdminEndpoints.Map(app);
         TenantEndpoints.Map(app);
+        PartnershipEndpoints.Map(app);
 
         // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).
         ArcGisAppendEndpoints.Map(app);

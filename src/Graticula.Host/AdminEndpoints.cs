@@ -6309,6 +6309,7 @@ internal static partial class AdminEndpoints
 
             // ADR-204 §5c: whether members of other organisations may be added — the console's switch reads it.
             admitsOtherTenants = await groups.AdmitsOtherTenantsAsync(found.Name, cancellation).ConfigureAwait(false),
+            partnersOnly = await groups.AdmitsPartnersOnlyAsync(found.Name, cancellation).ConfigureAwait(false),
 
             // <b>Whether *this* caller may walk out, worked out here rather than on the
             // screen.</b> The page would otherwise derive it from three fields and get it
@@ -6372,6 +6373,7 @@ internal static partial class AdminEndpoints
         HttpContext context,
         string name,
         IGroupDirectory groups,
+        Npgsql.NpgsqlDataSource root,
         CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
@@ -6402,12 +6404,23 @@ internal static partial class AdminEndpoints
             return;
         }
 
+        // ADR-219 §5.2: a group that admits other organisations also lists the members of partners who let this
+        // organisation find them, named with their organisation.
+        IReadOnlyList<string> partners = Graticula.Platform.Tenancy.TenantScope.MultiTenant
+            && context.Features.Get<TenantFeature>() is { } here
+            && await groups.AdmitsOtherTenantsAsync(found.Name, cancellation).ConfigureAwait(false)
+                ? await PartnershipEndpoints.PartnerCandidatesAsync(root, here.Tenant.Id, found.Name, cancellation).ConfigureAwait(false)
+                : [];
+
         await Results.Json(new
         {
             group = found.Name,
-            candidates = await groups.CandidatesAsync(found.Name, cancellation)
-                .ConfigureAwait(false),
-            note = "Enabled members who are not in this group yet.",
+            candidates = (await groups.CandidatesAsync(found.Name, cancellation)
+                .ConfigureAwait(false)).Concat(partners),
+            note = partners.Count == 0
+                ? "Enabled members who are not in this group yet."
+                : "Enabled members who are not in this group yet, and the members of partner organizations that let this "
+                    + "one find them, named organization\\name.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

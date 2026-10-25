@@ -227,7 +227,7 @@ internal static class TenantRouting
         "/admin/item-categories", "/admin/service-accounts", "/admin/identity-providers", "/admin/oauth",
         "/admin/security/second-factor", "/admin/domains", "/admin/relationships", "/admin/folders",
         "/admin/recycle-bin", "/admin/roles", "/admin/logs", "/admin/jobs", "/admin/settings/basemaps",
-        "/admin/references", "/admin/tiling-schemes", "/admin/thumbnail", "/admin/generateToken",
+        "/admin/references", "/admin/tiling-schemes", "/admin/thumbnail", "/admin/generateToken", "/admin/partnerships",
     ];
 
     /// <summary>Whether a request's administrative route is on either list.</summary>
@@ -499,7 +499,9 @@ internal static class TenantEndpoints
     }
 
     /// <summary>Whether a group admits members of other tenants.</summary>
-    internal sealed record AdmitRequest(bool AdmitsOtherTenants);
+    /// <param name="AdmitsOtherTenants">Whether the group admits other organisations' members.</param>
+    /// <param name="PartnersOnly">Whether only its organisation's partners' — ADR-219 §5.3; unchanged when absent.</param>
+    internal sealed record AdmitRequest(bool AdmitsOtherTenants, bool? PartnersOnly = null);
 
     /// <summary>
     /// Marks a group as admitting other tenants' members — ADR-204 §5c: the tenant's administrator's act, and only where
@@ -520,16 +522,44 @@ internal static class TenantEndpoints
             return Refused(409, "This server holds one organisation, so there are no others for a group to admit.");
         }
 
+        // ADR-219 §5.3: limited to partners, which a group holding members of other organisations refuses until they go —
+        // asked <b>before anything is written</b>, so a refusal leaves the group as it was. It answered 409 once while
+        // the switch beside it had already opened the group to every organisation (ux-designer's pass, 2026-10-26).
+        if (request.AdmitsOtherTenants && request.PartnersOnly is true)
+        {
+            int strangers = await groups.StrangersAsync(name, cancellation).ConfigureAwait(false);
+
+            if (strangers > 0)
+            {
+                return Refused(409, strangers == 1
+                    ? $"'{name}' has a member of an organization that is not a partner of this one. Remove them before "
+                        + "limiting the group to partners."
+                    : $"'{name}' has {strangers} members of organizations that are not partners of this one. Remove them "
+                        + "before limiting the group to partners.");
+            }
+        }
+
         if (await groups.SetAdmitsOtherTenantsAsync(name, request.AdmitsOtherTenants, cancellation).ConfigureAwait(false) != GroupChange.Done)
         {
             return Refused(404, $"No group '{name}'.");
         }
 
+        if (request.AdmitsOtherTenants && request.PartnersOnly is bool only
+            && (await groups.SetPartnersOnlyAsync(name, only, cancellation).ConfigureAwait(false)).Change == GroupChange.Exists)
+        {
+            // Somebody added a stranger between the two statements; the group admits others as it was asked to.
+            return Refused(409, $"A member of an organization that is not a partner was added to '{name}' meanwhile. "
+                + "Remove them before limiting the group to partners.");
+        }
+
+        bool partnersOnly = await groups.AdmitsPartnersOnlyAsync(name, cancellation).ConfigureAwait(false);
+
         await AdminEndpoints.AuditAsync(
-            context, audit, "group.tenants", name, AdminEndpoints.Detail(new { admitsOtherTenants = request.AdmitsOtherTenants }),
+            context, audit, "group.tenants", name,
+            AdminEndpoints.Detail(new { admitsOtherTenants = request.AdmitsOtherTenants, partnersOnly }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
-        return Results.Ok(new { group = name, admitsOtherTenants = request.AdmitsOtherTenants });
+        return Results.Ok(new { group = name, admitsOtherTenants = request.AdmitsOtherTenants, partnersOnly });
     }
 
     private static object Describe(Tenant tenant) => new

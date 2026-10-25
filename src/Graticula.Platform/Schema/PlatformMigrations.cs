@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(106);
+    public static SchemaVersion ComponentSchemaVersion => new(107);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -141,7 +141,60 @@ public static class PlatformMigrations
         TheOtherNamesAreTheOrganisationsV104,
         AUsernameIsItsOrganisationsV105,
         AnOrganisationsRolesAreItsOwnV106,
+        TwoOrganisationsPartnerV107,
     ]);
+
+    /// <summary>
+    /// Two organisations partner before their groups mix — ADR-219, ArcGIS Online's partnered collaboration: a
+    /// partnership between two organisations, each side saying whether the other may find its members, and a group that
+    /// admits only its organisation's partners.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The first row that is two organisations'.</b> It carries no <c>tenant_id</c>; its policy shows it to the
+    /// inviter's requests, the invitee's, and the root pool, and to nobody else (ADR-219 §5.6). One pair holds one
+    /// partnership that has not ended, whichever of the two invited.
+    /// </para>
+    /// <para><b>Expand</b>: a reader older than this sees no partnership and every group as it was.</para>
+    /// </remarks>
+    private static Migration TwoOrganisationsPartnerV107 => Migration.Expand(
+        new SchemaVersion(107),
+        "Two organisations partner before their groups mix; a group may admit only partners (ADR-219).",
+
+        """
+        create table if not exists partnership (
+            id                      uuid        primary key default gen_random_uuid(),
+            inviter                 uuid        not null references tenant (id) on delete cascade,
+            invitee                 uuid        not null references tenant (id) on delete cascade,
+            status                  text        not null default 'pending',
+            inviter_shares_members  boolean     not null default false,
+            invitee_shares_members  boolean     not null default false,
+            invited_by              text        not null,
+            invited_at              timestamptz not null default now(),
+            changed_at              timestamptz not null default now(),
+            status_at               timestamptz not null default now(),
+            constraint partnership_status_known check (status in ('pending', 'active', 'suspended', 'ended')),
+            constraint partnership_two_organisations check (inviter <> invitee)
+        )
+        """,
+        """
+        create unique index if not exists partnership_one_per_pair
+            on partnership (least(inviter, invitee), greatest(inviter, invitee)) where status <> 'ended'
+        """,
+        "alter table partnership add column if not exists status_at timestamptz not null default now()",
+        "create index if not exists partnership_invitee on partnership (invitee)",
+
+        "alter table partnership enable row level security",
+        "alter table partnership force row level security",
+        // Not named tenant_floor: that name marks a table with tenant_id, which a tenant's purge walks (pg_policies).
+        "drop policy if exists partnership_parties on partnership",
+        """
+        create policy partnership_parties on partnership
+            using (graticula_tenant() is null or graticula_tenant() in (inviter, invitee))
+            with check (graticula_tenant() is null or graticula_tenant() in (inviter, invitee))
+        """,
+
+        "alter table sharing_group add column if not exists admits_partners_only boolean not null default false");
 
     /// <summary>
     /// An organisation defines roles of its own — ADR-204 condition 16 and §5e item 18, the owner's "sıra ile" after

@@ -267,9 +267,22 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
         if (who is null && member.Contains('\\', StringComparison.Ordinal) && TenantScope.MultiTenant
             && await AdmitsOtherTenantsAsync(id, cancellationToken).ConfigureAwait(false))
         {
+            // ADR-219 §5.3–5.5: a group limited to partners takes a member only while their organisation's partnership
+            // with the group's is active — not pending, suspended or ended.
             await using NpgsqlCommand outsider = _root.CreateCommand(
-                "select id from principal where id = graticula_principal_named(@name) and disabled_at is null and kind = 'user'");
+                """
+                select p.id
+                  from principal p, sharing_group g
+                 where p.id = graticula_principal_named(@name) and p.disabled_at is null and p.kind = 'user'
+                   and g.id = @g
+                   and (not g.admits_partners_only
+                        or exists (select 1 from partnership x
+                                    where x.status = 'active'
+                                      and least(x.inviter, x.invitee) = least(p.tenant_id, g.tenant_id)
+                                      and greatest(x.inviter, x.invitee) = greatest(p.tenant_id, g.tenant_id)))
+                """);
             outsider.Parameters.AddWithValue("name", member);
+            outsider.Parameters.AddWithValue("g", id);
             who = await outsider.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is Guid found ? found : null;
         }
 
@@ -868,8 +881,10 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
+        // A group closed to other organisations is not limited to partners either (ADR-219 §5.3).
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update sharing_group set admits_other_tenants = @admits where lower(name) = lower(@name)");
+            "update sharing_group set admits_other_tenants = @admits, admits_partners_only = admits_partners_only and @admits "
+            + "where lower(name) = lower(@name)");
         command.Parameters.AddWithValue("name", name);
         command.Parameters.AddWithValue("admits", admits);
 
@@ -883,6 +898,66 @@ public sealed class PostgresGroupDirectory : IGroupDirectory
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             "select admits_other_tenants from sharing_group where lower(name) = lower(@name)");
+        command.Parameters.AddWithValue("name", name);
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
+    }
+
+    /// <inheritdoc/>
+    public async Task<(GroupChange Change, int Strangers)> SetPartnersOnlyAsync(
+        string name, bool partnersOnly, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        int standing = partnersOnly ? await StrangersAsync(name, cancellationToken).ConfigureAwait(false) : 0;
+
+        if (standing > 0)
+        {
+            return (GroupChange.Exists, standing);
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update sharing_group set admits_partners_only = @only where lower(name) = lower(@name) and admits_other_tenants");
+        command.Parameters.AddWithValue("name", name);
+        command.Parameters.AddWithValue("only", partnersOnly);
+
+        return (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1 ? GroupChange.Done : GroupChange.Absent, 0);
+    }
+
+    /// <inheritdoc/>
+    public async Task<int> StrangersAsync(string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        // Members of other organisations whose organisation is not a partner — active or suspended, since a suspended
+        // partnership keeps who is in (ADR-219 §5.4). <b>On the root pool, narrowed to this organisation's group</b>: the
+        // floor shows another organisation's member only while the group admits other organisations, so a closed group
+        // counted none of them and was opened before the refusal came (2026-10-26).
+        await using NpgsqlCommand strangers = _root.CreateCommand(
+            """
+            select count(*)
+              from sharing_group g
+              join sharing_group_member m on m.group_id = g.id
+              join principal p on p.id = m.principal_id
+             where lower(g.name) = lower(@name) and g.tenant_id = @tenant
+               and p.tenant_id <> g.tenant_id
+               and not exists (select 1 from partnership x
+                                where x.status in ('active', 'suspended')
+                                  and least(x.inviter, x.invitee) = least(p.tenant_id, g.tenant_id)
+                                  and greatest(x.inviter, x.invitee) = greatest(p.tenant_id, g.tenant_id))
+            """);
+        strangers.Parameters.AddWithValue("name", name);
+        strangers.Parameters.AddWithValue("tenant", TenantScope.Effective);
+        return Convert.ToInt32(
+            await strangers.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> AdmitsPartnersOnlyAsync(string name, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select admits_partners_only from sharing_group where lower(name) = lower(@name)");
         command.Parameters.AddWithValue("name", name);
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is true;
     }

@@ -898,6 +898,118 @@
     </div>
   </section>
 
+  <!--
+    Organization › Settings › Collaborations — ADR-219, ArcGIS Online's *partnered collaboration*, where ArcGIS Online
+    puts it (Organization › Settings › Collaborations › Partnered). Offered only to this organization's administrator on
+    a server of several; the column does not list it otherwise, and an address typed by anybody else says why.
+    The lists are drawn by `loadPartnerships` into #pcLists: invitations to us first, because they wait on us.
+  -->
+  <section class="view" id="view-collaborations">
+    <div class="pagehead">
+      <div>
+        <h2>Partnered collaborations</h2>
+        <p id="pcLede">Partner with another organization on this server so that your groups and theirs can take each
+          other's members. Each organization keeps its own members and content, and each decides whether the other may
+          search for its members.</p>
+      </div>
+      <div class="right" id="pcHeadActs">
+        <span class="val" id="pcCount"></span>
+        <button class="primary" id="pcNew" type="button">Start a collaboration</button>
+      </div>
+    </div>
+
+    <p class="hint" id="pcSays" role="status" aria-live="polite"></p>
+
+    <div id="pcLists" aria-busy="true"><p class="hint">Reading this organization's collaborations&hellip;</p></div>
+
+    <p class="hint settingcard" id="pcNote" hidden></p>
+
+    <!-- Start a collaboration: ArcGIS Online's dialog name. One organization at a time; no CSV (ADR-219 §5.8). -->
+    <dialog id="pcDialog" class="formdialog" aria-labelledby="pcDialogTitle">
+      <header class="dialoghead">
+        <h3 id="pcDialogTitle">Start a collaboration</h3>
+        <button type="button" class="tiny ghost" id="pcDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+        <div class="picker">
+          <label for="pcOrg">The other organization&rsquo;s address</label>
+          <input id="pcOrg" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+            placeholder="maps.acme.example" aria-describedby="pcOrgHint">
+          <p class="hint" id="pcOrgHint">The host name its people sign in at, or its key if its administrator gave you
+            that. A pasted address works too. Its administrator accepts or declines the invitation in their own
+            Collaborations page.</p>
+
+          <fieldset class="pickset" id="pcShare">
+            <legend>Member visibility</legend>
+            <label class="pickrow"><input type="radio" name="pcShare" value="no" checked>
+              <span><b>Keep our members out of their search</b><span class="lede">Their group managers can still add one
+                of ours who tells them their name.</span></span></label>
+            <label class="pickrow"><input type="radio" name="pcShare" value="yes">
+              <span><b>Let them search for our members</b><span class="lede">Our members appear in the list their
+                group managers pick from, once the collaboration is active.</span></span></label>
+          </fieldset>
+
+          <p class="bad-inline" id="pcFormSays" role="alert" hidden></p>
+        </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="pcCancel">Cancel</button>
+        <button type="button" class="primary" id="pcSend">Send invitation</button>
+      </footer>
+    </dialog>
+
+    <!-- Accept & configure, in ArcGIS Online's words: accepting is where the invited side says whether it is found. -->
+    <dialog id="pcAccept" class="formdialog" aria-labelledby="pcAcceptTitle" aria-describedby="pcAcceptBody">
+      <header class="dialoghead">
+        <h3 id="pcAcceptTitle">Accept the invitation</h3>
+        <button type="button" class="tiny ghost" id="pcAcceptClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+        <p id="pcAcceptBody"></p>
+        <fieldset class="pickset" id="pcAcceptShare">
+          <legend>Member visibility</legend>
+          <label class="pickrow"><input type="radio" name="pcAcceptShare" value="no" checked>
+            <span><b>Keep our members out of their search</b><span class="lede">Their group managers can still add one
+              of ours who tells them their name.</span></span></label>
+          <label class="pickrow"><input type="radio" name="pcAcceptShare" value="yes">
+            <span><b>Let them search for our members</b><span class="lede">Our members appear in the list their group
+              managers pick from.</span></span></label>
+        </fieldset>
+        <p class="hint">Either choice can be changed later, here.</p>
+        <p class="bad-inline" id="pcAcceptSays" role="alert" hidden></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="pcAcceptCancel">Cancel</button>
+        <button type="button" class="primary" id="pcAcceptGo">Accept</button>
+      </footer>
+    </dialog>
+
+    <!--
+      End collaboration, after ArcGIS Online's: the groups it changes are listed before it is confirmed, read from
+      `GET /admin/partnerships/{id}/ending`, which changes nothing. Cancel has the focus.
+    -->
+    <dialog id="pcEnd" class="formdialog" aria-labelledby="pcEndTitle" aria-describedby="pcEndLede">
+      <header class="dialoghead">
+        <h3 id="pcEndTitle" tabindex="-1">End the collaboration</h3>
+        <button type="button" class="tiny ghost" id="pcEndClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+        <p id="pcEndLede"></p>
+        <h4 class="pcendhead" id="pcEndGroupsTitle">Groups this changes</h4>
+        <ul class="pcaffected" id="pcEndGroups" aria-labelledby="pcEndGroupsTitle"></ul>
+        <p class="hint" id="pcEndAfter"></p>
+        <p class="bad-inline" id="pcEndSays" role="alert" hidden></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="pcEndCancel">Cancel</button>
+        <button type="button" class="danger" id="pcEndGo">End collaboration</button>
+      </footer>
+    </dialog>
+  </section>
+
   <section class="view" id="view-settings">
     <!--
       <b>V-70, the owner's decision of 2026-09-23 (ADR-084):</b> "server tarafında genel ayarlar gibi bir

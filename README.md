@@ -131,7 +131,10 @@ that works.
   The server must connect as a role the security binds. Names are each organisation's own — services, folders,
   groups, data sources, usernames and the rest; only the managed datastore's is the server's — and so are custom
   roles; the built-in roles are shared, and fixed while there are several organisations. A member sees the groups
-  of other organisations they are in on their own Groups page, and opens each at its organisation's host.
+  of other organisations they are in on their own Groups page, and opens each at its organisation's host. Two
+  organisations may partner, as in ArcGIS Online's partnered collaboration, and a group may admit only partners'
+  members ([ADR-219](docs/adr/ADR-219-two-organisations-partner-before-their-groups-mix.md)); collaboration
+  coordinators are not built.
 - **A second factor and API keys are new; API keys have no screen yet.** A member with a password here turns on
   a code from an authenticator app in the console or at `/rest/auth/second-factor`, and every sign-in page asks for
   it; a token request cannot carry one and says so ([ADR-201](docs/adr/ADR-201-a-member-may-have-a-second-factor.md)).

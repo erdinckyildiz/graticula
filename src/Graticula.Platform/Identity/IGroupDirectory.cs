@@ -540,6 +540,32 @@ public interface IGroupDirectory
     /// <returns>Whether it admits them.</returns>
     Task<bool> AdmitsOtherTenantsAsync(string name, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Limits a group that admits other organisations to its organisation's partners, or lifts the limit — ADR-219 §5.3.
+    /// Refused, with nothing changed, while the group holds members of organisations that are not partners.
+    /// </summary>
+    /// <param name="name">The group.</param>
+    /// <param name="partnersOnly">Whether only partners' members are admitted.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>What happened, and how many members of organisations that are not partners stood in the way.</returns>
+    Task<(GroupChange Change, int Strangers)> SetPartnersOnlyAsync(
+        string name, bool partnersOnly, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// How many members a group holds of organisations that are not partners of its own — what stops it being limited to
+    /// partners (ADR-219 §5.3). Nothing is changed.
+    /// </summary>
+    /// <param name="name">The group.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The count; zero for a group there is not.</returns>
+    Task<int> StrangersAsync(string name, CancellationToken cancellationToken);
+
+    /// <summary>Whether a group admits only its organisation's partners — ADR-219; false for a group there is not.</summary>
+    /// <param name="name">The group.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether it does.</returns>
+    Task<bool> AdmitsPartnersOnlyAsync(string name, CancellationToken cancellationToken);
+
     /// <summary>Which members a group has, and what each is.</summary>
     /// <param name="name">The group.</param>
     /// <param name="cancellationToken">Cancellation.</param>

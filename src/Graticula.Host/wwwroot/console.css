@@ -6182,3 +6182,59 @@ ol.sfsteps > li > b { margin-left: -30px; }
 
 /* ADR-204 §5e item 16: the way to a group's Settings, from the member picker, looks like the link it is. */
 .picker .hint a { text-decoration: underline; text-underline-offset: 2px; }
+
+/* Organization › Settings › Collaborations (ADR-219). The actions keep to one line on a wide screen and wrap under the
+   name on a narrow one; the visibility cell is two sentences, ours first, and the button that changes ours under them. */
+#view-collaborations .pclist .panel { margin: 0; }
+#view-collaborations td.pcacts { text-align: right; white-space: nowrap; }
+#view-collaborations td.pcacts button + button { margin-left: var(--gap-2); }
+#view-collaborations .pcvisibility { display: block; }
+#view-collaborations .pcvisibility .linkbtn { margin: var(--gap-1) 0 0; }
+#view-collaborations .pcdates { margin: 0; }
+#view-collaborations .pcempty { max-width: 760px; }
+#view-collaborations .pcempty h3 { margin: 0 0 var(--gap-2); font-size: var(--t-head); }
+#view-collaborations .pcempty p { margin: 0 0 var(--gap-2); }
+#view-collaborations .pcempty p:last-child { margin-bottom: 0; }
+#view-collaborations .pagehead.sub h3 .val { font-weight: 400; margin-left: var(--gap-1); }
+#pcDialog .picker input[type="text"] { width: 100%; }
+#pcDialog .pickset, #pcAccept .pickset { margin-top: var(--gap-3); }
+@media (max-width: 719px) {
+  /* Two or three buttons do not fit beside the name: they take their own line under the row. */
+  #view-collaborations table.rowblocks td.pcacts { grid-column: 1 / -1; grid-row: auto; text-align: left;
+                                                   white-space: normal; }
+  #view-collaborations td.pcacts button { margin: var(--gap-1) var(--gap-2) 0 0; }
+  #view-collaborations td.pcacts button + button { margin-left: 0; }
+}
+#view-collaborations .pclist table { table-layout: fixed; }
+#view-collaborations .pclist th:nth-child(1) { width: 27%; }
+#view-collaborations .pclist th:nth-child(2) { width: 11%; }
+#view-collaborations .pclist th:nth-child(3) { width: 32%; }
+#view-collaborations .pclist th:nth-child(4) { width: 16%; }
+#view-collaborations .pclist th:nth-child(5) { width: 14%; }
+#view-collaborations td.pcacts { white-space: normal; }
+#view-collaborations td.pcacts button { margin: 2px 0 2px var(--gap-2); }
+#view-collaborations td.pcacts button + button { margin-left: var(--gap-2); }
+#view-collaborations .pckey, #view-collaborations .rowmeta code { white-space: nowrap; }
+#view-collaborations .pcvlabel { color: var(--muted); }
+#view-collaborations #pcLists > .pclist:first-child .pagehead.sub { margin-top: var(--gap-2); }
+#view-collaborations #pcNote { margin-top: var(--gap-4); }
+#view-collaborations .settingcard p { margin: 0; }
+@media (max-width: 719px) {
+  #view-collaborations td.pcacts button { margin: var(--gap-1) var(--gap-2) 0 0; }
+  #view-collaborations td.pcacts button + button { margin-left: 0; }
+  #view-collaborations .pclist th { width: auto; }
+}
+/* `.picker label` makes every label a block; the visibility choices are radio rows, as in the Accept dialog. */
+#pcDialog .picker label.pickrow { display: grid; margin-top: var(--gap-2); }
+#pcDialog .picker label.pickrow:first-of-type { margin-top: 0; }
+
+/* End collaboration: the affected groups, one per line, the effect under the name. */
+#pcEnd .pcendhead { margin: var(--gap-4) 0 var(--gap-2); }
+#pcEnd .pcaffected { list-style: none; margin: 0; padding: 0; border: 1px solid var(--rule); border-radius: var(--round);
+                     max-height: 40vh; overflow-y: auto; }
+#pcEnd .pcaffected li { padding: var(--gap-2) var(--gap-3); border-top: 1px solid var(--rule); }
+#pcEnd .pcaffected li:first-child { border-top: 0; }
+#pcEnd .pcaffected .rowmeta { display: inline; margin-left: var(--gap-1); }
+#pcEnd .pcaffected .pcnone { color: var(--muted); }
+#pcEnd h4[hidden], #pcEnd .pcaffected:empty, #pcEnd .hint:empty { display: none; }
+#pcEnd #pcEndAfter { margin-top: var(--gap-2); }
