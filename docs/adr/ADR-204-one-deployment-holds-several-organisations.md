@@ -169,7 +169,11 @@ superuser, and nothing binds that.
 | Row-level security costs little enough on these list reads | **Measured 2026-10-19, and only in its second shape.** Policies that ask each other cost 2.7× and 7.7× Alternative C at p95 on `ListServicesAsync`; flat policies over reach tables cost 0.69–0.98× of it, and the worst ratio on any read is 1.10, on 0.2 ms. 1,000 services, ten tenants, three runs | [benchmarks/tenant-floor](../../benchmarks/tenant-floor/RESULTS.md) |
 | A pooled connection never carries one request's tenant into another | **Measured 2026-10-19:** 0 of 2,000 with Npgsql's reset on close, against **2,000 of 2,000** with it off — the control — and 0 of 4,800 reads crossing between two tenants' pools under 16 callers | [benchmarks/tenant-floor](../../benchmarks/tenant-floor/RESULTS.md) |
 | The floor binds the role the server connects as | **False on every shipped deployment**: `compose.yaml` connects as `gis`, the image's superuser, and a superuser read 1,000 services as `jv6`, which owns 50, with `FORCE` set | [benchmarks/tenant-floor](../../benchmarks/tenant-floor/RESULTS.md), condition 9 |
-| ArcGIS Online gives each organisation its own host name, keeps usernames unique across all organisations, and lets a group admit members of other organisations | **From memory, not yet cited** — §5 of CLAUDE.md makes a public page the citation | Condition 7 |
+| ArcGIS Online gives each organisation its own host name | The short name "uniquely defines the URL to your organization", `orgurl.maps.arcgis.com` | [Configure general settings](https://doc.arcgis.com/en/arcgis-online/administer/configure-general.htm), [Activate subscription](https://doc.arcgis.com/en/arcgis-online/administer/activate-subscription.htm) |
+| ArcGIS Online keeps usernames unique across all organisations | "The same username can't be used for multiple organizations"; one email may hold several accounts with different usernames. **Unlike here since §5e item 16, by owner decision** | [Esri FAQ 000033402](https://support.esri.com/en-us/knowledge-base/faq-can-the-same-arcgis-online-username-be-used-for-mul-000033402) (read through a search; the page refused a direct fetch) |
+| ArcGIS Online lets a group admit members of other organisations | "Who can be in this group?": my organisation only; partnered collaboration and my organisation; any organisation's members — the last "as long as they have privileges to join external groups" | [Create groups](https://doc.arcgis.com/en/arcgis-online/share-maps/create-groups.htm), [Create a partnered collaboration](https://doc.arcgis.com/en/arcgis-online/administer/create-partnered-collaboration.htm) |
+| ArcGIS Online names a service within its organisation | `portals/[portalID]/isServiceNameAvailable` — "already published to the organization" | [Check service name](https://developers.arcgis.com/rest/users-groups-and-items/check-service-name/) |
+| ArcGIS Online lets an organisation define roles | "Create role"; the name "must be unique within your organization"; made by the administrator or a custom role with the Member roles privilege | [Configure member roles](https://doc.arcgis.com/en/arcgis-online/administer/configure-roles.htm), [Member roles](https://doc.arcgis.com/en/arcgis-online/administer/member-roles.htm) |
 
 ## 5. Decision
 
@@ -477,6 +481,24 @@ superuser.
     host); the directory page's refusal getting no extra sentence, since its form round-trip does not carry the
     typed name.
 
+17. **ArcGIS Online, set beside this — 2026-10-25**, from the documents §4 cites, at the owner's word.
+    - *The same:* an organisation per host (its short name); service names and folder names within an organisation
+      (`isServiceNameAvailable` is per portal); a group that admits members of other organisations (ArcGIS Online's
+      *any organization's members*).
+    - *Different, by decision:* usernames are unique within an organisation here and across ArcGIS Online there
+      (§5e item 16). One person in two organisations is two accounts in both products; here they may share a name.
+    - *Different, not decided — owed:*
+      1. **Roles per organisation.** ArcGIS Online's administrator makes custom roles, named uniquely within the
+         organisation, by the *Member roles* privilege. Here roles are the deployment's (condition 16). ArcGIS Online is
+         the model to build it on.
+      2. **Who may join another organisation's group.** ArcGIS Online asks the joining member for a *join external
+         groups* privilege, so their own organisation decides. Here the group's organisation admits anyone it names.
+      3. **Partnered collaboration** — two organisations agreeing to work together, coordinators who invite their own
+         members, and groups limited to the partners. Here there is only the open switch.
+      4. **Where the outsider works.** In ArcGIS Online the member keeps one account and the other organisation's group
+         appears on *their* Groups page. Here their home token already reaches the other host as an outsider (tested),
+         but their own console does not list the other organisation's groups; they find them by signing in there.
+
 **State.** As §6 says, plus: the pools per tenant, node-local, emptied whenever the tenants are read again; each
 member's home, read once per thirty seconds.
 
@@ -579,7 +601,10 @@ own.
    for everyone.~~ **DISCHARGED 2026-10-24:** the pins (§5e item 12), the process's whole budget and the tile cache
    are shared the same way, tested by `AnOrganisationsShareOfTheServerTests`.
 7. **The three ArcGIS Online behaviours §4 states from memory are cited from public documentation**, or the sentence
-   that relies on them is changed.
+   that relies on them is changed. **DISCHARGED 2026-10-25**, at the owner's word — *"Multi tenancy soruları için Agol
+   dokümanlarına bakabilirsin"*: all three are cited in §4, and two more were added (service names per organisation,
+   roles per organisation). One no longer describes Graticula — usernames, per organisation here since §5e item 16 —
+   and §4 says so; §5e item 17 sets the rest beside ArcGIS Online.
 8. **[v1-scope.md](../v1-scope.md) is amended and [Q-181](../open-questions.md) is answered** before a line of the
    migration is written. **DISCHARGED 2026-10-19** — the owner answered *"evet"* to all four, and v1-scope §2 has
    the row.
