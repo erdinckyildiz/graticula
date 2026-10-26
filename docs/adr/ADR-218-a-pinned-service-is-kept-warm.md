@@ -79,7 +79,7 @@ which is why this is a flag and not a process.
    Parameters, where Server Manager keeps minimum instances; a quiet *Kept warm* badge beside the status in the head
    card, so the state shows on every tab; a button that acts at once rather than with the page's Save, because the
    server may refuse it; "Kept warm" rather than "pinned" on the screen, the API and setting keeping their names. No
-   control in Studio. **INFERRED, all of it.**
+   control in Studio. **INFERRED, all of it.** *(Confirmed by the owner 2026-10-26 — Q-189: "189'un hepsini onayladım.")*
 6. **A refusal names only the caller's own organisation's pinned services** and counts the rest — found by the
    screen's review: the first build listed every pinned service on the deployment, so one organisation's
    administrator refused a pin was shown another's service names (ADR-204). Checked live with the limit set to one.

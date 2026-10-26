@@ -572,7 +572,14 @@ by its host name or key (`POST /admin/partnerships`), the other's accepts or dec
 or ends it (`PUT /admin/partnerships/{id}`). Each says whether the other may find its members, which lists them when
 adding members to a group. A group limited to partners takes a partner's member only while the partnership is
 active; ending it removes each organisation's members from the other's groups limited to partners, and makes its
-managers plain members in groups open to any organisation. At most 20 at a time. A member of another organisation is then added to it by username, signs in
+managers plain members in groups open to any organisation. At most 20 at a time.
+
+An item may also be shared with **all organizations on this server**
+([ADR-220](adr/ADR-220-an-item-may-be-shared-with-every-organisation.md)): every organisation's signed-in members read
+it, at its own organisation's host, and nobody anonymous does. Sharing at that level takes
+`sharing:shareToAllOrganizations`, which the administrator holds and a custom role may be given. So a member of any
+organisation is recognised at every host — as an outsider, holding nothing there but what is shared with them — and
+Studio's search, set to *All organizations*, lists what they may read elsewhere. A member of another organisation is then added to it by username, signs in
 at this organisation's host, and reads what is shared into that group — nothing shared with the organisation,
 and no privilege here. The member sees such groups on their own Groups page, at home, each with a link to open it
 at its organisation's host (ADR-204 §5e item 17.4).

@@ -110,21 +110,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>3aec1d9f</code> · 2026-10-25 18:03</p>
+<p class="stamp">Şu commit’ten üretildi: <code>28707bdf</code> · 2026-10-26 01:54</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">217</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">442/531</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 9 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">194 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">218</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">447/536</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">195 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">21</div><div class="kpi-l">açık borç</div><div class="kpi-n">284 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5469</div><div class="kpi-l">test</div><div class="kpi-n">586 kaynak dosya, 260,536 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5473</div><div class="kpi-l">test</div><div class="kpi-n">587 kaynak dosya, 260,771 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-189</b> — [OWNER] What was decided overnight on 2026-10-22, while you slept, and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">105 madde</span></div><p><b>80 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>21 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -415,12 +415,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">217</td><td>A versioned or archived geodatabase class is refused, not served wrongly</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
 <tr><td class="id">218</td><td>A pinned service is kept warm</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for what goes cold, which is measured · MEDIUM for the limit, which is not</td><td class="num">2/3</td></tr>
 <tr><td class="id">219</td><td>Two organisations partner before their groups mix</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the shape, which is ArcGIS Online&#x27;s · MEDIUM for what this version leaves out…</td><td class="num">3/4</td></tr>
+<tr><td class="id">220</td><td>An item may be shared with every organisation on the server</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reading rule, which is one line in the one place reading is decided · MEDIUM…</td><td class="num">5/5</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-187</span><span class="owner">Owner</span></div><p>[OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-189</span><span class="owner">Owner</span></div><p>[OWNER] What was decided overnight on 2026-10-22, while you slept, and is INFERRED until you confirm it.</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-190</span><span class="owner">Owner</span></div><p>[OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -554,10 +555,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1510</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.3%"></div></div><div class="bar-n">941</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.3%"></div></div><div class="bar-n">850</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.4%"></div></div><div class="bar-n">851</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.0%"></div></div><div class="bar-n">559</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.7%"></div></div><div class="bar-n">328</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:21.9%"></div></div><div class="bar-n">331</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">237</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.7%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.2%"></div></div><div class="bar-n">124</div></div>
@@ -570,6 +571,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">22</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>28707bdf</code><time>2026-10-26</time><span>wip: every organisation&#x27;s member is an outsider elsewhere; all-orgs passes</span></li>
+<li><code>ef3764fd</code><time>2026-10-26</time><span>wip: shared with every organisation, search elsewhere (ADR-220)</span></li>
+<li><code>dbd13da4</code><time>2026-10-26</time><span>Two organisations partner before their groups mix, as in ArcGIS Online&#x27;s partnered collaboration (ADR-219, ADR-204 §5e item 17.3)</span></li>
 <li><code>3aec1d9f</code><time>2026-10-25</time><span>The issued-password form is shown alone, without the console painted under it</span></li>
 <li><code>9a97a3fe</code><time>2026-10-25</time><span>A new organisation&#x27;s host needs no change to the proxy: /healthz/certificate answers an on-demand TLS ask (ADR-204 §5e item 19)</span></li>
 <li><code>344aaa66</code><time>2026-10-25</time><span>README and the deployment guide say what organisations own since v1.0.458 (ADR-204 §5e items 14-18)</span></li>
@@ -581,9 +585,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>1a95743a</code><time>2026-10-23</time><span>The organisation console tests return where the store&#x27;s role refuses a second organisation, as the conformance ones do (ADR-204 condition 9)</span></li>
 <li><code>3fa22905</code><time>2026-10-22</time><span>One deployment holds several organisations, and the ArcGIS veteran&#x27;s findings are closed (ADR-204, ADR-212-218, ADR-012)</span></li>
 <li><code>ebdfd3b7</code><time>2026-10-21</time><span>Refresh forgets the engine&#x27;s columns, so a column added outside is served at once (ADR-212 §2c)</span></li>
-<li><code>f23cb056</code><time>2026-10-21</time><span>Attachments and editor tracking on every registered database, from the console (ADR-212)</span></li>
-<li><code>1382ff9e</code><time>2026-10-21</time><span>A registered SQL Server database is read and edited; a DuckDB file or MotherDuck database is edited (ADR-210, ADR-211, Q-188, D-313)</span></li>
-<li><code>e53ccc4e</code><time>2026-10-21</time><span>Points are decided in MySQL, MariaDB and Oracle, and Oracle answers within twice PostGIS&#x27;s time; four other databases tried (ADR-205, 208, 209, Q-187, D-311, D-312)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

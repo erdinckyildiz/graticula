@@ -5366,8 +5366,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        Privilege needed = scope == SharingScope.Public
-            ? Privilege.SharingShareToPublic
+        Privilege needed = SharingPrivileges.ToShareAt(scope) is { } named && scope != SharingScope.Group
+            ? named
             : Privilege.SharingShareToOrganization;
 
         if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
@@ -5414,6 +5414,15 @@ internal static partial class AdminEndpoints
                 to = PostgresSharing(scope),
             }).ExecuteAsync(context).ConfigureAwait(false);
 
+            return;
+        }
+
+        // ADR-220: a system service is already the deployment's, every organisation's; the level is a catalogue item's.
+        if (scope == SharingScope.AllOrganizations)
+        {
+            await Refuse(context, 400,
+                $"'{name}' is a system service, which every organization on this server already uses. Share it with the "
+                + "organization or the public instead.").ConfigureAwait(false);
             return;
         }
 
@@ -7992,8 +8001,8 @@ internal static partial class AdminEndpoints
         // covers the organization scope as well, which the layer route does not.
         if (scope != SharingScope.Private)
         {
-            Privilege needed = scope == SharingScope.Public
-                ? Privilege.SharingShareToPublic
+            Privilege needed = SharingPrivileges.ToShareAt(scope) is { } named && scope != SharingScope.Group
+                ? named
                 : Privilege.SharingShareToOrganization;
 
             if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
@@ -10408,8 +10417,8 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        Privilege needed = scope == SharingScope.Public
-            ? Privilege.SharingShareToPublic
+        Privilege needed = SharingPrivileges.ToShareAt(scope) is { } named && scope != SharingScope.Group
+            ? named
             : Privilege.SharingShareToOrganization;
 
         if (!await Authorize.RequireAsync(context, needed).ConfigureAwait(false))
@@ -12598,6 +12607,7 @@ internal static partial class AdminEndpoints
         {
             case "private": scope = SharingScope.Private; return true;
             case "organization": scope = SharingScope.Organization; return true;
+            case "allorganizations": scope = SharingScope.AllOrganizations; return true;
             case "public": scope = SharingScope.Public; return true;
 
             // ADR-036's fourth scope. Which groups is a separate act —
@@ -12605,7 +12615,7 @@ internal static partial class AdminEndpoints
             // service shared with nothing says so.
             case "group": scope = SharingScope.Group; return true;
             default:
-                error = "sharing must be 'private', 'organization' or 'public'.";
+                error = "sharing must be 'private', 'group', 'organization', 'allorganizations' or 'public'.";
                 return false;
         }
     }

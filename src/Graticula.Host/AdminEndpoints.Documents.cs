@@ -597,6 +597,7 @@ internal static partial class AdminEndpoints
         "private" => SharingScope.Private,
         "group" or "shared" => SharingScope.Group,
         "organization" or "org" => SharingScope.Organization,
+        "allorganizations" => SharingScope.AllOrganizations,
         "public" => SharingScope.Public,
         _ => null,
     };

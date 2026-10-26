@@ -65,7 +65,7 @@ right — and change when the host name changes, which changes the organisation.
 
 The organisation's id is sixteen upper-case hexadecimal digits made at random on the first start and kept as
 `portal_id` in `server_setting` (`PortalIdentity`), read before the server takes requests. Every address answers it.
-Where there is no platform store, the origin's hash remains the fallback. **INFERRED, for the owner:** that the one-time
+Where there is no platform store, the origin's hash remains the fallback. **INFERRED, for the owner:** *(Confirmed by the owner 2026-10-26 — Q-189: "189'un hepsini onayladım.")* that the one-time
 change on an existing deployment — the showcase and dev included — is acceptable.
 
 ## 6. Consequences

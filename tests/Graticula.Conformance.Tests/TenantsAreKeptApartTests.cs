@@ -127,8 +127,16 @@ public sealed class TenantsAreKeptApartTests : ArcGisClient
             (_, JsonElement search) = await SendAsync(HttpMethod.Get, $"/sharing/rest/search?q=jv_shared_{run}&f=json", token: admin);
             Assert.Equal(0, search.GetProperty("total").GetInt32());
 
-            // A member of one organisation is nobody at the other's host, and the machine is the system's.
-            Assert.Equal((HttpStatusCode)498, (await SendAsync(HttpMethod.Get, "/sharing/rest/community/self?f=json", token: jv)).Status);
+            // A member of one organisation is an outsider at the other's host — since ADR-220 a member of any organisation
+            // is somebody everywhere, for what is shared with every organisation — told their own organisation's id and
+            // holding nothing here; and the machine is the system's.
+            (HttpStatusCode selfStatus, JsonElement self) = await SendAsync(HttpMethod.Get, "/sharing/rest/community/self?f=json", token: jv);
+            Assert.Equal(HttpStatusCode.OK, selfStatus);
+            Assert.Equal(theirs.GetProperty("id").GetString(), self.GetProperty("orgId").GetString());
+            (_, JsonElement who) = await SendAsync(HttpMethod.Get, "/rest/whoami", token: jv);
+            Assert.True(who.GetProperty("outsider").GetBoolean());
+            Assert.Empty(who.GetProperty("privileges").EnumerateArray());
+            Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(HttpMethod.Get, "/admin/members", token: jv)).Status);
             // Its own logs are its own (owner decision 2026-10-22); the server's process log is the system's.
             (HttpStatusCode logs, JsonElement index) = await SendAsync(HttpMethod.Get, "/admin/logs", jvHost, jv);
             Assert.Equal(HttpStatusCode.OK, logs);

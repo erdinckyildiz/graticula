@@ -163,13 +163,13 @@ internal static partial class PortalEndpoints
             return null;
         }
 
-        Privilege needed = scope switch
+        // ADR-220 §5.3, as for a service.
+        if (scope == SharingScope.Organization && map.Sharing == SharingScope.AllOrganizations)
         {
-            SharingScope.Public => Privilege.SharingShareToPublic,
-            SharingScope.Organization => Privilege.SharingShareToOrganization,
-            SharingScope.Group => Privilege.GroupsShareTo,
-            _ => Privilege.ContentCreate,
-        };
+            scope = SharingScope.AllOrganizations;
+        }
+
+        Privilege needed = SharingPrivileges.ToShareAt(scope) ?? Privilege.ContentCreate;
 
         bool administrator = current.Authorization.Allows(Privilege.AdminManageAllContent);
 

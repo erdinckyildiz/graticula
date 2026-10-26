@@ -91,7 +91,8 @@ public static class WebMaps
     /// <param name="scope">The scope.</param>
     /// <returns>False for <see cref="SharingScope.Group"/>.</returns>
     public static bool Allows(SharingScope scope) =>
-        scope is SharingScope.Private or SharingScope.Group or SharingScope.Organization or SharingScope.Public;
+        scope is SharingScope.Private or SharingScope.Group or SharingScope.Organization or SharingScope.Public
+            or SharingScope.AllOrganizations;
 }
 
 /// <summary>

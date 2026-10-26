@@ -56,6 +56,17 @@ public enum Privilege
     SharingShareToOrganization,
 
     /// <summary>
+    /// Share an item with every organisation on this server — ADR-220: their signed-in members read it, anonymous
+    /// callers do not.
+    /// </summary>
+    /// <remarks>
+    /// Its own privilege, as public sharing has its own: it takes an organisation's content past its own members, and
+    /// each organisation decides who of its members may do that. Held by no built-in role but the administrator,
+    /// which holds everything.
+    /// </remarks>
+    SharingShareToAllOrganizations,
+
+    /// <summary>
     /// Share an item publicly.
     /// </summary>
     /// <remarks>
@@ -157,6 +168,32 @@ public enum SharingScope
     /// named.
     /// </remarks>
     Group,
+
+    /// <summary>
+    /// Readable by every signed-in member of every organisation on this server, and by no anonymous caller — ADR-220,
+    /// the owner's level between the organisation and the public.
+    /// </summary>
+    /// <remarks>
+    /// ArcGIS has no such level: its clients are told <c>org</c>, and an ArcGIS client that shares to the organisation
+    /// keeps it rather than narrowing it (ADR-220 §5.3). Stored and written as <c>allorganizations</c>.
+    /// </remarks>
+    AllOrganizations,
+}
+
+/// <summary>Which privilege sharing at a level takes — one rule for every route that shares.</summary>
+public static class SharingPrivileges
+{
+    /// <summary>The privilege that sharing at <paramref name="scope"/> asks for; null for private, which asks for none.</summary>
+    /// <param name="scope">The level.</param>
+    /// <returns>The privilege.</returns>
+    public static Privilege? ToShareAt(SharingScope scope) => scope switch
+    {
+        SharingScope.Public => Privilege.SharingShareToPublic,
+        SharingScope.AllOrganizations => Privilege.SharingShareToAllOrganizations,
+        SharingScope.Organization => Privilege.SharingShareToOrganization,
+        SharingScope.Group => Privilege.GroupsShareTo,
+        _ => null,
+    };
 }
 
 /// <summary>
@@ -231,6 +268,7 @@ public static class Roles
         Privilege.FeaturesFullEdit => "features:fullEdit",
         Privilege.SharingShareToOrganization => "sharing:shareToOrganization",
         Privilege.SharingShareToPublic => "sharing:shareToPublic",
+        Privilege.SharingShareToAllOrganizations => "sharing:shareToAllOrganizations",
         Privilege.GroupsCreate => "groups:create",
         Privilege.GroupsDeleteOwn => "groups:deleteOwn",
         Privilege.GroupsManageMembers => "groups:manageMembers",
@@ -298,7 +336,11 @@ public static class Roles
             + "correcting everybody's.",
 
         Privilege.SharingShareToOrganization =>
-            "Share an item with everybody signed in to this server.",
+            "Share an item with everybody signed in to this organization.",
+
+        Privilege.SharingShareToAllOrganizations =>
+            "Share an item with the members of every organization on this server. Anybody signed in to any of them "
+            + "reads it; somebody who has not signed in does not.",
 
         Privilege.SharingShareToPublic =>
             "Share an item with anybody at all. This is the one that puts data on the internet, "
@@ -502,7 +544,8 @@ public static class Roles
             .Add(Privilege.AdminViewAllContent)
             .Add(Privilege.AdminManageAllContent)
             .Add(Privilege.AdminManageSecurity)
-            .Add(Privilege.AdminManageServer);
+            .Add(Privilege.AdminManageServer)
+            .Add(Privilege.SharingShareToAllOrganizations);
 
         return new Dictionary<string, ImmutableHashSet<Privilege>>(StringComparer.Ordinal)
         {
@@ -597,6 +640,7 @@ public static class UserTypes
             .Add(Privilege.FeaturesFullEdit)
             .Add(Privilege.SharingShareToOrganization)
             .Add(Privilege.SharingShareToPublic)
+            .Add(Privilege.SharingShareToAllOrganizations)
 
             // <b>The group privileges, added 2026-08-18 with ADR-036 — and their absence was a
             // defect for the length of one measurement.</b> A ceiling that does not list a privilege

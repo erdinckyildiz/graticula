@@ -331,7 +331,8 @@ public sealed class RolePrivilegeCatalogueTests
                 "admin:manageSecurity", "admin:manageServer", "admin:viewAllContent",
                 "content:create", "content:publishFeatures", "content:publishTiles",
                 "content:registerDataStore", "features:edit", "features:fullEdit",
-                "sharing:shareToOrganization", "sharing:shareToPublic",
+                // ADR-220: the administrator alone of the built-in roles shares with every organisation.
+                "sharing:shareToAllOrganizations", "sharing:shareToOrganization", "sharing:shareToPublic",
             ],
         };
 

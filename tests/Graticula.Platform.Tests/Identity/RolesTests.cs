@@ -406,8 +406,10 @@ public sealed class RolesTests
         }
 
         // <b>And every table that carries the column is widened, not only the one somebody
-        // remembered.</b> Three tables carry `sharing`; a fourth scope admitted on `service` and
-        // refused on `layer` is a 23514 that depends on which write path an operator used.
+        // remembered.</b> Three tables carried `sharing`; a fourth scope admitted on `service` and
+        // refused on `layer` was a 23514 that depended on which write path an operator used. Since
+        // migration 87 the level is the item's alone (ADR-056), and a system service, every
+        // organisation's already, is refused the fifth before it reaches its column (ADR-220 §5.1).
         foreach (string table in Tables)
         {
             Assert.Contains(
@@ -415,8 +417,8 @@ public sealed class RolesTests
         }
     }
 
-    /// <summary>The three tables that carry a sharing scope.</summary>
-    private static readonly string[] Tables = ["service", "layer", "system_service"];
+    /// <summary>The table that carries a catalogue item's sharing scope.</summary>
+    private static readonly string[] Tables = ["item"];
 
     [Theory]
     [InlineData(3)]

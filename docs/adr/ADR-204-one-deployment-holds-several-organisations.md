@@ -249,8 +249,12 @@ host and *wrong* per prefix — and an address that resolves to the wrong tenant
 
 A group belongs to one tenant and may be marked as **admitting members of other tenants**; only that tenant's
 administrator can set the mark. Content shared into it reaches its members wherever they come from, by the rule groups
-already follow. There is no other route between tenants — no "share with tenant X" scope — so ADR-018's four scopes
-stay four and the question *what can JV1 see of ours?* has one answer: list the groups that admit it.
+already follow. ~~There is no other route between tenants — no "share with tenant X" scope — so ADR-018's four scopes
+stay four and the question *what can JV1 see of ours?* has one answer: list the groups that admit it.~~ **Amended
+2026-10-26 by owner decision —** [ADR-220](ADR-220-an-item-may-be-shared-with-every-organisation.md)**:** a fifth level,
+*all organizations on this server*, read by every organisation's signed-in members and by nobody anonymous. Still no
+"share with tenant X": the answer to *what can JV1 see of ours?* is the groups that admit it and what is shared at that
+level.
 
 ### 5d. Two administrators
 
@@ -316,7 +320,10 @@ superuser.
    is not discharged by this.
 6. **The default tenant with no host names answers every host no other tenant claims** — so access by IP and an
    existing host name keep working after a second tenant is made. Give it its host names and an unknown host is `421`.
-7. **A token of another tenant whose member is not reachable here is refused (`498`)**, not served as anonymous: the
+7. ~~**A token of another tenant whose member is not reachable here is refused (`498`)**, not served as anonymous~~
+   **Changed 2026-10-26 by [ADR-220](ADR-220-an-item-may-be-shared-with-every-organisation.md) §5.6:** every
+   organisation's member is reachable everywhere, for what is shared with every organisation, and is an outsider at
+   any host but their own. What follows was the reason for the refusal: the
    session's member is not visible here, so the token is unknown here.
 8. **Closed with it:** two of §1b's three bypasses — the group listing (and with it the portal's group search) shows an
    `organization` group only to its own tenant's members, and a member profile's `organization` visibility excludes an

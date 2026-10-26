@@ -2306,6 +2306,15 @@
     </div>
     <div class="toolbar">
       <input type="search" id="searchQ" placeholder="Search" aria-label="Search" autocomplete="off" spellcheck="false">
+      <!--
+        <b>ArcGIS Online's *My organization* switch — ADR-220 §5.4.</b> Two pressed buttons rather than a link strip:
+        it changes what the list holds, it goes nowhere. Hidden on a server of one organization and at another
+        organization's address, where there is nowhere else to search from.
+      -->
+      <div class="segmented" id="searchWhere" role="group" aria-label="Search in" hidden>
+        <button type="button" data-search-in="mine" aria-pressed="true">My organization</button>
+        <button type="button" data-search-in="all" aria-pressed="false">All organizations</button>
+      </div>
       <span class="val" id="searchCount" aria-live="polite"></span>
     </div>
     <nav class="tabstrip" id="searchTabs" aria-label="What was found"></nav>

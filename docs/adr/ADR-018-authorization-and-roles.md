@@ -140,6 +140,11 @@ Every layer carries an owner and a sharing scope:
 | `organization` | any **authenticated** principal |
 | `public` | anyone, including anonymous |
 
+**Amended twice since.** `organization` means the caller's own organisation's members since
+[ADR-204](ADR-204-one-deployment-holds-several-organisations.md) §5b, and a fifth scope,
+`allorganizations` — every organisation's signed-in members, no anonymous caller — sits between it and `public` since
+[ADR-220](ADR-220-an-item-may-be-shared-with-every-organisation.md) (owner decision 2026-10-26), with its own privilege.
+
 **The default is `private`**, which preserves the closed default the first
 version had (§3 of the superseded text) while reaching it the way Portal does.
 The behaviour change from every build before 2026-08-13 stands: a fresh server
@@ -163,7 +168,7 @@ stated property with a test or stays an outcome each new surface has to arrive a
 independently.** It is now a property.
 
 Read the four scopes as an ordering by reach — `private` ⊂ `group` ⊂ `organization` ⊂
-`public` — and the rule is that **the decision is monotone in it**: a caller who may read
+`public` (five since ADR-220: `allorganizations` between `organization` and `public`) — and the rule is that **the decision is monotone in it**: a caller who may read
 an item at some scope may read the same item at any wider one. Nothing that composes,
 inherits or defaults may break that.
 

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(107);
+    public static SchemaVersion ComponentSchemaVersion => new(108);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -142,7 +142,30 @@ public static class PlatformMigrations
         AUsernameIsItsOrganisationsV105,
         AnOrganisationsRolesAreItsOwnV106,
         TwoOrganisationsPartnerV107,
+        SharedWithEveryOrganisationV108,
     ]);
+
+    /// <summary>
+    /// An item may be shared with every organisation on the server — ADR-220, owner decision 2026-10-26: *"public
+    /// olmasın ama tenantlarla olsun"*. The check on <c>item.sharing</c>, the one column that holds a level since migration 87,
+    /// widens to take it.
+    /// </summary>
+    /// <remarks><b>Expand</b>: a reader older than this never meets the value until something is shared at it.</remarks>
+    private static Migration SharedWithEveryOrganisationV108 => Migration.Expand(
+        new SchemaVersion(108),
+        "An item may be shared with every organisation on the server (ADR-220).",
+
+        "alter table item drop constraint if exists item_sharing_known",
+        "alter table item add constraint item_sharing_known check (sharing in ('private', 'group', 'organization', 'allorganizations', 'public'))",
+
+        // The administrator holds the new privilege: built-in roles' privileges were written once, from the code of the
+        // day, so a store older than this has it nowhere and whoami never lists it.
+        """
+        insert into role_privilege (role_name, privilege)
+        select 'administrator', 'sharing:shareToAllOrganizations'
+         where exists (select 1 from role where name = 'administrator')
+        on conflict do nothing
+        """);
 
     /// <summary>
     /// Two organisations partner before their groups mix — ADR-219, ArcGIS Online's partnered collaboration: a

@@ -134,7 +134,10 @@ that works.
   of other organisations they are in on their own Groups page, and opens each at its organisation's host. Two
   organisations may partner, as in ArcGIS Online's partnered collaboration, and a group may admit only partners'
   members ([ADR-219](docs/adr/ADR-219-two-organisations-partner-before-their-groups-mix.md)); collaboration
-  coordinators are not built.
+  coordinators are not built. An item may also be shared with **all organizations on this server** — read by every
+  organisation's signed-in members and by nobody anonymous — with its own privilege, held by administrators; ArcGIS
+  clients see it as the organisation, and Studio's search finds it from another organisation
+  ([ADR-220](docs/adr/ADR-220-an-item-may-be-shared-with-every-organisation.md)).
 - **A second factor and API keys are new; API keys have no screen yet.** A member with a password here turns on
   a code from an authenticator app in the console or at `/rest/auth/second-factor`, and every sign-in page asks for
   it; a token request cannot carry one and says so ([ADR-201](docs/adr/ADR-201-a-member-may-have-a-second-factor.md)).

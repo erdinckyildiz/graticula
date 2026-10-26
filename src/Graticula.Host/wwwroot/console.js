@@ -155,6 +155,12 @@ const ICONS = {
               + '<path d="M1.9 13c.3-2.2 1.8-3.4 3.7-3.4S9 10.8 9.3 13"/>'
               + '<path d="M10.3 9.9c1.6.1 2.7 1.1 3 3.1"/>',
 
+  // Every organization on this server (ADR-220): three people joined, because the scope is *the people of several
+  // organizations* — wider than the two figures of one, and still people rather than the globe of the public.
+  allorganizations: '<circle cx="8" cy="3.6" r="1.7"/><circle cx="3.6" cy="11.2" r="1.7"/>'
+                  + '<circle cx="12.4" cy="11.2" r="1.7"/>'
+                  + '<path d="M6.9 5 4.6 9.6M9.1 5l2.3 4.6M5.4 11.2h5.2"/>',
+
   // A padlock, closed: the only scope where the answer is *nobody but its owner and an administrator*.
   private: '<rect x="3.4" y="7.2" width="9.2" height="6.6" rx="1.4"/>'
          + '<path d="M5.6 7.2V5.4a2.4 2.4 0 0 1 4.8 0v1.8"/>',
@@ -256,8 +262,52 @@ const pill = value => {
  * A sharing scope, said the one way the Share dialog says it — Portal's words (ADR-079 condition 2's review, 2026-10-14).
  * The same scope was *Only you (private)* in the map viewer, *Owner* in Share and *private* in this pill.
  */
-const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization", public: "Everyone (public)",
-  failing: "Started, failing" };
+const SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization",
+  allorganizations: "All organizations", public: "Everyone (public)", failing: "Started, failing" };
+
+/**
+ * ADR-220's fifth level — *every organization on this server*, signed in, and not the public — and whether this reader
+ * is offered it: `"on"`, `"off"` (shown, not choosable, with why) or `null` (not shown at all).
+ *
+ * <b>Offered only where it means something and only to whoever may set it</b> (ADR-220 condition 5): on a server of one
+ * organization it reaches nobody *Organization* does not, and without `sharing:shareToAllOrganizations` the server
+ * answers 403. **INFERRED** (ux-designer, 2026-10-26): to a reader without the privilege it is hidden rather than shown
+ * disabled — every member would otherwise carry a refused option in every share control — **except** where the item is
+ * already at that level, where hiding it would leave no level chosen and a Save would quietly narrow it.
+ *
+ * @param {string} [current] the item's level now, if there is an item
+ * @returns {?{state: string, why: string}}
+ */
+function allOrganizationsOffer(current) {
+  const several = isMultiTenant();
+  const holds = may("sharing:shareToAllOrganizations");
+
+  if (several && holds) return { state: "on", why: "" };
+  if (current !== "allorganizations") return null;
+
+  return {
+    state: "off",
+    why: !several
+      ? "This server holds one organization now, so this reaches nobody Organization does not."
+      : "Your role does not include sharing with all organizations. An administrator can add it to your role.",
+  };
+}
+
+/**
+ * The levels as `<option>`s, in Portal's order with ADR-220's between Organization and Everyone, said in
+ * `SCOPE_WORDS`' words — for the create forms, which offered `private`, `organization` and `public` as their values.
+ *
+ * @param {string} [selected] the level chosen, `private` when none is
+ * @returns {string} the markup
+ */
+function scopeOptions(selected = "private") {
+  const offer = allOrganizationsOffer(selected);
+  const levels = ["private", "organization", ...(offer ? ["allorganizations"] : []), "public"];
+
+  return levels.map(level => `<option value="${level}"${level === selected ? " selected" : ""}${
+    level === "allorganizations" && offer.state === "off" ? " disabled" : ""}>${
+    level === "allorganizations" ? "All organizations on this server" : SCOPE_WORDS[level]}</option>`).join("");
+}
 
 /**
  * Which of the three tones a probe outcome wears.
@@ -825,7 +875,7 @@ function drawGroupContent(one) {
             : `#/service/${i.name.split("/").map(encodeURIComponent).join("/")}`}"
             title="${h(i.name)}">${h(i.name.split("/").pop())}</a>
             <div class="rowmeta">${h(i.kind ? itemTypeName(i.kind) : "Service")}${i.name.includes("/")
-              ? ` · service folder ${h(i.name.split("/")[0])}` : ""}<span class="narrowonly"> · ${h(i.sharing)}</span></div></td>
+              ? ` · service folder ${h(i.name.split("/")[0])}` : ""}<span class="narrowonly"> · ${h(SCOPE_WORDS[i.sharing] || i.sharing)}</span></div></td>
           <td class="val widecol">${h(i.kind ? itemTypeName(i.kind) : "service")}</td>
           <td class="widecol">${pill(i.sharing)}</td>
           <td class="val" data-l="Shared"><span>${day(i.shared)}${i.sharedBy
@@ -992,7 +1042,7 @@ function drawGroupSettings(one) {
           and nobody else.</p>
         ${radios("gsVisibility", "Who can see that this group exists", one.visibility || "members", [
           ["members", "Only its members"],
-          ["organization", "Everyone signed in to this server"],
+          ["organization", "Everyone signed in to this organization"],
         ])}
         ${radios("gsJoin", "How people join", one.joinPolicy || "invitation", [
           ["invitation", "An owner or manager adds them"],
@@ -2481,6 +2531,7 @@ const PRIVILEGE_LABELS = {
   "features:edit": "Edit features",
   "features:fullEdit": "Edit any feature",
   "sharing:shareToOrganization": "Share with the organization",
+  "sharing:shareToAllOrganizations": "Share with all organizations",
   "sharing:shareToPublic": "Share publicly",
   "groups:create": "Create groups",
   "groups:deleteOwn": "Delete their own groups",
@@ -2946,7 +2997,7 @@ function route() {
 
   // Studio's search — `#/search?q=…`, ADR-196.
   if (rest[0] === "search") {
-    showSearch(hashQuery.get("q") || "");
+    showSearch(hashQuery.get("q") || "", hashQuery.get("in") === "all" ? "all" : "mine");
     return;
   }
 
@@ -4362,7 +4413,10 @@ const CONTENT_SCOPES = [
 function inContentScope(item, scope) {
   if (scope === "all") return true;
   if (item.scope === "administrative") return scope === "administrative";
-  if (scope === "organization") return item.sharing === "organization" || item.sharing === "public";
+  // ADR-220: an item every organization reads is read by this one's members too, so it is listed with theirs.
+  if (scope === "organization") {
+    return item.sharing === "organization" || item.sharing === "allorganizations" || item.sharing === "public";
+  }
   if (scope === "public") return item.sharing === "public";
   return item.scope === scope;
 }
@@ -4463,7 +4517,7 @@ function mapAsItem(m) {
     // the administrative override.
     scope: m.mine ? "mine"
       : m.sharing === "public" ? "public"
-      : m.sharing === "organization" ? "organization"
+      : m.sharing === "organization" || m.sharing === "allorganizations" ? "organization"
       : m.sharing === "group" ? "group"
       : "administrative",
   };
@@ -4853,7 +4907,7 @@ async function narrowerLayersOf(maps, scope) {
       return item && (SCOPE_RANK[item.sharing] ?? 0) < rank;
     });
     if (narrow.length) {
-      lines.push(`${h(m.title)} is ${scope === "public" ? "public" : "shared with your organization"}, but ${narrow.length} of its
+      lines.push(`${h(m.title)} is ${scope === "public" ? "public" : `shared with ${SCOPE_SAID[scope]}`}, but ${narrow.length} of its
         layers ${narrow.length === 1 ? "is" : "are"} not: ${narrow.map(l => h(l.title || "a layer")).join(", ")}. Open the map's Share to
         fix this.`);
     }
@@ -4935,6 +4989,8 @@ document.addEventListener("click", async e => {
           <option value=""${same ? "" : " selected"} disabled>Choose…</option>
           <option value="private"${same === "private" ? " selected" : ""}>Owner — only you</option>
           <option value="organization"${same === "organization" ? " selected" : ""}>Your organization</option>
+          ${allOrganizationsOffer(same) ? `<option value="allorganizations"${same === "allorganizations" ? " selected" : ""}${
+            allOrganizationsOffer(same).state === "off" ? " disabled" : ""}>All organizations on this server</option>` : ""}
           <option value="public"${same === "public" ? " selected" : ""}>Everyone (public)</option>
         </select></div>
        <p class="hint">Every selected item is set to this. Sharing with groups is done from each item's own Share,
@@ -5021,7 +5077,7 @@ async function bulkGo(go) {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing }) });
     });
     const [verb, after] = { private: ["Made", " private"], organization: ["Shared", " with your organization"],
-      public: ["Made", " public"] }[sharing];
+      allorganizations: ["Shared", " with every organization on this server"], public: ["Made", " public"] }[sharing];
     settleBulk(items, failed, verb, after, "Not changed");
 
     // A map made wider than its layers says so here too, as its own Share does (design review 2026-10-01).
@@ -5049,7 +5105,9 @@ let mapOpen = null;
 const MAP_SCOPES = [
   ["private", "Owner", "Only you, and administrators."],
   ["group", "Groups", "The members of the groups ticked below."],
-  ["organization", "Organization", "Everybody who signs in here."],
+  ["organization", "Organization", "The members of your organization, signed in."],
+  ["allorganizations", "All organizations on this server",
+   "The members of every organization on this server, signed in. Not public."],
   ["public", "Everyone (public)", "Anybody with the link, signed in or not."],
 ];
 
@@ -5058,7 +5116,7 @@ const MAP_SCOPES = [
  * ways on: Open in Map Viewer, Share, Delete. Portal's web map item, Overview only (2026-10-01).
  */
 /** How widely each scope reaches, for comparing a map's with its layers'. */
-const SCOPE_RANK = { private: 0, group: 1, organization: 2, public: 3 };
+const SCOPE_RANK = { private: 0, group: 1, organization: 2, allorganizations: 3, public: 4 };
 
 /** The services this signed-in reader can see, with their scope and whether they are theirs — read once a dialog. */
 let mapLayerScopes = null;
@@ -5070,7 +5128,8 @@ let mapShareRaisable = [];
 let mapReachTurn = 0;
 
 /** A scope as the rest of Studio says it, for the layer note (design review 2026-10-01: three wordings in three places). */
-const SCOPE_SAID = { private: "only you", group: "groups", organization: "your organization", public: "everyone" };
+const SCOPE_SAID = { private: "only you", group: "groups", organization: "your organization",
+  allorganizations: "every organization on this server", public: "everyone" };
 
 /**
  * Says which of the open map's layers the people it is shared with would not see — ADR-129, as Portal does when a map
@@ -5110,9 +5169,9 @@ async function drawMapLayerReach(scope) {
   const named = list => list.map(n => `${h(n.layer.title || n.item.name)} <span class="hint">(${h(SCOPE_SAID[n.item.sharing] || n.item.sharing)})</span>`).join(", ");
   const raiseLabel = ours.length === 1
     ? (scope === "public" ? `Make ${h(ours[0].item.name.split("/").pop())} public too`
-      : `Share ${h(ours[0].item.name.split("/").pop())} with your organization too`)
+      : `Share ${h(ours[0].item.name.split("/").pop())} with ${SCOPE_SAID[scope]} too`)
     : (scope === "public" ? `Make the ${ours.length} layers you own public too`
-      : `Share the ${ours.length} layers you own with your organization too`);
+      : `Share the ${ours.length} layers you own with ${SCOPE_SAID[scope]} too`);
 
   // <b>Group scope compares how widely, not which groups</b>, so it says so rather than claiming the groups will not
   // see a layer that may be in them.
@@ -5417,8 +5476,13 @@ document.addEventListener("click", async event => {
   if (t.id === "mapShareOpen") {
     mapLayerScopes = null;
     $("mapShareBody").innerHTML = `<fieldset class="offered"><legend>Who can open this map</legend>
-      ${MAP_SCOPES.map(([value, label, said]) => `<label class="check"><input type="radio" name="mapShareScope" value="${value}"${
-        value === mapOpen.sharing ? " checked" : ""}> <span><b>${h(label)}</b> <span class="hint">${h(said)}</span></span></label>`).join("")}
+      ${MAP_SCOPES.filter(([value]) => value !== "allorganizations" || allOrganizationsOffer(mapOpen.sharing))
+        .map(([value, label, said]) => {
+          const off = value === "allorganizations" && allOrganizationsOffer(mapOpen.sharing).state === "off";
+          return `<label class="check"><input type="radio" name="mapShareScope" value="${value}"${
+            value === mapOpen.sharing ? " checked" : ""}${off ? " disabled" : ""}> <span><b>${h(label)}</b> <span class="hint">${
+            h(off ? allOrganizationsOffer(mapOpen.sharing).why : said)}</span></span></label>`;
+        }).join("")}
       </fieldset>
       <fieldset class="offered" id="mapShareGroups"${mapOpen.sharing === "group" ? "" : " hidden"}><legend>Groups</legend>
         <p class="hint">Reading your groups…</p></fieldset>
@@ -5954,7 +6018,8 @@ async function showService(qualified) {
   let kind = null;
 
   try {
-    const settings = await api(
+    // Server's settings are refused without `admin:manageServer`; such a reader learns the kind below, as before.
+    const settings = !may("admin:manageServer") ? null : await api(
       `/admin/services/${encodeURIComponent(name)}/capabilities`
         + (folder ? `?folder=${encodeURIComponent(folder)}` : ""));
 
@@ -6283,6 +6348,10 @@ function drawServiceTabs() {
   const mine = SERVICE_TABS.filter(([key]) => {
     // A system service is settings and nothing else.
     if (serviceIsSystem) return key === "settings";
+
+    // <b>Another organization's item is read, never set (ADR-204 §5c)</b>: an outsider holds no privilege here, so
+    // Settings would be a page of controls that refuse — Change sharing… among them.
+    if (key === "settings" && isOutsider()) return false;
 
     // Data needs a layer to read and Visualization needs one to draw. Overview stays either way:
     // *this service holds no layers* is a fact about the service and belongs on the page that
@@ -6696,6 +6765,9 @@ async function fillLayerSymbologyStates(layers) {
 
     // The swatch alone on Overview since ADR-102 step 7; the state line, where a page still has one.
     if (!says && !swatch) continue;
+
+    // The stored document is a publisher's to read (`content:publishFeatures`); a reader keeps the plain row.
+    if (!may("content:publishFeatures")) continue;
 
     try {
       const r = await api(`/admin/layers/${encodeURIComponent(name)}/symbology`);
@@ -7241,8 +7313,11 @@ async function drawServiceDetails(qualified, knownKind) {
       ...(item.scope === "mine" ? [["Folder", `<span id="svcContentFolder">${folderTitleOf(item.contentFolder)}</span>`]] : []),
       // Which groups, beside the pill that says *group* — Settings › General already named them (design review
       // 2026-10-01).
-      ["Sharing", `<button class="pillbtn" data-share="${h(item.name)}"
-         title="Set who can reach this">${pill(item.sharing)}</button>${(item.sharedWith || []).length
+      // A control only for whoever may change it (ADR-075, as Content's rows have it); to anybody else — an outsider
+      // from another organization above all — the pill states the level and opens nothing.
+      ["Sharing", `${item.manages === false || isOutsider()
+         ? `<span title="Only its owner or an administrator changes who can reach this">${pill(item.sharing)}</span>`
+         : `<button class="pillbtn" data-share="${h(item.name)}" title="Set who can reach this">${pill(item.sharing)}</button>`}${(item.sharedWith || []).length
            ? ` ${h(item.sharedWith.map(g => g.title || g.name).join(", "))}` : ""}`],
       // <b>Only when it is known, rather than inferred from the folder's name.</b> A service in
       // a folder called `hosted` is usually hosted and a convention is not a fact; the
@@ -7798,20 +7873,42 @@ async function exportServiceData(format, button, chosen = null) {
 }
 
 /**
- * The three scopes, in the words the reference uses and the values this server takes.
+ * The levels, in the words the reference uses and the values this server takes.
  *
  * <b>Their labels, our values.</b> The owner's screen says Owner / Organization / Everyone (public);
  * `PUT /admin/services/{name}/sharing` takes `private` / `organization` / `public`, which is what
  * §5z's content sections are computed from. The glyphs are the ones the sharing pills already use, so a
  * scope looks the same in the dialog that sets it as in the row that reports it.
+ *
+ * <b>*Organization* is this organization's members</b>, and said so since ADR-220: it read *everyone signed in to
+ * this server* from before a server held several organizations. The fourth, *All organizations on this server*, is
+ * offered by {@link shareScopes} only where {@link allOrganizationsOffer} says.
  */
 const SHARE_SCOPES = [
   ["private", "Owner", "Only you and an administrator can reach it."],
   ["organization", "Organization",
-   "Everyone signed in to this server can read it. A stranger with the address still gets nothing."],
+   "Members of this organization can read it once signed in. A stranger with the address still gets nothing."],
+  ["allorganizations", "All organizations on this server",
+   "Members of every organization on this server can read it once signed in. It is not public: somebody who has "
+   + "not signed in gets nothing."],
   ["public", "Everyone (public)",
    "Anyone with the address can read it, signed in or not."],
 ];
+
+/**
+ * The levels this dialog offers for an item at `current`, each with whether it may be chosen and why not. To a reader
+ * who may not change the sharing at all (`readOnly`) every level says what it means, not why *they* may not pick it —
+ * the dialog already says whose answer it is.
+ */
+function shareScopes(current, readOnly = false) {
+  const offer = allOrganizationsOffer(current);
+
+  return SHARE_SCOPES
+    .filter(([key]) => key !== "allorganizations" || offer)
+    .map(([key, label, said]) => key === "allorganizations" && offer.state === "off" && !readOnly
+      ? [key, label, offer.why, true]
+      : [key, label, said, false]);
+}
 
 /** What the share dialog is editing, and what it has been told to do. */
 let sharing = null;
@@ -7884,10 +7981,10 @@ function drawShare() {
 
   $("shareBody").innerHTML = `
     <p class="picklede">Set sharing level.</p>
-    ${SHARE_SCOPES.map(([key, label, said]) => `
-      <label class="pickrow${key === sharing.chosen ? " on" : ""}" data-scope="${key}">
+    ${shareScopes(sharing.scope, readOnly).map(([key, label, said, off]) => `
+      <label class="pickrow${key === sharing.chosen ? " on" : ""}${off ? " off" : ""}" data-scope="${key}">
         <input type="radio" name="shareScope" value="${key}"
-          ${key === sharing.chosen ? "checked" : ""}${readOnly ? " disabled" : ""}>
+          ${key === sharing.chosen ? "checked" : ""}${readOnly || off ? " disabled" : ""}>
         <span><b>${icon(key)} ${h(label)}</b><span class="lede">${h(said)}</span></span>
       </label>`).join("")}
 
@@ -8109,7 +8206,8 @@ async function saveShare() {
 
   $("share").close();
 
-  const said = { private: "Owner", group: "Owner", organization: "Organization", public: "Everyone" };
+  const said = { private: "Owner", group: "Owner", organization: "Organization",
+    allorganizations: "every organization on this server", public: "Everyone" };
   const groups = sharing.wanted.size;
   const bareShared = sharing.qualified.split("/").pop();
 
@@ -8951,7 +9049,7 @@ async function drawGeneralSharing(name, folder) {
   // One statement of who reaches it — the pill said the scope and the bold word said it again (design review
   // 2026-10-01: *"Shared with: private Owner"*).
   const said = { private: "Owner — only you", group: "Owner and groups", organization: "Your organization",
-    public: "Everyone (public)" };
+    allorganizations: "All organizations on this server", public: "Everyone (public)" };
   const groups = (item.sharedWith || []).map(g => g.title || g.name);
 
   box.dataset.sharing = item.sharing || "private";
@@ -9111,7 +9209,10 @@ async function drawFeatureFacts(name, folder) {
 
   const [st, c] = await Promise.all([
     readStewardship(name, folder),
-    api(`/admin/services/${encodeURIComponent(name)}/capabilities?folder=${encodeURIComponent(folder || "")}`),
+    // Server's ceiling on rows, readable only with `admin:manageServer`; without it the row is left out, not guessed.
+    may("admin:manageServer")
+      ? api(`/admin/services/${encodeURIComponent(name)}/capabilities?folder=${encodeURIComponent(folder || "")}`)
+      : null,
   ]);
   if (!$("featureFacts")) return;
 
@@ -9205,7 +9306,7 @@ async function drawFeatureFacts(name, folder) {
     <h4>Set by the server administrator</h4>
     <dl class="facts">
       <dt>Allowed at most</dt><dd>${ceiling === null ? "everything" : h(ceiling.join(", "))}</dd>
-      <dt>Rows in one answer</dt><dd>${num(c.maxRecordCount ?? c.serverPageSize ?? 0)}${c.maxRecordCount == null ? " (the server's own)" : ""}</dd>
+      ${c ? `<dt>Rows in one answer</dt><dd>${num(c.maxRecordCount ?? c.serverPageSize ?? 0)}${c.maxRecordCount == null ? " (the server's own)" : ""}</dd>` : ""}
     </dl>
     ${may("admin:manageServer")
       ? `<p class="hint"><a href="/server/service/${path.split("/").map(encodeURIComponent).join("/")}">Change these in Server</a>.</p>` : ""}`;
@@ -9302,7 +9403,9 @@ function drawServiceSettings(name, folder) {
   }
 
   box.hidden = false;
-  section("capabilities", () => loadServiceCapabilities(name, folder));
+  // <b>Server's settings, asked only of whoever may read them</b> (`admin:manageServer`). Every other reader of an item
+  // page — a member at home, an outsider from another organization — was refused it and shown the refusal in red.
+  if (may("admin:manageServer")) section("capabilities", () => loadServiceCapabilities(name, folder));
 
   // ADR-218: drawn at once from what was last read, so a tab switch does not flash *Reading…*, then read again.
   if (surfaceOfPath() === "server" && mine.includes("limits")) {
@@ -13251,7 +13354,7 @@ async function fillSymLayerStates(layers) {
     const says = document.querySelector(`[data-pickstate="${CSS.escape(one.name)}"]`);
     const swatch = document.querySelector(`[data-picksw="${CSS.escape(one.name)}"]`);
 
-    if (!says) continue;
+    if (!says || !may("content:publishFeatures")) continue;
 
     try {
       const r = await api(`/admin/layers/${encodeURIComponent(one.name)}/symbology`);
@@ -13830,6 +13933,8 @@ async function loadServiceLimits(name, folder) {
   // <b>Asked only of a system service — ADR-102 step 1.</b> Every item page asked every service and took the
   // 404 as the answer, which put a failed request in the console of every page and hid real failures
   // among them. The list of system services is small and answers the question without a refusal.
+  // The list is Server's and refused without `admin:manageServer`; nobody without it manages a system service's limits.
+  if (!may("admin:manageServer")) return null;
   const system = await api("/admin/services").catch(() => ({ services: [] }));
   const isSystem = (system.services || []).some(y =>
     (y.name || "").toLowerCase() === String(name).toLowerCase()
@@ -15969,7 +16074,7 @@ async function loadServices() {
       const theirs = r.system && systemOnlyHidden();
       const sharingFact = theirs ? pill(r.sharing) : r.system
         ? `<select data-service-share="${h(r.name)}" aria-label="Who can reach ${h(label)}">${SCOPES.map(v =>
-            `<option value="${v}"${v === r.sharing ? " selected" : ""}>${v}</option>`).join("")}</select>`
+            `<option value="${v}"${v === r.sharing ? " selected" : ""}>${SCOPE_WORDS[v] || v}</option>`).join("")}</select>`
         : `<a href="${surfaceHref("studio",
                "service/" + r.qualified.split("/").map(encodeURIComponent).join("/"))}"
              title="Set on this service's Sharing page in Studio">${pill(r.sharing)}</a>`;
@@ -19214,7 +19319,7 @@ async function loadServiceCapabilities(name, folderGiven) {
 
     if (c.sharing) {
       scope.className = "pill p-" + c.sharing;
-      scope.textContent = c.sharing;
+      scope.textContent = SCOPE_WORDS[c.sharing] || c.sharing;
     }
   }
 
@@ -21959,9 +22064,7 @@ async function openPublishDialog() {
 
       <div class="row">
         <label class="field">Who can see it<select id="pbShare">
-          <option value="private" selected>Only me</option>
-          <option value="organization">Everybody signed in</option>
-          <option value="public">Anybody, without signing in</option>
+          ${scopeOptions()}
         </select></label>
 
         <!--
@@ -25287,7 +25390,8 @@ function groundCaution(row) {
   if (!row.exists) return "No longer on this server: untick it to save.";
   if (!row.running) return "Stopped: nobody sees it until it is started.";
   if (!row.everybody) {
-    return `Shared with ${row.sharing === "group" ? "a group" : row.sharing === "organization" ? "the organization" : "its owner"} only: people who cannot see it get the ground without it.`;
+    return `Shared with ${row.sharing === "group" ? "a group" : row.sharing === "organization" ? "the organization"
+      : row.sharing === "allorganizations" ? "signed-in members" : "its owner"} only: people who cannot see it get the ground without it.`;
   }
   return "";
 }
@@ -25301,7 +25405,8 @@ function groundCautionPill(row, id) {
   const said = groundCaution(row);
   if (!said) return "";
   const short = !row.exists ? "Gone" : !row.running ? "Stopped"
-    : row.sharing === "group" ? "Group only" : row.sharing === "organization" ? "Organization only" : "Owner only";
+    : row.sharing === "group" ? "Group only" : row.sharing === "organization" ? "Organization only"
+    : row.sharing === "allorganizations" ? "Signed-in only" : "Owner only";
   const rest = said.slice(said.indexOf(":"));
   return `<span class="pill groundpill"${id ? ` id="${id}"` : ""}>${short}<span class="sr-only">${h(rest)}</span></span>`;
 }
@@ -26125,9 +26230,7 @@ function drawDesignForm() {
           </optgroup>
         </select></label>
         <label class="field">Sharing<select id="dShare">
-          <option value="private" selected>private</option>
-          <option value="organization">organization</option>
-          <option value="public">public</option>
+          ${scopeOptions()}
         </select></label>
       </div>
       <table>
@@ -26174,9 +26277,7 @@ function drawImportForm() {
       <div class="row">
         <label class="field">Name<input type="text" id="iName" placeholder="parks" required></label>
         <label class="field">Sharing<select id="iShare">
-          <option value="private" selected>private</option>
-          <option value="organization">organization</option>
-          <option value="public">public</option>
+          ${scopeOptions()}
         </select></label>
       </div>
       <div class="row">
@@ -26310,9 +26411,7 @@ function drawRegisteredForm() {
         <label class="field">Identity column
           <input type="text" id="rIdentity" placeholder="nominate one" required></label>
         <label class="field">Sharing<select id="rShare">
-          <option value="private" selected>private</option>
-          <option value="organization">organization</option>
-          <option value="public">public</option>
+          ${scopeOptions()}
         </select></label>
         <label class="field">Into service <span class="val">(optional)</span>
           <input type="text" id="rService" list="serviceNames" placeholder="a service of its own">
@@ -26608,7 +26707,7 @@ async function publishRegistered(event) {
 
   reportCreated("Published", [
     `<b>${h(created.name)}</b> is layer ${created.layerId} of service
-     <code>${h(created.service)}</code>, shared ${h(created.sharing)}.`,
+     <code>${h(created.service)}</code>, shared with ${h(SCOPE_SAID[created.sharing] || created.sharing)}.`,
     created.arcGisServable
       ? `<a href="/rest/services/${h(created.service)}/FeatureServer/${created.layerId}?f=json"
           target="_blank" rel="noreferrer">the layer document</a>`
@@ -27093,6 +27192,7 @@ function attachedTo(layer) {
 const SHARE_WORDS = {
   private: "private to you",
   organization: "visible to everyone in your organization",
+  allorganizations: "visible to the members of every organization on this server, once signed in",
   public: "public — visible to anybody on the internet, signed in or not",
 };
 
@@ -30639,7 +30739,7 @@ document.addEventListener("change", async event => {
       });
       // This one answers {name, sharing} rather than the {from, to} a layer's
       // sharing returns, so it says the new scope and not the transition.
-      toast(`${r.name}: now shared ${r.sharing}`, true);
+      toast(`${r.name}: now shared with ${SCOPE_SAID[r.sharing] || r.sharing}`, true);
     } catch (e) { toast(e.message); }
     await section("services", loadServices, "services");
   }
@@ -32259,9 +32359,7 @@ function openCreateView() {
     </fieldset>
     <div class="stacked"><label for="cvSharing">Sharing</label>
       <select id="cvSharing">
-        <option value="private" selected>Owner only (private)</option>
-        <option value="organization">Organization</option>
-        <option value="public">Everyone (public)</option>
+        ${scopeOptions()}
       </select></div>`;
   $("createViewFoot").innerHTML = `<p class="hint fill" id="createViewSays" role="status" aria-live="polite"></p>
     <button type="button" class="ghost" id="createViewCancel">Cancel</button>
@@ -34368,6 +34466,18 @@ let searchRead = null;
 /** Which list the results show: content, groups or members. */
 let searchTab = "content";
 
+/**
+ * Where the search looks — ADR-220 §5.4, ArcGIS Online's *My organization* switch: `mine`, or `all`, which adds what
+ * other organizations on this server let this member read, from `GET /admin/search/elsewhere`.
+ */
+let searchIn = "mine";
+
+/** Which drawing of the results is the latest, so a slower answer to an older question is dropped. */
+let searchTurn = 0;
+
+/** Whether the switch means anything here: several organizations, and this is the reader's own organization's address. */
+const searchReachesElsewhere = () => isMultiTenant() && !isOutsider() && !!signedInAs;
+
 /** The bar's box: an id opens its item; words open the results. */
 document.addEventListener("submit", event => {
   if (event.target.id !== "globalSearch") return;
@@ -34413,8 +34523,10 @@ function matchesAll(words, ...about) {
   return words.every(w => hay.includes(w));
 }
 
-async function showSearch(q) {
+async function showSearch(q, where = "mine") {
   showView("view-search", "");
+  searchIn = searchReachesElsewhere() && where === "all" ? "all" : "mine";
+  drawSearchWhere();
   // The page's own box carries the question; the bar's is cleared, so one query is not shown twice (UX sweep
   // 2026-10-19).
   $("gq").value = "";
@@ -34422,10 +34534,64 @@ async function showSearch(q) {
   $("searchRows").innerHTML = `<tr><td class="empty">Searching…</td></tr>`;
   searchRead = await readSearchable();
   await drawSearch();
-  $("searchQ").focus();
+  // Into the box unless the reader has already moved on — to the switch, pressed while this was reading.
+  if (!document.activeElement || document.activeElement === document.body) $("searchQ").focus();
+}
+
+/** The switch: shown only where it reaches somewhere, and its pressed button set without redrawing it (focus stays). */
+function drawSearchWhere() {
+  const box = $("searchWhere");
+  if (!box) return;
+  box.hidden = !searchReachesElsewhere();
+  for (const button of box.querySelectorAll("[data-search-in]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.searchIn === searchIn));
+  }
+}
+
+/**
+ * What other organizations let this member read, for the words asked — `null` when the switch is on *My organization*,
+ * and `{error}` when the server could not be asked, which the list says rather than reading as *nothing found*.
+ */
+async function readElsewhere(q, id) {
+  if (searchIn !== "all" || !q || id || !searchReachesElsewhere()) return null;
+  try {
+    const answer = await api(`/admin/search/elsewhere?q=${encodeURIComponent(q)}`) || {};
+    return { results: answer.results || [], more: !!answer.more, limit: answer.limit || 0 };
+  } catch (e) {
+    return { results: [], error: e.message || String(e) };
+  }
+}
+
+/**
+ * One hit of another organization, as a row of the same list: the title is the link, to the item's page at that
+ * organization's own address in a new tab — as the Groups page opens a group of another organization — and the quiet
+ * line under it names the organization first, because that is the one thing an own-organization row never says.
+ */
+function elsewhereRow(hit) {
+  const org = hit.organization?.name || hit.organization?.key || "another organization";
+  const kind = hit.kind === "web map" ? "Web map" : "Service";
+  const title = h(hit.title || hit.id);
+  const facts = [
+    `<span class="searchorg">${h(org)}</span>`,
+    hit.sharing ? pill(hit.sharing) : "",
+    hit.throughGroup ? `<span>through a group you are in</span>` : "",
+    hit.owner ? `<span>${h(hit.owner)}</span>` : "",
+  ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
+
+  return `<tr class="mediarow" data-elsewhere-item="${h(hit.id)}">
+      <td class="thumbcell"><div class="thumb empty"></div></td>
+      <td class="name"><div class="svctitle">${hit.url
+        ? `<a href="${h(hit.url)}" target="_blank" rel="noopener">${title} <span aria-hidden="true">↗</span><span
+            class="sr-only">, in ${h(org)} (opens in a new tab)</span></a>`
+        : `<b>${title}</b>`}
+        <span class="svctype">${kind}</span></div>
+        <div class="svcmeta">${facts}</div>${hit.url ? ""
+          : `<div class="val">${h(org)} has no address on this server to open it at.</div>`}</td>
+    </tr>`;
 }
 
 async function drawSearch() {
+  const turn = ++searchTurn;
   const q = $("searchQ").value.trim();
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const id = ITEM_ID.exec(q)?.[1]?.toLowerCase();
@@ -34436,37 +34602,65 @@ async function drawSearch() {
     matchesAll(words, g.name, g.title || "", g.description || "", g.owner || ""));
 
   let members = [];
-  if (q && !id && may("admin:manageMembers")) {
-    try {
-      members = ((await api(`/admin/members?num=50&q=${encodeURIComponent(q)}`)) || {}).members || [];
-    } catch { members = []; }
-  }
+  const [elsewhere] = await Promise.all([
+    readElsewhere(q, id),
+    (async () => {
+      if (q && !id && may("admin:manageMembers")) {
+        try {
+          members = ((await api(`/admin/members?num=50&q=${encodeURIComponent(q)}`)) || {}).members || [];
+        } catch { members = []; }
+      }
+    })(),
+  ]);
 
-  // The address keeps the question, so a reload or a copied link asks it again.
-  const next = q ? `#/search?q=${encodeURIComponent(q)}` : "#/search";
+  // A slower answer to a question already replaced by the next keystroke draws nothing.
+  if (turn !== searchTurn || !$("searchRows")) return;
+  const away = elsewhere?.results || [];
+
+  // The address keeps the question and where it looked, so a reload or a copied link asks it again.
+  const where = searchIn === "all" ? "&in=all" : "";
+  const next = q ? `#/search?q=${encodeURIComponent(q)}${where}` : `#/search${where ? `?${where.slice(1)}` : ""}`;
   if (routeHash() !== next) history.replaceState(null, "", pathOf(next));
 
-  const tabs = [["content", "Content", content.length], ["groups", "Groups", groups.length]];
+  const tabs = [["content", "Content", content.length + away.length], ["groups", "Groups", groups.length]];
   if (may("admin:manageMembers")) tabs.push(["members", "Members", members.length]);
   if (!tabs.some(([key]) => key === searchTab)) searchTab = "content";
   // Where nothing was found in the open list and something was in another, the other is opened.
   if (q && !tabs.find(([key]) => key === searchTab)[2]) searchTab = (tabs.find(t => t[2]) || tabs[0])[0];
 
   $("searchTabs").innerHTML = tabs.map(([key, label, n]) =>
-    `<a href="#/search?q=${encodeURIComponent(q)}" data-search-tab="${key}"${key === searchTab ? ' aria-current="page"' : ""}>${label}
+    `<a href="#/search?q=${encodeURIComponent(q)}${where}" data-search-tab="${key}"${key === searchTab ? ' aria-current="page"' : ""}>${label}
       <span class="count">${num(n)}</span></a>`).join("");
 
-  const total = content.length + groups.length + members.length;
-  $("searchCount").textContent = !q ? "" : `${num(total)} found`;
+  const total = content.length + away.length + groups.length + members.length;
+  $("searchCount").textContent = !q ? "" : `${num(total)} found${away.length
+    ? `, ${num(away.length)} in other organizations` : ""}`;
 
-  const empty = text => `<tr><td class="empty">${text}</td></tr>`;
+  // Two columns on Content — the picture and the hit — so a sentence there spans both, or it is squeezed into the first.
+  const empty = text => `<tr><td class="empty"${searchTab === "content" ? ' colspan="2"' : ""}>${text}</td></tr>`;
   if (!q) { $("searchRows").innerHTML = empty("Type what you are looking for: a title, a tag, an owner, or an item id."); return; }
 
   if (searchTab === "content") {
+    // <b>Other organizations' hits under their own heading, after this organization's</b> (ADR-220): the reader is an
+    // outsider there and each opens at another address, so they are not mixed into rows that open here. The heading
+    // carries the name to sign in with there, as the Groups page's other-organizations section does.
+    const home = whoNow?.organisation?.key && signedInAs ? `${whoNow.organisation.key}\\${signedInAs}` : "";
+    const awayRows = !elsewhere ? "" : `<tr class="elsewherehead"><th colspan="2" scope="colgroup">In other organizations${
+        away.length ? ` <span class="count">${num(away.length)}${elsewhere.more ? "+" : ""}</span>` : ""}
+        <span class="val">${elsewhere.error
+          ? `Other organizations could not be searched: ${h(lowerFirst(elsewhere.error))}`
+          : away.length === 0
+            ? `Nothing that other organizations on this server share with you matches <b>${h(q)}</b>.`
+            : `Shared with every organization, public, or shared into a group of theirs you are in. Each opens at its
+               organization's own address, in a new tab${home ? `; if it asks you to sign in, your name there is
+               <b class="addr">${h(home)}</b>` : ""}.${elsewhere.more
+              ? ` Only the first ${num(elsewhere.limit)} are listed: add a word to narrow them.` : ""}`}</span></th></tr>
+      ${away.map(elsewhereRow).join("")}`;
+
     // <b>A hit reads as a Content row does</b> (UX sweep 2026-10-19): the picture, the title and its type, then one
     // quiet line with who may read it and whose it is. The pill had a column of its own, centred, and an item with no
     // portal id left an empty cell.
-    $("searchRows").innerHTML = content.map(c => `<tr class="mediarow">
+    $("searchRows").innerHTML = (content.map(c => `<tr class="mediarow">
       <td class="thumbcell"><a class="thumblink" href="${h(c.href)}" tabindex="-1" aria-hidden="true">${c.thumb
         ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(c.thumb)}">`
         : `<div class="thumb empty"></div>`}</a></td>
@@ -34477,8 +34671,10 @@ async function drawSearch() {
           .filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`)}</div></td>
     </tr>`).join("") || empty(id
       ? `No item ${h(id)} that you can see.`
-      : `Nothing matches <b>${h(q)}</b>. Check the spelling, or try fewer words: every word has to appear.
-         <a href="#/content">Content</a> lists everything you can see, by scope and type.`);
+      : elsewhere
+        ? `Nothing in your organization matches <b>${h(q)}</b>.`
+        : `Nothing matches <b>${h(q)}</b>. Check the spelling, or try fewer words: every word has to appear.
+         <a href="#/content">Content</a> lists everything you can see, by scope and type.`)) + awayRows;
     paintPreviews();
   } else if (searchTab === "groups") {
     $("searchRows").innerHTML = groups.map(g => `<tr>
@@ -34504,6 +34700,17 @@ document.addEventListener("input", event => {
 });
 
 document.addEventListener("click", event => {
+  // The switch: the pressed button moves and the list is asked again; the buttons are not redrawn, so focus stays.
+  // Pressed before the page's first read has come back, it is kept, and that read draws with it.
+  const where = event.target.closest?.("[data-search-in]");
+  if (where) {
+    if (where.dataset.searchIn === searchIn) return;
+    searchIn = where.dataset.searchIn === "all" ? "all" : "mine";
+    drawSearchWhere();
+    if (searchRead) drawSearch();
+    return;
+  }
+
   const tab = event.target.closest?.("[data-search-tab]");
   if (!tab) return;
   event.preventDefault();
@@ -34606,12 +34813,12 @@ function drawTenancy(me) {
     const lede = document.querySelector("#view-content .pagehead p");
     if (lede) {
       lede.textContent = outsider
-        ? "What this organization's groups share with you, and what it shares with everyone."
+        ? "What this organization shares with you: through its groups, with every organization, or publicly."
         : "What you own, and what other people have shared with you.";
     }
     $("outsiderNoticeText").innerHTML = outsider
       ? `<b>You are signed in as a member of another organization.</b> In ${h(called || "this organization")} you see
-         only what its groups share with you, and what it shares with everyone.`
+         only what it shares with you: through its groups, with every organization on this server, or publicly.`
       : "";
   }
 }

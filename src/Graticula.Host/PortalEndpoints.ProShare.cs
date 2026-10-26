@@ -199,13 +199,14 @@ internal static partial class PortalEndpoints
                 ?? (false, [], $"No item '{id}' that this portal can share.");
         }
 
-        Privilege needed = scope switch
+        // ADR-220 §5.3: an ArcGIS client knows no level between the organisation and everyone, so its `org` keeps an item
+        // shared with every organisation where it is, rather than narrowing it behind its owner's back.
+        if (scope == SharingScope.Organization && found.Sharing == SharingScope.AllOrganizations)
         {
-            SharingScope.Public => Privilege.SharingShareToPublic,
-            SharingScope.Organization => Privilege.SharingShareToOrganization,
-            SharingScope.Group => Privilege.GroupsShareTo,
-            _ => Privilege.ContentPublishFeatures,
-        };
+            scope = SharingScope.AllOrganizations;
+        }
+
+        Privilege needed = SharingPrivileges.ToShareAt(scope) ?? Privilege.ContentPublishFeatures;
 
         bool administrator = current.Authorization.Allows(Privilege.AdminManageAllContent);
         if (!current.Authorization.Allows(needed) || (!string.Equals(found.OwnerName, current.Principal.Name, StringComparison.OrdinalIgnoreCase) && !administrator))

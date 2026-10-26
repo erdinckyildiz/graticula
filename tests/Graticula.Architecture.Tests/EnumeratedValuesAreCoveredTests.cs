@@ -159,8 +159,10 @@ public sealed class EnumeratedValuesAreCoveredTests
             // handling is right. What it does not admit is the case this class
             // exists for -- a file that mentions some values and silently maps the
             // others -- because *every* one has to appear.
-            if (scopes.All(scope => text.Contains(
-                    "SharingScope." + char.ToUpperInvariant(scope[0]) + scope[1..],
+            // The enum's own names: rebuilt from the lower-case word it read `AllOrganizations` as
+            // `Allorganizations` and found it nowhere (ADR-220, 2026-10-26).
+            if (Enum.GetNames<SharingScope>().All(name => text.Contains(
+                    "SharingScope." + name,
                     StringComparison.Ordinal)))
             {
                 continue;

@@ -1281,6 +1281,7 @@ public sealed class PostgresLayerCatalog
     {
         "private" => SharingScope.Private,
         "organization" => SharingScope.Organization,
+        "allorganizations" => SharingScope.AllOrganizations,
         "public" => SharingScope.Public,
         "group" => SharingScope.Group,
         _ => throw new InvalidOperationException(

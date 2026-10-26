@@ -324,6 +324,11 @@ internal static partial class PortalEndpoints
             {
                 held.Add("portal:user:shareToPublic");
             }
+
+            if (current.Authorization.Allows(Privilege.SharingShareToAllOrganizations))
+            {
+                held.Add("graticula:user:shareToAllOrganizations");
+            }
         }
 
         if (current.Authorization.Allows(Privilege.FeaturesEdit))
@@ -888,7 +893,12 @@ internal static partial class PortalEndpoints
             lastName = string.Empty,
             description = (string?)null,
             email = (string?)null,
-            orgId = PortalId(context),
+            // A member of another organisation is that organisation's, as ArcGIS Online answers a member of another
+            // organisation: told this one's id, a client takes them for a member of it (ADR-220 §5.6).
+            orgId = current.HomeOrganisation is { } home
+                && context.RequestServices.GetService<TenantDirectory>()?.All.FirstOrDefault(t => t.Key == home) is { } theirs
+                    ? theirs.PortalId
+                    : PortalId(context),
             role = administrator ? "org_admin" : "org_user",
             roleId = administrator ? "org_admin" : "org_user",
 
@@ -2737,6 +2747,8 @@ internal static partial class PortalEndpoints
     {
         SharingScope.Private => "private",
         SharingScope.Organization => "org",
+        // ADR-220 §5.3: ArcGIS has no level between the organisation and everyone; its clients see the organisation.
+        SharingScope.AllOrganizations => "org",
         SharingScope.Public => "public",
         SharingScope.Group => "shared",
         _ => throw new ArgumentOutOfRangeException(

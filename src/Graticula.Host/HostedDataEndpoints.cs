@@ -1380,6 +1380,7 @@ internal static class HostedDataEndpoints
         "public" => SharingScope.Public,
         "group" => SharingScope.Group,
         "organization" or "organisation" => SharingScope.Organization,
+        "allorganizations" or "allorganisations" => SharingScope.AllOrganizations,
         _ => SharingScope.Private,
     };
 

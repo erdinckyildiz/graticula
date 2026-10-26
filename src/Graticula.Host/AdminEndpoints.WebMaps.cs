@@ -298,7 +298,7 @@ internal static partial class AdminEndpoints
 
         return Authorize.RequireAsync(
             context,
-            wanted == SharingScope.Public ? Privilege.SharingShareToPublic : Privilege.SharingShareToOrganization);
+            SharingPrivileges.ToShareAt(wanted) is { } named && wanted != SharingScope.Group ? named : Privilege.SharingShareToOrganization);
     }
 
     private static bool Readable(RequestPrincipal current, WebMap map) =>
@@ -467,6 +467,7 @@ internal static partial class AdminEndpoints
                     // The portal's word as well as this server's, because a client that read `access`
                     // from an item will send it back.
                     case "organization" or "org": sharing = SharingScope.Organization; break;
+                    case "allorganizations": sharing = SharingScope.AllOrganizations; break;
                     case "public": sharing = SharingScope.Public; break;
 
                     // ADR-079 condition 4, built 2026-10-01: the members of the groups it is shared into.

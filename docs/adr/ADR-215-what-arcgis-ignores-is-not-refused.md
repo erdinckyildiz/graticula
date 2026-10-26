@@ -66,10 +66,10 @@ false, `timeRelation` at `esriTimeRelationOverlaps`, `outTimeReference` empty; a
 as before. An unknown parameter is still refused. A layer document says `supportsApplyEditsWithGlobalIds: true` where
 the layer has a GlobalID column and edits.
 
-**INFERRED, for the owner:** where the line sits — that `lang`/`locale` are harmless here because every message is
+**INFERRED, for the owner:** *(Confirmed by the owner 2026-10-26 — Q-189: "189'un hepsini onayladım.")* where the line sits — that `lang`/`locale` are harmless here because every message is
 English, and that `returnTrueCurves=true` stays refused (a client asking for curves gets vertices).
 
-**Not done, and the owner's to decide: `maxRecordCountFactor`** (N8's second half). It is accepted and the page stays
+**Not done, and the owner's to decide: `maxRecordCountFactor`** *(Confirmed as it stands — accepted and not honoured — with the rest of Q-189, 2026-10-26.)* (N8's second half). It is accepted and the page stays
 at `maxRecordCount` (ADR-197 §3). Honouring it would let a query fetch up to five pages at once, inside the
 deployment's ceiling — fewer requests for a drawing client, more rows per request — and the ceiling exists because of
 the owner's own concern of 2026-08-19 about many requests against a three-million-row table. That trade is not this

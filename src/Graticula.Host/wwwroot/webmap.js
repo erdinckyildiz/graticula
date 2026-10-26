@@ -3353,6 +3353,7 @@ function wmDrawMapForm() {
     ? `<h3>${wmEscape(meta.title || "Untitled map")}</h3>${meta.snippet ? `<p>${wmEscape(meta.snippet)}</p>` : ""}`
     : "";
   wm$("tab-map").textContent = reading ? "About" : "Map";
+  wmOfferAllOrganizations(meta.sharing);
   wm$("mapSharing").value = meta.sharing || "private";
   wmDrawBaseMapChoices();
 
@@ -3371,7 +3372,8 @@ function wmDrawMapForm() {
   wm$("sharingField").hidden = !!blocked;
 
   const owner = meta.owner ? `<b>${wmEscape(meta.owner)}</b>` : "somebody else";
-  const scope = { private: "only its owner", organization: "everyone signed in", public: "anyone with the link" };
+  const scope = { private: "only its owner", organization: "its organization's members",
+    allorganizations: "the members of every organization on this server", public: "anyone with the link" };
 
   wm$("mapOwner").innerHTML = (!wmState.id
     ? "This map has not been saved yet."
@@ -3395,7 +3397,31 @@ let wmServiceScopes = null;
 /** Layers whose services are shared more narrowly than the map, and layers nobody here can check. */
 let wmNarrower = { narrow: [], unknown: [] };
 
-const WM_SCOPE_RANK = { private: 0, group: 1, organization: 2, public: 3 };
+const WM_SCOPE_RANK = { private: 0, group: 1, organization: 2, allorganizations: 3, public: 4 };
+
+/** Each level as the select says it, for the sentences that name one. */
+const WM_SCOPE_WORDS = { private: "Owner", group: "Groups", organization: "Organization",
+  allorganizations: "All organizations", public: "Everyone (public)" };
+
+/**
+ * ADR-220's level, in the select only where it means something and may be set: several organizations and
+ * `sharing:shareToAllOrganizations` — or a map already at it, shown and not choosable, so the select is never left
+ * naming no level. Console's `allOrganizationsOffer` is the same rule.
+ */
+function wmOfferAllOrganizations(current) {
+  const select = wm$("mapSharing");
+  if (!select) return;
+  select.querySelector('option[value="allorganizations"]')?.remove();
+
+  const holds = wmMe.several && wmMe.privileges.has("sharing:shareToAllOrganizations");
+  if (!holds && current !== "allorganizations") return;
+
+  const option = document.createElement("option");
+  option.value = "allorganizations";
+  option.textContent = "All organizations — every organization on this server, signed in";
+  option.disabled = !holds;
+  select.insertBefore(option, select.querySelector('option[value="public"]'));
+}
 
 /** The qualified service name a layer on this server comes from, or null for another server's. */
 function wmServiceOf(layer) {
@@ -3451,17 +3477,18 @@ function wmSharingWarning() {
   const { narrow, unknown } = wmNarrower;
   if (!narrow.length && !unknown.length) return "";
 
-  const reach = wmState.meta.sharing === "public" ? "people you share it with" : "others in your organization";
+  const reach = wmState.meta.sharing === "public" ? "people you share it with"
+    : wmState.meta.sharing === "allorganizations" ? "members of other organizations" : "others in your organization";
   const parts = [];
 
   if (narrow.length === 1) {
     const { layer, scope } = narrow[0];
-    parts.push(`1 layer is from a ${scope === "group" ? "group-only" : scope} service; ${reach} won't see it: ${layer.title}.`);
+    parts.push(`1 layer is from a ${scope === "group" ? "group-only" : (WM_SCOPE_WORDS[scope] || scope).toLowerCase()} service; ${reach} won't see it: ${layer.title}.`);
   } else if (narrow.length) {
     const byScope = {};
     for (const { scope } of narrow) byScope[scope] = (byScope[scope] || 0) + 1;
     const said = Object.entries(byScope).map(([scope, n]) =>
-      `${n} ${scope === "group" ? "group-only" : scope}`).join(", ");
+      `${n} ${scope === "group" ? "group-only" : (WM_SCOPE_WORDS[scope] || scope).toLowerCase()}`).join(", ");
     parts.push(`${narrow.length} layers are from services shared more narrowly (${said}); `
       + `${reach} won't see them: ${narrow.map(n => n.layer.title).join(", ")}.`);
   }
@@ -3574,7 +3601,7 @@ async function wmSave(asNew, invoker = null) {
   if (!asNew && sharing !== "private" && (creating || sharing !== wmState.meta.savedSharing)) {
     await wmCheckSharing();
     const warning = wmSharingWarning();
-    if (warning && !confirm(`${warning}\n\nSave it as ${sharing} anyway?`)) {
+    if (warning && !confirm(`${warning}\n\nSave it shared with ${(WM_SCOPE_WORDS[sharing] || sharing).toLowerCase()} anyway?`)) {
       wmSayIn("mapStatus", "Not saved. Change who can open it, or the layers, first.");
       if (invoker) invoker.focus();
       return;
@@ -3790,6 +3817,8 @@ async function wmStart() {
       authenticated: !!me.authenticated,
       name: me.name,
       privileges: new Set(me.privileges || []),
+      // ADR-220: whether the server holds several organizations, which is when *All organizations* means anything.
+      several: !!me.organisation?.multiTenant,
     };
   } catch {
     // Anonymous, or the server is not answering; the map will say which when it loads.

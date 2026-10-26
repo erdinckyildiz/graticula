@@ -32,6 +32,9 @@ public static class LayerAccess
         /// <summary>The item is shared with the organisation and the caller is authenticated.</summary>
         Organization,
 
+        /// <summary>Shared with every organisation on this server, and read by a member of another — ADR-220.</summary>
+        AllOrganizations,
+
         /// <summary>The caller owns it.</summary>
         Owner,
 
@@ -102,6 +105,13 @@ public static class LayerAccess
         if (scope == SharingScope.Organization && !caller.IsAnonymous && !authorization.IsOutsider)
         {
             return Reason.Organization;
+        }
+
+        // <b>Every organisation's signed-in members — ADR-220.</b> A member of another organisation reaches this host as
+        // an outsider and reads it; somebody who has not signed in anywhere does not.
+        if (scope == SharingScope.AllOrganizations && !caller.IsAnonymous)
+        {
+            return authorization.IsOutsider ? Reason.AllOrganizations : Reason.Organization;
         }
 
         // <b>Group, and it is never open to an anonymous caller.</b> A group is a set of members;

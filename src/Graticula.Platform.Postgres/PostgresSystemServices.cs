@@ -256,6 +256,8 @@ public sealed class PostgresSystemServices
     private static string Wire(ServiceStatus status) =>
         status == ServiceStatus.Stopped ? "stopped" : "started";
 
+    // enum-default-is-deliberate: a system service is already every organisation's, so it is refused the level shared
+    // with every organisation before it reaches here (ADR-220 §5.1), and its column's check holds the other three.
     private static SharingScope Parse(string wire) => wire switch
     {
         "public" => SharingScope.Public,

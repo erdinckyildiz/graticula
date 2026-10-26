@@ -228,6 +228,7 @@ internal static class TenantRouting
         "/admin/security/second-factor", "/admin/domains", "/admin/relationships", "/admin/folders",
         "/admin/recycle-bin", "/admin/roles", "/admin/logs", "/admin/jobs", "/admin/settings/basemaps",
         "/admin/references", "/admin/tiling-schemes", "/admin/thumbnail", "/admin/generateToken", "/admin/partnerships",
+        "/admin/search",
     ];
 
     /// <summary>Whether a request's administrative route is on either list.</summary>

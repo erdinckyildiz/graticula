@@ -49,6 +49,9 @@ public sealed class AuthorizationOnlyNarrowsTests
         SharingScope.Private,
         SharingScope.Group,
         SharingScope.Organization,
+
+        // ADR-220: every organisation's signed-in members — more than one organisation's, fewer than everyone.
+        SharingScope.AllOrganizations,
         SharingScope.Public,
     ];
 

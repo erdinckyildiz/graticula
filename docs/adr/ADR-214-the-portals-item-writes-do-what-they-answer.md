@@ -81,7 +81,7 @@ its faces' item ids) and a web map, by their owner or whoever may manage all con
 An update writes the fields this portal keeps for that kind of item, passes over the fields a client echoes and this
 portal derives, and otherwise refuses — naming the fields — and writes nothing. Delete is the console's own delete,
 called rather than rewritten, so delete protection, views, what is kept beside a registered layer and the recycle bin
-hold through this door too. **INFERRED, for the owner to confirm:**
+hold through this door too. **INFERRED, for the owner to confirm:** *(Confirmed by the owner 2026-10-26 — Q-189: "189'un hepsini onayladım.")*
 
 1. **The echo list** (`EchoedFields`) — what a client may send back without being refused.
 2. **`permanentDelete` is recycled** like any delete, until the bin has a screen.

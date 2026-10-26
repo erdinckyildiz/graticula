@@ -72,7 +72,7 @@ At publish — a single layer and a composition alike — a registered table is 
 engine's `GeodatabaseRefusalAsync`): branch-versioned, archived and traditionally versioned classes are refused with
 422 and a sentence naming the marker and what to publish instead (a view of the wanted rows; for a versioned class,
 its `_EVW` view). A table only registered is served as before. A database that cannot be asked is not refused for it.
-MySQL keeps no geodatabase and is not asked. **INFERRED, all of it** — that refusal is better than read-only, the
+MySQL keeps no geodatabase and is not asked. **INFERRED, all of it** *(Confirmed by the owner 2026-10-26 — Q-189: "189'un hepsini onayladım.")* — that refusal is better than read-only, the
 markers, and the exemption of registered-only tables.
 
 ## Conditions

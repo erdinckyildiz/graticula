@@ -62,7 +62,12 @@ public sealed class PostgresIdentityStore : IIdentityStore
               and p.disabled_at is null
             """;
 
-        await using NpgsqlCommand command = _dataSource.CreateCommand(Sql);
+        // <b>On the store's own pool, not the host's organisation's — ADR-220 §5.6.</b> A token is found by its secret, never
+        // listed, and a member of any organisation is somebody at every host since items may be shared with every
+        // organisation: under the floor, another organisation's member was found only while one of this organisation's
+        // groups admitted them, and was refused (498) otherwise. Who they are here is still decided afterwards — an
+        // outsider, holding nothing but their groups (TenantRouting).
+        await using NpgsqlCommand command = _root.CreateCommand(Sql);
         command.Parameters.AddWithValue("hash", NpgsqlDbType.Bytea, tokenHash);
         command.Parameters.AddWithValue("now", NpgsqlDbType.TimestampTz, now);
 
