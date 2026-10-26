@@ -65,6 +65,25 @@ function toast(message, ok = false) {
 }
 
 /**
+ * Leaves for another address with a sentence that survives the page load — a refused surface (ADR-221 §5.2). A toast
+ * raised just before `location.replace` was gone with the page that raised it, so the reader landed without a reason.
+ */
+function leaveWith(message, to) {
+  try { sessionStorage.setItem("gis-carried", message); } catch { /* private mode: the landing says nothing */ }
+  location.replace(to);
+}
+
+/** Says, once, what the page before this one carried here with `leaveWith`. */
+function sayCarried() {
+  let said = null;
+  try {
+    said = sessionStorage.getItem("gis-carried");
+    sessionStorage.removeItem("gis-carried");
+  } catch { /* no storage, nothing carried */ }
+  if (said) toast(said);
+}
+
+/**
  * A refusal said inside the dialog that asked, not in a toast: a modal's backdrop sits over the page, and what was
  * typed stays in the form to be corrected (2026-10-17, when every "new" became a dialog).
  */
@@ -2637,14 +2656,35 @@ const SURFACES = {
     // is Server's at all is unchanged — ADR-034 §5c, ADR-091 §1 — and `SUBPAGES` says where it sits.
     // <b>Three since 2026-10-17, by owner decision:</b> Security went to Studio as Organization — who the
     // organisation is, not what the engine does. See Studio's tabs.
+    // <b>The organisation's engine and nothing else since ADR-221 (2026-10-26).</b> Organizations, Site › Status,
+    // Site › General and the server's process log went to System, so an organisation's administrator sees every tab
+    // here and nothing in them is hidden from them. Site held Data sources, Status and General; with two of its three
+    // pages gone it is named for the one it has left — INFERRED, the console's call under ADR-221 condition 2.
     tabs: [
       ["services", "Services"],
-      ["sources", "Site"],
-      // <b>Organizations — ADR-204 §5d, the system administrator's and nobody else's.</b> A function rather than a
-      // privilege list, because being the system administrator is a flag on the account, not a privilege a role grants:
-      // `whoami` says it, and an organization's own administrator holds every privilege and is still not it.
+      ["sources", "Data sources"],
+      // Each organization's own logs (owner decision 2026-10-22). The server's process log is System's.
+      ["logs", "Logs"],
+    ],
+  },
+  /*
+   * <b>System — ADR-221, by owner decision 2026-10-26:</b> *"system sadece system admin için olacak."* The machine's
+   * screens, the ones the API keeps for the system administrator (`TenantRouting.SystemOnly`): its status, the
+   * organizations it holds, its own utility services, its general settings and its process log. Who enters is a
+   * function, not a privilege: being the system administrator is a flag on the account (`mayEnterSystem`).
+   */
+  system: {
+    title: "System",
+    needs: () => mayEnterSystem(),
+    refused: "System is the system administrator's: the server's status, its organizations and its own settings.",
+    home: "operations",
+    tabs: [
+      ["operations", "Status"],
+      // <b>Organizations — ADR-204 §5d, the system administrator's and nobody else's.</b> On a server of one
+      // organization a holder of admin:manageServer enters System (INFERRED, ADR-221 §5.2) and is still not shown it.
       ["organizations", "Organizations", () => isSystemAdministrator()],
-      // Each organization's own logs (owner decision 2026-10-22); the server's process log among them is the system's.
+      ["utilities", "Utility services"],
+      ["settings", "General"],
       ["logs", "Logs"],
     ],
   },
@@ -2673,7 +2713,10 @@ const SURFACES = {
       // them in Portal's Organization, because they are about who the organisation is and what its maps offer, not
       // about one machine — which is also what keeps them right when more than one machine serves it. The third
       // entry is who sees the tab: anybody holding one of these, and nobody else.
-      ["members", "Organization", ["admin:manageMembers", "admin:manageRoles", "admin:manageSecurity", "admin:manageServer"]],
+      // <b>And every member of the organization since ADR-221 §5.5</b>, who reads its name and description on Settings ›
+      // General as an ArcGIS Online member reads the organization's overview; the rest of it stays the administrators'
+      // (`orgAdminReader`). A member of another organization is not shown it: the server answers them 403.
+      ["members", "Organization", () => !!whoNow && !isOutsider()],
 
       // <b>No Domains tab since 2026-10-17, by owner decision — ADR-087 §6.</b> *"domains ayrı bir sekme
       // değil. Yeni feature layer oluşturulurken kullanılacak bir şey."* A domain is listed, made, changed and
@@ -2702,35 +2745,51 @@ const SURFACES = {
  */
 const SUBPAGES = {
   services: [["services", "Manage services"], ["publish", "Publish a service"]],
-  sources: [["sources", "Data sources"], ["operations", "Status"], ["settings", "General"]],
+  // <b>No Site strip since ADR-221.</b> Status and General went to System, and a strip of one page is furniture.
   // Organization's screens. It draws them in two levels rather than one column — `ORG_SETTINGS`.
-  members: [["members", "Members"], ["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
-    ["utilities", "Utility services"], ["collaborations", "Collaborations"], ["apps", "Apps"]],
+  // Utility services left on 2026-10-26 (ADR-221 §5.3): its one setting, the geometry service clients use, is the
+  // server's, and it is System's Utility services page now.
+  members: [["members", "Members"], ["general", "General"], ["orgsettings", "Map"], ["roles", "Member roles"],
+    ["signin", "Security"], ["collaborations", "Collaborations"], ["apps", "Apps"]],
 };
 
 /**
  * Organization › Settings' own column — 2026-10-17, by owner decision, after Portal's: Organization has a strip
  * (Members, Settings) and Settings has a list of short pages down its left, so a new setting is a card on one of
  * them or a new entry here rather than a longer page. Apps is a section of Security, where `#/apps` lands.
+ * <b>General first since ADR-221 §5.5</b>: the organization's name and description, where ArcGIS Online's
+ * Organization › Settings › General has them, and the one page here every member reads.
  */
-const ORG_SETTINGS = [["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
-  ["utilities", "Utility services"], ["collaborations", "Collaborations"]];
+const ORG_SETTINGS = [["general", "General"], ["orgsettings", "Map"], ["roles", "Member roles"], ["signin", "Security"],
+  ["collaborations", "Collaborations"]];
+
+/**
+ * Whether this reader administers anything in Organization — the reader the tab was for until ADR-221 gave every
+ * member its General page. Everybody else is shown General alone, read-only.
+ */
+const orgAdminReader = () =>
+  ["admin:manageMembers", "admin:manageRoles", "admin:manageSecurity", "admin:manageServer"].some(may);
+
+/**
+ * Whether this reader enters System — ADR-221 §5.2: the system administrator, and, on a server of one organization,
+ * where nothing is the system's alone, any holder of `admin:manageServer` (INFERRED there; the reader who saw these
+ * screens in Server before). An organization's own administrator on a server of several never does.
+ */
+// admin:manageServer either way: every screen of System is administration the API answers only to its holder, so the
+// flag without the privilege would open a surface of refusals.
+const mayEnterSystem = () => may("admin:manageServer") && (isSystemAdministrator() || !isMultiTenant());
+
+/**
+ * Whether the server's own things are somebody else's to this reader: several organizations, and not the system
+ * administrator. Used for what a page *says* to an organization's administrator about the server's things it lists —
+ * a system service, the managed datastore, the map ground — never to hide a screen: System is where those are.
+ */
+const systemIsSomebodyElses = () => isMultiTenant() && !isSystemAdministrator();
 
 /**
  * Whether this reader sees a tab: one with no third entry is everybody's, one with a list needs any of it, and one with
  * a function asks it (Organizations, ADR-204: a flag on the account rather than a privilege).
  */
-/**
- * The Server screens that are the machine's rather than an organization's — ADR-204 §5d: answered only to the system
- * administrator while the server holds several organizations (`TenantRouting.SystemOnly`). An organization's own
- * administrator keeps the rest of Server — its services, publishing and data sources — by owner decision 2026-10-22,
- * *"Kiracıların kendi yöneticileri de serverlarına girebilecek"*.
- */
-const SYSTEM_SCREENS = new Set(["organizations", "operations", "settings"]);
-
-/** Whether the system's screens are hidden from this reader: several organizations, and not the system administrator. */
-const systemOnlyHidden = () => !!whoNow?.organisation?.multiTenant && !whoNow?.systemAdministrator;
-
 const tabAllowed = ([, , needs]) => !needs || (typeof needs === "function" ? !!needs() : needs.some(may));
 
 /** Which sidebar row a subpage lights, from `SUBPAGES`. */
@@ -2767,18 +2826,22 @@ const SCREEN_SURFACE = {
   // <b>Deliberately absent: `layer`.</b> It is the one screen that lives in both surfaces, and
   // naming a single owner here is what sent every sharing link to Server. Which surface a layer's
   // page belongs to is `LAYER_PAGES`, and the router asks that instead.
-  operations: "server",
+  // <b>System's since ADR-221 (2026-10-26)</b>, each of them Server's until then: an old `/server/operations`,
+  // `/server/settings` or `/server/organizations` is a navigation to its place in System, for the reader who enters it.
+  operations: "system",
 
-  // <b>Server's — V-70.</b> A page size for the whole server is server administration.
-  settings: "server",
+  // V-70: a page size for the whole server is the server's.
+  settings: "system",
 
-  // <b>Server's, because reading a log is an operational act.</b> It carries principals,
-  // source addresses and paths — most of what somebody probing a deployment wants — so it
-  // sits behind `admin:manageServer` with the rest of Server. ADR-045.
-  logs: "server",
+  // <b>Deliberately absent: `logs`, which is in two surfaces.</b> Server's Logs are the organization's own and System's
+  // is the server's process log (ADR-221 §5.3); the router sends `?source=server` to System and the rest stays.
 
   // ADR-204 §5d: the organizations this server holds, which only the system administrator manages.
-  organizations: "server",
+  organizations: "system",
+
+  // The server's own services and the geometry service its clients are pointed at — Studio's Organization › Settings
+  // › Utility services until ADR-221, so `/studio/utilities` lands here.
+  utilities: "system",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
   // A screen absent from this table falls through to its surface's home, so `/server/group/planning`
@@ -2789,8 +2852,8 @@ const SCREEN_SURFACE = {
   sources: "server",
   // Studio's since 2026-10-17 — Organization (see Studio's tabs). An old `/server/roles` is a navigation here.
   members: "studio",
+  general: "studio",
   orgsettings: "studio",
-  utilities: "studio",
   collaborations: "studio",
   search: "studio",
 
@@ -2808,8 +2871,18 @@ let privileges = new Set();
 
 const may = privilege => !privilege || privileges.has(privilege);
 
+/** Whether this reader may enter a surface: its `needs` is a privilege, a function (System's), or nothing (Studio). */
+const mayEnter = surface => {
+  const needs = SURFACES[surface]?.needs;
+  return typeof needs === "function" ? !!needs() : may(needs);
+};
+
+/** Why a surface is refused, as a sentence: Server names the privilege, System says whose it is. */
+const refusedWhy = surface => SURFACES[surface].refused
+  || `${SURFACES[surface].title} needs ${SURFACES[surface].needs}.`;
+
 /** Which surfaces this reader may enter, in order. */
-const allowed = () => Object.keys(SURFACES).filter(name => may(SURFACES[name].needs));
+const allowed = () => Object.keys(SURFACES).filter(mayEnter);
 
 /**
  * Which surface this page *is*, from its own address.
@@ -2822,7 +2895,14 @@ const allowed = () => Object.keys(SURFACES).filter(name => may(SURFACES[name].ne
  * the two audiences share an address.
  */
 const surfaceOfPath = () =>
-  location.pathname.startsWith("/studio") ? "studio" : "server";
+  /^\/studio(\/|$)/.test(location.pathname) ? "studio"
+    : /^\/system(\/|$)/.test(location.pathname) ? "system" : "server";
+
+/**
+ * Whether this page is one of the two operator surfaces, Server or System, which draw a service's page the same way —
+ * System only for the server's own services (ADR-221 §5.3), whose verbs are its and nobody else's.
+ */
+const operatorSurface = () => surfaceOfPath() !== "studio";
 
 /** A screen's address in a surface: `surfaceHref("studio", "content")` is `/studio/content`; a `#/` in front is dropped. */
 const surfaceHref = (surface, screen) => `/${surface}/${String(screen || "").replace(/^#?\/?/, "")}`;
@@ -2833,13 +2913,13 @@ const surfaceHref = (surface, screen) => `/${surface}/${String(screen || "").rep
  * `location.hash` which screen it was on asks this.
  */
 function routeHash() {
-  return "#/" + location.pathname.replace(/^\/(studio|server)\/?/, "") + location.search;
+  return "#/" + location.pathname.replace(/^\/(studio|server|system)\/?/, "") + location.search;
 }
 
 /** Any way this console names a screen — `#/x`, `/studio/x`, or an old `/studio/#/x` — as the path it now is. */
 function pathOf(target) {
   const to = String(target || "");
-  const old = /^\/(studio|server)\/#\/?(.*)$/.exec(to);
+  const old = /^\/(studio|server|system)\/#\/?(.*)$/.exec(to);
   if (old) return `/${old[1]}/${old[2]}`;
   return to.startsWith("#") ? surfaceHref(surfaceOfPath(), to) : to;
 }
@@ -2850,7 +2930,7 @@ function pathOf(target) {
  */
 function navigateTo(target, replace = false) {
   const to = pathOf(target);
-  const there = /^\/(studio|server)(\/|$|\?)/.exec(to)?.[1];
+  const there = /^\/(studio|server|system)(\/|$|\?)/.exec(to)?.[1];
 
   if (there && there !== surfaceOfPath()) {
     if (replace) location.replace(to); else location.assign(to);
@@ -2875,14 +2955,21 @@ function navigateTo(target, replace = false) {
 function route() {
   const surface = surfaceOfPath();
 
+  // A sentence carried across a page load by `leaveWith`, said now that this page can say it.
+  sayCarried();
+
   // <b>Refused by leaving, with a sentence.</b> Not a 403 toast over an empty Server screen:
   // the reader cannot be in this environment, so they are put in one they can be, told why.
   // This is the only place that knows their privileges, which is why the redirect from
   // /console cannot make this decision.
-  if (!may(SURFACES[surface].needs)) {
-    toast(`${SURFACES[surface].title} is for the people who administer this server. `
-      + `You are in Studio, where your content is.`);
-    location.replace(surfaceHref("studio", SURFACES.studio.home));
+  // <b>System sends its refused reader to Server when they may be there</b> — an organization's administrator typing
+  // `/system/...` (ADR-221 §5.2) — and to Studio otherwise; Server sends to Studio, as it always did.
+  if (!mayEnter(surface)) {
+    const to = surface === "system" && mayEnter("server") ? "server" : "studio";
+    leaveWith(surface === "system"
+      ? `${SURFACES.system.refused} You are in ${SURFACES[to].title}.`
+      : `${SURFACES[surface].title} is for the people who administer this server. You are in Studio, where your content is.`,
+      surfaceHref(to, SURFACES[to].home));
     return;
   }
 
@@ -2900,11 +2987,18 @@ function route() {
   const rest = path.replace(/^#\/?/, "").split("/").filter(Boolean)
     .map(decodeURIComponent);
 
-  // ADR-204 §5d: a system screen asked for by an organization's administrator is a navigation to their services, with
-  // the reason — the server would answer every request on it 403.
-  if (surface === "server" && systemOnlyHidden() && SYSTEM_SCREENS.has(rest[0])) {
-    toast("That page is the system administrator's while this server holds several organizations.");
-    navigateTo(surfaceHref("server", SURFACES.server.home), true);
+  // <b>Logs are in two surfaces — ADR-221 §5.3.</b> The server's process log is System's: Server's *Read its warnings*
+  // and any old `/server/logs?source=server` go there, for the reader who enters it; anybody else reads the
+  // organization's own logs, which is what Server shows them.
+  if (rest[0] === "logs" && surface === "server" && hashQuery.get("source") === "server" && mayEnter("system")) {
+    location.replace(surfaceHref("system", routeHash()));
+    return;
+  }
+
+  // <b>System draws only the server's own services</b> — those in `Utilities`, the folder the server reserves for them.
+  // Any other service asked for here is an organization's, and is Server's page.
+  if (surface === "system" && rest[0] === "service" && rest[1] && !/^utilities(\/|$)/i.test(rest.slice(1).join("/"))) {
+    location.replace(surfaceHref("server", routeHash()));
     return;
   }
 
@@ -2934,8 +3028,8 @@ function route() {
       && LAYER_PAGES[rest[2]] !== surface) {
     const owner = LAYER_PAGES[rest[2]];
 
-    if (!may(SURFACES[owner].needs)) {
-      toast(`That page is in ${SURFACES[owner].title}, which needs ${SURFACES[owner].needs}.`);
+    if (!mayEnter(owner)) {
+      toast(`That page is in ${SURFACES[owner].title}. ${refusedWhy(owner)}`);
       navigateTo(surfaceHref(surface, SURFACES[surface].home), true);
       return;
     }
@@ -2944,15 +3038,17 @@ function route() {
     return;
   }
 
+  // <b>`replace`, not `assign`, since ADR-221 moved three screens out of Server.</b> An old `/server/settings` is an
+  // address that has moved, not a step the reader took: Back from System's General should not land on the address that
+  // sent them there and send them again.
   const lives = SCREEN_SURFACE[rest[0]];
   if (lives && lives !== surface) {
-    if (!may(SURFACES[lives].needs)) {
-      toast(`That screen is in ${SURFACES[lives].title}, which needs `
-        + `${SURFACES[lives].needs}.`);
+    if (!mayEnter(lives)) {
+      toast(`That page is in ${SURFACES[lives].title}. ${refusedWhy(lives)}`);
       navigateTo(surfaceHref(surface, SURFACES[surface].home), true);
       return;
     }
-    location.assign(surfaceHref(lives, routeHash()));
+    location.replace(surfaceHref(lives, routeHash()));
     return;
   }
 
@@ -3021,7 +3117,10 @@ function route() {
   for (const [screen, row] of Object.entries(ROW_OF)) {
     if (screens.includes(row) && !screens.includes(screen)) screens.push(screen);
   }
-  const screen = screens.includes(rest[0]) ? rest[0] : SURFACES[surface].home;
+  let screen = screens.includes(rest[0]) ? rest[0] : SURFACES[surface].home;
+
+  // A member who administers nothing in Organization reads its General page and nothing else there (ADR-221 §5.5).
+  if (ROW_OF[screen] === "members" && screen !== "general" && !orgAdminReader()) screen = "general";
 
   // The folder a Server services screen is looking at, which is part of its address so that
   // "the services in turkiye" is a place you can link somebody to.
@@ -3309,9 +3408,12 @@ function drawSurfaces(surface) {
 
   const both = allowed();
 
+  // <b>Each link only for a surface this reader enters — ADR-221.</b> With two surfaces the switch was all or nothing;
+  // with three, an organization's administrator has Server and Studio and is not offered System.
   $("surfaces").hidden = both.length < 2;
   for (const link of document.querySelectorAll("#surfaces a")) {
     const name = link.dataset.surface;
+    link.hidden = !both.includes(name);
     link.href = surfaceHref(name, SURFACES[name].home);
     if (name === surface) link.setAttribute("aria-current", "page");
     else link.removeAttribute("aria-current");
@@ -3327,8 +3429,10 @@ function drawSurfaces(surface) {
   // one; a header bar has the width for its labels and nothing to collapse to, so the glyphs and the
   // counts went with the rail. The surface's name is the badge beside the mark.
   $("surfaceBadge").textContent = config.title;
+  // Organization opens on General for a member who administers nothing in it (ADR-221 §5.5): Members is not theirs.
+  const tabHref = name => name === "members" && !orgAdminReader() ? "general" : name;
   $("tabs").innerHTML = config.tabs.filter(tabAllowed).map(([name, label]) =>
-    `<a href="#/${name}" data-tab="${name}">${h(label)}</a>${
+    `<a href="#/${tabHref(name)}" data-tab="${name}">${h(label)}</a>${
        (config.links || []).filter(l => l.after === name).map(l =>
          `<a href="${h(l.href)}" data-link="${h(l.key)}">${h(l.label)}</a>`).join("")}`).join("");
 
@@ -3419,7 +3523,7 @@ function drawSubpages(screen) {
       .find(([name]) => name === row)?.[1] || row);
     view.prepend(strip);
   }
-  strip.innerHTML = SUBPAGES[row].filter(([name]) => !(systemOnlyHidden() && SYSTEM_SCREENS.has(name))).map(([name, label]) =>
+  strip.innerHTML = SUBPAGES[row].map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
 }
 
@@ -3433,8 +3537,9 @@ function drawOrgNav(view, screen) {
     strip.setAttribute("aria-label", "Organization");
     view.prepend(strip);
   }
-  strip.innerHTML = `<a href="#/members"${settings ? "" : ' aria-current="page"'}>Members</a>
-    <a href="#/orgsettings"${settings ? ' aria-current="page"' : ""}>Settings</a>`;
+  // Settings opens on General (ADR-221 §5.5), the first page of its column. Members is the administrators'.
+  strip.innerHTML = (orgAdminReader() ? `<a href="#/members"${settings ? "" : ' aria-current="page"'}>Members</a>` : "")
+    + `<a href="#/general"${settings ? ' aria-current="page"' : ""}>Settings</a>`;
   if (!settings) return;
 
   view.classList.add("withside");
@@ -3445,9 +3550,9 @@ function drawOrgNav(view, screen) {
     side.setAttribute("aria-label", "Settings");
     strip.after(side);
   }
-  // Utility services holds only the geometry service, which is the server's while there are several organizations.
   // Collaborations (ADR-219) are between organizations, so only where there are several, and only their administrator's.
-  side.innerHTML = ORG_SETTINGS.filter(([name]) => !(name === "utilities" && systemOnlyHidden())
+  // A member who administers nothing here has General alone.
+  side.innerHTML = ORG_SETTINGS.filter(([name]) => (name === "general" || orgAdminReader())
     && !(name === "collaborations" && !isOrgAdministrator())).map(([name, label]) =>
     `<a href="#/${name}"${name === screen ? ' aria-current="page"' : ""}>${h(label)}</a>`).join("");
 
@@ -3500,15 +3605,34 @@ function openScreen(surface, screen, folder) {
   if (screen === "operations") {
     section("operations", loadOperations);
     section("resources", drawStatusWidgets);
+    // The datastore's Pause, here since ADR-221; Data sources' *Pause it in System* lands on its card.
+    section("the datastore", drawDatastoreControl).then(() => {
+      if (location.hash === "#datastoreCard") $("datastoreCard")?.scrollIntoView({ block: "center" });
+    });
   }
   if (screen === "settings") section("settings", loadSettings);
   if (screen === "organizations") section("organizations", loadTenants, "tnRows");
+  if (screen === "general") section("organization", loadOrganizationProfile);
   if (screen === "orgsettings") section("settings", loadOrgSettings);
-  if (screen === "utilities") section("settings", loadGeometryService);
+  if (screen === "utilities") {
+    section("utility services", loadSystemServices, "sysRows");
+    section("settings", loadGeometryService);
+  }
   if (screen === "collaborations") loadPartnerships();
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") {
+    // System's Logs are the server's process log and nothing else (ADR-221 §5.3); Server's are the organization's.
+    if (surface === "system" && logSource !== "server") {
+      logSource = "server";
+      logOwn = "";
+      logCursor = null;
+    }
+    if (surface !== "system" && logSource === "server") {
+      logSource = "audit";
+      logOwn = "";
+      logCursor = null;
+    }
     // `?source=server&q=name` is where a failing service's *Read its warnings* lands: that log, filtered to it.
     const asked = hashQuery.get("source");
     if (asked && visibleLogSources().some(([key]) => key === asked)) {
@@ -5834,7 +5958,8 @@ let serviceIsSystem = false;
 
 async function showService(qualified) {
   editing = null;
-  showView("view-service", surfaceOfPath() === "studio" ? "content" : "services");
+  // System's service pages are the server's own services, listed under its Utility services (ADR-221 §5.3).
+  showView("view-service", { studio: "content", system: "utilities" }[surfaceOfPath()] || "services");
 
   const { folder, name } = splitService(qualified);
 
@@ -5897,6 +6022,8 @@ async function showService(qualified) {
   // content*, the way back led nowhere. A breadcrumb that does not go back is decoration.
   const backTo = surfaceOfPath() === "studio"
     ? { hash: "#/content", label: "Content" }
+    : surfaceOfPath() === "system"
+    ? { hash: "#/utilities", label: "Utility services" }
     : { hash: `#/services${folder ? "/" + encodeURIComponent(folder) : ""}`, label: "Services" };
 
   $("serviceCrumb").innerHTML =
@@ -5954,7 +6081,7 @@ async function showService(qualified) {
 
     // <b>The same head card as every other service on Server</b> (UX sweep 2026-10-19, finding 11): name, kind,
     // state, address with Copy, and Start or Stop — where this page had a breadcrumb row holding Save.
-    if (surfaceOfPath() === "server" && $("servicePagehead")) $("servicePagehead").hidden = true;
+    if (operatorSurface() && $("servicePagehead")) $("servicePagehead").hidden = true;
     drawServerHero();
 
     return;
@@ -6043,7 +6170,7 @@ async function showService(qualified) {
   refreshServerAbout();
 
   // Whether it is failing is read with the services list; a page opened from an address reads it here.
-  if (surfaceOfPath() === "server") {
+  if (operatorSurface()) {
     readServiceFailures().then(() => { if (serviceOpen?.qualified === qualified) drawServerHero(); });
   }
 
@@ -7157,9 +7284,10 @@ async function drawServiceDetails(qualified, knownKind) {
   // genuinely technical numbers. Setting `root` and `4` in mono dilutes the one place monospace still
   // means something on this page: the address. `.facts2` is the same content's own idiom one screen over
   // — the group page's Overview lists a standing, an owner, a date and two counts in it.
-  // `Utilities` is the reserved folder of the server's own services, whose sharing is the system administrator's while
-  // there are several organizations (ADR-204 §5d): one row for all of them.
-  const manages = (!item || item.manages !== false) && !(systemOnlyHidden() && /^Utilities\//i.test(qualified));
+  // `Utilities` is the reserved folder of the server's own services, whose sharing is set in System › Utility services
+  // since ADR-221 §5.3 (and was the system administrator's alone while there are several organizations, ADR-204 §5d):
+  // one row for every organization, so one place to set it.
+  const manages = (!item || item.manages !== false) && !/^Utilities\//i.test(qualified);
 
   const actions = $("itemActions");
   actions.innerHTML = `
@@ -10407,7 +10535,7 @@ function serviceSettingsMarkup(name, folder) {
           aria-describedby="capPageSays"><span class="u">features</span></div>
       <p class="hint inherit" id="capPageSays"><span class="inheritstate" data-state-of="capMaxRows"></span>
         What a query returns when it does not ask for a number, and the most it returns when it does. Empty follows
-        the server's page size<span id="capServerPage"></span>, set in <a href="#/settings">Site › General</a>.</p>
+        the server's page size<span id="capServerPage"></span><span id="capServerWhere"></span>.</p>
       <div class="setting"><label class="q" for="capOutBytes">Largest response:</label>
         <input type="number" id="capOutBytes" min="1" aria-describedby="capOutBytesSays"><span class="u">bytes</span></div>
       <p class="hint inherit" id="capOutBytesSays"><span class="inheritstate" data-state-of="capOutBytes"></span></p>
@@ -13990,13 +14118,17 @@ async function loadServiceLimits(name, folder) {
     + `<dt>Vertices per request</dt>`
     + fixed(num(limits.maximumVertices), "input size bounds the work, so a cap is the right limit here.");
 
-  // <b>Read, not set, by anybody but the system administrator while there are several organizations — ADR-204 §5d.</b>
-  // A system service is one row for every organization, so its limits are the server's to change.
-  const theirs = systemOnlyHidden();
+  // <b>Set in System, read everywhere else — ADR-221 §5.3.</b> A system service is one row for every organization, so
+  // its limits are the server's: Server shows them to everybody who opens it, and System is where they change. Until
+  // ADR-221 Server set them for the system administrator and read them to everybody else (ADR-204 §5d).
+  const theirs = surfaceOfPath() !== "system";
   for (const id of ["limDeadline", "limWait", "limPreflight", "limIdle"]) $(id).disabled = theirs;
-  $("limNote").textContent = theirs
-    ? "These are the server's, used by every organization on it, so only its system administrator changes them."
-    : "";
+  $("limNote").innerHTML = !theirs ? ""
+    : mayEnterSystem()
+      ? `These are the server's, used by every service that asks it for this work, so they are set in System. <a
+          href="${h(surfaceHref("system", `service/${[folder || "", name].filter(Boolean).map(encodeURIComponent).join("/")}`))}"
+          >Change them in System</a>`
+      : "These are the server's, used by every organization on it, so only its system administrator changes them.";
 
   $("limSave").hidden = theirs;
   $("limClear").hidden = theirs;
@@ -15453,7 +15585,8 @@ function drawStatusVerdict(rows) {
     + count("Stopped", stopped.length, stopped.length ? "warn" : "")
     + (refusing.length ? count("Refusing for now", refusing.length, "warn") : "");
 
-  const link = r => `<a href="#/service/${encodeURIComponent(r.qualified)}">${h(r.qualified)}</a>`;
+  // An organization's service is Server's page, wherever this verdict is read (System's Status since ADR-221).
+  const link = r => `<a href="${surfaceHref("server", `service/${encodeURIComponent(r.qualified)}`)}">${h(r.qualified)}</a>`;
   $("statusIssues").innerHTML = [
     ...failing.map(r => `<li>${pill("failing")}<p>${link(r)}: ${h(failingSays(failingOf(r)))}</p>
       <a class="btn tiny" href="${failingLogHref(r.qualified)}">Read its warnings</a></li>`),
@@ -15465,10 +15598,40 @@ function drawStatusVerdict(rows) {
   $("statusIssues").hidden = attention === 0 && stopped.length === 0;
 }
 
-/** Site › Status's verdict and the process's resources. */
+/** System › Status's verdict and the process's resources. */
 async function drawStatusWidgets() {
+  // <b>The server's numbers where it holds several organizations — 2026-10-27.</b> The services listings are the host
+  // organization's (the tenant floor), so a verdict drawn from them counted the default organization's services and
+  // called them the server's. `/admin/health` counts across every organization then (`server`); on a server of one it
+  // carries no `server`, and the listings are the server's anyway.
+  if (isMultiTenant()) {
+    const health = await api("/admin/health").catch(() => null);
+    if (health?.server) {
+      drawServerCounts(health);
+      await drawResourceWidget();
+      return;
+    }
+  }
   drawStatusVerdict(await readServiceStates(true));
   await drawResourceWidget();
+}
+
+/** The verdict card on a server of several organizations: what the whole server holds, counted by the server. */
+function drawServerCounts(health) {
+  const whole = health.server || {};
+  const store = health.platformStore || {};
+  $("statusVerdict").classList.toggle("bad", !store.reachable);
+  $("statusVerdictHead").innerHTML = store.reachable
+    ? `<span class="dot ok" aria-hidden="true"></span>${num(whole.organizations)} organization${whole.organizations === 1 ? "" : "s"} on this server`
+    : `${icon("failing")}The platform store cannot be reached`;
+  const count = (label, n) => `<div><dt>${label}</dt><dd>${num(n)}</dd></div>`;
+  $("statusCounts").innerHTML = count("Organizations", whole.organizations)
+    + count("Services", whole.services)
+    + count("Layers", store.layers);
+  // Whether each service answers is read from the organization's own list, so it is each organization's to read.
+  $("statusIssues").innerHTML = `<li><p>${h(whole.note || "Counted across every organization on this server.")}
+    Whether each organization's services are answering is on its own Server › Services.</p></li>`;
+  $("statusIssues").hidden = false;
 }
 
 // ---------------------------------------------------------------- several services at once (owner, 2026-10-17)
@@ -15612,7 +15775,7 @@ document.addEventListener("click", event => {
  * <b>Which started services are failing — UX sweep 2026-10-19, finding 1.</b> `status` is started or stopped and
  * nothing else, so a service whose every request answered 500 read *started* in green on every screen. The request
  * log already files each request under its service, and `/admin/health/services` counts its 5xx; a started service
- * with any in the last 15 minutes is *Started, failing* on the list, on Site › Status and in the header.
+ * with any in the last 15 minutes is *Started, failing* on the list, on System › Status and in the header.
  * Keyed by the qualified name in lower case: the log files `folder/name` as the request's path spelled it.
  */
 let serviceFailing = new Map();
@@ -15621,9 +15784,10 @@ const FAILING_MINUTES = 15;
 
 /** Reads the failures again unless they were read in the last 30 seconds; keeps the last answer if refused. */
 async function readServiceFailures(force = false) {
-  // The counts come from `/admin/health/services`, the system's (ADR-204 §5d): not asked for by anybody else while the
-  // server holds several organizations, so no row says *failing* to them and nothing is refused on every screen.
-  if (!may("admin:manageServer") || systemOnlyHidden()) return serviceFailing;
+  // The counts come from `/admin/health/services`, the system's (ADR-204 §5d): asked for only by a reader who enters
+  // System, so no row says *failing* to anybody else and nothing is refused on every screen. A read the API refuses,
+  // not a screen hidden — Status, where these counts are the page, is System's (ADR-221).
+  if (!mayEnterSystem()) return serviceFailing;
   if (!force && Date.now() - serviceFailingAt < 30000) return serviceFailing;
   try {
     const r = await api(`/admin/health/services?minutes=${FAILING_MINUTES}&limit=1000`);
@@ -15671,7 +15835,9 @@ async function readServiceStates(force = false) {
 }
 
 /** Where a failing service's warnings are read: Logs › Server warnings, filtered to it. */
-const failingLogHref = qualified => `#/logs?source=server&q=${encodeURIComponent(qualified.split("/").pop())}`;
+// The server's process log is System's (ADR-221 §5.3); only a reader who enters System is told a service is failing.
+const failingLogHref = qualified =>
+  surfaceHref("system", `logs?source=server&q=${encodeURIComponent(qualified.split("/").pop())}`);
 
 /** One line over the services list: how many, and how many of them are answering (owner, 2026-10-17). */
 function drawServiceSummary(rows) {
@@ -15688,8 +15854,8 @@ function drawServiceSummary(rows) {
     `<span class="dot ${stopped ? "degraded" : "unknown"}" aria-hidden="true"></span>${num(stopped)} stopped`,
     ...(refusing ? [`<span class="dot degraded" aria-hidden="true"></span>${num(refusing)} refusing`] : []),
   ].join(`<span class="sep" aria-hidden="true">·</span>`)
-    // Site › Status is the system's while there are several organizations (ADR-204 §5d), so it is not linked for others.
-    + (systemOnlyHidden() ? "" : ` <a href="#/operations">Server status</a>`);
+    // Status is System's (ADR-221), so it is linked for the reader who enters System and nobody else.
+    + (mayEnterSystem() ? ` <a href="${surfaceHref("system", "operations")}">Server status</a>` : "");
 }
 
 /**
@@ -15701,7 +15867,7 @@ function drawServiceSummary(rows) {
  */
 async function drawResourceWidget() {
   const widget = $("resourceWidget");
-  if (!widget || !may("admin:manageServer") || systemOnlyHidden()) return;
+  if (!widget || !mayEnterSystem()) return;
 
   let health;
   try {
@@ -16069,9 +16235,9 @@ async function loadServices() {
       const label = r.name;
       const stopVerb = stopped ? "Start" : "Stop";
       // <b>A system service is the server's, not an organization's — ADR-204 §5d.</b> `system_service` is one row for
-      // every organization, so its Stop and its sharing are the system administrator's while there are several; to
-      // anybody else the row is a fact with the reason, never a control that would stop it for everyone.
-      const theirs = r.system && systemOnlyHidden();
+      // every organization, so its Stop and its sharing are set in System › Utility services since ADR-221 §5.3, and
+      // here the row is a fact with the reason for every reader, never a control that would stop it for everyone.
+      const theirs = !!r.system;
       const sharingFact = theirs ? pill(r.sharing) : r.system
         ? `<select data-service-share="${h(r.name)}" aria-label="Who can reach ${h(label)}">${SCOPES.map(v =>
             `<option value="${v}"${v === r.sharing ? " selected" : ""}>${SCOPE_WORDS[v] || v}</option>`).join("")}</select>`
@@ -16126,8 +16292,11 @@ async function loadServices() {
           ${r.description ? `<p class="svcdesc">${h(r.description)}</p>` : ""}
           <div class="svcmeta">${facts}</div>
           ${deleteWhy}
-          ${theirs ? `<p class="rowwhy">The server's own, used by every organization on it: its system administrator
-            starts, stops and shares it.</p>` : ""}
+          ${theirs ? mayEnterSystem()
+            ? `<p class="rowwhy">The server's own, so it is started, stopped and shared in System.
+                <a href="${surfaceHref("system", "utilities")}">Utility services</a></p>`
+            : `<p class="rowwhy">The server's own, used by every organization on it: its system administrator
+                starts, stops and shares it.</p>` : ""}
           ${failing ? `<p class="svcfail">${h(failingSays(failing))}
             <a href="${failingLogHref(r.qualified)}">Read its warnings</a></p>` : ""}
         </td>
@@ -19448,6 +19617,12 @@ async function loadServiceCapabilities(name, folderGiven) {
       $("capServerPage").textContent = `, ${num(c.serverPageSize)}` + (c.pageSizeCeiling != null
         ? `, and no service's can be larger than ${num(c.pageSizeCeiling)}, this server's ceiling` : "");
     }
+    // Where the server's page size is set: System's General since ADR-221, linked for the reader who enters it.
+    if ($("capServerWhere")) {
+      $("capServerWhere").innerHTML = mayEnterSystem()
+        ? `, set in <a href="${surfaceHref("system", "settings")}">System › General</a>`
+        : ", which the server's administrator sets";
+    }
   }
   set("capOutBytes", c.maxResponseBytes);
   set("capInBytes", c.maxRequestBytes);
@@ -19852,7 +20027,7 @@ let systemServiceOpen = null;
 function drawServerHero() {
   const hero = $("serverHero");
   if (!hero) return;
-  const onServer = serviceOpen && surfaceOfPath() === "server";
+  const onServer = serviceOpen && operatorSurface();
   const row = onServer && !serviceIsSystem ? SERVICE_ROWS.find(s => s.qualified === serviceOpen.qualified) : null;
   const system = onServer && serviceIsSystem ? systemServiceOpen : null;
   hero.hidden = !row && !system;
@@ -19884,8 +20059,10 @@ function drawServerHero() {
         : cover ? `<img class="thumb" alt="" data-thumb="${h(thumbnailFor(cover))}">`
         : `<div class="thumb empty">No layer to draw</div>`}</div>`;
 
-  // A system service is started and stopped for every organization at once: the system administrator's (ADR-204 §5d).
-  const toggle = system && systemOnlyHidden() ? ""
+  // A system service is started and stopped for every organization at once (ADR-204 §5d), so in System and nowhere
+  // else since ADR-221 §5.3; Server's page of it says so, and links there for the reader who enters System.
+  const inSystem = surfaceOfPath() === "system";
+  const toggle = system && !inSystem ? ""
     : system
     ? `<button type="button" class="${stopped ? "primary" : ""}" data-system-status="${h(system.name)}"
         data-system-folder="${h(system.folder || "")}" data-to="${stopped ? "start" : "stop"}"
@@ -19914,6 +20091,8 @@ function drawServerHero() {
       ${toggle}
       ${row ? `<a class="btn" href="/studio/service/${row.qualified.split("/").map(encodeURIComponent).join("/")}"
         >Open in Studio${icon("external")}</a>` : ""}
+      ${system && !inSystem && mayEnterSystem() ? `<a class="btn" href="${h(surfaceHref("system",
+        `service/${qualified.split("/").map(encodeURIComponent).join("/")}`))}">Open in System</a>` : ""}
     </div>`;
   drawStoppedNote();
   paintPreviews();
@@ -19937,13 +20116,15 @@ function drawStoppedNote(stoppedAnyway = false) {
   note.hidden = !stopped;
   if (!stopped) { note.innerHTML = ""; return; }
 
-  const onServer = surfaceOfPath() === "server";
+  const onServer = operatorSurface();
+  // A system service starts in System (ADR-221 §5.3): its page in Server has no Start to point at.
+  const startsAbove = onServer && !(system && surfaceOfPath() !== "system");
   const startHere = !onServer && row?.cover && may("admin:manageServer")
     ? `<button type="button" class="primary tiny" data-service-status="${h(row.cover.name)}"
         data-service-qualified="${h(row.qualified)}" data-to="start">${glyph("play")} Start service</button>` : "";
 
   note.innerHTML = `<p><b>Stopped.</b> Clients get 503 until ${onServer || may("admin:manageServer")
-    ? `it is started${onServer ? " with Start service above" : ""}` : "an administrator starts it"}.
+    ? `it is started${startsAbove ? " with Start service above" : system ? " in System" : ""}` : "an administrator starts it"}.
     Its settings can still be changed.</p>${startHere}`;
 }
 
@@ -23308,7 +23489,7 @@ async function loadSources() {
         <td class="num">${num(d.layerCount)}<span class="cardonly"> layer${d.layerCount === 1 ? "" : "s"}</span></td>
         <td class="acts"><button class="tiny" data-probe="${h(d.id)}"
             data-probe-name="${h(d.name)}">Test connection</button>
-          ${d.name === "datastore" && systemOnlyHidden() ? "" : d.quiesced
+          ${d.name === "datastore" ? "" : d.quiesced
             ? ` <button class="tiny primary" data-source-resume="${h(d.id)}"
                   data-source-name="${h(d.name)}">Resume</button>`
             : ` <button class="tiny" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
@@ -23318,10 +23499,14 @@ async function loadSources() {
                   >Pause…</button>`}${
             d.name === "datastore"
               // ADR-204 §5d.1: the managed datastore stays the system's, and pausing it pauses every organization's
-              // hosted layers, so only the system administrator is offered Pause while there are several.
-              ? systemOnlyHidden()
+              // hosted layers, so it is paused from System › Status since ADR-221 §5.3 — for every reader of this list,
+              // which says where, and links there for the reader who enters System.
+              ? systemIsSomebodyElses()
                 ? ` <span class="managed">Shared by every organization; its system administrator pauses it</span>`
-                : ` <span class="managed">set by Graticula:PlatformStore</span>`
+                : mayEnterSystem()
+                  ? ` <span class="managed">Set by Graticula:PlatformStore. <a href="${surfaceHref("system", "operations")}#datastoreCard"
+                      >Pause it in System</a></span>`
+                  : ` <span class="managed">set by Graticula:PlatformStore</span>`
               : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-kind="${h(d.kind)}"
                     data-source-summary="${h(d.summary || "")}"
@@ -23544,7 +23729,7 @@ async function quiesceSource(id, name, layers, shares, sharedLayerCount) {
 
       toast(`${name} is paused until ${when}.${also}`, true);
 
-      await loadSources();
+      await refreshSourcesHere();
       focusSourceRow(id);
     } catch (e) {
       says.classList.add("bad-inline");
@@ -23610,7 +23795,7 @@ async function resumeSource(id, name) {
       ? `${name} answers again.`
       : `${name} was already answering: its window had ended.`, true);
 
-    await loadSources();
+    await refreshSourcesHere();
     focusSourceRow(id);
   } catch (e) {
     toast(e.message);
@@ -25033,6 +25218,18 @@ async function loadSettings() {
   const settings = await api("/admin/settings") || {};
   drawSettings(settings);
 
+  // <b>The map ground — System's since ADR-221 §5.3</b>, from Studio's Organization › Settings › Map, because it is one
+  // for every organization on the server. Drawn from the same read as the page size, which carries it.
+  $("groundEveryone").hidden = !isMultiTenant();
+  await drawGround(settings.ground || {});
+  drawGroundDirty();
+
+  // Whether the ground is what new maps start on is a question about one organization's default basemap, so it is
+  // answered only on a server of one; with several, each organization chooses for itself.
+  if (!isMultiTenant()) {
+    api("/admin/settings/basemaps").then(r => { basemapsSaved = r || null; drawGroundInUse(); }).catch(() => {});
+  }
+
   // Enter saves, as it does in every form a person fills in; assigned rather than added so a redraw
   // does not stack a second listener.
   $("setPageSize").onkeydown = e => {
@@ -25049,25 +25246,27 @@ async function loadSettings() {
 }
 
 /**
- * Organization › Settings — 2026-10-17: the basemaps, the map ground and the geometry service, which were Server's
- * General until the owner moved them to Studio with members and roles. Same reads, same cards, same ids.
+ * Organization › Settings › Map — 2026-10-17: the basemaps, which were Server's General until the owner moved them to
+ * Studio with members and roles. <b>The map ground left for System's General on 2026-10-26 (ADR-221 §5.3)</b>: it is
+ * the server's, one for every organization, so this page names it as one of the answers and says where it is set.
  */
 async function loadOrgSettings() {
-  groundSay("");
-  // <b>The ground is the server's and the gallery is the organization's — ADR-204 §5d.</b> `/admin/settings` and its
-  // ground answer only the system administrator while there are several organizations, and this read used to come
-  // first, so its 403 stopped the page before the organization's own basemaps were read at all.
-  const system = systemOnlyHidden();
-  $("groundCard").hidden = system;
-  $("groundWhose").hidden = !system;
-  $("groundWhose").textContent = system
-    ? "Your own tile services means the server's map ground, which its system administrator chooses for every "
-      + "organization on it. With none chosen, maps start on OpenStreetMap."
-    : "";
-  $("groundEveryone").hidden = !(isMultiTenant() && isSystemAdministrator());
-  if (!system) {
-    const settings = await api("/admin/settings") || {};
-    await drawGround(settings.ground || {});
+  // The ground's services by name, for the sentence under the default — asked only of a reader who may read it
+  // (`/admin/settings` is the system's), and not waited for: the gallery is this page's subject.
+  if (mayEnterSystem()) {
+    api("/admin/settings").then(settings => {
+      groundSaved = (settings?.ground?.services || []).map(s => s.name);
+      groundChosen = [...groundSaved];
+      drawBasemapDefaultSays();
+    }).catch(() => {});
+  }
+  const where = $("groundWhere");
+  if (where) {
+    where.innerHTML = mayEnterSystem()
+      ? `<b>Your own tile services</b> are this server's map ground, chosen in System for every organization on it. <a
+          href="${surfaceHref("system", "settings")}">Map ground in System</a>`
+      : "<b>Your own tile services</b> are this server's map ground, which its system administrator chooses for every "
+        + "organization on it.";
   }
   await loadBasemaps();
 }
@@ -25142,9 +25341,7 @@ function drawBasemaps(r, preview = undefined) {
     answer("osm", "OpenStreetMap", "Its public tiles. Nothing to set up."),
     ...entries.map(e => answer(e.id, h(e.title),
       e.kind === "map" ? "A web map in the basemap gallery." : "A tile service in the basemap gallery.")),
-    answer("", "Your own tile services", systemOnlyHidden()
-      ? "The server's map ground, or OpenStreetMap while none is chosen."
-      : "The services chosen under Map ground below, or OpenStreetMap while none are."),
+    answer("", "Your own tile services", "The server's map ground, or OpenStreetMap while none is chosen."),
   ].join("");
   drawBasemapDefaultSays(saved.defaultMissing && galleryId === savedGallery);
 
@@ -25168,9 +25365,7 @@ function drawBasemapDefaultSays(missing = false) {
     : value === "osm" ? "New maps start on OpenStreetMap."
       : value ? `New maps start on ${title || "this basemap"}.`
         : ground.length ? `New maps start on your own tile services: ${[...ground].reverse().join(", ")}.`
-          : systemOnlyHidden()
-            ? "New maps start on the server's map ground, or on OpenStreetMap while it has none."
-            : "New maps start on OpenStreetMap until a tile service is chosen below.";
+          : "New maps start on the server's map ground, or on OpenStreetMap while it has none.";
 }
 
 /** Whether the Map ground card below is what new maps start on, said on that card. */
@@ -25211,11 +25406,10 @@ function basemapsChanged() {
     || basemapDefaultValue() !== (saved.default || "");
 }
 
-/** The page's one Save bar: whether anything on it differs from what is saved, basemaps or ground. */
+/** The Map page's Save bar: whether the basemap choice differs from what is saved. The ground saves in System. */
 function drawMapDirty() {
   if (!$("mapSave")) return;
-  const dirty = (!!basemapsSaved && basemapsChanged())
-    || groundChosen.join("\n") !== groundSaved.join("\n");
+  const dirty = !!basemapsSaved && basemapsChanged();
   $("mapSave").disabled = !dirty;
   $("mapDiscard").disabled = !dirty;
   $("mapDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
@@ -25223,14 +25417,13 @@ function drawMapDirty() {
 }
 
 /**
- * <b>One Save for the page</b> (UX sweep 2026-10-19): the default basemap and the ground are one decision about
- * what a new map starts on. Each half is sent only when it changed, to the endpoint it always went to, and each says
- * what it did under its own card.
+ * <b>One Save for the page</b> (UX sweep 2026-10-19). It saved the default basemap and the ground together, as one
+ * decision about what a new map starts on, until ADR-221 moved the ground to System: the two are now two readers'
+ * decisions, the organization's and the server's, and each page saves its own.
  */
 async function saveMapSettings() {
   const sendBasemaps = !!basemapsSaved && basemapsChanged();
-  const sendGround = groundChosen.join("\n") !== groundSaved.join("\n");
-  if (!sendBasemaps && !sendGround) return;
+  if (!sendBasemaps) return;
   $("mapSave").disabled = true;
 
   if (sendBasemaps) {
@@ -25252,8 +25445,6 @@ async function saveMapSettings() {
     }
   }
 
-  if (sendGround) await saveGround(groundChosen);
-
   drawMapDirty();
   $("mapDirty").textContent = $("mapSave").disabled ? "Saved" : "Some of it was not saved: see the card that says why";
   $("mapDirty").setAttribute("tabindex", "-1");
@@ -25263,11 +25454,9 @@ async function saveMapSettings() {
 /** Settings' Geometry service — ADR-149: this server's own, or another the portal names to its clients. */
 async function loadGeometryService() {
   geometryServiceSay("");
-  // The server's while there are several organizations (ADR-204 §5d): said, not read, because the read is refused.
-  $("geometryCard").hidden = systemOnlyHidden();
-  $("geometryWhose").hidden = !systemOnlyHidden();
-  $("geometryEveryone").hidden = !(isMultiTenant() && isSystemAdministrator());
-  if (systemOnlyHidden()) return;
+  // System's since ADR-221 §5.3, where every reader may read and set it; on a server of several it is every
+  // organization's, and says so.
+  $("geometryEveryone").hidden = !isMultiTenant();
   // Enter saves, as the page-size box on this screen does; typing clears a refusal (the ux review, 2026-10-03).
   $("geometryService").onkeydown = e => {
     if (e.key === "Enter") { e.preventDefault(); $("geometryServiceSave").click(); }
@@ -25491,10 +25680,19 @@ function drawGroundLists(focusAfter = null) {
     : "";
 
   $("groundClear").hidden = groundChosen.length === 0;
-  drawBasemapDefaultSays();
-  drawMapDirty();
+  drawGroundDirty();
 
   if (focusAfter) document.querySelector(focusAfter)?.focus();
+}
+
+/** The ground card's Save and Discard: on while the ground on screen differs from what is saved. */
+function drawGroundDirty() {
+  if (!$("groundSave")) return;
+  const dirty = groundChosen.join("\n") !== groundSaved.join("\n");
+  $("groundSave").disabled = !dirty;
+  $("groundDiscard").disabled = !dirty;
+  $("groundDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
+  $("groundSaveBar")?.classList.toggle("dirty", dirty);
 }
 
 /** Moves a chosen service one place up or down the drawing order, keeping focus on the same button. */
@@ -25589,7 +25787,7 @@ function drawStyleOrigins(r) {
   $("styleOriginsSource").textContent = (origins.length
     ? `${origins.length} allowed${r.changedAt ? `, set on ${day(r.changedAt)}` : ""}. `
     : "None allowed. ")
-    + `Up to ${r.most || 50}. The Server and Studio pages allow the same origins, so their maps draw those styles too.`;
+    + `Up to ${r.most || 50}. Every page of this console allows the same origins, so its maps draw those styles too.`;
 }
 
 function styleOriginsSay(text, refusal = false) {
@@ -25855,13 +26053,13 @@ async function refreshHealth() {
   const pill = $("healthDot");
   const say = (state, word, line) => {
     pill.className = `healthpill ${state}`;
-    pill.href = surfaceHref("server", "operations");
+    pill.href = surfaceHref("system", "operations");
     $("healthWord").innerHTML = (state === "failing" || state === "unusable" ? icon("failing") : `<span class="dot ${state}" aria-hidden="true"></span>`)
       + h(word);
     $("healthLine").textContent = line;
     $("healthLine").title = line;
     pill.title = line;
-    pill.setAttribute("aria-label", `Server health: ${line}. Open Site status.`);
+    pill.setAttribute("aria-label", `Server health: ${line}. Open System status.`);
   };
 
   try {
@@ -26877,7 +27075,7 @@ let inspecting = null;
  * the member who started it, the console says what happened and what still works.
  */
 function jobRefusedSays(e) {
-  if (e?.status === 403 && systemOnlyHidden()) {
+  if (e?.status === 403 && systemIsSomebodyElses()) {
     return "The server took the file, but while it holds several organizations only its system administrator can "
       + "follow the job that reads it, so this screen cannot go on. A zipped shapefile or a GeoJSON file is read "
       + "at once and works.";
@@ -28204,6 +28402,8 @@ async function handleClick(event) {
       toast(r.count === 0 ? r.note : `Removed: ${r.removed.join(", ")}.`, true);
 
       await section("the empty services", loadEmptyServices, "emptyRows");
+      // The list above it is on the same page since the panel moved to Services (2026-10-27): it loses the same rows.
+      await section("services", loadServices, "services");
       await loadLayers();
     } catch (e) { toast(e.message); }
 
@@ -29265,14 +29465,33 @@ async function handleClick(event) {
     return;
   }
 
-  // Discard puts both halves of the page back as they are saved; nothing is sent.
+  // Discard puts the basemap choice back as it is saved; nothing is sent.
   if (t.id === "mapDiscard") {
-    groundChosen = [...groundSaved];
     if (basemapsSaved) drawBasemaps(basemapsSaved);
-    drawGroundLists();
-    groundSay("Back to what is saved. Nothing was changed on the server.");
+    basemapSay("Back to what is saved. Nothing was changed on the server.");
     $("mapDirty").setAttribute("tabindex", "-1");
     $("mapDirty").focus();
+    return;
+  }
+
+  // The ground's own Discard and Save, in System's General since ADR-221.
+  if (t.id === "groundDiscard") {
+    groundChosen = [...groundSaved];
+    drawGroundLists();
+    groundSay("Back to what is saved. Nothing was changed on the server.");
+    $("groundDirty").setAttribute("tabindex", "-1");
+    $("groundDirty").focus();
+    return;
+  }
+
+  if (t.id === "groundSave") {
+    $("groundSave").disabled = true;
+    await saveGround(groundChosen);
+    drawGroundDirty();
+    // Focus to the line that says what happened: Save is disabled now, and focus on a disabled button is lost.
+    $("groundDirty").textContent = $("groundSave").disabled ? "Saved" : "Not saved: see the line above";
+    $("groundDirty").setAttribute("tabindex", "-1");
+    $("groundDirty").focus();
     return;
   }
 
@@ -30246,7 +30465,7 @@ async function handleClick(event) {
         drawServerHero();
       }
     } catch (e) { toast(e.message); }
-    await section("services", loadServices, "services");
+    await refreshSystemServicesHere(d.systemStatus, "data-system-status");
     return;
   }
 
@@ -30741,7 +30960,7 @@ document.addEventListener("change", async event => {
       // sharing returns, so it says the new scope and not the transition.
       toast(`${r.name}: now shared with ${SCOPE_SAID[r.sharing] || r.sharing}`, true);
     } catch (e) { toast(e.message); }
-    await section("services", loadServices, "services");
+    await refreshSystemServicesHere(d.serviceShare, "data-service-share");
   }
 });
 
@@ -30945,7 +31164,7 @@ async function whoami() {
 
   // <b>An organization's administrator keeps Server — owner decision 2026-10-22.</b> Until then this removed
   // `admin:manageServer` from them while there were several organizations; now only the system's screens are hidden
-  // (`SYSTEM_SCREENS`), and what Server lists for them is their own organization's, which the floor makes so.
+  // (System's since ADR-221), and what Server lists for them is their own organization's, which the floor makes so.
 
   drawTenancy(me);
   if ($("myProfile")) {
@@ -31619,7 +31838,7 @@ async function drawSigninFor() {
     line.hidden = !what;
   };
 
-  const surface = surfaceOfPath() === "server" ? "Server" : "Studio";
+  const surface = SURFACES[surfaceOfPath()].title;
   const [screen, ...rest] = parts;
 
   if ((screen === "service" || screen === "layer") && rest.length) { say(rest[rest.length - 1]); return; }
@@ -31753,8 +31972,8 @@ async function start() {
   // lie as the tokenless case, found the same way: by looking at the screen as somebody else.
   // <b>And not for an organization's administrator while there are several — ADR-204 §5d.</b> The health it reads is the
   // process's and the platform store's, `/admin/health`, which only the system administrator reaches; the pill said
-  // *Health unknown* to them for ever, over a 403 on every screen.
-  const healthIsMine = may("admin:manageServer") && !systemOnlyHidden();
+  // *Health unknown* to them for ever, over a 403 on every screen. It opens System's Status, so it is System's reader's.
+  const healthIsMine = mayEnterSystem();
   if (!healthIsMine) {
     $("healthDot").hidden = true;
     $("healthLine").hidden = true;
@@ -31852,11 +32071,11 @@ let logRead = 0;
  * source.
  */
 /**
- * The logs this reader is shown: each organization's own, and the server's process log — which every organization's
- * work is written into together — only to the system administrator while there are several (ADR-204, owner decision
- * 2026-10-22, *"Logları kendine aittir"*).
+ * The logs this page shows: Server's are each organization's own (ADR-204, owner decision 2026-10-22, *"Logları
+ * kendine aittir"*) and System's is the server's process log, which every organization's work is written into
+ * together (ADR-221 §5.3). The surface decides, not the reader: nothing in Server is hidden from anybody who enters it.
  */
-const visibleLogSources = () => LOG_SOURCES.filter(([key]) => !(key === "server" && systemOnlyHidden()));
+const visibleLogSources = () => LOG_SOURCES.filter(([key]) => (key === "server") === (surfaceOfPath() === "system"));
 
 const LOG_SOURCES = [
   ["audit", "Administration", "action"],
@@ -31939,15 +32158,30 @@ function drawLogControlsNow() {
     // <b>One tab stop, arrows between the tabs</b> — the ARIA tabs pattern. Every tab was its own stop and
     // the arrows did nothing, so a keyboard reader crossed four buttons to reach the filters. Found by the
     // ux review of the Server warnings tab; it predated that tab.
-    if (!visibleLogSources().some(([key]) => key === logSource)) logSource = "audit";
-    // The lede names the logs this reader has: an organization's administrator reads its own three, and the server's
-    // process log is the system administrator's while there are several organizations (owner decision 2026-10-22).
-    if ($("logServerLede")) {
-      $("logServerLede").innerHTML = systemOnlyHidden()
-        ? `All three are ${h(whoNow?.organisation?.name || "this organization")}'s own. The server's own warnings are `
-          + "its system administrator's, because they are about every organization on it."
-        : "<b>Server warnings</b> is what this server itself reported — a layer it could not read, a source it could "
-          + "not reach — held in memory since it last started.";
+    if (!visibleLogSources().some(([key]) => key === logSource)) logSource = visibleLogSources()[0][0];
+    // The lede names the logs this page has: Server's three are the organization's own, and System's one is the
+    // server's process log (ADR-221 §5.3). One log needs no list of logs to choose from.
+    const inSystem = surfaceOfPath() === "system";
+    sources.hidden = inSystem;
+    if ($("logHeadLede")) {
+      $("logHeadLede").textContent = inSystem
+        ? "What this server itself reported, for every organization on it."
+        : `What ${isMultiTenant() ? whoNow?.organisation?.name || "this organization" : "this server"} and its studio have been doing.`;
+    }
+    if ($("logLede")) {
+      $("logLede").innerHTML = inSystem
+        ? "<b>Server warnings</b> are what this server itself reported — a layer it could not read, a source it could "
+          + "not reach — held in memory since it last started. Each organization reads its own administration, requests "
+          + "and map viewer reports under Server › Logs."
+        : "<b>Administration</b> is the audit trail — every action that changed something, who did it, and from where. "
+          + "<b>Requests</b> is one row per HTTP request, with its status and how long it took. <b>Studio viewer</b> is "
+          + "what the map viewer reported from a browser, which is where a failure that never reached the server shows up."
+          + (mayEnterSystem()
+            ? ` What the server itself reported is in <a href="${surfaceHref("system", "logs")}">System › Logs</a>.`
+            : isMultiTenant()
+              ? ` All three are ${h(whoNow?.organisation?.name || "this organization")}'s own; the server's own warnings`
+                + " are its system administrator's, because they are about every organization on it."
+              : "");
     }
     sources.innerHTML = visibleLogSources().map(([key, label]) =>
       `<button role="tab" aria-selected="${key === logSource}" aria-controls="logRows"
@@ -34444,7 +34678,7 @@ document.addEventListener("click", event => {
     to = raw;
   } else if (!raw.startsWith("#")) {
     const url = new URL(link.href, location.href);
-    if (url.origin === location.origin && /^\/(studio|server)(\/|$)/.test(url.pathname)
+    if (url.origin === location.origin && /^\/(studio|server|system)(\/|$)/.test(url.pathname)
         && !/\.[A-Za-z0-9]+$/.test(url.pathname)) {
       to = url.pathname + url.search + url.hash;
     }
@@ -34726,6 +34960,213 @@ document.addEventListener("keydown", event => {
   }
 });
 
+
+// ---------------------------------------------------------------- System (ADR-221)
+
+/**
+ * System › Utility services: the server's own services — those in `Utilities`, one for every organization — with the
+ * verbs that act on them, which until ADR-221 sat on Server's services list and were drawn for some readers only.
+ * Each name opens its page here, where its limits are set (`/system/service/Utilities/Geometry`).
+ */
+async function loadSystemServices() {
+  const r = await api("/admin/services") || {};
+  const rows = r.services || [];
+  const words = { GeometryServer: "Geometry service" };
+  if ($("sysCount")) $("sysCount").textContent = rows.length ? `${num(rows.length)} service${rows.length === 1 ? "" : "s"}` : "";
+
+  $("sysRows").innerHTML = rows.length === 0
+    ? `<tr><td colspan="4" class="empty">This server runs no services of its own.</td></tr>`
+    : rows.map(y => {
+      const qualified = [y.folder, y.name].filter(Boolean).join("/");
+      const stopped = y.status === "stopped";
+      const verb = stopped ? "Start" : "Stop";
+      return `<tr data-system-service="${h(qualified)}">
+        <td class="name"><a href="#/service/${qualified.split("/").map(encodeURIComponent).join("/")}">${h(y.name)}</a>
+          <div class="rowmeta">${h(words[y.kind] || y.kind || "Service")}${y.folder ? ` in ${h(y.folder)}` : ""}</div></td>
+        <td data-l="Status">${pill(y.status)}</td>
+        <td data-l="Who can reach it"><select data-service-share="${h(y.name)}" aria-label="Who can reach ${h(y.name)}">${SCOPES.map(v =>
+          `<option value="${v}"${v === y.sharing ? " selected" : ""}>${SCOPE_WORDS[v] || v}</option>`).join("")}</select></td>
+        <td class="act"><button class="tiny${stopped ? " primary" : ""}" data-system-status="${h(y.name)}"
+            data-system-folder="${h(y.folder || "")}" data-to="${stopped ? "start" : "stop"}"
+            aria-label="${verb} ${h(y.name)}">${glyph(stopped ? "play" : "stop")} ${verb}</button></td>
+      </tr>`;
+    }).join("");
+}
+
+/**
+ * The managed datastore's Pause and Resume, on System › Status's Datastore card since ADR-221 §5.3. Pausing it pauses
+ * the hosted layers of every organization on the server, which is why it left Server's Data sources: there it was a
+ * button some readers had and some did not. The dialog is the one Data sources uses (`quiesceSource`).
+ */
+async function drawDatastoreControl() {
+  const slot = $("datastoreAct");
+  if (!slot) return;
+  let list;
+  try {
+    list = (await api("/admin/datasources"))?.dataSources || [];
+  } catch (e) {
+    slot.innerHTML = `<p class="hint bad-inline">${h(e.message || String(e))}</p>`;
+    return;
+  }
+  const d = list.find(x => x.name === "datastore");
+  if (!d) { slot.innerHTML = ""; return; }
+
+  slot.innerHTML = d.quiesced
+    ? `${sourceHeldSays(d.quiesced, d.sharesWith)}
+       <button class="tiny primary" data-source-resume="${h(d.id)}" data-source-name="${h(d.name)}">Resume</button>`
+    : `<p class="hint">Pausing it stops ${isMultiTenant() ? "every organization's" : "every"} hosted layer until it
+         resumes, as a schema change or a restore needs.</p>
+       <button class="tiny" data-source-quiesce="${h(d.id)}" data-source-name="${h(d.name)}"
+         data-source-layers="${num(d.layerCount)}" data-source-shares="${h((d.sharesWith || []).join(","))}"
+         data-source-shared-layers="${num(sharedLayers(list, d))}">Pause…</button>`;
+}
+
+/** After a source was paused or resumed: the list it was pressed in, read again — Data sources, or System's Status. */
+async function refreshSourcesHere() {
+  if (surfaceOfPath() === "system") await drawDatastoreControl();
+  else await loadSources();
+}
+
+/** After a system service was started, stopped or shared: its list read again, and the cursor back on its row. */
+async function refreshSystemServicesHere(name, selector) {
+  if (surfaceOfPath() === "system") {
+    await section("utility services", loadSystemServices, "sysRows");
+    // The one on screen: the list's, or the head card's on a service's page.
+    if (name && selector) {
+      [...document.querySelectorAll(`[${selector}="${CSS.escape(name)}"]`)]
+        .find(el => el.getClientRects().length > 0)?.focus();
+    }
+  } else {
+    await section("services", loadServices, "services");
+  }
+}
+
+// ---------------------------------------------------------------- the organization's name (ADR-221 §5.5)
+
+/** What `/admin/organization` last answered. */
+let orgProfile = null;
+
+/**
+ * Studio › Organization › Settings › General — the organization's name and description, as ArcGIS Online's
+ * Organization › Settings › General has them: read by every member, changed by the organization's own administrator
+ * (`mayChange`, the server's answer, so the page never offers what the server would refuse). Its addresses, suspension
+ * and removal are the system administrator's, in System › Organizations, and the page says so rather than hiding it.
+ */
+async function loadOrganizationProfile() {
+  orgProfileSay("");
+  $("orgProfileEdit").hidden = true;
+  $("orgProfileRead").hidden = true;
+  const r = await api("/admin/organization") || {};
+  orgProfile = r;
+  drawOrganizationProfile();
+}
+
+function drawOrganizationProfile() {
+  const r = orgProfile || {};
+  const editable = !!r.mayChange;
+  $("orgProfileEdit").hidden = !editable;
+  $("orgProfileRead").hidden = editable;
+
+  if (editable) {
+    $("orgName").value = r.name || "";
+    $("orgDescription").value = r.description || "";
+    drawOrganizationCount();
+  } else {
+    $("orgNameShown").textContent = r.name || r.key || "";
+    $("orgDescShown").textContent = r.description || "No description yet.";
+    $("orgDescShown").classList.toggle("faint", !r.description);
+    $("orgReadWho").textContent = "Its administrator names and describes it.";
+  }
+
+  const hosts = r.hosts || [];
+  $("orgHosts").innerHTML = hosts.length
+    ? hosts.map(one => `<li><code>${h(one)}</code></li>`).join("")
+    : `<li>This server's own address, <code>${h(location.host)}</code>${r.isDefault && isMultiTenant()
+        ? ", and any host name no other organization claims" : ""}</li>`;
+  $("orgProfileNote").textContent = r.note || "";
+  drawOrganizationDirty();
+}
+
+/** How much of the description's room is used, said under the box. */
+function drawOrganizationCount() {
+  const used = $("orgDescription").value.length;
+  $("orgDescriptionCount").textContent = `${num(used)} of ${num(2000)} characters.`;
+}
+
+/** Save is on while the name or the description on screen differs from what is saved. */
+function drawOrganizationDirty() {
+  if (!$("orgProfileSave")) return;
+  const r = orgProfile || {};
+  const dirty = !!r.mayChange && ($("orgName").value.trim() !== (r.name || "")
+    || $("orgDescription").value.trim() !== (r.description || ""));
+  $("orgProfileSave").disabled = !dirty;
+}
+
+function orgProfileSay(text, refusal = false) {
+  const says = $("orgProfileSays");
+  if (!says) return;
+  // Emptied first, so the same sentence twice is announced twice.
+  says.textContent = "";
+  says.classList.toggle("bad-inline", refusal);
+  if (text) setTimeout(() => { says.textContent = text; }, 30);
+}
+
+async function saveOrganizationProfile() {
+  const name = $("orgName").value.trim();
+  const description = $("orgDescription").value.trim();
+  for (const id of ["orgName", "orgDescription"]) $(id).removeAttribute("aria-invalid");
+
+  // Said here before it is sent, in the server's own bounds, so the box that needs changing is the one marked.
+  if (name.length === 0 || name.length > 100) {
+    $("orgName").setAttribute("aria-invalid", "true");
+    orgProfileSay(name.length === 0 ? "Give the organization a name." : "A name is at most 100 characters.", true);
+    $("orgName").focus();
+    return;
+  }
+
+  $("orgProfileSave").disabled = true;
+  $("orgProfileSave").setAttribute("aria-busy", "true");
+  try {
+    const answer = await api("/admin/organization", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, description }),
+    });
+    // Read again when the answer does not carry the organization, for the reason `saveSettings` gives.
+    orgProfile = answer && answer.name ? answer : await api("/admin/organization") || orgProfile;
+
+    // The bar and the window's title name the organization on a server of several (`drawTenancy`): from now on.
+    if (whoNow?.organisation) {
+      whoNow.organisation.name = orgProfile.name;
+      drawTenancy(whoNow);
+    }
+    drawOrganizationProfile();
+    orgProfileSay(`Saved. Members see ${orgProfile.name} and its description the next time they open a page.`);
+  } catch (e) {
+    orgProfileSay(e.message || String(e), true);
+    if (/description/i.test(e.message || "")) $("orgDescription").setAttribute("aria-invalid", "true");
+    else $("orgName").setAttribute("aria-invalid", "true");
+    drawOrganizationDirty();
+  } finally {
+    $("orgProfileSave").removeAttribute("aria-busy");
+  }
+  // Save is off again once saved; the cursor goes to the sentence that says what happened, not to nowhere.
+  if ($("orgProfileSave").disabled) {
+    $("orgProfileSays").setAttribute("tabindex", "-1");
+    $("orgProfileSays").focus();
+  }
+}
+
+$("orgName")?.addEventListener("input", () => { $("orgName").removeAttribute("aria-invalid"); drawOrganizationDirty(); });
+$("orgDescription")?.addEventListener("input", () => {
+  $("orgDescription").removeAttribute("aria-invalid");
+  drawOrganizationCount();
+  drawOrganizationDirty();
+});
+$("orgName")?.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !$("orgProfileSave").disabled) { e.preventDefault(); saveOrganizationProfile(); }
+});
+$("orgProfileSave")?.addEventListener("click", () => saveOrganizationProfile());
 
 // ---------------------------------------------------------------- organizations (ADR-204)
 

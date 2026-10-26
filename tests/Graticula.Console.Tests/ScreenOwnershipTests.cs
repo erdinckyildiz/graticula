@@ -45,7 +45,9 @@ public sealed class ScreenOwnershipTests : ConsoleTest
     /// every Sharing link to Server; the comment in the file says so, and this list is the same
     /// statement in a form that fails.
     /// </remarks>
-    private static readonly string[] OwnedPerPage = ["service", "layer"];
+    /// `logs` joined them with ADR-221 (2026-10-26): Server's Logs are the organization's own and System's is the
+    /// server's process log, so its owner is per *source* — the router sends `?source=server` to System.
+    private static readonly string[] OwnedPerPage = ["service", "layer", "logs"];
 
     private async Task<JsonDocument> TablesAsync()
     {

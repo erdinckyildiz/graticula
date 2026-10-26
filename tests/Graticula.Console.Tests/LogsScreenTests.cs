@@ -48,7 +48,7 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources button[data-log-source]').length === 4",
+            "document.querySelectorAll('#logSources button[data-log-source]').length === 3",
             "The Logs screen drew no source selector, so there is no way to reach three of the "
             + "four logs.");
 
@@ -87,14 +87,12 @@ public sealed class LogsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/logs", token);
+        // System's Logs since ADR-221 §5.3: the server's own log, and the only one there.
+        await OpenAsync("/system/logs", token);
 
         await WaitForAsync(
-            "!!document.querySelector('#logSources button[data-log-source=\"server\"]')",
-            "There is no Server tab, so the server's own warnings are reachable only by address.");
-
-        await Browser.EvaluateAsync<bool>(
-            "(document.querySelector('#logSources button[data-log-source=\"server\"]').click(), true)");
+            "!!document.querySelector('#logSources button[data-log-source=\"server\"][aria-selected=\"true\"]')",
+            "System › Logs is not the server's own log.");
 
         await WaitForAsync(
             "(() => { const w = document.getElementById('logWriter');"
@@ -131,7 +129,7 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources [role=tab]').length === 4",
+            "document.querySelectorAll('#logSources [role=tab]').length === 3",
             "The Logs screen drew no source tabs.");
 
         int stops = await Browser.EvaluateAsync<int>(
@@ -276,7 +274,7 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources button[data-log-source]').length === 4",
+            "document.querySelectorAll('#logSources button[data-log-source]').length === 3",
             "The Logs screen drew no source selector.");
 
         await WaitForAsync(
@@ -363,7 +361,7 @@ public sealed class LogsScreenTests : ConsoleTest
         await OpenAsync("/server/#/logs", token);
 
         await WaitForAsync(
-            "document.querySelectorAll('#logSources button[data-log-source]').length === 4",
+            "document.querySelectorAll('#logSources button[data-log-source]').length === 3",
             "The Logs screen drew no source selector.");
 
         await Browser.EvaluateAsync<bool>(

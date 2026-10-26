@@ -7339,14 +7339,32 @@ internal static partial class AdminEndpoints
         DatumShiftNotices datumShifts,
         UnindexedLayerNotices unindexed,
         DatastoreUsageHold datastoreUsage,
+        NpgsqlDataSource root,
         CancellationToken cancellation)
     {
         string? storeError = null;
         int layers = 0;
+        (long Services, long Organizations)? server = null;
 
         try
         {
             layers = (await catalog.ListLayersAsync(cancellation).ConfigureAwait(false)).Count;
+
+            // <b>The whole server's, where it holds several organisations — ADR-221.</b> This route is the system
+            // administrator's then, and its page (System › Status) is about the machine; the catalogue above is the
+            // host's organisation's, so it counted the default organisation's layers and called them the server's.
+            if (Graticula.Platform.Tenancy.TenantScope.MultiTenant)
+            {
+                await using NpgsqlCommand count = root.CreateCommand(
+                    "select (select count(*) from layer), (select count(*) from service), (select count(*) from tenant)");
+                await using NpgsqlDataReader read = await count.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+
+                if (await read.ReadAsync(cancellation).ConfigureAwait(false))
+                {
+                    layers = (int)read.GetInt64(0);
+                    server = (read.GetInt64(1), read.GetInt64(2));
+                }
+            }
         }
         catch (NpgsqlException e)
         {
@@ -7501,6 +7519,16 @@ internal static partial class AdminEndpoints
             layers,
             error = storeError,
         };
+
+        if (server is { } whole)
+        {
+            health["server"] = new
+            {
+                services = whole.Services,
+                organizations = whole.Organizations,
+                note = "Counted across every organization on this server.",
+            };
+        }
 
         // <b>The one outage with a date known in advance — ADR-017 §3.4 step 1.</b> Walked
         // 2026-08-27: this route answered and carried no certificate, while the process had

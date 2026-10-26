@@ -38,25 +38,22 @@ public sealed class ServerSidebarTests : ConsoleTest
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.dataset.tab).join(',')")
             ?? string.Empty;
 
-        // <b>Organizations is the system administrator's, ADR-204 §5d</b> — a fourth tab for them and for nobody else, so
-        // which three or four is asked of the server rather than assumed of the fixture.
-        bool system = await Browser.EvaluateAsync<bool>("!!whoNow?.systemAdministrator");
-
-        Assert.Equal(system ? "services,sources,organizations,logs" : "services,sources,logs", rows);
+        // <b>The same three for every reader since ADR-221</b>: Organizations went to System with Status and General,
+        // and Site is named for the one page it had left.
+        Assert.Equal("services,sources,logs", rows);
 
         string labels = await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a[data-tab]')].map(a => a.textContent.trim()).join(',')")
             ?? string.Empty;
 
-        Assert.Equal(system ? "Services,Site,Organizations,Logs" : "Services,Site,Logs", labels);
+        Assert.Equal("Services,Data sources,Logs", labels);
 
         NothingWentWrong(await PageErrorsAsync());
     }
 
     [Theory]
-    [InlineData("sources", "sources", "*Data sources Status General")]
-    [InlineData("operations", "sources", "Data sources *Status General")]
-    [InlineData("settings", "sources", "Data sources Status *General")]
+    // Data sources draws no strip since ADR-221: Status and General, its siblings, are System's.
+    [InlineData("sources", "sources", "")]
     [InlineData("logs", "logs", "")]
     public async Task A_subpage_lights_its_row_and_marks_its_strip(string screen, string row, string strip)
     {
@@ -91,25 +88,27 @@ public sealed class ServerSidebarTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>System's bar moves between its screens, each lighting its own tab — ADR-221.</summary>
     [Fact]
-    public async Task The_strip_moves_between_siblings()
+    public async Task Systems_bar_moves_between_its_screens()
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/sources", token);
-
-        await WaitForAsync(
-            "document.querySelectorAll('.view.on nav.subpages a').length === 3",
-            "Site drew no list of three pages.");
-
-        await ClickAsync(".view.on nav.subpages a[href$='/operations']");
+        await OpenAsync("/system/operations", token);
 
         await WaitForAsync(
             "document.getElementById('view-operations')?.classList.contains('on')",
-            "Pressing Status in Site's list did not open Status.");
+            "System did not open Status.");
+        Assert.Equal("operations", await Browser.EvaluateAsync<string>(Lit));
 
-        Assert.Equal("sources", await Browser.EvaluateAsync<string>(Lit));
-        Assert.Contains("*Status", await Browser.EvaluateAsync<string>(Strip) ?? string.Empty, StringComparison.Ordinal);
+        await ClickAsync("#tabs a[data-tab=settings]");
+
+        await WaitForAsync(
+            "document.getElementById('view-settings')?.classList.contains('on') && location.pathname === '/system/settings'",
+            "Pressing General in System's bar did not open General.");
+
+        Assert.Equal("settings", await Browser.EvaluateAsync<string>(Lit));
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>(Strip));
 
         NothingWentWrong(await PageErrorsAsync());
     }

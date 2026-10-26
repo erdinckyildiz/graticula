@@ -34,7 +34,7 @@ public sealed class SettingsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/#/settings", token);
+        await OpenAsync("/system/settings", token);
 
         // The default is said in the line under the box, not as a placeholder (UX sweep 2026-10-19).
         await WaitForAsync(
@@ -42,15 +42,15 @@ public sealed class SettingsScreenTests : ConsoleTest
             "The Settings screen drew no default, or did not say where the page size comes from.");
         Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>($"{Box}.placeholder"));
 
-        // ---- where it lives: General, in Site's list, under the Site tab — ADR-187 ----
+        // ---- where it lives: System's General tab since ADR-221 (Server's Site › General before, ADR-187) ----
         Assert.Equal(
-            "sources",
+            "settings",
             await Browser.EvaluateAsync<string>(
                 "document.querySelector('#tabs a[aria-current]')?.dataset.tab || ''"));
         Assert.True(
             await Browser.EvaluateAsync<bool>(
-                "[...document.querySelectorAll('.view.on nav.subpages a[href$=\"/settings\"]')].some(a => a.textContent.includes('General'))"),
-            "Site's list has no link named General to this page, so an administrator cannot find it.");
+                "[...document.querySelectorAll('#tabs a[href$=\"/settings\"]')].some(a => a.textContent.includes('General'))"),
+            "System's bar has no tab named General to this page, so an administrator cannot find it.");
 
         // ---- the first-run state: an empty box over the default, a sentence saying so, no reset ----
         Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>($"{Box}.value"));
@@ -111,7 +111,7 @@ public sealed class SettingsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/studio/#/orgsettings", token);
+        await OpenAsync("/system/settings", token);
 
         await WaitForAsync(
             "document.querySelectorAll('#groundList input[type=checkbox]').length >= 3",
@@ -126,16 +126,16 @@ public sealed class SettingsScreenTests : ConsoleTest
         Assert.Empty(await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
         Assert.Contains("OpenStreetMap", await Browser.EvaluateAsync<string>("document.getElementById('groundOrder').textContent") ?? string.Empty, StringComparison.Ordinal);
         Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundClear').hidden"), "Untick all is offered with nothing ticked.");
-        // <b>One Save for the page since the UX sweep of 2026-10-19</b>, and Discard beside it: neither is ready
+        // <b>The ground's own Save and Discard since ADR-221 moved it to System › General</b>: neither is ready
         // with nothing changed.
-        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('mapDiscard').disabled"), "Discard is offered with nothing changed.");
-        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('mapSave').disabled"), "Save is offered with nothing changed.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundDiscard').disabled"), "Discard is offered with nothing changed.");
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('groundSave').disabled"), "Save is offered with nothing changed.");
 
         // Every box is named by its own label.
         Assert.Equal(0, await Browser.EvaluateAsync<int>("[...document.querySelectorAll('#groundList input')].filter(i => !document.querySelector(`label[for=\"${i.id}\"]`)).length"));
 
         // ---- Save with nothing chosen stores nothing ----
-        await ClickAsync("#mapSave");
+        await ClickAsync("#groundSave");
         Assert.DoesNotContain(await WritesAsync(), w => w.Contains("/admin/settings/ground", StringComparison.Ordinal));
 
         // ---- ticking adds on top; the available list does not move ----
@@ -145,7 +145,7 @@ public sealed class SettingsScreenTests : ConsoleTest
         Assert.Equal([names[0], names[1]], await Browser.EvaluateAsync<string[]>(Stack) ?? Array.Empty<string>());
         Assert.Equal(names, await Browser.EvaluateAsync<string[]>(Available));
         Assert.Contains("Not saved yet", await Browser.EvaluateAsync<string>("document.getElementById('groundOrder').textContent") ?? string.Empty, StringComparison.Ordinal);
-        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('mapDiscard').disabled"), "A change that is not saved offers no way back.");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('groundDiscard').disabled"), "A change that is not saved offers no way back.");
 
         // ---- moving: the order changes, focus stays with the service, the move is announced ----
         await ClickAsync($"#groundStack [data-ground=\"{names[1]}\"][data-ground-move=up]");
@@ -160,7 +160,7 @@ public sealed class SettingsScreenTests : ConsoleTest
         Assert.Equal($"Move {names[0]} up", await Browser.EvaluateAsync<string>($"document.querySelector('#groundStack [data-ground=\"{names[0]}\"][data-ground-move=up]').getAttribute('aria-label')"));
 
         // ---- Save sends the ground and announces it, first at the bottom ----
-        await ClickAsync("#mapSave");
+        await ClickAsync("#groundSave");
 
         await WaitForAsync(
             "document.getElementById('groundSays').textContent.startsWith('Saved')",
@@ -187,7 +187,7 @@ public sealed class SettingsScreenTests : ConsoleTest
             (int published, string said) = await PublishOneAsync(Private, Private);
             Assert.True(published is 200 or 201, $"publishing {Private}: {published} {said}");
 
-            await OpenAsync("/studio/#/orgsettings", token);
+            await OpenAsync("/system/settings", token);
 
             await WaitForAsync(
                 $"[...document.querySelectorAll('#groundList input')].some(i => i.value.endsWith('{Private}'))",

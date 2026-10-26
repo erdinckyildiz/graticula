@@ -38,7 +38,7 @@ internal sealed class CrossOriginReads
     /// <summary>Headers a cross-origin page may read beyond the safelisted ones.</summary>
     internal const string Exposed = "ETag, Age, Retry-After, X-Tile-Cache";
 
-    private static readonly string[] Closed = ["/admin", "/server", "/studio", "/console"];
+    private static readonly string[] Closed = ["/admin", "/server", "/studio", "/system", "/console"];
 
     private readonly bool _any;
     private readonly HashSet<string> _origins;

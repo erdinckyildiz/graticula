@@ -249,10 +249,11 @@ public sealed class SurfaceTests : ConsoleTest
                 "document.getElementById('surfaces').offsetParent === null"),
             "An administrator was shown no way to reach Studio.");
 
+        // Three since ADR-221: the system administrator is offered System as well.
         Assert.Equal(
-            2,
-            await Browser.EvaluateAsync<int>(
-                "document.querySelectorAll('#surfaces a').length"));
+            "server,studio,system",
+            await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#surfaces a')].filter(a => a.getClientRects().length).map(a => a.dataset.surface).join(',')"));
     }
 
     /// <summary>

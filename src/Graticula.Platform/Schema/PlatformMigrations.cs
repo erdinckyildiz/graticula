@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(108);
+    public static SchemaVersion ComponentSchemaVersion => new(109);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -143,7 +143,19 @@ public static class PlatformMigrations
         AnOrganisationsRolesAreItsOwnV106,
         TwoOrganisationsPartnerV107,
         SharedWithEveryOrganisationV108,
+        AnOrganisationDescribesItselfV109,
     ]);
+
+    /// <summary>
+    /// An organisation describes itself — ADR-221 condition 3: its own administrator gives it a name and a description,
+    /// which its portal answers, as an ArcGIS Online administrator sets the organisation's name and description.
+    /// </summary>
+    /// <remarks><b>Expand</b>: a column nobody older reads.</remarks>
+    private static Migration AnOrganisationDescribesItselfV109 => Migration.Expand(
+        new SchemaVersion(109),
+        "An organisation has a description its own administrator writes (ADR-221).",
+
+        "alter table tenant add column if not exists description text");
 
     /// <summary>
     /// An item may be shared with every organisation on the server — ADR-220, owner decision 2026-10-26: *"public

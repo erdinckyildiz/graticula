@@ -37,11 +37,13 @@ public sealed class EmptyServiceSweepTests : ConsoleTest
     public async Task Remove_is_locked_until_the_estate_has_been_read()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/operations", token);
+        // Server › Services since 2026-10-27: its API is the organization's, and so is the reader who sweeps it. The
+        // panel is in the markup before any script runs, so the wait is for it on screen in the drawn page.
+        await OpenAsync("/server/services", token);
 
         await WaitForAsync(
-            "document.getElementById('emptySweep')",
-            "The Operations screen has no empty-services panel.");
+            "!!document.querySelector('#tabs a') && " + Shown("#emptySweep") + " && " + Shown("#emptyRead"),
+            "Services has no empty-services panel on screen.");
 
         Assert.True(
             await Browser.EvaluateAsync<bool>(

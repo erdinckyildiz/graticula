@@ -640,7 +640,12 @@ internal static partial class PortalEndpoints
             // name in `name`; matching that is how a client decides which sign-in
             // flow to use. Saying "Graticula" in both sent Pro to arcgis.com.
             // ADR-204: a tenant's portal is called by its organisation's name.
-            name = context.Features.Get<TenantFeature>() is { Tenant.IsDefault: false } named ? named.Tenant.Name : "Graticula",
+            // ADR-221: the default organisation too, once its administrator has named it; its seed name, "Default", is
+            // not a name anybody chose and keeps the product's.
+            name = context.Features.Get<TenantFeature>() is { Tenant: { } named }
+                && (!named.IsDefault || !string.Equals(named.Name, "Default", StringComparison.Ordinal))
+                    ? named.Name
+                    : "Graticula",
             portalName = "ArcGIS Enterprise",
             // <b>Single-tenant, always — ADR-204 §5e item 12.</b> Each organisation has its own host and is its own
             // portal to its clients, as an Enterprise portal is. The first build said `multitenant` once a second
@@ -686,7 +691,7 @@ internal static partial class PortalEndpoints
             portalDeploymentType = "ArcGISEnterprise",
             culture = "en",
             units = "metric",
-            description = (string?)null,
+            description = context.Features.Get<TenantFeature>()?.Tenant.Description,
             thumbnail = (string?)null,
             portalThumbnail = (string?)null,
             // ADR-202: true once the organisation has defined a content category.

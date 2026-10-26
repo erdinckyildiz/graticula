@@ -4,7 +4,7 @@
   old shape lands on the new one in place, without a second load and without an entry in the history.
 */
 (() => {
-  const surface = /^\/(studio|server)(\/|$)/.exec(location.pathname);
+  const surface = /^\/(studio|server|system)(\/|$)/.exec(location.pathname);
   if (surface && location.hash.startsWith("#/")) {
     history.replaceState(null, "", `/${surface[1]}/${location.hash.slice(2)}`);
   }

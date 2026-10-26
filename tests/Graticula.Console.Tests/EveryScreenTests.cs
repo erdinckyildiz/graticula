@@ -41,11 +41,14 @@ public sealed class EveryScreenTests : ConsoleTest
     /// tab is added, this list is the second place to change and the failure says so.
     /// </remarks>
     private static readonly string[] ServerScreens =
-        ["services", "sources", "operations"];
+        ["services", "sources", "logs"];
+
+    /// <summary>The System surface's screens — ADR-221: the machine's, which were Server's and Studio's until then.</summary>
+    private static readonly string[] SystemScreens = ["operations", "organizations", "utilities", "settings", "logs"];
 
     /// <summary>The Studio surface's screens.</summary>
     // Organization's pages are Studio's since ADR-189, and Anonymous view is gone.
-    private static readonly string[] StudioScreens = ["content", "groups", "members", "orgsettings", "roles", "signin", "utilities", "collaborations"];
+    private static readonly string[] StudioScreens = ["content", "groups", "members", "orgsettings", "roles", "signin", "general", "collaborations"];
 
     /// <summary>
     /// Every Server screen opens, paints its own heading, and throws nothing.
@@ -55,6 +58,16 @@ public sealed class EveryScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
         await AssertEveryScreenAsync("server", ServerScreens, token);
+    }
+
+    /// <summary>
+    /// Every System screen opens, paints its own heading, and throws nothing — ADR-221.
+    /// </summary>
+    [Fact]
+    public async Task Every_system_screen_opens_without_the_page_failing()
+    {
+        (string token, _) = await SignInAsync();
+        await AssertEveryScreenAsync("system", SystemScreens, token);
     }
 
     /// <summary>

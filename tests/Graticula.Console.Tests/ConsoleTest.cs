@@ -942,7 +942,7 @@ public abstract class ConsoleTest : IAsyncLifetime
             // re-run: five failures, every one of them a subresource at `0B/0B` on the page
             // under test, `readyState=loading`, 25 to 65 ms in.
             //
-            // <b>Both surfaces, because their assets are different URLs.</b> ADR-034 §5a gives
+            // <b>Every surface, because their assets are different URLs</b> — three since ADR-221. ADR-034 §5a gives
             // the console two prefixes over one set of files, so `/studio/console.css` and
             // `/server/console.css` are two requests and warming one warms nothing about the
             // other. Measured 2026-09-05, run 33928618197: warming only `/studio/` took the
@@ -956,7 +956,7 @@ public abstract class ConsoleTest : IAsyncLifetime
             // not matter here — the assets have been asked for by the time it settles.
             bool changed = false;
 
-            foreach (string surface in new[] { "/studio/", "/server/" })
+            foreach (string surface in new[] { "/studio/", "/server/", "/system/" })
             {
                 await Browser.NavigateAsync(Root + surface);
 

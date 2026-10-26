@@ -120,5 +120,6 @@ internal static class ResponseCompressionPolicy
         || path.StartsWithSegments(Graticula.Api.Tiles.TileNames.OgcBase, StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments(Graticula.Api.Tiles.TileNames.WmtsPath, StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/server", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase);
+        || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/system", StringComparison.OrdinalIgnoreCase);
 }

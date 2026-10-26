@@ -38,12 +38,13 @@ public sealed class OrganizationTests : ConsoleTest
     }
 
     [Theory]
+    // Utility services went to System and General came first — ADR-221 §5.3 and §5.5.
     [InlineData("members", "view-members", "*Members Settings", "")]
-    [InlineData("orgsettings", "view-orgsettings", "Members *Settings", "*Map|Member roles|Security|Utility services")]
-    [InlineData("roles", "view-roles", "Members *Settings", "Map|*Member roles|Security|Utility services")]
-    [InlineData("signin", "view-signin", "Members *Settings", "Map|Member roles|*Security|Utility services")]
-    [InlineData("apps", "view-signin", "Members *Settings", "Map|Member roles|*Security|Utility services")]
-    [InlineData("utilities", "view-utilities", "Members *Settings", "Map|Member roles|Security|*Utility services")]
+    [InlineData("general", "view-general", "Members *Settings", "*General|Map|Member roles|Security")]
+    [InlineData("orgsettings", "view-orgsettings", "Members *Settings", "General|*Map|Member roles|Security")]
+    [InlineData("roles", "view-roles", "Members *Settings", "General|Map|*Member roles|Security")]
+    [InlineData("signin", "view-signin", "Members *Settings", "General|Map|Member roles|*Security")]
+    [InlineData("apps", "view-signin", "Members *Settings", "General|Map|Member roles|*Security")]
     public async Task Each_page_marks_its_place_in_the_strip_and_the_column(string screen, string view, string top, string side)
     {
         (string token, _) = await SignInAsync();
@@ -86,13 +87,13 @@ public sealed class OrganizationTests : ConsoleTest
             "document.querySelectorAll('.view.on > nav.subpages a').length === 4",
             "Settings drew no column of four pages.");
 
-        await ClickAsync(".view.on > nav.subpages a[href$='/utilities']");
+        await ClickAsync(".view.on > nav.subpages a[href$='/roles']");
 
         await WaitForAsync(
-            "document.getElementById('view-utilities')?.classList.contains('on')",
-            "Pressing Utility services did not open it.");
+            "document.getElementById('view-roles')?.classList.contains('on')",
+            "Pressing Member roles did not open it.");
 
-        Assert.Contains("*Utility services", await Browser.EvaluateAsync<string>(Side) ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains("*Member roles", await Browser.EvaluateAsync<string>(Side) ?? string.Empty, StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
     }

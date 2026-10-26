@@ -152,11 +152,11 @@ public sealed class OrganizationReadersTests : ConsoleTest
                 "document.querySelector('#services tr[data-service=\"Utilities/Geometry\"]').textContent") ?? string.Empty, StringComparison.Ordinal);
             await NothingRefusedAsync("Services");
 
-            // Site is Data sources alone; the managed datastore is listed and cannot be paused from here.
+            // Data sources is a tab of its own since ADR-221 — Status and General went to System, so no strip is left;
+            // the managed datastore is listed and cannot be paused from here, by anybody.
             await OpenOnHostAsync(host, "/server/#/sources", token);
             await WaitForAsync("!!document.querySelector('#sources [data-probe]')", "Data sources listed nothing for an organization's administrator.");
-            Assert.Equal("sources", await Browser.EvaluateAsync<string>(
-                "[...document.querySelectorAll('#view-sources nav.subpages a')].map(a => a.getAttribute('href').split('/').pop()).join(',')"));
+            Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#view-sources nav.subpages a').length"));
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#sources [data-source-quiesce], #sources [data-source-resume]')"),
                 "The shared datastore offers Pause to an organization's administrator, which pauses every organization's hosted layers.");
             await NothingRefusedAsync("Data sources");
@@ -166,20 +166,24 @@ public sealed class OrganizationReadersTests : ConsoleTest
             await WaitForAsync("!!document.querySelector('#logSources [data-log-source=audit]')", "Logs drew no sources.");
             Assert.Equal("audit,requests,studio", await Browser.EvaluateAsync<string>(
                 "[...document.querySelectorAll('#logSources [data-log-source]')].map(b => b.dataset.logSource).join(',')"));
-            Assert.DoesNotContain("Server warnings", await Browser.EvaluateAsync<string>("document.getElementById('logServerLede').textContent") ?? string.Empty, StringComparison.Ordinal);
+            Assert.DoesNotContain("Server warnings", await Browser.EvaluateAsync<string>("document.getElementById('logLede').textContent") ?? string.Empty, StringComparison.Ordinal);
             await NothingRefusedAsync("Logs");
 
-            // A system screen asked for by address goes back to Services.
+            // A system screen asked for by its old address goes back to Services: it is System's, which is not theirs.
             await OpenOnHostAsync(host, "/server/#/settings", token);
-            await WaitForAsync("document.getElementById('view-services')?.classList.contains('on')",
-                "Site › General opened for an organization's administrator instead of returning to Services.");
+            await WaitForAsync("document.getElementById('view-services')?.classList.contains('on') && location.pathname.startsWith('/server/')"
+                + " && (document.getElementById('toast').textContent || '').includes('System')",
+                "Site › General's old address opened for an organization's administrator instead of returning to Services.");
 
             // Organization › Map: the gallery is theirs and is read; the ground card is the server's and is absent.
             await OpenOnHostAsync(host, "/studio/#/orgsettings", token);
             await WaitForAsync("!document.getElementById('basemapGallery').disabled",
                 "The basemap gallery was never read — the page stopped on a refused read before it.");
             Assert.False(await Browser.EvaluateAsync<bool>(Shown("#groundCard")), "The map ground card is shown to an organization's administrator; it is the server's.");
-            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#groundWhose")), "Nothing says whose the map ground is.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#groundWhere")), "Nothing says whose the map ground is.");
+            Assert.Contains("system administrator", await Browser.EvaluateAsync<string>("document.getElementById('groundWhere').textContent") ?? string.Empty,
+                StringComparison.Ordinal);
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#groundWhere a')"), "The map ground's note links into System, which this reader does not enter.");
             Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#view-orgsettings nav.subpages a[href$=\"utilities\"]')"),
                 "Settings offers Utility services, whose one setting is the server's.");
             await NothingRefusedAsync("Organization › Map");
@@ -319,6 +323,121 @@ public sealed class OrganizationReadersTests : ConsoleTest
         {
             await PurgeAsync(key);
             await AdminAsync(HttpMethod.Delete, $"/admin/members/{outsider}");
+        }
+    }
+
+    /// <summary>
+    /// ADR-221 §5.2: System is the system administrator's. An organization's own administrator at its host is not
+    /// offered it, and an address of it sends them to Server with the reason; the system administrator at home is
+    /// offered it while a second organization exists, and Organizations is there.
+    /// </summary>
+    [Fact]
+    public async Task System_is_offered_to_the_system_administrator_and_refused_to_an_organizations_own()
+    {
+        Assert.Equal(["default"], await TenantKeysAsync());
+        string key = "zzr" + Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            if (await MakeOrganizationAsync(key) is not (string host, string token))
+            {
+                return;
+            }
+
+            // Their switch has Server and Studio, and no System.
+            await OpenOnHostAsync(host, "/server/services", token);
+            await WaitForAsync("document.getElementById('view-services')?.classList.contains('on') && !document.getElementById('surfaces').hidden",
+                "Server did not draw for an organization's administrator.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#surfaces a[data-surface=system]")),
+                "The surface switch offers System to an organization's administrator.");
+            Assert.True(await Browser.EvaluateAsync<bool>(Shown("#surfaces a[data-surface=studio]")), "The switch lost Studio.");
+
+            // Typed, System sends them to Server and says why — after the page load, where the reader can read it.
+            await OpenOnHostAsync(host, "/system/operations", token);
+            await WaitForAsync("location.pathname.startsWith('/server/') && document.getElementById('view-services')?.classList.contains('on')",
+                "/system/operations did not send an organization's administrator to Server.");
+            await WaitForAsync("(document.getElementById('toast').textContent || '').includes('system administrator')",
+                "Nothing said why System was refused.");
+            await NothingRefusedAsync("A refused System");
+
+            // The system administrator at home is offered System while there are two organizations, with Organizations.
+            (string admin, _) = await SignInAsync();
+            await OpenAsync("/server/services", admin);
+            await WaitForAsync(Shown("#surfaces a[data-surface=system]"), "The system administrator is not offered System.");
+            await ClickAsync("#surfaces a[data-surface=system]");
+            await WaitForAsync("location.pathname.startsWith('/system/') && document.getElementById('view-operations')?.classList.contains('on')",
+                "System did not open on Status.");
+            Assert.Equal("operations,organizations,utilities,settings,logs", await Browser.EvaluateAsync<string>(
+                "[...document.querySelectorAll('#tabs a')].map(a => a.dataset.tab).join(',')"));
+
+            // Status counts the whole server, not the default organization's listings: two organizations.
+            await WaitForAsync("/Organizations\\s*2/.test(document.getElementById('statusCounts').textContent || '')",
+                "System › Status does not count the server's two organizations.");
+            Assert.False(await Browser.EvaluateAsync<bool>(Shown("#emptySweep")), "System › Status still offers an organization's Empty services.");
+            await OpenAsync("/server/organizations", admin);
+            await WaitForAsync($"location.pathname === '/system/organizations' && (document.getElementById('tnRows').textContent || '').includes('{key}')",
+                "Server › Organizations' old address did not open System › Organizations with the second organization in it.");
+            await NothingRefusedAsync("System › Organizations");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await PurgeAsync(key);
+        }
+    }
+
+    /// <summary>
+    /// ADR-221 §5.5 and condition 3: an organization's administrator names and describes it from Studio › Organization ›
+    /// Settings › General, at its own host, and the bar says the new name at once.
+    /// </summary>
+    [Fact]
+    public async Task An_organizations_administrator_renames_and_describes_it_from_studio()
+    {
+        Assert.Equal(["default"], await TenantKeysAsync());
+        string key = "zzr" + Guid.NewGuid().ToString("N")[..8];
+
+        try
+        {
+            if (await MakeOrganizationAsync(key) is not (string host, string token))
+            {
+                return;
+            }
+
+            await OpenOnHostAsync(host, "/studio/general", token);
+            await WaitForAsync(Shown("#orgName") + " && document.getElementById('orgName').value === 'Zz Readers'",
+                "General did not offer its administrator the organization's name to change.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('orgProfileSave').disabled"), "Save is offered with nothing changed.");
+            Assert.Equal("general", await Browser.EvaluateAsync<string>(
+                "document.querySelector('#view-general nav.subpages a[aria-current]')?.getAttribute('href').split('/').pop() || ''"));
+
+            // Empty is said before it is sent, on the box that needs it.
+            await FilterAsync("orgName", "");
+            await ClickAsync("#orgProfileSave");
+            await WaitForAsync("document.getElementById('orgName').getAttribute('aria-invalid') === 'true'"
+                + " && (document.getElementById('orgProfileSays').textContent || '').includes('name')",
+                "An empty name was not refused on its box.");
+
+            await Browser.EvaluateAsync<bool>("(window.__letWritesTo = ['/admin/organization'], true)");
+            await FilterAsync("orgName", "Zz Readers Renamed");
+            await FilterAsync("orgDescription", "Surveys for the joint venture.");
+            await ClickAsync("#orgProfileSave");
+            await WaitForAsync("(document.getElementById('orgProfileSays').textContent || '').startsWith('Saved')",
+                "Saving the name and description said nothing.");
+            Assert.Equal("Zz Readers Renamed", await Browser.EvaluateAsync<string>("document.getElementById('tenantNameText').textContent"));
+            Assert.Equal("orgProfileSays", await Browser.EvaluateAsync<string>("document.activeElement?.id || ''"));
+
+            (int read, string body) = await AtHostAsync(host, token, HttpMethod.Get, "/admin/organization");
+            Assert.True(read == 200, $"GET /admin/organization answered {read}.");
+            JsonElement org = JsonDocument.Parse(body).RootElement;
+            Assert.Equal("Zz Readers Renamed", org.GetProperty("name").GetString());
+            Assert.Equal("Surveys for the joint venture.", org.GetProperty("description").GetString());
+
+            await NothingRefusedAsync("Organization › General");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await PurgeAsync(key);
         }
     }
 }

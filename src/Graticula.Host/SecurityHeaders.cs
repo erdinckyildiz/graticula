@@ -212,7 +212,8 @@ internal static class SecurityHeaders
     /// <returns>True for a surface.</returns>
     private static bool IsSurface(PathString path) =>
         path.StartsWithSegments("/server", StringComparison.OrdinalIgnoreCase)
-        || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase);
+        || path.StartsWithSegments("/studio", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/system", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Stamps the headers on every response.</summary>
     /// <param name="app">The application.</param>

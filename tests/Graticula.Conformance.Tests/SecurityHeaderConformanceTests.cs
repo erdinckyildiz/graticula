@@ -382,7 +382,7 @@ public sealed class SecurityHeaderConformanceTests : ArcGisClient
             {
                 string name = Path.GetFileName(file);
 
-                foreach (string surface in (string[])["/server", "/studio"])
+                foreach (string surface in (string[])["/server", "/studio", "/system"])
                 {
                     // The index is served at the surface's root, which is the address a
                     // browser actually asks for.

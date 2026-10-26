@@ -12,7 +12,9 @@ namespace Graticula.Platform.Tenancy;
 /// <param name="Hosts">The host names it is reached at; for the default tenant, empty means every host no other claims.</param>
 /// <param name="PortalId">Its organisation id as ArcGIS clients read it (<c>portals/self.id</c>).</param>
 /// <param name="Suspended">Whether it is suspended, which answers every request at its hosts with 503.</param>
-public sealed record Tenant(Guid Id, string Key, string Name, IReadOnlyList<string> Hosts, string PortalId, bool Suspended)
+/// <param name="Description">What it says about itself, its own administrator's to write (ADR-221).</param>
+public sealed record Tenant(
+    Guid Id, string Key, string Name, IReadOnlyList<string> Hosts, string PortalId, bool Suspended, string? Description = null)
 {
     /// <summary>Whether this is the tenant every deployment has.</summary>
     public bool IsDefault => Id == TenantScope.DefaultTenant;
@@ -26,6 +28,12 @@ public interface ITenantStore
 
     /// <summary>Makes a tenant; null when its key or one of its hosts is taken.</summary>
     Task<Tenant?> CreateAsync(string key, string name, IReadOnlyList<string> hosts, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Changes what an organisation calls itself — its name and description, its own administrator's to change (ADR-221
+    /// condition 3); null when there is no such tenant. Hosts and suspension are not touched: they are the system's.
+    /// </summary>
+    Task<Tenant?> DescribeAsync(string key, string name, string? description, CancellationToken cancellationToken);
 
     /// <summary>Changes a tenant's name, hosts or suspension; null when there is no such tenant.</summary>
     Task<Tenant?> UpdateAsync(string key, string? name, IReadOnlyList<string>? hosts, bool? suspended, CancellationToken cancellationToken);

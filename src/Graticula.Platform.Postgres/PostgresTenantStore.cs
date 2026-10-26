@@ -25,7 +25,7 @@ public sealed class PostgresTenantStore : ITenantStore
         _dataSource = dataSource;
     }
 
-    private const string Columns = "id, key, name, hosts, portal_id, status = 'suspended'";
+    private const string Columns = "id, key, name, hosts, portal_id, status = 'suspended', description";
 
     /// <inheritdoc/>
     public async Task<IReadOnlyList<Tenant>> ListAsync(CancellationToken cancellationToken)
@@ -289,5 +289,23 @@ public sealed class PostgresTenantStore : ITenantStore
 
     private static Tenant Read(NpgsqlDataReader reader) => new(
         reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetFieldValue<string[]>(3),
-        reader.GetString(4), reader.GetBoolean(5));
+        reader.GetString(4), reader.GetBoolean(5), reader.IsDBNull(6) ? null : reader.GetString(6));
+
+    /// <inheritdoc />
+    public async Task<Tenant?> DescribeAsync(string key, string name, string? description, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            $"""
+            update tenant set name = @name, description = @description where key = @key
+            returning {Columns}
+            """);
+        command.Parameters.AddWithValue("key", key);
+        command.Parameters.AddWithValue("name", name.Trim());
+        command.Parameters.AddWithValue("description", string.IsNullOrWhiteSpace(description) ? DBNull.Value : description.Trim());
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) ? Read(reader) : null;
+    }
 }

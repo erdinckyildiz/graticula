@@ -66,7 +66,7 @@ public sealed class OrganizationsScreenTests : ConsoleTest
     }
 
     [Fact]
-    public async Task The_system_administrator_finds_organizations_in_servers_bar_and_it_lists_the_default()
+    public async Task The_system_administrator_finds_organizations_in_systems_bar_and_it_lists_the_default()
     {
         (string token, _) = await SignInAsync();
 
@@ -77,9 +77,10 @@ public sealed class OrganizationsScreenTests : ConsoleTest
 
         Assert.Equal(["default"], await TenantKeysAsync());
 
-        await OpenAsync("/server/#/services", token);
+        // System's bar since ADR-221 (Server's until then).
+        await OpenAsync("/system/", token);
 
-        await WaitForAsync(Reachable("#tabs a[data-tab=organizations]"), "Server's bar offers no Organizations tab to the system administrator.");
+        await WaitForAsync(Reachable("#tabs a[data-tab=organizations]"), "System's bar offers no Organizations tab to the system administrator.");
         await ClickAsync("#tabs a[data-tab=organizations]");
 
         await WaitForAsync(

@@ -7,7 +7,7 @@
 | **Decided** | 2026-10-16, by owner decision. **Studio:** the Hybrid concept with a Portal-like horizontal navigation, approved after the owner noticed the top bar had been left out ([GRATICULA-HYBRID.md](../design/GRATICULA-HYBRID.md)). **Server:** asked whether ADR-091's five sections should move to the top as ArcGIS Server Manager places them, the owner answered *"taşı"* — move them. Then, shown Server Manager's own top bar (Services, Site, Security, Logs, with data stores under Site) and asked whether ours should be grouped the same way, *"geç"* — switch to it. The priority they set the same day: *"önceliğimiz arcgis enterprise ekranlarına benzer bir yapı. arcgis portal ve arcgis server"* |
 | **Amends** | [ADR-091](ADR-091-server-sidebar-five-rows.md) §5 (the five rows become four tabs, regrouped; every subpage and address it kept is still kept); [ADR-034](ADR-034-server-and-studio.md) §5a and §6 (the rail that holds both surfaces' rows) |
 | **Supersedes** | — |
-| **Superseded by** | [ADR-189](ADR-189-studio-holds-the-organization-and-server-the-engine.md) in part, 2026-10-17: Server has three tabs (Security went to Studio's Organization) and Studio's are Content, Map, Groups, Organization |
+| **Superseded by** | [ADR-189](ADR-189-studio-holds-the-organization-and-server-the-engine.md) in part, 2026-10-17: Server has three tabs (Security went to Studio's Organization) and Studio's are Content, Map, Groups, Organization; [ADR-221](ADR-221-the-system-administrator-has-a-surface-of-their-own.md) in part, 2026-10-26: the machine's screens leave Server for `/system/` |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.

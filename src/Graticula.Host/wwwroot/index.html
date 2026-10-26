@@ -150,12 +150,14 @@
       <span id="tenantName" hidden><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35"
         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="5.6" cy="6" r="2.1"/><circle cx="11" cy="6.6" r="1.7"/><path d="M1.9 13c.3-2.2 1.8-3.4 3.7-3.4S9 10.8 9.3 13"/><path d="M10.3 9.9c1.6.1 2.7 1.1 3 3.1"/></svg><span
         class="sr-only">Organization: </span><b id="tenantNameText"></b></span>
-      <nav id="surfaces" hidden>
+      <!-- Three since ADR-221: System is offered only to the reader who enters it, and the router hides the rest. -->
+      <nav id="surfaces" aria-label="Surfaces" hidden>
         <a data-surface="server">Server</a>
         <a data-surface="studio">Studio</a>
+        <a data-surface="system" hidden>System</a>
       </nav>
-      <!-- The server's health in a word, linking to Site › Status (UX sweep 2026-10-19). Filled by refreshHealth. -->
-      <a class="healthpill unknown" id="healthDot" href="/server/operations"><span id="healthWord"><span
+      <!-- The server's health in a word, linking to System › Status (UX sweep 2026-10-19, ADR-221). Filled by refreshHealth. -->
+      <a class="healthpill unknown" id="healthDot" href="/system/operations"><span id="healthWord"><span
         class="dot unknown" aria-hidden="true"></span>Checking</span></a>
       <span id="healthLine">checking&hellip;</span>
       <!--
@@ -498,6 +500,28 @@
         <!-- Ten a page, owner 2026-08-18. Empty when there is only one page. -->
         <div id="servicesPager"></div>
         <p class="hint" id="serviceNote"></p>
+
+        <!--
+          Empty services — on System › Status until 2026-10-27 (Server's Site › Status before that), which an organization's
+          administrator does not enter. Its API, /admin/featureservices/empty and /sweep, is the organization's, so it is
+          here, where that administrator manages services; the server's status page keeps only what is the server's.
+        -->
+        <section class="emptysvc" id="emptyServices" aria-labelledby="emptyHead">
+          <h3 class="label" id="emptyHead">Empty services</h3>
+          <p class="lede">Services left with no layers after their last layer was removed. Nothing records which were
+            made on purpose, so this is a list you check, not an automatic clean-up.</p>
+          <div class="toolbar">
+            <button id="emptyRead" type="button">Look for them</button>
+            <button id="emptySweep" class="danger" type="button" disabled>Remove them</button>
+            <span class="val" id="emptyWhen" role="status" aria-live="polite">Look for them first</span>
+          </div>
+          <div class="panel">
+            <table>
+              <thead><tr><th>Service</th><th>Folder</th><th>Sharing</th></tr></thead>
+              <tbody id="emptyRows"><tr><td colspan="3" class="empty">Not read yet.</td></tr></tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </div>
   </section>
@@ -805,52 +829,13 @@
         <legend>Default basemap</legend>
       </fieldset>
       <p class="hint" id="basemapDefaultSays">What a new map starts on.</p>
+      <!-- Where the third answer is set: the map ground is the server's, in System › General since ADR-221. -->
+      <p class="hint" id="groundWhere"></p>
 
       <p class="hint" id="basemapSays" role="status" aria-live="polite"></p>
     </div>
 
-    <!--
-      <b>Q-110, the owner's answer of 2026-09-24 (ADR-086):</b> "Yönetici seçer, yoksa OSM karoları
-      kalır." The operator picks this server's own tile services as the ground under every map; with none
-      picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.
-    -->
-    <!-- ADR-204 §5d: the ground is the server's, one for every organization, so an organization's administrator is told
-         whose it is in `#groundWhose` instead of being shown a card whose every read and save the server refuses. -->
-    <p class="hint settingcard" id="groundWhose" hidden></p>
-    <div class="panel pad settingcard" id="groundCard">
-      <div class="cardhead"><h4>Map ground</h4><span class="pill" id="groundInUse" hidden></span></div>
-      <p class="hint">Your own vector tile services, such as an OpenStreetMap extract you imported, drawn under the data
-        when the default basemap is <b>Your own tile services</b>. With none chosen, OpenStreetMap's public tiles are
-        drawn. People who chose their own ground in the viewer keep it.<span id="groundEveryone" hidden> It is the
-        server's, so it is the ground of every organization on it.</span></p>
-
-      <!--
-        <b>Two lists, because the design review of 2026-09-24 found one list doing two jobs.</b> The first
-        version made the order of ticking the order of drawing, showed the boxes alphabetically, and then
-        redrew them in saved order after Save — the same ground two ways a second apart. What is available is
-        an alphabetical list that never moves; what is drawn is an ordered list, top first, as every GIS
-        layer panel reads.
-      -->
-      <h5 class="q" id="groundStackLabel">Drawing order, top first</h5>
-      <ol id="groundStack" class="groundstack" aria-labelledby="groundStackLabel"></ol>
-      <p class="hint" id="groundOrder"></p>
-
-      <fieldset class="groundpick" aria-describedby="groundCap">
-        <legend class="q">Tile services on this server <span class="groundcount" id="groundCap"
-          aria-live="polite"></span></legend>
-        <div id="groundList"><span class="hint">Reading this server's tile services…</span></div>
-      </fieldset>
-      <p class="hint" id="groundLegend" hidden></p>
-
-      <div class="row">
-        <button class="tiny" id="groundClear" hidden>Untick all</button>
-      </div>
-
-      <p class="hint" id="groundSays" aria-live="polite"></p>
-    </div>
-
-    <!-- One Save for the page (sweep 2026-10-19): the default basemap and the ground are one decision, and two
-         Save buttons for it left the reader wondering which of them they had pressed. -->
+    <!-- One Save for the page (sweep 2026-10-19). The map ground's own Save is in System › General since ADR-221. -->
     <div class="savebar settingcard" id="mapSaveBar">
       <span class="val" id="mapDirty" role="status" aria-live="polite">No unsaved changes</span>
       <button type="button" class="ghost" id="mapDiscard" disabled>Discard</button>
@@ -859,22 +844,34 @@
 
   </section>
 
-  <!-- Organization › Settings › Utility services — Portal's name for the services its clients are pointed at. -->
+  <!--
+    System › Utility services — ADR-221 §5.3. Studio's Organization › Settings › Utility services until 2026-10-26, which
+    held only the geometry service clients are pointed at; that is the server's (ADR-204 §5d), so it came here with the
+    server's own services in `Utilities` — their Start, Stop and sharing were on Server's services list, drawn for some
+    readers and not others. A service's name opens its page in System, where its limits are set.
+  -->
   <section class="view" id="view-utilities">
     <div class="pagehead">
       <div>
         <h2>Utility services</h2>
-        <p>Services this organization points its ArcGIS clients at for work a map asks for.</p>
+        <p>This server's own services, which every organization on it uses, and the geometry service ArcGIS clients are
+          pointed at.</p>
       </div>
+      <div class="right"><span class="val" id="sysCount"></span></div>
+    </div>
+
+    <div class="panel widetable">
+      <table class="rowblocks">
+        <thead><tr><th>Service</th><th>Status</th><th>Who can reach it</th>
+          <th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody id="sysRows"><tr><td colspan="4" class="empty">Reading this server's own services&hellip;</td></tr></tbody>
+      </table>
     </div>
 
     <!--
       <b>ADR-149, the owner's decision of 2026-10-03:</b> the geometry service the portal names to ArcGIS clients —
       this server's own, or another an administrator chooses, as ArcGIS Enterprise's Utility Services setting has it.
     -->
-    <!-- ADR-204 §5d: the geometry service named to clients is the server's while there are several organizations. -->
-    <p class="hint settingcard" id="geometryWhose" hidden>The geometry service ArcGIS clients use is the server's: its
-      system administrator chooses it for every organization on it, so there is nothing to set here.</p>
     <div class="panel pad settingcard" id="geometryCard">
       <h4>Geometry service</h4>
       <p class="hint">The geometry service ArcGIS clients signed in to this portal use for measuring, buffering and
@@ -895,6 +892,52 @@
       </div>
 
       <p class="hint" id="geometryServiceSays" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <!--
+    Organization › Settings › General — ADR-221 §5.5 and condition 3: the organization's name and description, where
+    ArcGIS Online's Organization › Settings › General keeps them. Every member reads it; the organization's own
+    administrator changes it (`mayChange` from `/admin/organization`). Its addresses, suspension and removal stay the
+    system administrator's, and the second card says so instead of hiding them.
+  -->
+  <section class="view" id="view-general">
+    <div class="pagehead">
+      <div>
+        <h2>General</h2>
+        <p>What this organization is called and what it says about itself.</p>
+      </div>
+    </div>
+
+    <div class="panel pad settingcard" id="orgProfileCard">
+      <h4>Name and description</h4>
+      <div id="orgProfileRead" hidden>
+        <p class="orgname" id="orgNameShown"></p>
+        <p class="orgdesc" id="orgDescShown"></p>
+        <p class="hint" id="orgReadWho"></p>
+      </div>
+      <div id="orgProfileEdit" hidden>
+        <label class="q" for="orgName">Name</label>
+        <input id="orgName" type="text" maxlength="100" autocomplete="off" spellcheck="false"
+          aria-describedby="orgNameHint">
+        <p class="hint" id="orgNameHint">Shown in the bar of every page and in the window's title on a server of several
+          organizations, and to ArcGIS clients that sign in here. 1 to 100 characters.</p>
+
+        <label class="q" for="orgDescription">Description</label>
+        <textarea id="orgDescription" rows="5" maxlength="2000" aria-describedby="orgDescriptionCount"></textarea>
+        <p class="hint" id="orgDescriptionCount"></p>
+
+        <div class="row">
+          <button type="button" class="primary" id="orgProfileSave" disabled>Save</button>
+        </div>
+      </div>
+      <p class="hint" id="orgProfileSays" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="panel pad settingcard" id="orgAddressCard">
+      <h4>Where its people sign in</h4>
+      <ul class="orghosts" id="orgHosts"></ul>
+      <p class="hint" id="orgProfileNote"></p>
     </div>
   </section>
 
@@ -1017,12 +1060,14 @@
       otherwise, set here rather than in a configuration file. One setting today; the card is its own so the
       next one is a second card rather than a longer form.
     -->
+    <!-- System › General since ADR-221 (Server's Site › General until then): the server's own settings, one for every
+         organization on it. The map ground joined it from Studio's Organization › Settings › Map. -->
     <div class="pagehead">
       <div>
         <h2>General</h2>
-        <p>What this whole server does unless a service sets its own. What a map offers — basemaps, the ground
-          under them, the geometry service clients use — and how people sign in are Studio's, under Organization ›
-          Settings.</p>
+        <p>What this whole server does unless a service sets its own: the page size, the sources styles may use and the
+          ground under every map. Basemaps and how people sign in are Studio's,
+          under Organization › Settings, and each organization's own.</p>
       </div>
     </div>
 
@@ -1075,6 +1120,51 @@
     </div>
 
     <!--
+      <b>Q-110, the owner's answer of 2026-09-24 (ADR-086):</b> "Yönetici seçer, yoksa OSM karoları
+      kalır." The operator picks this server's own tile services as the ground under every map; with none
+      picked, OpenStreetMap's tiles stay. Served to clients as the portal's default basemap.
+      <b>Here since ADR-221 §5.3</b>, from Studio's Organization › Settings › Map: the ground is the server's, one for
+      every organization (ADR-204 §5d). It saves on its own now; it shared one Save with the default basemap there.
+    -->
+    <div class="panel pad settingcard" id="groundCard">
+      <div class="cardhead"><h4>Map ground</h4><span class="pill" id="groundInUse" hidden></span></div>
+      <p class="hint">Your own vector tile services, such as an OpenStreetMap extract you imported, drawn under the data
+        when an organization's default basemap is <b>Your own tile services</b>. With none chosen, OpenStreetMap's
+        public tiles are drawn. People who chose their own ground in the viewer keep it.<span id="groundEveryone"
+        hidden> It is the server's, so it is the ground of every organization on it.</span></p>
+
+      <!--
+        <b>Two lists, because the design review of 2026-09-24 found one list doing two jobs.</b> The first
+        version made the order of ticking the order of drawing, showed the boxes alphabetically, and then
+        redrew them in saved order after Save — the same ground two ways a second apart. What is available is
+        an alphabetical list that never moves; what is drawn is an ordered list, top first, as every GIS
+        layer panel reads.
+      -->
+      <h5 class="q" id="groundStackLabel">Drawing order, top first</h5>
+      <ol id="groundStack" class="groundstack" aria-labelledby="groundStackLabel"></ol>
+      <p class="hint" id="groundOrder"></p>
+
+      <fieldset class="groundpick" aria-describedby="groundCap">
+        <legend class="q">Tile services on this server <span class="groundcount" id="groundCap"
+          aria-live="polite"></span></legend>
+        <div id="groundList"><span class="hint">Reading this server's tile services…</span></div>
+      </fieldset>
+      <p class="hint" id="groundLegend" hidden></p>
+
+      <div class="row">
+        <button class="tiny" id="groundClear" hidden>Untick all</button>
+      </div>
+
+      <p class="hint" id="groundSays" aria-live="polite"></p>
+
+      <div class="savebar" id="groundSaveBar">
+        <span class="val" id="groundDirty" role="status" aria-live="polite">No unsaved changes</span>
+        <button type="button" class="ghost" id="groundDiscard" disabled>Discard</button>
+        <button type="button" class="primary" id="groundSave" disabled>Save map ground</button>
+      </div>
+    </div>
+
+    <!--
       <b>A pointer, not a setting — owner's request of 2026-10-19.</b> Since ADR-189 sign-in and two-step sign-in are
       Studio's, as a federated ArcGIS Server leaves security to Portal, and an administrator who knows Server Manager
       comes here looking for its Security tab and finds nothing. This card says where it went and links there. It has
@@ -1086,8 +1176,8 @@
     <div class="panel pad settingcard" id="securityPointer" hidden>
       <h4>Sign-in and security</h4>
       <p class="hint">How people sign in, and whether they also need a code from an authenticator app, is set once
-        for the whole organization in Studio, under Organization › Settings › Security. Server uses the same sign-in,
-        so it has no security settings of its own.</p>
+        for the whole organization in Studio, under Organization › Settings › Security. Server and System use the same sign-in,
+        so they have no security settings of their own.</p>
       <p class="pointerlink"><a id="securityPointerGo" href="/studio/signin">Open Security in Studio</a></p>
     </div>
 
@@ -1149,18 +1239,21 @@
         <p class="hint">Who may read a service, and whether it is started, are never cached.</p>
       </div>
 
-      <!-- How large the store is, and whose layers fill it: the growth nobody watches until the disk is full. -->
-      <div class="panel pad opscard">
+      <!-- How large the store is, and whose layers fill it: the growth nobody watches until the disk is full. Its Pause
+           is here since ADR-221 §5.3, from Server's Data sources: it pauses every organization's hosted layers. -->
+      <div class="panel pad opscard" id="datastoreCard">
         <h4>Datastore</h4>
         <dl class="metrics" id="datastoreMetrics"></dl>
         <p class="hint" id="datastoreOwnersHead" hidden>By owner, largest first</p>
         <dl class="metrics" id="datastoreOwners"></dl>
         <p class="hint">Sizes as PostgreSQL reports them. No quota is set.</p>
         <p class="hint" id="datastoreNote"></p>
+        <div class="datastoreact" id="datastoreAct"></div>
       </div>
     </div>
 
-    <div class="opspair">
+    <!-- Route governance alone since ADR-221: Empty services, its pair, is the organization's and went to Server › Services. -->
+    <div class="opsone">
       <div>
         <div class="label"><span class="dot unknown" id="routeDot"></span>Route governance</div>
         <p class="lede">Every address this server answers has a rule that decides who may reach it. The figure to
@@ -1169,27 +1262,6 @@
 
         <!-- Read-only: which origins may read is a deployment setting, set where the deployment is configured. -->
         <p class="lede" id="corsSays"></p>
-      </div>
-
-      <!--
-        The containers a publish-and-unpublish cycle leaves behind. It reads before it writes: nothing records which
-        services were made on purpose, so the names are listed and the operator decides.
-      -->
-      <div>
-        <div class="label">Empty services</div>
-        <p class="lede">Services left with no layers after their last layer was removed. Nothing records which were
-          made on purpose, so this is a list you check, not an automatic clean-up.</p>
-        <div class="toolbar">
-          <button id="emptyRead" type="button">Look for them</button>
-          <button id="emptySweep" class="danger" type="button" disabled>Remove them</button>
-          <span class="val" id="emptyWhen">Look for them first</span>
-        </div>
-        <div class="panel">
-          <table>
-            <thead><tr><th>Service</th><th>Folder</th><th>Sharing</th></tr></thead>
-            <tbody id="emptyRows"><tr><td colspan="3" class="empty">Not read yet.</td></tr></tbody>
-          </table>
-        </div>
       </div>
     </div>
 
@@ -1226,7 +1298,7 @@
     <div class="pagehead">
       <div>
         <h2>Logs</h2>
-        <p>What this server and its studio have been doing.</p>
+        <p id="logHeadLede">What this server and its studio have been doing.</p>
       </div>
     </div>
 
@@ -1235,12 +1307,8 @@
       choosing between them needs to know which.</b> The studio one is the least obvious and the
       most valuable: a viewer failure that never reached the server appears nowhere else.
     -->
-    <p class="lede"><b>Administration</b> is the audit trail — every action that changed
-      something, who did it, and from where. <b>Requests</b> is one row per HTTP request, with
-      its status and how long it took. <b>Studio viewer</b> is what the map viewer reported
-      from a browser, which is where a failure that never reached the server shows up.
-      <span id="logServerLede"><b>Server warnings</b> is what this server itself reported — a layer it could not read, a
-      source it could not reach — held in memory since it last started.</span></p>
+    <!-- Filled per surface (ADR-221 §5.3): Server's three logs are the organization's, System's one is the server's. -->
+    <p class="lede" id="logLede"></p>
 
     <!-- The log being read, as a column on the left — Server Manager's Logs page lists its views there (ADR-187 step 4). -->
     <div id="logSources"></div>

@@ -600,6 +600,13 @@ its own basemap gallery — and, by owner decision on 2026-10-22, its own Server
 sources, its own jobs and its own audit and request logs (ADR-204 §5e items 10–11). The managed datastore, the
 Geometry service and the other system services are shown to it and are not its to stop or pause.
 
+**The system administrator works at `/system/`** ([ADR-221](adr/ADR-221-the-system-administrator-has-a-surface-of-their-own.md)):
+Organizations, the server's status and the whole server's counts, its process log, the general settings, the map
+ground, the geometry service and the system services. An organisation's administrator never sees it; Server holds
+only the organisation's engine, and Studio › Organization › Settings › General is where an organisation's
+administrator names and describes it (`PUT /admin/organization`). On a server of one organisation `/system/` is open
+to whoever administers the server.
+
 Each organisation holds a share of the managed datastore — two thirds of its permits with two organisations, less
 with more — so one organisation's heavy work queues behind its own. Each registers GeoParquet folders and DuckDB
 files from its own folder, `<GeoParquetRoot>/organizations/<key>/`, which the system administrator makes. Every

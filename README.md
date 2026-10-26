@@ -8,8 +8,10 @@
 **A GIS server and its portal, in one process.** `Server` does what a GIS Server site
 does — services at `/rest/services`, published out of PostGIS, opened by the clients you
 already have. `Studio` does what the portal does for content and people — items, members,
-roles, groups, sharing. ArcGIS Pro connects, browses, adds the layer and edits it, and
-publishes and overwrites hosted feature layers with *Share As Web Layer*.
+roles, groups, sharing. `System`, where the server holds several organisations, is the system
+administrator's: the organisations, the machine's status, log and settings
+([ADR-221](docs/adr/ADR-221-the-system-administrator-has-a-surface-of-their-own.md)). ArcGIS Pro connects, browses,
+adds the layer and edits it, and publishes and overwrites hosted feature layers with *Share As Web Layer*.
 
 The three tiers are fused rather than federated
 ([ADR-019](docs/adr/ADR-019-portal-server-split.md)), so there is no site to create, no

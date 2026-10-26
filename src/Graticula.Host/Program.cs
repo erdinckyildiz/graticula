@@ -1754,8 +1754,10 @@ public static class Program
         app.Use(async (context, next) =>
         {
             PathString path = context.Request.Path;
+            // ADR-221: `/system/` is the system administrator's, the same page as the other two.
             string? surface = path.StartsWithSegments("/studio", out PathString below) ? "studio"
                 : path.StartsWithSegments("/server", out below) ? "server"
+                : path.StartsWithSegments("/system", out below) ? "system"
                 : null;
 
             if (surface is null
@@ -1787,7 +1789,7 @@ public static class Program
                 context.RequestAborted).ConfigureAwait(false);
         });
 
-        foreach (string surface in (string[])["/server", "/studio"])
+        foreach (string surface in (string[])["/server", "/studio", "/system"])
         {
             app.UseFileServer(new FileServerOptions
             {
@@ -1824,7 +1826,7 @@ public static class Program
         //
         // <b>No cache.</b> An operator who changes the setting and restarts should not be told
         // the old origin by a browser, especially since the policy will already be refusing it.
-        foreach (string surface in (string[])["/server", "/studio"])
+        foreach (string surface in (string[])["/server", "/studio", "/system"])
         {
             app.MapGet($"{surface}/surface.js", (HttpContext context, HostSettings host) =>
             {
@@ -1944,7 +1946,7 @@ public static class Program
 
         // The console's own files: a page that cannot load cannot offer the form.
         if (path.StartsWithSegments("/server") || path.StartsWithSegments("/studio")
-            || path.StartsWithSegments("/console"))
+            || path.StartsWithSegments("/system") || path.StartsWithSegments("/console"))
         {
             return true;
         }
@@ -2642,6 +2644,7 @@ public static class Program
         ArcGisAdminEndpoints.Map(app);
         TenantEndpoints.Map(app);
         PartnershipEndpoints.Map(app);
+        OrganizationProfileEndpoints.Map(app);
         ContentElsewhereEndpoints.Map(app);
 
         // ADR-105: ArcGIS's uploads/upload and append on a hosted layer, over Update data's engine (ADR-103).

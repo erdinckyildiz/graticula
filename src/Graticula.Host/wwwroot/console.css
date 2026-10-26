@@ -394,6 +394,9 @@ header .right { margin-left: auto; display: flex; align-items: center; gap: var(
 #surfaces a:hover { color: var(--ink); text-decoration: none; }
 #surfaces a[data-surface="server"][aria-current] { background: var(--accent); color: #fff; }
 #surfaces a[data-surface="studio"][aria-current] { background: var(--accent); color: #fff; }
+/* System — ADR-221: the third surface, the operator's like Server, filled the same way where you are. */
+#surfaces a[data-surface="system"][aria-current] { background: var(--accent); color: #fff; }
+#surfaces a[hidden] { display: none; }
 
 /* `#healthDot` is a `.dot` and takes its states from there. Its own id rules, removed 2026-09-25,
    out-weighed `.dot.ok` and painted every state `--faint`, while refreshHealth() set a class
@@ -867,9 +870,11 @@ input[aria-invalid="true"], select[aria-invalid="true"], textarea[aria-invalid="
 .inheritstate .tag.set { color: var(--accent-ink); border-color: var(--accent-line); background: var(--accent-soft); }
 .inheritstate:empty { display: none; }
 /* Links in running text are underlined, not told apart by colour alone (UX sweep 2026-10-19, finding 15). */
-:root[data-surface="server"] #view-service p a:not(.btn),
-:root[data-surface="server"] #view-service dd a:not(.btn), #view-operations p a:not(.btn), #view-sources p a:not(.btn),
-#view-settings p a:not(.btn), #view-logs p a:not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
+:root[data-surface="server"] #view-service p a:not(.btn), :root[data-surface="system"] #view-service p a:not(.btn),
+:root[data-surface="server"] #view-service dd a:not(.btn), :root[data-surface="system"] #view-service dd a:not(.btn),
+#view-operations p a:not(.btn), #view-sources p a:not(.btn), #view-sources .managed a, #view-utilities p a:not(.btn),
+#view-settings p a:not(.btn), #view-logs p a:not(.btn), #view-orgsettings p a:not(.btn), #view-services .rowwhy a,
+#view-general p a:not(.btn) { text-decoration: underline; text-underline-offset: 2px; }
 
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px var(--gap-5); max-width: 580px; }
 .grid2 label { display: flex; align-items: center; gap: var(--gap-2); padding: 5px 0;
@@ -3613,6 +3618,13 @@ input[type="color"].symfill::-webkit-color-swatch { border: 1px solid rgba(16, 2
 .opspair .dot { margin-right: 6px; }
 
 @media (max-width: 1100px) { .opspair { grid-template-columns: minmax(0, 1fr); } }
+/* Route governance alone on System › Status since its pair, Empty services, went to Server › Services. */
+.opsone { margin-bottom: var(--gap-5); max-width: 760px; }
+.opsone .label:first-child { margin-top: 0; }
+.opsone .dot { margin-right: 6px; }
+/* Empty services under the services list (2026-10-27): a section of the page, after the list it is about. */
+.emptysvc { margin-top: var(--gap-6); max-width: 760px; }
+.emptysvc > h3.label { margin: 0 0 var(--gap-2); }
 
 /* <b>A dot with a class, because `#healthDot` was the only one and it was styled by id.</b> The
    operations cards need the same indicator and copying four rules under a second id is how a
@@ -4316,6 +4328,21 @@ table.logs-server tr.logrow td:last-child code { overflow-wrap: anywhere; white-
 .settingcard { max-width: 760px; }
 /* Server › General's pointer to Studio's Security (ADR-189): a link, not a button, because nothing is set here. */
 .settingcard .pointerlink { margin: var(--gap-3) 0 0; }
+/* The map ground's own Save since ADR-221, at the foot of its card, edge to edge as the role editor's is. */
+#groundCard #groundSaveBar { margin: var(--gap-4) calc(-1 * var(--gap-5)) calc(-1 * var(--gap-4)); }
+/* The datastore's Pause on System › Status (ADR-221): under the card's figures, its sentence then its button. */
+.datastoreact:empty { display: none; }
+.datastoreact { margin-top: var(--gap-3); padding-top: var(--gap-3); border-top: 1px solid var(--rule); }
+.datastoreact .hint { margin: 0 0 var(--gap-2); }
+/* Studio › Organization › Settings › General (ADR-221 §5.5): the name read as a heading, the description as prose. */
+#view-general .orgname { margin: 0; font-size: var(--t-head); font-weight: 600; color: var(--ink); }
+#view-general .orgdesc { margin: var(--gap-2) 0 var(--gap-3); max-width: 65ch; white-space: pre-line; color: var(--ink); }
+#view-general input#orgName { width: min(100%, 28rem); box-sizing: border-box; }
+#view-general textarea#orgDescription { width: 100%; box-sizing: border-box; resize: vertical; }
+#view-general label.q { display: block; margin-top: var(--gap-3); }
+#view-general label.q:first-child { margin-top: 0; }
+#view-general .orghosts { margin: 0 0 var(--gap-2); padding-left: 1.2em; }
+#view-general .orghosts code { overflow-wrap: anywhere; }
 /* ADR-184 review: the gallery card's two lists one width, and never past the card on a phone. */
 #basemapGallery { width: min(100%, 28rem); box-sizing: border-box; }
 /* The Map page since the UX sweep of 2026-10-19: the default basemap as radio rows, the ground card's state as a
@@ -5077,6 +5104,7 @@ h4.spaced { margin-top: 24px; }
 :root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { color: var(--accent-ink); }
 :root[data-theme="dark"] #surfaces a[data-surface="server"][aria-current] { background: var(--accent-soft); }
 :root[data-theme="dark"] #surfaces a[data-surface="studio"][aria-current] { background: var(--accent-soft); color: var(--accent-ink); }
+:root[data-theme="dark"] #surfaces a[data-surface="system"][aria-current] { background: var(--accent-soft); color: var(--accent-ink); }
 
 /* The few places that wrote a light colour instead of reading a token. */
 :root[data-theme="dark"] tr.pick:hover td,
@@ -5368,17 +5396,20 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 .stoppednote p { flex: 1 1 260px; margin: 0; }
 #serviceLimits .row { margin-top: var(--gap-4); }
 
-:root[data-surface="server"] #serviceEdit { display: block; }
-:root[data-surface="server"] #serviceNav {
+/* Server's service page, and System's for the server's own services (ADR-221), drawn the same way. */
+:root[data-surface="server"] #serviceEdit, :root[data-surface="system"] #serviceEdit { display: block; }
+:root[data-surface="server"] #serviceNav, :root[data-surface="system"] #serviceNav {
   display: flex; flex-direction: row; gap: 0; width: auto; padding: 0 var(--gap-4);
   border-right: 0; border-bottom: 1px solid var(--rule); background: none; overflow-x: auto;
 }
-:root[data-surface="server"] #serviceNav a {
+:root[data-surface="server"] #serviceNav a, :root[data-surface="system"] #serviceNav a {
   padding: 12px 16px; margin-bottom: -1px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
   background: none; color: var(--muted); white-space: nowrap; font-weight: 500;
 }
-:root[data-surface="server"] #serviceNav a:hover { color: var(--ink); background: none; }
-:root[data-surface="server"] #serviceNav a[aria-current] {
+:root[data-surface="server"] #serviceNav a:hover, :root[data-surface="system"] #serviceNav a:hover {
+  color: var(--ink); background: none;
+}
+:root[data-surface="server"] #serviceNav a[aria-current], :root[data-surface="system"] #serviceNav a[aria-current] {
   color: var(--accent-ink); border-bottom-color: var(--accent); background: none; font-weight: 600;
 }
 
@@ -5438,8 +5469,8 @@ input[type="checkbox"] { accent-color: var(--accent); }
   #serverMain { order: 2; }
 }
 @media (max-width: 480px) {
-  :root[data-surface="server"] #serviceNav { padding: 0 4px; }
-  :root[data-surface="server"] #serviceNav a { padding: 12px 10px; }
+  :root[data-surface="server"] #serviceNav, :root[data-surface="system"] #serviceNav { padding: 0 4px; }
+  :root[data-surface="server"] #serviceNav a, :root[data-surface="system"] #serviceNav a { padding: 12px 10px; }
 }
 
 /* ═══════════════════════════════════════════ The header: a utility line over the bar (owner, 2026-10-16) */
@@ -5613,7 +5644,8 @@ header:has(#utilbar) { box-sizing: border-box; height: var(--header-h); grid-tem
 .svcsummary a { margin-left: auto; }
 
 /* Site › Status holds the health and the resources, side by side. */
-.widgetrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--gap-4); margin: 0 0 var(--gap-5); }
+/* `min(280px, 100%)`: a fixed 280 floor was wider than the page at 280 pixels and pushed it sideways (2026-10-27). */
+.widgetrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--gap-4); margin: 0 0 var(--gap-5); }
 .widgetrow > .widget { margin: 0; }
 
 @media (max-width: 600px) {

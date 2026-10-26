@@ -33,8 +33,8 @@ namespace Graticula.Conformance.Tests;
 /// </remarks>
 public sealed class OneCopyAcrossSurfacesTests : ArcGisClient
 {
-    /// <summary>The two mounts ADR-034 §5 created over one directory.</summary>
-    private static readonly string[] Surfaces = ["/server", "/studio"];
+    /// <summary>The mounts over one directory: ADR-034 §5's two, and ADR-221's third, the system administrator's.</summary>
+    private static readonly string[] Surfaces = ["/server", "/studio", "/system"];
 
     /// <summary>
     /// Every asset the application loads is the same bytes on both surfaces.

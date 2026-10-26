@@ -227,7 +227,7 @@ internal static class TenantRouting
         "/admin/item-categories", "/admin/service-accounts", "/admin/identity-providers", "/admin/oauth",
         "/admin/security/second-factor", "/admin/domains", "/admin/relationships", "/admin/folders",
         "/admin/recycle-bin", "/admin/roles", "/admin/logs", "/admin/jobs", "/admin/settings/basemaps",
-        "/admin/references", "/admin/tiling-schemes", "/admin/thumbnail", "/admin/generateToken", "/admin/partnerships",
+        "/admin/references", "/admin/tiling-schemes", "/admin/thumbnail", "/admin/generateToken", "/admin/partnerships", "/admin/organization",
         "/admin/search",
     ];
 

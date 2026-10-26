@@ -48,7 +48,7 @@ internal static class RequestFacts
             _ when Starts(value, "/wcs") => "WCS",
             _ when Starts(value, "/ogc") => "OGC",
             _ when Starts(value, "/studio") => "studio",
-            _ when Starts(value, "/server") || Starts(value, "/console") => "console",
+            _ when Starts(value, "/server") || Starts(value, "/system") || Starts(value, "/console") => "console",
             _ when Starts(value, "/admin") => "admin",
             _ when Starts(value, "/sharing") => "portal",
             _ when Starts(value, "/healthz") => "health",
