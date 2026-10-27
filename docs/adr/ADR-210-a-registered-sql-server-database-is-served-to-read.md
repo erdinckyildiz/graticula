@@ -117,6 +117,17 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
    corrected); and CI's whole run at `c262b66f`, conformance included, green on Linux with ICU.
 3. **The console** offers SQL Server in *Add a source* beside PostGIS, Oracle and MySQL or MariaDB, through the
    ux-designer review every screen gets — today it is registered through the API only, as Oracle and MySQL were first.
+   **DISCHARGED 2026-10-27, at the owner's word ("Ekle evet").** *A database server* offers SQL Server fourth; it takes
+   1433, names its kind, offers no Npgsql string and asks for no database list (the server's answer would be the one
+   being typed). A registered one opened for correction is read as itself — `dbconnKind` had read it as PostGIS, D-310's
+   fault again. Named the two ways SQL Server's own tools take: `server\SQLEXPRESS` empties the port field ("from
+   instance") and sends none, `server,1433` is sent as host and port; a hint under the field says both. **The ux-designer
+   review returned *rework* with seven findings**: five applied — the port field showing what is sent, `server,port`
+   doubled by the driver, a late answer from the engine left behind written into the new one, Test's answer below the
+   fold, the hint's wording — and two older ones, on every engine, recorded as D-318 and D-319; the second pass passed,
+   and its two minor findings were applied. axe-core clean in both themes. Measured by
+   `DataSourceScreenTests.SQL_Server_is_chosen_in_the_dialog_and_a_named_instance_keeps_its_port_to_itself`, which
+   failed against the console before it.
 4. **The owner confirms §5.5** — reading only — or asks for editing, which would be ADR-208's writer in T-SQL.
    **DISCHARGED 2026-10-21** — editing asked for and built: the provider suite 15 of 15 against LocalDB (a clockwise
    `geography` square stored as 9.5 thousand km², not the planet less it; a stale version refused; required and long

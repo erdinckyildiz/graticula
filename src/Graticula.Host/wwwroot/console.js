@@ -23890,7 +23890,23 @@ function dbconnBody() {
     password: $("dcPassword").value,
   };
 
-  // A PostGIS body names no kind, as it never has; the other two say which they are.
+  // <b>SQL Server's two ways of naming where it is</b> (ADR-210), as its own tools take them. `server,1433` is a host and
+  // a port in one field — ArcGIS Pro's Instance box and SSMS both read it so — and is sent as the two; sent whole, the
+  // driver was given `server,1433,1433` (a design review). `server\\SQLEXPRESS` is a named instance, found by its name,
+  // so the port goes only when somebody typed one: the field is emptied for it by `dbconnInstance`.
+  if (kind === "sqlserver") {
+    const split = SQLSERVER_HOST_PORT.exec(body.host);
+
+    if (split) {
+      body.host = split[1].trim();
+      // The field wins: `dbconnInstance` copied the port into it, and a change made there afterwards is what is meant.
+      body.port = Number($("dcPort").value) || Number(split[2]);
+    } else if (body.host.includes("\\") && !$("dcPort").value.trim()) {
+      delete body.port;
+    }
+  }
+
+  // A PostGIS body names no kind, as it never has; the others say which they are.
   if (kind !== "postgis") body.kind = kind;
   return body;
 }
@@ -23904,7 +23920,44 @@ function dbconnBody() {
  * registrable for a week and MySQL for an hour, both through the API only, and a registered one
  * opened for correction was shown as PostGIS.
  */
-const DBCONN_PORTS = { postgis: 5432, oracle: 1521, mysql: 3306 };
+const DBCONN_PORTS = { postgis: 5432, oracle: 1521, mysql: 3306, sqlserver: 1433 };
+
+/** SQL Server's `host,port`, as its own tools write it in one field. */
+const SQLSERVER_HOST_PORT = /^(.+?),\s*(\d{1,5})\s*$/;
+
+/**
+ * Makes the port field say what a SQL Server connection will use, as the instance is typed — a design review.
+ *
+ * <b>The field showed 1433 beside `server\\SQLEXPRESS` while the body left the port out</b>, and the only
+ * explanation was a hint three rows down, cut off at 1280x900. So the field is emptied for a named instance, its
+ * placeholder says where the port comes from, and 1433 comes back when the instance name goes; a port written as
+ * `server,1433` is shown in the field it belongs to. A port somebody typed is left alone.
+ */
+function dbconnInstance() {
+  const port = $("dcPort");
+
+  if (!port) return;
+
+  if (dbconnKind() !== "sqlserver") {
+    port.placeholder = "";
+    return;
+  }
+
+  const host = $("dcHost").value.trim();
+  const split = SQLSERVER_HOST_PORT.exec(host);
+  const atDefault = port.value.trim() === "" || port.value === String(DBCONN_PORTS.sqlserver);
+
+  if (split) {
+    port.value = split[2];
+    port.placeholder = "";
+  } else if (host.includes("\\") && atDefault) {
+    port.value = "";
+    port.placeholder = "from instance";
+  } else if (!host.includes("\\") && port.value.trim() === "") {
+    port.value = String(DBCONN_PORTS.sqlserver);
+    port.placeholder = "";
+  }
+}
 
 /**
  * Shows the bucket settings only while the location is not an https file.
@@ -23922,10 +23975,13 @@ function dbconnRemoteScheme() {
 /**
  * Which kind of source the dialog is describing.
  *
- * @returns {"postgis"|"oracle"|"mysql"|"geoparquet"|"geoparquet-remote"|"duckdb"|"motherduck"} the chosen kind, or the kind of the source being corrected
+ * <b>SQL Server is named here since ADR-210 condition 3</b>: it was registrable through the API only, and a registered one
+ * opened for correction was shown as PostGIS — D-310's fault again, for the engine that came a day after it.
+ *
+ * @returns {"postgis"|"oracle"|"mysql"|"sqlserver"|"geoparquet"|"geoparquet-remote"|"duckdb"|"motherduck"} the chosen kind, or the kind of the source being corrected
  */
 function dbconnKind() {
-  const known = kind => (["oracle", "mysql", "geoparquet", "geoparquet-remote", "duckdb", "motherduck"].includes(kind)
+  const known = kind => (["oracle", "mysql", "sqlserver", "geoparquet", "geoparquet-remote", "duckdb", "motherduck"].includes(kind)
     ? kind
     : "postgis");
 
@@ -23977,7 +24033,7 @@ function dbconnShowKind() {
  * survives a change of mind about the engine, and a correction's stored port is filled in after
  * this runs. <b>The database list is forgotten</b>, since it was the other engine's answer.
  *
- * @param {"postgis"|"oracle"|"mysql"} kind the engine
+ * @param {"postgis"|"oracle"|"mysql"|"sqlserver"} kind the engine
  */
 function dbconnServerKind(kind) {
   const port = $("dcPort");
@@ -23989,7 +24045,9 @@ function dbconnServerKind(kind) {
   $("dcDatabaseName").textContent = kind === "oracle" ? "Service" : "Database";
   $("dcDatabase").placeholder = kind === "oracle"
     ? "the service the listener knows — FREEPDB1, ORCLPDB1"
-    : "press to list what is on that server";
+    : kind === "sqlserver"
+      ? "the database whose tables are offered"
+      : "press to list what is on that server";
   $("dcDatabase").dataset.asked = "";
   $("dcDatabases").innerHTML = "";
 
@@ -24006,11 +24064,32 @@ function dbconnServerKind(kind) {
       ? "MySQL 8.0 or later, or MariaDB 10.6 or later — which one is read from the server. Every table whose geometry "
         + "column declares its reference (<code>SRID</code>, or MariaDB's <code>REF_SYSTEM_ID</code>) and has a spatial "
         + "index can be published, read and edited where it is, in x and y — neither keeps Z or M."
-      : "";
+      : kind === "sqlserver"
+        ? "SQL Server 2016 or later. A table can be published, read and edited where it is if it has a "
+          + "<code>geometry</code> or <code>geography</code> column whose rows all use one SRID, and a single integer "
+          + "primary key."
+        : "";
   $("dcServerHint").hidden = kind === "postgis";
 
-  // The line about choosing from a list is PostGIS's and MySQL's: Oracle has no list to choose from.
-  $("dcListHint").hidden = kind === "oracle";
+  // How a SQL Server is named sits under the field it is typed in, not three rows down (a design review).
+  const instanceHint = $("dcInstanceHint");
+  instanceHint.hidden = kind !== "sqlserver";
+  instanceHint.innerHTML = kind === "sqlserver"
+    ? "A named instance goes here as <code>server\\SQLEXPRESS</code>; leave the port empty and the instance's own "
+      + "port is found. A fixed port can go here too, as <code>server,1433</code>. The connection is encrypted; the "
+      + "server's certificate is accepted without being checked."
+    : "";
+
+  if (kind === "sqlserver") {
+    $("dcHost").setAttribute("aria-describedby", "dcInstanceHint");
+  } else {
+    $("dcHost").removeAttribute("aria-describedby");
+  }
+
+  dbconnInstance();
+
+  // The line about choosing from a list is PostGIS's and MySQL's: Oracle and SQL Server have none to choose from.
+  $("dcListHint").hidden = kind === "oracle" || kind === "sqlserver";
 }
 
 /**
@@ -24060,6 +24139,10 @@ function dbconnSays(tone, head, rest) {
 
   said.className = `testresult ${tone}`;
   said.innerHTML = `<b>${h(head)}</b>${h(rest || "")}`;
+
+  // <b>Brought into view</b> — a design review measured Test's answer 33 px below the dialog's scrolling body at
+  // 1280x900, with focus left on Test and nothing visible changing; the live region told only a screen reader.
+  if (head) said.scrollIntoView({ block: "nearest" });
 }
 
 /**
@@ -24094,8 +24177,9 @@ async function dbconnFill() {
 
   // <b>Oracle is not asked</b>: a listener serves the database the connection names, so there is no list
   // to fill — and asking with the service still empty failed every time somebody clicked into the field to
-  // type it (a design review, D-310). Test is where an Oracle connection is checked.
-  if (dbconnKind() === "oracle") return;
+  // type it (a design review, D-310). Test is where an Oracle connection is checked. <b>Nor SQL Server</b>,
+  // whose answer is the one database the connection names, the field being typed (ADR-210).
+  if (dbconnKind() === "oracle" || dbconnKind() === "sqlserver") return;
 
   if (!$("dcHost").value.trim() || !$("dcUser").value) {
     dbconnSays("warn", "The host and the user first. ",
@@ -24109,12 +24193,18 @@ async function dbconnFill() {
   combo.dataset.filling = "yes";
   dbconnSays("", "Asking the server…", "");
 
+  // <b>The engine asked for is the one answered for</b> — a design review measured MySQL's late refusal, 15 s after a
+  // change to SQL Server, written into the SQL Server form; a late list would have filled its database too.
+  const askedFor = dbconnKind();
+
   try {
     const said = await api("/admin/datasources/databases", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...dbconnBody(), database: "" }),
     });
+
+    if (dbconnKind() !== askedFor) return;
 
     const names = said.databases || [];
 
@@ -24138,6 +24228,7 @@ async function dbconnFill() {
     dbconnSays("ok", `${num(names.length)} database${names.length === 1 ? "" : "s"}. `,
       "The connection worked, so what is left is choosing one.");
   } catch (e) {
+    if (dbconnKind() !== askedFor) return;
     dbconnSays("alert", "Refused. ", e.message);
   } finally {
     combo.dataset.filling = "";
@@ -24216,6 +24307,7 @@ async function openDbConnection(source) {
           <label><input type="radio" name="dcKind" value="postgis" checked> PostGIS</label>
           <label><input type="radio" name="dcKind" value="oracle"> Oracle</label>
           <label><input type="radio" name="dcKind" value="mysql"> MySQL or MariaDB</label>
+          <label><input type="radio" name="dcKind" value="sqlserver"> SQL Server</label>
         </div>
         <div class="dcgroup" role="group" aria-labelledby="dcKindFiles">
           <span class="dcgrouphead" id="dcKindFiles">Files, read where they are</span>
@@ -24334,6 +24426,7 @@ async function openDbConnection(source) {
         <label class="field" style="flex:1 1 20%">Port
           <input id="dcPort" type="number" min="1" max="65535" value="5432"></label>
       </div>
+      <p class="hint" id="dcInstanceHint" hidden></p>
       <div class="row">
         <label class="field" style="flex:1 1 45%">User name
           <input id="dcUser" spellcheck="false" autocomplete="off" required></label>
@@ -24388,6 +24481,7 @@ async function openDbConnection(source) {
   }
 
   $("dcUrl").addEventListener("input", dbconnRemoteScheme);
+  $("dcHost").addEventListener("input", dbconnInstance);
 
   $("dcDatabase").addEventListener("mousedown", dbconnFill);
   $("dcDatabase").addEventListener("focus", dbconnFill);
@@ -24510,6 +24604,8 @@ async function openDbConnection(source) {
     $("dcPort").value = said.port || DBCONN_PORTS[dbconnKind()] || 5432;
     $("dcDatabase").value = said.database || "";
     $("dcUser").value = said.username || "";
+    if (dbconnKind() === "sqlserver" && !said.port) $("dcPort").value = "";
+    dbconnInstance();
     $("dcPassword").focus();
   } catch (e) {
     // A source sealed with a key this build no longer holds cannot be read back at all, and
@@ -24550,6 +24646,9 @@ async function dbconnTest() {
   button.disabled = true;
   dbconnSays("", "Connecting…", "");
 
+  // The answer is for the engine tested; a change of engine while it travels leaves it unsaid (as `dbconnFill`).
+  const tested = dbconnKind();
+
   try {
     const r = await api("/admin/datasources/test", {
       method: "POST",
@@ -24557,9 +24656,12 @@ async function dbconnTest() {
       body: JSON.stringify(dbconnBody()),
     });
 
+    if (dbconnKind() !== tested) return;
+
     dbconnSays(sourceTone(r.outcome), `${spaced(r.outcome || "Done")}. `, r.message || "");
     dbconnSkipped(r.skipped);
   } catch (e) {
+    if (dbconnKind() !== tested) return;
     dbconnSays("alert", "Refused. ", e.message);
   } finally {
     button.disabled = false;

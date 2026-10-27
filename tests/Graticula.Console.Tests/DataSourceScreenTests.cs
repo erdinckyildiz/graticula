@@ -163,6 +163,78 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// The dialog registers a SQL Server database too — ADR-210 condition 3 — and a named instance is found by its name.
+    /// </summary>
+    /// <remarks>
+    /// <b>The engine came a day after D-310's dialog</b> and was registrable through the API only; a registered one opened
+    /// for correction was shown as PostGIS, D-310's own fault again, because the kind it read was not in the list. Chosen,
+    /// it takes 1433, names its kind, offers no Npgsql string and asks the server for no list — the answer would be the
+    /// database being typed. With an instance in the host the field's default port is not sent, or the driver would go
+    /// to 1433 instead of finding the instance by name; a port somebody typed is.
+    /// </remarks>
+    [Fact]
+    public async Task SQL_Server_is_chosen_in_the_dialog_and_a_named_instance_keeps_its_port_to_itself()
+    {
+        await OpenSourcesAsync();
+        await ClickAsync("#sAdd");
+
+        await WaitForAsync(
+            "document.querySelector('input[name=\"dcKind\"][value=\"sqlserver\"]') !== null",
+            "The dialog offers no SQL Server database, so one can be registered only through the API.");
+
+        await ClickAsync("input[name=\"dcKind\"][value=\"sqlserver\"]");
+
+        Assert.Equal("1433", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        Assert.Equal("Database", await Browser.EvaluateAsync<string>("document.getElementById('dcDatabaseName').textContent"));
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('dcAdvanced').hidden"),
+            "A written connection string is Npgsql's, and is offered for a SQL Server database.");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('dcServerHint').hidden"),
+            "Nothing says what a SQL Server database must hold to be published.");
+        Assert.Equal("sqlserver", await Browser.EvaluateAsync<string>("dbconnBody().kind"));
+
+        await ClickAsync("#dcDatabase");
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('dcResult').textContent"));
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('dcListHint').hidden"),
+            "The line about choosing from a list shows for SQL Server, which has none.");
+
+        // A host and port: the port is sent.
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcHost'), el.value = 'gis-db', el.dispatchEvent(new Event(\"input\")), true)");
+        Assert.Equal(1433, await Browser.EvaluateAsync<int>("dbconnBody().port"));
+
+        // A named instance: the field empties and says where the port comes from, and none is sent; a typed one is.
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcHost'), el.value = 'gis-db\\\\SQLEXPRESS', el.dispatchEvent(new Event(\"input\")), true)");
+        Assert.Equal(string.Empty, await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        Assert.Equal("from instance", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').placeholder"));
+        Assert.True(await Browser.EvaluateAsync<bool>("dbconnBody().port === undefined"),
+            "A port is sent beside a named instance, so the driver would not find the instance by name.");
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcPort').value = '14330', true)");
+        Assert.Equal(14330, await Browser.EvaluateAsync<int>("dbconnBody().port"));
+
+        // The instance name gone and the port emptied: 1433 again.
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcPort').value = '', true)");
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcHost'), el.value = 'gis-db', el.dispatchEvent(new Event(\"input\")), true)");
+        Assert.Equal("1433", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+
+        // `server,port`, as ArcGIS Pro's Instance box and SSMS take it: sent as a host and a port, never doubled.
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcHost'), el.value = 'gis-db,14331', el.dispatchEvent(new Event(\"input\")), true)");
+        Assert.Equal("14331", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        Assert.Equal("gis-db", await Browser.EvaluateAsync<string>("dbconnBody().host"));
+        Assert.Equal(14331, await Browser.EvaluateAsync<int>("dbconnBody().port"));
+
+        // And the field wins when somebody changes it afterwards: what it shows is what is sent.
+        await Browser.EvaluateAsync<bool>("(document.getElementById('dcPort').value = '1500', true)");
+        Assert.Equal(1500, await Browser.EvaluateAsync<int>("dbconnBody().port"));
+
+        // The connection sentence sits under the field it is about, and the field says so.
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('dcInstanceHint').hidden"));
+        Assert.Equal("dcInstanceHint", await Browser.EvaluateAsync<string>("document.getElementById('dcHost').getAttribute('aria-describedby')"));
+
+        // A registered SQL Server opened for correction is read as itself, not as PostGIS.
+        Assert.Equal("sqlserver", await Browser.EvaluateAsync<string>("(dbconn = { kind: 'sqlserver' }, dbconnKind())"));
+        await Browser.EvaluateAsync<bool>("(dbconn = null, true)");
+    }
+
+    /// <summary>
     /// Choosing a database asks the server what is on it, and offering none says why.
     /// </summary>
     /// <remarks>
