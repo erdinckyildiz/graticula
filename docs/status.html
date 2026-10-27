@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>e81d854a</code> · 2026-10-27 19:08</p>
+<p class="stamp">Generated from commit <code>5e092d08</code> · 2026-10-27 19:33</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">219</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">456/539</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">74 live · 9 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">457/539</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">73 live · 9 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">open questions</div><div class="kpi-n">196 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">18</div><div class="kpi-l">open debts</div><div class="kpi-n">291 repaid · 5 waiting on a trigger · 3 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5495</div><div class="kpi-l">tests</div><div class="kpi-n">589 source files, 261,958 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5496</div><div class="kpi-l">tests</div><div class="kpi-n">589 source files, 261,958 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">2 open</span></div><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">96 items</span></div><p><b>74 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">95 items</span></div><p><b>73 ADR conditions</b> outstanding across 48 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -179,7 +179,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-212 · Editor tracking and attachments on</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-218 · A pinned service is kept warm</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-219 · Two organisations partner before t</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
 <section><h2>Review gates (§66)</h2>
@@ -414,7 +413,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">216</td><td>The organisation has one id, at every address</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">217</td><td>A versioned or archived geodatabase class is refused, not served wrongly</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">218</td><td>A pinned service is kept warm</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for what goes cold, which is measured · MEDIUM for the limit, which is not</td><td class="num">2/3</td></tr>
-<tr><td class="id">219</td><td>Two organisations partner before their groups mix</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the shape, which is ArcGIS Online&#x27;s · MEDIUM for what this version leaves out…</td><td class="num">3/4</td></tr>
+<tr><td class="id">219</td><td>Two organisations partner before their groups mix</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the shape, which is ArcGIS Online&#x27;s · MEDIUM for what this version leaves out…</td><td class="num">4/4</td></tr>
 <tr><td class="id">220</td><td>An item may be shared with every organisation on the server</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reading rule, which is one line in the one place reading is decided · MEDIUM…</td><td class="num">5/5</td></tr>
 <tr><td class="id">221</td><td>The system administrator has a surface of their own</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split, which follows the API&#x27;s own (TenantRouting.SystemOnly) · MEDIUM for…</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
@@ -553,7 +552,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1510</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.3%"></div></div><div class="bar-n">941</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.9%"></div></div><div class="bar-n">859</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.0%"></div></div><div class="bar-n">860</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.1%"></div></div><div class="bar-n">560</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">423</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.7%"></div></div><div class="bar-n">343</div></div>
@@ -569,6 +568,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">23</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>5e092d08</code><time>2026-10-27</time><span>MySQL&#x27;s two writer test classes no longer share a table (D-314)</span></li>
 <li><code>e81d854a</code><time>2026-10-27</time><span>Every system route is refused to an organisation&#x27;s administrator, and an outsider reads nothing by WFS, OGC or tile; a member without a second factor is offered no removal (ADR-204 conditions 4, 5; D-307)</span></li>
 <li><code>d66bc3f9</code><time>2026-10-27</time><span>Console tests open System&#x27;s pages at System&#x27;s addresses, not through the forward from Server (ADR-221)</span></li>
 <li><code>db4df49c</code><time>2026-10-27</time><span>SQL Server is chosen in Add a source, and the Oracle probe skips the geodatabase classes publish refuses (ADR-210 condition 3, ADR-217 condition 2, D-318, D-319)</span></li>
@@ -582,7 +582,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>344aaa66</code><time>2026-10-25</time><span>README and the deployment guide say what organisations own since v1.0.458 (ADR-204 §5e items 14-18)</span></li>
 <li><code>3cadc661</code><time>2026-10-25</time><span>An organisation&#x27;s custom roles are its own, and a member&#x27;s groups in other organisations are listed at home (ADR-204 condition 16, §5e items 17.4 and 18)</span></li>
 <li><code>b3d44746</code><time>2026-10-25</time><span>ArcGIS Online&#x27;s documents behind ADR-204&#x27;s claims, and what it does that this does not (ADR-204 condition 7, §5e item 17)</span></li>
-<li><code>afe99e45</code><time>2026-10-24</time><span>A member of another organisation is told how to sign in, and the group screen admits them properly (ADR-204 §5e item 16)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

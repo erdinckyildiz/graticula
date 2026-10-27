@@ -204,4 +204,102 @@ public sealed class TwoOrganisationsPartnerBeforeTheirGroupsMixTests : ArcGisCli
             await SendAsync(HttpMethod.Delete, $"/admin/members/{local}", token: admin);
         }
     }
+
+    /// <summary>
+    /// ADR-219 condition 2, from the other side: the invited organisation ends it, and both organisations' groups are
+    /// cleaned — each one's partners-only group loses the other's members, and each one's open group keeps the other's
+    /// manager as a member.
+    /// </summary>
+    [Fact]
+    public async Task Ending_from_the_invited_side_cleans_both_organisations_groups()
+    {
+        _root = await RequireServerAsync();
+        string admin = await TokenAsync(_root) ?? throw new InvalidOperationException("No administrator credential.");
+        string run = Guid.NewGuid().ToString("N")[..6];
+        string key = $"pe{run}", host = $"pe{run}.localhost";
+        string dOnly = $"donly{run}", dAny = $"dany{run}", pOnly = $"ponly{run}", pAny = $"pany{run}";
+        string here1 = $"zzhereone{run}", here2 = $"zzheretwo{run}";
+
+        (HttpStatusCode made, JsonElement partner) = await SendAsync(HttpMethod.Post, "/admin/tenants", token: admin, json: new
+        {
+            key, name = $"Ender {run}", hosts = new[] { host }, administrator = $"peadmin{run}",
+        });
+
+        if (made == HttpStatusCode.Conflict
+            && partner.GetProperty("error").GetProperty("message").GetString()!.Contains("superuser", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        Assert.True(made == HttpStatusCode.Created, $"Making an organisation answered {(int)made}.");
+
+        try
+        {
+            string pe = await SignedInAsync($"peadmin{run}", partner.GetProperty("administrator").GetProperty("password").GetString()!, host);
+
+            foreach (string m in new[] { "one", "two" })
+            {
+                Assert.Equal(HttpStatusCode.Created, (await SendAsync(HttpMethod.Post, "/admin/members", host, pe,
+                    new { name = $"{m}{run}", role = "user" })).Status);
+            }
+
+            foreach (string m in new[] { here1, here2 })
+            {
+                Assert.Equal(HttpStatusCode.Created, (await SendAsync(HttpMethod.Post, "/admin/members", token: admin,
+                    json: new { name = m, role = "user" })).Status);
+            }
+
+            // Two groups each side: one limited to partners, one open to any organisation.
+            foreach ((string? at, string token, string only, string any) in new[] { ((string?)null, admin, dOnly, dAny), (host, pe, pOnly, pAny) })
+            {
+                Assert.Equal(HttpStatusCode.Created, (await SendAsync(HttpMethod.Post, "/admin/groups", at, token, new { name = only })).Status);
+                Assert.Equal(HttpStatusCode.Created, (await SendAsync(HttpMethod.Post, "/admin/groups", at, token, new { name = any })).Status);
+                Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, $"/admin/groups/{only}/tenants", at, token,
+                    new { admitsOtherTenants = true, partnersOnly = true })).Status);
+                Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, $"/admin/groups/{any}/tenants", at, token,
+                    new { admitsOtherTenants = true })).Status);
+            }
+
+            (HttpStatusCode invited, JsonElement invitation) = await SendAsync(HttpMethod.Post, "/admin/partnerships", token: admin,
+                json: new { organization = host, shareMembers = true });
+            Assert.Equal(HttpStatusCode.Created, invited);
+            Guid id = invitation.GetProperty("id").GetGuid();
+            Assert.Equal(HttpStatusCode.OK, await ChangeAsync(host, pe, id, "accept", shareMembers: true));
+
+            // Each side takes the other's members: one into its partners-only group, one as manager of its open group.
+            string theirOne = Uri.EscapeDataString($"{key}\\one{run}"), theirTwo = Uri.EscapeDataString($"{key}\\two{run}");
+            string ourOne = Uri.EscapeDataString($"default\\{here1}"), ourTwo = Uri.EscapeDataString($"default\\{here2}");
+
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, $"/admin/groups/{dOnly}/members/{theirOne}", token: admin, json: new { manager = false })).Status);
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, $"/admin/groups/{dAny}/members/{theirTwo}", token: admin, json: new { manager = true })).Status);
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, $"/admin/groups/{pOnly}/members/{ourOne}", host, pe, new { manager = false })).Status);
+            Assert.Equal(HttpStatusCode.OK, (await SendAsync(HttpMethod.Put, $"/admin/groups/{pAny}/members/{ourTwo}", host, pe, new { manager = true })).Status);
+
+            // The invited side ends it.
+            Assert.Equal(HttpStatusCode.OK, await ChangeAsync(host, pe, id, "end"));
+
+            async Task<(string Name, string Standing)[]> GroupAsync(string? at, string token, string group)
+            {
+                (_, JsonElement body) = await SendAsync(HttpMethod.Get, $"/admin/groups/{group}", at, token);
+                return [.. body.GetProperty("members").EnumerateArray()
+                    .Select(m => (m.GetProperty("name").GetString()!, m.GetProperty("standing").GetString()!))];
+            }
+
+            // The default organisation's groups: the partner's member gone from the limited one, its manager a member.
+            Assert.DoesNotContain(await GroupAsync(null, admin, dOnly), m => m.Name.Contains($"one{run}", StringComparison.Ordinal));
+            Assert.Contains(await GroupAsync(null, admin, dAny), m => m.Name.Contains($"two{run}", StringComparison.Ordinal) && m.Standing == "member");
+
+            // And the partner's groups, which nobody on that side touched: the same, the other way round.
+            Assert.DoesNotContain(await GroupAsync(host, pe, pOnly), m => m.Name.Contains(here1, StringComparison.Ordinal));
+            Assert.Contains(await GroupAsync(host, pe, pAny), m => m.Name.Contains(here2, StringComparison.Ordinal) && m.Standing == "member");
+        }
+        finally
+        {
+            await SendAsync(HttpMethod.Delete, $"/admin/tenants/{key}?purge=true", token: admin);
+            await SendAsync(HttpMethod.Delete, $"/admin/groups/{dOnly}", token: admin);
+            await SendAsync(HttpMethod.Delete, $"/admin/groups/{dAny}", token: admin);
+            await SendAsync(HttpMethod.Delete, $"/admin/members/{here1}", token: admin);
+            await SendAsync(HttpMethod.Delete, $"/admin/members/{here2}", token: admin);
+        }
+    }
 }
