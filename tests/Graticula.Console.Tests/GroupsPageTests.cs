@@ -593,6 +593,20 @@ public sealed class GroupsPageTests : ConsoleTest
                     + "produces.");
             }
 
+            // D-302: the third visibility the server takes, offered to an owner who may share with the public.
+            Assert.True(
+                await Browser.EvaluateAsync<bool>(
+                    "(r => !!r && !r.disabled)(document.querySelector('#gsVisibility input[value=\"public\"]'))"),
+                "Settings does not offer a public group to an owner who may share with the public; the server has taken it "
+                + "since ADR-199.");
+
+            // Chosen and not saved, it says what saving does; chosen back, it says nothing (a design review).
+            await ClickAsync("#gsVisibility input[value=\"public\"]");
+            await WaitForAsync(Shown("#gsPublicSays"), "Choosing a public group said nothing of what saving it does.");
+            Assert.Equal("gsPublicSays", await Browser.EvaluateAsync<string>("document.getElementById('gsSave').getAttribute('aria-describedby') || ''"));
+            await ClickAsync("#gsVisibility input[value=\"members\"]");
+            await WaitForAsync("document.getElementById('gsPublicSays').hidden", "Choosing members again left the public warning.");
+
             // <b>And every one of them has an accessible name.</b> All four read as `combobox: \"\"`
             // when the questions were `<span class="q">` rather than `<label for>` — four unlabelled
             // dropdowns on the one tab that is nothing but form controls.

@@ -809,7 +809,9 @@ function drawGroupOverview(one) {
     <dt>Services</dt><dd>${num(items.length)}</dd>
     <dt>Visible to</dt><dd>${one.visibility === "organization"
       ? `any signed-in member`
-      : `its members only`}</dd>
+      : one.visibility === "public"
+        ? `anybody, signed in or not`
+        : `its members only`}</dd>
     <dt>Joining</dt><dd>${one.joinPolicy === "self" ? `anyone who can see it` : `by invitation`}</dd>
     <dt>Contributing</dt><dd>${one.contribute === "members"
       ? `any member`
@@ -1063,11 +1065,20 @@ function drawGroupSettings(one) {
 
       <section class="gsec" aria-labelledby="gsMembership">
         <h3 id="gsMembership">Membership</h3>
-        <p class="hint">None of these reach outside the group: what is shared with it stays readable by its members
-          and nobody else.</p>
+        <p class="hint">What is shared with a group stays readable by its members and nobody else, whatever these say.
+          Only the group's own name and description can reach further, and only if it is visible to anybody.</p>
         ${radios("gsVisibility", "Who can see that this group exists", one.visibility || "members", [
           ["members", "Only its members"],
           ["organization", "Everyone signed in to this organization"],
+          // <b>The third the server has taken since ADR-199</b> — D-302: an open-data gallery anonymous apps find. Making a
+          // group findable by anybody is sharing to the public, so it takes that privilege, and says so where it is not
+          // held; a group already public stays chosen, so Save does not quietly narrow it.
+          ["public", "Anybody, signed in or not",
+            may("sharing:shareToPublic") || one.visibility === "public"
+              ? "Its name and description can be found without signing in; the member list stays hidden, and only "
+                + "what is shared with the public can be read."
+              : "Needs the privilege to share with the public, which an administrator grants in your role.",
+            !may("sharing:shareToPublic") && one.visibility !== "public"],
         ])}
         ${radios("gsJoin", "How people join", one.joinPolicy || "invitation", [
           ["invitation", "An owner or manager adds them"],
@@ -1099,6 +1110,8 @@ function drawGroupSettings(one) {
           <span class="hint">This cannot be changed. To change it, make another group and move the shares.</span></p>
       </section>
 
+      <p class="consequence" id="gsPublicSays" hidden>Saving makes this group findable by anybody on the internet,
+        signed in or not. Its members and anything not shared with the public stay hidden.</p>
       <div class="savebar">
         <span class="val" id="gsDirty" role="status" aria-live="polite">No unsaved changes</span>
         <button type="button" class="ghost" id="gsDiscard" disabled>Discard</button>
@@ -1143,6 +1156,17 @@ function drawGroupSettings(one) {
     $("gsDiscard").disabled = !dirty;
     $("gsDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
     $("gsDirty").closest(".savebar")?.classList.toggle("dirty", dirty);
+
+    // What saving a public group does, said before Save rather than after (a design review, D-302).
+    $("gsPublicSays").hidden = !(groupSettingValue("gsVisibility") === "public" && one.visibility !== "public");
+
+    // And heard by whoever tabs from the choice to Save, past a paragraph that is not a stop: Save is described by the
+    // line while it is shown, and by nothing otherwise — a description is computed from hidden elements too.
+    if ($("gsPublicSays").hidden) {
+      $("gsSave").removeAttribute("aria-describedby");
+    } else {
+      $("gsSave").setAttribute("aria-describedby", "gsPublicSays");
+    }
   };
 
   // Text is `input`, a radio is `change`, and both bubble to the fieldset or field they belong to.
@@ -15009,8 +15033,23 @@ function drawOwnFactor(focus, refused = "") {
   }
 }
 
-/** Somebody else's profile, for whoever manages members: removing a factor they can no longer use. */
+/**
+ * Somebody else's profile, for whoever manages members: removing a factor they can no longer use.
+ *
+ * <b>Offered only where there is one — D-307.</b> The removal was offered on every member's profile and answered
+ * *has no second factor* afterwards; the profile says `secondFactor` to whoever manages members since v1.0.466, so a
+ * member without one is told so and given nothing to press. A server that does not say it keeps the old offer.
+ */
 function drawMemberFactor(p) {
+  if (p.secondFactor === false) {
+    $("pfSecond").innerHTML = `
+    <div class="sfhead"><b>Two-step sign-in</b></div>
+    <p><b>Not turned on.</b> ${h(p.name)} signs in with their password alone.</p>
+    <p class="hint">If the organization requires a second factor, they will be asked to set one up the next time they
+      sign in.</p>`;
+    return;
+  }
+
   $("pfSecond").innerHTML = `
     <div class="sfhead"><b>Two-step sign-in</b></div>
     <p class="hint">If ${h(p.name)} has lost both their authenticator app and their recovery codes, remove their second

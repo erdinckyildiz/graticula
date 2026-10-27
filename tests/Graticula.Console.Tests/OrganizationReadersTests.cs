@@ -172,7 +172,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
             // A system screen asked for by its old address goes back to Services: it is System's, which is not theirs.
             await OpenOnHostAsync(host, "/server/#/settings", token);
             await WaitForAsync("document.getElementById('view-services')?.classList.contains('on') && location.pathname.startsWith('/server/')"
-                + " && (document.getElementById('toast').textContent || '').includes('System')",
+                + " && (document.getElementById('toast')?.textContent || '').includes('System')",
                 "Site › General's old address opened for an organization's administrator instead of returning to Services.");
 
             // Organization › Map: the gallery is theirs and is read; the ground card is the server's and is absent.
@@ -375,7 +375,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
                 "System › Status does not count the server's two organizations.");
             Assert.False(await Browser.EvaluateAsync<bool>(Shown("#emptySweep")), "System › Status still offers an organization's Empty services.");
             await OpenAsync("/server/organizations", admin);
-            await WaitForAsync($"location.pathname === '/system/organizations' && (document.getElementById('tnRows').textContent || '').includes('{key}')",
+            await WaitForAsync($"location.pathname === '/system/organizations' && (document.getElementById('tnRows')?.textContent || '').includes('{key}')",
                 "Server › Organizations' old address did not open System › Organizations with the second organization in it.");
             await NothingRefusedAsync("System › Organizations");
             NothingWentWrong(await PageErrorsAsync());

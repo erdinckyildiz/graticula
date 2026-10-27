@@ -58,7 +58,10 @@ the redesign adds the third — the admin API takes all three ([D-302](../archit
 ## 6. Conditions
 
 1. **Q-179 is answered:** does a public gallery group reach a signed-out caller, which would undo Q-174? *(Discharged 2026-10-18: it stays hidden, by owner decision.)*
-2. **The console offers *public*** — D-302, in the redesign.
+2. **The console offers *public*** — D-302, in the redesign. **DISCHARGED 2026-10-27, before the redesign** — a group's
+   Settings offers *Anybody, signed in or not*, disabled with its reason for a reader without `sharing:shareToPublic`,
+   and says above Save what saving it does; reviewed by the ux-designer agent, whose finding that the section's own hint
+   contradicted the new option was applied (D-302).
 
 ## 7. Dependencies
 

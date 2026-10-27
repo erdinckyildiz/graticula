@@ -651,9 +651,20 @@ own.
    VectorTileServer and the administration API in `TenantsAreKeptApartTests`; by hand the same with warm caches both
    ways, WMS GetCapabilities (no layer of the other tenant named), the services directory, the OGC collections list and
    the portal search. A WFS GetFeature, an OGC item read and the tile endpoints themselves are not walked.)*
+   **DISCHARGED 2026-10-27** — the three walked, by `AnOutsidersTokenReadsNothingOnEveryFaceTests`: a layer one
+   organisation shares with its own members, read at its host by a member of the main organisation through WFS 2.0
+   GetFeature, OGC API Features items and one item, and vector tile 0/0/0, gives no feature and no tile; each read is
+   made first by the organisation's own administrator, who gets the feature and a non-empty tile, so the address is right
+   and there was something to leak. On a fixture served as a bound role.
 5. **A tenant administrator is refused every system-only act**, tested by enumerating the privileges §5d moves rather
    than by picking three. *(Partly, 2026-10-22: the acts are enumerated as paths in `TenantRouting.SystemOnly`; the test
-   walks two of them.)*
+   walks two of them.)* **DISCHARGED 2026-10-27** — `AnOrganisationsAdministratorReachesNoSystemActTests` reads every
+   `Map{Method}("/admin/…")` in the host and both of `TenantRouting`'s lists from the source, and sends every route that
+   is not the organisation's own — 31 with each system prefix also sent as an address, which caught that
+   `/admin/logs/server` is mapped as `/admin/logs/{source}` under the organisation's prefix and was missed by reading the
+   patterns alone — as an organisation's administrator at its host: all 403, beside a control read of its own members.
+   **What it cannot catch:** a route moved onto `OrganisationOwn`, since it reads the lists it checks; that move is a
+   decision, made where the list is.
 6. **D-04 is answered before a second tenant is created on the showcase**: at minimum, each tenant has its own share of
    [ADR-046](ADR-046-admission-control-bounds-the-queue-not-the-wait.md)'s admission, so one JV's heavy query queues
    behind that JV's work and not the main organisation's. **PARTLY DISCHARGED 2026-10-22** (§5e item 12): each
