@@ -291,9 +291,11 @@ public sealed class SuiteStabilityTests
     /// once every few runs and cannot say why.
     /// </para>
     /// <para>
-    /// <b>One name is allowed through, with its reason.</b> <c>SecurityHeaderConformanceTests</c>
+    /// <b>Two names are allowed through, each with its reason.</b> <c>SecurityHeaderConformanceTests</c>
     /// names <c>/admin/layers</c> in an <c>InlineData</c> and asserts response headers; it reads
-    /// the listing and consumes nothing from it. An allow-list of one with a stated reason is
+    /// the listing and consumes nothing from it. <c>APurgedOrganisationLeavesNothingBehindTests</c>
+    /// (2026-10-27, D-316) publishes only inside an organisation it made, which no walker at the
+    /// main host sees, and must sit in <c>server settings</c> because it makes one. A short allow-list with stated reasons is
     /// this repository's usual escape — <c>registers-check.py</c> does the same for the one
     /// external test name it cannot resolve — and it is deliberately not a pattern, because a
     /// pattern would wave through the next real one too.
@@ -307,7 +309,10 @@ public sealed class SuiteStabilityTests
         Assert.True(Directory.Exists(folder), $"The conformance suite is not at '{folder}'.");
 
         // Reads the listing to assert headers on it, and consumes nothing from the body.
-        string[] excused = ["SecurityHeaderConformanceTests.cs"];
+        // And one that publishes a layer only inside an organisation it made, at that organisation's host: no walker at
+        // the main host can see it, and it cannot join the walk, because making an organisation puts it in 'server
+        // settings' — while one exists the whole server routes by organisation (D-316).
+        string[] excused = ["SecurityHeaderConformanceTests.cs", "APurgedOrganisationLeavesNothingBehindTests.cs"];
 
         // Each is a whole-catalogue effect: some change what it holds, the rest read all of
         // it. None of them is made safe by what the fixture is called.

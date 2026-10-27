@@ -113,8 +113,8 @@ public sealed class SqlServerFeatureSourceTests : IAsyncLifetime
     public async Task The_probe_offers_the_spatial_tables_and_names_why_it_skips_the_others()
     {
         ProbeResult probed = await new SqlServerDataSourceProbe().ProbeAsync(SqlServerFixture.Locator, None);
+        Assert.True(probed.Outcome == ProbeOutcome.Usable, $"The probe answered {probed.Outcome}: {probed.Message} (D-314).");
 
-        Assert.Equal(ProbeOutcome.Usable, probed.Outcome);
         Assert.Contains(probed.Tables, t => t.TableName == "zz_places" && t.SchemaName == "dbo" && t.Srid == 4326
             && t.GeometryType == "Point" && t.CandidateObjectIdColumn == "objectid" && t.Writable);
         Assert.Contains(probed.Tables, t => t.TableName == "zz_geo" && t.Srid == 4326);

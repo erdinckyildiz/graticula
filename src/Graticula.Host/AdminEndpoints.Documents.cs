@@ -235,7 +235,7 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>Removes a document and its file.</summary>
-    private static async Task DeleteDocumentAsync(
+    internal static async Task DeleteDocumentAsync(
         HttpContext context, string id, IDocumentStore documents, IAuditLog audit, RecycleBinService recycle, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
@@ -493,7 +493,7 @@ internal static partial class AdminEndpoints
         string Title, string? Snippet, SharingScope Sharing, string FileName, DocumentKind Kind, byte[] Content);
 
     /// <summary>This deployment's document limit.</summary>
-    private static long MaximumDocumentBytes(HttpContext context) =>
+    internal static long MaximumDocumentBytes(HttpContext context) =>
         (context.RequestServices?.GetService(typeof(HostSettings)) as HostSettings)?.DocumentMaximumBytes
         ?? Documents.DefaultMaximumBytes;
 
@@ -587,7 +587,7 @@ internal static partial class AdminEndpoints
         return new DocumentUpload(title, snippet, sharing, fileName, kind, content);
     }
 
-    private static string? DescribedRefusal(string title, string? snippet) =>
+    internal static string? DescribedRefusal(string title, string? snippet) =>
         title.Length > WebMaps.MaximumTitleLength ? $"A title is at most {WebMaps.MaximumTitleLength} characters."
         : snippet is { Length: > WebMaps.MaximumSnippetLength } ? $"A snippet is at most {WebMaps.MaximumSnippetLength} characters."
         : null;
@@ -602,6 +602,6 @@ internal static partial class AdminEndpoints
         _ => null,
     };
 
-    private static string DocumentTooLarge(long limit) =>
+    internal static string DocumentTooLarge(long limit) =>
         $"A document may be at most {limit / 1048576} MB on this server. A deployment raises the limit with Graticula:DocumentMaxMB.";
 }

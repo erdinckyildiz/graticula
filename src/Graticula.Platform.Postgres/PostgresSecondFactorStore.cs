@@ -28,6 +28,27 @@ public sealed class PostgresSecondFactorStore : ISecondFactorStore
     }
 
     /// <summary>
+    /// Every principal whose second factor is on — D-307: the members list says, per member, who is covered, so Remove
+    /// their second factor is offered only where there is one. One read for the whole list; enrolling but unconfirmed
+    /// is not on.
+    /// </summary>
+    public async Task<IReadOnlySet<Guid>> EnabledAsync(CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select principal_id from principal_second_factor where enabled_at is not null");
+
+        HashSet<Guid> enabled = [];
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            enabled.Add(reader.GetGuid(0));
+        }
+
+        return enabled;
+    }
+
+    /// <summary>
     /// The members a requirement covers who have no second factor on, so will be asked to set one up at their next
     /// sign-in — ADR-201 condition 2. Enabled members with a password here; administrators only, or everyone.
     /// </summary>

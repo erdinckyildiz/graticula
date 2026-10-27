@@ -96,7 +96,12 @@ hold through this door too. **INFERRED, for the owner to confirm:** *(Confirmed 
 1. **The recycle bin has a screen** (the veteran's N7), after which `permanentDelete` can mean what it says.
 2. **Pro's Share pane un-sharing** is seen to call `unshare`/`unshareItems` and to read the answer — not yet driven.
 3. **A file item** (a document a member uploaded) is updated and deleted through the same door; today it is
-   `Item does not exist or is inaccessible.`, which is at least not a success.
+   `Item does not exist or is inaccessible.`, which is at least not a success. **DISCHARGED 2026-10-27.** The portal's
+   item writes know a document: `update` takes its title, summary, description, tags, terms, categories and its file —
+   recognised and bounded by ADR-188's own rules, all checked before any is written — and refuses by name what a
+   document does not keep; `delete` goes through Studio's own delete, so protection holds and it waits in the recycle
+   bin; `unshare` takes it out of a group. Measured: `ADocumentIsAnItemTests.A_document_is_updated_and_deleted_through_the_portal`
+   answered *Item does not exist or is inaccessible* against the build before it, and passes now.
 
 ## 6. Consequences
 

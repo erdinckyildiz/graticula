@@ -171,8 +171,12 @@ that role may not. Give `Graticula__MaintenanceStore` a connection string to the
 the superuser, for most — and `graticula restore` uses it for those steps only; the dump is still restored by the
 serving role, so what it creates is that role's. Without it, restore runs as the serving role and, under one like
 the above, refuses: the check finds the geometry tables missing and changes nothing
-([ADR-193](adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md), amended). `graticula backup` needs
-nothing more, though the roles file is only written when the maintenance connection can read them.
+([ADR-193](adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md), amended). `graticula backup` —
+and the backup `migrate --apply` takes first — dumps the whole database, and goes through the maintenance
+connection when there is one. Without it the serving role dumps, which works only while the database holds
+nothing that role may not read: a schema left by another product or a test run stops the dump, and the
+migration with it, with a message that names this setting. The roles file is only written when the
+maintenance connection can read them.
 
 **An existing deployment** was almost certainly built by a superuser, and everything the server made is that
 role's. [`tools/serving-role.sql`](../tools/serving-role.sql) hands the server's own schemas — `gisserver`,
@@ -313,8 +317,15 @@ tar -czf graticula-geoparquet-$(date +%F).tgz geoparquet/
 # Restore, into an empty database in a cluster that has the roles. Or `graticula restore`, which
 # does all of this and, served as a role that is not a superuser, needs §0.3's maintenance connection.
 psql --file=graticula-roles-2026-09-16.sql
-pg_restore --dbname="$GRATICULA_DB" --jobs=4 graticula-2026-09-16.dump
+pg_restore --dbname="$GRATICULA_DB" --jobs=4 --section=pre-data --section=data graticula-2026-09-16.dump
+pg_restore --dbname="$GRATICULA_DB" --section=post-data graticula-2026-09-16.dump
 ```
+
+**The constraints go in one pass, after the rows.** Restored with `--jobs` all at once, as a role row-level
+security binds, a foreign key can be checked after its table's policy exists and is refused — *query would be
+affected by row-level security policy* — and `pg_restore` reports it and goes on: measured, 54 of 70 foreign
+keys missing from a restore that otherwise looked complete (D-317). `graticula restore` does the same two passes
+and then counts the foreign keys, policies and triggers against the dump, refusing a restore short of any.
 
 *(Measured on 7 GB: six minutes to dump, three to restore — §2.6.)*
 
@@ -555,11 +566,15 @@ upgrade to schema 100 — does it from the console's Server › Organizations, o
 POST   /admin/tenants              {"key":"jv1","name":"JV One","hosts":["jv1.example.com"],"administrator":"jv1admin"}
 PUT    /admin/tenants/jv1          {"hosts":[...], "name":..., "suspended":true|false}
 DELETE /admin/tenants/jv1          refused while it owns members, services, maps or groups
-DELETE /admin/tenants/jv1?purge=true   removes it with everything it owns in the catalogue
+DELETE /admin/tenants/jv1?purge=true   removes it with everything it owns, its hosted data included
 ```
 
 The answer to `POST` carries the first administrator's password, once; it must be changed at the first
-sign-in at the organisation's host. A purge leaves the organisation's hosted tables in the datastore.
+sign-in at the organisation's host. A purge drops the organisation's hosted tables and views from the
+datastore, and the tables waiting in its recycle bin; a table another organisation's layer also serves is
+kept. It is refused while one of its registered layers keeps a history or attachments this server made in the
+customer's database — switch those off first, as for removing the layer itself. Where that database is gone
+for good, `&unchecked=true` lets the purge go without asking it.
 
 ### 4.3 What crosses between organisations
 

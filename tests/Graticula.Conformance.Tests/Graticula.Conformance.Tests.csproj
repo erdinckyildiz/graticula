@@ -31,6 +31,15 @@
          needs no system packages. -->
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" />
     <PackageReference Include="System.Security.Cryptography.Xml" />
+
+    <!-- A PostgreSQL client, for the fixture and never for an assertion about the server.
+         ARegisteredLayerLeavesNothingBehindTests needs a database without PostGIS and one
+         that is retired after a layer is published from it (D-311, D-312), and the server
+         refuses to register a source it cannot reach, so neither can be made over HTTP. What
+         the server answers is still read over HTTP; the client makes the databases, drops
+         them, and reads whether a trigger is still on a table, which no client of the server
+         can see. -->
+    <PackageReference Include="Npgsql" />
   </ItemGroup>
 
   <ItemGroup>

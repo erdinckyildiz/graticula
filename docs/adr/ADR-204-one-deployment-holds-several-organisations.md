@@ -291,7 +291,7 @@ default the connection's tenant, so no insert names it; `ENABLE` and `FORCE ROW 
 no privilege, no `organization` content; the machine's administration answers only the system administrator
 (`TenantRouting.SystemOnly`); jobs run as their tenant; `portals/self` gives each tenant its id, name and
 `multitenant`; organisation settings (basemap gallery, default basemap, second-factor requirement) are kept per tenant;
-`/admin/tenants` makes, changes, removes and purges tenants; `/admin/groups/{name}/tenants` marks a group as admitting
+`/admin/tenants` makes, changes, removes and purges tenants — a purge dropping the tenant's hosted tables, views and recycle bin, and refused while a registered layer of it keeps a history or attachments (owner decision 2026-10-27, [D-316](../architecture-debt.md)); `/admin/groups/{name}/tenants` marks a group as admitting
 other tenants, after which a member of another tenant is added by name. Measured end to end on a fixture served as a
 bound role (`TenantsAreKeptApartTests`), and the conformance suite passes as before on both a bound role and a
 superuser.

@@ -44,6 +44,14 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
         {
             await using SqlConnection connection = await SqlServerConnections.OpenAsync(driver, cancellationToken).ConfigureAwait(false);
 
+            // <b>The catalogue is read without waiting on DDL's locks — D-314.</b> A probe only describes, so seeing a
+            // table another session is creating or dropping costs nothing (a vanished one is passed over below), while
+            // waiting for its locks made the probe a deadlock victim whenever DDL ran beside it.
+            await using (SqlCommand dirty = new("set transaction isolation level read uncommitted", connection))
+            {
+                await dirty.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             string version = connection.ServerVersion;
             int level;
 
@@ -61,7 +69,8 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
                     version, null, []);
             }
 
-            (List<SourceTable> tables, List<SkippedTable> skipped) = await TablesAsync(connection, cancellationToken).ConfigureAwait(false);
+            (List<SourceTable> tables, List<SkippedTable> skipped) =
+                await RetriedOnDeadlockAsync(() => TablesAsync(connection, cancellationToken)).ConfigureAwait(false);
 
             int plain = tables.Count(t => t.GeometryColumn is null);
 
@@ -107,6 +116,29 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
                 [SqlServerLocator.Of(connectionString).Database]);
     }
 
+    /// <summary>
+    /// Reads the catalogue again when SQL Server chose the read as a deadlock victim — D-314.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured, not supposed:</b> with a table created and dropped beside it, 19 probes of 20 failed, most as error
+    /// 1205 on <c>INFORMATION_SCHEMA</c> — the catalogue's locks meeting the DDL's. A deadlock victim is told to rerun,
+    /// and a probe has nothing half-done to undo, so it does, four times at most, waiting longer each time.
+    /// </remarks>
+    private static async Task<T> RetriedOnDeadlockAsync<T>(Func<Task<T>> read)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await read().ConfigureAwait(false);
+            }
+            catch (SqlException e) when (e.Number == 1205 && attempt < 5)
+            {
+                await Task.Delay(100 * attempt).ConfigureAwait(false);
+            }
+        }
+    }
+
     private static async Task<(List<SourceTable> Tables, List<SkippedTable> Skipped)> TablesAsync(
         SqlConnection connection, CancellationToken cancellation)
     {
@@ -142,44 +174,147 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
         List<SourceTable> tables = [];
         List<SkippedTable> skipped = [];
 
+        // ADR-217 condition 2: what publish refuses is not offered, and the sentence is the one it answers.
+        IReadOnlyDictionary<string, string> refused = await GeodatabaseRefusalsAsync(connection, cancellation).ConfigureAwait(false);
+
         foreach (var row in found)
         {
-            string name = $"{row.Schema}.{row.Table}";
-
-            if (row.Key is not { } key
-                || await KeyTypeAsync(connection, row.Schema, row.Table, key, cancellation).ConfigureAwait(false) is not
-                    ("tinyint" or "smallint" or "int" or "bigint"))
+            if (refused.TryGetValue($"{row.Schema}.{row.Table}".ToLowerInvariant(), out string? why))
             {
-                skipped.Add(new SkippedTable(name,
-                    "It has no single-column primary key of a whole-number type, which ArcGIS needs as the object id."));
+                skipped.Add(new SkippedTable($"{row.Schema}.{row.Table}", why));
                 continue;
             }
 
-            (int? srid, long others, string? type) = await ShapesAsync(connection, row.Schema, row.Table, row.Column, cancellation)
-                .ConfigureAwait(false);
-
-            if (srid is not { } reference)
+            try
             {
-                skipped.Add(new SkippedTable(name,
-                    $"Its column {row.Column} holds no shape yet, and SQL Server keeps a reference per shape rather than per "
-                    + "column, so the table's reference cannot be known until it has one."));
-                continue;
+                await DescribeAsync(connection, row, tables, skipped, cancellation).ConfigureAwait(false);
             }
-
-            if (others > 0)
+            catch (SqlException e) when (e.Number == 208)
             {
-                skipped.Add(new SkippedTable(name,
-                    $"Its column {row.Column} holds shapes in more than one reference: {others:N0} are not in EPSG:{reference}, "
-                    + "the first one's. A layer is served in one."));
-                continue;
+                // D-314: listed, then dropped before it was read — by another tool, or another test. It is not in the
+                // database any more, so it is not offered; failing the whole probe over it answered with no tables.
             }
-
-            tables.Add(new SourceTable(row.Schema, row.Table, row.Column, reference, type, key, key, [key],
-                Writable: await SqlServerConnections.CanWriteAsync(connection, row.Schema, row.Table, cancellation).ConfigureAwait(false)));
         }
 
-        tables.AddRange(await PlainTablesAsync(connection, cancellation).ConfigureAwait(false));
+        foreach (SourceTable plain in await PlainTablesAsync(connection, cancellation).ConfigureAwait(false))
+        {
+            if (refused.TryGetValue($"{plain.SchemaName}.{plain.TableName}".ToLowerInvariant(), out string? why))
+            {
+                skipped.Add(new SkippedTable($"{plain.SchemaName}.{plain.TableName}", why));
+            }
+            else
+            {
+                tables.Add(plain);
+            }
+        }
+
         return (tables, skipped);
+    }
+
+    /// <summary>
+    /// Every table an enterprise geodatabase in this database versions or archives, keyed by schema and table in lower
+    /// case, with the sentence a publish of it answers — ADR-217 condition 2. Two reads for the whole database, the
+    /// marker columns and the registry's versioned classes, as <see cref="SqlServerTableChecks.GeodatabaseRefusalAsync"/>
+    /// reads them for one table; the sentence is <see cref="GeodatabaseClasses.Refusal"/>'s, so the listing and the
+    /// publish cannot say two things.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<string, string>> GeodatabaseRefusalsAsync(
+        SqlConnection connection, CancellationToken cancellation)
+    {
+        Dictionary<string, (string Schema, string Table, List<string> Columns, long? Versioned)> marked = new(StringComparer.Ordinal);
+
+        string markers = string.Join(", ", GeodatabaseClasses.MarkerColumns.Select(m => $"'{m}'"));
+
+        await using (SqlCommand command = new(
+            $"select TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.COLUMNS where upper(COLUMN_NAME) in ({markers})",
+            connection))
+        await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                string key = $"{reader.GetString(0)}.{reader.GetString(1)}".ToLowerInvariant();
+
+                if (!marked.TryGetValue(key, out var entry))
+                {
+                    marked[key] = entry = (reader.GetString(0), reader.GetString(1), [], null);
+                }
+
+                entry.Columns.Add(reader.GetString(2));
+            }
+        }
+
+        await using (SqlCommand command = new(
+            """
+            if object_id(N'sde.SDE_table_registry') is not null
+                select r.owner, r.table_name, r.registration_id from sde.SDE_table_registry r
+                 where object_id(quotename(r.owner) + N'.' + quotename(N'a' + cast(r.registration_id as nvarchar(20)))) is not null
+            """, connection))
+        await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                string key = $"{reader.GetString(0)}.{reader.GetString(1)}".ToLowerInvariant();
+                long id = Convert.ToInt64(reader.GetValue(2), CultureInfo.InvariantCulture);
+
+                marked[key] = marked.TryGetValue(key, out var entry)
+                    ? entry with { Versioned = id }
+                    : (reader.GetString(0), reader.GetString(1), [], id);
+            }
+        }
+
+        Dictionary<string, string> refused = new(StringComparer.Ordinal);
+
+        foreach ((string key, var entry) in marked)
+        {
+            if (GeodatabaseClasses.Refusal($"{entry.Schema}.{entry.Table}", entry.Columns, entry.Versioned) is { } why)
+            {
+                refused[key] = why;
+            }
+        }
+
+        return refused;
+    }
+
+    /// <summary>One listed geometry table: offered, or skipped with the reason.</summary>
+    private static async Task DescribeAsync(
+        SqlConnection connection,
+        (string Schema, string Table, string Column, string Type, string Kind, string? Key) row,
+        List<SourceTable> tables,
+        List<SkippedTable> skipped,
+        CancellationToken cancellation)
+    {
+        string name = $"{row.Schema}.{row.Table}";
+
+        if (row.Key is not { } key
+            || await KeyTypeAsync(connection, row.Schema, row.Table, key, cancellation).ConfigureAwait(false) is not
+                ("tinyint" or "smallint" or "int" or "bigint"))
+        {
+            skipped.Add(new SkippedTable(name,
+                "It has no single-column primary key of a whole-number type, which ArcGIS needs as the object id."));
+            return;
+        }
+
+        (int? srid, long others, string? type) = await ShapesAsync(connection, row.Schema, row.Table, row.Column, cancellation)
+            .ConfigureAwait(false);
+
+        if (srid is not { } reference)
+        {
+            skipped.Add(new SkippedTable(name,
+                $"Its column {row.Column} holds no shape yet, and SQL Server keeps a reference per shape rather than per "
+                + "column, so the table's reference cannot be known until it has one."));
+            return;
+        }
+
+        if (others > 0)
+        {
+            skipped.Add(new SkippedTable(name,
+                $"Its column {row.Column} holds shapes in more than one reference: {others:N0} are not in EPSG:{reference}, "
+                + "the first one's. A layer is served in one."));
+            return;
+        }
+
+        tables.Add(new SourceTable(row.Schema, row.Table, row.Column, reference, type, key, key, [key],
+            Writable: await SqlServerConnections.CanWriteAsync(connection, row.Schema, row.Table, cancellation).ConfigureAwait(false)));
     }
 
     /// <summary>

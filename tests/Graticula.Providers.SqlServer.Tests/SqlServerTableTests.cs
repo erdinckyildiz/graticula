@@ -104,6 +104,7 @@ public sealed class SqlServerTableTests
             "create table dbo.zzt_listed__attach (attachmentid int identity primary key, rel_objectid bigint)");
 
         ProbeResult probed = await new SqlServerDataSourceProbe().ProbeAsync(SqlServerFixture.Locator, None);
+        Assert.True(probed.Outcome == ProbeOutcome.Usable, $"The probe answered {probed.Outcome}: {probed.Message} (D-314).");
 
         SourceTable listed = Assert.Single(probed.Tables, t => t.TableName == "zzt_listed");
         Assert.Null(listed.GeometryColumn);

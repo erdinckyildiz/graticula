@@ -51,6 +51,21 @@ public sealed class SqlServerGeodatabaseTests
                 await SqlServerTableChecks.GeodatabaseRefusalAsync(SqlServerFixture.Locator, "dbo", "zzg_versioned", None),
                 StringComparison.Ordinal);
             Assert.Null(await SqlServerTableChecks.GeodatabaseRefusalAsync(SqlServerFixture.Locator, "dbo", "zzg_registered", None));
+
+            // ADR-217 condition 2: the probe skips the same three with the same sentences, and offers the registered one.
+            await SqlServerFixture.ExecuteAsync(
+                "insert into dbo.zzg_registered values (1, geometry::STGeomFromText('POINT (1 1)', 4326))");
+            Graticula.Platform.Admin.ProbeResult probed = await new SqlServerDataSourceProbe().ProbeAsync(SqlServerFixture.Locator, None);
+
+            foreach (string table in (string[])["zzg_branch", "zzg_archive", "zzg_versioned"])
+            {
+                Assert.DoesNotContain(probed.Tables, t => t.TableName == table);
+                Assert.Equal(
+                    await SqlServerTableChecks.GeodatabaseRefusalAsync(SqlServerFixture.Locator, "dbo", table, None),
+                    Assert.Single(probed.Skipped ?? [], s => s.Name == $"dbo.{table}").Reason);
+            }
+
+            Assert.Contains(probed.Tables, t => t.TableName == "zzg_registered");
         }
         finally
         {

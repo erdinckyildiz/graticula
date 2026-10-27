@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
 using Graticula.Platform.Identity;
+using Graticula.Platform.Postgres;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -80,7 +81,7 @@ internal static partial class AdminEndpoints
 
     private static async Task GetProfileAsync(
         HttpContext context, string name, IMemberProfiles profiles, IMemberDirectory directory,
-        CancellationToken cancellation)
+        PostgresSecondFactorStore secondFactors, CancellationToken cancellation)
     {
         MemberProfile? profile = await profiles.GetProfileAsync(name, cancellation).ConfigureAwait(false);
 
@@ -102,6 +103,12 @@ internal static partial class AdminEndpoints
             listed = page.Members.FirstOrDefault(l => l.Member.Name == name);
         }
 
+        // D-307: whether they have a second factor on — to themselves and to whoever manages members, as what they hold
+        // is; to anybody else it would say which accounts a password alone opens.
+        bool? secondFactor = listed is { } known
+            ? (await secondFactors.FindAsync(known.Member.Id, cancellation).ConfigureAwait(false))?.Enabled ?? false
+            : null;
+
         await Results.Json(new
         {
             name = profile.Name,
@@ -118,6 +125,7 @@ internal static partial class AdminEndpoints
             roles = listed?.Member.Roles,
             userType = listed?.Member.UserType,
             lastSignIn = listed?.LastSignIn,
+            secondFactor,
             mayEdit = self || manager,
             mayCategorize = manager,
         }).ExecuteAsync(context).ConfigureAwait(false);
@@ -176,7 +184,9 @@ internal static partial class AdminEndpoints
             return;
         }
 
-        await GetProfileAsync(context, name, profiles, context.RequestServices.GetRequiredService<IMemberDirectory>(), cancellation)
+        await GetProfileAsync(
+            context, name, profiles, context.RequestServices.GetRequiredService<IMemberDirectory>(),
+            context.RequestServices.GetRequiredService<PostgresSecondFactorStore>(), cancellation)
             .ConfigureAwait(false);
     }
 

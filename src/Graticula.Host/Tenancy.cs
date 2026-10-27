@@ -5,9 +5,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Admin;
+using Graticula.Platform.Catalog;
 using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Graticula.Platform.Tenancy;
+using Graticula.Providers.PostGis;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -716,7 +718,9 @@ internal static class TenantEndpoints
     }
 
     private static async Task<IResult> DeleteAsync(
-        HttpContext context, string key, TenantDirectory directory, ITenantStore tenants, IAuditLog audit, CancellationToken cancellation)
+        HttpContext context, string key, TenantDirectory directory, ITenantStore tenants, IAuditLog audit,
+        NpgsqlDataSource root, PostgresLayerCatalog layers, LayerConnections connections, PostGisImporter importer,
+        RecycleBinService recycle, SourceQuiesce quiesce, CancellationToken cancellation)
     {
         if (!await SystemAsync(context, directory).ConfigureAwait(false))
         {
@@ -731,15 +735,57 @@ internal static class TenantEndpoints
         // <b>Purge</b>: the tenant and every row it owns, at the system administrator's explicit word.
         if (string.Equals(context.Request.Query["purge"], "true", StringComparison.OrdinalIgnoreCase))
         {
+            if (directory.All.FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.Ordinal)) is not { IsDefault: false } doomed)
+            {
+                return Refused(404, $"No tenant '{key}'.");
+            }
+
+            Holdings held = await HoldingsOfAsync(root, layers, recycle, doomed.Id, cancellation).ConfigureAwait(false);
+
+            // ADR-207, as every other removal of a registered layer asks it (D-316): a history trigger left on a
+            // customer's table would record to nobody once the organisation that switched it on is gone.
+            List<string> uncheckedLayers = [];
+
+            if (await AdminEndpoints.RegisteredKeepsRefusalAsync(
+                    context, connections, held.Layers, l => $"Layer '{l.Definition.Name}' of '{key}'",
+                    $"removed and '{key}' was kept", uncheckedLayers, cancellation)
+                .ConfigureAwait(false))
+            {
+                return Results.Empty;
+            }
+
+            foreach (PublishedLayer hosted in held.Layers.Where(l => l.Definition.IsHosted))
+            {
+                if (quiesce.Holding(hosted.ConnectionString) is { } outOfService)
+                {
+                    throw new SourceQuiescedException(SourceQuiesce.Says(outOfService), outOfService.Until);
+                }
+            }
+
             if (!await tenants.PurgeAsync(key, cancellation).ConfigureAwait(false))
             {
                 return Refused(404, $"No tenant '{key}'.");
             }
 
-            await directory.RefreshAsync(cancellation).ConfigureAwait(false);
-            await AdminEndpoints.AuditAsync(context, audit, "tenant.purge", key, AdminEndpoints.Detail(new { key }), succeeded: true, cancellation)
+            (List<string> dropped, List<string> failed) = await DropHostedAsync(importer, recycle, held, cancellation)
                 .ConfigureAwait(false);
-            return Results.Ok(new { deleted = key, purged = true, note = "Its hosted tables in the datastore were not dropped." });
+
+            await directory.RefreshAsync(cancellation).ConfigureAwait(false);
+            await AdminEndpoints.AuditAsync(context, audit, "tenant.purge", key,
+                AdminEndpoints.Detail(new { key, dropped, failed, @unchecked = uncheckedLayers }), succeeded: true, cancellation)
+                .ConfigureAwait(false);
+
+            return Results.Ok(new
+            {
+                deleted = key,
+                purged = true,
+                dropped,
+                failed,
+                @unchecked = uncheckedLayers,
+                note = failed.Count == 0
+                    ? $"Its hosted data went with it: {dropped.Count} table(s) and view(s) dropped, the recycle bin's included."
+                    : $"Its rows are gone, and {failed.Count} hosted table(s) could not be dropped: {string.Join("; ", failed)}",
+            });
         }
 
         IReadOnlyList<string> owned = await tenants.DeleteAsync(key, cancellation).ConfigureAwait(false);
@@ -763,5 +809,125 @@ internal static class TenantEndpoints
         await directory.RefreshAsync(cancellation).ConfigureAwait(false);
         await AdminEndpoints.AuditAsync(context, audit, "tenant.delete", key, AdminEndpoints.Detail(new { key }), succeeded: true, cancellation).ConfigureAwait(false);
         return Results.Ok(new { deleted = key });
+    }
+
+    /// <summary>What a purge reaches outside the organisation's catalogue rows — D-316.</summary>
+    /// <param name="Layers">Its layers.</param>
+    /// <param name="Services">Its services, to tell a view's from a table's.</param>
+    /// <param name="Everyone">Every organisation's layers, so a table another one also serves is kept.</param>
+    /// <param name="Bin">Its recycle bin, whose tables wait in the recycle schema.</param>
+    private sealed record Holdings(
+        IReadOnlyList<PublishedLayer> Layers, IReadOnlyList<PublishedService> Services, IReadOnlyList<PublishedLayer> Everyone,
+        IReadOnlyList<RecycleEntry> Bin);
+
+    /// <summary>
+    /// An organisation's layers, services and recycle bin, chosen by the tenant its rows carry — never by entering its
+    /// scope and listing.
+    /// </summary>
+    /// <remarks>
+    /// <b>The floor is not trusted to choose.</b> A store connected as a superuser, or a role with <c>BYPASSRLS</c>, is not
+    /// narrowed by it, and a list taken "as the tenant" would then be every tenant's — and a purge drops the hosted tables
+    /// of what it lists. So the ids come from the root pool by <c>tenant_id</c>, and the catalogue's listings, read as the
+    /// system's work, are filtered by them.
+    /// </remarks>
+    private static async Task<Holdings> HoldingsOfAsync(
+        NpgsqlDataSource root, PostgresLayerCatalog layers, RecycleBinService recycle, Guid tenant, CancellationToken cancellation)
+    {
+        HashSet<Guid> layerIds = await IdsAsync(root, "layer", tenant, cancellation).ConfigureAwait(false);
+        HashSet<Guid> serviceIds = await IdsAsync(root, "service", tenant, cancellation).ConfigureAwait(false);
+        HashSet<Guid> entryIds = await IdsAsync(root, "recycle_entry", tenant, cancellation).ConfigureAwait(false);
+
+        using (TenantScope.Enter(null))
+        {
+            IReadOnlyList<PublishedLayer> everyone = await layers.ListAsync(cancellation).ConfigureAwait(false);
+            IReadOnlyList<PublishedService> services = await layers.ListServicesAsync(cancellation).ConfigureAwait(false);
+            IReadOnlyList<RecycleEntry> bin = await recycle.Bin.ListAsync(cancellation).ConfigureAwait(false);
+
+            return new Holdings(
+                [.. everyone.Where(l => layerIds.Contains(l.Id))],
+                [.. services.Where(s => serviceIds.Contains(s.Id))],
+                everyone,
+                [.. bin.Where(e => entryIds.Contains(e.Id))]);
+        }
+    }
+
+    private static async Task<HashSet<Guid>> IdsAsync(NpgsqlDataSource root, string table, Guid tenant, CancellationToken cancellation)
+    {
+        await using NpgsqlCommand command = root.CreateCommand($"select id from {table} where tenant_id = @tenant");
+        command.Parameters.AddWithValue("tenant", tenant);
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+
+        HashSet<Guid> ids = [];
+
+        while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+        {
+            ids.Add(reader.GetGuid(0));
+        }
+
+        return ids;
+    }
+
+    /// <summary>
+    /// Drops a purged organisation's hosted data — owner decision 2026-10-27 (D-316), as a service's delete drops its own
+    /// (ADR-034 §5k): its recycle bin's waiting tables, its views, then its tables. A table a layer of another
+    /// organisation also serves is kept. Each failure is named and the rest go on, because the rows are already gone and
+    /// stopping would leave more behind, not less.
+    /// </summary>
+    private static async Task<(List<string> Dropped, List<string> Failed)> DropHostedAsync(
+        PostGisImporter importer, RecycleBinService recycle, Holdings held, CancellationToken cancellation)
+    {
+        List<string> dropped = [];
+        List<string> failed = [];
+
+        foreach (RecycleEntry entry in held.Bin)
+        {
+            try
+            {
+                await recycle.PurgeAsync(entry, cancellation).ConfigureAwait(false);
+                dropped.Add($"recycle bin: {entry.Title}");
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                failed.Add($"recycle bin: {entry.Title}: {e.Message}");
+            }
+        }
+
+        HashSet<Guid> views = [.. held.Services.Where(s => s.ViewOf is not null).Select(s => s.Id)];
+        HashSet<Guid> theirs = [.. held.Layers.Select(l => l.Id)];
+
+        foreach (PublishedLayer layer in held.Layers.Where(l => l.Definition.IsHosted).OrderBy(l => views.Contains(l.ServiceId) ? 0 : 1))
+        {
+            bool view = views.Contains(layer.ServiceId);
+            string name = $"{layer.Definition.SchemaName}.{layer.Definition.TableName}";
+
+            if (dropped.Contains(name)
+                || held.Everyone.Any(other => !theirs.Contains(other.Id)
+                    && string.Equals(other.Definition.SchemaName, layer.Definition.SchemaName, StringComparison.Ordinal)
+                    && string.Equals(other.Definition.TableName, layer.Definition.TableName, StringComparison.Ordinal)
+                    && string.Equals(other.ConnectionString, layer.ConnectionString, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            try
+            {
+                if (view)
+                {
+                    await importer.DropViewAsync(layer.Definition.TableName, cancellation).ConfigureAwait(false);
+                }
+                else
+                {
+                    await importer.DropAsync(layer.Definition.SchemaName, layer.Definition.TableName, cancellation).ConfigureAwait(false);
+                }
+
+                dropped.Add(name);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                failed.Add($"{name}: {e.Message}");
+            }
+        }
+
+        return (dropped, failed);
     }
 }

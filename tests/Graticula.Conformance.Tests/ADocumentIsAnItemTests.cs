@@ -186,4 +186,76 @@ public sealed class ADocumentIsAnItemTests : ArcGisClient
         Assert.True(status == HttpStatusCode.UnsupportedMediaType, $"'{fileName}' was answered {(int)status}: {body}");
         Assert.Contains("error", body, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// ADR-214 condition 3: a document is updated and deleted through the portal's door, as a client's
+    /// <c>item.update()</c> and <c>item.delete()</c> send them — until 2026-10-27 both answered
+    /// <i>Item does not exist or is inaccessible</i>.
+    /// </summary>
+    [Fact]
+    public async Task A_document_is_updated_and_deleted_through_the_portal()
+    {
+        string root = await RequireServerAsync();
+        string? admin = await TokenAsync(root);
+        Assert.False(admin is null, "No administrator credential; set the suite's user and password.");
+
+        string user = Uri.EscapeDataString(Environment.GetEnvironmentVariable("GRATICULA_TEST_USER") ?? "root");
+        string tag = Guid.NewGuid().ToString("N")[..8];
+        string? id = null;
+
+        try
+        {
+            (HttpStatusCode made, string madeBody, _) = await SendAsync(
+                root, admin, HttpMethod.Post, "/content/documents", Upload(Pdf, $"survey-{tag}.pdf", $"zz survey {tag}"));
+            Assert.True(made == HttpStatusCode.Created, $"Filing a PDF answered {(int)made}: {madeBody}");
+            id = JsonDocument.Parse(madeBody).RootElement.GetProperty("id").GetString()!;
+
+            // What item.update(item_properties=..., data=path) sends: fields and the file, as one form.
+            byte[] revised = Encoding.ASCII.GetBytes("%PDF-1.7\n% the revised survey\n%%EOF\n");
+            MultipartFormDataContent update = Upload(revised, $"survey-{tag}-v2.pdf", $"zz survey {tag} v2");
+            update.Add(new StringContent("Revised after the field visit"), "description");
+            update.Add(new StringContent("survey, field"), "tags");
+            update.Add(new StringContent("json"), "f");
+
+            (_, string updated, _) = await SendAsync(root, admin, HttpMethod.Post,
+                $"/sharing/rest/content/users/{user}/items/{id}/update", update);
+            Assert.True(updated.Contains("\"success\":true", StringComparison.Ordinal), $"The portal's update answered: {updated}");
+
+            (_, string read, _) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}");
+            JsonElement now = JsonDocument.Parse(read).RootElement;
+            Assert.Equal($"zz survey {tag} v2", now.GetProperty("title").GetString());
+            Assert.Equal("Revised after the field visit", now.GetProperty("description").GetString());
+            Assert.Equal(["field", "survey"], now.GetProperty("tags").EnumerateArray().Select(x => x.GetString()).Order(StringComparer.Ordinal));
+
+            (_, _, HttpResponseMessage file) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}/data");
+            Assert.Equal(revised, await file.Content.ReadAsByteArrayAsync());
+
+            // A field a document does not keep is refused by name, and nothing changes.
+            using FormUrlEncodedContent stray = new([new("accessInformation", "Survey team"), new("title", "should not land"), new("f", "json")]);
+            (_, string refused, _) = await SendAsync(root, admin, HttpMethod.Post, $"/sharing/rest/content/users/{user}/items/{id}/update", stray);
+            Assert.Contains("'accessInformation'", refused, StringComparison.Ordinal);
+            (_, string unchanged, _) = await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}");
+            Assert.Equal($"zz survey {tag} v2", JsonDocument.Parse(unchanged).RootElement.GetProperty("title").GetString());
+
+            // item.delete(): into the recycle bin, as Studio's delete puts it.
+            using FormUrlEncodedContent json = new([new("f", "json")]);
+            (_, string deleted, _) = await SendAsync(root, admin, HttpMethod.Post, $"/sharing/rest/content/users/{user}/items/{id}/delete", json);
+            Assert.True(deleted.Contains("\"success\":true", StringComparison.Ordinal), $"The portal's delete answered: {deleted}");
+            Assert.Equal(HttpStatusCode.NotFound, (await SendAsync(root, admin, HttpMethod.Get, $"/content/documents/{id}")).Status);
+
+            (_, string bin, _) = await SendAsync(root, admin, HttpMethod.Get, "/admin/recycle-bin");
+            JsonElement entry = JsonDocument.Parse(bin).RootElement.GetProperty("entries").EnumerateArray()
+                .FirstOrDefault(e => e.GetProperty("item").GetString() == Guid.Parse(id).ToString("N"));
+            Assert.True(entry.ValueKind == JsonValueKind.Object, $"The deleted document is not in the recycle bin: {bin}");
+            await SendAsync(root, admin, HttpMethod.Delete, $"/admin/recycle-bin/{entry.GetProperty("id").GetString()}");
+            id = null;
+        }
+        finally
+        {
+            if (id is not null)
+            {
+                await SendAsync(root, admin, HttpMethod.Delete, $"/content/documents/{id}");
+            }
+        }
+    }
 }
