@@ -163,9 +163,18 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
         List<SourceTable> tables = [];
         List<SkippedTable> skipped = [];
 
+        // ADR-217 condition 2: what publish refuses is not offered, and the sentence is the one it answers.
+        IReadOnlyDictionary<string, string> refused = await GeodatabaseRefusalsAsync(connection, cancellation).ConfigureAwait(false);
+
         foreach (var row in found)
         {
             string name = $"{row.Owner}.{row.Table}";
+
+            if (refused.TryGetValue(name.ToUpperInvariant(), out string? geodatabase))
+            {
+                skipped.Add(new SkippedTable(name, geodatabase));
+                continue;
+            }
 
             if (row.Srid is not { } srid)
             {
@@ -206,8 +215,90 @@ public sealed class OracleDataSourceProbe : IDataSourceProbe
                 Writable: await OracleConnections.CanWriteAsync(connection, row.Owner, row.Table, cancellation).ConfigureAwait(false)));
         }
 
-        tables.AddRange(await PlainTablesAsync(connection, cancellation).ConfigureAwait(false));
+        foreach (SourceTable plain in await PlainTablesAsync(connection, cancellation).ConfigureAwait(false))
+        {
+            string name = $"{plain.SchemaName}.{plain.TableName}";
+
+            if (refused.TryGetValue(name.ToUpperInvariant(), out string? geodatabase))
+            {
+                skipped.Add(new SkippedTable(name, geodatabase));
+            }
+            else
+            {
+                tables.Add(plain);
+            }
+        }
+
         return (tables, skipped);
+    }
+
+    /// <summary>
+    /// Every table an enterprise geodatabase in this database versions or archives, keyed by owner and table in upper
+    /// case, with the sentence a publish of it answers — ADR-217 condition 2. Two reads for the whole database, the
+    /// marker columns and the registry's versioned classes, as <see cref="OracleTableChecks.GeodatabaseRefusalAsync"/>
+    /// reads them for one table; the sentence is <see cref="GeodatabaseClasses.Refusal"/>'s, so the listing and the
+    /// publish cannot say two things.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<string, string>> GeodatabaseRefusalsAsync(
+        OracleConnection connection, CancellationToken cancellation)
+    {
+        Dictionary<string, (string Owner, string Table, List<string> Columns, long? Versioned)> marked = new(StringComparer.Ordinal);
+
+        string markers = string.Join(", ", GeodatabaseClasses.MarkerColumns.Select(m => $"'{m}'"));
+
+        await using (OracleCommand command = new(
+            $"select owner, table_name, column_name from all_tab_columns where upper(column_name) in ({markers})", connection))
+        await using (OracleDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                string key = $"{reader.GetString(0)}.{reader.GetString(1)}".ToUpperInvariant();
+
+                if (!marked.TryGetValue(key, out var entry))
+                {
+                    marked[key] = entry = (reader.GetString(0), reader.GetString(1), [], null);
+                }
+
+                entry.Columns.Add(reader.GetString(2));
+            }
+        }
+
+        // The registry an Oracle geodatabase keeps as SDE.TABLE_REGISTRY, readable only where granted.
+        try
+        {
+            await using OracleCommand command = new(
+                """
+                select r.owner, r.table_name, r.registration_id from sde.table_registry r
+                 where exists (select 1 from all_tables a where a.owner = r.owner and a.table_name = 'A' || r.registration_id)
+                """, connection);
+            await using OracleDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                string key = $"{reader.GetString(0)}.{reader.GetString(1)}".ToUpperInvariant();
+                long id = Convert.ToInt64(reader.GetValue(2), System.Globalization.CultureInfo.InvariantCulture);
+
+                marked[key] = marked.TryGetValue(key, out var entry)
+                    ? entry with { Versioned = id }
+                    : (reader.GetString(0), reader.GetString(1), [], id);
+            }
+        }
+        catch (OracleException)
+        {
+            // No geodatabase registry here, or not readable: the columns still say what they say.
+        }
+
+        Dictionary<string, string> refused = new(StringComparer.Ordinal);
+
+        foreach ((string key, var entry) in marked)
+        {
+            if (GeodatabaseClasses.Refusal($"{entry.Owner}.{entry.Table}", entry.Columns, entry.Versioned) is { } why)
+            {
+                refused[key] = why;
+            }
+        }
+
+        return refused;
     }
 
     /// <summary>
