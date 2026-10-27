@@ -441,8 +441,8 @@ public sealed class MySqlFeatureWriterRuleTests
     [Fact]
     public async Task A_table_whose_key_is_not_made_by_the_database_refuses_adds_and_takes_updates()
     {
-        MySqlFeatureWriter writer = await WriterAsync("zzw_plain_key", keyMade: false);
-        await ExecuteAsync("insert into zzw_plain_key (objectid, label, shape) values (7, 'seven', st_geomfromtext('POINT(40 30)', 4326))");
+        MySqlFeatureWriter writer = await WriterAsync("zzw_plain_key_rule", keyMade: false);
+        await ExecuteAsync("insert into zzw_plain_key_rule (objectid, label, shape) values (7, 'seven', st_geomfromtext('POINT(40 30)', 4326))");
 
         EditOutcome outcome = await writer.ApplyAsync(
             new EditBatch([Add(("label", "new"))], [Change(7, ("label", "changed"))], [], RollbackOnFailure: false), None);
@@ -450,7 +450,7 @@ public sealed class MySqlFeatureWriterRuleTests
         Assert.False(outcome.Adds[0].Succeeded);
         Assert.Contains("does not make it", outcome.Adds[0].Error!, StringComparison.Ordinal);
         Assert.True(outcome.Updates[0].Succeeded, outcome.Updates[0].Error);
-        Assert.Equal("changed", await LabelAsync("zzw_plain_key", 7));
+        Assert.Equal("changed", await LabelAsync("zzw_plain_key_rule", 7));
     }
 
     /// <summary>
