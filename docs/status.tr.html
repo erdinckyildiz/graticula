@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>731e5876</code> · 2026-10-27 12:47</p>
+<p class="stamp">Şu commit’ten üretildi: <code>cfc8d9c4</code> · 2026-10-27 13:24</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">219</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">450/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">452/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">78 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">196 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">açık borç</div><div class="kpi-n">290 ödendi · 5 tetiğini bekliyor · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5489</div><div class="kpi-l">test</div><div class="kpi-n">588 kaynak dosya, 261,421 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5491</div><div class="kpi-l">test</div><div class="kpi-n">589 kaynak dosya, 261,867 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">101 madde</span></div><p><b>80 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">99 madde</span></div><p><b>78 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -134,8 +134,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">9</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:67%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:44%"></div></div><div class="bar-n">4</div></div>
-<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
@@ -147,6 +145,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-203 · A deleted item waits in the recycl</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-210 · A registered SQL Server database i</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-211 · Tables of an attached DuckDB file </div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-214 · The portal&#x27;s item writes do what t</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-217 · A versioned or archived geodatabas</div><div class="bar-t"><div class="bar-f" style="width:22%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:11%"></div></div><div class="bar-n">1</div></div>
@@ -409,10 +409,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">211</td><td>Tables of an attached DuckDB file or MotherDuck database are edited</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 <tr><td class="id">212</td><td>Editor tracking and attachments on every registered database&#x27;s layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">213</td><td>A layer may be a table: ArcGIS&#x27;s standalone table</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH</td><td class="num">10/10</td></tr>
-<tr><td class="id">214</td><td>The portal&#x27;s item writes do what they answer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">214</td><td>The portal&#x27;s item writes do what they answer</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 <tr><td class="id">215</td><td>What ArcGIS ignores is not refused</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">216</td><td>The organisation has one id, at every address</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
-<tr><td class="id">217</td><td>A versioned or archived geodatabase class is refused, not served wrongly</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">217</td><td>A versioned or archived geodatabase class is refused, not served wrongly</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
 <tr><td class="id">218</td><td>A pinned service is kept warm</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for what goes cold, which is measured · MEDIUM for the limit, which is not</td><td class="num">2/3</td></tr>
 <tr><td class="id">219</td><td>Two organisations partner before their groups mix</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the shape, which is ArcGIS Online&#x27;s · MEDIUM for what this version leaves out…</td><td class="num">3/4</td></tr>
 <tr><td class="id">220</td><td>An item may be shared with every organisation on the server</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reading rule, which is one line in the one place reading is decided · MEDIUM…</td><td class="num">5/5</td></tr>
@@ -552,8 +552,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1510</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:62.3%"></div></div><div class="bar-n">941</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.7%"></div></div><div class="bar-n">856</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.0%"></div></div><div class="bar-n">559</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.8%"></div></div><div class="bar-n">857</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.1%"></div></div><div class="bar-n">560</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">423</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:22.6%"></div></div><div class="bar-n">341</div></div>
 <div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">237</div></div>
@@ -568,6 +568,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">23</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>cfc8d9c4</code><time>2026-10-27</time><span>Backups go through the maintenance connection and a restore keeps its foreign keys; the SQL Server probe survives a dropped table; members say who has a second factor (D-315, D-317, D-314, D-307)</span></li>
 <li><code>731e5876</code><time>2026-10-27</time><span>A purged organisation asks about a registered layer&#x27;s history first, and takes its hosted data with it (D-316)</span></li>
 <li><code>d4b5d2a5</code><time>2026-10-27</time><span>Owner confirms Q-191: a layer whose database is gone is removed with unchecked=true, by whoever may delete it (ADR-207, D-312)</span></li>
 <li><code>78791215</code><time>2026-10-27</time><span>A registered layer is published only from a source with PostGIS, and leaves nothing recording when it goes (D-309, D-311, D-312)</span></li>
@@ -581,7 +582,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>3cadc661</code><time>2026-10-25</time><span>An organisation&#x27;s custom roles are its own, and a member&#x27;s groups in other organisations are listed at home (ADR-204 condition 16, §5e items 17.4 and 18)</span></li>
 <li><code>b3d44746</code><time>2026-10-25</time><span>ArcGIS Online&#x27;s documents behind ADR-204&#x27;s claims, and what it does that this does not (ADR-204 condition 7, §5e item 17)</span></li>
 <li><code>afe99e45</code><time>2026-10-24</time><span>A member of another organisation is told how to sign in, and the group screen admits them properly (ADR-204 §5e item 16)</span></li>
-<li><code>22ede347</code><time>2026-10-24</time><span>Each organisation holds a share of the process&#x27;s budget and of the tile cache; the showcase serves as a bound role (ADR-204 condition 6, condition 9)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

@@ -141,20 +141,44 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
 
             try
             {
-                IReadOnlyList<SourceTable> tables =
+                IReadOnlyList<SourceTable> listed =
                     await ListTablesAsync(connection, cancellationToken).ConfigureAwait(false);
+
+                // ADR-217 condition 2: what publish refuses is not offered. A versioned or archived geodatabase class
+                // is listed as skipped, with the sentence the publish would answer.
+                IReadOnlyDictionary<string, string> refused =
+                    await GeodatabaseRefusalsAsync(connection, cancellationToken).ConfigureAwait(false);
+                List<SkippedTable> skipped = [];
+                List<SourceTable> tables = [];
+
+                foreach (SourceTable table in listed)
+                {
+                    if (refused.TryGetValue(GeodatabaseKey(table.SchemaName, table.TableName), out string? why))
+                    {
+                        skipped.Add(new SkippedTable($"{table.SchemaName}.{table.TableName}", why));
+                    }
+                    else
+                    {
+                        tables.Add(table);
+                    }
+                }
 
                 if (tables.Count == 0)
                 {
                     return new ProbeResult(
                         ProbeOutcome.UnusableGeometry,
-                        "Connected, with PostGIS present, but this credential can see no table "
-                        + "with a geometry column carrying a declared SRID, and no table without one. "
-                        + "Either there is nothing to publish, or select has not been granted on the "
-                        + "tables you expect — only what you may read is listed.",
+                        skipped.Count > 0
+                            ? $"Connected, with PostGIS present, and nothing here can be published as it is: the "
+                              + $"{skipped.Count} table(s) this credential can see are versioned or archived "
+                              + "geodatabase classes (ADR-217)."
+                            : "Connected, with PostGIS present, but this credential can see no table "
+                              + "with a geometry column carrying a declared SRID, and no table without one. "
+                              + "Either there is nothing to publish, or select has not been granted on the "
+                              + "tables you expect — only what you may read is listed.",
                         serverVersion,
                         postgis,
-                        []);
+                        [],
+                        skipped);
                 }
 
                 // <b>Reachable is not the same as safely reached -- D-190.</b> The probe's
@@ -182,7 +206,8 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                     connected,
                     serverVersion,
                     postgis,
-                    tables);
+                    tables,
+                    skipped);
             }
             catch (PostgresException e) when (e.SqlState == "42501")
             {
@@ -217,6 +242,83 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
     /// the first query.
     /// </para>
     /// </remarks>
+    private static string GeodatabaseKey(string schema, string table) =>
+        $"{schema.ToLowerInvariant()}.{table.ToLowerInvariant()}";
+
+    /// <summary>
+    /// Every table an enterprise geodatabase in this database versions or archives, keyed by schema and table in lower
+    /// case, with the sentence a publish of it answers — ADR-217 condition 2.
+    /// </summary>
+    /// <remarks>
+    /// <b>Two reads for the whole database</b>, not two per table: the marker columns
+    /// (<see cref="GeodatabaseClasses.MarkerColumns"/>) and, where the registry exists, the classes registered as
+    /// versioned whose delta table is there. The sentence is <see cref="GeodatabaseClasses.Refusal"/>'s, the one the
+    /// publish answers, so the listing and the refusal cannot say two things.
+    /// </remarks>
+    private static async Task<IReadOnlyDictionary<string, string>> GeodatabaseRefusalsAsync(
+        NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        Dictionary<string, (string Schema, string Table, List<string> Columns, long? Versioned)> marked = new(StringComparer.Ordinal);
+
+        await using (NpgsqlCommand columns = new(
+            "select table_schema, table_name, column_name from information_schema.columns where upper(column_name) = any(@markers)",
+            connection))
+        {
+            columns.Parameters.AddWithValue("markers", GeodatabaseClasses.MarkerColumns.ToArray());
+            await using NpgsqlDataReader reader = await columns.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                string key = GeodatabaseKey(reader.GetString(0), reader.GetString(1));
+
+                if (!marked.TryGetValue(key, out var entry))
+                {
+                    marked[key] = entry = (reader.GetString(0), reader.GetString(1), [], null);
+                }
+
+                entry.Columns.Add(reader.GetString(2));
+            }
+        }
+
+        await using (NpgsqlCommand registry = new(
+            """
+            select r.owner, r.table_name, r.registration_id from sde.sde_table_registry r
+             where to_regclass(quote_ident(r.owner) || '.a' || r.registration_id) is not null
+            """, connection))
+        {
+            try
+            {
+                await using NpgsqlDataReader reader = await registry.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+                while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    string key = GeodatabaseKey(reader.GetString(0), reader.GetString(1));
+                    long id = Convert.ToInt64(reader.GetValue(2), System.Globalization.CultureInfo.InvariantCulture);
+
+                    marked[key] = marked.TryGetValue(key, out var entry)
+                        ? entry with { Versioned = id }
+                        : (reader.GetString(0), reader.GetString(1), [], id);
+                }
+            }
+            catch (PostgresException missing) when (missing.SqlState is "42P01" or "3F000" or "42501")
+            {
+                // No geodatabase registry here, or not readable: the columns still say what they say.
+            }
+        }
+
+        Dictionary<string, string> refused = new(StringComparer.Ordinal);
+
+        foreach ((string key, var entry) in marked)
+        {
+            if (GeodatabaseClasses.Refusal($"{entry.Schema}.{entry.Table}", entry.Columns, entry.Versioned) is { } why)
+            {
+                refused[key] = why;
+            }
+        }
+
+        return refused;
+    }
+
     private static async Task<IReadOnlyList<SourceTable>> ListTablesAsync(
         NpgsqlConnection connection, CancellationToken cancellationToken)
     {

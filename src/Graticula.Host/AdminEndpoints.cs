@@ -9606,9 +9606,17 @@ internal static partial class AdminEndpoints
             return null;
         }
 
+        return await GeodatabaseRefusalOfAsync(connection, publication.SchemaName, publication.TableName, cancellation)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>The same question of a table by its source's connection — ADR-217; also the scan of what was published before it.</summary>
+    internal static async Task<string?> GeodatabaseRefusalOfAsync(
+        string connection, string schemaName, string tableName, CancellationToken cancellation)
+    {
         if (SqlEngines.For(connection) is { } sql)
         {
-            return await sql.GeodatabaseRefusalAsync(connection, publication.SchemaName, publication.TableName, cancellation)
+            return await sql.GeodatabaseRefusalAsync(connection, schemaName, tableName, cancellation)
                 .ConfigureAwait(false);
         }
 
@@ -9623,8 +9631,8 @@ internal static partial class AdminEndpoints
             await using (NpgsqlCommand command = new(
                 "select column_name from information_schema.columns where table_schema = @s and table_name = @t", open))
             {
-                command.Parameters.AddWithValue("s", publication.SchemaName);
-                command.Parameters.AddWithValue("t", publication.TableName);
+                command.Parameters.AddWithValue("s", schemaName);
+                command.Parameters.AddWithValue("t", tableName);
                 await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
 
                 while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
@@ -9643,8 +9651,8 @@ internal static partial class AdminEndpoints
                    and to_regclass(quote_ident(@s) || '.a' || r.registration_id) is not null
                 """, open))
             {
-                command.Parameters.AddWithValue("s", publication.SchemaName);
-                command.Parameters.AddWithValue("t", publication.TableName);
+                command.Parameters.AddWithValue("s", schemaName);
+                command.Parameters.AddWithValue("t", tableName);
 
                 try
                 {
@@ -9659,7 +9667,7 @@ internal static partial class AdminEndpoints
                 }
             }
 
-            return GeodatabaseClasses.Refusal($"{publication.SchemaName}.{publication.TableName}", columns, versioned);
+            return GeodatabaseClasses.Refusal($"{schemaName}.{tableName}", columns, versioned);
         }
         catch (Exception e) when (e is NpgsqlException or ArgumentException or InvalidOperationException or TimeoutException)
         {

@@ -80,9 +80,21 @@ markers, and the exemption of registered-only tables.
 1. **Measured against a real enterprise geodatabase** — a branch-versioned, an archived and a traditionally versioned
    class in SQL Server or Oracle, made by ArcGIS Pro — before this is called done.
 2. **The probe says it too**: a source's table listing marks these classes as skipped with the same sentence, so the
-   console does not offer what publish refuses.
+   console does not offer what publish refuses. **PARTLY DISCHARGED 2026-10-27 — PostgreSQL and SQL Server.** Each probe
+   reads the marker columns and the registry's versioned classes once for the whole database and lists those classes
+   under *skipped* with `GeodatabaseClasses.Refusal`'s sentence — the publish's own, so the two cannot say different
+   things. Measured: `GeodatabaseClassesAreSkippedByTheProbeTests` (PostgreSQL) failed against the probe before it,
+   with the branch-versioned class offered, and passes now; `SqlServerGeodatabaseTests` asserts each skip's reason equals
+   the publish's refusal of the same table, and that a class only registered is still offered. **Open: Oracle**, whose
+   probe has not been given it — the only Oracle this work can be measured on is the one the owner stopped on
+   2026-10-20, and an untested probe change is not shipped as done.
 3. **What is already published is checked once**: a layer published before this ADR from such a class keeps being
-   served wrongly until somebody looks; a one-off scan at upgrade could say which.
+   served wrongly until somebody looks; a one-off scan at upgrade could say which. **DISCHARGED 2026-10-27** —
+   `GeodatabaseClassScan`, thirty seconds after start: every registered PostgreSQL, SQL Server and Oracle layer is asked
+   the publish's question, and each one it refuses is named in the log with its sentence (event 2359) and counted
+   (2360); nothing is unpublished, because that would be this server deciding about somebody's layer alone. Measured on
+   the fixture: a registered PostGIS layer published, its table then given `gdb_branch_id`, the server restarted — the
+   log named that layer and only that layer of the fixture's registered ones.
 
 ## 6. Consequences
 

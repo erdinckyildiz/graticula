@@ -44,6 +44,14 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
         {
             await using SqlConnection connection = await SqlServerConnections.OpenAsync(driver, cancellationToken).ConfigureAwait(false);
 
+            // <b>The catalogue is read without waiting on DDL's locks — D-314.</b> A probe only describes, so seeing a
+            // table another session is creating or dropping costs nothing (a vanished one is passed over below), while
+            // waiting for its locks made the probe a deadlock victim whenever DDL ran beside it.
+            await using (SqlCommand dirty = new("set transaction isolation level read uncommitted", connection))
+            {
+                await dirty.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             string version = connection.ServerVersion;
             int level;
 
@@ -166,8 +174,17 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
         List<SourceTable> tables = [];
         List<SkippedTable> skipped = [];
 
+        // ADR-217 condition 2: what publish refuses is not offered, and the sentence is the one it answers.
+        IReadOnlyDictionary<string, string> refused = await GeodatabaseRefusalsAsync(connection, cancellation).ConfigureAwait(false);
+
         foreach (var row in found)
         {
+            if (refused.TryGetValue($"{row.Schema}.{row.Table}".ToLowerInvariant(), out string? why))
+            {
+                skipped.Add(new SkippedTable($"{row.Schema}.{row.Table}", why));
+                continue;
+            }
+
             try
             {
                 await DescribeAsync(connection, row, tables, skipped, cancellation).ConfigureAwait(false);
@@ -179,8 +196,83 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
             }
         }
 
-        tables.AddRange(await PlainTablesAsync(connection, cancellation).ConfigureAwait(false));
+        foreach (SourceTable plain in await PlainTablesAsync(connection, cancellation).ConfigureAwait(false))
+        {
+            if (refused.TryGetValue($"{plain.SchemaName}.{plain.TableName}".ToLowerInvariant(), out string? why))
+            {
+                skipped.Add(new SkippedTable($"{plain.SchemaName}.{plain.TableName}", why));
+            }
+            else
+            {
+                tables.Add(plain);
+            }
+        }
+
         return (tables, skipped);
+    }
+
+    /// <summary>
+    /// Every table an enterprise geodatabase in this database versions or archives, keyed by schema and table in lower
+    /// case, with the sentence a publish of it answers — ADR-217 condition 2. Two reads for the whole database, the
+    /// marker columns and the registry's versioned classes, as <see cref="SqlServerTableChecks.GeodatabaseRefusalAsync"/>
+    /// reads them for one table; the sentence is <see cref="GeodatabaseClasses.Refusal"/>'s, so the listing and the
+    /// publish cannot say two things.
+    /// </summary>
+    private static async Task<IReadOnlyDictionary<string, string>> GeodatabaseRefusalsAsync(
+        SqlConnection connection, CancellationToken cancellation)
+    {
+        Dictionary<string, (string Schema, string Table, List<string> Columns, long? Versioned)> marked = new(StringComparer.Ordinal);
+
+        string markers = string.Join(", ", GeodatabaseClasses.MarkerColumns.Select(m => $"'{m}'"));
+
+        await using (SqlCommand command = new(
+            $"select TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME from INFORMATION_SCHEMA.COLUMNS where upper(COLUMN_NAME) in ({markers})",
+            connection))
+        await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                string key = $"{reader.GetString(0)}.{reader.GetString(1)}".ToLowerInvariant();
+
+                if (!marked.TryGetValue(key, out var entry))
+                {
+                    marked[key] = entry = (reader.GetString(0), reader.GetString(1), [], null);
+                }
+
+                entry.Columns.Add(reader.GetString(2));
+            }
+        }
+
+        await using (SqlCommand command = new(
+            """
+            if object_id(N'sde.SDE_table_registry') is not null
+                select r.owner, r.table_name, r.registration_id from sde.SDE_table_registry r
+                 where object_id(quotename(r.owner) + N'.' + quotename(N'a' + cast(r.registration_id as nvarchar(20)))) is not null
+            """, connection))
+        await using (SqlDataReader reader = await command.ExecuteReaderAsync(cancellation).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+            {
+                string key = $"{reader.GetString(0)}.{reader.GetString(1)}".ToLowerInvariant();
+                long id = Convert.ToInt64(reader.GetValue(2), CultureInfo.InvariantCulture);
+
+                marked[key] = marked.TryGetValue(key, out var entry)
+                    ? entry with { Versioned = id }
+                    : (reader.GetString(0), reader.GetString(1), [], id);
+            }
+        }
+
+        Dictionary<string, string> refused = new(StringComparer.Ordinal);
+
+        foreach ((string key, var entry) in marked)
+        {
+            if (GeodatabaseClasses.Refusal($"{entry.Schema}.{entry.Table}", entry.Columns, entry.Versioned) is { } why)
+            {
+                refused[key] = why;
+            }
+        }
+
+        return refused;
     }
 
     /// <summary>One listed geometry table: offered, or skipped with the reason.</summary>

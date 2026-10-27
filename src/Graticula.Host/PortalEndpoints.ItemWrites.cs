@@ -86,14 +86,16 @@ internal static partial class PortalEndpoints
             .Governed(SharingGovernedExtensions.ByOwnership).DisableAntiforgery();
     }
 
-    /// <summary>What an item id names, as this portal can change it.</summary>
-    private sealed record WritableItem(PublishedService? Service, WebMap? Map)
+    /// <summary>What an item id names, as this portal can change it: a service, a web map or a document (ADR-214 condition 3).</summary>
+    private sealed record WritableItem(PublishedService? Service, WebMap? Map, Document? Document = null)
     {
-        public Guid ItemGuid => Service?.Id ?? Guid.Parse(Map!.Id);
+        public Guid ItemGuid => Service?.Id ?? Guid.Parse(Map?.Id ?? Document!.Id);
 
-        public Guid? Owner => Service is not null ? Service.Owner : Map!.Owner;
+        public Guid? Owner => Service is not null ? Service.Owner : Map is not null ? Map.Owner : Document!.Owner;
 
-        public string Title => Service?.Name ?? Map!.Title;
+        public string Title => Service?.Name ?? Map?.Title ?? Document!.Title;
+
+        public string Kind => Service is not null ? "service" : Map is not null ? "web map" : "document";
     }
 
     /// <summary>The service — by any of its faces' item ids — or the web map an id names; null when it names neither.</summary>
@@ -115,8 +117,16 @@ internal static partial class PortalEndpoints
 
         IWebMapStore maps = context.RequestServices.GetRequiredService<IWebMapStore>();
 
-        return WebMaps.IsId(id) && await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map
-            ? new WritableItem(null, map)
+        if (WebMaps.IsId(id) && await maps.FindAsync(id, cancellation).ConfigureAwait(false) is { } map)
+        {
+            return new WritableItem(null, map);
+        }
+
+        // A file a member uploaded (ADR-188): it answered "does not exist" here until ADR-214 condition 3.
+        IDocumentStore documents = context.RequestServices.GetRequiredService<IDocumentStore>();
+
+        return Guid.TryParse(id, out _) && await documents.FindAsync(id, cancellation).ConfigureAwait(false) is { } document
+            ? new WritableItem(null, null, document)
             : null;
     }
 
@@ -129,13 +139,9 @@ internal static partial class PortalEndpoints
     /// map, its title, snippet, description, tags, picture, terms, categories and — as <c>text</c> — its document.
     /// </summary>
     private static async Task<IResult> UpdateUserItemAsync(
-        HttpContext context, IAdminCatalog catalog, IWebMapStore maps, IItemAnnotationStore annotations, ItemAnnotations held,
-        IAuditLog audit, string username, string id, CancellationToken cancellation)
+        HttpContext context, IAdminCatalog catalog, IWebMapStore maps, IDocumentStore documents, IItemAnnotationStore annotations,
+        ItemAnnotations held, IAuditLog audit, string username, string id, CancellationToken cancellation)
     {
-        IFormCollection form = context.Request.HasFormContentType
-            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
-            : FormCollection.Empty;
-
         if (Self(context, username) is not { } current)
         {
             return Unknown("User");
@@ -149,6 +155,38 @@ internal static partial class PortalEndpoints
         if (!Manages(current, item))
         {
             return PortalError(403, $"'{item.Title}' is not yours to change.");
+        }
+
+        // Read once the item is known: a document's file may be as large as a document may be (ADR-188), past the
+        // request body's ordinary limit.
+        long documentLimit = AdminEndpoints.MaximumDocumentBytes(context);
+        IFormCollection form;
+
+        if (!context.Request.HasFormContentType)
+        {
+            form = FormCollection.Empty;
+        }
+        else
+        {
+            if (item.Document is not null
+                && context.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bodyLimit)
+            {
+                bodyLimit.MaxRequestBodySize = documentLimit + (1024 * 1024);
+            }
+
+            try
+            {
+                form = await context.Request.ReadFormAsync(
+                    new Microsoft.AspNetCore.Http.Features.FormOptions
+                    {
+                        MultipartBodyLengthLimit = item.Document is not null ? documentLimit + (1024 * 1024) : 128L * 1024 * 1024,
+                    },
+                    cancellation).ConfigureAwait(false);
+            }
+            catch (Exception e) when (e is InvalidDataException or BadHttpRequestException { StatusCode: StatusCodes.Status413PayloadTooLarge })
+            {
+                return PortalError(413, $"'{item.Title}' was not changed: {AdminEndpoints.DocumentTooLarge(documentLimit)}");
+            }
         }
 
         Dictionary<string, string> sent = new(StringComparer.OrdinalIgnoreCase);
@@ -165,21 +203,28 @@ internal static partial class PortalEndpoints
 
         HashSet<string> kept = item.Service is not null
             ? new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "accessInformation", "licenseInfo", "categories" }
-            : new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "text", "thumbnail" };
+            : item.Map is not null
+                ? new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "text", "thumbnail" }
+                : new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "file" };
 
         string[] refused = [.. sent.Keys.Where(k => !kept.Contains(k) && !EchoedFields.Contains(k)).Order(StringComparer.Ordinal)];
 
-        // A picture is a file, not a field; for a service it is drawn from its layers, never kept.
+        // A picture is a file, not a field; for a service it is drawn from its layers, never kept. A document's one file
+        // is the document itself.
         if (item.Service is not null && form.Files.Count > 0)
         {
             refused = [.. refused, .. form.Files.Select(f => f.Name)];
+        }
+        else if (item.Document is not null)
+        {
+            refused = [.. refused, .. form.Files.Where(f => f.Name != "file").Select(f => f.Name)];
         }
 
         if (refused.Length > 0)
         {
             return PortalError(400,
                 $"'{item.Title}' was not changed: this portal does not keep {string.Join(", ", refused.Select(r => $"'{r}'"))} "
-                + $"for a {(item.Service is not null ? "service" : "web map")} item, and an update is made whole or not at all.");
+                + $"for a {item.Kind} item, and an update is made whole or not at all.");
         }
 
         // Categories and terms are checked before anything is written, so a bad one changes nothing.
@@ -202,7 +247,14 @@ internal static partial class PortalEndpoints
 
         string? Given(string key) => sent.TryGetValue(key, out string? value) ? value.Trim() : null;
 
-        if (item.Service is { } service)
+        if (item.Document is { } file)
+        {
+            if (await UpdateDocumentAsync(file, Given, form, documentLimit, documents, cancellation).ConfigureAwait(false) is { } why)
+            {
+                return why;
+            }
+        }
+        else if (item.Service is { } service)
         {
             // A service's title is its name, which an update does not rename; the same title echoed back is no change.
             if (Given("title") is { Length: > 0 } title && !string.Equals(title, service.Name, StringComparison.Ordinal))
@@ -343,11 +395,92 @@ internal static partial class PortalEndpoints
         }
 
         await AdminEndpoints.AuditAsync(
-            context, audit, item.Service is not null ? "service.update" : "webmap.update", id,
+            context, audit, item.Service is not null ? "service.update" : item.Map is not null ? "webmap.update" : "document.update", id,
             AdminEndpoints.Detail(new { from = "portal", fields = sent.Keys.Where(kept.Contains).Order(StringComparer.Ordinal) }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         return Results.Ok(new { success = true, id });
+    }
+
+    /// <summary>
+    /// A document's part of an item update — ADR-214 condition 3: its title, summary, description, tags and file, checked
+    /// whole before any is written, by the console's own rules (ADR-188). Null when it is done, or the refusal.
+    /// </summary>
+    private static async Task<IResult?> UpdateDocumentAsync(
+        Document document, Func<string, string?> given, IFormCollection form, long limit, IDocumentStore documents,
+        CancellationToken cancellation)
+    {
+        string title = given("title") is { Length: > 0 } named ? named : document.Title;
+        string? snippet = given("snippet") is { } said ? (said.Length == 0 ? null : said) : document.Snippet;
+
+        if (AdminEndpoints.DescribedRefusal(title, snippet) is { } described)
+        {
+            return PortalError(400, $"'{document.Title}' was not changed: {described}");
+        }
+
+        string? description = given("description");
+
+        if (description is { Length: > 64_000 })
+        {
+            return PortalError(400, $"'{document.Title}' was not changed: a description is at most 64,000 characters.");
+        }
+
+        IReadOnlyList<string>? tags = null;
+
+        if (given("tags") is { } tagText && (tags = ItemTags.Normalise(tagText.Split(','), out string? why)) is null)
+        {
+            return PortalError(400, $"'{document.Title}' was not changed: {why}");
+        }
+
+        (string FileName, DocumentKind Kind, byte[] Content)? replacement = null;
+
+        if (form.Files.GetFile("file") is { } file)
+        {
+            if (file.Length == 0 || file.Length > limit)
+            {
+                return PortalError(file.Length == 0 ? 400 : 413,
+                    $"'{document.Title}' was not changed: "
+                    + (file.Length == 0 ? "the file is empty." : AdminEndpoints.DocumentTooLarge(limit)));
+            }
+
+            byte[] content = new byte[file.Length];
+
+            await using (Stream stream = file.OpenReadStream())
+            {
+                await stream.ReadExactlyAsync(content, cancellation).ConfigureAwait(false);
+            }
+
+            if (Documents.Recognise(file.FileName, content.AsSpan(0, Math.Min(content.Length, 4096)), out string? unknown) is not { } kind)
+            {
+                return PortalError(415, $"'{document.Title}' was not changed: {unknown}");
+            }
+
+            replacement = (Documents.CleanFileName(file.FileName, kind), kind, content);
+        }
+
+        if (title != document.Title || snippet != document.Snippet)
+        {
+            await documents.UpdateAsync(document.Id, title, snippet, document.Sharing, cancellation).ConfigureAwait(false);
+        }
+
+        if (description is not null)
+        {
+            await documents.SetDescriptionAsync(document.Id, description.Length == 0 ? null : description, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        if (tags is not null)
+        {
+            await documents.SetTagsAsync(document.Id, tags, cancellation).ConfigureAwait(false);
+        }
+
+        if (replacement is { } replaced)
+        {
+            await documents.ReplaceAsync(document.Id, replaced.FileName, replaced.Kind, replaced.Content, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -536,7 +669,14 @@ internal static partial class PortalEndpoints
         }
 
         IServiceProvider services = context.RequestServices;
-        (int status, string? message) = await InnerAsync(context, () => item.Service is { } service
+        (int status, string? message) = await InnerAsync(context, () => item.Document is { } document
+            ? AdminEndpoints.DeleteDocumentAsync(
+                context, document.Id,
+                services.GetRequiredService<IDocumentStore>(),
+                services.GetRequiredService<IAuditLog>(),
+                services.GetRequiredService<RecycleBinService>(),
+                cancellation)
+            : item.Service is { } service
             ? AdminEndpoints.DeleteServiceAsync(
                 context, service.Name, service.Folder, drop: true,
                 services.GetRequiredService<IAdminCatalog>(),
@@ -685,8 +825,11 @@ internal static partial class PortalEndpoints
                 : item.Service is { } service
                     ? await groups.ShareAsync(current.Principal.Id, administrator, group.Name, service.Name, service.Folder, false, cancellation)
                         .ConfigureAwait(false)
-                    : await groups.ShareMapAsync(current.Principal.Id, administrator, group.Name, item.Map!.Id, false, cancellation)
-                        .ConfigureAwait(false);
+                    : item.Map is { } map
+                        ? await groups.ShareMapAsync(current.Principal.Id, administrator, group.Name, map.Id, false, cancellation)
+                            .ConfigureAwait(false)
+                        : await groups.ShareDocumentAsync(current.Principal.Id, administrator, group.Name, item.Document!.Id, false, cancellation)
+                            .ConfigureAwait(false);
 
             if (outcome != GroupChange.Done)
             {

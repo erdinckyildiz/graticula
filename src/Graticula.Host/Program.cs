@@ -341,6 +341,9 @@ public static class Program
         // Where a ranged layer's map opens, found at start rather than on the first ask (InitialExtentWarmer).
         builder.Services.AddHostedService<InitialExtentWarmer>();
 
+        // Registered layers published before ADR-217 from a versioned or archived geodatabase class, named once at start.
+        builder.Services.AddHostedService<GeodatabaseClassScan>();
+
         // The services an administrator pinned, kept warm (ADR-218).
         builder.Services.AddSingleton(services => new PinnedServices(
             services.GetRequiredService<NpgsqlDataSource>(),
