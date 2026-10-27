@@ -15009,8 +15009,23 @@ function drawOwnFactor(focus, refused = "") {
   }
 }
 
-/** Somebody else's profile, for whoever manages members: removing a factor they can no longer use. */
+/**
+ * Somebody else's profile, for whoever manages members: removing a factor they can no longer use.
+ *
+ * <b>Offered only where there is one — D-307.</b> The removal was offered on every member's profile and answered
+ * *has no second factor* afterwards; the profile says `secondFactor` to whoever manages members since v1.0.466, so a
+ * member without one is told so and given nothing to press. A server that does not say it keeps the old offer.
+ */
 function drawMemberFactor(p) {
+  if (p.secondFactor === false) {
+    $("pfSecond").innerHTML = `
+    <div class="sfhead"><b>Two-step sign-in</b></div>
+    <p><b>Not turned on.</b> ${h(p.name)} signs in with their password alone.</p>
+    <p class="hint">If the organization requires a second factor, they will be asked to set one up the next time they
+      sign in.</p>`;
+    return;
+  }
+
   $("pfSecond").innerHTML = `
     <div class="sfhead"><b>Two-step sign-in</b></div>
     <p class="hint">If ${h(p.name)} has lost both their authenticator app and their recovery codes, remove their second

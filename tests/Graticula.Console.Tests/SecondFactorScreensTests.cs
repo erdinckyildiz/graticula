@@ -116,6 +116,34 @@ public sealed class SecondFactorScreensTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// D-307: an administrator is offered the removal of a member's second factor only where the member has one; on a
+    /// member without one, the profile says so and offers nothing to press — it answered *has no second factor* after.
+    /// </summary>
+    [Fact]
+    public async Task An_administrator_is_offered_no_removal_on_a_member_without_a_factor()
+    {
+        (string token, _) = await SignInAsync();
+        string member = await MemberAsync("zzsfn");
+
+        try
+        {
+            await OpenAsync($"/studio/user/{member}?security", token);
+
+            await WaitForAsync(
+                "(document.getElementById('pfSecond')?.textContent || '').includes('Not turned on.')",
+                "A member without a second factor's profile did not say so to an administrator.");
+            Assert.False(await Browser.EvaluateAsync<bool>("!!document.getElementById('pfSfReset')"),
+                "Removing a second factor is offered on a member who has none.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
+        }
+    }
+
     [Fact]
     public async Task A_member_turns_their_own_factor_on_and_off_from_their_profile()
     {
