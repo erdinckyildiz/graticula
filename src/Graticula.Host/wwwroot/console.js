@@ -69,18 +69,24 @@ function toast(message, ok = false) {
  * raised just before `location.replace` was gone with the page that raised it, so the reader landed without a reason.
  */
 function leaveWith(message, to) {
-  try { sessionStorage.setItem("gis-carried", message); } catch { /* private mode: the landing says nothing */ }
+  // Where it is going and when, so only that landing says it: a reason left behind by a navigation that never
+  // arrived was said on the next page anybody opened, as a refusal of something they had not asked for (CI, v1.0.464).
+  const path = new URL(to, location.href).pathname;
+  try { sessionStorage.setItem("gis-carried", JSON.stringify({ message, path, at: Date.now() })); }
+  catch { /* private mode: the landing says nothing */ }
   location.replace(to);
 }
 
-/** Says, once, what the page before this one carried here with `leaveWith`. */
+/** Says, once, what the page before this one carried here with `leaveWith` — on that landing, and soon. */
 function sayCarried() {
-  let said = null;
+  let carried = null;
   try {
-    said = sessionStorage.getItem("gis-carried");
+    carried = JSON.parse(sessionStorage.getItem("gis-carried") || "null");
     sessionStorage.removeItem("gis-carried");
-  } catch { /* no storage, nothing carried */ }
-  if (said) toast(said);
+  } catch { /* no storage, or not ours: nothing carried */ }
+  if (carried?.message && location.pathname.startsWith(carried.path) && Date.now() - carried.at < 15000) {
+    toast(carried.message);
+  }
 }
 
 /**

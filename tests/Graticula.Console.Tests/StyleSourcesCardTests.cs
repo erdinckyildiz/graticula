@@ -31,7 +31,7 @@ public sealed class StyleSourcesCardTests : ConsoleTest
     public async Task The_box_waits_for_the_stored_list_and_Save_sends_it()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/settings", token);
+        await OpenAsync("/system/settings", token);
 
         // Disabled in the markup, so there is no moment to type into before the list is in.
         Assert.Contains(

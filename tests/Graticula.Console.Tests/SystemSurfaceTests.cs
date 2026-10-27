@@ -230,7 +230,7 @@ public sealed class SystemSurfaceTests : ConsoleTest
 
             // And System, typed, sends them to Studio with the reason.
             await OpenAsync("/system/", token);
-            await WaitForAsync("location.pathname.startsWith('/studio/') && (document.getElementById('toast').textContent || '').includes('system administrator')",
+            await WaitForAsync("location.pathname.startsWith('/studio/') && (document.getElementById('toast')?.textContent || '').includes('system administrator')",
                 "A member who typed /system/ was not sent to Studio with the reason.");
 
             await NothingRefusedAsync("Organization › General");
