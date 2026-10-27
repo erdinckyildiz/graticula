@@ -130,7 +130,7 @@ public sealed class OrganizationsScreenTests : ConsoleTest
 
         try
         {
-            await OpenAsync("/server/#/organizations", token);
+            await OpenAsync("/system/organizations", token);
             await WaitForAsync("!!document.querySelector('#tnRows tr[data-tn=default]')", "Organizations listed nothing.");
 
             // <b>The server's own answer, not one written here.</b> The harness answers every write with `{}`, in every

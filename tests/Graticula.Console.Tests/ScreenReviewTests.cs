@@ -249,7 +249,7 @@ public sealed class ScreenReviewTests : ConsoleTest
     /// </remarks>
     [Theory]
     [InlineData("/server/#/services/hosted")]
-    [InlineData("/server/#/operations")]
+    [InlineData("/system/operations")]
     [InlineData("/studio/#/members")]
     [InlineData("/studio/#/roles")]
     [InlineData("/studio/#/content")]
@@ -303,7 +303,7 @@ public sealed class ScreenReviewTests : ConsoleTest
     /// </remarks>
     [Theory]
     [InlineData("/server/#/services/hosted")]
-    [InlineData("/server/#/operations")]
+    [InlineData("/system/operations")]
     [InlineData("/studio/#/members")]
     [InlineData("/studio/#/content")]
     public async Task A_screen_fits_a_phone(string address)

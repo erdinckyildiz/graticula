@@ -279,7 +279,7 @@ public sealed class SettingsScreenTests : ConsoleTest
     {
         (string token, _) = await SignInAsync();
 
-        await OpenAsync("/server/settings", token);
+        await OpenAsync("/system/settings", token);
         await WaitForAsync(Shown("#securityPointer"), "Server › General does not say where sign-in is set.");
 
         Assert.Contains(
@@ -304,7 +304,7 @@ public sealed class SettingsScreenTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
 
         // ---- a Server administrator without admin:manageSecurity: the page is drawn, the pointer is not ----
-        await OpenAsync("/server/settings", token, cookie: null, "admin:manageSecurity");
+        await OpenAsync("/system/settings", token, cookie: null, "admin:manageSecurity");
         await WaitForAsync(
             "/In force: [0-9]/.test(document.getElementById('setPageSizeSource')?.textContent || '')",
             "Server › General did not draw for an administrator who cannot manage security.");

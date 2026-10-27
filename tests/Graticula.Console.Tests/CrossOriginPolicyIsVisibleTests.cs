@@ -28,7 +28,7 @@ public sealed class CrossOriginPolicyIsVisibleTests : ConsoleTest
     public async Task Operations_says_which_origins_may_read_and_offers_no_switch()
     {
         (string token, _) = await SignInAsync();
-        await OpenAsync("/server/#/operations", token);
+        await OpenAsync("/system/operations", token);
 
         await WaitForAsync(
             "document.getElementById('corsSays')"
