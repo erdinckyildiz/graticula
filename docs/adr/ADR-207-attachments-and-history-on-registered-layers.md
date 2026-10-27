@@ -90,7 +90,7 @@ administrator.**
    many attachments or versions go with it.
 4. **A registered layer does not go while it keeps either** — added 2026-10-27. Its unpublish, its service's delete and
    a member's removal with their content each ask first and refuse with the layer named; the last asked nothing until
-   [D-309](../architecture-debt.md). **`INFERRED`, for the owner to confirm — [Q-191](../open-questions.md):** where the
+   [D-309](../architecture-debt.md). **~~`INFERRED`, for the owner to confirm~~ Confirmed by the owner 2026-10-27 — [Q-191](../open-questions.md), *"evet c"*:** where the
    database does not answer, the removal takes `unchecked=true` and goes without the answer, leaving whatever was made
    there in place ([D-312](../architecture-debt.md)); attachments kept in the datastore still refuse.
 

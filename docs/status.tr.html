@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>abc42a92</code> · 2026-10-27 03:10</p>
+<p class="stamp">Şu commit’ten üretildi: <code>78791215</code> · 2026-10-27 12:21</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">219</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">450/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 9 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık soru</div><div class="kpi-n">195 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">196 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">açık borç</div><div class="kpi-n">287 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">3 açık</span></div><p><b>Q-191</b> — [OWNER] A registered layer whose database is gone for good is removed with unchecked=true — INFERRED 2026-10-27, for you to confirm.</p><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">103 madde</span></div><p><b>80 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -423,7 +423,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card"><div class="card-h"><span class="id">Q-187</span><span class="owner">Owner</span></div><p>[OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-190</span><span class="owner">Owner</span></div><p>[OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-191</span><span class="owner">Owner</span></div><p>[OWNER] A registered layer whose database is gone for good is removed with unchecked=true — INFERRED 2026-10-27, for you to confirm.</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -571,6 +570,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">22</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>78791215</code><time>2026-10-27</time><span>A registered layer is published only from a source with PostGIS, and leaves nothing recording when it goes (D-309, D-311, D-312)</span></li>
 <li><code>abc42a92</code><time>2026-10-27</time><span>A reason carried to the next page is said only on that page, and soon; two console tests wait for their landing (ADR-221)</span></li>
 <li><code>1ea7dca4</code><time>2026-10-27</time><span>The system administrator has a surface of their own, /system/, and an organisation names itself (ADR-221)</span></li>
 <li><code>418dbc93</code><time>2026-10-26</time><span>An item may be shared with every organisation on the server, and found from another (ADR-220); Q-189 confirmed</span></li>
@@ -584,7 +584,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>22ede347</code><time>2026-10-24</time><span>Each organisation holds a share of the process&#x27;s budget and of the tile cache; the showcase serves as a bound role (ADR-204 condition 6, condition 9)</span></li>
 <li><code>ef13e7c0</code><time>2026-10-23</time><span>CI serves as a role the floor binds, so its tenancy tests run (ADR-204 condition 9)</span></li>
 <li><code>1a95743a</code><time>2026-10-23</time><span>The organisation console tests return where the store&#x27;s role refuses a second organisation, as the conformance ones do (ADR-204 condition 9)</span></li>
-<li><code>3fa22905</code><time>2026-10-22</time><span>One deployment holds several organisations, and the ArcGIS veteran&#x27;s findings are closed (ADR-204, ADR-212-218, ADR-012)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
