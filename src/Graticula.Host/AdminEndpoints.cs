@@ -12254,7 +12254,7 @@ internal static partial class AdminEndpoints
     /// reason that does not apply to them.
     /// </para>
     /// </remarks>
-    private static async Task<bool> RegisteredKeepsRefusalAsync(
+    internal static async Task<bool> RegisteredKeepsRefusalAsync(
         HttpContext context, LayerConnections connections, IEnumerable<PublishedLayer> going,
         Func<PublishedLayer, string> named, string nothing, List<string> uncheckedLayers, CancellationToken cancellation)
     {

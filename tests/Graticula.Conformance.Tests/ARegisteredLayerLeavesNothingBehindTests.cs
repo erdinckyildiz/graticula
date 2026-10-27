@@ -29,7 +29,7 @@ public sealed class ARegisteredLayerLeavesNothingBehindTests : ArcGisClient
 {
     private const string Member = "zz_reglife_member";
 
-    private static string? Connection => Environment.GetEnvironmentVariable("GRATICULA_TEST_PG");
+    internal static string? Connection => Environment.GetEnvironmentVariable("GRATICULA_TEST_PG");
 
     /// <summary>
     /// D-311: the probe said a database without PostGIS could publish nothing, and <c>POST /admin/layers</c> published a
@@ -238,9 +238,9 @@ public sealed class ARegisteredLayerLeavesNothingBehindTests : ArcGisClient
     }
 
     /// <summary>The suite's connection, pointed at another database on the same server.</summary>
-    private static string On(string database) => new NpgsqlConnectionStringBuilder(Connection) { Database = database }.ConnectionString;
+    internal static string On(string database) => new NpgsqlConnectionStringBuilder(Connection) { Database = database }.ConnectionString;
 
-    private static async Task CreateDatabaseAsync(string database, bool withPostgis, params string[] statements)
+    internal static async Task CreateDatabaseAsync(string database, bool withPostgis, params string[] statements)
     {
         await using (NpgsqlConnection admin = new(Connection))
         {
@@ -260,7 +260,7 @@ public sealed class ARegisteredLayerLeavesNothingBehindTests : ArcGisClient
         }
     }
 
-    private static async Task DropDatabaseAsync(string database)
+    internal static async Task DropDatabaseAsync(string database)
     {
         NpgsqlConnection.ClearAllPools();
         await using NpgsqlConnection admin = new(Connection);
@@ -270,7 +270,7 @@ public sealed class ARegisteredLayerLeavesNothingBehindTests : ArcGisClient
     }
 
     /// <summary>The triggers a user made on the test table — the history's is the only one.</summary>
-    private static async Task<long> TriggersOnAsync(string database)
+    internal static async Task<long> TriggersOnAsync(string database)
     {
         await using NpgsqlConnection inside = new(On(database));
         await inside.OpenAsync();

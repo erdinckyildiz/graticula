@@ -555,11 +555,15 @@ upgrade to schema 100 — does it from the console's Server › Organizations, o
 POST   /admin/tenants              {"key":"jv1","name":"JV One","hosts":["jv1.example.com"],"administrator":"jv1admin"}
 PUT    /admin/tenants/jv1          {"hosts":[...], "name":..., "suspended":true|false}
 DELETE /admin/tenants/jv1          refused while it owns members, services, maps or groups
-DELETE /admin/tenants/jv1?purge=true   removes it with everything it owns in the catalogue
+DELETE /admin/tenants/jv1?purge=true   removes it with everything it owns, its hosted data included
 ```
 
 The answer to `POST` carries the first administrator's password, once; it must be changed at the first
-sign-in at the organisation's host. A purge leaves the organisation's hosted tables in the datastore.
+sign-in at the organisation's host. A purge drops the organisation's hosted tables and views from the
+datastore, and the tables waiting in its recycle bin; a table another organisation's layer also serves is
+kept. It is refused while one of its registered layers keeps a history or attachments this server made in the
+customer's database — switch those off first, as for removing the layer itself. Where that database is gone
+for good, `&unchecked=true` lets the purge go without asking it.
 
 ### 4.3 What crosses between organisations
 
