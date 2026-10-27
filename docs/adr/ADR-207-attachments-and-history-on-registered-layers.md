@@ -88,6 +88,11 @@ administrator.**
    feature's versions and a restore answer on every layer that keeps one.
 3. **Nothing is created unless asked for**, and switching either off drops what switching it on made, after saying how
    many attachments or versions go with it.
+4. **A registered layer does not go while it keeps either** — added 2026-10-27. Its unpublish, its service's delete and
+   a member's removal with their content each ask first and refuse with the layer named; the last asked nothing until
+   [D-309](../architecture-debt.md). **`INFERRED`, for the owner to confirm — [Q-191](../open-questions.md):** where the
+   database does not answer, the removal takes `unchecked=true` and goes without the answer, leaving whatever was made
+   there in place ([D-312](../architecture-debt.md)); attachments kept in the datastore still refuse.
 
 **~~`INFERRED` — for the owner to confirm~~ Confirmed by the owner 2026-10-20 — [Q-184](../open-questions.md), *"tamam"*:**
 

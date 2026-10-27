@@ -37,6 +37,14 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
     /// </remarks>
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// What a PostgreSQL database without PostGIS is told — by this probe, and by a publish from it, which asks again
+    /// (D-311) because the API took a layer from a source this probe had refused.
+    /// </summary>
+    public const string PostgisMissing =
+        "PostGIS is not installed in this database. Run 'create extension postgis;' as a superuser, or point at a "
+        + "database that already has it.";
+
     /// <inheritdoc/>
     public async Task<ProbeResult> ProbeAsync(
         string connectionString, CancellationToken cancellationToken)
@@ -125,9 +133,7 @@ public sealed class PostgresDataSourceProbe : IDataSourceProbe
                 // problem, because the credential is fine.
                 return new ProbeResult(
                     ProbeOutcome.UnusableGeometry,
-                    "Connected, but PostGIS is not installed in this database. Run "
-                    + "'create extension postgis;' as a superuser, or point at a database that "
-                    + "already has it.",
+                    "Connected, but " + PostgisMissing,
                     serverVersion,
                     null,
                     []);

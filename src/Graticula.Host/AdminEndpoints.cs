@@ -2060,31 +2060,16 @@ internal static partial class AdminEndpoints
         bool isView = target?.ViewOf is not null;
 
         // ADR-207, as for one layer's unpublish: what this server made beside a registered layer goes first.
-        if (target is not null)
+        List<string> uncheckedLayers = [];
+
+        if (target is not null
+            && await RegisteredKeepsRefusalAsync(
+                context, connections,
+                (await published.ListAsync(cancellation).ConfigureAwait(false)).Where(l => l.ServiceId == target.Id),
+                layer => $"Layer '{layer.Definition.Name}' of '{name}'", "deleted", uncheckedLayers, cancellation)
+                .ConfigureAwait(false))
         {
-            foreach (PublishedLayer layer in (await published.ListAsync(cancellation).ConfigureAwait(false))
-                         .Where(l => l.ServiceId == target.Id && !l.Definition.IsHosted))
-            {
-                string? kept;
-
-                try
-                {
-                    kept = await KeptForRegisteredAsync(connections, layer, cancellation).ConfigureAwait(false);
-                }
-                catch (System.Data.Common.DbException silent)
-                {
-                    await Refuse(context, 503, Unchecked($"Layer '{layer.Definition.Name}' of '{name}'", silent)).ConfigureAwait(false);
-                    return;
-                }
-
-                if (kept is not null)
-                {
-                    await Refuse(context, 409,
-                        $"Layer '{layer.Definition.Name}' of '{name}' keeps {kept}, which this server made for it. Switch "
-                        + "that off on the layer first (ADR-207); nothing was deleted.").ConfigureAwait(false);
-                    return;
-                }
-            }
+            return;
         }
 
         // ADR-203: a whole delete goes into the recycle bin — the hosted tables only it publishes set aside, its rows kept
@@ -2109,7 +2094,7 @@ internal static partial class AdminEndpoints
                 .ConfigureAwait(false);
 
             await AuditAsync(context, audit, "service.delete", name,
-                Detail(new { folder = at, recycled = entry, tables = tables.Select(t => t.Table) }),
+                Detail(new { folder = at, recycled = entry, tables = tables.Select(t => t.Table), @unchecked = uncheckedLayers }),
                 succeeded: entry is not null, cancellation).ConfigureAwait(false);
 
             if (entry is null)
@@ -2284,7 +2269,7 @@ internal static partial class AdminEndpoints
 
         await AuditAsync(
             context, audit, "service.delete", name,
-            Detail(new { folder = at, outcome = outcome.ToString(), layers, groups, dropped = emptied }),
+            Detail(new { folder = at, outcome = outcome.ToString(), layers, groups, dropped = emptied, @unchecked = uncheckedLayers }),
             succeeded: outcome == Removal.Removed, cancellation).ConfigureAwait(false);
 
         if (outcome == Removal.Absent)
@@ -8124,6 +8109,12 @@ internal static partial class AdminEndpoints
                     return;
                 }
 
+                if (await NoPostgisRefusalAsync(catalog, layer, cancellation).ConfigureAwait(false) is { } noPostgis)
+                {
+                    await Refuse(context, 422, noPostgis).ConfigureAwait(false);
+                    return;
+                }
+
                 if (await GeoParquetRefusalAsync(catalog, geoParquet, projector, layer, cancellation)
                         .ConfigureAwait(false) is { } refusal)
                 {
@@ -9696,6 +9687,52 @@ internal static partial class AdminEndpoints
     }
 
     /// <summary>
+    /// Why a layer cannot be published from a PostgreSQL database that has no PostGIS — D-311 — or null: another kind of
+    /// source, PostGIS present, or a database that could not be asked.
+    /// </summary>
+    /// <remarks>
+    /// <b>The probe already said so, and the API did not listen.</b> <c>POST /admin/datasources</c> answered
+    /// <c>canPublish: false</c> for a CockroachDB database, and <c>POST /admin/layers</c> then published a table from it
+    /// whose every query answered 500. The console's dialog reads <c>canPublish</c>; a script does not have to, so the
+    /// question is asked again here, of the one thing that decided the probe's answer.
+    /// </remarks>
+    private static async Task<string?> NoPostgisRefusalAsync(
+        IAdminCatalog catalog, LayerPublication publication, CancellationToken cancellation)
+    {
+        string? connection;
+
+        try
+        {
+            connection = await catalog.ConnectionStringOfAsync(publication.DataSourceId, cancellation).ConfigureAwait(false);
+        }
+        catch (CryptographicException)
+        {
+            return null;
+        }
+
+        if (connection is not { Length: > 0 } || GeoParquetLocator.KindOf(connection) != DataSourceKinds.PostGis)
+        {
+            return null;
+        }
+
+        try
+        {
+            await using NpgsqlConnection open = new(connection);
+            await open.OpenAsync(cancellation).ConfigureAwait(false);
+            await using NpgsqlCommand command = new(
+                "select exists (select 1 from pg_extension where extname = 'postgis')", open);
+
+            return await command.ExecuteScalarAsync(cancellation).ConfigureAwait(false) is true
+                ? null
+                : $"'{publication.SchemaName}.{publication.TableName}' was not published: {PostgresDataSourceProbe.PostgisMissing}";
+        }
+        catch (Exception e) when (e is NpgsqlException or ArgumentException or InvalidOperationException or TimeoutException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// The kinds of source whose readers serve a table with no geometry column — ADR-213 condition 7, one engine at a time
     /// as each is measured against its own database. The Publish screen's <c>pubWhyNot</c> in console.js carries the same
     /// list, so a row says it before the server refuses it; widen both together.
@@ -10036,6 +10073,12 @@ internal static partial class AdminEndpoints
         if (await GeodatabaseRefusalAsync(catalog, publication, cancellation).ConfigureAwait(false) is { } versioned)
         {
             await Refuse(context, 422, versioned).ConfigureAwait(false);
+            return;
+        }
+
+        if (await NoPostgisRefusalAsync(catalog, publication, cancellation).ConfigureAwait(false) is { } noPostgis)
+        {
+            await Refuse(context, 422, noPostgis).ConfigureAwait(false);
             return;
         }
 
@@ -11426,6 +11469,7 @@ internal static partial class AdminEndpoints
         HostSettings settings,
         IAuditLog audit,
         IIdentityStore identity,
+        LayerConnections connections,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
@@ -11523,6 +11567,7 @@ internal static partial class AdminEndpoints
 
         MemberRemoval outcome;
         int unpublished = 0;
+        List<string> uncheckedLayers = [];
 
         if (transferTo is { Length: > 0 } receiver)
         {
@@ -11568,6 +11613,18 @@ internal static partial class AdminEndpoints
                 {
                     throw new SourceQuiescedException(SourceQuiesce.Says(outOfService), outOfService.Until);
                 }
+            }
+
+            // ADR-207, as a service's own delete asks it (D-309): these services are emptied from the recycle bin in this
+            // request, so a history trigger left on a registered table would record to nobody from now on.
+            if (await RegisteredKeepsRefusalAsync(
+                    context, connections,
+                    all.Where(l => services.Any(s => s.Id == l.ServiceId && theirs.Contains(Qualified(s)))),
+                    layer => $"Layer '{layer.Definition.Name}' of '{name}'",
+                    $"removed and '{name}' was kept", uncheckedLayers, cancellation)
+                .ConfigureAwait(false))
+            {
+                return;
             }
 
             Guid by = current.Principal.Id;
@@ -11674,6 +11731,7 @@ internal static partial class AdminEndpoints
                 documents = holdings.Documents,
                 recycled = holdings.Recycled,
                 unpublished,
+                @unchecked = uncheckedLayers,
             }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
@@ -12168,7 +12226,82 @@ internal static partial class AdminEndpoints
     private static string Unchecked(string what, System.Data.Common.DbException silent) =>
         $"{what} is served from a database that did not answer ({silent.Message.Split('\n')[0].Trim()}), so whether it keeps "
         + "a history this server made for it cannot be checked, and it is not removed without that (ADR-207). Remove it once "
-        + "the database answers again; nothing was deleted.";
+        + "the database answers again — or, if it is gone for good, repeat the request with unchecked=true, and anything "
+        + "this server made there stays there (D-312). Nothing was deleted.";
+
+    /// <summary>
+    /// Whether the caller said a registered layer's database is gone for good, so its removal may go without the ADR-207
+    /// check — D-312. It skips only a check that could not be made: a database that answers is still asked, and a history
+    /// or attachments it reports still refuse.
+    /// </summary>
+    private static bool UncheckedAsked(HttpContext context) =>
+        string.Equals(context.Request.Query["unchecked"].FirstOrDefault(), "true", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Asks ADR-207's question of each registered layer about to go and answers the request for the first that keeps
+    /// something, or whose database does not answer. True when the request has been answered.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One question for every way a registered layer leaves</b> — a layer's unpublish, its service's delete, and a
+    /// member removed with their content. The last asked nothing until D-309: it set the services aside and emptied them
+    /// from the recycle bin in the same request, so a history trigger went on recording to a table nothing read.
+    /// </para>
+    /// <para>
+    /// <b>With <c>unchecked=true</c> a database that does not answer is passed over (D-312)</b> and the layer's name added
+    /// to <paramref name="uncheckedLayers"/>, for the audit record. Not attachments kept in the datastore: those are this
+    /// server's own tables, still reachable, and switching them off removes them, so they are not left behind for a
+    /// reason that does not apply to them.
+    /// </para>
+    /// </remarks>
+    private static async Task<bool> RegisteredKeepsRefusalAsync(
+        HttpContext context, LayerConnections connections, IEnumerable<PublishedLayer> going,
+        Func<PublishedLayer, string> named, string nothing, List<string> uncheckedLayers, CancellationToken cancellation)
+    {
+        bool skip = UncheckedAsked(context);
+
+        foreach (PublishedLayer layer in going.Where(l => !l.Definition.IsHosted))
+        {
+            string? kept;
+
+            try
+            {
+                kept = await KeptForRegisteredAsync(connections, layer, cancellation).ConfigureAwait(false);
+            }
+            catch (System.Data.Common.DbException silent)
+            {
+                if (!skip)
+                {
+                    await Refuse(context, 503, Unchecked(named(layer), silent)).ConfigureAwait(false);
+                    return true;
+                }
+
+                if (string.Equals(layer.AttachmentsIn, AttachmentPlaces.Datastore, StringComparison.Ordinal))
+                {
+                    kept = "attachments in Graticula's datastore";
+                }
+                else
+                {
+                    uncheckedLayers.Add(named(layer));
+                    continue;
+                }
+            }
+
+            if (kept is not null)
+            {
+                string at = layer.Definition.Name;
+
+                await Refuse(context, 409,
+                    $"{named(layer)} keeps {kept}, which this server made for it. Switch "
+                    + $"{(kept.Contains(" and ", StringComparison.Ordinal) ? "them" : "it")} off first — POST "
+                    + $"/admin/layers/{at}/attachments with {{\"in\": null}}, POST /admin/layers/{at}/history with "
+                    + $"{{\"enabled\": false}} — (ADR-207); nothing was {nothing}.").ConfigureAwait(false);
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     /// <summary>What this server made for a registered layer and keeps — attachments, a history — or null for nothing.</summary>
     private static async Task<string?> KeptForRegisteredAsync(
@@ -12226,24 +12359,12 @@ internal static partial class AdminEndpoints
         // <b>ADR-207: what this server made for a registered layer goes before the layer does.</b> Its attachments and its
         // history live in tables beside the customer's table, or in the datastore, and a trigger on that table goes on
         // recording every edit after nothing here reads it — so unpublishing first would leave them to nobody.
-        string? kept = null;
+        List<string> uncheckedLayers = [];
 
-        try
+        if (await RegisteredKeepsRefusalAsync(
+                context, connections, [going], _ => $"'{name}'", "removed", uncheckedLayers, cancellation)
+            .ConfigureAwait(false))
         {
-            kept = going.Definition.IsHosted ? null : await KeptForRegisteredAsync(connections, going, cancellation).ConfigureAwait(false);
-        }
-        catch (System.Data.Common.DbException silent)
-        {
-            await Refuse(context, 503, Unchecked($"'{name}'", silent)).ConfigureAwait(false);
-            return;
-        }
-
-        if (kept is not null)
-        {
-            await Refuse(context, 409,
-                $"'{name}' keeps {kept}, which this server made for it. Switch {(kept.Contains(" and ", StringComparison.Ordinal) ? "them" : "it")} "
-                + $"off first — POST /admin/layers/{name}/attachments with {{\"in\": null}}, POST /admin/layers/{name}/history "
-                + "with {\"enabled\": false} — and then remove the layer (ADR-207).").ConfigureAwait(false);
             return;
         }
 
@@ -12262,7 +12383,7 @@ internal static partial class AdminEndpoints
         }
 
         await AuditAsync(
-            context, audit, "layer.unpublish", name, Detail(new { removed }),
+            context, audit, "layer.unpublish", name, Detail(new { removed, @unchecked = uncheckedLayers }),
             succeeded: removed, cancellation).ConfigureAwait(false);
 
         if (!removed)
