@@ -10593,6 +10593,7 @@ internal static partial class AdminEndpoints
         IMemberDirectory directory,
         IRoleDirectory roles,
         IIdentityProviderStore providers,
+        PostgresSecondFactorStore secondFactors,
         CancellationToken cancellation)
     {
         if (!await Authorize.RequireAsync(context, Privilege.AdminManageMembers)
@@ -10627,6 +10628,9 @@ internal static partial class AdminEndpoints
         // ADR-088/089: who signs in through a provider, and whose role that provider's groups decide.
         IReadOnlyDictionary<Guid, ExternalMember> external = await providers.ExternalMembersAsync(cancellation).ConfigureAwait(false);
 
+        // D-307: who has a second factor on, so the screen offers its removal only where there is one.
+        IReadOnlySet<Guid> covered = await secondFactors.EnabledAsync(cancellation).ConfigureAwait(false);
+
         await Results.Json(new
         {
             members = members.Select(m => new
@@ -10634,6 +10638,7 @@ internal static partial class AdminEndpoints
                 m.Name,
                 signsInWith = external.TryGetValue(m.Id, out ExternalMember? via) ? via.Provider : null,
                 roleManaged = via?.RoleManaged ?? false,
+                secondFactor = covered.Contains(m.Id),
                 displayName = m.DisplayName,
                 m.Roles,
                 userType = m.UserType,

@@ -61,7 +61,8 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
                     version, null, []);
             }
 
-            (List<SourceTable> tables, List<SkippedTable> skipped) = await TablesAsync(connection, cancellationToken).ConfigureAwait(false);
+            (List<SourceTable> tables, List<SkippedTable> skipped) =
+                await RetriedOnDeadlockAsync(() => TablesAsync(connection, cancellationToken)).ConfigureAwait(false);
 
             int plain = tables.Count(t => t.GeometryColumn is null);
 
@@ -107,6 +108,29 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
                 [SqlServerLocator.Of(connectionString).Database]);
     }
 
+    /// <summary>
+    /// Reads the catalogue again when SQL Server chose the read as a deadlock victim — D-314.
+    /// </summary>
+    /// <remarks>
+    /// <b>Measured, not supposed:</b> with a table created and dropped beside it, 19 probes of 20 failed, most as error
+    /// 1205 on <c>INFORMATION_SCHEMA</c> — the catalogue's locks meeting the DDL's. A deadlock victim is told to rerun,
+    /// and a probe has nothing half-done to undo, so it does, four times at most, waiting longer each time.
+    /// </remarks>
+    private static async Task<T> RetriedOnDeadlockAsync<T>(Func<Task<T>> read)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await read().ConfigureAwait(false);
+            }
+            catch (SqlException e) when (e.Number == 1205 && attempt < 5)
+            {
+                await Task.Delay(100 * attempt).ConfigureAwait(false);
+            }
+        }
+    }
+
     private static async Task<(List<SourceTable> Tables, List<SkippedTable> Skipped)> TablesAsync(
         SqlConnection connection, CancellationToken cancellation)
     {
@@ -144,42 +168,61 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
 
         foreach (var row in found)
         {
-            string name = $"{row.Schema}.{row.Table}";
-
-            if (row.Key is not { } key
-                || await KeyTypeAsync(connection, row.Schema, row.Table, key, cancellation).ConfigureAwait(false) is not
-                    ("tinyint" or "smallint" or "int" or "bigint"))
+            try
             {
-                skipped.Add(new SkippedTable(name,
-                    "It has no single-column primary key of a whole-number type, which ArcGIS needs as the object id."));
-                continue;
+                await DescribeAsync(connection, row, tables, skipped, cancellation).ConfigureAwait(false);
             }
-
-            (int? srid, long others, string? type) = await ShapesAsync(connection, row.Schema, row.Table, row.Column, cancellation)
-                .ConfigureAwait(false);
-
-            if (srid is not { } reference)
+            catch (SqlException e) when (e.Number == 208)
             {
-                skipped.Add(new SkippedTable(name,
-                    $"Its column {row.Column} holds no shape yet, and SQL Server keeps a reference per shape rather than per "
-                    + "column, so the table's reference cannot be known until it has one."));
-                continue;
+                // D-314: listed, then dropped before it was read — by another tool, or another test. It is not in the
+                // database any more, so it is not offered; failing the whole probe over it answered with no tables.
             }
-
-            if (others > 0)
-            {
-                skipped.Add(new SkippedTable(name,
-                    $"Its column {row.Column} holds shapes in more than one reference: {others:N0} are not in EPSG:{reference}, "
-                    + "the first one's. A layer is served in one."));
-                continue;
-            }
-
-            tables.Add(new SourceTable(row.Schema, row.Table, row.Column, reference, type, key, key, [key],
-                Writable: await SqlServerConnections.CanWriteAsync(connection, row.Schema, row.Table, cancellation).ConfigureAwait(false)));
         }
 
         tables.AddRange(await PlainTablesAsync(connection, cancellation).ConfigureAwait(false));
         return (tables, skipped);
+    }
+
+    /// <summary>One listed geometry table: offered, or skipped with the reason.</summary>
+    private static async Task DescribeAsync(
+        SqlConnection connection,
+        (string Schema, string Table, string Column, string Type, string Kind, string? Key) row,
+        List<SourceTable> tables,
+        List<SkippedTable> skipped,
+        CancellationToken cancellation)
+    {
+        string name = $"{row.Schema}.{row.Table}";
+
+        if (row.Key is not { } key
+            || await KeyTypeAsync(connection, row.Schema, row.Table, key, cancellation).ConfigureAwait(false) is not
+                ("tinyint" or "smallint" or "int" or "bigint"))
+        {
+            skipped.Add(new SkippedTable(name,
+                "It has no single-column primary key of a whole-number type, which ArcGIS needs as the object id."));
+            return;
+        }
+
+        (int? srid, long others, string? type) = await ShapesAsync(connection, row.Schema, row.Table, row.Column, cancellation)
+            .ConfigureAwait(false);
+
+        if (srid is not { } reference)
+        {
+            skipped.Add(new SkippedTable(name,
+                $"Its column {row.Column} holds no shape yet, and SQL Server keeps a reference per shape rather than per "
+                + "column, so the table's reference cannot be known until it has one."));
+            return;
+        }
+
+        if (others > 0)
+        {
+            skipped.Add(new SkippedTable(name,
+                $"Its column {row.Column} holds shapes in more than one reference: {others:N0} are not in EPSG:{reference}, "
+                + "the first one's. A layer is served in one."));
+            return;
+        }
+
+        tables.Add(new SourceTable(row.Schema, row.Table, row.Column, reference, type, key, key, [key],
+            Writable: await SqlServerConnections.CanWriteAsync(connection, row.Schema, row.Table, cancellation).ConfigureAwait(false)));
     }
 
     /// <summary>

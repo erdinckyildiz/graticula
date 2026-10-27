@@ -139,6 +139,12 @@ None recorded.
    through `POST /admin/backups` took 6 min 13 s and wrote 3.08 GB; `restore`, with the server stopped, took 3 min 9 s.
    A marker table created after the backup was gone afterwards, and a sign-in, the 98 services in 6 folders, the row
    counts of five hosted layers, an image service's description and the 67 portal items answered exactly as before.
+   **Measured as a superuser, and that was the gap** — 2026-10-27: served as a role row-level security binds, which
+   the showcase has been since 2026-10-24, the restore's `--jobs` lost 54 of 70 foreign keys to *query would be affected
+   by row-level security policy* and reported success. Repaired the same day: the post-data section goes in one pass,
+   and the restore counts foreign keys, policies and triggers against the dump and refuses when short
+   ([D-317](../architecture-debt.md)); measured on a fixture served as a bound role, all 86 back, and the conformance suite on the
+   restored database 887 of 892 with only the five failures this machine always has.
 2. **The two refusals have tests**: a different key and a newer schema each refuse before anything is written.
    **DISCHARGED 2026-10-17** — `BackupRefusalTests`, against a connection string that reaches no server, so a refusal
    that came after a connection would fail differently; a broken checksum and an unfinished folder are refused too.

@@ -151,9 +151,27 @@ internal sealed class Backups
             log.WriteLine("Copying the state files (first pass)…");
             CopyNew(imagery, copiedImagery);
 
-            log.WriteLine($"Dumping database '{_store.Database}'…");
-            await RunAsync("pg_dump", ["--format=custom", "--file", Path.Combine(partial, Database)], _store.Database, cancellation)
-                .ConfigureAwait(false);
+            // <b>Through the maintenance connection when there is one — D-315.</b> The whole database is dumped, and a
+            // serving role row-level security binds may not read every schema in it: on the showcase pg_dump stopped
+            // at schemas a CI run and an earlier product had left, and the migration's backup refused. The maintenance
+            // role reads them all; the dump is restored by the serving role with --no-owner, as before, so what this
+            // changes is only who may read, not who owns what comes back.
+            log.WriteLine($"Dumping database '{_store.Database}'{(_maintenance is null ? string.Empty : " through the maintenance connection")}…");
+
+            try
+            {
+                await RunAsync("pg_dump", ["--format=custom", "--file", Path.Combine(partial, Database)], _store.Database, cancellation,
+                        credentials: _maintenance)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidOperationException refused) when (_maintenance is null
+                && refused.Message.Contains("permission denied", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"{refused.Message} The backup is of the whole database, and '{_store.Username}' may not read all of "
+                    + "it. Give Graticula__MaintenanceStore a connection to the same server as a role that may — the "
+                    + "superuser, for most — and the dump goes through it (deployment.md, D-315).", refused);
+            }
 
             log.WriteLine("Copying the state files (second pass)…");
             CopyNew(imagery, copiedImagery);
@@ -299,11 +317,27 @@ internal sealed class Backups
         try
         {
             log.WriteLine($"Restoring into '{restored}'…");
-            await RunAsync("pg_restore", ["--no-owner", "--jobs=4", "--dbname", restored, Path.Combine(folder, Database)], restored,
-                cancellation, tolerateWarnings: true).ConfigureAwait(false);
+            string dump = Path.Combine(folder, Database);
+
+            // <b>The tables and their rows in parallel, then the constraints, policies and triggers one at a time.</b>
+            // With --jobs over the whole dump a foreign key could be validated after its table's row-level security
+            // policy existed, and a serving role the policy binds is refused — "query would be affected by row-level
+            // security policy" — which pg_restore reports and goes past. Measured 2026-10-27 on a fixture served as a
+            // bound role: 54 of 70 foreign keys missing, the restore reported done, and the check below, which looked
+            // at the hosted tables only, passed it. Restored in one pass the post-data section runs in the dump's
+            // order, foreign keys before policies, and all 70 came back.
+            await RunAsync("pg_restore", ["--no-owner", "--jobs=4", "--section=pre-data", "--section=data", "--dbname", restored, dump],
+                restored, cancellation, tolerateWarnings: true).ConfigureAwait(false);
+            await RunAsync("pg_restore", ["--no-owner", "--section=post-data", "--dbname", restored, dump],
+                restored, cancellation, tolerateWarnings: true).ConfigureAwait(false);
 
             NpgsqlConnectionStringBuilder check = new(_store.ConnectionString) { Database = restored };
-            if (await CheckAsync(check.ConnectionString, manifest.Schema, cancellation).ConfigureAwait(false) is { } wrong)
+            string contents = await RunAsync("pg_restore", ["--list", dump], null, cancellation).ConfigureAwait(false);
+
+            string? wrong = await CheckAsync(check.ConnectionString, manifest.Schema, cancellation).ConfigureAwait(false)
+                ?? await MissingAsync(check.ConnectionString, contents, cancellation).ConfigureAwait(false);
+
+            if (wrong is not null)
             {
                 log.WriteLine($"The restored database does not hold what the backup said: {wrong}. The current database is untouched.");
                 await ExecuteAsync(maintenance.ConnectionString, $"drop database {Quote(restored)}", cancellation).ConfigureAwait(false);
@@ -393,6 +427,64 @@ internal sealed class Backups
         return absent == 0 ? null : $"{absent} hosted layer(s) name a table that is not in it";
     }
 
+    /// <summary>
+    /// What the dump holds and the restored database does not — foreign keys, row-level security policies, triggers — by
+    /// count against the dump's own table of contents; null when nothing is short.
+    /// </summary>
+    /// <remarks>
+    /// <b>Because pg_restore goes past what it cannot create</b>, and a restore must, since an extension's comment or
+    /// <c>spatial_ref_sys</c>'s grant is refused to a serving role every time. What it went past was not looked at, so a
+    /// database missing 54 of its 70 foreign keys was restored as whole (2026-10-27). These three kinds are the ones that
+    /// hold the catalogue's rules — what may be deleted, who may read what, what history records — and a restore short of
+    /// any is not the database the backup was of.
+    /// </remarks>
+    private static async Task<string?> MissingAsync(string connection, string contents, CancellationToken cancellation)
+    {
+        Dictionary<string, int> listed = new(StringComparer.Ordinal) { ["FK CONSTRAINT"] = 0, ["POLICY"] = 0, ["TRIGGER"] = 0 };
+
+        foreach (string line in contents.Split('\n'))
+        {
+            System.Text.RegularExpressions.Match entry = System.Text.RegularExpressions.Regex.Match(
+                line, @"^\d+; \d+ \d+ (FK CONSTRAINT|POLICY|TRIGGER) ");
+
+            if (entry.Success)
+            {
+                listed[entry.Groups[1].Value]++;
+            }
+        }
+
+        await using NpgsqlDataSource source = NpgsqlDataSource.Create(connection);
+        await using NpgsqlCommand count = source.CreateCommand(
+            """
+            select (select count(*) from pg_constraint c where c.contype = 'f'
+                      and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e')),
+                   (select count(*) from pg_policy),
+                   (select count(*) from pg_trigger t where not t.tgisinternal
+                      and not exists (select 1 from pg_depend d where d.objid = t.oid and d.deptype = 'e'))
+            """);
+        await using NpgsqlDataReader reader = await count.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+        await reader.ReadAsync(cancellation).ConfigureAwait(false);
+
+        List<string> shortOf = [];
+
+        foreach ((string kind, int column, string said) in new[]
+                 {
+                     ("FK CONSTRAINT", 0, "foreign key"), ("POLICY", 1, "row-level security policy"), ("TRIGGER", 2, "trigger"),
+                 })
+        {
+            long there = reader.GetInt64(column);
+
+            if (there < listed[kind])
+            {
+                shortOf.Add($"{listed[kind] - there} of its {listed[kind]} {said}s");
+            }
+        }
+
+        return shortOf.Count == 0
+            ? null
+            : $"it is missing {string.Join(", ", shortOf)}, which pg_restore could not create";
+    }
+
     private static async Task<(int Schema, string? PostgreSql, string? PostGis)> DescribeAsync(string connection, CancellationToken cancellation)
     {
         await using NpgsqlDataSource source = NpgsqlDataSource.Create(connection);
@@ -415,7 +507,7 @@ internal sealed class Backups
     }
 
     /// <summary>Runs a PostgreSQL client tool against the platform store's server, the password in its environment.</summary>
-    private async Task RunAsync(
+    private async Task<string> RunAsync(
         string tool,
         string[] arguments,
         string? database,
@@ -454,7 +546,7 @@ internal sealed class Backups
         Task<string> output = process.StandardOutput.ReadToEndAsync(cancellation);
         await process.WaitForExitAsync(cancellation).ConfigureAwait(false);
         string said = await errors.ConfigureAwait(false);
-        await output.ConfigureAwait(false);
+        string answered = await output.ConfigureAwait(false);
 
         // pg_restore exits 1 for warnings it ignored (an extension's comment it may not set, for one); the check after
         // it is what decides whether the database is whole.
@@ -462,6 +554,8 @@ internal sealed class Backups
         {
             throw new InvalidOperationException($"{tool} failed ({process.ExitCode}): {said.Trim()}");
         }
+
+        return answered;
     }
 
     private static BackupPart Part(string root, string file)

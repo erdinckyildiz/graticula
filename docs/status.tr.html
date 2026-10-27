@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>d4b5d2a5</code> · 2026-10-27 12:30</p>
+<p class="stamp">Şu commit’ten üretildi: <code>731e5876</code> · 2026-10-27 12:47</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">219</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">450/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">80 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">196 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">18</div><div class="kpi-l">açık borç</div><div class="kpi-n">288 ödendi · 5 tetiğini bekliyor · 2 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">17</div><div class="kpi-l">açık borç</div><div class="kpi-n">290 ödendi · 5 tetiğini bekliyor · 4 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5488</div><div class="kpi-l">test</div><div class="kpi-n">588 kaynak dosya, 261,248 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5489</div><div class="kpi-l">test</div><div class="kpi-n">588 kaynak dosya, 261,421 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">102 madde</span></div><p><b>80 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">101 madde</span></div><p><b>80 ADR conditions</b> outstanding across 49 decisions — the largest commitment on this page.</p><p><b>17 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -445,13 +445,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-302</td><td>The console offers two group visibilities and the server takes three.</td><td class="muted-t">The redesigned group settings screen, or an operator asking where public is.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-303</td><td>Service accounts and their keys have an API and no screen.</td><td class="muted-t">The redesigned Organization › Security screen, or an administrator asking where the keys are.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-305</td><td>An item&#x27;s terms of use, its categories and a member&#x27;s favourites have an API and no screen.</td><td class="muted-t">The redesigned item page, or a publisher asking where to state a licence.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-307</td><td>An administrator cannot see whether a member has a second factor.</td><td class="muted-t">An administrator asking who has one, or the members screen gaining a column.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-307</td><td>An administrator cannot see whether a member has a second factor.</td><td class="muted-t">An administrator asking who has one, or the members screen gaining a column.</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-308</td><td>A registered layer&#x27;s answer lifetime has no control on the console since ADR-206.</td><td class="muted-t">The console&#x27;s redesign reaches the layer settings page (Codex&#x27;s), or an operator asks how to keep a registered layer&#x27;s…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-313</td><td>A registered SQL Server&#x27;s certificate is trusted, not verified.</td><td class="muted-t">A deployment registering a SQL Server across a network it does not control, or a customer asking for verification.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-315</td><td>migrate&#x27;s own backup is refused where the database holds schemas the serving role may not read.</td><td class="muted-t">A deployment that shares its database with other schemas follows the guide and cannot migrate; or the backup gains…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill cond">PARTLY</span></td></tr>
 </tbody></table></div>
-<p class="sub">288 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">290 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -566,9 +565,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">50</div></div>
 <div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">43</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
-<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">22</div></div>
+<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">23</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>731e5876</code><time>2026-10-27</time><span>A purged organisation asks about a registered layer&#x27;s history first, and takes its hosted data with it (D-316)</span></li>
 <li><code>d4b5d2a5</code><time>2026-10-27</time><span>Owner confirms Q-191: a layer whose database is gone is removed with unchecked=true, by whoever may delete it (ADR-207, D-312)</span></li>
 <li><code>78791215</code><time>2026-10-27</time><span>A registered layer is published only from a source with PostGIS, and leaves nothing recording when it goes (D-309, D-311, D-312)</span></li>
 <li><code>abc42a92</code><time>2026-10-27</time><span>A reason carried to the next page is said only on that page, and soon; two console tests wait for their landing (ADR-221)</span></li>
@@ -582,7 +582,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>b3d44746</code><time>2026-10-25</time><span>ArcGIS Online&#x27;s documents behind ADR-204&#x27;s claims, and what it does that this does not (ADR-204 condition 7, §5e item 17)</span></li>
 <li><code>afe99e45</code><time>2026-10-24</time><span>A member of another organisation is told how to sign in, and the group screen admits them properly (ADR-204 §5e item 16)</span></li>
 <li><code>22ede347</code><time>2026-10-24</time><span>Each organisation holds a share of the process&#x27;s budget and of the tile cache; the showcase serves as a bound role (ADR-204 condition 6, condition 9)</span></li>
-<li><code>ef13e7c0</code><time>2026-10-23</time><span>CI serves as a role the floor binds, so its tenancy tests run (ADR-204 condition 9)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

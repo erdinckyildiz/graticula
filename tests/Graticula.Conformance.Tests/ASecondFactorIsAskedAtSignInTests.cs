@@ -65,6 +65,9 @@ public sealed class ASecondFactorIsAskedAtSignInTests : ArcGisClient
             Assert.True(confirmed == HttpStatusCode.OK, $"confirming: {confirmed} {confirmedBody}");
             Assert.Equal(10, JsonDocument.Parse(confirmedBody).RootElement.GetProperty("recoveryCodes").GetArrayLength());
 
+            // D-307: the members list and the profile say so, to an administrator.
+            Assert.True(await CoveredAsync(), "The members list does not say the member has a second factor on.");
+
             // Without the code: refused, and told so in `details`.
             (HttpStatusCode asked, string askedBody) = await LoginAsync(root, null);
             Assert.Equal(HttpStatusCode.Unauthorized, asked);
@@ -86,11 +89,31 @@ public sealed class ASecondFactorIsAskedAtSignInTests : ArcGisClient
 
             (HttpStatusCode after, _) = await LoginAsync(root, null);
             Assert.Equal(HttpStatusCode.OK, after);
+            Assert.False(await CoveredAsync(), "Removed, and the members list still says the member has a second factor.");
         }
         finally
         {
             await AdminAsync(HttpMethod.Delete, $"/admin/members/{Member}");
         }
+    }
+
+    /// <summary>
+    /// Whether the members list and the member's profile, read by an administrator, say a second factor is on — and
+    /// fails when the two disagree.
+    /// </summary>
+    private async Task<bool> CoveredAsync()
+    {
+        (int listed, string list) = await AdminAsync(HttpMethod.Get, $"/admin/members?num=10&q={Member}");
+        Assert.True(listed == 200, $"listing members: {listed} {list}");
+        bool inList = JsonDocument.Parse(list).RootElement.GetProperty("members").EnumerateArray()
+            .Single(m => m.GetProperty("name").GetString() == Member).GetProperty("secondFactor").GetBoolean();
+
+        (int read, string profile) = await AdminAsync(HttpMethod.Get, $"/rest/members/{Member}/profile");
+        Assert.True(read == 200, $"reading the profile: {read} {profile}");
+        bool inProfile = JsonDocument.Parse(profile).RootElement.GetProperty("secondFactor").GetBoolean();
+
+        Assert.Equal(inList, inProfile);
+        return inList;
     }
 
     /// <summary>RFC 6238's code for the step <paramref name="ahead"/> steps after now.</summary>
