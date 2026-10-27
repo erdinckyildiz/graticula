@@ -45,6 +45,19 @@ public sealed class OracleGeodatabaseTests
                 await OracleTableChecks.GeodatabaseRefusalAsync(OracleFixture.Locator, Owner, "ZZG_ARCHIVE", None),
                 StringComparison.Ordinal);
             Assert.Null(await OracleTableChecks.GeodatabaseRefusalAsync(OracleFixture.Locator, Owner, "ZZG_PLAIN", None));
+
+            // ADR-217 condition 2: the probe skips the same two with the same sentences, and offers the plain one.
+            Graticula.Platform.Admin.ProbeResult probed = await new OracleDataSourceProbe().ProbeAsync(OracleFixture.Locator, None);
+
+            foreach (string table in (string[])["ZZG_BRANCH", "ZZG_ARCHIVE"])
+            {
+                Assert.DoesNotContain(probed.Tables, t => t.SchemaName == Owner && t.TableName == table);
+                Assert.Equal(
+                    await OracleTableChecks.GeodatabaseRefusalAsync(OracleFixture.Locator, Owner, table, None),
+                    Assert.Single(probed.Skipped ?? [], s => s.Name == $"{Owner}.{table}").Reason);
+            }
+
+            Assert.Contains(probed.Tables, t => t.SchemaName == Owner && t.TableName == "ZZG_PLAIN");
         }
         finally
         {

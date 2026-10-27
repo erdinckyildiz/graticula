@@ -80,14 +80,17 @@ markers, and the exemption of registered-only tables.
 1. **Measured against a real enterprise geodatabase** — a branch-versioned, an archived and a traditionally versioned
    class in SQL Server or Oracle, made by ArcGIS Pro — before this is called done.
 2. **The probe says it too**: a source's table listing marks these classes as skipped with the same sentence, so the
-   console does not offer what publish refuses. **PARTLY DISCHARGED 2026-10-27 — PostgreSQL and SQL Server.** Each probe
+   console does not offer what publish refuses. **DISCHARGED 2026-10-27 — PostgreSQL and SQL Server first, Oracle the
+   same day.** Each probe
    reads the marker columns and the registry's versioned classes once for the whole database and lists those classes
    under *skipped* with `GeodatabaseClasses.Refusal`'s sentence — the publish's own, so the two cannot say different
    things. Measured: `GeodatabaseClassesAreSkippedByTheProbeTests` (PostgreSQL) failed against the probe before it,
    with the branch-versioned class offered, and passes now; `SqlServerGeodatabaseTests` asserts each skip's reason equals
-   the publish's refusal of the same table, and that a class only registered is still offered. **Open: Oracle**, whose
-   probe has not been given it — the only Oracle this work can be measured on is the one the owner stopped on
-   2026-10-20, and an untested probe change is not shipped as done.
+   the publish's refusal of the same table, and that a class only registered is still offered. **Oracle** was first
+   left open on a wrong premise — that its only test database had been stopped; the owner had asked on 2026-10-22 for
+   it to stay running — and then given the same two reads: `OracleGeodatabaseTests` asserts the probe skips the
+   branch-versioned and archived classes with the publish's sentence and offers the plain table, failed against the
+   probe before it, and passes with the whole Oracle suite (106) against the VPS's Oracle 23.26.
 3. **What is already published is checked once**: a layer published before this ADR from such a class keeps being
    served wrongly until somebody looks; a one-off scan at upgrade could say which. **DISCHARGED 2026-10-27** —
    `GeodatabaseClassScan`, thirty seconds after start: every registered PostgreSQL, SQL Server and Oracle layer is asked
