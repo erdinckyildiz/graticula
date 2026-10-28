@@ -482,6 +482,52 @@ public sealed class PictureMarkerTests
         }
     }
 
+    /// <summary>
+    /// D-287: the generated block had no ceiling, and some 128 distinct large pictures took the <c>@2x</c> sheet past
+    /// the 4096 pixels a GPU is sure to hold as one texture.
+    /// </summary>
+    [Fact]
+    public void A_sheet_stays_within_its_limit_by_widening_then_drawing_at_one_then_leaving_out()
+    {
+        static List<MarkerPicture> Large(int count) => [.. Enumerable.Range(0, count).Select(i =>
+            MarkerPicture.FromBytes(TestPictures.Png(128, 128, (byte)(i % 256), (byte)(i / 256), 7), null, "x"))];
+
+        // A sheet that fitted before is laid out exactly as before.
+        List<MarkerPicture> few = Large(20);
+        SpriteFit small = SpriteLayout.Fit(few, 2, 0);
+        Assert.Equal(2, small.Drawn);
+        Assert.Empty(small.LeftOut);
+        Assert.Equal(
+            SpriteLayout.Pack(few).Slots.Select(s => (s.Picture.Name, s.X, s.Y)),
+            small.Packing.Slots.Select(s => (s.Picture.Name, s.X, s.Y)));
+
+        // 200: too tall at @2x in 1024-wide rows, so the rows widen and the icons keep their ratio.
+        List<MarkerPicture> two = Large(200);
+        Assert.True(SpriteLayout.Pack(two).Height * 2 > SpriteLayout.SheetLimit);
+        SpriteFit wide = SpriteLayout.Fit(two, 2, 0);
+        Assert.Equal(2, wide.Drawn);
+        Assert.Empty(wide.LeftOut);
+        Assert.InRange(wide.Packing.Height * 2, 1, SpriteLayout.SheetLimit);
+        Assert.InRange(wide.Packing.Width * 2, 1, SpriteLayout.SheetLimit);
+
+        // 600: drawn at 1 in the @2x sheet, every one still there.
+        SpriteFit once = SpriteLayout.Fit(Large(600), 2, 0);
+        Assert.Equal(1, once.Drawn);
+        Assert.Empty(once.LeftOut);
+        Assert.InRange(once.Packing.Height, 1, SpriteLayout.SheetLimit);
+
+        JsonObject index = JsonNode.Parse(SpriteLayout.Index(once.Packing, once.Drawn, 0, null))!.AsObject();
+        Assert.All(index, icon => Assert.Equal(1, (int)icon.Value!["pixelRatio"]!));
+
+        // 1200 below an uploaded sheet 1000 pixels tall: what fits stays, the rest is named, nothing passes the limit.
+        List<MarkerPicture> many = Large(1200);
+        SpriteFit full = SpriteLayout.Fit(many, 2, 1000);
+        Assert.NotEmpty(full.LeftOut);
+        Assert.Equal(many.Count, full.Packing.Slots.Count + full.LeftOut.Count);
+        Assert.InRange(1000 + full.Packing.Height, 1, SpriteLayout.SheetLimit);
+        Assert.InRange(full.Packing.Width, 1, SpriteLayout.SheetLimit);
+    }
+
     [Fact]
     public void The_index_matches_the_packing_below_an_uploaded_sheet_and_drops_a_reserved_name()
     {

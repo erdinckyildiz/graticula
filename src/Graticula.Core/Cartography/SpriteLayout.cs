@@ -49,6 +49,13 @@ public static class SpriteLayout
     /// </remarks>
     public const int Gap = 1;
 
+    /// <summary>The widest and tallest a served sheet may be, in its own pixels.</summary>
+    /// <remarks>
+    /// <b>4096, the side ADR-092 refuses an uploaded sheet beyond</b>, because a GPU is not sure to hold more as one
+    /// texture. Until 2026-10-29 the generated block had no ceiling (D-287); <see cref="Fit"/> keeps it under this.
+    /// </remarks>
+    public const int SheetLimit = 4096;
+
     /// <summary>
     /// Every distinct picture a service's layers draw, by name.
     /// </summary>
@@ -104,7 +111,60 @@ public static class SpriteLayout
     /// are, in practice, much the same size; ties are broken by name so the answer never depends on
     /// the order the pictures arrived in.
     /// </remarks>
-    public static SpritePacking Pack(IReadOnlyList<MarkerPicture> pictures)
+    public static SpritePacking Pack(IReadOnlyList<MarkerPicture> pictures) => Pack(pictures, RowWidth);
+
+    /// <summary>
+    /// Where the generated icons go in one sheet so that the sheet stays within <see cref="SheetLimit"/> — D-287.
+    /// </summary>
+    /// <param name="pictures">The pictures.</param>
+    /// <param name="ratio">Which sheet: 1, or 2 for <c>@2x</c>.</param>
+    /// <param name="top">How far down the generated block starts: the uploaded picture's height, or 0.</param>
+    /// <returns>The packing, the ratio its icons are drawn at, and the names of any left out.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The first of four that fits, so a sheet that fitted before is laid out exactly as it was</b> — and its ETag
+    /// unchanged: rows <see cref="RowWidth"/> wide at the sheet's ratio; rows as wide as the sheet may be; and, for the
+    /// <c>@2x</c> sheet, both again with the icons drawn at ratio 1. An icon states its own <c>pixelRatio</c>, which
+    /// MapLibre reads per icon, so one drawn at 1 in the <c>@2x</c> sheet is shown at the same size, with less detail.
+    /// </para>
+    /// <para>
+    /// <b>Past all four, what does not fit is left out and named</b>, the smallest icons last in the packing order and
+    /// so the first to go. A client draws nothing for an icon missing from the index — the same as before for those
+    /// icons on the machines that could not hold the sheet, and now the same on every machine, with the cause said in
+    /// the server's log rather than nowhere. It takes some two thousand distinct large pictures in one service.
+    /// </para>
+    /// </remarks>
+    public static SpriteFit Fit(IReadOnlyList<MarkerPicture> pictures, int ratio, int top)
+    {
+        ArgumentNullException.ThrowIfNull(pictures);
+
+        foreach (int drawn in ratio > 1 ? new[] { ratio, 1 } : [ratio])
+        {
+            foreach (int row in new[] { RowWidth, SheetLimit / drawn })
+            {
+                SpritePacking packing = Pack(pictures, row);
+
+                if (top + (packing.Height * drawn) <= SheetLimit)
+                {
+                    return new SpriteFit(packing, drawn, []);
+                }
+            }
+        }
+
+        SpritePacking widest = Pack(pictures, SheetLimit);
+        List<SpriteSlot> kept = [.. widest.Slots.Where(s => top + s.Y + s.Picture.SheetHeight <= SheetLimit)];
+        List<string> left = [.. widest.Slots.Where(s => !kept.Contains(s)).Select(s => s.Picture.Name)];
+
+        return new SpriteFit(
+            new SpritePacking(
+                kept,
+                kept.Count == 0 ? 0 : kept.Max(s => s.X + s.Picture.SheetWidth),
+                kept.Count == 0 ? 0 : kept.Max(s => s.Y + s.Picture.SheetHeight)),
+            1,
+            left);
+    }
+
+    private static SpritePacking Pack(IReadOnlyList<MarkerPicture> pictures, int rowWidth)
     {
         ArgumentNullException.ThrowIfNull(pictures);
 
@@ -121,7 +181,7 @@ public static class SpriteLayout
 
         foreach (MarkerPicture picture in order)
         {
-            if (x > 0 && x + picture.SheetWidth > RowWidth)
+            if (x > 0 && x + picture.SheetWidth > rowWidth)
             {
                 y += row + Gap;
                 x = 0;
@@ -201,6 +261,12 @@ public static class SpriteLayout
         return index.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
     }
 }
+
+/// <summary>A packing that fits a sheet, the ratio its icons are drawn at, and what was left out — D-287.</summary>
+/// <param name="Packing">The generated icons' places, at pixel ratio 1.</param>
+/// <param name="Drawn">The ratio they are drawn at: the sheet's own, or 1 in an <c>@2x</c> sheet that would not fit.</param>
+/// <param name="LeftOut">The names of icons that fit at no ratio; empty but in a service of some two thousand.</param>
+public sealed record SpriteFit(SpritePacking Packing, int Drawn, IReadOnlyList<string> LeftOut);
 
 /// <summary>The generated icons' places, at pixel ratio 1.</summary>
 /// <param name="Slots">One per picture, in packing order.</param>

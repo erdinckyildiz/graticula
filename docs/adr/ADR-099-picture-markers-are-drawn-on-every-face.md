@@ -130,7 +130,7 @@ forward: put the picture in the document.
   a reason, not a measurement.
 - **A service with a great many pictures makes a tall sheet.** Icons are packed at most 128 pixels a side in
   rows 1,024 wide, so about 128 distinct large pictures fill the 4,096 pixels a GPU is sure to hold at @2x.
-  Past that the sheet is served anyway and some clients may draw no icons ([D-287](../architecture-debt.md)).
+  Past that the sheet is served anyway and some clients may draw no icons ([D-287](../architecture-debt.md)). *Repaired 2026-10-29:* the rows widen, then the @2x sheet draws its icons at ratio 1, and only past some two thousand large pictures are the last left out and named in the log — the sheet never passes 4,096 (D-287).
 - **The composed sheet is kept per process.** Two servers compose the same bytes from the same inputs with the
   same build, so their ETags agree; a mixed-version pair may not, and a client then refetches once.
 

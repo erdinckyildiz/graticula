@@ -845,7 +845,8 @@ internal static class VectorTileEndpoints
         // remembered copy of a sheet to serve from, so while the store is unreachable this read fails and the
         // caller is told so, rather than being handed an empty sheet as though it were this service's.
         byte[] bytes = await GeneratedSprites.FileAsync(
-                service, ratio, image, catalog.Catalog, canvases, cancellation)
+                service, ratio, image, catalog.Catalog, canvases, cancellation,
+                (context.RequestServices.GetService(typeof(ILoggerFactory)) as ILoggerFactory)?.CreateLogger("Graticula.Sprites"))
             .ConfigureAwait(false);
 
         context.Response.Headers.CacheControl = QueryResponseCaching.RevalidateFor(context, service.Layers);
