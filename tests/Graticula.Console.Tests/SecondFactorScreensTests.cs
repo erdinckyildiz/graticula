@@ -213,6 +213,14 @@ public sealed class SecondFactorScreensTests : ConsoleTest
         Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('sfRequireSave').disabled"),
             "Save was offered before anything changed.");
 
+        // D-320: the saved choice's "current" is in its description, not its name (a design review heard "Nobody current").
+        Assert.Equal(0, await Browser.EvaluateAsync<int>(
+            "[...document.querySelectorAll('input[name=sfRequirePick]')].filter(r => /current/.test(r.getAttribute('aria-label') || "
+            + "document.getElementById(r.getAttribute('aria-labelledby') || '')?.textContent || 'unnamed current')).length"));
+        Assert.Equal(1, await Browser.EvaluateAsync<int>(
+            "[...document.querySelectorAll('input[name=sfRequirePick]')].filter(r => (r.getAttribute('aria-describedby') || '').split(' ')"
+            + ".some(id => document.getElementById(id)?.textContent.trim() === 'current')).length"));
+
         await Browser.EvaluateAsync<bool>(Script("PUT", "/admin/security/second-factor",
             "b => [200, { required: b.required, choices: ['off','administrators','everyone'], askedAtNextSignIn: ['zz_one', 'zz_two'] }]"));
 

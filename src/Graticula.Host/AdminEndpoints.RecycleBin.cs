@@ -98,8 +98,12 @@ internal static partial class AdminEndpoints
         }
 
         await recycle.PurgeAsync(entry, cancellation).ConfigureAwait(false);
-        await AuditAsync(context, audit, "recyclebin.purge", entry.Title, Detail(new { entry = id, kind = entry.Kind }),
-            succeeded: true, cancellation).ConfigureAwait(false);
+        await AuditPurgeAsync(context, audit, entry, cancellation).ConfigureAwait(false);
         context.Response.StatusCode = 204;
     }
+
+    /// <summary>The audit line of a purge, from the bin's screen or from a portal delete that asked to skip the bin.</summary>
+    internal static Task AuditPurgeAsync(HttpContext context, IAuditLog audit, RecycleEntry entry, CancellationToken cancellation) =>
+        AuditAsync(context, audit, "recyclebin.purge", entry.Title, Detail(new { entry = entry.Id, kind = entry.Kind }),
+            succeeded: true, cancellation);
 }

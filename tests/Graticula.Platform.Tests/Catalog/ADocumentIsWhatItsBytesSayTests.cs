@@ -52,6 +52,21 @@ public sealed class ADocumentIsWhatItsBytesSayTests
         Assert.Null(Documents.Recognise("photo.pdf", Png, out _));
     }
 
+    /// <summary>
+    /// A design review: an HTML page named <c>page.pdf</c> was refused with "'.pdf' is none of these" beside a list naming
+    /// PDF. The name is one this server takes; what is wrong is the inside, and the sentence says so.
+    /// </summary>
+    [Fact]
+    public void A_name_this_server_takes_on_bytes_it_does_not_is_told_the_inside_is_wrong()
+    {
+        Assert.Null(Documents.Recognise("plan.pdf", Encoding.UTF8.GetBytes("<html></html>"), out string? refusal));
+        Assert.Contains("is named '.pdf' but is not a PDF inside", refusal, StringComparison.Ordinal);
+        Assert.DoesNotContain("none of these", refusal, StringComparison.Ordinal);
+
+        Assert.Null(Documents.Recognise("setup.exe", Encoding.UTF8.GetBytes("MZ"), out refusal));
+        Assert.Contains("none of these", refusal, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("page.pdf", "<!doctype html><script>alert(1)</script>")]
     [InlineData("page.csv", "<html><script>alert(1)</script>")]

@@ -158,6 +158,20 @@ the row and holds the bytes only while it writes them.
    transferred document, which is how it was checked.)*
 4. **Studio can add, replace and delete a document**, on a screen designed from the brief — waits on the screen.
    *(Open. The brief is [document-items.md](../design/document-items.md); the screen is ST-31 in the inventory.)*
+   **DISCHARGED 2026-10-28**, the console's UI having come back that day. Content lists documents beside services and
+   web maps — a tile with the kind's glyph and letters, the kind in words, its size — and they are ticked, moved,
+   shared and deleted in bulk with the rest. *New item › Document* uploads one (a PDF, Word, PowerPoint file or picture
+   dropped on New item lands there too; a CSV or Excel table stays the layer's) with a determinate bar, refuses no file,
+   a kind not accepted and a file over the limit before sending, shows the server's own refusal with the file kept,
+   and lands on the new item. The item page (`#/item/<id>`, shaped like a web map's) has Download (asking first,
+   `check=1` added to `/data`), Share with groups, Replace file, Move, Edit details, and Protect and Delete under
+   Settings. `DocumentScreensTests` drives it against a real document the test files and purges. A ux-designer review
+   sent the first build back — the page reused the web map's markup and none of its styles, the forms were unstyled,
+   focus fell to the page after Delete, and the server answered an HTML file named `.pdf` with *'.pdf' is none of
+   these* beside a list naming PDF, which now says the name is right and the inside is not
+   (`ADocumentIsWhatItsBytesSayTests`). **Not built, from the same review:** a picture of the file as its thumbnail,
+   Add favorite, the item id with a copy link, terms of use and credits, and the folder in the breadcrumb — a web map
+   has the first three and a document should — [D-321](../architecture-debt.md).
 
 ## 11. Dissent
 

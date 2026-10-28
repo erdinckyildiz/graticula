@@ -104,6 +104,63 @@ public sealed class DataSourceScreenTests : ConsoleTest
     /// fields to it — the engine's port, Oracle's word for a database, no written string, since that is
     /// Npgsql's — and the body names the kind; choosing PostGIS again puts its port back and names none.
     /// </remarks>
+    /// <summary>
+    /// ADR-211 condition 1: that a registered DuckDB file cannot be opened by another program is said in the dialog,
+    /// before it is registered, and in the registration's answer — not left to be found when DBeaver will not open it.
+    /// </summary>
+    /// <remarks>
+    /// The listing and the registration are answered in the page: the fixture has no GeoParquet root, so the DuckDB
+    /// choice is off there. The sentence itself was measured with two processes on DuckDB 1.5.5, 2026-10-28: a file
+    /// attached read-write cannot be opened by another at all; attached read-only, another may open it read-only.
+    /// </remarks>
+    [Fact]
+    public async Task A_DuckDB_file_s_lock_is_said_before_and_after_it_is_registered()
+    {
+        await OpenSourcesAsync();
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const real = window.fetch;
+              window.fetch = async (input, init) => {
+                const url = typeof input === "string" ? input : input.url;
+                const method = ((init && init.method) || "GET").toUpperCase();
+                if (new URL(url, location.href).pathname !== "/admin/datasources") return real(input, init);
+                const answer = method === "POST"
+                  ? { id: "66666666-6666-6666-6666-666666666666", name: "zz_cadastre",
+                      probe: { outcome: "Usable", message: "1 table", tables: [] },
+                      note: "While this source is registered, this server keeps the file open to read and edit it." }
+                  : { dataSources: [], geoParquetRoot: "/data/geoparquet" };
+                return new Response(JSON.stringify(answer), { status: method === "POST" ? 201 : 200,
+                  headers: { "Content-Type": "application/json" } });
+              };
+              // The screen read the real listing before this answered it; read again, as Read again does.
+              loadSources();
+              return true;
+            })();
+            """);
+        await WaitForAsync("geoParquetRoot === '/data/geoparquet'", "The faked listing was not read.");
+
+        await ClickAsync("#sAdd");
+        await WaitForAsync("document.querySelector('input[name=\"dcKind\"][value=\"duckdb\"]')?.disabled === false",
+            "The dialog does not offer a DuckDB file with a root set.");
+        await ClickAsync("input[name=\"dcKind\"][value=\"duckdb\"]");
+
+        Assert.Contains("no other program can open it", await Browser.EvaluateAsync<string>(
+            "document.getElementById('dcDuckHint').textContent.replace(/\\s+/g, ' ')") ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain("never written", await Browser.EvaluateAsync<string>(
+            "document.getElementById('dcDuckHint').textContent") ?? string.Empty, StringComparison.Ordinal);
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+              set('dcName', 'zz_cadastre'); set('dcDuckPath', 'istanbul/cadastre.duckdb'); set('dcDuckSrid', '4326');
+              return true;
+            })();
+            """);
+        await ClickAsync("#dcSave");
+        await WaitForAsync("(document.getElementById('probe')?.textContent || '').includes('keeps the file open')",
+            "The registration's answer about the file's lock was not shown.");
+    }
+
     [Fact]
     public async Task Oracle_and_MySQL_are_chosen_in_the_dialog_and_fit_its_fields()
     {
@@ -232,6 +289,127 @@ public sealed class DataSourceScreenTests : ConsoleTest
         // A registered SQL Server opened for correction is read as itself, not as PostGIS.
         Assert.Equal("sqlserver", await Browser.EvaluateAsync<string>("(dbconn = { kind: 'sqlserver' }, dbconnKind())"));
         await Browser.EvaluateAsync<bool>("(dbconn = null, true)");
+    }
+
+    /// <summary>
+    /// A port somebody typed survives a change of engine, even when it is another engine's default.
+    /// </summary>
+    /// <remarks>
+    /// D-319: the port moved while it was <i>a</i> default, so 3306 typed for a PostgreSQL that listens there was
+    /// replaced on a look at Oracle and back. The dialog's own defaults still move.
+    /// </remarks>
+    [Fact]
+    public async Task A_typed_port_survives_a_change_of_engine()
+    {
+        await OpenSourcesAsync();
+        await ClickAsync("#sAdd");
+
+        await WaitForAsync(Shown("#dcPort"), "The connection dialog did not open, or it has no port field.");
+
+        // The dialog's own default moves with the engine.
+        await ClickAsync("input[name=\"dcKind\"][value=\"oracle\"]");
+        Assert.Equal("1521", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+
+        // A typed one, equal to MySQL's default, does not.
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcPort'), el.value = '3306', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+        await ClickAsync("input[name=\"dcKind\"][value=\"postgis\"]");
+        Assert.Equal("3306", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        await ClickAsync("input[name=\"dcKind\"][value=\"sqlserver\"]");
+        Assert.Equal("3306", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+
+        // Nor does a typed 1433 beside a named instance: it is the port meant.
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcPort'), el.value = '1433', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcHost'), el.value = 'gis-db\\\\SQLEXPRESS', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+        Assert.Equal(1433, await Browser.EvaluateAsync<int>("dbconnBody().port"));
+
+        // Emptied, it is the dialog's again.
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcPort'), el.value = '', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcHost'), el.value = 'gis-db', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+        await ClickAsync("input[name=\"dcKind\"][value=\"mysql\"]");
+        Assert.Equal("3306", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+        await ClickAsync("input[name=\"dcKind\"][value=\"postgis\"]");
+        Assert.Equal("5432", await Browser.EvaluateAsync<string>("document.getElementById('dcPort').value"));
+    }
+
+    /// <summary>
+    /// A refusal shown in the dialog names its fields by their labels, and marks them.
+    /// </summary>
+    /// <remarks>
+    /// D-318: the API's sentence was shown as it is, backticks and request field names — <c>`database` is
+    /// required</c> beside a field labelled <i>Service</i>. Stubbed, because the harness traps every non-GET; the
+    /// sentence is the server's own.
+    /// </remarks>
+    [Fact]
+    public async Task A_refusal_names_the_dialogs_fields_not_the_APIs()
+    {
+        await OpenSourcesAsync();
+        await ClickAsync("#sAdd");
+
+        await WaitForAsync(Shown("#dcPort"), "The connection dialog did not open, or it has no port field.");
+        await ClickAsync("input[name=\"dcKind\"][value=\"oracle\"]");
+
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.fetch = async (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (!where.includes("/admin/datasources/test")) return real(input, init);
+            return new Response(JSON.stringify({ error: { code: 400, message:
+              "`database` is required: the service name, such as FREEPDB1 for a pluggable database. `sslmode` is not read." } }), {
+              status: 400, headers: { "Content-Type": "application/json" },
+            });
+          };
+          return true;
+        })();
+        """);
+
+        await ClickAsync("#dcTest");
+
+        await WaitForAsync(
+            "(document.getElementById('dcResult')?.innerText || '').includes('required')",
+            "The refusal was not shown.");
+
+        string said = await Browser.EvaluateAsync<string>("document.getElementById('dcResult').innerText") ?? string.Empty;
+        Assert.Contains("Service is required", said);
+        Assert.DoesNotContain("`", said);
+        Assert.DoesNotContain("database is required", said);
+
+        // A name the dialog has no field for stays as code.
+        Assert.Equal("sslmode", await Browser.EvaluateAsync<string>("document.querySelector('#dcResult code')?.textContent || ''"));
+
+        // The named field is marked, and stops being marked when it is changed.
+        Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('dcDatabase').getAttribute('aria-invalid')"));
+        await Browser.EvaluateAsync<bool>("(el = document.getElementById('dcDatabase'), el.value = 'FREEPDB1', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+        Assert.Null(await Browser.EvaluateAsync<string?>("document.getElementById('dcDatabase').getAttribute('aria-invalid')"));
+        Assert.Null(await Browser.EvaluateAsync<string?>("document.getElementById('dcDatabase').getAttribute('aria-describedby')"));
+
+        // A sentence naming what is required marks what is missing, not a field already filled (a design review), and the
+        // marked field is described by the reason.
+        await Browser.EvaluateAsync<bool>("""
+        (() => {
+          const real = window.fetch;
+          window.fetch = async (input, init) => {
+            const where = typeof input === "string" ? input : (input && input.url) || "";
+            if (!where.includes("/admin/datasources/test")) return real(input, init);
+            return new Response(JSON.stringify({ error: { code: 400, message: "Oracle needs `host` and `username`." } }), {
+              status: 400, headers: { "Content-Type": "application/json" },
+            });
+          };
+          document.getElementById("dcHost").value = "";
+          document.getElementById("dcUser").value = "scott";
+          return true;
+        })();
+        """);
+
+        await ClickAsync("#dcTest");
+        await WaitForAsync("(document.getElementById('dcResult')?.innerText || '').includes('User name')", "The second refusal was not shown.");
+        Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('dcHost').getAttribute('aria-invalid')"));
+        Assert.Null(await Browser.EvaluateAsync<string?>("document.getElementById('dcUser').getAttribute('aria-invalid')"));
+        Assert.Contains("dcResult", await Browser.EvaluateAsync<string>("document.getElementById('dcHost').getAttribute('aria-describedby')") ?? string.Empty);
+
+        // Another engine empties the answer, and its marks go with it.
+        await ClickAsync("input[name=\"dcKind\"][value=\"postgis\"]");
+        Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('#dcForm [aria-invalid]').length"));
     }
 
     /// <summary>

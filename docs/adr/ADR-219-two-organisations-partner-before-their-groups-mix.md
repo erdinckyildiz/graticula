@@ -68,7 +68,7 @@ changes and when candidates are listed, never on a request that reads data.
 ## 5. Decision
 
 1. **A partnership** joins two organisations. An organisation's administrator invites another by **its host name or its
-   key** (INFERRED: ArcGIS Online invites by the organisation's address; a key is accepted too, for an organisation
+   key** (~~INFERRED~~, confirmed 2026-10-29 in Q-190: ArcGIS Online invites by the organisation's address; a key is accepted too, for an organisation
    whose administrator gave it). It is `pending` until the other's administrator **accepts** (`active`) or **declines**
    (removed). Either side **suspends** it (`suspended`), **resumes** it, or **ends** it (`ended`, kept to be read, and
    either side deletes it then). At most **20** that are not ended, per organisation. One pair holds one partnership that
@@ -79,7 +79,7 @@ changes and when candidates are listed, never on a request that reads data.
 3. **A group admits nobody, its organisation's partners, or any organisation.** The switch gains `partnersOnly`. A group
    limited to partners takes a member of another organisation only while the two organisations' partnership is
    `active`. Limiting a group that holds members of organisations that are not partners is refused (`409`), naming how
-   many; they are removed first (INFERRED: ArcGIS Online's documents do not say).
+   many; they are removed first (~~INFERRED~~, confirmed 2026-10-29 in Q-190: ArcGIS Online's documents do not say).
 4. **Suspended**: nobody of the partner is added to a group limited to partners; who is in stays.
 5. **Ended**: in either organisation's groups limited to partners, the other's members are removed; in groups that admit
    any organisation, the other's managers become members. The members of a group cannot share into another

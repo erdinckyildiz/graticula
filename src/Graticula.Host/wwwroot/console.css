@@ -1282,12 +1282,12 @@ td .name { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.
 /* ------------------------------------------------------------- the layer editor */
 
 #editHead { display: flex; align-items: center; gap: var(--gap-4); margin-bottom: var(--gap-4); }
-#editHead .crumbs, #mapCrumb { font-size: var(--t-body); color: var(--muted); }
-#editHead .crumbs a, #mapCrumb a { color: var(--muted); }
-#editHead .crumbs a:hover, #mapCrumb a:hover { color: var(--link); text-decoration: underline; }
-#editHead .crumbs b, #mapCrumb b { color: var(--ink); font-weight: 600; }
+#editHead .crumbs, #mapCrumb, #docCrumb { font-size: var(--t-body); color: var(--muted); }
+#editHead .crumbs a, #mapCrumb a, #docCrumb a { color: var(--muted); }
+#editHead .crumbs a:hover, #mapCrumb a:hover, #docCrumb a:hover { color: var(--link); text-decoration: underline; }
+#editHead .crumbs b, #mapCrumb b, #docCrumb b { color: var(--ink); font-weight: 600; }
 /* The web map's crumb is the layer item's: muted, the place in ink, so it is not told apart by colour (round 2). */
-#mapCrumb { margin-bottom: var(--gap-4); }
+#mapCrumb, #docCrumb { margin-bottom: var(--gap-4); }
 #editHead .right { margin-left: auto; display: flex; align-items: center; gap: var(--gap-3); }
 
 #editDirty { font-size: 11.5px; font-weight: 600; color: var(--warn);
@@ -4545,7 +4545,7 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 /* A web map's item page (2026-10-01): the main column and the actions beside it, as the layer item. */
 /* Since the UX sweep of 2026-10-19 it is the layer's shell: a head card with the picture, the name and the actions,
    the tabs under them, then the item's information beside its summary and layers. */
-#mapPagehead {
+#mapPagehead, #docPagehead {
   display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas: "thumb text actions" "tabs tabs tabs";
   align-items: start; column-gap: 0; row-gap: var(--gap-4); margin-bottom: var(--gap-5);
@@ -4554,25 +4554,25 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 }
 /* The gaps ride on the picture and the actions, as the layer's head has them, so a tab without the picture does not
    keep an empty column's gap in front of the title (round 2: 23 pixels deeper than a layer's). */
-#mapPagehead > #mapThumb { grid-area: thumb; margin-right: var(--gap-5); }
-#mapPagehead:not([data-tab="overview"]) > #mapThumb { display: none; }
-#mapPagehead > #mapThumb .thumb { width: 180px; height: 116px; max-width: none; border-radius: var(--round-lg); }
-#mapPagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
-#mapPagehead > .herotext h2 { margin: 0 0 4px; overflow-wrap: break-word; }
-#mapPagehead > .herotext p { margin: 0; color: var(--muted); }
-#mapPagehead > #mapActions {
+#mapPagehead > #mapThumb, #docPagehead > #docThumb { grid-area: thumb; margin-right: var(--gap-5); }
+#mapPagehead:not([data-tab="overview"]) > #mapThumb, #docPagehead:not([data-tab="overview"]) > #docThumb { display: none; }
+#mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 180px; height: 116px; max-width: none; border-radius: var(--round-lg); }
+#mapPagehead > .herotext, #docPagehead > .herotext { grid-area: text; min-width: 0; align-self: center; }
+#mapPagehead > .herotext h2, #docPagehead > .herotext h2 { margin: 0 0 4px; overflow-wrap: break-word; }
+#mapPagehead > .herotext p, #docPagehead > .herotext p { margin: 0; color: var(--muted); }
+#mapPagehead > #mapActions, #docPagehead > #docActions {
   grid-area: actions; max-width: 440px; margin-left: var(--gap-5); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gap-2);
 }
-#mapActions > button { padding: 6px 12px; }
-#mapPagehead > #mapTabs { grid-area: tabs; justify-self: start; align-self: end; }
+#mapActions > button, #docActions > button { padding: 6px 12px; }
+#mapPagehead > #mapTabs, #docPagehead > #docTabs { grid-area: tabs; justify-self: start; align-self: end; }
 @media (max-width: 900px) {
-  #mapPagehead { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "thumb text" "actions actions" "tabs tabs"; }
-  #mapPagehead > #mapActions { max-width: none; justify-content: flex-start; margin-left: 0; }
-  #mapPagehead > #mapThumb .thumb { width: 120px; height: 78px; }
+  #mapPagehead, #docPagehead { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "thumb text" "actions actions" "tabs tabs"; }
+  #mapPagehead > #mapActions, #docPagehead > #docActions { max-width: none; justify-content: flex-start; margin-left: 0; }
+  #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 120px; height: 78px; }
 }
-@media (max-width: 480px) { #mapPagehead > #mapThumb .thumb { width: 88px; height: 58px; } }
-#mapSettings h4:first-child { margin-top: 0; }
-#mapSettings #mapDelete { margin-top: var(--gap-2); }
+@media (max-width: 480px) { #mapPagehead > #mapThumb .thumb, #docPagehead > #docThumb .thumb { width: 88px; height: 58px; } }
+#mapSettings h4:first-child, #docSettings h4:first-child { margin-top: 0; }
+#mapSettings #mapDelete, #docSettings #docDelete { margin-top: var(--gap-2); }
 .maplayershead { margin: var(--gap-4) 0 var(--gap-1); font-size: var(--t-small); font-weight: 600; color: var(--muted); }
 .mapitem { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: var(--gap-4); align-items: start; }
 .mapitem .mapmain { display: flex; flex-direction: column; gap: var(--gap-4); min-width: 0; }
@@ -4580,14 +4580,14 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 .maplayers { list-style: none; margin: 0; padding: 0; }
 .maplayers li { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .maplayers li:last-child { border-bottom: 0; }
-#mapSide .itemactions { display: flex; flex-direction: column; gap: var(--gap-2); margin-bottom: var(--gap-3); }
-#mapAbout .stacked, #mapShare .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
-#mapAbout textarea, #mapAbout input { font: inherit; max-width: 100%; }
-#mapShare .check > span { display: inline-flex; flex-direction: column; }
+#mapSide .itemactions, #docSide .itemactions { display: flex; flex-direction: column; gap: var(--gap-2); margin-bottom: var(--gap-3); }
+#mapAbout .stacked, #mapShare .stacked, #docAbout .stacked, #docShare .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#mapAbout textarea, #mapAbout input, #docAbout textarea, #docAbout input { font: inherit; max-width: 100%; }
+#mapShare .check > span, #docShare .check > span { display: inline-flex; flex-direction: column; }
 /* One column on a narrow screen, with the actions first: stacked after the description and the layers, Open in Map
    Viewer was below the fold at 390 px (ADR-079 condition 2's review, 2026-10-14). */
 @media (max-width: 900px) { .mapitem { grid-template-columns: minmax(0, 1fr); } }
-#mapAbout, #mapLayers { padding: var(--gap-3) var(--gap-4); }
+#mapAbout, #mapLayers, #docAbout { padding: var(--gap-3) var(--gap-4); }
 
 /* A button that reads as a link, beside a fact it changes (Change owner…). */
 .linkbtn { background: none; border: 0; padding: 0; margin-left: 6px; color: var(--link); font: inherit; font-size: 13px;
@@ -4596,7 +4596,7 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
 #changeOwner select { font: inherit; max-width: 100%; }
 
 /* Design review 2026-10-01, round 4. */
-#mapSide { padding: 22px; }
+#mapSide, #docSide { padding: 22px; }
 .maplayers .kindtag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #667);
   border: 1px solid var(--rule); border-radius: 4px; padding: 1px 6px; }
 dialog h3[tabindex="-1"]:focus { outline: none; }
@@ -4628,12 +4628,12 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 .tagline .tag { font-size: 12px; padding: 2px 8px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink, inherit); }
 
 /* ADR-113: the view dialog's layer rows, and the filters listed under View of. */
-.cvlayer { display: grid; gap: 4px; margin-bottom: var(--gap-2, 8px); }
+.cvlayer { display: grid; gap: 4px; margin-bottom: var(--gap-2); }
 .cvlayer input[type=text] { width: 100%; }
 ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* The view dialog's own layout (design review 2026-10-01): a label over its control, an option's name over its hint. */
-#createView .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3, 12px); }
+#createView .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #createView .check > span { display: flex; flex-direction: column; }
 #createView .check .hint, #createView .dialogfoot .fill { margin: 0; }
 #createView .dialogfoot .fill { flex: 1; }
@@ -4656,7 +4656,7 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* ADR-115: the own-only box takes the row's width, its note indented under it (design review 2026-10-01). */
 #featureLayers .setting.ownonly { flex-wrap: wrap; }
-#featureLayers .setting.ownonly > label.check { flex: 1 1 100%; display: flex; gap: var(--gap-2, 8px); align-items: baseline; }
+#featureLayers .setting.ownonly > label.check { flex: 1 1 100%; display: flex; gap: var(--gap-2); align-items: baseline; }
 #featureLayers .setting.ownonly > .rowmeta { padding-left: 24px; }
 
 /* ADR-116: at phone width the Update data answer takes its own line rather than a sliver beside the buttons. */
@@ -4918,16 +4918,16 @@ h4.spaced { margin-top: 24px; }
   border-bottom: 1px solid var(--rule); padding-bottom: 0;
 }
 #servicePagehead > .herotext { flex: 1 1 100%; }
-#serviceTabs.segmented, #mapTabs.segmented {
+#serviceTabs.segmented, #mapTabs.segmented, #docTabs.segmented {
   order: 2; align-self: flex-end; background: none; border: 0; padding: 0; gap: 0;
   border-radius: 0; margin: 0;
 }
-#serviceTabs.segmented a, #mapTabs.segmented a {
+#serviceTabs.segmented a, #mapTabs.segmented a, #docTabs.segmented a {
   padding: 10px 16px; margin-bottom: -1px; border-radius: 0; background: none; box-shadow: none;
   border-bottom: 2px solid transparent; color: var(--muted); font-size: var(--t-body); font-weight: 500;
 }
-#serviceTabs.segmented a:hover, #mapTabs.segmented a:hover { color: var(--ink); }
-#serviceTabs.segmented a[aria-current], #mapTabs.segmented a[aria-current] {
+#serviceTabs.segmented a:hover, #mapTabs.segmented a:hover, #docTabs.segmented a:hover { color: var(--ink); }
+#serviceTabs.segmented a[aria-current], #mapTabs.segmented a[aria-current], #docTabs.segmented a[aria-current] {
   background: none; box-shadow: none; color: var(--link); border-bottom-color: var(--accent); font-weight: 600;
 }
 /* A resting tab reads as unavailable, not as a quieter tab: half its ink and a dotted underline (round 2). */
@@ -4987,13 +4987,13 @@ h4.spaced { margin-top: 24px; }
 }
 /* The Layer field is a row, label beside its select, so the tab line does not drop on Data. */
 #servicePagehead #itemLayerField.itemlayer { flex-direction: row; align-items: center; gap: 8px; }
-#serviceTabs.segmented a:focus-visible, #mapTabs.segmented a:focus-visible { outline-offset: -2px; }
+#serviceTabs.segmented a:focus-visible, #mapTabs.segmented a:focus-visible, #docTabs.segmented a:focus-visible { outline-offset: -2px; }
 /* On a phone the four tabs fit, and wrap rather than scroll out of sight: Settings, which holds sharing, the tile cache
    and Delete, sat at 313–400 in a 320 box with no scrollbar to say it was there (UX sweep 2026-10-19). */
 @media (max-width: 600px) {
-  #serviceTabs.segmented, #mapTabs.segmented { flex-wrap: wrap; overflow-x: visible; white-space: normal; }
-  #serviceTabs.segmented a, #mapTabs.segmented a { padding: 12px 6px; font-size: 14px; }
-  #serviceTabs.segmented a + a, #mapTabs.segmented a + a { margin-left: var(--gap-3); }
+  #serviceTabs.segmented, #mapTabs.segmented, #docTabs.segmented { flex-wrap: wrap; overflow-x: visible; white-space: normal; }
+  #serviceTabs.segmented a, #mapTabs.segmented a, #docTabs.segmented a { padding: 12px 6px; font-size: 14px; }
+  #serviceTabs.segmented a + a, #mapTabs.segmented a + a, #docTabs.segmented a + a { margin-left: var(--gap-3); }
 }
 
 /* Server's General page: an address wraps rather than running out of its panel. */
@@ -5443,7 +5443,7 @@ dialog::backdrop { background: rgba(16, 24, 38, .42); }
 :root[data-theme="dark"] #tabs a[data-tab][aria-current="page"],
 :root[data-theme="dark"] #serviceTabs.segmented a[aria-current],
 :root[data-theme="dark"] #mapTabs.segmented a[aria-current],
-:root[data-theme="dark"] .sidelist a[aria-current="page"] { color: var(--accent-ink); }
+:root[data-theme="dark"] .sidelist a[aria-current="page"], :root[data-theme="dark"] #docTabs.segmented a[aria-current] { color: var(--accent-ink); }
 
 /* The heads are cards, as the reference draws them. */
 #view-service #servicePagehead, #serverHero {
@@ -5732,14 +5732,14 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #contentSide > #contentFolders:not(:has(.chip)) #folderNew { margin: 0 0 0 auto; padding: 2px 8px; }
 
 /* The item's secondary actions, one menu (owner, 2026-10-17). It looks like the buttons beside it. */
-#itemActions .itemmore > summary, #mapActions .itemmore > summary {
+#itemActions .itemmore > summary, #mapActions .itemmore > summary, #docActions .itemmore > summary {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: var(--t-small);
   color: var(--ink); border: 1px solid var(--control-edge); border-radius: var(--round); background: var(--surface);
   font-weight: 500; line-height: 1.4;
 }
 #itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover,
-#mapActions .itemmore[open] > summary, #mapActions .itemmore > summary:hover { background: var(--surface-2); }
-#itemActions .itemmore .sheet, #mapActions .itemmore .sheet { min-width: 200px; }
+#mapActions .itemmore[open] > summary, #mapActions .itemmore > summary:hover, #docActions .itemmore[open] > summary, #docActions .itemmore > summary:hover { background: var(--surface-2); }
+#itemActions .itemmore .sheet, #mapActions .itemmore .sheet, #docActions .itemmore .sheet { min-width: 200px; }
 #itemActions .itemmore .sheet button { display: block; width: 100%; text-align: left; }
 
 /* Logs: the head sits over the log, beside its sources, as on every other page with a left column (2026-10-17);
@@ -6297,3 +6297,63 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #pcEnd .pcaffected .pcnone { color: var(--muted); }
 #pcEnd h4[hidden], #pcEnd .pcaffected:empty, #pcEnd .hint:empty { display: none; }
 #pcEnd #pcEndAfter { margin-top: var(--gap-2); }
+
+/* D-308: a registered layer's answer lifetime, under Kept warm. The box holds six digits at most, so it is that wide
+   and no wider (a design review found a 175 px box pushing Set out of the card at 390 px); under 480 px Set goes under
+   the box. */
+#answerLifeBox { margin-top: var(--gap-5); }
+.answerlife input[type=number] { width: 9ch; max-width: 100%; }
+.answerlife .u { margin-left: 6px; }
+@media (max-width: 480px) {
+  .answerlife td.right { display: block; text-align: left; padding-top: 0; }
+}
+
+/* D-305: an item's terms of use, folded under its description, as written; and its favourite button. */
+.itemterms { margin: var(--gap-2) 0; }
+.itemterms summary { cursor: pointer; font-weight: 600; }
+.itemterms p { white-space: pre-line; overflow-wrap: anywhere; margin: var(--gap-2) 0 0; }
+
+/* ------------------------------------------------- SYSTEM · backups (ADR-193 condition 4) */
+#view-backups .settingcard { margin-top: var(--gap-4); }
+#view-backups label.check { display: flex; gap: var(--gap-2); align-items: center; min-height: 32px; }
+#view-backups .bkschedule {
+  display: grid; grid-template-columns: max-content minmax(0, 16rem); gap: var(--gap-2) var(--gap-3);
+  align-items: center; margin-top: var(--gap-3);
+}
+#view-backups .bkschedule .hint { grid-column: 2; margin: 0 0 var(--gap-2); }
+#view-backups .bkschedule select, #view-backups .bkschedule input { height: 36px; box-sizing: border-box; }
+#view-backups .bkschedule input { width: 6rem; }
+#view-backups .toolbar #bkTake { white-space: nowrap; flex-shrink: 0; }
+#view-backups #bkTake[aria-disabled="true"] { opacity: .6; cursor: progress; }
+#view-backups .bknote { margin: 0; padding-left: 1.2em; display: grid; gap: var(--gap-2); }
+#view-backups .bknote code { overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  #view-backups .bkschedule { grid-template-columns: minmax(0, 1fr); }
+  #view-backups .bkschedule .hint { grid-column: 1; }
+}
+
+/* ------------------------------------------------- STUDIO · documents (ADR-188 condition 4) */
+/* A document has no picture of itself, so its tile carries its kind's letters, each kind on its own quiet ground. */
+.doctile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  background: var(--surface-2); border: 1px solid var(--rule); color: var(--ink); font: 600 11px/1 var(--mono);
+  letter-spacing: .04em; }
+.doctile svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.2; }
+.mapitemthumb.doctile { font-size: 13px; }
+.mapitemthumb.doctile svg { width: 32px; height: 32px; }
+/* The upload form's fields, stacked as the item page's are (design review: inline labels and a 175-pixel title). */
+#addItemBody .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#addItemBody .stacked :is(input, textarea, select) { font: inherit; max-width: 100%; }
+#addItemBody .stacked :is(input[type="text"], textarea) { width: 100%; box-sizing: border-box; }
+#docFileSays, #docNewSays { margin-top: -6px; }
+.doctile[data-kind="pdf"] { background: #fdecea; color: #8a1c12; }
+.doctile[data-kind="docx"] { background: #e8f0fd; color: #1b4b9c; }
+.doctile[data-kind="xlsx"], .doctile[data-kind="csv"] { background: #e7f5ec; color: #1d6a3a; }
+.doctile[data-kind="pptx"] { background: #fdf0e6; color: #8c3f0b; }
+:root[data-theme="dark"] .doctile { background: var(--surface-2); color: var(--ink); }
+:root[data-theme="dark"] .doctile[data-kind="pdf"] { background: #3a1c1a; color: #f6b8b0; }
+:root[data-theme="dark"] .doctile[data-kind="docx"] { background: #1a2a45; color: #a9c6fb; }
+:root[data-theme="dark"] .doctile[data-kind="xlsx"], :root[data-theme="dark"] .doctile[data-kind="csv"] { background: #16301f; color: #a6e0b8; }
+:root[data-theme="dark"] .doctile[data-kind="pptx"] { background: #3a2614; color: #f6c69c; }
+#view-document .docfile { overflow-wrap: anywhere; }
+#docSays progress, #docNewSays progress { vertical-align: middle; width: 12rem; max-width: 100%; }
+#docSays:empty { display: none; }

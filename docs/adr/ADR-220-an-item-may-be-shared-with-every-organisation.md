@@ -62,7 +62,7 @@ outsider — the route ADR-204 already tests. Mapped by an Explore pass of 2026-
    A system service is already every organisation's and refuses it (`400`).
 2. **Its own privilege, `sharing:shareToAllOrganizations`**, as public sharing has its own: it takes an organisation's
    content past its own members, and each organisation decides who of its members may do that by giving the privilege
-   to a custom role. **INFERRED:** no built-in role but the administrator holds it; the *creator* user type's ceiling
+   to a custom role. ~~**INFERRED:**~~ Confirmed 2026-10-29 ([Q-190](../open-questions.md)): no built-in role but the administrator holds it; the *creator* user type's ceiling
    allows it.
 3. **ArcGIS clients see `org`.** A share from an ArcGIS client to the organisation (`org=true`, Pro's `account=true`)
    keeps an item already shared with every organisation where it is, rather than narrowing it.
@@ -73,7 +73,7 @@ outsider — the route ADR-204 already tests. Mapped by an Explore pass of 2026-
 5. **Not built: the ArcGIS REST search beyond the organisation.** `/sharing/rest/search` stays the host's
    organisation's. Answering other organisations' items there would also need `/sharing/rest/content/items/{id}` to
    answer them at a host that is not theirs, with addresses at theirs; until then an ArcGIS client would find an item
-   it cannot open. **INFERRED** that Studio's search is enough for the owner's request.
+   it cannot open. ~~**INFERRED**~~ That Studio's search is enough for the owner's request *(confirmed by the owner 2026-10-29, [Q-190](../open-questions.md))*.
 
 6. **A member of any organisation is somebody at every host** — found by this decision's own test, which a member of
    another organisation could not pass: their token was refused (`498`) wherever no group of that organisation

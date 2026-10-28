@@ -600,6 +600,25 @@ public sealed class GroupsPageTests : ConsoleTest
                 "Settings does not offer a public group to an owner who may share with the public; the server has taken it "
                 + "since ADR-199.");
 
+            // D-320: a pick row's name is its label, and its lede is its description, not more of its name.
+            Assert.Equal(
+                "Anybody, signed in or not",
+                await Browser.EvaluateAsync<string>(
+                    "(r => document.getElementById(r.getAttribute('aria-labelledby'))?.textContent.trim() || '')"
+                    + "(document.querySelector('#gsVisibility input[value=\"public\"]'))"));
+            Assert.Equal(
+                0,
+                await Browser.EvaluateAsync<int>(
+                    "[...document.querySelectorAll('#groupSettings .pickrow > input')].filter(r => r.closest('.pickrow').querySelector('span.lede')"
+                    + " && !(r.getAttribute('aria-labelledby') && document.getElementById(r.getAttribute('aria-describedby'))?.classList.contains('lede'))).length"));
+
+            // And the rows written into index.html, which no observer sees added (a design review).
+            Assert.Equal(
+                "Let them search for our members",
+                await Browser.EvaluateAsync<string>(
+                    "(r => document.getElementById(r.getAttribute('aria-labelledby'))?.textContent.trim() || '')"
+                    + "(document.querySelector('input[name=pcShare][value=yes]'))"));
+
             // Chosen and not saved, it says what saving does; chosen back, it says nothing (a design review).
             await ClickAsync("#gsVisibility input[value=\"public\"]");
             await WaitForAsync(Shown("#gsPublicSays"), "Choosing a public group said nothing of what saving it does.");

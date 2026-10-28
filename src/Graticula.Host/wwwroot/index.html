@@ -543,7 +543,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Content</h2>
+        <h2 id="contentTitle" tabindex="-1">Content</h2>
         <p>What you own, and what other people have shared with you.</p>
       </div>
       <!--
@@ -602,7 +602,30 @@
       rows came in the order of the service path — case-sensitive, so a layer just uploaded landed last.
       Portal's list opens newest first with the search box in place, and so does this one.
     -->
-    <div class="toolbar">
+    <!--
+      <b>The recycle bin — ADR-203 condition 2, D-305.</b> A scope of My content, where ArcGIS Online keeps its own. It is
+      not a filter of the items above, so choosing it puts this panel where the list was; the toolbar, the ticks and the
+      table are hidden while it shows.
+    -->
+    <div id="recyclePanel" hidden>
+      <h3 id="recycleTitle" tabindex="-1">Recycle bin</h3>
+      <p class="hint" id="recycleAbout"></p>
+      <div class="toolbar">
+        <input type="search" id="recycleFilter" placeholder="Search by name&hellip;" autocomplete="off"
+               aria-label="Search the recycle bin">
+        <span class="val" id="recycleCount"></span>
+      </div>
+      <p class="hint" id="recycleSays" role="status" aria-live="polite"></p>
+      <div class="panel widetable">
+        <table class="rowblocks">
+          <thead><tr><th>Item</th><th>Deleted</th><th>Deleted for good</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="recycleRows"></tbody>
+        </table>
+      </div>
+      <div id="recyclePager"></div>
+    </div>
+
+    <div class="toolbar" id="contentToolbar">
       <input type="search" id="contentFilter" placeholder="Search by name, tag, owner or folder&hellip;"
              autocomplete="off" aria-label="Search your content">
       <!-- The type is chosen by the ticks in the left column; a Type select here filtered too, and the two combined. -->
@@ -628,7 +651,7 @@
     -->
     <!-- ADR-129: what is ticked, and what can be done to all of it at once. -->
     <div class="bulkbar" id="contentBulk" role="region" aria-label="Selected items" hidden></div>
-    <div class="panel widetable">
+    <div class="panel widetable" id="contentTable">
       <table>
         <thead><tr>
           <th class="tick"><input type="checkbox" id="contentPickAll" aria-label="Select every item of yours shown"></th>
@@ -892,6 +915,71 @@
       </div>
 
       <p class="hint" id="geometryServiceSays" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <!--
+    System › Backups — ADR-193 §5.6 and condition 4: take a backup, list, download and delete them, and the daily
+    schedule with how many it keeps. The machine's, so System's: a backup is the whole database, every organization in
+    it (`TenantRouting.SystemOnly`). Restore is not here, deliberately (§5.5) — it replaces the database this process
+    serves — so the page says how it is done instead of offering a button that could not be honest.
+  -->
+  <section class="view" id="view-backups">
+    <div class="pagehead">
+      <div>
+        <h2 id="bkTitle" tabindex="-1">Backups</h2>
+        <p>Copies of this server's whole database — every organization, its content and its settings — with its imagery
+          and its certificate, taken while it serves.</p>
+      </div>
+      <div class="right"><span class="val" id="bkCount"></span></div>
+    </div>
+
+    <div class="toolbar">
+      <button type="button" class="primary" id="bkTake">Take a backup now</button>
+      <span class="val" id="bkState"></span>
+    </div>
+    <p class="hint" id="bkSays" role="status" aria-live="polite"></p>
+
+    <div class="panel widetable">
+      <table class="rowblocks">
+        <thead><tr><th>Taken</th><th>Size</th><th>Server version</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody id="bkRows"><tr><td colspan="4" class="empty">Reading the backups&hellip;</td></tr></tbody>
+      </table>
+    </div>
+    <div id="bkPager"></div>
+
+    <div class="panel pad settingcard" id="bkScheduleCard">
+      <h4 id="bkScheduleHead">Daily schedule</h4>
+      <label class="check"><input type="checkbox" id="bkEnabled" disabled> Take a backup every day</label>
+      <!-- Each hint under its own field, in the grid's second column (design review: the hour's sat 70px below it). -->
+      <div class="bkschedule">
+        <label for="bkHour">At</label>
+        <select id="bkHour" disabled aria-describedby="bkHourSays"></select>
+        <p class="hint" id="bkHourSays">In UTC, the server's clock; your own time is beside it. A day that already has
+          a backup is skipped.</p>
+        <label for="bkKeep">Keep the newest</label>
+        <span class="bkkeep"><input type="number" id="bkKeep" min="1" max="365" step="1" inputmode="numeric" disabled
+          aria-describedby="bkKeepSays"> backups</span>
+        <p class="hint" id="bkKeepSays">1 to 365. After each scheduled backup the older ones are deleted. Backups you
+          took by hand count too.</p>
+      </div>
+      <div class="row">
+        <button type="button" class="primary" id="bkScheduleSave" disabled>Save schedule</button>
+      </div>
+      <p class="hint" id="bkScheduleSays" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="panel pad settingcard" id="bkNoteCard">
+      <h4>Before you rely on one</h4>
+      <ul class="bknote">
+        <li><b>Copy it elsewhere.</b> A backup on this server's own disk is lost with the disk. Download it, or set
+          <code>Graticula:BackupPath</code> to storage that is somewhere else.</li>
+        <li><b>The secret key is not in it.</b> Only a server with the same key can restore it, so store the key
+          separately and as safely.</li>
+        <li><b>Restore with the server stopped:</b> <code>graticula restore <i>name</i></code>. It replaces the database
+          this server uses, which is why this page has no Restore button.</li>
+      </ul>
+      <p class="hint" id="bkWhere"></p>
     </div>
   </section>
 
@@ -1663,6 +1751,33 @@
     <div class="panel pad" id="mapSettings" hidden></div>
   </section>
 
+  <!--
+    A document's item page — ADR-188 condition 4 and the brief's ST-31: a file a member uploaded (a PDF, an Office file,
+    a CSV, a picture), shaped like a web map's item (ST-19) because it is the same kind of thing — an item with a title,
+    sharing and a folder — with Download where a map has Open, and Replace file for whoever manages it.
+  -->
+  <section class="view" id="view-document">
+    <div class="crumbs" id="docCrumb"></div>
+    <div class="pagehead" id="docPagehead" data-tab="overview">
+      <div id="docThumb"></div>
+      <div class="herotext">
+        <h2 id="docTitle" tabindex="-1"></h2>
+        <p id="docSub"></p>
+      </div>
+      <div class="itemactions" id="docActions"></div>
+      <nav class="segmented solid" id="docTabs" aria-label="Item"></nav>
+    </div>
+    <p class="hint" id="docSays" role="status" aria-live="polite"></p>
+    <input type="file" id="docReplaceFile" hidden>
+    <div class="mapitem" id="docOverview">
+      <aside class="panel" id="docSide"></aside>
+      <div class="mapmain">
+        <div class="panel" id="docAbout"></div>
+      </div>
+    </div>
+    <div class="panel pad" id="docSettings" hidden></div>
+  </section>
+
   <section class="view" id="view-group">
     <div class="crumbs" id="groupCrumb"></div>
 
@@ -2029,6 +2144,88 @@
         <span class="fill"></span>
         <button type="button" class="ghost" id="sfRequireCancel">Cancel</button>
         <button type="button" class="primary" id="sfRequireConfirm">Require it</button>
+      </footer>
+    </dialog>
+    <!--
+      <b>ADR-200 condition 3, D-303: service accounts and their API keys.</b> Built on 2026-10-18 with an API and no
+      screen, which left a key nobody could see — and a key nobody can see is a key nobody revokes. Under two-step
+      sign-in, because that card tells scripts to move to an API key, and this is where they get one. Drawn only for a
+      reader with admin:manageSecurity (`loadServiceAccounts`), as the server refuses anybody else.
+    -->
+    <div id="saCard" hidden>
+      <div class="pagehead sub">
+        <div>
+          <h3 id="saTitle" tabindex="-1">Service accounts</h3>
+          <p>Accounts for scripts and integrations, which sign in with an API key instead of a person's password. One
+            never owns anything and never administers; its keys open the ArcGIS services and the portal, not this
+            administration API.</p>
+        </div>
+        <div class="right">
+          <span class="val" id="saCount"></span>
+          <button class="primary" id="saNew">New service account</button>
+        </div>
+      </div>
+      <p class="hint" id="saSays" role="status" aria-live="polite"></p>
+      <div class="panel widetable">
+        <table class="rowblocks">
+          <thead><tr>
+            <th>Account</th><th>User type and role</th><th class="num">Live keys</th><th>State</th>
+            <th><span class="sr-only">Actions</span></th>
+          </tr></thead>
+          <tbody id="saRows"></tbody>
+        </table>
+      </div>
+    </div>
+    <dialog id="saDialog" class="formdialog" aria-labelledby="saDialogTitle">
+      <header class="dialoghead">
+        <h3 id="saDialogTitle">New service account</h3>
+        <button type="button" class="tiny ghost" id="saDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+      <div class="picker">
+        <label for="saName">Name <span class="val">letters, digits, <code>.</code>, <code>_</code> and <code>-</code></span></label>
+        <input id="saName" type="text" autocomplete="off" spellcheck="false" maxlength="64" placeholder="nightly-sync">
+
+        <label for="saDescription">What it is for <span class="val">optional</span></label>
+        <input id="saDescription" type="text" autocomplete="off" placeholder="Copies inspections to the archive every night">
+
+        <label for="saType">User type</label>
+        <select id="saType" aria-describedby="saTypeSays"></select>
+        <p class="hint" id="saTypeSays"></p>
+
+        <label for="saRole">Role</label>
+        <select id="saRole" aria-describedby="saRoleSays"></select>
+        <p class="hint" id="saRoleSays">Never the administrator role: a machine does not administer. Whatever its role
+          says, it cannot create content, publish, register data or make groups.</p>
+
+        <p class="bad-inline" id="saFormSays" role="alert" hidden></p>
+      </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="saCancel">Cancel</button>
+        <button type="button" class="primary" id="saSave">Create</button>
+      </footer>
+    </dialog>
+    <dialog id="saKeyIssued" class="formdialog" aria-labelledby="saKeyIssuedTitle" aria-describedby="saKeyOnce">
+      <header class="dialoghead">
+        <h3 id="saKeyIssuedTitle" tabindex="-1">Key created</h3>
+      </header>
+      <div class="dialogbody">
+        <p id="saKeyOnce"><b>This key is shown only now.</b> The server keeps only a fingerprint of it, so it cannot be
+          shown again. Copy it into the script or the app that uses it.</p>
+        <label class="tnlabel" for="saKeyText">API key</label>
+        <div class="copyrow">
+          <input id="saKeyText" type="text" readonly spellcheck="false" autocomplete="off">
+          <button type="button" id="saKeyCopy">Copy</button>
+        </div>
+        <p class="hint">Send it as an ArcGIS token: <code>token=</code> or <code>Authorization: Bearer</code>. The Maps SDK
+          takes it as <code>apiKey</code>, and the ArcGIS API for Python as <code>api_key</code>.</p>
+        <p class="hint" id="saKeySays" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="primary" id="saKeyDone">I have copied it</button>
       </footer>
     </dialog>
     <div class="pagehead sub">
@@ -2866,6 +3063,15 @@
   </header>
   <div class="dialogbody" id="mapShareBody"></div>
   <footer class="dialogfoot" id="mapShareFoot"></footer>
+</dialog>
+
+<dialog id="docShare" aria-labelledby="docShareTitle">
+  <header class="dialoghead">
+    <h3 id="docShareTitle" tabindex="-1">Share</h3>
+    <button class="tiny ghost" id="docShareClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+  <div class="dialogbody" id="docShareBody"></div>
+  <footer class="dialogfoot" id="docShareFoot"></footer>
 </dialog>
 
 <dialog id="exportData" aria-labelledby="exportDataTitle">

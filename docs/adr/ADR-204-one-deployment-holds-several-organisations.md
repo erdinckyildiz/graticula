@@ -514,7 +514,7 @@ superuser.
          is in that still admit outsiders, with whose each is and the address to open it at — read on the root pool,
          narrowed to the member's own membership rows, and answered at home only — and the member's own Groups page
          lists them under its own groups, each opening at `/studio/group/{name}` on its organisation's host in a new
-         tab (ux-designer; **INFERRED**: new tab, the title as the link). The member still
+         tab (ux-designer; ~~**INFERRED**~~: new tab, the title as the link *(confirmed by the owner 2026-10-29, [Q-190](../open-questions.md))*). The member still
          works in the group at its organisation's host, as an outsider; ArcGIS Online lets them work from home.
          Tested by `AMembersGroupsElsewhereAreListedAtHomeTests`.
 18. **An organisation's custom roles are its own — 2026-10-25**, the first of item 17's owed four, at the owner's
@@ -542,10 +542,10 @@ superuser.
       is not an escalation: the system's acts are refused by the member's system flag, not by a privilege
       (`TenantRouting`, §5e item 13), so such a role reaches no further than the organisation's own `administrator`
       role, which that administrator already holds. ArcGIS Online lets a custom role carry administrative
-      privileges too. **INFERRED** that this stays; listed for the owner.
+      privileges too. ~~**INFERRED** that this stays; listed for the owner.~~ It stays *(confirmed by the owner 2026-10-29, [Q-190](../open-questions.md))*.
     - The console (ux-designer, the same day): an organisation's administrator manages its custom roles; a built-in
       role shows its privileges fixed, with *Copy as a custom role* — every built-in but `administrator`, which ArcGIS
-      Online does not offer as a template either (**INFERRED**).
+      Online does not offer as a template either (~~**INFERRED**~~ *(confirmed by the owner 2026-10-29, [Q-190](../open-questions.md))*).
     - Tested by `AnOrganisationsRolesAreItsOwnTests`: one name in two organisations, each member holding its own
       organisation's privileges, a change in one leaving the other's alone, and the built-ins refused to both.
 19. **A new organisation's host needs no change to the proxy — 2026-10-25**, at the owner's question *"her yeni

@@ -91,6 +91,14 @@ own sandboxed DuckDB, under the rules every registered engine's writer applies (
 
 1. **The owner's file workflow**: that a registered database file cannot be opened by another program while it is
    registered is said in the console's *Add a source* dialog and the registration's answer, not left to be discovered.
+   **DISCHARGED 2026-10-28.** The dialog's DuckDB hint says it — and no longer says the file is *never written*, which
+   this ADR made untrue — and `POST /admin/datasources` for a `duckdb` source answers `note` (`AdminEndpoints.DuckDbFileHeld`),
+   which the console shows where the result is read (`DataSourceScreenTests.A_DuckDB_file_s_lock_is_said_before_and_after_it_is_registered`).
+   The sentence was measured rather than taken from DuckDB's documentation, with two processes on DuckDB 1.5.5: a file
+   attached read-write, as the server attaches it, cannot be opened by another process at all, read-only included;
+   attached read-only, as on a read-only mount, another may open it read-only. **Not measurable in one process**: a
+   second DuckDB connection in the test's own process opened the file while it was held, so the test asserts the
+   words and the measurement is this note.
 2. **MotherDuck** edited end to end with a real token, and a read-scaling token's refusal falling back to read only.
 3. **End to end through FeatureServer** `applyEdits` on a server whose projection database knows EPSG:4326's area of
    use — the local fixture's PostGIS bundle does not (its `postgis_srs()` is empty), so a publish there was refused

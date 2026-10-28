@@ -62,7 +62,7 @@ lifetime is optional, as ADR-015 §5 allows; *last used* is shown so an unused k
 
 **Positive.** Scripts and integrations stop borrowing a person, and survive that person's second factor (ADR-201).
 
-**Negative.** A second credential to rotate; the console has no screen for it until the redesign ([D-303](../architecture-debt.md)).
+**Negative.** A second credential to rotate. The console's screen came on 2026-10-28 ([D-303](../architecture-debt.md)).
 
 **State.** Service accounts are `principal` rows of kind `service`, and keys `api_key` rows holding a hash, in the catalogue and shared by every node; nothing is held at runtime, and a revocation is seen by the next request.
 
@@ -70,7 +70,7 @@ lifetime is optional, as ADR-015 §5 allows; *last used* is shown so an unused k
 
 1. **The ArcGIS API for Python is driven with a key** — `GIS(url, api_key=…)` — against this server. *(Discharged 2026-10-18: ArcGIS API for Python 2.4.3, `GIS(url, api_key=…)` against the local fixture, signed in, searched content (5 items) and counted a hosted layer (8); `addItem` with the same key answered 403 — the machine creates nothing.)*
 2. **`client_credentials` is decided**: built on these accounts, or refused by decision.
-3. **A screen** — D-303.
+3. **A screen** — D-303. **DISCHARGED 2026-10-28**: Organization › Settings › Security lists the accounts and their keys, makes both, shows a key once, and turns off, deletes and revokes after asking (`ServiceAccountsScreenTests`).
 
 ## 7. Dependencies
 
