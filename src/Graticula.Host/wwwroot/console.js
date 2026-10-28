@@ -23984,7 +23984,7 @@ function dbconnInstance() {
 
   const host = $("dcHost").value.trim();
   const split = SQLSERVER_HOST_PORT.exec(host);
-  const atDefault = port.value.trim() === "" || port.value === String(DBCONN_PORTS.sqlserver);
+  const atDefault = port.value.trim() === "" || (!port.dataset.typed && port.value === String(DBCONN_PORTS.sqlserver));
 
   if (split) {
     port.value = split[2];
@@ -24058,6 +24058,9 @@ function dbconnShowKind() {
     said.innerHTML = "";
   }
 
+  // A mark the emptied answer gave would be left explaining nothing, on a field that may now mean something else.
+  dbconnUnmark();
+
   // <b>Focus stays on the radio.</b> This moved it to the first field of the chosen half, and a
   // design review found what that does to the arrow keys: the second option was checked and focus
   // left the group, so the first could not be arrowed back to — a change of context on input, which
@@ -24077,7 +24080,9 @@ function dbconnShowKind() {
 function dbconnServerKind(kind) {
   const port = $("dcPort");
 
-  if (port && (port.value.trim() === "" || Object.values(DBCONN_PORTS).map(String).includes(port.value))) {
+  // <b>Typed is asked, not guessed from the number</b> — D-319: 3306 typed for a server that listens there was
+  // indistinguishable from MySQL's 3306, and a change of engine replaced it.
+  if (port && (port.value.trim() === "" || (!port.dataset.typed && Object.values(DBCONN_PORTS).map(String).includes(port.value)))) {
     port.value = String(DBCONN_PORTS[kind]);
   }
 
@@ -24163,6 +24168,153 @@ function dbconnOverride() {
   // request is how the value became invisible in the first place.
   if (on) { $("dcAdvanced").open = true; }
 }
+
+/**
+ * The dialog's field an API refusal names, for the kind being described.
+ *
+ * @param {string} word the request's field name, as the refusal quotes it
+ * @returns {HTMLElement|null} the field, when this kind of source shows one by that name
+ */
+function dbconnFieldOf(word) {
+  const kind = dbconnKind();
+  const id = {
+    name: "dcName",
+    host: "dcHost",
+    port: "dcPort",
+    username: "dcUser",
+    password: "dcPassword",
+    database: kind === "motherduck" ? "dcMdDatabase" : "dcDatabase",
+    connectionString: "dcRaw",
+    path: kind === "duckdb" ? "dcDuckPath" : "dcPath",
+    url: "dcUrl",
+    token: "dcMdToken",
+    srid: kind === "duckdb" ? "dcDuckSrid" : "dcMdSrid",
+  }[word];
+
+  const field = id ? $(id) : null;
+
+  // A field in a hidden half is not one the reader can find, so it is not named as if it were.
+  return field && !field.closest("[hidden]") ? field : null;
+}
+
+/**
+ * Says a refusal in the dialog's words: each field the API quotes is called by its label, and marked.
+ *
+ * <b>D-318.</b> The sentence is the API's, written for a client that sends `database`; shown as it was, the dialog
+ * printed backticks and a request's field names beside fields labelled otherwise (*Instance*, *User name*,
+ * *Service*). The words are mapped here rather than changed at the server, because API clients read them too. A
+ * name the dialog has no field for stays as code.
+ *
+ * @param {string} tone the class: `ok`, `warn`, `alert` or empty
+ * @param {string} head the bold half
+ * @param {string} message the server's sentence
+ */
+function dbconnRefused(tone, head, message) {
+  const said = $("dcResult");
+
+  if (!said) return;
+
+  const named = [];
+  const words = h(message || "").replace(/`([^`]+)`/g, (whole, word) => {
+    const field = dbconnFieldOf(word);
+
+    if (!field) return `<code>${word}</code>`;
+    named.push(field);
+
+    // The label's own words, without the input inside it or a trailing "— required".
+    const label = word === "database" && field.id === "dcDatabase"
+      ? $("dcDatabaseName").textContent
+      : [...field.closest("label").childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent).join("");
+    return `<i>${h(label.replace(/\s+—.*$/, "").trim())}</i>`;
+  });
+
+  said.className = `testresult ${tone}`;
+  said.innerHTML = `<b>${h(head)}</b>${words}`;
+
+  // <b>What is missing, when something is</b> — a design review: "needs Instance and User name" lists what is
+  // required, and marked a filled User name as wrong. When every named field is filled, the sentence is about them.
+  const empty = named.filter(field => !field.value.trim());
+
+  dbconnUnmark();
+  for (const field of empty.length ? empty : named) {
+    field.setAttribute("aria-invalid", "true");
+    field.setAttribute("aria-describedby", [field.getAttribute("aria-describedby"), "dcResult"].filter(Boolean).join(" "));
+  }
+
+  said.scrollIntoView({ block: "nearest" });
+}
+
+/**
+ * Takes a refusal's marks off the dialog's fields, or off one of them.
+ *
+ * <b>The reason goes with the mark</b>: a marked field is described by the result line, so a screen reader on the
+ * field hears why and not only "invalid entry" (a design review), and neither outlives the other.
+ *
+ * @param {Element} [only] the one field changed, or every field when absent
+ */
+function dbconnUnmark(only) {
+  const fields = only ? [only] : document.querySelectorAll("#dcForm [aria-invalid]");
+
+  for (const field of fields) {
+    if (!field.hasAttribute?.("aria-invalid")) continue;
+    field.removeAttribute("aria-invalid");
+
+    const rest = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(id => id && id !== "dcResult");
+    if (rest.length) field.setAttribute("aria-describedby", rest.join(" ")); else field.removeAttribute("aria-describedby");
+  }
+}
+
+/**
+ * Gives every pick row's radio its label as a name and its lede as a description.
+ *
+ * <b>D-320.</b> A `.pickrow` wraps both in its `<label>`, which is what makes the whole row a target, and so a screen
+ * reader heard the two as one name: *Anybody, signed in or not Needs the privilege to share with the public.* Seven
+ * screens draw rows that way, so this is done once, for whatever is added to the page, rather than in each of them.
+ *
+ * @param {ParentNode} root where rows were added
+ */
+let pickrowIds = 0;
+
+function pickrowNames(root) {
+  for (const input of root.querySelectorAll?.(".pickrow > input[type=radio]:not([data-named])") || []) {
+    const row = input.closest(".pickrow");
+    const name = row.querySelector("b");
+    const lede = row.querySelector(".lede");
+
+    if (!name || !lede) continue;
+
+    input.dataset.named = "1";
+    lede.id ||= `pick${++pickrowIds}`;
+
+    // <b>A row's "current" is a description, not part of its name</b> — a design review heard "Nobody current". The
+    // checked state already says which is chosen; that it is the saved one is said after the lede.
+    const saved = name.querySelector(".val");
+
+    if (saved) {
+      const bare = name.cloneNode(true);
+      bare.querySelector(".val").remove();
+      saved.id ||= `pick${++pickrowIds}`;
+      input.setAttribute("aria-label", bare.textContent.trim());
+      input.setAttribute("aria-describedby", `${lede.id} ${saved.id}`);
+    } else {
+      name.id ||= `pick${++pickrowIds}`;
+      input.setAttribute("aria-labelledby", name.id);
+      input.setAttribute("aria-describedby", lede.id);
+    }
+  }
+}
+
+new MutationObserver(changes => {
+  for (const change of changes) {
+    for (const node of change.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) pickrowNames(node.parentNode || node);
+    }
+  }
+}).observe(document.documentElement, { childList: true, subtree: true });
+
+// The observer sees only what is added after it; the rows written into index.html are here already (a design review
+// found the New group and collaboration dialogs' seven radios unnamed).
+pickrowNames(document);
 
 /**
  * Says something in the dialog's own result line.
@@ -24515,6 +24667,12 @@ async function openDbConnection(source) {
   // being sent.
   $("dcRaw").addEventListener("input", dbconnOverride);
 
+  // A port somebody typed is theirs until they empty it (D-319); one the dialog filled in is not.
+  $("dcPort").addEventListener("input", e => { e.target.dataset.typed = e.target.value.trim() ? "1" : ""; });
+
+  // A field a refusal named stops being marked once it is changed (D-318).
+  $("dcForm").addEventListener("input", e => dbconnUnmark(e.target));
+
   for (const radio of document.querySelectorAll('input[name="dcKind"]')) {
     radio.addEventListener("change", dbconnShowKind);
   }
@@ -24701,7 +24859,7 @@ async function dbconnTest() {
     dbconnSkipped(r.skipped);
   } catch (e) {
     if (dbconnKind() !== tested) return;
-    dbconnSays("alert", "Refused. ", e.message);
+    dbconnRefused("alert", "Refused. ", e.message);
   } finally {
     button.disabled = false;
 
@@ -24787,10 +24945,10 @@ async function dbconnSave() {
     // named which layers would stop working; repeating the save with `force` is the operator
     // agreeing to that list rather than to an abstraction.
     if (dbconn && /would stop working|no longer/i.test(e.message)) {
-      dbconnSays("warn", "Refused. ", `${e.message} Press Save again to do it anyway.`);
+      dbconnRefused("warn", "Refused. ", `${e.message} Press Save again to do it anyway.`);
       dbconn.force = true;
     } else {
-      dbconnSays("alert", "Refused. ", e.message);
+      dbconnRefused("alert", "Refused. ", e.message);
     }
   } finally {
     button.disabled = false;
