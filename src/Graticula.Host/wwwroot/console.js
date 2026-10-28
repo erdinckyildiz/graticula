@@ -15576,7 +15576,12 @@ document.addEventListener("click", async event => {
     // Deleting it deletes what is under it, so what it says is taken out counts those too (a design review).
     const under = id => catList().filter(x => (x.parentId || null) === id).flatMap(x => [x, ...under(x.id)]);
     const held = c ? [c, ...under(c.id)].reduce((n, x) => n + (kind.held(x) || 0), 0) : 0;
-    if (!c || !confirm(`Delete “${c.name}” and any category under it? ${kind.taken(held)}`)) return;
+    // The console's own question, as every other delete asks it, rather than the browser's (a design review).
+    if (!c || !await askServerConfirm({
+      title: `Delete “${c.name}”?`,
+      body: `“${c.name}” and any category under it are deleted. ${kind.taken(held)}`,
+      action: "Delete",
+    })) return;
     try {
       await api(`${kind.route}/${encodeURIComponent(c.id)}`, { method: "DELETE" });
       if (catKind === "member") memberFilter.categories.delete(c.id);

@@ -91,6 +91,18 @@ public sealed class ItemTermsAndFavoritesTests : ConsoleTest
         Assert.Contains("Water › Rivers", await Browser.EvaluateAsync<string>(
             "document.querySelector('#serviceDescription .itemcats')?.textContent || ''") ?? string.Empty, StringComparison.Ordinal);
 
+        // The editor deletes after the console's own question, not the browser's, and counts what is under a parent.
+        await ClickAsync("#serviceDescription [data-item-categorize]");
+        await WaitForAsync(Shown("#catGoEdit"), "An administrator's Categorize offers no way to edit the categories.");
+        await ClickAsync("#catGoEdit");
+        await WaitForAsync(Shown("[data-cat-delete='c1']"), "The content categories' editor did not open.");
+        await ClickAsync("[data-cat-delete='c1']");
+        await WaitForAsync("document.getElementById('serverConfirm').open", "Deleting a category asked nothing in the console.");
+        Assert.Contains("any category under it", await Browser.EvaluateAsync<string>("document.getElementById('serverConfirmBody').textContent") ?? string.Empty,
+            StringComparison.Ordinal);
+        await ClickAsync("#serverConfirmCancel");
+        Assert.DoesNotContain(await WritesAsync(), w => w.StartsWith("DELETE /admin/item-categories", StringComparison.Ordinal));
+
         NothingWentWrong(await PageErrorsAsync());
     }
 
