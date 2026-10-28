@@ -104,6 +104,63 @@ public sealed class DataSourceScreenTests : ConsoleTest
     /// fields to it — the engine's port, Oracle's word for a database, no written string, since that is
     /// Npgsql's — and the body names the kind; choosing PostGIS again puts its port back and names none.
     /// </remarks>
+    /// <summary>
+    /// ADR-211 condition 1: that a registered DuckDB file cannot be opened by another program is said in the dialog,
+    /// before it is registered, and in the registration's answer — not left to be found when DBeaver will not open it.
+    /// </summary>
+    /// <remarks>
+    /// The listing and the registration are answered in the page: the fixture has no GeoParquet root, so the DuckDB
+    /// choice is off there. The sentence itself was measured with two processes on DuckDB 1.5.5, 2026-10-28: a file
+    /// attached read-write cannot be opened by another at all; attached read-only, another may open it read-only.
+    /// </remarks>
+    [Fact]
+    public async Task A_DuckDB_file_s_lock_is_said_before_and_after_it_is_registered()
+    {
+        await OpenSourcesAsync();
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const real = window.fetch;
+              window.fetch = async (input, init) => {
+                const url = typeof input === "string" ? input : input.url;
+                const method = ((init && init.method) || "GET").toUpperCase();
+                if (new URL(url, location.href).pathname !== "/admin/datasources") return real(input, init);
+                const answer = method === "POST"
+                  ? { id: "66666666-6666-6666-6666-666666666666", name: "zz_cadastre",
+                      probe: { outcome: "Usable", message: "1 table", tables: [] },
+                      note: "While this source is registered, this server keeps the file open to read and edit it." }
+                  : { dataSources: [], geoParquetRoot: "/data/geoparquet" };
+                return new Response(JSON.stringify(answer), { status: method === "POST" ? 201 : 200,
+                  headers: { "Content-Type": "application/json" } });
+              };
+              // The screen read the real listing before this answered it; read again, as Read again does.
+              loadSources();
+              return true;
+            })();
+            """);
+        await WaitForAsync("geoParquetRoot === '/data/geoparquet'", "The faked listing was not read.");
+
+        await ClickAsync("#sAdd");
+        await WaitForAsync("document.querySelector('input[name=\"dcKind\"][value=\"duckdb\"]')?.disabled === false",
+            "The dialog does not offer a DuckDB file with a root set.");
+        await ClickAsync("input[name=\"dcKind\"][value=\"duckdb\"]");
+
+        Assert.Contains("no other program can open it", await Browser.EvaluateAsync<string>(
+            "document.getElementById('dcDuckHint').textContent.replace(/\\s+/g, ' ')") ?? string.Empty, StringComparison.Ordinal);
+        Assert.DoesNotContain("never written", await Browser.EvaluateAsync<string>(
+            "document.getElementById('dcDuckHint').textContent") ?? string.Empty, StringComparison.Ordinal);
+
+        await Browser.EvaluateAsync<bool>("""
+            (() => {
+              const set = (id, v) => { const el = document.getElementById(id); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+              set('dcName', 'zz_cadastre'); set('dcDuckPath', 'istanbul/cadastre.duckdb'); set('dcDuckSrid', '4326');
+              return true;
+            })();
+            """);
+        await ClickAsync("#dcSave");
+        await WaitForAsync("(document.getElementById('probe')?.textContent || '').includes('keeps the file open')",
+            "The registration's answer about the file's lock was not shown.");
+    }
+
     [Fact]
     public async Task Oracle_and_MySQL_are_chosen_in_the_dialog_and_fit_its_fields()
     {

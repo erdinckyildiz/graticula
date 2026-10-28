@@ -391,9 +391,11 @@ fingerprint, into `Graticula:BackupPath` (default `backups` under the state
 directory); `graticula restore <backup>`, with the server stopped, restores into a
 new database, checks it, renames it into place and keeps the one it replaced. It
 refuses a backup taken with another key and one of a newer schema before it writes
-anything. `migrate --apply` takes one first unless `--no-backup`. Server's
-`/admin/backups` takes, lists, downloads and deletes them, and a schedule, off until
-set, keeps the number it is told to. **The key is not in a backup** — keep it apart,
+anything. `migrate --apply` takes one first unless `--no-backup`. The console's
+System › Backups — `/admin/backups` underneath — takes, lists, downloads and deletes
+them, and a daily schedule, off until set, keeps the number it is told to. The
+server runs `pg_dump` itself, so the PostgreSQL client tools must be on its path or
+named by `Graticula:PostgresTools`; the page says so before a backup is tried. **The key is not in a backup** — keep it apart,
 as §2.5 says — and a backup on the server's own disk is not a disaster recovery
 until it is copied elsewhere. The steps above still describe what the commands do,
 and still work by hand.

@@ -4628,12 +4628,12 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 .tagline .tag { font-size: 12px; padding: 2px 8px; border: 1px solid var(--rule); border-radius: 999px; color: var(--ink, inherit); }
 
 /* ADR-113: the view dialog's layer rows, and the filters listed under View of. */
-.cvlayer { display: grid; gap: 4px; margin-bottom: var(--gap-2, 8px); }
+.cvlayer { display: grid; gap: 4px; margin-bottom: var(--gap-2); }
 .cvlayer input[type=text] { width: 100%; }
 ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* The view dialog's own layout (design review 2026-10-01): a label over its control, an option's name over its hint. */
-#createView .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3, 12px); }
+#createView .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
 #createView .check > span { display: flex; flex-direction: column; }
 #createView .check .hint, #createView .dialogfoot .fill { margin: 0; }
 #createView .dialogfoot .fill { flex: 1; }
@@ -4656,7 +4656,7 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* ADR-115: the own-only box takes the row's width, its note indented under it (design review 2026-10-01). */
 #featureLayers .setting.ownonly { flex-wrap: wrap; }
-#featureLayers .setting.ownonly > label.check { flex: 1 1 100%; display: flex; gap: var(--gap-2, 8px); align-items: baseline; }
+#featureLayers .setting.ownonly > label.check { flex: 1 1 100%; display: flex; gap: var(--gap-2); align-items: baseline; }
 #featureLayers .setting.ownonly > .rowmeta { padding-left: 24px; }
 
 /* ADR-116: at phone width the Update data answer takes its own line rather than a sliver beside the buttons. */
@@ -6312,3 +6312,22 @@ ol.sfsteps > li > b { margin-left: -30px; }
 .itemterms { margin: var(--gap-2) 0; }
 .itemterms summary { cursor: pointer; font-weight: 600; }
 .itemterms p { white-space: pre-line; overflow-wrap: anywhere; margin: var(--gap-2) 0 0; }
+
+/* ------------------------------------------------- SYSTEM · backups (ADR-193 condition 4) */
+#view-backups .settingcard { margin-top: var(--gap-4); }
+#view-backups label.check { display: flex; gap: var(--gap-2); align-items: center; min-height: 32px; }
+#view-backups .bkschedule {
+  display: grid; grid-template-columns: max-content minmax(0, 16rem); gap: var(--gap-2) var(--gap-3);
+  align-items: center; margin-top: var(--gap-3);
+}
+#view-backups .bkschedule .hint { grid-column: 2; margin: 0 0 var(--gap-2); }
+#view-backups .bkschedule select, #view-backups .bkschedule input { height: 36px; box-sizing: border-box; }
+#view-backups .bkschedule input { width: 6rem; }
+#view-backups .toolbar #bkTake { white-space: nowrap; flex-shrink: 0; }
+#view-backups #bkTake[aria-disabled="true"] { opacity: .6; cursor: progress; }
+#view-backups .bknote { margin: 0; padding-left: 1.2em; display: grid; gap: var(--gap-2); }
+#view-backups .bknote code { overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  #view-backups .bkschedule { grid-template-columns: minmax(0, 1fr); }
+  #view-backups .bkschedule .hint { grid-column: 1; }
+}

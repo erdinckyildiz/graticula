@@ -155,4 +155,18 @@ None recorded.
    the refusal removed.
 4. **The Backups screen** takes, lists, downloads and deletes, and its schedule keeps the number it is told to. *(The
    API is built and tested — `/admin/backups`, `BackupEndpointsTests`; the screen belongs to the console redesign,
-   which is Codex's since 2026-10-16.)*
+   which is Codex's since 2026-10-16.)* **DISCHARGED 2026-10-28**, the console's UI having come back on that day:
+   System › *Backups*, the machine's because a backup is every organization's (`TenantRouting.SystemOnly`). It takes
+   one and says once, in its status line, when it finished or why it failed; lists them newest first with their size,
+   version, the UTC time the schedule speaks in and whether the roles were saved; downloads through the console's
+   ask-first download (`check=1`, added to the route); deletes behind a confirmation; and sets the daily schedule.
+   `BackupsScreenTests` drives all of it against an answered API, and on the local fixture a real backup was taken,
+   checked, downloaded as a tar holding `database.dump`, `roles.sql`, `state/` and the manifest, and deleted. Keeping
+   the number it is told to is `Backups.Prune`, which the scheduler now calls, held by `BackupScheduleKeepsTests`:
+   five finished, keep two, the newest two stay and a folder with no manifest — one still being written — is not
+   touched. A ux-designer review sent the first build back: on the real server `pg_dump` was not on the path, the
+   backup failed before the page read the list again, and *The backup started* stayed on screen beside a raw
+   operating-system error naming the working directory. Now the run is watched from the press (seen to fail with
+   that one line removed), the error says to install the client tools or set `Graticula:PostgresTools`, and the
+   list answers `toolsMissing` so the page says it before Take. **Not built, from the same review:** the last
+   *scheduled* run's own outcome apart from a manual one's, and a link from the restore line to a runbook.

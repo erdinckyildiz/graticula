@@ -9259,9 +9259,20 @@ internal static partial class AdminEndpoints
                 id,
                 name = request.Name,
                 probe = Describe(result),
+                note = string.Equals(request.Kind, DataSourceKinds.DuckDb, StringComparison.OrdinalIgnoreCase) ? DuckDbFileHeld : null,
             },
             statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// What registering a DuckDB file costs its owner — ADR-211 condition 1, said in the answer rather than left to be
+    /// discovered: the server holds the file open to read and write it, and DuckDB lets one program do that at a time.
+    /// </summary>
+    internal const string DuckDbFileHeld =
+        "While this source is registered, this server keeps the file open to read and edit it, and DuckDB lets only one "
+        + "program do that at a time: DBeaver, the DuckDB command line or Python cannot open the file until the source is "
+        + "removed, and a file already open in one of them cannot be registered. On a read-only mount the file is only "
+        + "read, and other programs may read it too.";
 
     private static async Task ListDataSourcesAsync(
         HttpContext context,

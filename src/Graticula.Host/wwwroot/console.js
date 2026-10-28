@@ -3037,6 +3037,8 @@ const SURFACES = {
       ["organizations", "Organizations", () => isSystemAdministrator()],
       ["utilities", "Utility services"],
       ["settings", "General"],
+      // ADR-193 condition 4: a backup is the whole database, every organization's, so the machine's.
+      ["backups", "Backups"],
       ["logs", "Logs"],
     ],
   },
@@ -3194,6 +3196,7 @@ const SCREEN_SURFACE = {
   // The server's own services and the geometry service its clients are pointed at — Studio's Organization › Settings
   // › Utility services until ADR-221, so `/studio/utilities` lands here.
   utilities: "system",
+  backups: "system",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
   // A screen absent from this table falls through to its surface's home, so `/server/group/planning`
@@ -3972,6 +3975,7 @@ function openScreen(surface, screen, folder) {
     section("settings", loadGeometryService);
   }
   if (screen === "collaborations") loadPartnerships();
+  if (screen === "backups") section("backups", loadBackups, "bkRows");
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") {
@@ -25397,8 +25401,10 @@ async function openDbConnection(source) {
                    aria-describedby="dcDuckHint" placeholder="4326 or 3857"></label>
         </div>
         <p class="hint" id="dcDuckHint">A <code>.duckdb</code> file inside <code>${h(geoParquetRoot || "")}</code>. Every
-          table in its <code>main</code> schema with a GEOMETRY column can be published, read where it is
-          and never written. <b>The reference is required</b>: DuckDB does not keep one in a database file,
+          table in its <code>main</code> schema with a GEOMETRY column can be published, read where it is,
+          and edited there where the server may write the file. <b>While it is registered, the server keeps the file
+          open, so no other program can open it</b> — close it in DBeaver, the DuckDB command line or Python first.
+          <b>The reference is required</b>: DuckDB does not keep one in a database file,
           so this is the one place the file's coordinates are said to be in EPSG:4326, 3857 or another
           code — and a table whose coordinates cannot be in it is refused when it is published.</p>
       </div>
@@ -25804,6 +25810,9 @@ async function dbconnSave() {
       ? `${answer.name} now reads ${answer.summary
         || (body.kind === "geoparquet" ? "that folder" : body.kind === "geoparquet-remote" ? "that location" : body.kind === "duckdb" || body.kind === "motherduck" ? "that database" : "that connection")}.`
       : "Saved.", true);
+    // ADR-211 condition 1: what registering a DuckDB file costs, in the server's own words, where the result is read.
+    if (answer.note) sourcePanel(`<h2>${h(answer.name || body.name)}</h2>
+      <div class="panel pad"><p class="hint" role="status">${h(answer.note)}</p></div>`);
 
     await loadSources();
   } catch (e) {
@@ -32180,6 +32189,7 @@ document.addEventListener("click", event => {
 
   // The bin is sliced from what was read, as the probe is: turning its page asks the server nothing new.
   else if (id === "recycleRows") drawRecycleBin();
+  else if (id === "bkRows") drawBackups();
 
   // <b>Focus goes back to the arrow that was pressed, drawn again</b> — or to the other one where it is disabled at the
   // end. A design review found it on the page after Next, on every paged list: the redraw replaces the pager.
@@ -33672,6 +33682,229 @@ function logEmpty() {
 
   return `Nothing in this window matches. Widen <b>Since</b>, or clear the filters.`;
 }
+
+// ---------------------------------------------------------------- System › Backups (ADR-193 condition 4)
+
+/** What `/admin/backups` last answered; null until it is read. */
+let backupsNow = null;
+
+/** Whether a backup was running when the list was last read, so the page can say when it stops. */
+let backupWasRunning = false;
+
+/** The timer that reads the list again while a backup runs. */
+let backupPoll = 0;
+
+/** A moment as an operator reads it, to the minute. */
+const backupWhen = value => {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? "—" : at.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+};
+
+/** A moment in the schedule's terms, so a row can be matched to it: `02:00 UTC`. */
+const backupUtc = value => {
+  const at = new Date(value);
+  return Number.isNaN(at.getTime()) ? "" : `${String(at.getUTCHours()).padStart(2, "0")}:${String(at.getUTCMinutes()).padStart(2, "0")} UTC`;
+};
+
+/** The hour options: each in UTC, with the reader's own time beside it where that differs. */
+function backupHours() {
+  const select = $("bkHour");
+  if (!select || select.options.length) return;
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  select.innerHTML = Array.from({ length: 24 }, (_, hour) => {
+    const at = new Date(Date.UTC(2026, 0, 15, hour));
+    const local = at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    const utc = `${String(hour).padStart(2, "0")}:00 UTC`;
+    return `<option value="${hour}">${utc}${zone && zone !== "UTC" && zone !== "Etc/UTC" ? ` (${h(local)} your time)` : ""}</option>`;
+  }).join("");
+}
+
+/**
+ * Reads the backups and draws them; while one runs, reads again every five seconds until a read says it stopped.
+ * <b>A read that fails keeps the next one coming</b> (design review): the poll is scheduled before the read can throw,
+ * so one lost answer does not leave the button saying *Backing up…* until the page is reloaded.
+ */
+async function loadBackups() {
+  clearTimeout(backupPoll);
+  const again = () => {
+    backupPoll = setTimeout(() => {
+      if ($("view-backups")?.classList.contains("on")) section("backups", loadBackups, "bkRows");
+    }, 5000);
+  };
+  if (backupWasRunning) again();
+
+  backupsNow = await api("/admin/backups");
+  drawBackups();
+  drawBackupSchedule();
+
+  if (backupsNow.running) {
+    if (!backupWasRunning) again();
+  } else if (backupWasRunning) {
+    clearTimeout(backupPoll);
+    // <b>Said once, when it stops</b> — the reader pressed Take and may have moved on to the table.
+    const last = backupsNow.last;
+    $("bkSays").textContent = last?.error
+      ? `The backup failed and nothing was kept: ${lowerFirst(last.error)}`
+      : `The backup finished${last?.name ? ` and is listed first: ${last.name}` : ""}.`;
+  }
+  backupWasRunning = !!backupsNow.running;
+}
+
+function drawBackups() {
+  const all = (backupsNow?.backups || []).slice().sort((a, b) => String(b.taken).localeCompare(String(a.taken)));
+  const shown = pageOf("bkRows", all);
+  const last = backupsNow?.last;
+
+  $("bkCount").textContent = `${num(all.length)} backup${all.length === 1 ? "" : "s"}`;
+  $("bkPager").innerHTML = pagerFor("bkRows", all.length);
+  $("bkWhere").innerHTML = backupsNow?.location ? `Kept in <code>${h(backupsNow.location)}</code> on the server.` : "";
+
+  // aria-disabled rather than disabled while one runs, so the button keeps its place in the tab order and says why.
+  const take = $("bkTake");
+  take.textContent = backupsNow?.running ? "Backing up…" : "Take a backup now";
+  if (backupsNow?.running) take.setAttribute("aria-disabled", "true");
+  else take.removeAttribute("aria-disabled");
+
+  const state = $("bkState");
+  state.classList.toggle("bad-inline", !backupsNow?.running && !!(last?.error || backupsNow?.toolsMissing));
+  state.textContent = backupsNow?.running
+    ? `Running since ${backupWhen(last?.started)}. This page reads the list again until it finishes.`
+    : last?.error
+    ? `The last backup, started ${backupWhen(last.started)}, failed: ${lowerFirst(last.error)}`
+    // Said before Take rather than after it, where the backups listed would otherwise suggest it works.
+    : backupsNow?.toolsMissing && all.length
+    ? `A backup cannot be taken now: ${lowerFirst(backupsNow.toolsMissing)}`
+    : "";
+
+  $("bkRows").innerHTML = all.length === 0 && backupsNow?.toolsMissing
+    ? `<tr><td colspan="4" class="empty">No backup has been taken, and none can be yet: ${h(lowerFirst(backupsNow.toolsMissing))}</td></tr>`
+    : all.length === 0
+    ? `<tr><td colspan="4" class="empty">No backup has been taken${backupsNow?.schedule?.enabled ? " yet; the schedule takes the first" : ""}.
+        Take one now, or turn on the daily schedule below.</td></tr>`
+    : shown.map(b => `
+      <tr>
+        <td class="name"><b>${h(backupWhen(b.taken))}</b>
+          <div class="rowmeta">${h(backupUtc(b.taken))} · ${h(b.name)}${b.roles === false
+            ? " · without the database's roles, which the server's login may not read" : ""}</div></td>
+        <td class="val" data-l="Size"><span>${h(fileSize(b.bytes))}</span></td>
+        <td class="val" data-l="Server version"><span>${h(b.version || "—")}</span></td>
+        <td class="act" style="text-align:right">
+          <button type="button" class="tiny" data-backup-download="${h(b.name)}"
+            aria-label="Download the backup of ${h(backupWhen(b.taken))}">Download</button>
+          <button type="button" class="tiny danger" data-backup-delete="${h(b.name)}"
+            aria-label="Delete the backup of ${h(backupWhen(b.taken))}">Delete</button></td>
+      </tr>`).join("");
+}
+
+/** The schedule's controls, from what the server keeps; left alone while the reader is changing them. */
+function drawBackupSchedule() {
+  backupHours();
+  const schedule = backupsNow?.schedule;
+  const card = $("bkScheduleCard");
+  if (!schedule || card.dataset.dirty === "true") return;
+  $("bkEnabled").checked = !!schedule.enabled;
+  $("bkHour").value = String(schedule.hourUtc ?? 2);
+  $("bkKeep").value = String(schedule.keep ?? 7);
+  for (const id of ["bkEnabled", "bkHour", "bkKeep"]) $(id).disabled = false;
+  $("bkScheduleSave").disabled = true;
+}
+
+document.addEventListener("input", event => {
+  if (!event.target.closest?.("#bkScheduleCard") || event.target.id === "bkScheduleSave") return;
+  $("bkScheduleCard").dataset.dirty = "true";
+  $("bkScheduleSave").disabled = false;
+  $("bkScheduleSays").textContent = "";
+  $("bkKeep").removeAttribute("aria-invalid");
+});
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest?.("#bkTake, #bkScheduleSave, [data-backup-download], [data-backup-delete]");
+  if (!t) return;
+  const says = $("bkSays");
+
+  if (t.id === "bkTake") {
+    if (t.getAttribute("aria-disabled") === "true") {
+      says.textContent = "A backup is already running. This page says when it finishes.";
+      return;
+    }
+    try {
+      await api("/admin/backups", { method: "POST" });
+    } catch (problem) {
+      says.textContent = `Not started: ${lowerFirst(problem.message)}`;
+      return;
+    }
+    says.textContent = "The backup started. It is listed here when it finishes, and this page says so.";
+    // <b>Watched from the press, not from the first read that finds it running</b> (design review): a backup that
+    // failed — or finished — before that read was never announced, and *started* stayed on the page beside the failure.
+    backupWasRunning = true;
+    await section("backups", loadBackups, "bkRows");
+    $("bkTake").focus();
+    return;
+  }
+
+  if (t.id === "bkScheduleSave") {
+    const keep = Number($("bkKeep").value);
+    if (!Number.isInteger(keep) || keep < 1 || keep > 365) {
+      $("bkKeep").setAttribute("aria-invalid", "true");
+      $("bkScheduleSays").textContent = "Not saved: keep is a whole number from 1 to 365.";
+      $("bkKeep").focus();
+      return;
+    }
+    const wanted = { enabled: $("bkEnabled").checked, hourUtc: Number($("bkHour").value), keep };
+    try {
+      await api("/admin/backups/schedule", {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wanted),
+      });
+    } catch (problem) {
+      $("bkScheduleSays").textContent = `Not saved: ${lowerFirst(problem.message)}`;
+      return;
+    }
+    delete $("bkScheduleCard").dataset.dirty;
+    backupsNow.schedule = wanted;
+    drawBackupSchedule();
+    $("bkScheduleSays").textContent = wanted.enabled
+      ? `Saved. A backup is taken every day at ${String(wanted.hourUtc).padStart(2, "0")}:00 UTC, and the newest ${num(keep)} are kept.`
+      : "Saved. No backup is taken on a schedule.";
+    // The button it was on is disabled now, so the reader's place is the card's first control.
+    $("bkEnabled").focus();
+    return;
+  }
+
+  const name = t.dataset.backupDownload || t.dataset.backupDelete;
+  const backup = (backupsNow?.backups || []).find(b => b.name === name);
+  if (!backup) return;
+  const when = backupWhen(backup.taken);
+
+  if (t.dataset.backupDownload) {
+    t.setAttribute("aria-busy", "true");
+    const file = await browserDownload(`/admin/backups/${encodeURIComponent(name)}/download`).catch(() => ({
+      refused: "the connection to the server was lost. Try again.",
+    }));
+    t.removeAttribute("aria-busy");
+    says.textContent = file.refused
+      ? `Not downloaded: ${lowerFirst(file.refused)}`
+      : `${file.fileName} (about ${fileSize(file.bytes)}) is downloading — your browser shows its progress.`;
+    return;
+  }
+
+  if (!await askServerConfirm({
+    title: `Delete the backup of ${when}?`,
+    body: `Its ${fileSize(backup.bytes)} of files are deleted from the server. A copy you downloaded is not affected. `
+      + "This cannot be undone.",
+    action: "Delete backup",
+  })) return;
+
+  try {
+    await api(`/admin/backups/${encodeURIComponent(name)}`, { method: "DELETE" });
+  } catch (problem) {
+    says.textContent = `Not deleted: ${lowerFirst(problem.message)}`;
+    return;
+  }
+  // The row is drawn away; the reader's place is the page's heading, with the line under it saying what happened.
+  $("bkTitle").focus();
+  await section("backups", loadBackups, "bkRows");
+  says.textContent = `The backup of ${when} is deleted.`;
+});
 
 async function section(what, load, placeholder) {
   try {

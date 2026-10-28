@@ -85,7 +85,8 @@ internal sealed class Backups
         _store = new NpgsqlConnectionStringBuilder(platformStore);
         _keyFingerprint = KeyFingerprint(secretKeyBase64);
         _stateDirectory = stateDirectory;
-        Location = directory;
+        // Whole and in one style of separator: the console shows it, and `stateackups` after `D:/temp/` read as two paths.
+        Location = Path.GetFullPath(directory);
         _toolDirectory = toolDirectory;
         _maintenance = maintenanceStore is { Length: > 0 }
             ? new NpgsqlConnectionStringBuilder(maintenanceStore) { Database = "postgres", SearchPath = null }
@@ -114,6 +115,32 @@ internal sealed class Backups
     /// <summary>One file of a backup and how to check it.</summary>
     public sealed record BackupPart(string Path, long Bytes, string Sha256);
 
+    /// <summary>Whether a backup's database roles were saved — <c>roles.sql</c> is written only when the login may read them.</summary>
+    public static bool HasRoles(BackupManifest manifest) =>
+        manifest.Parts.Any(p => string.Equals(Path.GetFileName(p.Path), Roles, StringComparison.Ordinal));
+
+    /// <summary>
+    /// Why a backup cannot be taken here before one is tried — <c>pg_dump</c> is neither in the configured folder nor on
+    /// the path — or null. Said in the list, so the console can say it before Take rather than after (design review,
+    /// ADR-193 condition 4).
+    /// </summary>
+    public string? ToolsMissing()
+    {
+        string name = OperatingSystem.IsWindows() ? "pg_dump.exe" : "pg_dump";
+        IEnumerable<string> folders = _toolDirectory is { Length: > 0 } directory
+            ? [directory]
+            : (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
+
+        return folders.Any(folder => File.Exists(Path.Combine(folder.Trim('"'), name))) ? null : ToolsNotFound("pg_dump");
+    }
+
+    /// <summary>What to do when a PostgreSQL client tool is not where this server looks.</summary>
+    private string ToolsNotFound(string tool) => _toolDirectory is { Length: > 0 } directory
+        ? $"{tool} was not found in {directory}, the folder Graticula:PostgresTools names. Point it at the folder that holds "
+            + "the PostgreSQL client tools, of the same major version as the database or newer."
+        : $"{tool} was not found on this server. Install the PostgreSQL client tools, of the same major version as the "
+            + "database or newer, or set Graticula:PostgresTools to the folder that holds them.";
+
     /// <summary>The finished backups, newest first, by their manifests.</summary>
     public IReadOnlyList<(string Name, BackupManifest Manifest)> List()
     {
@@ -132,6 +159,24 @@ internal sealed class Backups
         }
 
         return [.. found.OrderByDescending(f => f.Item2.Taken)];
+    }
+
+    /// <summary>
+    /// Deletes every finished backup but the newest <paramref name="keep"/>, by when each was taken — the schedule's half
+    /// of ADR-193 §5.6. Backups taken by hand count among them, as the console says. Answers the names deleted.
+    /// </summary>
+    public IReadOnlyList<string> Prune(int keep)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(keep, 1);
+        List<string> deleted = [];
+
+        foreach ((string name, _) in List().Skip(keep))
+        {
+            Directory.Delete(Path.Combine(Location, name), recursive: true);
+            deleted.Add(name);
+        }
+
+        return deleted;
     }
 
     /// <summary>Takes a backup, and answers its folder.</summary>
@@ -540,8 +585,18 @@ internal sealed class Backups
             _ => "prefer",
         };
 
-        using Process process = Process.Start(start)
-            ?? throw new InvalidOperationException($"{tool} could not be started.");
+        Process? started;
+        try
+        {
+            started = Process.Start(start);
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            // The operating system's sentence names the working directory and not the tool's folder; ours says what to do.
+            throw new InvalidOperationException(ToolsNotFound(tool));
+        }
+
+        using Process process = started ?? throw new InvalidOperationException($"{tool} could not be started.");
         Task<string> errors = process.StandardError.ReadToEndAsync(cancellation);
         Task<string> output = process.StandardOutput.ReadToEndAsync(cancellation);
         await process.WaitForExitAsync(cancellation).ConfigureAwait(false);

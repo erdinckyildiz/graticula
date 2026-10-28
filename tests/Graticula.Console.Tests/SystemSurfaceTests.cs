@@ -82,7 +82,7 @@ public sealed class SystemSurfaceTests : ConsoleTest
         // System: its five tabs, Status first, and the health pill opens it.
         await OpenAsync("/system/", token);
         await WaitForAsync("document.getElementById('view-operations')?.classList.contains('on')", "/system/ did not open on Status.");
-        Assert.Equal("operations,organizations,utilities,settings,logs", await Browser.EvaluateAsync<string>(
+        Assert.Equal("operations,organizations,utilities,settings,backups,logs", await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a')].map(a => a.dataset.tab).join(',')"));
         Assert.Equal("System", await Browser.EvaluateAsync<string>("document.getElementById('surfaceBadge').textContent"));
         Assert.Equal("page", await Browser.EvaluateAsync<string>("document.querySelector('#surfaces a[data-surface=system]').getAttribute('aria-current')"));
@@ -188,7 +188,7 @@ public sealed class SystemSurfaceTests : ConsoleTest
         await OpenAsync("/system/settings", token);
         await WaitForAsync("document.getElementById('view-settings')?.classList.contains('on') && document.getElementById('setPageSizeSource').textContent.length > 0",
             "System › General did not open for an administrator on a server of one.");
-        Assert.Equal("operations,utilities,settings,logs", await Browser.EvaluateAsync<string>(
+        Assert.Equal("operations,utilities,settings,backups,logs", await Browser.EvaluateAsync<string>(
             "[...document.querySelectorAll('#tabs a')].map(a => a.dataset.tab).join(',')"));
         await NothingRefusedAsync("System › General");
         NothingWentWrong(await PageErrorsAsync());

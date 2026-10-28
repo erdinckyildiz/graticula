@@ -111,6 +111,7 @@ internal static partial class BackupEndpoints
         return Results.Ok(new
         {
             location = backups.Location,
+            toolsMissing = backups.ToolsMissing(),
             running = Volatile.Read(ref _running) == 1,
             last = _last is { } last
                 ? new { started = last.Started, finished = last.Finished, name = last.Name, error = last.Error }
@@ -124,6 +125,7 @@ internal static partial class BackupEndpoints
                 schema = b.Manifest.Schema,
                 bytes = b.Manifest.Parts.Sum(p => p.Bytes),
                 keyFingerprint = b.Manifest.KeyFingerprint,
+                roles = Backups.HasRoles(b.Manifest),
             }),
             note = "A backup on the server's own disk is not a disaster recovery until it is copied elsewhere — download it, "
                 + "or point Graticula:BackupPath at storage that is. Restore is `graticula restore <name>` with the server stopped. "
@@ -159,6 +161,14 @@ internal static partial class BackupEndpoints
         if (Folder(backups, name) is not { } folder)
         {
             return NotFound(name);
+        }
+
+        // <b>`check=1` asks, and sends nothing</b> — the console's download asks first, as its other downloads do, so a
+        // refusal is a sentence on the page rather than a broken file in the browser's list. The size is the parts'; the
+        // tar adds a header per file.
+        if (context.Request.Query["check"] == "1")
+        {
+            return Results.Ok(new { fileName = $"{name}.tar", bytes = Backups.ReadManifest(folder)!.Parts.Sum(p => p.Bytes) });
         }
 
         await AdminEndpoints.AuditAsync(context, audit, "backup.download", name, AdminEndpoints.Detail(new { name }),
@@ -279,11 +289,7 @@ internal sealed partial class BackupScheduler(Backups backups, IServerSettingSto
 
                 BackupEndpoints.Start(backups, log, _ =>
                 {
-                    foreach ((string Name, Backups.BackupManifest Manifest) old in backups.List().Skip(schedule.Keep))
-                    {
-                        Directory.Delete(Path.Combine(backups.Location, old.Name), recursive: true);
-                    }
-
+                    backups.Prune(schedule.Keep);
                     return Task.CompletedTask;
                 });
             }

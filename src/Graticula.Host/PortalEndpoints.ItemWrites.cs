@@ -39,8 +39,8 @@ namespace Graticula.Host;
 /// <para>
 /// <b>Delete is the console's delete</b>, called rather than rewritten, so delete protection, a source's views, what
 /// this server keeps beside a registered layer and the recycle bin (ADR-203) hold through this door as through the
-/// other. A <c>permanentDelete</c> is recycled all the same — INFERRED, for the owner to confirm: a script's delete
-/// should be undoable on a server whose bin has no screen yet.
+/// other. A <c>permanentDelete</c> was recycled all the same until the bin had a screen; since ADR-214 condition 1 it
+/// is purged from the bin straight after, as Enterprise's is.
 /// </para>
 /// </remarks>
 internal static partial class PortalEndpoints
@@ -603,7 +603,11 @@ internal static partial class PortalEndpoints
             return Unknown("User");
         }
 
-        (bool ok, string? error, int status) = await DeleteOneAsync(context, current, id, cancellation).ConfigureAwait(false);
+        IFormCollection form = context.Request.HasFormContentType
+            ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
+            : FormCollection.Empty;
+        (bool ok, string? error, int status) = await DeleteOneAsync(
+            context, current, id, Permanent(form, context), cancellation).ConfigureAwait(false);
 
         return ok ? Results.Ok(new { success = true, itemId = id }) : PortalError(status, error!);
     }
@@ -617,11 +621,12 @@ internal static partial class PortalEndpoints
         }
 
         IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+        bool permanent = Permanent(form, context);
         List<object> results = [];
 
         foreach (string id in First(form, context, "items").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            (bool ok, string? error, int status) = await DeleteOneAsync(context, current, id, cancellation).ConfigureAwait(false);
+            (bool ok, string? error, int status) = await DeleteOneAsync(context, current, id, permanent, cancellation).ConfigureAwait(false);
 
             results.Add(ok
                 ? new { itemId = id, success = true }
@@ -631,12 +636,18 @@ internal static partial class PortalEndpoints
         return Results.Ok(new { results });
     }
 
+    /// <summary>Whether a delete asked to skip the recycle bin, as ArcGIS Enterprise 11.4 and later take it.</summary>
+    private static bool Permanent(IFormCollection form, HttpContext context) =>
+        string.Equals(First(form, context, "permanentDelete"), "true", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Deletes one item through the console's own delete, so every rule it keeps holds here; what it answered, in the
-    /// portal's terms.
+    /// portal's terms. A <paramref name="permanent"/> delete then takes the item's entry out of the recycle bin, through
+    /// the bin's own purge (ADR-214 condition 1: the bin has a screen, so a delete that asks to skip it is not the only
+    /// way back).
     /// </summary>
     private static async Task<(bool Ok, string? Error, int Status)> DeleteOneAsync(
-        HttpContext context, RequestPrincipal current, string id, CancellationToken cancellation)
+        HttpContext context, RequestPrincipal current, string id, bool permanent, CancellationToken cancellation)
     {
         // <b>A service definition Pro uploaded is its own item</b>: deleting it forgets the upload, never the service it
         // was published to — which is what Pro deletes after a publish it misread.
@@ -696,7 +707,25 @@ internal static partial class PortalEndpoints
                 services.GetRequiredService<RecycleBinService>(),
                 cancellation)).ConfigureAwait(false);
 
-        return status is >= 200 and < 300 ? (true, null, 200) : (false, message ?? $"'{item.Title}' was not deleted.", status);
+        if (status is < 200 or >= 300)
+        {
+            return (false, message ?? $"'{item.Title}' was not deleted.", status);
+        }
+
+        if (permanent)
+        {
+            RecycleBinService recycle = services.GetRequiredService<RecycleBinService>();
+
+            foreach (RecycleEntry entry in (await recycle.Bin.ListAsync(cancellation).ConfigureAwait(false))
+                .Where(e => e.ItemId == item.ItemGuid))
+            {
+                await recycle.PurgeAsync(entry, cancellation).ConfigureAwait(false);
+                await AdminEndpoints.AuditPurgeAsync(context, services.GetRequiredService<IAuditLog>(), entry, cancellation)
+                    .ConfigureAwait(false);
+            }
+        }
+
+        return (true, null, 200);
     }
 
     /// <summary>

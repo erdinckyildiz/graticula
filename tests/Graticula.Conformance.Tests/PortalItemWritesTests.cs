@@ -131,6 +131,29 @@ public sealed class PortalItemWritesTests : ArcGisClient
         Assert.Contains(id, bin.GetRawText(), StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// ADR-214 condition 1: the bin has a screen, so a delete that asks to skip it is not the only way back, and
+    /// <c>permanentDelete</c> means what Enterprise 11.4 means by it. It was recycled all the same before.
+    /// </summary>
+    [Fact]
+    public async Task A_permanent_delete_through_the_portal_leaves_nothing_in_the_recycle_bin()
+    {
+        string single = await AddMapAsync($"zz_perm_{Guid.NewGuid():N}"[..24]);
+        string several = await AddMapAsync($"zz_perms_{Guid.NewGuid():N}"[..24]);
+
+        JsonElement one = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/items/{single}/delete?f=json",
+            new Dictionary<string, string> { ["permanentDelete"] = "true" });
+        Assert.True(one.GetProperty("success").GetBoolean(), one.GetRawText());
+
+        JsonElement results = await SendAsync(HttpMethod.Post, $"/sharing/rest/content/users/{User}/deleteItems?f=json",
+            new Dictionary<string, string> { ["items"] = several, ["permanentDelete"] = "true" });
+        Assert.True(results.GetProperty("results")[0].GetProperty("success").GetBoolean(), results.GetRawText());
+
+        string bin = (await SendAsync(HttpMethod.Get, "/admin/recycle-bin")).GetRawText();
+        Assert.DoesNotContain(single, bin, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(several, bin, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public async Task Unsharing_from_a_group_it_is_not_in_names_that_group()
     {
