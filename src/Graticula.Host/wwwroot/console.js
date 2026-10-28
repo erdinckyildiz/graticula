@@ -4922,7 +4922,7 @@ async function loadRecycleBin() {
   recycleEntries = answer.entries || [];
   recycleRetention = answer.retentionDays || recycleRetention;
   drawRecycleBin();
-  const count = document.querySelector('#contentScopes a[data-scope="recycle"]');
+  const count = document.querySelector('#contentScopes a[data-content-scope="recycle"]');
   if (count) count.innerHTML = `Recycle bin <span class="count">${num(recycleEntries.length)}</span>`;
 }
 
@@ -5197,12 +5197,12 @@ function drawMyContent() {
 
   $("contentScopes").innerHTML = scopes.map(([key, label]) => {
     if (key === "recycle") {
-      return `<a href="#/content/recycle" data-scope="recycle"${contentScope === "recycle" ? ' aria-current="page"' : ""}
+      return `<a href="#/content/recycle" data-content-scope="recycle"${contentScope === "recycle" ? ' aria-current="page"' : ""}
         >${label} <span class="count">${num((recycleEntries || []).length)}</span></a>`;
     }
     const n = key === "all" ? total : (counts[key] || 0);
 
-    return `<a href="#/content/${key}" data-scope="${key}"${key === contentScope ? ' aria-current="page"' : ""}
+    return `<a href="#/content/${key}" data-content-scope="${key}"${key === contentScope ? ' aria-current="page"' : ""}
       >${label} <span class="count">${num(n)}</span></a>`;
   }).join("");
 
