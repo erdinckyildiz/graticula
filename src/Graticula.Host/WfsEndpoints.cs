@@ -930,6 +930,16 @@ internal static partial class WfsEndpoints
             return;
         }
 
+        // <b>The layer's lifetime and, where there is a cheap one, its validator — as FeatureServer's query has had since
+        // ADR-069</b> (D-266). After the 404 above, which depends on the count; a GET only, so an XML POST is never kept.
+        if (QueryResponseCaching.IsSafeMethod(context)
+            && await QueryResponseCaching
+                .ApplyAsync(context, layer, source, settings.TileCacheLifetime, cancellation, described.Writable)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
         // <b>`count=0` asks for none, and it is not the same as omitting count.</b>
         // WFS lets a client ask for the metadata in the results shape rather than
         // the hits shape, and `FeatureQuery` cannot express a limit of zero — its
@@ -955,6 +965,9 @@ internal static partial class WfsEndpoints
                     request, described, layer, out string property, out bool isGeometry,
                     out bool isIdentifier, out WfsFault? badReference))
             {
+                // A refusal is not kept: the lifetime above describes an answer (D-266).
+                context.Response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.CacheControl);
+                context.Response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.ETag);
                 await RefuseAsync(context, badReference!, cancellation).ConfigureAwait(false);
                 return;
             }

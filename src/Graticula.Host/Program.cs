@@ -3400,7 +3400,9 @@ public static class Program
         {
             // <b>Both providers in this build answer these (ADR-066 §5)</b>, so this is a
             // sentence for a third one that does not, rather than an InvalidCastException in a
-            // stack trace.
+            // stack trace. A refusal is not kept: the lifetime the caller set describes an answer (D-266).
+            context.Response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.CacheControl);
+            context.Response.Headers.Remove(Microsoft.Net.Http.Headers.HeaderNames.ETag);
             await Results.Json(
                 new
                 {
@@ -6539,6 +6541,19 @@ public static class Program
         // asks for two of them: there would be no honest way to answer both.
         if (shape is not QueryShape.Features)
         {
+            // <b>Under the layer's lifetime too, since 2026-10-29 (D-266)</b> — a count, the ids, an extent and
+            // statistics are what an ArcGIS client asks before it draws, and they were re-asked on every view. Every
+            // refusal above has had its turn; past this line the shapes write nothing but their answer, and an
+            // exception reaches `UseExceptionHandler`, which clears these headers before writing the error.
+            if (!html
+                && QueryResponseCaching.IsSafeMethod(context)
+                && await QueryResponseCaching
+                    .ApplyAsync(context, layer, source, settings.TileCacheLifetime, cancellation, described.Writable)
+                    .ConfigureAwait(false))
+            {
+                return;
+            }
+
             await AlternateShapeAsync(
                 context, layer, described, source, query!, shape, html, cancellation, parameters.WantsPbf)
                 .ConfigureAwait(false);

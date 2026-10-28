@@ -146,6 +146,9 @@ before this change, and simply for a bounded window rather than never.
 call any of the header logic for a `POST` request. The three alternate shapes —
 `returnCountOnly`, `returnIdsOnly`, `statistics` — are explicitly **not covered by this change**;
 see §9.
+***Amended 2026-10-29 ([D-266](../architecture-debt.md)):*** they are now, and so are OGC API Features `items`,
+WFS `GetFeature` and MapServer `query` — the same lifetime through the same `ApplyAsync`, each after its last
+refusal. What is still not covered is a validator for a PostGIS layer.
 
 ## 6. Consequences
 
