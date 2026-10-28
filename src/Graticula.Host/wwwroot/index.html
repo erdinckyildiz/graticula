@@ -543,7 +543,7 @@
     -->
     <div class="pagehead">
       <div>
-        <h2>Content</h2>
+        <h2 id="contentTitle" tabindex="-1">Content</h2>
         <p>What you own, and what other people have shared with you.</p>
       </div>
       <!--
@@ -1749,6 +1749,33 @@
       </div>
     </div>
     <div class="panel pad" id="mapSettings" hidden></div>
+  </section>
+
+  <!--
+    A document's item page — ADR-188 condition 4 and the brief's ST-31: a file a member uploaded (a PDF, an Office file,
+    a CSV, a picture), shaped like a web map's item (ST-19) because it is the same kind of thing — an item with a title,
+    sharing and a folder — with Download where a map has Open, and Replace file for whoever manages it.
+  -->
+  <section class="view" id="view-document">
+    <div class="crumbs" id="docCrumb"></div>
+    <div class="pagehead" id="docPagehead" data-tab="overview">
+      <div id="docThumb"></div>
+      <div class="herotext">
+        <h2 id="docTitle" tabindex="-1"></h2>
+        <p id="docSub"></p>
+      </div>
+      <div class="itemactions" id="docActions"></div>
+      <nav class="segmented solid" id="docTabs" aria-label="Item"></nav>
+    </div>
+    <p class="hint" id="docSays" role="status" aria-live="polite"></p>
+    <input type="file" id="docReplaceFile" hidden>
+    <div class="mapitem" id="docOverview">
+      <aside class="panel" id="docSide"></aside>
+      <div class="mapmain">
+        <div class="panel" id="docAbout"></div>
+      </div>
+    </div>
+    <div class="panel pad" id="docSettings" hidden></div>
   </section>
 
   <section class="view" id="view-group">
@@ -3036,6 +3063,15 @@
   </header>
   <div class="dialogbody" id="mapShareBody"></div>
   <footer class="dialogfoot" id="mapShareFoot"></footer>
+</dialog>
+
+<dialog id="docShare" aria-labelledby="docShareTitle">
+  <header class="dialoghead">
+    <h3 id="docShareTitle" tabindex="-1">Share</h3>
+    <button class="tiny ghost" id="docShareClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </header>
+  <div class="dialogbody" id="docShareBody"></div>
+  <footer class="dialogfoot" id="docShareFoot"></footer>
 </dialog>
 
 <dialog id="exportData" aria-labelledby="exportDataTitle">

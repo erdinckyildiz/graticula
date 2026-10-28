@@ -204,6 +204,9 @@ const ICONS = {
               + '<circle cx="8" cy="7.1" r="1.6"/>',
 
   // A table: rows and a header, because what is published is a table and nothing is copied.
+  // A page with a folded corner: a file kept as it was uploaded (ADR-188).
+  document: '<path d="M4 1.8h5.4l3 3v9.4H4z"/><path d="M9.2 1.8v3.2h3.2M6 8.4h4.4M6 10.8h4.4"/>',
+
   table: '<rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.1"/>'
        + '<path d="M2.2 6.3h11.6M6.6 6.3v6.5"/>',
 
@@ -5013,7 +5016,7 @@ let favoriteIds = new Set();
 const bareId = id => String(id || "").replace(/-/g, "").toLowerCase();
 
 /** A content row's portal item id, a service's or a map's. */
-const itemIdOf = item => bareId(item.map ? item.map.id : item.itemId || itemIds.get(item.name));
+const itemIdOf = item => bareId(item.map ? item.map.id : item.doc ? item.doc.id : item.itemId || itemIds.get(item.name));
 
 /** Reads the member's favourites; a failure leaves the list as it was. */
 async function loadFavorites() {
@@ -5041,6 +5044,12 @@ async function showItemById(id) {
 
   if (item.type === "Web Map") {
     showWebMapItem(item.id);
+    return;
+  }
+
+  // ADR-188: a file a member uploaded has its own page; the portal names it by the kind of file it is.
+  if (DOCUMENT_TYPES.has(item.type)) {
+    showDocumentItem(item.id);
     return;
   }
 
@@ -5121,13 +5130,18 @@ function mapAsItem(m) {
 }
 
 async function loadMyContent() {
-  const [answer, layers, maps] = await Promise.all([
+  const [answer, layers, maps, docs] = await Promise.all([
     api("/content/items").then(a => a || {}),
     api("/content/layers").then(a => a || {}),
     // <b>A failure to list maps does not blank the services.</b> They were two sections until
     // 2026-09-30, each failing on its own; one list keeps that by treating the maps as optional.
     api("/content/webmaps").then(a => a || {}).catch(() => ({ webMaps: [] })),
+    // ADR-188: documents beside them, optional as the maps are.
+    api("/content/documents").then(a => a || {}).catch(() => ({ documents: [] })),
   ]);
+  if (docs.accepted) {
+    docRules = { accepted: docs.accepted, maximumBytes: docs.maximumBytes || docRules.maximumBytes, mayCreate: docs.mayCreate !== false };
+  }
 
   // ADR-114: the caller's folders. Optional like the maps: a failure leaves the list as it was.
   myFolders = (await api("/content/folders").catch(() => null))?.folders || [];
@@ -5147,7 +5161,7 @@ async function loadMyContent() {
     [...(layers.mine || []), ...(layers.shared || []), ...(layers.notShared || [])]
       .map(e => [e.name, e]));
 
-  contentAnswer = { answer, maps };
+  contentAnswer = { answer, maps, docs };
   for (const i of answer.items || []) if (i.itemId) itemIds.set(i.name, i.itemId);
 
   const button = $("newMap");
@@ -5169,9 +5183,9 @@ async function loadMyContent() {
 function drawMyContent() {
   if (!contentAnswer) return;
 
-  const { answer, maps } = contentAnswer;
+  const { answer, maps, docs } = contentAnswer;
   const mapItems = (maps.webMaps || []).map(mapAsItem);
-  const items = [...(answer.items || []), ...mapItems];
+  const items = [...(answer.items || []), ...mapItems, ...((docs || {}).documents || []).map(docAsItem)];
   // Counted here, by the same rule the list is filtered by, so a tab's number is what pressing it shows.
   const counts = Object.fromEntries(CONTENT_SCOPES.map(([key]) =>
     [key, items.filter(i => inContentScope(i, key)).length]));
@@ -5258,7 +5272,7 @@ function drawMyContent() {
     // ADR-135: what nobody has asked for in thirty days first — the services a clean-up starts from. A map counts no
     // requests of its own, so maps go last.
     leastUsed: (x, y) => {
-      const used = i => (i.map ? Number.MAX_SAFE_INTEGER : ((i.usage || {}).requests30 || 0));
+      const used = i => (i.map || i.doc ? Number.MAX_SAFE_INTEGER : ((i.usage || {}).requests30 || 0));
       // Ties broken by when last used: never first, then the longest ago.
       const last = i => (i.usage || {}).lastUsed || "";
       return used(x) - used(y) || last(x).localeCompare(last(y)) || byName(x, y);
@@ -5369,6 +5383,7 @@ function drawMyContent() {
              The search reads a name, its type, description, owner and folder.</td></tr>`
         : pageOf("contentRows", visible).map(i => {
           if (i.map) return mapRow(i);
+          if (i.doc) return docRow(i);
 
           // The map is driven per layer, and a service's cover layer is the one this row draws and
           // shows. A multi-layer service is opened from its own page for the rest.
@@ -5494,6 +5509,7 @@ function contentAnswerHas(key) {
   if (!contentAnswer) return false;
   const [kind, ...rest] = key.split(":");
   const id = rest.join(":");
+  if (kind === "document") return ((contentAnswer.docs || {}).documents || []).some(d => d.id === id && d.mine);
   return kind === "webmap"
     ? (contentAnswer.maps.webMaps || []).some(m => m.id === id && m.mine)
     : (contentAnswer.answer.items || []).some(i => i.name === id && i.scope === "mine");
@@ -5503,9 +5519,15 @@ function contentAnswerHas(key) {
 function pickedItems() {
   const services = new Map((contentAnswer?.answer.items || []).map(i => [i.name, i]));
   const maps = new Map((contentAnswer?.maps.webMaps || []).map(m => [m.id, m]));
+  const docs = new Map(((contentAnswer?.docs || {}).documents || []).map(d => [d.id, d]));
   return [...contentPicked].map(key => {
     const [kind, ...rest] = key.split(":");
     const id = rest.join(":");
+    if (kind === "document") {
+      const d = docs.get(id);
+      return { key, document: id, title: d?.title || "Untitled document", what: "document", sharing: d?.sharing || "private",
+        snippet: d?.snippet || null };
+    }
     return kind === "webmap"
       ? { key, webmap: id, title: maps.get(id)?.title || "Untitled map", what: "web map", sharing: maps.get(id)?.sharing || "private" }
       : { key, service: id, title: id.split("/").pop(), kind: services.get(id)?.kind,
@@ -5641,7 +5663,7 @@ document.addEventListener("click", async e => {
     const items = pickedItems();
     if (!await askServerConfirm({
       title: `Delete ${items.length} item${items.length === 1 ? "" : "s"}?`,
-      body: `${items.map(i => `${i.title} (${i.what})`).join(", ")}. Services, image services and maps wait in the `
+      body: `${items.map(i => `${i.title} (${i.what})`).join(", ")}. Services, image services, maps and documents wait in the `
         + "recycle bin for 14 days with their data, and can be restored. A registered layer's table and an image "
         + "registered from a path are not touched.",
       action: `Delete ${items.length} item${items.length === 1 ? "" : "s"}`,
@@ -5649,6 +5671,7 @@ document.addEventListener("click", async e => {
     t.disabled = true;
     const failed = await eachPicked(items, item => {
       if (item.webmap) return api(`/content/webmaps/${encodeURIComponent(item.webmap)}`, { method: "DELETE" });
+      if (item.document) return api(`/content/documents/${encodeURIComponent(item.document)}`, { method: "DELETE" });
       const { folder, name } = splitQualified(item.service);
       return item.kind === "ImageServer"
         ? api(`/admin/coverages/${encodeURIComponent(name)}?folder=${encodeURIComponent(folder)}`, { method: "DELETE" })
@@ -5684,12 +5707,13 @@ async function bulkGo(go) {
     const answer = await api("/content/move", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: items.map(i => i.webmap ? { webmap: i.webmap } : { service: i.service }), to }),
+      body: JSON.stringify({ items: items.map(i => i.webmap ? { webmap: i.webmap } : i.document ? { document: i.document }
+        : { service: i.service }), to }),
     }).catch(e => { says.textContent = e.message || String(e); return null; });
     if (!answer) return;
     // The server answers each item by its label — a service's qualified name, a map's id.
     const failed = (answer.results || []).filter(r => !r.success).map(r => {
-      const item = items.find(i => (i.service || i.webmap) === r.item);
+      const item = items.find(i => (i.service || i.webmap || i.document) === r.item);
       return { key: item?.key, title: item?.title || r.item, why: (r.error || "refused").replace(/\.$/, "").toLowerCase() };
     });
     const where = to ? (myFolders.find(f => f.id === to)?.title || "the folder") : "no folder";
@@ -5697,6 +5721,11 @@ async function bulkGo(go) {
   } else {
     const sharing = $("bulkScope").value;
     const failed = await eachPicked(items, item => {
+      if (item.document) {
+        return api(`/content/documents/${encodeURIComponent(item.document)}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: item.title, snippet: item.snippet, sharing }) });
+      }
       if (item.webmap) {
         // A map is written whole, so it is read first and written back with only its sharing changed.
         const at = `/content/webmaps/${encodeURIComponent(item.webmap)}`;
@@ -9068,7 +9097,7 @@ function usageSaid(usage) {
  * was published before it, so one published yesterday is not counted as idle.
  */
 function idleItem(i) {
-  if (i.map || !usageCountsAMonth()) return false;
+  if (i.map || i.doc || !usageCountsAMonth()) return false;
   const old = !i.created || (Date.now() - new Date(i.created).getTime()) > 30 * 86400000;
   return old && !((i.usage || {}).requests30);
 }
@@ -27358,6 +27387,7 @@ function drawAddItem() {
   else if (itemStep === "inspect") drawInspect();
   else if (itemStep === "publish") drawPublish();
   else if (itemStep === "imagery") drawImageryForm();
+  else if (itemStep === "document") drawDocumentForm();
   else drawRouteForm(itemStep);
 
   nameTheScreen();
@@ -27403,10 +27433,11 @@ function drawItemKinds() {
       <!-- A framed button, not a ghost: borderless on the tinted drop zone it read as a caption (UX sweep 2026-10-19). -->
       <button type="button" id="fromDevice" autofocus>${icon("device")} Your device</button>
       <span class="val">A zipped shapefile, a zipped File Geodatabase, a GeoPackage, KML or KMZ, a GeoJSON
-        FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF — or all the tiles of one image</span>
+        FeatureCollection, a CSV or Excel table with coordinates, or a GeoTIFF — or all the tiles of one image. A PDF,
+        a Word or PowerPoint file or a picture is kept as a document.</span>
       <p class="bad-inline" id="dropSays" role="alert" hidden></p>
       <input type="file" id="deviceFile" hidden multiple
-             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,.tif,.tiff,.jp2,.j2k,.nc,.nc4,.h5,.hdf5,.he5,.hdf,.img,.asc,application/zip,application/geo+json,text/csv,image/tiff">
+             accept=".zip,.json,.geojson,.csv,.txt,.xlsx,.gpkg,.kml,.kmz,.pdf,.docx,.pptx,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.jp2,.j2k,.nc,.nc4,.h5,.hdf5,.he5,.hdf,.img,.asc,application/zip,application/geo+json,text/csv,image/tiff">
     </div>
 
     <p class="orbar"><span>or start from a type</span></p>
@@ -27416,6 +27447,11 @@ function drawItemKinds() {
         <span class="glyph">${icon("imagery")}</span>
         <span><b>Imagery layer</b>
           <span>Publish an orthophoto, a satellite image or an elevation model from a GeoTIFF, JPEG 2000, NetCDF or HDF.</span></span>
+      </button>
+      <button type="button" class="newtile" id="kindDocument">
+        <span class="glyph">${icon("document")}</span>
+        <span><b>Document</b>
+          <span>Keep a PDF, an Office file, a CSV or a picture as an item people find in Content and download.</span></span>
       </button>
       <button type="button" class="newtile" id="kindFeatureLayer">
         <span class="glyph">${icon("featurelayer")}</span>
@@ -27486,6 +27522,16 @@ function takeFile(files) {
   }
   if (others.length > 1) {
     refuse("A feature layer is made from one file at a time. Drop one of them.");
+    return;
+  }
+
+  // ADR-188: a PDF, an Office document or a picture is a document, not data for a layer. A CSV or Excel table stays
+  // the layer's, because that is what it was before documents existed; Document's own picker takes those too.
+  if (others.length === 1 && /\.(pdf|docx|pptx|png|jpe?g|gif|webp)$/i.test(others[0].name || "")) {
+    handedFile = others[0];
+    handedImages = null;
+    itemStep = "document";
+    drawAddItem();
     return;
   }
 
@@ -33683,6 +33729,632 @@ function logEmpty() {
   return `Nothing in this window matches. Widen <b>Since</b>, or clear the filters.`;
 }
 
+// ---------------------------------------------------------------- documents (ADR-188 condition 4)
+
+/** The portal item types a document is listed as (`DocumentKind.ArcGisType`). */
+const DOCUMENT_TYPES = new Set(["PDF", "Microsoft Word", "Microsoft Excel", "Microsoft Powerpoint", "CSV", "Image"]);
+
+/** The document whose item page is open, as the server last described it. */
+let docOpen = null;
+
+/** The upload in flight, so closing its dialog can stop it. */
+let docUploading = null;
+
+/** A line for the page's status once it is drawn — the upload's, said where the reader lands. */
+let docSayNext = "";
+
+/** Which tab of the document's page is showing. */
+let docTab = "overview";
+
+/** What `/content/documents` last answered about uploading: the kinds accepted and the largest file. */
+let docRules = { accepted: [".pdf", ".docx", ".xlsx", ".pptx", ".csv", ".png", ".jpg", ".gif", ".webp"], maximumBytes: 64 * 1024 * 1024, mayCreate: true };
+
+/** What a document's kind is called on screen, by the short name the server stores. */
+const DOC_KINDS = {
+  pdf: "PDF", docx: "Word document", xlsx: "Excel workbook", pptx: "PowerPoint presentation", csv: "CSV table",
+  png: "Picture", jpeg: "Picture", gif: "Picture", webp: "Picture",
+};
+
+/** The few letters a document's tile carries, so a PDF and a workbook differ at a glance. */
+const docBadge = d => ({ jpeg: "JPG", docx: "DOC", xlsx: "XLS", pptx: "PPT" })[d.kind] || String(d.kind || "file").toUpperCase();
+
+/** A document as a row of the content list, beside services and web maps. */
+function docAsItem(d) {
+  return {
+    doc: d,
+    name: d.title || d.fileName || "Untitled document",
+    bare: d.title || d.fileName || "Untitled document",
+    kind: d.type || "Document",
+    description: d.snippet || "",
+    tags: d.tags || [],
+    contentFolder: d.contentFolder || null,
+    owner: d.owner,
+    sharing: d.sharing || "private",
+    manages: d.manages,
+    updated: d.modified,
+    scope: d.mine ? "mine"
+      : d.sharing === "public" ? "public"
+      : d.sharing === "organization" || d.sharing === "allorganizations" ? "organization"
+      : d.sharing === "group" ? "group"
+      : "administrative",
+  };
+}
+
+/** The tile a document shows where a service shows its picture: its kind's letters on the kind's own colour. */
+const docTile = (d, cls = "") => `<div class="thumb doctile ${cls}" data-kind="${h(d.kind || "")}" aria-hidden="true">${
+  icon("document")}<span>${h(docBadge(d))}</span></div>`;
+
+function docRow(i) {
+  const d = i.doc;
+  const open = `#/item/${encodeURIComponent(d.id)}`;
+  const facts = [
+    pill(i.sharing),
+    i.scope !== "mine" && i.owner ? `<span title="Owner">${h(i.owner)}</span>` : "",
+    folderNote(i).replace(/^ · /, ""),
+    `<span title="File">${h(fileSize(d.size))}</span>`,
+    `<span title="Modified">${day(i.updated)}</span>`,
+  ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
+
+  return `<tr class="mediarow">
+    ${pickCell(i, `document:${d.id}`)}
+    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${docTile(d)}</a></td>
+    <td class="name">
+      <div class="svctitle"><a href="${open}">${h(i.name)}</a>
+        <span class="svctype type">${h(DOC_KINDS[d.kind] || d.type || "Document")}</span></div>
+      ${i.description ? `<p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>` : ""}
+      <div class="svcmeta">${facts}</div>
+    </td>
+    <td class="acts"><details class="menu">
+      <summary title="More" aria-label="More actions for ${h(i.name)}">⋯</summary>
+      <div class="sheet">
+        <button type="button" data-doc-download="${h(d.id)}">Download</button>
+        ${i.scope === "mine" ? `<button type="button" data-move-document="${h(d.id)}" data-move-title="${h(i.name)}"
+          data-move-folder="${h(i.contentFolder || "")}">Move to folder…</button>` : ""}
+        ${d.manages ? `<a class="danger" href="${open}?tab=settings">Delete…</a>` : ""}
+      </div>
+    </details></td>
+  </tr>`;
+}
+
+/** Lets the browser download a document from its own address, saying a refusal on the page rather than in a broken file. */
+async function downloadDocument(id, says) {
+  const file = await browserDownload(`/content/documents/${encodeURIComponent(id)}/data`).catch(() => ({
+    refused: "the connection to the server was lost. Try again.",
+  }));
+  const line = file.refused
+    ? `Not downloaded: ${lowerFirst(file.refused)}`
+    : `${file.fileName} (${fileSize(file.bytes)}) is downloading — your browser shows its progress.`;
+  if (says) says.textContent = line; else toast(line, !file.refused);
+}
+
+/** A document's item page. */
+async function showDocumentItem(id) {
+  const again = docOpen?.id === id && $("view-document").classList.contains("on");
+  if (!again) docTab = hashQuery.get("tab") === "settings" ? "settings" : "overview";
+
+  showView("view-document", "content");
+  $("docCrumb").innerHTML = `<a href="#/content">Content</a> › <b>…</b>`;
+  if (!again) { $("docTitle").textContent = ""; $("docSub").textContent = ""; $("docSays").textContent = ""; }
+
+  let doc;
+  try {
+    doc = await api(`/content/documents/${encodeURIComponent(id)}`);
+  } catch (e) {
+    $("docAbout").innerHTML = `<p class="bad">${h(e.message || e)}</p><p><a href="#/content">Back to Content</a></p>`;
+    for (const one of ["docSide", "docActions", "docTabs", "docThumb", "docSettings"]) $(one).innerHTML = "";
+    $("docSettings").hidden = true;
+    $("docOverview").hidden = false;
+    return;
+  }
+
+  docOpen = doc;
+  const kind = DOC_KINDS[doc.kind] || doc.type || "Document";
+  $("docCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(doc.title)}</b>`;
+  $("docTitle").innerHTML = nameWithBreaks(doc.title);
+  $("docSub").textContent = [kind, fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""].filter(Boolean).join(" · ");
+  $("docThumb").innerHTML = docTile(doc, "mapitemthumb");
+
+  const more = [
+    doc.mine ? `<button type="button" data-move-document="${h(doc.id)}" data-move-folder="${h(doc.contentFolder || "")}"
+      data-move-title="${h(doc.title)}">Move to folder…</button>` : "",
+    doc.manages ? `<button type="button" id="docEditMore">Edit details</button>` : "",
+  ].filter(Boolean).join("");
+
+  // Redrawing the actions drops focus; the control that had it gets it back.
+  const had = document.activeElement?.id;
+  $("docActions").innerHTML = `
+    <button type="button" class="primary" id="docDownload">Download</button>
+    ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
+    ${doc.manages ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
+    ${more ? `<details class="menu itemmore">
+      <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
+      <div class="sheet">${more}</div>
+    </details>` : ""}`;
+  if (had && $(had) && $("docActions").contains($(had))) $(had).focus();
+
+  $("docReplaceFile").accept = docRules.accepted.join(",");
+
+  drawDocSide();
+  drawDocAbout();
+  drawDocSettings();
+  drawDocTabs();
+  // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
+  if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
+  if (docSayNext) {
+    $("docSays").textContent = docSayNext;
+    docSayNext = "";
+    $("docTitle").focus();
+  }
+}
+
+function drawDocSide() {
+  const doc = docOpen;
+  const folder = doc.mine && doc.contentFolder ? myFolders.find(f => f.id === doc.contentFolder)?.title : "";
+  $("docSide").innerHTML = `
+    <h4>Item information</h4>
+    <dl class="facts2">
+      <dt>Type</dt><dd>${h(DOC_KINDS[doc.kind] || doc.type || "Document")}</dd>
+      <dt>File</dt><dd class="docfile">${h(doc.fileName || "—")}</dd>
+      <dt>Size</dt><dd>${h(fileSize(doc.size))}</dd>
+      <dt>Owner</dt><dd>${h(doc.owner || "—")}</dd>
+      <dt>Sharing</dt><dd>${doc.manages
+        ? `<button type="button" class="pillbtn" data-doc-share-pill title="Set who can open this document">${pill(doc.sharing)}</button>`
+        : pill(doc.sharing)}${(doc.groups || []).length ? ` <span class="hint">${h(doc.groups.join(", "))}</span>` : ""}</dd>
+      ${folder ? `<dt>Folder</dt><dd>${h(folder)}</dd>` : ""}
+      <dt>Created</dt><dd>${h(day(doc.created))}</dd>
+      <dt>Updated</dt><dd>${h(day(doc.modified))}</dd>
+    </dl>
+    ${doc.manages ? `<p class="hint" id="docReplaceSays">Replace file keeps this item — its address, sharing and groups —
+      and changes only the file people download.</p>` : ""}`;
+}
+
+function drawDocAbout(editing = false) {
+  const doc = docOpen;
+  if (!doc) return;
+
+  if (editing) {
+    $("docAbout").innerHTML = `
+      <div class="stacked"><label for="docEditTitle">Title</label><input type="text" id="docEditTitle" maxlength="250" value="${h(doc.title)}"></div>
+      <div class="stacked"><label for="docEditSnippet">Summary</label>
+        <textarea id="docEditSnippet" rows="3" maxlength="2048">${h(doc.snippet || "")}</textarea></div>
+      <div class="stacked"><label for="docEditTags">Tags — separated by commas</label>
+        <input type="text" id="docEditTags" value="${h((doc.tags || []).join(", "))}"></div>
+      <div class="stacked"><label for="docEditDescription">Description</label>
+        <textarea id="docEditDescription" rows="6" maxlength="64000">${h(doc.description || "")}</textarea></div>
+      <div class="row"><button type="button" class="primary" id="docEditSave">Save</button>
+        <button type="button" class="ghost" id="docEditCancel">Cancel</button></div>
+      <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
+    $("docEditTitle").focus();
+    return;
+  }
+
+  $("docAbout").innerHTML = `
+    <h4>Summary</h4>
+    <p>${doc.snippet ? h(doc.snippet) : `<span class="hint">No summary yet. A line on what the file is makes it easier to find.</span>`}</p>
+    ${(doc.tags || []).length ? `<p class="tagline">${doc.tags.map(t => `<span class="tag">${h(t)}</span>`).join("")}</p>` : ""}
+    <h4>Description</h4>
+    ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
+      : `<p class="hint">No description yet. What the file is, where it came from and how current it is.</p>`}
+    ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags and description</button>` : ""}
+    <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
+}
+
+function drawDocSettings() {
+  const doc = docOpen;
+  $("docSettings").innerHTML = doc.manages ? `
+    <h4>Deleting</h4>
+    <label class="check"><input type="checkbox" id="docProtect"${doc.deleteProtected ? " checked" : ""}>
+      Protect from deletion</label>
+    <p class="hint" id="docDeleteNote">${doc.deleteProtected
+      ? "It is protected, so it cannot be deleted. Untick Protect from deletion first."
+      : `Deleting it puts it in the recycle bin for ${num(recycleRetention)} days, where it can be restored; until then
+        nobody it was shared with can download it.`}</p>
+    <button type="button" class="danger" id="docDelete" aria-describedby="docDeleteNote"${doc.deleteProtected
+      ? " disabled" : ""}>Delete this document</button>` : "";
+}
+
+/** The tab strip, and which tab's panel shows. */
+function drawDocTabs() {
+  const doc = docOpen;
+  const strip = $("docTabs");
+  if (!doc || !strip) return;
+
+  const tabs = [["overview", "Overview"], ...(doc.manages ? [["settings", "Settings"]] : [])];
+  if (!tabs.some(([key]) => key === docTab)) docTab = "overview";
+
+  const had = document.activeElement?.dataset?.docTab;
+  strip.innerHTML = tabs.map(([key, label]) => `<a href="#" data-doc-tab="${key}"${
+    key === docTab ? ' aria-current="page"' : ""}>${label}</a>`).join("");
+  if (had) strip.querySelector(`[data-doc-tab="${had}"]`)?.focus();
+
+  $("docPagehead").dataset.tab = docTab;
+  $("docOverview").hidden = docTab !== "overview";
+  $("docSettings").hidden = docTab !== "settings";
+
+  const path = `#/item/${encodeURIComponent(doc.id)}${docTab === "settings" ? "?tab=settings" : ""}`;
+  if (surfaceOfPath() === "studio" && routeHash() !== path) history.replaceState(null, "", pathOf(path));
+}
+
+/** Writes a document's title, summary and sharing, sending the rest as the server last gave it. */
+function saveDocItem(change) {
+  const doc = docOpen;
+  return api(`/content/documents/${encodeURIComponent(doc.id)}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title: doc.title, snippet: doc.snippet || null, sharing: doc.sharing, ...change }),
+  });
+}
+
+/**
+ * Sends a file with a determinate progress — a document can be 64 MB (the brief) — and answers the server's JSON.
+ * `fetch` has no upload progress, so this is the one request here made with XMLHttpRequest. A refusal throws with the
+ * server's own sentence, as `api` does.
+ */
+function sendDocument(method, url, form, bar) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    docUploading = xhr;
+    xhr.open(method, url);
+    if (token) xhr.setRequestHeader("Authorization", "Bearer " + token);
+    xhr.upload.onprogress = e => { if (bar && e.lengthComputable) { bar.max = e.total; bar.value = e.loaded; } };
+    xhr.onload = () => {
+      let body = null;
+      try { body = xhr.responseText ? JSON.parse(xhr.responseText) : null; } catch { /* not json */ }
+      if (xhr.status >= 200 && xhr.status < 300) { resolve(body); return; }
+      const failure = new Error(body?.error?.message || (xhr.status === 413
+        ? `The file is larger than this server takes (${fileSize(docRules.maximumBytes)}).`
+        : `The server refused it (error ${xhr.status}).`));
+      failure.status = xhr.status;
+      reject(failure);
+    };
+    xhr.onerror = () => reject(new Error("The connection to the server was lost. Try again."));
+    xhr.onabort = () => reject(new Error("Stopped."));
+    xhr.onloadend = () => { if (docUploading === xhr) docUploading = null; };
+    xhr.send(form);
+  });
+}
+
+/** Refuses a file before it is sent when it is plainly too large or not a kind this server takes; the server decides the rest. */
+function docRefusedBeforeSending(file) {
+  if (!file) return "Choose a file first.";
+  const extension = (/\.[^.]+$/.exec(file.name || "")?.[0] || "").toLowerCase();
+  const known = docRules.accepted.map(e => e.toLowerCase());
+  if (!known.includes(extension) && !(extension === ".jpeg" && known.includes(".jpg"))) {
+    return `${file.name} is not a kind this server keeps as a document. It takes ${docKindsSaid()}.`;
+  }
+  if (file.size > docRules.maximumBytes) {
+    return `${file.name} is ${fileSize(file.size)}, and this server takes documents up to ${docLimitSaid(docRules.maximumBytes)}.`;
+  }
+  return null;
+}
+
+/** A title from a file's name: its extension off, underscores as spaces — `flood_risk_2026.pdf` reads as words. */
+const docTitleOf = name => String(name || "").replace(/\.[^.]+$/, "").replace(/_+/g, " ").trim();
+
+/** A size as a limit is stated: whole megabytes without a decimal, `64 MB`. */
+const docLimitSaid = bytes => bytes % (1024 * 1024) === 0 ? `${num(bytes / (1024 * 1024))} MB` : fileSize(bytes);
+
+/** The kinds accepted, as a sentence. */
+const docKindsSaid = () => {
+  const list = docRules.accepted.map(e => e.replace(/^\./, "").toUpperCase());
+  return list.length > 1 ? `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}` : list.join("");
+};
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target : null;
+  if (!t) return;
+
+  const fromRow = t.closest("[data-doc-download]");
+  if (fromRow) {
+    fromRow.closest("details")?.removeAttribute("open");
+    await downloadDocument(fromRow.dataset.docDownload, null);
+    return;
+  }
+
+  if (!docOpen || !$("view-document").classList.contains("on")) return;
+
+  // The page's line says what the last action did; starting another clears it, so it never answers the wrong one.
+  if (t.closest("#docActions button, #docSettings button, #docSettings input, [data-doc-tab]")) $("docSays").textContent = "";
+
+  const tab = t.closest("[data-doc-tab]");
+  if (tab) {
+    event.preventDefault();
+    docTab = tab.dataset.docTab;
+    drawDocTabs();
+    return;
+  }
+
+  if (t.id === "docDownload") { await downloadDocument(docOpen.id, $("docSays")); return; }
+
+  if (t.id === "docReplace") { $("docReplaceFile").click(); return; }
+
+  if (t.id === "docEditMore") {
+    t.closest("details")?.removeAttribute("open");
+    docTab = "overview";
+    drawDocTabs();
+    drawDocAbout(true);
+    return;
+  }
+  if (t.id === "docEditOpen") { drawDocAbout(true); return; }
+  if (t.id === "docEditCancel") { drawDocAbout(false); $("docEditOpen")?.focus(); return; }
+
+  if (t.id === "docEditSave") {
+    const title = $("docEditTitle").value.trim();
+    if (!title) {
+      $("docAboutSays").textContent = "Not saved: a document needs a title.";
+      $("docEditTitle").setAttribute("aria-invalid", "true");
+      $("docEditTitle").focus();
+      return;
+    }
+    t.disabled = true;
+    // <b>Three writes, said one by one</b> (design review): a refusal of the second after the first was kept said
+    // *Not saved* about a title that was.
+    const steps = [
+      ["title and summary", () => saveDocItem({ title, snippet: $("docEditSnippet").value.trim() || null })],
+      ["tags", () => api(`/content/documents/${encodeURIComponent(docOpen.id)}/tags`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags: $("docEditTags").value.split(",").map(x => x.trim()).filter(Boolean) }) })],
+      ["description", () => api(`/content/documents/${encodeURIComponent(docOpen.id)}/description`, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: $("docEditDescription").value.trim() || null }) })],
+    ];
+    const kept = [];
+    for (const [what, write] of steps) {
+      try {
+        await write();
+        kept.push(what);
+      } catch (e) {
+        $("docAboutSays").textContent = `${kept.length ? `Saved the ${kept.join(" and ")}; ` : ""}not saved: the ${what} — `
+          + lowerFirst(e.message || String(e));
+        t.disabled = false;
+        return;
+      }
+    }
+    await showDocumentItem(docOpen.id);
+    $("docAboutSays").textContent = "Saved.";
+    $("docEditOpen")?.focus();
+    return;
+  }
+
+  if (t.closest("[data-doc-share-pill]")) { $("docShareOpen")?.click(); return; }
+
+  if (t.id === "docShareOpen") {
+    const doc = docOpen;
+    $("docShareBody").innerHTML = `<fieldset class="offered"><legend>Who can download this document</legend>
+      ${MAP_SCOPES.filter(([value]) => value !== "allorganizations" || allOrganizationsOffer(doc.sharing))
+        .map(([value, label, said]) => {
+          const off = value === "allorganizations" && allOrganizationsOffer(doc.sharing).state === "off";
+          return `<label class="check"><input type="radio" name="docShareScope" value="${value}"${
+            value === doc.sharing ? " checked" : ""}${off ? " disabled" : ""}> <span><b>${h(label)}</b> <span class="hint">${
+            h(off ? allOrganizationsOffer(doc.sharing).why : said)}</span></span></label>`;
+        }).join("")}
+      </fieldset>
+      <fieldset class="offered" id="docShareGroups"${doc.sharing === "group" ? "" : " hidden"}><legend>Groups</legend>
+        <p class="hint">Reading your groups…</p></fieldset>
+      <p class="hint" id="docShareSays" role="status" aria-live="polite"></p>`;
+    $("docShareFoot").innerHTML = `<span class="fill"></span>
+      <button type="button" class="ghost" id="docShareCancel">Cancel</button>
+      <button type="button" class="primary" id="docShareSave" disabled>Save</button>`;
+    const had = new Set(doc.groups || []);
+    const changed = () => {
+      const scope = document.querySelector('input[name="docShareScope"]:checked')?.value;
+      const ticked = new Set([...document.querySelectorAll("[data-doc-group]:checked")].map(b => b.dataset.docGroup));
+      $("docShareGroups").hidden = scope !== "group";
+      $("docShareSave").disabled = scope === doc.sharing && ticked.size === had.size && [...ticked].every(g => had.has(g));
+    };
+    for (const radio of document.querySelectorAll('input[name="docShareScope"]')) radio.onchange = changed;
+    api("/admin/groups").then(listed => {
+      const mine = (listed.groups || []).filter(g => g.mayManage || had.has(g.name));
+      $("docShareGroups").innerHTML = `<legend>Groups</legend>${mine.length
+        ? mine.map(g => `<label class="check"><input type="checkbox" data-doc-group="${h(g.name)}"${had.has(g.name) ? " checked" : ""}>
+            <span><b>${h(g.title || g.name)}</b> <span class="hint">${num(g.members || 0)} member${g.members === 1 ? "" : "s"}</span></span></label>`).join("")
+        : `<p class="hint">You own or manage no group. A group is made on the Groups page.</p>`}`;
+      for (const box of document.querySelectorAll("[data-doc-group]")) box.onchange = changed;
+    }).catch(e => { $("docShareGroups").innerHTML = `<legend>Groups</legend><p class="hint">${h(e.message || e)}</p>`; });
+    $("docShare").showModal();
+    $("docShareTitle").focus();
+    return;
+  }
+
+  if (t.id === "docShareClose" || t.id === "docShareCancel") { $("docShare").close(); $("docShareOpen")?.focus(); return; }
+
+  if (t.id === "docShareSave") {
+    const sharing = document.querySelector('input[name="docShareScope"]:checked')?.value || "private";
+    t.disabled = true;
+    try {
+      // The groups first, so a document made group-scoped is never saved with none, as a map's Share does.
+      const had = new Set(docOpen.groups || []);
+      for (const box of document.querySelectorAll("[data-doc-group]")) {
+        const group = box.dataset.docGroup;
+        if (box.checked === had.has(group)) continue;
+        await api(`/admin/groups/${encodeURIComponent(group)}/documents/${encodeURIComponent(docOpen.id)}`,
+          { method: box.checked ? "PUT" : "DELETE" });
+      }
+      await saveDocItem({ sharing });
+      $("docShare").close();
+      await showDocumentItem(docOpen.id);
+      $("docSays").textContent = sharing === "private" ? "Only you can download it now."
+        : `Shared: ${MAP_SCOPES.find(([v]) => v === sharing)?.[1] || sharing}.`;
+      $("docShareOpen")?.focus();
+    } catch (e) {
+      $("docShareSays").textContent = `Not saved: ${lowerFirst(e.message || String(e))}`;
+      t.disabled = false;
+    }
+    return;
+  }
+
+  if (t.id === "docProtect") {
+    try {
+      await api(`/content/documents/${encodeURIComponent(docOpen.id)}/protection`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ protected: t.checked }) });
+      await showDocumentItem(docOpen.id);
+      $("docSays").textContent = t.checked ? "Protected. Delete is off until you untick it." : "No longer protected.";
+      $("docProtect")?.focus();
+    } catch (e) {
+      t.checked = !t.checked;
+      $("docSays").textContent = `Not changed: ${lowerFirst(e.message || String(e))}`;
+    }
+    return;
+  }
+
+  if (t.id === "docDelete") {
+    if (!await askServerConfirm({
+      title: `Delete ${docOpen.title}?`,
+      body: `It waits in the recycle bin for ${num(recycleRetention)} days, and until it is restored nobody it was shared `
+        + "with can download it.",
+      action: "Delete this document",
+    })) return;
+    try {
+      const gone = docOpen.title;
+      await api(`/content/documents/${encodeURIComponent(docOpen.id)}`, { method: "DELETE" });
+      docOpen = null;
+      navigateTo("#/content");
+      toast(`${gone} is in the recycle bin.`, true);
+      // The page that had focus is gone; the reader lands on the list's own heading.
+      $("contentTitle")?.focus();
+    } catch (e) {
+      $("docSays").textContent = `Not deleted: ${lowerFirst(e.message || String(e))}`;
+    }
+  }
+});
+
+document.addEventListener("change", async event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.id !== "docReplaceFile" || !docOpen) return;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const says = $("docSays");
+  const refused = docRefusedBeforeSending(file);
+  if (refused) { says.textContent = `Not replaced: ${lowerFirst(refused)}`; $("docReplace")?.focus(); return; }
+
+  const button = $("docReplace");
+  button?.setAttribute("aria-disabled", "true");
+  says.innerHTML = `Sending ${h(file.name)}… <progress id="docReplaceBar" max="1" value="0" aria-label="Sending the file"></progress>`;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    await sendDocument("PUT", `/content/documents/${encodeURIComponent(docOpen.id)}/data`, form, $("docReplaceBar"));
+    await showDocumentItem(docOpen.id);
+    $("docSays").textContent = `Replaced with ${file.name} (${fileSize(file.size)}). Its address and sharing are as they were.`;
+  } catch (e) {
+    says.textContent = `Not replaced: ${lowerFirst(e.message || String(e))}`;
+  } finally {
+    $("docReplace")?.removeAttribute("aria-disabled");
+    $("docReplace")?.focus();
+  }
+});
+
+/** New item › Document: the file, a title from its name, a summary and who may download it (the brief's ST-02). */
+function drawDocumentForm() {
+  $("addItemTitle").textContent = "Upload a document";
+  const max = docLimitSaid(docRules.maximumBytes);
+  $("addItemBody").innerHTML = `
+    <p class="picklede">Keep a file people find in Content and download. A table with coordinates belongs in Feature
+      layer instead.</p>
+    <div class="stacked"><label for="docFile">File</label>
+      <input type="file" id="docFile" accept="${h(docRules.accepted.join(","))}" aria-describedby="docFileSays docNewSays"></div>
+    <p class="hint" id="docFileSays">${h(docKindsSaid())}, up to ${h(max)}.</p>
+    <p class="hint" id="docNewSays" role="status" aria-live="polite"></p>
+    <div class="stacked"><label for="docNewTitle">Title</label>
+      <input type="text" id="docNewTitle" maxlength="250" autocomplete="off" aria-describedby="docNewTitleSays"></div>
+    <p class="hint" id="docNewTitleSays">The file's name until you type another.</p>
+    <div class="stacked"><label for="docNewSnippet">Summary <span class="hint">(optional)</span></label>
+      <textarea id="docNewSnippet" rows="2" maxlength="2048"></textarea></div>
+    <div class="stacked"><label for="docNewSharing">Who can download it</label>
+      <select id="docNewSharing">
+        <option value="private">Owner — only you</option>
+        <option value="organization">Your organization</option>
+        ${allOrganizationsOffer("private") && allOrganizationsOffer("private").state !== "off"
+          ? `<option value="allorganizations">All organizations on this server</option>` : ""}
+        <option value="public">Everyone (public)</option>
+      </select></div>`;
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="docUpload">Upload</button>`;
+
+  // A file dropped on the first screen arrives here already chosen.
+  if (handedFile) {
+    const carried = new DataTransfer();
+    carried.items.add(handedFile);
+    $("docFile").files = carried.files;
+    $("docNewTitle").value = docTitleOf(handedFile.name);
+  }
+  $("docFile").addEventListener("change", () => {
+    const file = $("docFile").files?.[0];
+    const title = $("docNewTitle");
+    if (file && (!title.value.trim() || title.dataset.typed !== "true")) title.value = docTitleOf(file.name);
+    $("docNewSays").textContent = "";
+    $("docNewSays").classList.remove("bad-inline");
+    $("docFile").removeAttribute("aria-invalid");
+  });
+  $("docNewTitle").addEventListener("input", () => { $("docNewTitle").dataset.typed = "true"; });
+  $("itemBack").addEventListener("click", () => { itemStep = "item"; handedFile = null; drawAddItem(); });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("#docUpload, #kindDocument") : null;
+  if (!t) return;
+
+  if (t.id === "kindDocument") {
+    itemStep = "document";
+    drawAddItem();
+    return;
+  }
+
+  const file = $("docFile").files?.[0];
+  const says = $("docNewSays");
+  const refused = docRefusedBeforeSending(file);
+  if (refused) {
+    says.textContent = `Not uploaded: ${lowerFirst(refused)}`;
+    says.classList.add("bad-inline");
+    $("docFile").setAttribute("aria-invalid", "true");
+    $("docFile").focus();
+    return;
+  }
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("title", $("docNewTitle").value.trim() || file.name.replace(/\.[^.]+$/, ""));
+  if ($("docNewSnippet").value.trim()) form.append("snippet", $("docNewSnippet").value.trim());
+  form.append("sharing", $("docNewSharing").value);
+
+  t.setAttribute("aria-disabled", "true");
+  t.disabled = true;
+  says.classList.remove("bad-inline");
+  says.innerHTML = `Sending ${h(file.name)}… <progress id="docUploadBar" max="1" value="0" aria-label="Sending the file"></progress>`;
+  // Closing the dialog while it is sent stops the send, rather than landing the reader on a page they walked away from.
+  const dialog = $("addItem");
+  const stop = () => docUploading?.abort();
+  dialog.addEventListener("close", stop, { once: true });
+  try {
+    const made = await sendDocument("POST", "/content/documents", form, $("docUploadBar"));
+    dialog.removeEventListener("close", stop);
+    if (!made?.id) {
+      says.textContent = `${file.name} was sent, and the server's answer named no item. Find it in Content.`;
+      return;
+    }
+    $("addItem").close();
+    handedFile = null;
+    // Said on the page it lands on, in its live line, once the page is drawn; focus goes to its title.
+    docSayNext = `${made.title || file.name} is uploaded. It is ${made.sharing === "private" ? "yours alone until you share it"
+      : `shared: ${MAP_SCOPES.find(([v]) => v === made.sharing)?.[1] || made.sharing}`}.`;
+    navigateTo(`#/item/${encodeURIComponent(made.id)}`);
+  } catch (e) {
+    dialog.removeEventListener("close", stop);
+    if (!dialog.open) return;
+    // The file stays chosen, so it can be renamed and sent again (the brief's *refused* state).
+    says.textContent = `Not uploaded: ${lowerFirst(e.message || String(e))}`;
+    says.classList.add("bad-inline");
+    $("docFile").setAttribute("aria-invalid", "true");
+    t.disabled = false;
+    t.removeAttribute("aria-disabled");
+    $("docFile").focus();
+  }
+});
+
 // ---------------------------------------------------------------- System › Backups (ADR-193 condition 4)
 
 /** What `/admin/backups` last answered; null until it is read. */
@@ -34297,7 +34969,7 @@ async function folderGo(go) {
       const answer = await api("/content/move", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: [d.service ? { service: d.service } : { webmap: d.webmap }], to }),
+        body: JSON.stringify({ items: [d.service ? { service: d.service } : d.document ? { document: d.document } : { webmap: d.webmap }], to }),
       });
       const failed = (answer?.results || []).find(r => !r.success);
       if (failed) { says.textContent = failed.error || "It could not be moved."; return; }
@@ -34344,6 +35016,7 @@ function openMove(button) {
   $("moveTo").addEventListener("change", () => { go.disabled = $("moveTo").value === current; });
   if (button.dataset.moveService) go.dataset.service = button.dataset.moveService;
   if (button.dataset.moveWebmap) go.dataset.webmap = button.dataset.moveWebmap;
+  if (button.dataset.moveDocument) go.dataset.document = button.dataset.moveDocument;
 }
 
 document.addEventListener("click", async e => {
@@ -34386,7 +35059,7 @@ document.addEventListener("click", async e => {
     return;
   }
 
-  if (t.dataset.moveService !== undefined || t.dataset.moveWebmap !== undefined) {
+  if (t.dataset.moveService !== undefined || t.dataset.moveWebmap !== undefined || t.dataset.moveDocument !== undefined) {
     if (!myFolders.length) myFolders = (await api("/content/folders").catch(() => null))?.folders || [];
     openMove(t);
     return;

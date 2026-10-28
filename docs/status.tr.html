@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>0aabfe00</code> · 2026-10-28 10:56</p>
+<p class="stamp">Şu commit’ten üretildi: <code>7ce96f77</code> · 2026-10-28 17:50</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">219</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">464/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">66 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">465/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">65 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">196 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">12</div><div class="kpi-l">açık borç</div><div class="kpi-n">298 ödendi · 5 tetiğini bekliyor · 3 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">13</div><div class="kpi-l">açık borç</div><div class="kpi-n">298 ödendi · 5 tetiğini bekliyor · 3 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5515</div><div class="kpi-l">test</div><div class="kpi-n">589 kaynak dosya, 262,063 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5518</div><div class="kpi-l">test</div><div class="kpi-n">589 kaynak dosya, 262,086 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-190</b> — [OWNER] What was decided on 2026-10-25 and 2026-10-26 and is INFERRED until you confirm it.</p><p><b>Q-187</b> — [OWNER] Is any of the four databases tried on 2026-10-21 worth a provider?</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">82 madde</span></div><p><b>66 ADR conditions</b> outstanding across 46 decisions — the largest commitment on this page.</p><p><b>12 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">82 madde</span></div><p><b>65 ADR conditions</b> outstanding across 45 decisions — the largest commitment on this page.</p><p><b>13 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -166,7 +166,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-178 · HTTP Basic on the OGC faces, over </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-181 · The ArcGIS REST API version this s</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-182 · An image service can be an elevati</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-188 · A document is an item: a file kept</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-200 · Service accounts sign in with API </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-201 · A member with a password here may </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-202 · An item has terms of use and categ</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -381,7 +380,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">185</td><td>Sharing is additive: an item&#x27;s level and its groups both count</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">186</td><td>An edit empties the tiles it reached, not the whole layer</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">187</td><td>Both surfaces navigate from a top bar, and Server&#x27;s is Server Manager&#x27;s four tabs</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the structure is the owner&#x27;s, taken from two reference products; nothing is…</td><td class="num"></td></tr>
-<tr><td class="id">188</td><td>A document is an item: a file kept in the platform store and shared like a web map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/4</td></tr>
+<tr><td class="id">188</td><td>A document is an item: a file kept in the platform store and shared like a web map</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">189</td><td>Studio holds the organization and Server the engine</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — every part is an owner decision of one day, taken against Portal and Server…</td><td class="num"></td></tr>
 <tr><td class="id">190</td><td>Members are searched in the database, sorted into categories, and have profiles</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">MEDIUM — the shape is Portal&#x27;s and the owner&#x27;s; the search has not been measured past a…</td><td class="num"></td></tr>
 <tr><td class="id">191</td><td>ArcGIS Pro publishes hosted feature layers here</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/6</td></tr>
@@ -441,6 +440,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-295</td><td>A GeoTIFF is opened apart at the door and read in the serving process afterwards.</td><td class="muted-t">When ImageServer or any raster read returns to scope, or the first time a file that passed the door faults a read: the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-313</td><td>A registered SQL Server&#x27;s certificate is trusted, not verified.</td><td class="muted-t">A deployment registering a SQL Server across a network it does not control, or a customer asking for verification.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill cond">PARTLY</span></td></tr>
+<tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">298 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -547,8 +547,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:56.9%"></div></div><div class="bar-n">861</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:37.0%"></div></div><div class="bar-n">560</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:28.0%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.7%"></div></div><div class="bar-n">359</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">237</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:23.9%"></div></div><div class="bar-n">361</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.7%"></div></div><div class="bar-n">238</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.7%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.2%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:7.0%"></div></div><div class="bar-n">106</div></div>
@@ -560,6 +560,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">23</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>7ce96f77</code><time>2026-10-28</time><span>System › Backups, a portal permanentDelete that skips the bin, and a DuckDB file&#x27;s lock said where it is registered (ADR-193 c4, ADR-214 c1, ADR-211 c1)</span></li>
 <li><code>0aabfe00</code><time>2026-10-28</time><span>Answers kept decides from the layer listing whether a service has tiles, and labels its boxes (D-308)</span></li>
 <li><code>3741411a</code><time>2026-10-28</time><span>Answers kept reads the layer listing itself when the page draws before it, as CI&#x27;s slower run did (D-308)</span></li>
 <li><code>6403f30f</code><time>2026-10-28</time><span>My content&#x27;s scope links name their scope as data-content-scope, apart from the share dialog&#x27;s data-scope rows</span></li>
@@ -573,7 +574,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>ae63f8ce</code><time>2026-10-27</time><span>A registered layer leaves nothing recording when it goes, a restore keeps its foreign keys, and the probe offers only what publish takes (D-307, D-309, D-311, D-312, D-314, D-315, D-316, D-317; ADR-214, ADR-217)</span></li>
 <li><code>abc42a92</code><time>2026-10-27</time><span>A reason carried to the next page is said only on that page, and soon; two console tests wait for their landing (ADR-221)</span></li>
 <li><code>1ea7dca4</code><time>2026-10-27</time><span>The system administrator has a surface of their own, /system/, and an organisation names itself (ADR-221)</span></li>
-<li><code>418dbc93</code><time>2026-10-26</time><span>An item may be shared with every organisation on the server, and found from another (ADR-220); Q-189 confirmed</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

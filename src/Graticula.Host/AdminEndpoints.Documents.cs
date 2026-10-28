@@ -96,8 +96,21 @@ internal static partial class AdminEndpoints
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         if (await documents.FindAsync(id, cancellation).ConfigureAwait(false) is not { } document
-            || !Readable(current, document)
-            || await documents.ContentAsync(id, cancellation).ConfigureAwait(false) is not { } content)
+            || !Readable(current, document))
+        {
+            await Refuse(context, 404, NoDocument(id)).ConfigureAwait(false);
+            return;
+        }
+
+        // <b>`check=1` asks, and sends nothing</b> — Studio's Download asks first, as its other downloads do, so a refusal
+        // is a sentence on the page rather than a broken file in the browser's list (ADR-188 condition 4).
+        if (context.Request.Query["check"] == "1")
+        {
+            await Results.Json(new { fileName = document.FileName, bytes = document.Size }).ExecuteAsync(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (await documents.ContentAsync(id, cancellation).ConfigureAwait(false) is not { } content)
         {
             await Refuse(context, 404, NoDocument(id)).ConfigureAwait(false);
             return;

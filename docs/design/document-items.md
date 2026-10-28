@@ -1,5 +1,8 @@
 # Document items — what the screen needs (ADR-188)
 
+**Built 2026-10-28** (ADR-188 condition 4): Content's rows, *New item › Document* and the item page at
+`#/item/<id>`. What the review left for later is [D-321](../architecture-debt.md).
+
 For whoever draws or builds Studio's document screens: the redesign in code, or Stitch if the owner wants a draft
 first (*"arayüzünü stitch tasarlayabilir çok lazımsa"*, 2026-10-16). The API is built and tested; nothing here is
 a decision the screen may change — it is what the screen has to show and send.

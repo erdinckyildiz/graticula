@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -152,6 +153,15 @@ public static class Documents
             }
 
             return Csv;
+        }
+
+        // <b>A name this server accepts on bytes it does not</b> — a design review read "'.pdf' is none of these" beside a
+        // list that names PDF, which says the opposite of what happened. The name is right; the inside is not.
+        if (Accepted.FirstOrDefault(kind => Matches(kind, extension)) is { } named)
+        {
+            refusal = $"'{fileName}' is named '{extension}' but is not a {named.ArcGisType} inside. It may be damaged, or "
+                + "another kind of file renamed.";
+            return null;
         }
 
         refusal = "A document may be a PDF, a Word, Excel or PowerPoint file, a CSV file, or a PNG, JPEG, GIF "
