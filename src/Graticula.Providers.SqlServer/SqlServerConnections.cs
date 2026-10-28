@@ -19,10 +19,12 @@ internal static class SqlServerConnections
     /// <param name="timeoutSeconds">How long to wait for a connection.</param>
     /// <returns>The connection string.</returns>
     /// <remarks>
-    /// <b>The server's certificate is trusted, not verified</b> (ADR-210 §6): the driver encrypts by default since
-    /// version 4, and a SQL Server installed without a certificate from a trusted authority — LocalDB, Express, most
-    /// development and many internal servers — presents a self-signed one. Encryption is kept; who answered is not
-    /// proved. Recorded as a debt rather than offered as a setting nobody has asked for yet.
+    /// <b>The server's certificate is trusted unless the registration asks for it to be verified</b> (ADR-210 §5.7,
+    /// D-313): the driver encrypts by default since version 4, and a SQL Server installed without a certificate from a
+    /// trusted authority — LocalDB, Express, most development and many internal servers — presents a self-signed one, so
+    /// trusting it is the default that lets them connect at all. <see cref="SqlServerSource.VerifyCertificate"/> makes
+    /// encryption mandatory and the certificate checked — its chain against this machine's trusted authorities and its
+    /// name against the host — so a server impersonating the database is refused rather than read from.
     /// </remarks>
     public static string For(string stored, bool pooling, int timeoutSeconds = 15)
     {
@@ -35,9 +37,14 @@ internal static class SqlServerConnections
             UserID = source.User,
             Pooling = pooling,
             ConnectTimeout = Math.Max(1, timeoutSeconds),
-            TrustServerCertificate = true,
+            TrustServerCertificate = !source.VerifyCertificate,
             ApplicationName = "Graticula",
         };
+
+        if (source.VerifyCertificate)
+        {
+            builder.Encrypt = SqlConnectionEncryptOption.Mandatory;
+        }
 
         if (!string.IsNullOrEmpty(source.Password))
         {

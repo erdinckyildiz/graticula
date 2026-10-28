@@ -50,6 +50,7 @@ namespace Graticula.Host;
 /// <param name="Srid">
 /// For <c>duckdb</c> and <c>motherduck</c>, the EPSG code geometry is in where a column's type does not say.
 /// </param>
+/// <param name="VerifyCertificate">For <c>sqlserver</c>, true to verify the server's certificate rather than trust it (D-313).</param>
 /// <remarks>
 /// <para>
 /// <b>The fields exist because the console stopped asking for a string, and the assembly is
@@ -93,7 +94,10 @@ internal sealed record DataSourceRequest(
 
     // <b>ADR-067 §5.3–5.4: `duckdb` with a `path`, `motherduck` with `database` and `token`, either with `srid`.</b>
     string? Token = null,
-    int? Srid = null)
+    int? Srid = null,
+
+    // <b>D-313: `sqlserver` with `verifyCertificate: true` checks the server's certificate</b> rather than trusting it.
+    bool? VerifyCertificate = null)
 {
     /// <summary>Never a password or a secret: a record's generated text prints every property.</summary>
     /// <returns>The name and kind, and what was sent to reach it without anything secret.</returns>
@@ -12973,6 +12977,7 @@ internal static partial class AdminEndpoints
                 database = sql.Database,
                 username = sql.User,
                 hasPassword = sql.HasPassword,
+                verifyCertificate = sql.Kind == DataSourceKinds.SqlServer ? sql.VerifyCertificate : (bool?)null,
             }).ExecuteAsync(context).ConfigureAwait(false);
             return;
         }
@@ -13116,6 +13121,13 @@ internal static partial class AdminEndpoints
         // instance (`host\SQLEXPRESS`, `(localdb)\MSSQLLocalDB`), which the driver finds by name.
         bool sqlServer = string.Equals(request.Kind, DataSourceKinds.SqlServer, StringComparison.OrdinalIgnoreCase);
 
+        // Said rather than ignored: a caller asking for a check this kind does not make would believe it was made.
+        if (request.VerifyCertificate == true && !sqlServer)
+        {
+            why = "`verifyCertificate` is a SQL Server registration's: send it with `kind: \"sqlserver\"`.";
+            return null;
+        }
+
         if (oracle || sqlServer || string.Equals(request.Kind, DataSourceKinds.MySql, StringComparison.OrdinalIgnoreCase))
         {
             string engine = oracle ? "An Oracle database" : sqlServer ? "A SQL Server database" : "A MySQL database";
@@ -13159,7 +13171,7 @@ internal static partial class AdminEndpoints
             {
                 // An instance named in the host is found by name; a port beside it is used only when one was sent.
                 int? tcp = request.Port is null && host.Contains('\\', StringComparison.Ordinal) ? null : port;
-                return SqlServerLocator.For(new SqlServerSource(host, tcp, database, user, password));
+                return SqlServerLocator.For(new SqlServerSource(host, tcp, database, user, password, request.VerifyCertificate == true));
             }
 
             return oracle

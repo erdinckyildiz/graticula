@@ -24842,6 +24842,9 @@ function dbconnBody() {
     } else if (body.host.includes("\\") && !$("dcPort").value.trim()) {
       delete body.port;
     }
+
+    // Sent only when ticked, so a request reads as it did before the box existed (D-313).
+    if ($("dcVerify").checked) body.verifyCertificate = true;
   }
 
   // A PostGIS body names no kind, as it never has; the others say which they are.
@@ -25019,9 +25022,10 @@ function dbconnServerKind(kind) {
   instanceHint.hidden = kind !== "sqlserver";
   instanceHint.innerHTML = kind === "sqlserver"
     ? "A named instance goes here as <code>server\\SQLEXPRESS</code>; leave the port empty and the instance's own "
-      + "port is found. A fixed port can go here too, as <code>server,1433</code>. The connection is encrypted; the "
-      + "server's certificate is accepted without being checked."
+      + "port is found. A fixed port can go here too, as <code>server,1433</code>."
     : "";
+  $("dcVerifyRow").hidden = kind !== "sqlserver";
+  $("dcVerifyHint").hidden = kind !== "sqlserver";
 
   if (kind === "sqlserver") {
     $("dcHost").setAttribute("aria-describedby", "dcInstanceHint");
@@ -25519,6 +25523,13 @@ async function openDbConnection(source) {
           <input id="dcPort" type="number" min="1" max="65535" value="5432"></label>
       </div>
       <p class="hint" id="dcInstanceHint" hidden></p>
+      <div class="row" id="dcVerifyRow" hidden>
+        <label class="field check"><input type="checkbox" id="dcVerify" aria-describedby="dcVerifyHint">
+          Verify the server's certificate</label>
+      </div>
+      <p class="hint" id="dcVerifyHint" hidden>Ticked, the certificate has to come from an authority this server trusts
+        and name the instance as typed, or the connection is refused. Leave it unticked for LocalDB, Express and servers
+        with a self-signed certificate: the connection is still encrypted, but who answered is not checked.</p>
       <div class="row">
         <label class="field" style="flex:1 1 45%">User name
           <input id="dcUser" spellcheck="false" autocomplete="off" required></label>
@@ -25703,6 +25714,7 @@ async function openDbConnection(source) {
     $("dcDatabase").value = said.database || "";
     $("dcUser").value = said.username || "";
     if (dbconnKind() === "sqlserver" && !said.port) $("dcPort").value = "";
+    $("dcVerify").checked = said.verifyCertificate === true;
     dbconnInstance();
     $("dcPassword").focus();
   } catch (e) {

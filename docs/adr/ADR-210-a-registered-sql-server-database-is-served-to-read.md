@@ -107,6 +107,14 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
 7. **The server certificate is trusted, not verified** (`TrustServerCertificate`): the driver encrypts by default, and
    LocalDB, Express and most internal servers present a self-signed certificate. Encryption is kept; who answered is not
    proved. [D-313](../architecture-debt.md).
+   ***Amended 2026-10-29 (D-313 repaid):*** *trusted by default, verified when the registration asks.* A registration
+   may send `verifyCertificate: true` — the console's *Verify the server's certificate*, under the instance — and the
+   connection then makes encryption mandatory and checks the certificate's chain against this machine's trusted
+   authorities and its name against the host, so a server impersonating the database is refused, with a sentence that
+   says the certificate was the reason. Unticked is the default and every locator written before the field: LocalDB,
+   Express and self-signed servers still connect. **LocalDB presents no certificate** — it is reached over shared
+   memory — so a LocalDB registration connects either way; the refusal was measured against the official image over
+   TCP in CI. Another engine sent the field is refused by name rather than ignored.
 
 ## Conditions
 
