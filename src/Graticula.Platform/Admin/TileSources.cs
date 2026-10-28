@@ -63,8 +63,8 @@ public static class TileSources
     /// <remarks>
     /// <b>PostGIS only, and MotherDuck is the other case it does not cover.</b> A MotherDuck table can also change
     /// under us and carries no version (<c>GeoParquetFolder</c> reads none for it), so it is <c>best-effort</c> in
-    /// <see cref="CoherenceOf"/> too — but its default lifetime was not part of the owner's decision and is left
-    /// as it was. ADR-095 §6 records it. <b>A registered Oracle table is one too</b> (ADR-205 §5c): other tools write to
+    /// <see cref="CoherenceOf"/> too, and since 2026-10-29 has the same five minutes by default (D-279), through
+    /// <see cref="DefaultLifetimeOf"/>, which asks the coherence rather than this. <b>A registered Oracle table is one too</b> (ADR-205 §5c): other tools write to
     /// it, and it has five minutes and <c>best-effort</c> as a registered PostGIS table has.
     /// </remarks>
     public static bool Registered(bool hosted, string? kind) =>
@@ -74,9 +74,19 @@ public static class TileSources
     /// <param name="hosted">Whether the layer's data is in the datastore.</param>
     /// <param name="kind">Its source's kind.</param>
     /// <param name="serverDefault">The server's own default — <c>Graticula:TileCacheMinutes</c>.</param>
-    /// <returns><see cref="RegisteredLifetime"/> for a registered PostGIS layer, never more than the server's; the server's otherwise.</returns>
+    /// <returns>
+    /// <see cref="RegisteredLifetime"/> for a layer other tools write to — a registered database's, and a MotherDuck
+    /// database's — never more than the server's; the server's otherwise.
+    /// </returns>
+    /// <remarks>
+    /// <b>MotherDuck since 2026-10-29</b> (D-279, INFERRED under the owner's direction to close the debts): it is
+    /// <c>best-effort</c> for the same reason a registered PostGIS table is — somebody else writes to it and nothing here
+    /// keys on a version — and kept the server's hour only because the decision that gave PostGIS five minutes named
+    /// PostGIS. Two sources with the same coherence now have the same default, which is <see cref="CoherenceOf"/>'s own
+    /// test: whatever only a lifetime bounds gets the short one.
+    /// </remarks>
     public static TimeSpan DefaultLifetimeOf(bool hosted, string? kind, TimeSpan serverDefault) =>
-        Registered(hosted, kind) && serverDefault > RegisteredLifetime ? RegisteredLifetime : serverDefault;
+        CoherenceOf(hosted, kind) == "best-effort" && serverDefault > RegisteredLifetime ? RegisteredLifetime : serverDefault;
 
     /// <summary>
     /// How closely a layer's cached tiles follow its data, in the words the admin API reads back — ADR-010 §6b.

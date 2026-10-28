@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>ce52afbc</code> · 2026-10-29 02:05</p>
+<p class="stamp">Şu commit’ten üretildi: <code>4ad31135</code> · 2026-10-29 02:16</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">219</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">465/539</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">65 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">198 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">12</div><div class="kpi-l">açık borç</div><div class="kpi-n">299 ödendi · 5 tetiğini bekliyor · 3 kısmen</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">300 ödendi · 5 tetiğini bekliyor · 3 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5524</div><div class="kpi-l">test</div><div class="kpi-n">589 kaynak dosya, 262,139 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5524</div><div class="kpi-l">test</div><div class="kpi-n">589 kaynak dosya, 262,149 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">81 madde</span></div><p><b>65 ADR conditions</b> outstanding across 45 decisions — the largest commitment on this page.</p><p><b>12 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">80 madde</span></div><p><b>65 ADR conditions</b> outstanding across 45 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -431,7 +431,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-266</td><td>Only FeatureServer query answering features is cacheable (ADR-069); every other read a map draws from is not, and a PostGIS layer has no validator.</td><td class="muted-t">A second client family drawing from one of the uncovered faces; or a cheap PostGIS data version appearing (an edit…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-267</td><td>A layer&#x27;s visible range is measured once, at publish (ADR-070), and a layer published before it has none.</td><td class="muted-t">A layer whose data grows past its range — a tile at its first drawn level measured over 10,000 features, or a slow-tile…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-270</td><td>ADR-064&#x27;s per-feature ownership is unreachable and kept.</td><td class="muted-t">When somebody asks for that setting — then it is wired to a per-layer flag and this closes; or at the next ADR-064…</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-279</td><td>(Amended 2026-10-20 — ADR-206: there are no registered tiles now; read &quot;tiles&quot; below as &quot;query answers&quot;, which keep the same lifetimes.) A MotherDuck layer&#x27;s tiles change behind this server with nothing to key on, and keep the server&#x27;s default lifetime.</td><td class="muted-t">The owner decides MotherDuck&#x27;s default; or an operator reports a MotherDuck map an hour behind its data.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-282</td><td>An exported tile package lives on the server that wrote it~~, and the console&#x27;s download holds it in the browser&#x27;s memory.~~ ADR-098 writes packages to Graticula:TileExportPath — exports under the state directory by default — which is each server&#x27;s own disk…</td><td class="muted-t">A deployment runs more than one server against one catalogue and exports; or an operator reports the console failing on…</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-287</td><td>The generated sprite sheet has no ceiling on its size.</td><td class="muted-t">A service whose sprite@2x.png is taller than 4,096 pixels, or a report of a map whose icons vanish on one machine and…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-290</td><td>~~Three OGC faces have CITE failures that are counted rather than fixed: WMTS 15, WMS 1.1 10, WFS 1.1 9.~~ Updated 2026-10-06: WMTS 0, WFS 1.1 4, WMS 1.1 10, and two suites added with failures of their own — WFS 2.0 Transactional 18 and OGC API Maps 4.</td><td class="muted-t">WFS 1.1: the engine&#x27;s image fixed upstream.</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -439,7 +438,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">299 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
+<p class="sub">300 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
 <section><h2>Varsayımlar</h2>
 <p class="sub">Birinin çürütülmesi, üzerine kurulu her ADR’nin yeniden gözden geçirilmesini tetikler. Doğrulanmamış çoğunluk projenin dürüst hâli, bir ihmal değil.</p>
@@ -557,6 +556,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>4ad31135</code><time>2026-10-29</time><span>A registered SQL Server&#x27;s certificate is verified when the registration asks (D-313)</span></li>
 <li><code>ce52afbc</code><time>2026-10-29</time><span>Studio keeps documents, System gets Backups, and screens for service accounts, answer lifetimes, terms, categories, favourites and the recycle bin (ADR-188 c4, ADR-193 c4, ADR-200 c3, ADR-202 c1, ADR-203 c2, ADR-211 c1, ADR-214 c1; D-303, D-305, D-308, D-318, D-319, D-320; Q-187, Q-190)</span></li>
 <li><code>657e6978</code><time>2026-10-28</time><span>An organisation&#x27;s administrator reaches no system act, an outsider reads nothing on any face, and a group can be made public from its Settings (ADR-204 conditions 4, 5; ADR-219 condition 2; ADR-199 condition 2; D-302, D-307)</span></li>
 <li><code>d66bc3f9</code><time>2026-10-27</time><span>Console tests open System&#x27;s pages at System&#x27;s addresses, not through the forward from Server (ADR-221)</span></li>
@@ -570,7 +570,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9a97a3fe</code><time>2026-10-25</time><span>A new organisation&#x27;s host needs no change to the proxy: /healthz/certificate answers an on-demand TLS ask (ADR-204 §5e item 19)</span></li>
 <li><code>344aaa66</code><time>2026-10-25</time><span>README and the deployment guide say what organisations own since v1.0.458 (ADR-204 §5e items 14-18)</span></li>
 <li><code>3cadc661</code><time>2026-10-25</time><span>An organisation&#x27;s custom roles are its own, and a member&#x27;s groups in other organisations are listed at home (ADR-204 condition 16, §5e items 17.4 and 18)</span></li>
-<li><code>b3d44746</code><time>2026-10-25</time><span>ArcGIS Online&#x27;s documents behind ADR-204&#x27;s claims, and what it does that this does not (ADR-204 condition 7, §5e item 17)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

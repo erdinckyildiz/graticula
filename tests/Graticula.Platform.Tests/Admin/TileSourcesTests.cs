@@ -32,7 +32,7 @@ public sealed class TileSourcesTests
     }
 
     [Fact]
-    public void Only_a_registered_PostGIS_layer_gets_the_shorter_default()
+    public void A_layer_others_write_to_gets_the_shorter_default()
     {
         TimeSpan server = TimeSpan.FromMinutes(60);
 
@@ -45,7 +45,10 @@ public sealed class TileSourcesTests
         // Hosted and the file kinds keep the server's default: nothing about them changed.
         Assert.Equal(server, TileSources.DefaultLifetimeOf(true, DataSourceKinds.PostGis, server));
         Assert.Equal(server, TileSources.DefaultLifetimeOf(false, DataSourceKinds.GeoParquet, server));
-        Assert.Equal(server, TileSources.DefaultLifetimeOf(false, DataSourceKinds.MotherDuck, server));
+
+        // D-279: MotherDuck is written by others and keys on no version, so it is bounded as a registered table is.
+        Assert.Equal(TileSources.RegisteredLifetime, TileSources.DefaultLifetimeOf(false, DataSourceKinds.MotherDuck, server));
+        Assert.Equal(server, TileSources.DefaultLifetimeOf(false, DataSourceKinds.DuckDb, server));
     }
 
     [Fact]
