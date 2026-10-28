@@ -126,10 +126,15 @@ public sealed class AnswerLifetimeTests : ConsoleTest
 
         await OpenAsync("/server/#/service/" + string.Join("/", Array.ConvertAll(tiled!.Trim('/').Split('/'), Uri.EscapeDataString)), token);
         await WaitForAsync(Shown("#serviceNav a[data-service-page=limits]"), "The tiled service has no Parameters page in Server.");
+
+        // Neither the listing nor the service's layers read yet, as CI's slower run had it: whether the service has tiles
+        // is decided from the listing the section reads, not from a document that has not arrived.
+        await Browser.EvaluateAsync<bool>("(known = [], serviceLayers = [], true)");
         await ClickAsync("#serviceNav a[data-service-page=limits]");
         await WaitForAsync(Shown("#capDeadline"), "The Parameters page did not draw.");
 
-        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('answerLifeBox').hidden"),
+        await Task.Delay(1500);
+        Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('answerLifeBox').hidden && !document.querySelector('#answerLifeBox input')"),
             "A service with tiles offers the lifetime on Parameters as well as on its Tile layer page: two boxes for one figure.");
     }
 

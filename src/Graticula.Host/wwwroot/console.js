@@ -21057,8 +21057,12 @@ function drawAnswerLifetimes() {
     }).catch(() => null);
   }
 
-  box.hidden = serviceOpenKind === "ImageServer" || layers.length === 0 || !!tileLayerOf();
-  if (box.hidden || box.dataset.for === serviceOpen.qualified) return;
+  // A layer with tiles sets the figure on its Tile layer page. Decided from the listing, which says it for each layer,
+  // and not from the service document, which may not be read yet (CI drew the boxes on a tiled service that way).
+  box.hidden = serviceOpenKind === "ImageServer" || layers.length === 0 || layers.some(l => l.tileable) || !!tileLayerOf();
+  // Hidden, it holds nothing: boxes left from another service would be read as this one's.
+  if (box.hidden) { box.innerHTML = ""; box.dataset.for = ""; return; }
+  if (box.dataset.for === serviceOpen.qualified) return;
   box.dataset.for = serviceOpen.qualified;
 
   const mayChange = may("content:publishTiles");
@@ -21079,8 +21083,8 @@ function drawAnswerLifetimes() {
         return `
         <tr>
           <th scope="row" class="name">${h(l.name)}</th>
-          <td><input type="number" min="0" step="1" inputmode="numeric" id="answerLife-${i}"
-              aria-label="Seconds ${h(l.name)}'s answers are kept" aria-describedby="answerLifeSays-${i}"
+          <td><label class="sr-only" for="answerLife-${i}">Seconds ${h(l.name)}'s answers are kept</label>
+            <input type="number" min="0" step="1" inputmode="numeric" id="answerLife-${i}" aria-describedby="answerLifeSays-${i}"
               value="${own ? h(String(l.cacheSeconds)) : ""}"${mayChange ? "" : " disabled"}><span class="u">seconds</span>
             <p class="hint inherit" id="answerLifeSays-${i}">${own
               ? (l.cacheSeconds === 0 ? "Set here: nothing is kept." : `Set here: ${h(minutes(l.cacheSeconds))}.`)
