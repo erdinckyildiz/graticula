@@ -1,10 +1,10 @@
 MySqlConnector — https://mysqlconnector.net/
-Licensed under the MIT License, as its NuGet package (2.4.0) declares. The package states its copyright as below and
+Licensed under the MIT License, as its NuGet package (2.6.1) declares. The package states its copyright as below and
 carries the licence only as an SPDX expression, so the text is reproduced here to travel with the driver (ADR-208).
 
 The MIT License (MIT)
 
-Copyright 2016–2024 Bradley Grainger
+Copyright 2016–2026 Bradley Grainger
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

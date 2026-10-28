@@ -61,7 +61,7 @@ public sealed class OracleFeatureHistoryTests
         EditOutcome edited = await writer.ApplyAsync(
             new EditBatch([], [new FeatureUpdate(1, new Dictionary<string, object?> { ["LABEL"] = "changed" }, null)], [2], Editor: "ayse"),
             None);
-        Assert.True(edited.AllSucceeded);
+        Assert.True(edited.AllSucceeded, Said(edited));
 
         await ExecuteAsync($"update {Table} set label = 'by sql' where objectid = 1");
 
@@ -96,6 +96,12 @@ public sealed class OracleFeatureHistoryTests
         Assert.False(await history.IsOnAsync(None));
         Assert.False((await source.DescribeAsync(None)).Archived);
     }
+
+    /// <summary>Why each edit that failed failed — D-314: the assertion alone said only <c>False</c>, twice in CI.</summary>
+    private static string Said(EditOutcome outcome) => string.Join("; ",
+        outcome.Adds.Concat(outcome.Updates).Concat(outcome.Deletes)
+            .Where(r => !r.Succeeded)
+            .Select(r => $"{r.Identity}: {r.Error}{(r.NoSuchFeature ? " (no such feature)" : string.Empty)}"));
 
     private sealed class FailingProjector : IProjector
     {
