@@ -21043,11 +21043,19 @@ function drawAnswerLifetimes() {
   const box = $("answerLifeBox");
   if (!box || !serviceOpen) return;
 
-  const layers = serviceLayers
-    .filter(one => !(one.type || "").toLowerCase().includes("group"))
-    .map(one => known.find(l => l.name === one.name
-      && (l.folder || "") === (serviceOpen.folder || "") && l.service === serviceOpen.name))
-    .filter(Boolean);
+  // From the administrator's listing alone, which names each layer's service: the service document may not have been
+  // read yet, and a box drawn before it never came back (CI, where the page is slower than here).
+  const layers = known.filter(l => l.service === serviceOpen.name && (l.folder || "") === (serviceOpen.folder || ""));
+  const qualified = serviceOpen.qualified;
+
+  // Not read yet on this page: read it once, and draw when it answers.
+  if (layers.length === 0 && box.dataset.asked !== qualified) {
+    box.dataset.asked = qualified;
+    api("/admin/layers").then(answer => {
+      known = answer?.layers || known;
+      if (serviceOpen?.qualified === qualified) drawAnswerLifetimes();
+    }).catch(() => null);
+  }
 
   box.hidden = serviceOpenKind === "ImageServer" || layers.length === 0 || !!tileLayerOf();
   if (box.hidden || box.dataset.for === serviceOpen.qualified) return;

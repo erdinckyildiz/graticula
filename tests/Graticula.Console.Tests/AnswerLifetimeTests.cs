@@ -70,6 +70,9 @@ public sealed class AnswerLifetimeTests : ConsoleTest
 
             await OpenAsync("/server/#/service/" + string.Join("/", Array.ConvertAll(service.Split('/'), Uri.EscapeDataString)), token);
             await WaitForAsync(Shown("#serviceNav a[data-service-page=limits]"), "The registered service has no Parameters page in Server.");
+
+            // The listing not yet read when the page draws, as CI's slower run had it: the section reads it itself.
+            await Browser.EvaluateAsync<bool>("(known = [], true)");
             await ClickAsync("#serviceNav a[data-service-page=limits]");
 
             await WaitForAsync(Shown("#answerLifeBox input[type=number]"),
