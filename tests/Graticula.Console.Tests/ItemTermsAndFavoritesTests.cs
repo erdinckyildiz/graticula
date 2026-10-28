@@ -1,4 +1,6 @@
 using System;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -90,6 +92,58 @@ public sealed class ItemTermsAndFavoritesTests : ConsoleTest
             "document.querySelector('#serviceDescription .itemcats')?.textContent || ''") ?? string.Empty, StringComparison.Ordinal);
 
         NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>A web map's page offers the same three: a favourite, its terms beside its description, and Categorize.</summary>
+    [Fact]
+    public async Task A_web_maps_page_has_terms_categories_and_a_favourite()
+    {
+        (string token, _) = await SignInAsync();
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/content/webmaps", JsonSerializer.Serialize(new
+        {
+            title = "zz terms map " + Guid.NewGuid().ToString("N")[..6],
+            sharing = "private",
+            document = new
+            {
+                operationalLayers = Array.Empty<object>(),
+                baseMap = new { baseMapLayers = Array.Empty<object>(), title = "None" },
+                version = "2.31",
+            },
+        }));
+        Assert.True(status == 201, $"Saving the map through the API answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync($"/studio/#/item/{id}", token);
+            await WaitForAsync(Shown("#mapFavorite"), "A web map's page offers no favourite (D-305).");
+            Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#mapAbout [data-item-categorize=\"map\"]')"),
+                "A web map's page offers no Categorize (D-305).");
+
+            await Browser.EvaluateAsync<bool>("(document.getElementById('mapFavorite').focus(), true)");
+            await ClickAsync("#mapFavorite");
+            await WaitForAsync("document.getElementById('mapFavorite').textContent === 'Remove favorite'", "Marking the map changed nothing on its button.");
+            Assert.Contains(await WritesAsync(), w => w.Contains($"/content/items/{id}/favorite", StringComparison.Ordinal));
+
+            await ClickAsync("#mapEditOpen");
+            await WaitForAsync("!!document.getElementById('mapEditTerms')", "The map's editor has no terms of use (D-305).");
+
+            // After Save the editor's button has focus and the line says so, though the map's extras redraw it after.
+            await Browser.EvaluateAsync<bool>("(document.getElementById('mapEditTerms').value = 'CC BY 4.0', true)");
+            await ClickAsync("#mapEditSave");
+            await WaitForAsync("document.activeElement?.id === 'mapEditOpen' && (document.getElementById('mapAboutSays')?.textContent || '') === 'Saved.'",
+                "After Save focus left the map's editor button, or nothing said it was saved.");
+            await Task.Delay(1500);
+            Assert.Equal("mapEditOpen", await Browser.EvaluateAsync<string>("document.activeElement?.id ?? ''"));
+            Assert.Contains(await WritesAsync(), w => w.Contains($"/content/items/{id}/license", StringComparison.Ordinal));
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/webmaps/{id}");
+        }
     }
 
     /// <summary>

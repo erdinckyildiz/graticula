@@ -5912,12 +5912,14 @@ async function showWebMapItem(id) {
   $("mapActions").innerHTML = `
     <a class="btn primary" href="${open}">Open in Map Viewer</a>
     ${map.manages ? `<button type="button" id="mapShareOpen">Share</button>` : ""}
+    <button type="button" id="mapFavorite" data-of="map" hidden></button>
     ${more ? `<details class="menu itemmore">
       <summary aria-label="More actions for this map" title="More actions">More <span aria-hidden="true">▾</span></summary>
       <div class="sheet">${more}</div>
     </details>` : ""}`;
 
   drawMapAbout();
+  loadMapExtras(map);
 
   // Each layer with the way to its own item, when it is one of this server's services; top first, the basemap last.
   const row = layer => {
@@ -6009,6 +6011,21 @@ const WM_KIND = {
   ArcGISTiledMapServiceLayer: "Tiles", WebTiledLayer: "Tiles", OpenStreetMap: "Tiles", ArcGISImageServiceLayer: "Imagery",
 };
 
+/** A web map's terms, categories and favourite (D-305), from its portal document, as a service's are. */
+async function loadMapExtras(map) {
+  const [doc] = await Promise.all([
+    api(`/sharing/rest/content/items/${encodeURIComponent(map.id)}?f=json`).catch(() => null),
+    loadFavorites(),
+  ]);
+  if (mapOpen !== map) return;
+  map.licenseInfo = doc?.licenseInfo || "";
+  map.categories = doc?.categories || [];
+  map.favorite = favoriteIds.has(bareId(map.id));
+  itemOf("map");
+  redrawItemAbout("map");
+  drawFavorite(map, $("mapFavorite"));
+}
+
 /** The map's summary, and editing it — the title and the one line, sent with the rest of the map unchanged. */
 function drawMapAbout(editing = false) {
   const map = mapOpen;
@@ -6023,6 +6040,10 @@ function drawMapAbout(editing = false) {
         <input type="text" id="mapEditTags" value="${h((map.tags || []).join(", "))}"></div>
       <div class="stacked"><label for="mapEditDescription">Description</label>
         <textarea id="mapEditDescription" rows="6" maxlength="64000">${h(map.description || "")}</textarea></div>
+      <div class="stacked"><label for="mapEditTerms">Terms of use</label>
+        <textarea id="mapEditTerms" rows="4" maxlength="64000" aria-describedby="mapEditTermsHint">${h(map.licenseInfo || "")}</textarea>
+        <span class="hint" id="mapEditTermsHint">Who may use this map and how. ArcGIS clients show it as the item's terms
+          of use.</span></div>
       <div class="row"><button type="button" class="primary" id="mapEditSave">Save</button>
         <button type="button" class="ghost" id="mapEditCancel">Cancel</button></div>
       <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
@@ -6038,7 +6059,9 @@ function drawMapAbout(editing = false) {
     <h4>Description</h4>
     ${map.description ? `<div class="mapdescription">${h(map.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet. What the map is for, where its data comes from and how current it is.</p>`}
-    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary, tags and description</button>` : ""}
+    ${map.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(map.licenseInfo)}</p></details>` : ""}
+    ${map.manages ? `<button type="button" class="tiny ghost" id="mapEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
+    ${itemCategoriesLine(itemOf("map") || map, "map")}
     <p class="hint" id="mapAboutSays" role="status" aria-live="polite"></p>`;
   paintPreviews();
 }
@@ -6094,6 +6117,12 @@ document.addEventListener("click", async event => {
       await api(`/content/webmaps/${encodeURIComponent(mapOpen.id)}/description`, {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: $("mapEditDescription").value.trim() || null }) });
+      // D-305: the terms are the item's, sent only when they changed.
+      const terms = $("mapEditTerms").value.trim();
+      if (terms !== (mapOpen.licenseInfo || "")) {
+        await api(`/content/items/${encodeURIComponent(mapOpen.id)}/license`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ licenseInfo: terms || null }) });
+      }
       await showWebMapItem(mapOpen.id);
       $("mapAboutSays").textContent = "Saved.";
       $("mapEditOpen")?.focus();
@@ -9058,13 +9087,7 @@ function describedAs(item) {
   const terms = item.licenseInfo
     ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(item.licenseInfo)}</p></details>` : "";
 
-  // D-305: the content categories it is in, by their path under ArcGIS's one root; Categorize beside them.
-  const paths = (item.categories || []).map(p => p.replace(/^\/Categories\//, "").split("/").join(" › "));
-  const sort = item.manages === false || !item.itemId ? "" : `<button type="button" class="tiny ghost"
-    data-item-categorize>${paths.length ? "Change categories" : "Categorize"}</button>`;
-  const categories = paths.length || sort
-    ? `<p class="hint itemcats">${paths.length ? `<span class="key">Categories</span> ${paths.map(h).join(", ")} ` : ""}${sort}</p>`
-    : "";
+  const categories = itemCategoriesLine(item, "");
 
   return item.description
     ? `<p class="lede">${h(item.description)}</p>${credits}${terms}${tags}${edit}${categories}`
@@ -9072,6 +9095,19 @@ function describedAs(item) {
       ? `<p class="hint">No description.</p>${terms}${tags}${categories}`
       : `<p class="hint">No description yet. A few words on what this is and where it came from make it
          easier to find and to trust.</p>${credits}${terms}${tags}${edit}${categories}`;
+}
+
+/**
+ * D-305: the content categories an item is in, by their path under ArcGIS's one root, with Categorize beside them for
+ * whoever manages it. `which` is `map` on a web map's page.
+ */
+function itemCategoriesLine(item, which) {
+  const paths = (item.categories || []).map(p => p.replace(/^\/Categories\//, "").split("/").join(" › "));
+  const sort = item.manages === false || !item.itemId ? "" : `<button type="button" class="tiny ghost"
+    data-item-categorize="${which}">${paths.length ? "Change categories" : "Categorize"}</button>`;
+  return paths.length || sort
+    ? `<p class="hint itemcats">${paths.length ? `<span class="key">Categories</span> ${paths.map(h).join(", ")} ` : ""}${sort}</p>`
+    : "";
 }
 
 /**
@@ -9098,9 +9134,34 @@ async function loadItemExtras(item) {
   drawFavorite(item);
 }
 
+/** The open item an item-page control acts on: the web map's when it says `map`, the service's otherwise. */
+function itemOf(which) {
+  if (which !== "map") return serviceItem;
+  if (!mapOpen) return null;
+  // The map's own record, with the names the service page's functions read.
+  mapOpen.itemId ||= mapOpen.id;
+  mapOpen.bare ||= mapOpen.title;
+  return mapOpen;
+}
+
+/** Draws the open item's description again where it is shown, unless it is being edited. */
+function redrawItemAbout(which) {
+  if (which === "map") {
+    if ($("mapEditTitle")) return;
+    // <b>What the reader was on, and what the panel had just said, survive the redraw</b> — a design review measured
+    // focus on the page and an empty line after Save, because the map's extras arrive after Save has drawn and focused.
+    const had = document.activeElement?.closest?.("#mapAbout") ? document.activeElement.id : "";
+    const said = $("mapAboutSays")?.textContent || "";
+    drawMapAbout();
+    if (said && $("mapAboutSays")) $("mapAboutSays").textContent = said;
+    if (had) $(had)?.focus();
+    return;
+  }
+  if (!$("describeText") && $("serviceDescription")) $("serviceDescription").innerHTML = describedAs(serviceItem);
+}
+
 /** The favourite button: what pressing it does, said on it. */
-function drawFavorite(item) {
-  const button = $("itemFavorite");
+function drawFavorite(item, button = $("itemFavorite")) {
   if (!button) return;
   button.hidden = !item.itemId;
   button.textContent = item.favorite ? "Remove favorite" : "Add favorite";
@@ -9108,7 +9169,7 @@ function drawFavorite(item) {
 
 /** Marks the open item a favourite, or not, and says so on the button that was pressed. */
 async function toggleFavorite(button) {
-  const item = serviceItem;
+  const item = itemOf(button.dataset.of);
   if (!item?.itemId || button.getAttribute("aria-busy") === "true") return;
 
   const want = !item.favorite;
@@ -9117,7 +9178,7 @@ async function toggleFavorite(button) {
     await api(`/content/items/${encodeURIComponent(item.itemId)}/favorite`, { method: want ? "PUT" : "DELETE" });
     item.favorite = want;
     if (want) favoriteIds.add(bareId(item.itemId)); else favoriteIds.delete(bareId(item.itemId));
-    drawFavorite(item);
+    drawFavorite(item, button);
     // The toast, not a line of its own: under the head's actions a line landed on the tab strip (a design review).
     toast(want ? "Added to your favorites, under My content › Favorites." : "Removed from your favorites.", true);
   } catch (e) {
@@ -9128,7 +9189,7 @@ async function toggleFavorite(button) {
 }
 
 document.addEventListener("click", event => {
-  const button = event.target.closest?.("#itemFavorite");
+  const button = event.target.closest?.("#itemFavorite, #mapFavorite");
   if (button) toggleFavorite(button);
 });
 
@@ -15285,6 +15346,9 @@ function categoryTree(all, item, parent = null) {
 /** The organization's content categories, with each one's parent where `categoryTree` looks for it. */
 let itemCategories = [];
 
+/** Which item Categorize is for: `map`, or the service page's. */
+let catFor = "";
+
 async function loadItemCategories() {
   itemCategories = (((await api("/admin/item-categories")) || {}).categories || [])
     .map(c => ({ ...c, parentId: c.parent || null }));
@@ -15294,10 +15358,11 @@ async function loadItemCategories() {
  * Categorize, for the open item — D-305: which of the organization's content categories it is in, a box for each.
  * Whoever may manage all content is offered to make them where there are none; anybody else is told who does.
  */
-async function openItemCategorize() {
-  const item = serviceItem;
+async function openItemCategorize(which = "") {
+  const item = itemOf(which);
   if (!item?.itemId) return;
   catKind = "item";
+  catFor = which;
 
   try { await loadItemCategories(); } catch (e) { toast(e.message); return; }
   const mine = new Set(item.categories || []);
@@ -15322,7 +15387,8 @@ async function openItemCategorize() {
 
 /** Puts the open item in the ticked categories, and nothing else, and draws what it is in now. */
 async function saveItemCategories() {
-  const item = serviceItem;
+  const which = catFor;
+  const item = itemOf(which);
   if (!item?.itemId) return;
   const ids = [...document.querySelectorAll("[data-cat-assign]")].filter(b => b.checked).map(b => b.dataset.catAssign);
 
@@ -15334,8 +15400,8 @@ async function saveItemCategories() {
 
   item.categories = itemCategories.filter(c => ids.includes(c.id)).map(c => c.path);
   $("catDialog").close();
-  if (!$("describeText") && $("serviceDescription")) $("serviceDescription").innerHTML = describedAs(item);
-  document.querySelector("#serviceDescription [data-item-categorize]")?.focus();
+  redrawItemAbout(which);
+  document.querySelector(which === "map" ? "#mapAbout [data-item-categorize]" : "#serviceDescription [data-item-categorize]")?.focus();
   toast(ids.length ? `${item.bare || item.name}: categories saved.` : `${item.bare || item.name} is in no category now.`, true);
 }
 
@@ -15465,7 +15531,7 @@ document.addEventListener("click", async event => {
   const d = t.dataset || {};
 
   if (d.memberCategorize) { catKind = "member"; openCategorize([d.memberCategorize]); return; }
-  if (d.itemCategorize !== undefined) { openItemCategorize(); return; }
+  if (d.itemCategorize !== undefined) { openItemCategorize(d.itemCategorize); return; }
   if (d.memberChangeRole) { openMemberChange(d.memberChangeRole, "role"); return; }
   if (d.memberChangeType) { openMemberChange(d.memberChangeType, "type"); return; }
   if (t.id === "memberChangeSave") { await saveMemberChange(); return; }
@@ -15477,7 +15543,7 @@ document.addEventListener("click", async event => {
   if (t.id === "catCancel" || t.id === "catDialogClose") { $("catDialog").close(); return; }
   if (t.id === "catDone") {
     // Content's editor was opened from an item's Categorize, so it goes back there with the new tree.
-    if (catKind === "item" && serviceItem?.itemId) { openItemCategorize(); return; }
+    if (catKind === "item" && itemOf(catFor)?.itemId) { openItemCategorize(catFor); return; }
     $("catDialog").close();
     if (routeHash().startsWith("#/members")) section("members", loadMembers, "members");
     return;
@@ -32068,24 +32134,26 @@ document.addEventListener("click", event => {
   if (!turn) return;
 
   const id = turn.dataset.page;
+  const back = Number(turn.dataset.pageTo) < (pages.get(id) ?? 0);
   pages.set(id, Math.max(0, Number(turn.dataset.pageTo)));
 
-  if (id === "services") section("services", loadServices, "services");
-  else if (id === "members") section("members", loadMembers, "members");
-  else if (id === "sources") section("data sources", loadSources, "sources");
-  else if (id === "roleRows") section("roles", loadRoles, "roleRows");
-  else if (id === "groupRows") section("groups", loadGroups, "groupRows");
+  let drawn;
+  if (id === "services") drawn = section("services", loadServices, "services");
+  else if (id === "members") drawn = section("members", loadMembers, "members");
+  else if (id === "sources") drawn = section("data sources", loadSources, "sources");
+  else if (id === "roleRows") drawn = section("roles", loadRoles, "roleRows");
+  else if (id === "groupRows") drawn = section("groups", loadGroups, "groupRows");
 
   // <b>A group's two paged tables were absent from this list, so both arrows were dead.</b> The
   // index was set and nothing redrew: a fourteen-member group showed ten members and no way to
   // reach the other four — which, with the store's sort, were the managers. Found in the design
   // review of 2026-08-18.
-  else if (id === "groupItems" || id === "groupMembers") refreshGroup();
+  else if (id === "groupItems" || id === "groupMembers") drawn = refreshGroup();
   else if (id === "contentRows") {
-    section("your content", loadMyContent, "contentRows").then(paintPreviews);
+    drawn = section("your content", loadMyContent, "contentRows").then(paintPreviews);
   }
   else if (id === "addRows") {
-    if (groupNow) drawGroupAdd(groupNow).then(paintPreviews);
+    if (groupNow) drawn = drawGroupAdd(groupNow).then(paintPreviews);
   }
 
   // <b>The one list that is sliced rather than re-read.</b> Turning a page here would otherwise
@@ -32095,6 +32163,14 @@ document.addEventListener("click", event => {
 
   // The bin is sliced from what was read, as the probe is: turning its page asks the server nothing new.
   else if (id === "recycleRows") drawRecycleBin();
+
+  // <b>Focus goes back to the arrow that was pressed, drawn again</b> — or to the other one where it is disabled at the
+  // end. A design review found it on the page after Next, on every paged list: the redraw replaces the pager.
+  Promise.resolve(drawn).catch(() => null).then(() => {
+    const arrows = [...document.querySelectorAll(`[data-page="${CSS.escape(id)}"]`)];
+    const pressed = back ? arrows[0] : arrows[arrows.length - 1];
+    (pressed && !pressed.disabled ? pressed : arrows.find(a => !a.disabled))?.focus();
+  });
 });
 
 document.addEventListener("input", async event => {

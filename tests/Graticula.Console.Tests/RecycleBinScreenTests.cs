@@ -32,7 +32,10 @@ public sealed class RecycleBinScreenTests : ConsoleTest
               id: "33333333-3333-3333-3333-333333333333", item: "abc", kind: "service", title: "hosted/zz_parcels_old",
               deleted: "2026-10-27T10:00:00Z", expires: "2026-11-10T10:00:00Z", tables: 2 },
               { id: "44444444-4444-4444-4444-444444444444", item: "def", kind: "web map", title: "zz old map",
-              deleted: "2026-10-26T10:00:00Z", expires: "2026-11-09T10:00:00Z", tables: 0 }] }),
+              deleted: "2026-10-26T10:00:00Z", expires: "2026-11-09T10:00:00Z", tables: 0 },
+              ...Array.from({ length: 11 }, (_, i) => ({ id: `55555555-5555-5555-5555-5555555555${String(i).padStart(2, "0")}`,
+                item: "f" + i, kind: "service", title: "zz filler " + i, deleted: "2026-10-20T10:00:00Z",
+                expires: "2026-11-03T10:00:00Z", tables: 1 }))] }),
               { status: 200, headers: { "Content-Type": "application/json" } });
           };
           navigateTo("#/content/recycle");
@@ -62,6 +65,12 @@ public sealed class RecycleBinScreenTests : ConsoleTest
         await WaitForAsync("document.querySelectorAll('#recycleRows tr').length === 1 && document.getElementById('recycleRows').textContent.includes('zz old map')",
             "The bin's search did not narrow it to the one name.");
         await Browser.EvaluateAsync<bool>("(el = document.getElementById('recycleFilter'), el.value = '', el.dispatchEvent(new Event('input', { bubbles: true })), true)");
+
+        // Paged at the list's size, and the arrow pressed keeps focus once the page is drawn again (a design review).
+        await WaitForAsync("!!document.querySelector('#recyclePager [data-page=\"recycleRows\"]')", "Thirteen entries are not paged.");
+        await Browser.EvaluateAsync<bool>("(() => { const a = [...document.querySelectorAll('#recyclePager [data-page]')].pop(); a.focus(); a.click(); return true; })()");
+        await WaitForAsync("document.activeElement?.dataset?.page === 'recycleRows'", "After Next, focus left the pager.");
+        await Browser.EvaluateAsync<bool>("(() => { const a = document.querySelector('#recyclePager [data-page]'); a.click(); return true; })()");
 
         await Browser.EvaluateAsync<bool>("(document.querySelector('[data-recycle-restore]').focus(), true)");
         await ClickAsync("[data-recycle-restore]");
