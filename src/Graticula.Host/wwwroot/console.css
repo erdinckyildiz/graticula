@@ -6297,3 +6297,18 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #pcEnd .pcaffected .pcnone { color: var(--muted); }
 #pcEnd h4[hidden], #pcEnd .pcaffected:empty, #pcEnd .hint:empty { display: none; }
 #pcEnd #pcEndAfter { margin-top: var(--gap-2); }
+
+/* D-308: a registered layer's answer lifetime, under Kept warm. The box holds six digits at most, so it is that wide
+   and no wider (a design review found a 175 px box pushing Set out of the card at 390 px); under 480 px Set goes under
+   the box. */
+#answerLifeBox { margin-top: var(--gap-5); }
+.answerlife input[type=number] { width: 9ch; max-width: 100%; }
+.answerlife .u { margin-left: 6px; }
+@media (max-width: 480px) {
+  .answerlife td.right { display: block; text-align: left; padding-top: 0; }
+}
+
+/* D-305: an item's terms of use, folded under its description, as written; and its favourite button. */
+.itemterms { margin: var(--gap-2) 0; }
+.itemterms summary { cursor: pointer; font-weight: 600; }
+.itemterms p { white-space: pre-line; overflow-wrap: anywhere; margin: var(--gap-2) 0 0; }

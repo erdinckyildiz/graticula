@@ -66,13 +66,13 @@ staleness across nodes is the cost, and this deployment has one.
 
 **Positive.** An open-data portal can state its licence; content can be browsed by category.
 
-**Negative.** No screen yet (D-305); no `categories` search filter.
+**Negative.** A web map's item page has no screen for them yet (D-305); no `categories` search filter.
 
 **State.** `item.license_info`, `item_category`, `item_in_category` and `item_favorite` (migration 93), in the catalogue; `ItemAnnotations` holds every item's terms and categories at runtime, node-local, read again after each write on this node and once a minute.
 
 ## 6. Conditions
 
-1. **A screen** for categories, terms and favourites in the redesigned Studio — D-305.
+1. **A screen** for categories, terms and favourites in the redesigned Studio — D-305. **PARTLY DISCHARGED 2026-10-28**: a service's item page shows and sets all three, the content categories are made from it, and My content lists the favourites (`ItemTermsAndFavoritesTests`). A web map's item page has none of them yet.
 2. **A service's terms and its OGC access constraints become one fact**, or are decided to stay two.
 3. **`favGroupId`** — Pro's and the Python API's favourites — answered without a group granting reading. *(Discharged 2026-10-18: a member's record names a `favGroupId` derived from their own id; `search?q=group:<it>` and `content/groups/<it>/search` answer their favourites among what the search already lists to them, so it grants nothing — `AnItemHasTermsCategoriesAndFavoritesTests`.)*
 4. **[Q-180](../open-questions.md)** decided and the recycle bin built. *(Discharged 2026-10-18: decided by the owner and built, [ADR-203](ADR-203-a-deleted-item-waits-in-the-recycle-bin.md).)*

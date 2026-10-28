@@ -1605,6 +1605,328 @@ let idpMappingsInvalid = null;
 /** A provider whose Groups open when Sign-in is next drawn — from a member's "change on Sign-in". */
 let idpGroupsOpenName = null;
 
+/* ------------------------------------------- Organization › Settings › Security: service accounts (ADR-200) */
+
+/** The accounts as last read, the one whose keys are open, and its keys. */
+let saAccounts = [];
+let saOpen = null;
+let saKeys = [];
+
+/**
+ * Reads the service accounts, and the open one's keys, and draws them — D-303.
+ *
+ * <b>Only for a reader with admin:manageSecurity</b>, as the server refuses anybody else; nobody else is asked.
+ */
+async function loadServiceAccounts() {
+  const card = $("saCard");
+  card.hidden = !may("admin:manageSecurity");
+  if (card.hidden) return;
+
+  saAccounts = (await api("/admin/service-accounts") || {}).accounts || [];
+  if (saOpen && !saAccounts.some(a => a.name === saOpen)) saOpen = null;
+  saKeys = saOpen ? (await api(`/admin/service-accounts/${encodeURIComponent(saOpen)}/keys`) || {}).keys || [] : [];
+  drawServiceAccounts();
+}
+
+/** A key's state in words: revoked, expired, or live until when. */
+function saKeyState(k) {
+  if (k.revoked) return `Revoked ${day(k.revoked)}`;
+  if (k.expires && new Date(k.expires) <= new Date()) return `Expired ${day(k.expires)}`;
+  return k.expires ? `Expires ${day(k.expires)}` : "Until revoked";
+}
+
+function drawServiceAccounts(focus) {
+  $("saCount").textContent = `${num(saAccounts.length)} account${saAccounts.length === 1 ? "" : "s"}`;
+
+  // The open account's keys are a row of their own under it, so the list and the keys are read together.
+  $("saRows").innerHTML = saAccounts.length === 0
+    ? `<tr><td colspan="5" class="empty">No service accounts. A script that signs in with a person's password stops
+        working when that person changes it, leaves, or is required to use two-step sign-in; give it an account of its
+        own here instead.</td></tr>`
+    : saAccounts.map(a => {
+      const open = a.name === saOpen;
+      const role = (a.roles || []).join(", ") || "no role";
+      return `
+      <tr${open ? ' class="on"' : ""}>
+        <td class="name"><b>${h(a.name)}</b>
+          <div class="rowmeta">${a.description ? `${h(a.description)} · ` : ""}made ${day(a.created)}</div></td>
+        <td class="val" data-l="User type and role"><span>${h(a.userType)} · ${h(role)}</span></td>
+        <td class="num" data-l="Live keys">${num(a.liveKeys || 0)}</td>
+        <td class="val" data-l="State"><span>${a.disabled ? "Turned off: its keys are refused" : "On"}</span></td>
+        <td class="act" style="text-align:right">
+          <button type="button" class="tiny" data-sa-keys="${h(a.name)}" aria-expanded="${open}"
+            aria-controls="saKeysOf">${open ? "Hide keys" : "Keys"}</button>
+          <button type="button" class="tiny ghost" data-sa-state="${h(a.name)}">${a.disabled ? "Turn on" : "Turn off"}</button>
+          <button type="button" class="tiny danger" data-sa-delete="${h(a.name)}">Delete</button></td>
+      </tr>${open ? `
+      <tr class="sakeys"><td colspan="5" id="saKeysOf" role="region" aria-label="Keys of ${h(a.name)}">
+        ${saKeysMarkup(a)}
+      </td></tr>` : ""}`;
+    }).join("");
+
+  if (focus) document.querySelector(focus)?.focus();
+}
+
+function saKeysMarkup(a) {
+  const keys = saKeys;
+  return `
+    <h4 id="saKeysTitle" tabindex="-1">Keys of ${h(a.name)}</h4>
+    ${keys.length === 0 ? `<p class="hint">None yet. A key is what a script sends instead of a password.</p>` : `
+    <table class="rowblocks">
+      <thead><tr><th>Key</th><th>Made</th><th>Lifetime</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
+      <tbody>${keys.map(k => `
+        <tr>
+          <td class="name">${h(k.name)}</td>
+          <td class="val" data-l="Made"><span>${day(k.created)}</span></td>
+          <td class="val" data-l="Lifetime"><span>${h(saKeyState(k))}</span></td>
+          <td class="val" data-l="Last used"><span>${k.lastUsed ? historyWhen(k.lastUsed) : "Never"}</span></td>
+          <td class="act" style="text-align:right">${k.revoked ? "" : `<button type="button" class="tiny danger"
+            data-sa-revoke="${h(k.id)}" data-sa-key-name="${h(k.name)}">Revoke</button>`}</td>
+        </tr>`).join("")}</tbody>
+    </table>`}
+    <div class="sanewkey" role="group" aria-labelledby="saNewKeyTitle">
+      <h4 id="saNewKeyTitle">New key</h4>
+      <div class="row">
+        <label class="field" style="flex:2 1 50%">What it is for
+          <input id="saKeyName" type="text" autocomplete="off" maxlength="100" placeholder="the nightly sync on gis-01"></label>
+        <label class="field" style="flex:1 1 25%">Days it lives
+          <input id="saKeyDays" type="number" min="1" max="3650" step="1" inputmode="numeric" value="365"
+            aria-describedby="saKeyDaysHint"></label>
+      </div>
+      <p class="hint" id="saKeyDaysHint">Empty, it lives until revoked. A key like that is one nobody remembers making:
+        give it a lifetime unless the script cannot be changed. <i>Last used</i> above is how to find one nobody needs.</p>
+      <button type="button" id="saKeyIssue" data-sa-issue="${h(a.name)}">Create key</button>
+    </div>`;
+}
+
+/** Says something under the card's heading. */
+function saSay(text) { $("saSays").textContent = text; }
+
+/** Opens the new-account form, with the user types and the roles a machine may hold. */
+async function openServiceAccountForm() {
+  dialogSay("saFormSays", "");
+  for (const id of ["saName", "saDescription"]) $(id).value = "";
+
+  let roles = [];
+  try { roles = ((await api("/admin/roles") || {}).roles || []).map(r => r.name); } catch { /* the field still works */ }
+
+  // The server refuses the administrator role by name, so it is not offered.
+  $("saRole").innerHTML = `<option value="">no role</option>` + roles.filter(r => r !== "administrator")
+    .map(r => `<option value="${h(r)}"${r === "viewer" ? " selected" : ""}>${h(r)}</option>`).join("");
+
+  // The ladder the members screen describes, in the server's order; viewer by default, beside the viewer role.
+  $("saType").innerHTML = Object.keys(USER_TYPE_SAYS)
+    .map(t => `<option value="${h(t)}"${t === "viewer" ? " selected" : ""}>${h(t)}</option>`).join("");
+  saTypeSays();
+
+  $("saDialog").showModal();
+  $("saName").focus();
+}
+
+/**
+ * What each user type means for a machine — a design review: the members' sentences said a creator *can create and
+ * publish*, two lines above the dialog saying a service account cannot. The ceiling still matters for reading and
+ * editing; creating, publishing and administering are taken away whatever it says (ADR-200).
+ */
+const SA_TYPE_SAYS = {
+  viewer: "Reads what is shared with it. The usual choice for a script that only reads.",
+  editor: "Can also edit data in layers shared with it.",
+  creator: "Reads and edits as an editor does. A service account still cannot create, publish or share.",
+  unrestricted: "No ceiling, but a service account still never administers, creates or publishes.",
+};
+
+function saTypeSays() { $("saTypeSays").textContent = SA_TYPE_SAYS[$("saType").value] || ""; }
+
+async function createServiceAccount() {
+  const name = $("saName").value.trim();
+  if (!/^[A-Za-z0-9._-]{1,64}$/.test(name)) {
+    dialogSay("saFormSays", "A name is letters, digits, '.', '_' and '-', up to 64 characters.");
+    $("saName").focus();
+    return;
+  }
+
+  const role = $("saRole").value;
+  try {
+    await api("/admin/service-accounts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name, description: $("saDescription").value.trim() || null, userType: $("saType").value, roles: role ? [role] : [],
+      }),
+    });
+  } catch (e) {
+    dialogSay("saFormSays", e.message);
+    return;
+  }
+
+  $("saDialog").close();
+  saOpen = name;
+  await section("service accounts", loadServiceAccounts, "saRows");
+  saSay(`${name} is made. Create its first key below.`);
+  $("saKeyName")?.focus();
+}
+
+async function issueServiceAccountKey(account) {
+  const name = $("saKeyName").value.trim();
+  const typedDays = $("saKeyDays").value.trim();
+  const days = typedDays === "" ? null : Number(typedDays);
+
+  if (!name) { saSay("A key needs a name: say what uses it, so it can be found when it has to be revoked."); $("saKeyName").focus(); return; }
+  if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3650)) {
+    saSay(`"${typedDays}" is not a number of days from 1 to 3650.`);
+    $("saKeyDays").focus();
+    return;
+  }
+
+  let issued;
+  try {
+    issued = await api(`/admin/service-accounts/${encodeURIComponent(account)}/keys`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, expiresInDays: days }),
+    });
+  } catch (e) {
+    saSay(e.message);
+    return;
+  }
+
+  // Shown in a modal, so the page behind it cannot be pressed while the key is on screen; the field is selected, which
+  // is the copy that works when the browser refuses the clipboard.
+  $("saKeyText").value = issued.key || "";
+  $("saKeySays").textContent = "";
+  $("saKeyIssued").dataset.account = account;
+  $("saKeyIssued").dataset.name = name;
+  $("saKeyIssued").showModal();
+  $("saKeyText").focus();
+  $("saKeyText").select();
+}
+
+/** The key dialog is closed by its one button only, and the key leaves the page with it. */
+async function closeIssuedKey() {
+  const dialog = $("saKeyIssued");
+  $("saKeyText").value = "";
+  dialog.close();
+  await section("service accounts", loadServiceAccounts, "saRows");
+  saSay(`The key ${dialog.dataset.name} of ${dialog.dataset.account} is live.`);
+  $("saKeyIssue")?.focus();
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest?.("button");
+  if (!t || !t.closest("#saCard, #saDialog, #saKeyIssued")) return;
+
+  if (t.id === "saNew") { openServiceAccountForm(); return; }
+  if (t.id === "saCancel" || t.id === "saDialogClose") { $("saDialog").close(); $("saNew").focus(); return; }
+  if (t.id === "saSave") { createServiceAccount(); return; }
+  if (t.id === "saKeyDone") { closeIssuedKey(); return; }
+
+  if (t.id === "saKeyCopy") {
+    const field = $("saKeyText");
+    field.focus();
+    field.select();
+    try {
+      await navigator.clipboard.writeText(field.value);
+      $("saKeySays").textContent = "The key is copied.";
+      copiedHere(t);
+    } catch {
+      $("saKeySays").textContent = "This browser would not let the page copy it. The key is selected: copy it with the keyboard.";
+    }
+    return;
+  }
+
+  if (t.dataset.saKeys) {
+    const name = t.dataset.saKeys;
+    saOpen = saOpen === name ? null : name;
+    saSay("");
+    await section("service accounts", loadServiceAccounts, "saRows");
+    // Focus stays on the button that was pressed; the rows were drawn again under it.
+    document.querySelector(`[data-sa-keys="${CSS.escape(name)}"]`)?.focus();
+    return;
+  }
+
+  if (t.dataset.saIssue) { issueServiceAccountKey(t.dataset.saIssue); return; }
+
+  if (t.dataset.saState) {
+    const a = saAccounts.find(x => x.name === t.dataset.saState);
+    if (!a) return;
+
+    if (!a.disabled && !await askServerConfirm({
+      title: `Turn off ${a.name}?`,
+      body: `Every key of ${a.name} is refused from its next request, until it is turned on again. Nothing is deleted.`,
+      action: "Turn off",
+    })) return;
+
+    try {
+      await api(`/admin/service-accounts/${encodeURIComponent(a.name)}/state`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disabled: !a.disabled }),
+      });
+    } catch (e) { saSay(e.message); return; }
+
+    await section("service accounts", loadServiceAccounts, "saRows");
+    saSay(a.disabled ? `${a.name} is on: its live keys sign in again.` : `${a.name} is turned off: its keys are refused.`);
+    document.querySelector(`[data-sa-state="${CSS.escape(a.name)}"]`)?.focus();
+    return;
+  }
+
+  if (t.dataset.saDelete) {
+    const a = saAccounts.find(x => x.name === t.dataset.saDelete);
+    if (!a) return;
+
+    if (!await askServerConfirm({
+      title: `Delete ${a.name}?`,
+      body: a.liveKeys
+        ? `${a.name} and its ${num(a.liveKeys)} live key${a.liveKeys === 1 ? "" : "s"} are gone for good: every script `
+          + "that sends one is refused from its next request. Turning it off instead can be undone."
+        : `${a.name} is gone for good. It has no live keys, so no script is using it.`,
+      action: "Delete",
+    })) return;
+
+    try {
+      await api(`/admin/service-accounts/${encodeURIComponent(a.name)}`, { method: "DELETE" });
+    } catch (e) { saSay(e.message); return; }
+
+    if (saOpen === a.name) saOpen = null;
+    // The row that held focus is drawn away; the next thing a reader does starts at the card's own button.
+    $("saNew").focus();
+    await section("service accounts", loadServiceAccounts, "saRows");
+    saSay(`${a.name} is deleted.`);
+    return;
+  }
+
+  if (t.dataset.saRevoke) {
+    const keyName = t.dataset.saKeyName;
+    if (!await askServerConfirm({
+      title: `Revoke ${keyName}?`,
+      body: `Whatever sends the key ${keyName} of ${saOpen} is refused from its next request. A revoked key cannot be `
+        + "brought back; a new one can be made.",
+      action: "Revoke",
+    })) return;
+
+    try {
+      await api(`/admin/service-accounts/${encodeURIComponent(saOpen)}/keys/${encodeURIComponent(t.dataset.saRevoke)}`,
+        { method: "DELETE" });
+    } catch (e) { saSay(e.message); return; }
+
+    await section("service accounts", loadServiceAccounts, "saRows");
+    saSay(`The key ${keyName} is revoked.`);
+    $("saKeysTitle")?.focus();
+  }
+});
+
+document.addEventListener("change", event => {
+  if (event.target.id === "saType") saTypeSays();
+});
+
+// <b>A secret shown once is closed by its one button</b>, which takes it off the page. Escape closed both dialogs with
+// the secret still in their field and nothing having said it was copied — the new key's, and a new organization's
+// password, which had the same gap.
+//
+// <b>Both the key and the close request are stopped</b>: Chrome lets `cancel` be refused only after a user activation
+// inside the dialog, so the first Escape was refused and a dialog opened by a script closed anyway (the console test).
+for (const id of ["saKeyIssued", "tnIssued"]) {
+  const dialog = document.getElementById(id);
+  dialog?.addEventListener("keydown", event => { if (event.key === "Escape") event.preventDefault(); });
+  dialog?.addEventListener("cancel", event => event.preventDefault());
+}
+
 /* ------------------------------------------- Organization › Settings › Security: two-step sign-in (ADR-201) */
 
 /** The requirement as the server last said it, and the signed-in administrator's own factor, for the dialog. */
@@ -3628,6 +3950,7 @@ function openScreen(surface, screen, folder) {
   if (screen === "roles") section("roles", loadRoles, "roleRows");
   if (screen === "signin") {
     section("two-step sign-in", loadSecondFactorRequirement);
+    section("service accounts", loadServiceAccounts, "saRows");
     section("sign-in providers", loadSignin, "idpRows");
     section("apps", loadApps, "appRows").then(() => { if (appsAsked) $("appsTitle")?.scrollIntoView(); });
   }
@@ -4548,6 +4871,11 @@ const CONTENT_SCOPES = [
   ["group", "From my groups"],
   ["organization", "Organization"],
   ["public", "Public"],
+  // D-305: the member's own list (ADR-202), as ArcGIS's *My favorites*. Marking is not reading, so an item listed here
+  // is one the content list already holds; the ids alone come from /content/favorites.
+  ["favorites", "Favorites"],
+  // ADR-203: what the reader deleted, or may restore, for its retention; not items they can read, so drawn apart.
+  ["recycle", "Recycle bin"],
 
   // <b>Named for what it means to the reader, not for the enum.</b> `AdministrativeOverride` is an
   // identifier; *not shared with you* is what an operator needs to understand about the rows under it.
@@ -4566,6 +4894,7 @@ const CONTENT_SCOPES = [
  */
 function inContentScope(item, scope) {
   if (scope === "all") return true;
+  if (scope === "favorites") return favoriteIds.has(itemIdOf(item));
   if (item.scope === "administrative") return scope === "administrative";
   // ADR-220: an item every organization reads is read by this one's members too, so it is listed with theirs.
   if (scope === "organization") {
@@ -4577,6 +4906,116 @@ function inContentScope(item, scope) {
 
 /** Each listed service's portal item id, by qualified name — ADR-196; filled by every read of the content list. */
 const itemIds = new Map();
+
+/** What the recycle bin last answered — ADR-203; null until it is read. */
+let recycleEntries = null;
+let recycleRetention = 14;
+
+/** What a bin entry's kind is called on screen. */
+const RECYCLE_KINDS = {
+  service: "Service", "web map": "Web map", webmap: "Web map", document: "Document", "image service": "Image service",
+};
+
+/** Reads the bin and draws it; the scope's count follows. */
+async function loadRecycleBin() {
+  const answer = await api("/admin/recycle-bin") || {};
+  recycleEntries = answer.entries || [];
+  recycleRetention = answer.retentionDays || recycleRetention;
+  drawRecycleBin();
+  const count = document.querySelector('#contentScopes a[data-scope="recycle"]');
+  if (count) count.innerHTML = `Recycle bin <span class="count">${num(recycleEntries.length)}</span>`;
+}
+
+function drawRecycleBin() {
+  const wanted = ($("recycleFilter")?.value || "").trim().toLowerCase();
+  const all = (recycleEntries || []).slice().sort((a, b) => String(b.deleted).localeCompare(String(a.deleted)));
+  const found = wanted ? all.filter(e => String(e.title || e.item).toLowerCase().includes(wanted)) : all;
+  const entries = pageOf("recycleRows", found);
+  $("recycleCount").textContent = wanted ? `${num(found.length)} of ${num(all.length)}` : `${num(all.length)} item${all.length === 1 ? "" : "s"}`;
+  $("recyclePager").innerHTML = pagerFor("recycleRows", found.length);
+  $("recycleAbout").textContent = `What you delete waits here for ${num(recycleRetention)} days, then is deleted for `
+    + "good. Restored, it comes back at the address it had, with its sharing, its data and its id, so every map and "
+    + "app that used it works again.";
+  $("recycleRows").innerHTML = all.length === 0
+    ? `<tr><td colspan="4" class="empty">Nothing is waiting here. Deleting an item puts it here for
+        ${num(recycleRetention)} days first.</td></tr>`
+    : entries.length === 0
+    ? `<tr><td colspan="4" class="empty">Nothing in the bin is called that.</td></tr>`
+    : entries.map(e => {
+      const title = String(e.title || e.item);
+      const slash = title.lastIndexOf("/");
+      return `
+      <tr>
+        <td class="name"><b>${h(slash >= 0 ? title.slice(slash + 1) : title)}</b>
+          <div class="rowmeta">${h(RECYCLE_KINDS[e.kind] || e.kind || "Item")}${slash >= 0 ? ` in ${h(title.slice(0, slash))}` : ""}${e.tables
+            ? ` · ${num(e.tables)} table${e.tables === 1 ? "" : "s"} of data` : ""}</div></td>
+        <td class="val" data-l="Deleted"><span>${h(day(e.deleted))}</span></td>
+        <td class="val" data-l="Deleted for good"><span>${h(day(e.expires))}</span></td>
+        <td class="act" style="text-align:right">
+          <button type="button" class="tiny" data-recycle-restore="${h(e.id)}">Restore</button>
+          <button type="button" class="tiny danger" data-recycle-purge="${h(e.id)}">Delete now</button></td>
+      </tr>`;
+    }).join("");
+}
+
+document.addEventListener("input", event => {
+  if (event.target.id !== "recycleFilter") return;
+  pages.set("recycleRows", 0);
+  drawRecycleBin();
+});
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest?.("[data-recycle-restore], [data-recycle-purge]");
+  if (!t) return;
+  const restore = t.dataset.recycleRestore;
+  const e = (recycleEntries || []).find(x => x.id === (restore || t.dataset.recyclePurge));
+  if (!e) return;
+  const title = e.title || e.item;
+
+  if (!restore && !await askServerConfirm({
+    title: `Delete ${title} now?`,
+    body: `${title} is deleted for good now rather than on ${day(e.expires)}${e.tables
+      ? `, with its ${num(e.tables)} table${e.tables === 1 ? "" : "s"} of data` : ""}. It cannot be restored afterwards.`,
+    action: "Delete now",
+  })) return;
+
+  t.setAttribute("aria-busy", "true");
+  try {
+    if (restore) {
+      await api(`/admin/recycle-bin/${encodeURIComponent(e.id)}/restore`, { method: "POST" });
+    } else {
+      await api(`/admin/recycle-bin/${encodeURIComponent(e.id)}`, { method: "DELETE" });
+    }
+  } catch (problem) {
+    t.removeAttribute("aria-busy");
+    $("recycleSays").textContent = problem.message;
+    return;
+  }
+
+  // The row is drawn away; the reader's place is the bin's own heading, with the line under it saying what happened.
+  $("recycleTitle").focus();
+  await section("the recycle bin", loadRecycleBin, "recycleRows");
+  $("recycleSays").textContent = restore
+    ? `${title} is restored, at the address it had. It is listed under Everything again.`
+    : `${title} is deleted for good.`;
+  // What was restored is content again; the list behind the bin is read again for when the reader goes back.
+  if (restore) loadMyContent().catch(() => null);
+});
+
+/** The member's favourite items' ids, without dashes and lower-case — ADR-202, D-305. */
+let favoriteIds = new Set();
+
+/** An id as the favourites list writes it: 32 hex digits, lower-case. */
+const bareId = id => String(id || "").replace(/-/g, "").toLowerCase();
+
+/** A content row's portal item id, a service's or a map's. */
+const itemIdOf = item => bareId(item.map ? item.map.id : item.itemId || itemIds.get(item.name));
+
+/** Reads the member's favourites; a failure leaves the list as it was. */
+async function loadFavorites() {
+  const answer = await api("/content/favorites").catch(() => null);
+  if (answer) favoriteIds = new Set((answer.favorites || answer.items || []).map(f => bareId(f.id)));
+}
 
 /**
  * Opens an item by its portal id — ADR-196. The portal's own item document says what it is: a web map opens its
@@ -4688,6 +5127,15 @@ async function loadMyContent() {
 
   // ADR-114: the caller's folders. Optional like the maps: a failure leaves the list as it was.
   myFolders = (await api("/content/folders").catch(() => null))?.folders || [];
+  // Favourites and the bin are read with the list, so their scopes carry a count as every other one does.
+  const [, bin] = await Promise.all([
+    loadFavorites(),
+    isOutsider() ? null : api("/admin/recycle-bin").catch(() => null),
+  ]);
+  if (bin) {
+    recycleEntries = bin.entries || [];
+    recycleRetention = bin.retentionDays || recycleRetention;
+  }
 
   // `content` still keys by layer name for the map, which reads it by name when a row is drawn. The
   // per-layer listing stays the map's source; this screen is about items.
@@ -4741,16 +5189,42 @@ function drawMyContent() {
     key === "all"
     || key !== "administrative"
     || (counts.administrative || 0) > 0
-    || contentScope === "administrative");
+    || contentScope === "administrative")
+    // Favorites appears once something is marked, as Not shared with you does once it holds something.
+    .filter(([key]) => key !== "favorites" || (counts.favorites || 0) > 0 || contentScope === "favorites")
+    // A member of another organization deletes nothing here, so has no bin.
+    .filter(([key]) => key !== "recycle" || !isOutsider());
 
   $("contentScopes").innerHTML = scopes.map(([key, label]) => {
+    if (key === "recycle") {
+      return `<a href="#/content/recycle" data-scope="recycle"${contentScope === "recycle" ? ' aria-current="page"' : ""}
+        >${label} <span class="count">${num((recycleEntries || []).length)}</span></a>`;
+    }
     const n = key === "all" ? total : (counts[key] || 0);
 
-    return `<a href="#/content/${key}"${key === contentScope ? ' aria-current="page"' : ""}
+    return `<a href="#/content/${key}" data-scope="${key}"${key === contentScope ? ' aria-current="page"' : ""}
       >${label} <span class="count">${num(n)}</span></a>`;
   }).join("");
 
   drawFolderBar();
+
+  // The bin is drawn in its own panel, where the list was (ADR-203).
+  const bin = contentScope === "recycle";
+  // The toolbar and the table are the list's own; the folders, the type ticks and the pager are drawn again by their
+  // own code on the way back, so they are only emptied or hidden here.
+  $("contentToolbar").hidden = bin;
+  $("contentTable").hidden = bin;
+  if (bin) {
+    for (const id of ["contentFacets", "contentFolders"]) if ($(id)) $(id).hidden = true;
+    $("contentRowsPager").innerHTML = "";
+  }
+  $("recyclePanel").hidden = !bin;
+  if (bin) {
+    $("contentBulk").hidden = true;
+    $("contentNote").textContent = "";
+    section("the recycle bin", loadRecycleBin, "recycleRows");
+    return;
+  }
 
   const inScope = items.filter(i => inContentScope(i, contentScope))
     // ADR-114: a folder is the caller's, so choosing one shows the caller's items in it.
@@ -4869,11 +5343,14 @@ function drawMyContent() {
           : `Nothing in ${h(myFolders.find(f => f.id === contentFolderPick)?.title || "this folder")} yet. Use
              <b>Move to folder…</b> in an item's ⋯ menu to put it here.`}</td></tr>`
     : inScope.length === 0
-      ? `<tr><td colspan="4" class="empty">${contentScope === "administrative"
+      ? `<tr><td colspan="4" class="empty">${contentScope === "favorites"
+             // D-305: a list the member makes, so it says how (a design review: it said "Nothing arrived this way").
+             ? "Nothing is marked as a favorite. <b>Add favorite</b> on an item's page puts it here."
+             : contentScope === "administrative"
              // It is a scope of other people's private items, not a channel things arrive by (UX sweep 2026-10-19).
              ? "Nobody has kept anything private from you."
              : "Nothing arrived this way."}
-           ${contentScope === "mine"
+           ${contentScope === "favorites" ? "" : contentScope === "mine"
              ? `<b>New item</b> publishes something of your own.`
              : `<b>Everything</b> shows all ${num(total)} you can see.`}</td></tr>`
       : visible.length === 0 && contentIdle && !contentFilter
@@ -7324,6 +7801,7 @@ async function drawServiceDetails(qualified, knownKind) {
       ${(item && item.status === "stopped") || serviceTablesOnly() ? "" : `<a class="btn primary"
         href="/studio/webmap.html?service=${encodeURIComponent(qualified)}">Open in Map Viewer</a>`}
       ${manages ? `<button type="button" data-share="${h(qualified)}">Share</button>` : ""}
+      <button type="button" id="itemFavorite" hidden></button>
 
       ${serviceOpenKind === "ImageServer" && (manages || imageOffersDownload())
         // ADR-143: the uploaded file back. In place from the start, so nothing below it moves when the server answers;
@@ -7360,6 +7838,8 @@ async function drawServiceDetails(qualified, knownKind) {
         </details>`;
       })()}`;
   actions.hidden = false;
+  // The favourite is drawn with the actions, which are drawn again as the service is read (D-305).
+  if (serviceItem && serviceItem.name === qualified) drawFavorite(serviceItem);
 
   box.innerHTML = `
     ${serviceOpenKind === "ImageServer" && (manages || imageOffersDownload())
@@ -7527,6 +8007,7 @@ async function drawServiceDetails(qualified, knownKind) {
       writeItemAddress();
     }
     drawServiceHead(item);
+    loadItemExtras(item);
     if (item.isView || item.hasViews) drawViewLinks(item);
     if (item.scope === "mine" && item.contentFolder && !myFolders.some(f => f.id === item.contentFolder)) {
       api("/content/folders").then(a => {
@@ -8561,8 +9042,8 @@ function idleItem(i) {
 
 function describedAs(item) {
   const edit = item.manages === false ? "" : `<button type="button" class="tiny ghost"
-    data-describe="${h(item.name)}">${item.description || item.credits || (item.tags || []).length
-      ? "Edit details" : "Add description, credits and tags"}</button>`;
+    data-describe="${h(item.name)}">${item.description || item.credits || item.licenseInfo || (item.tags || []).length
+      ? "Edit details" : "Add description, credits, terms and tags"}</button>`;
 
   // ADR-111: the words it is found by, under what it is.
   const tags = (item.tags || []).length
@@ -8572,13 +9053,84 @@ function describedAs(item) {
   const credits = item.credits
     ? `<p class="hint credits" title="${h(item.credits)}"><span class="key">Credits</span> ${h(item.credits)}</p>` : "";
 
+  // D-305: its terms of use (ADR-202's licenseInfo), which an open-data portal states and every ArcGIS client reads.
+  // Folded, because they can run to pages, and as written: line breaks kept, nothing read as markup.
+  const terms = item.licenseInfo
+    ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(item.licenseInfo)}</p></details>` : "";
+
+  // D-305: the content categories it is in, by their path under ArcGIS's one root; Categorize beside them.
+  const paths = (item.categories || []).map(p => p.replace(/^\/Categories\//, "").split("/").join(" › "));
+  const sort = item.manages === false || !item.itemId ? "" : `<button type="button" class="tiny ghost"
+    data-item-categorize>${paths.length ? "Change categories" : "Categorize"}</button>`;
+  const categories = paths.length || sort
+    ? `<p class="hint itemcats">${paths.length ? `<span class="key">Categories</span> ${paths.map(h).join(", ")} ` : ""}${sort}</p>`
+    : "";
+
   return item.description
-    ? `<p class="lede">${h(item.description)}</p>${credits}${tags}${edit}`
+    ? `<p class="lede">${h(item.description)}</p>${credits}${terms}${tags}${edit}${categories}`
     : item.manages === false
-      ? `<p class="hint">No description.</p>${tags}`
+      ? `<p class="hint">No description.</p>${terms}${tags}${categories}`
       : `<p class="hint">No description yet. A few words on what this is and where it came from make it
-         easier to find and to trust.</p>${credits}${tags}${edit}`;
+         easier to find and to trust.</p>${credits}${terms}${tags}${edit}${categories}`;
 }
+
+/**
+ * Reads what the content list does not carry for the open item — its terms of use and whether it is one of the
+ * reader's favourites (ADR-202, D-305) — and draws them where they go.
+ *
+ * <b>From the portal's own item document</b>, which is what every ArcGIS client reads, so the page shows what they do.
+ * The description is left alone while it is being edited: a redraw would throw away what is being typed.
+ */
+async function loadItemExtras(item) {
+  const id = item.itemId;
+  if (!id) return;
+
+  const [doc] = await Promise.all([
+    api(`/sharing/rest/content/items/${encodeURIComponent(id)}?f=json`).catch(() => null),
+    loadFavorites(),
+  ]);
+  if (serviceItem !== item) return;
+
+  item.licenseInfo = doc?.licenseInfo || "";
+  item.categories = doc?.categories || [];
+  item.favorite = favoriteIds.has(bareId(id));
+  if (!$("describeText") && $("serviceDescription")) $("serviceDescription").innerHTML = describedAs(item);
+  drawFavorite(item);
+}
+
+/** The favourite button: what pressing it does, said on it. */
+function drawFavorite(item) {
+  const button = $("itemFavorite");
+  if (!button) return;
+  button.hidden = !item.itemId;
+  button.textContent = item.favorite ? "Remove favorite" : "Add favorite";
+}
+
+/** Marks the open item a favourite, or not, and says so on the button that was pressed. */
+async function toggleFavorite(button) {
+  const item = serviceItem;
+  if (!item?.itemId || button.getAttribute("aria-busy") === "true") return;
+
+  const want = !item.favorite;
+  button.setAttribute("aria-busy", "true");
+  try {
+    await api(`/content/items/${encodeURIComponent(item.itemId)}/favorite`, { method: want ? "PUT" : "DELETE" });
+    item.favorite = want;
+    if (want) favoriteIds.add(bareId(item.itemId)); else favoriteIds.delete(bareId(item.itemId));
+    drawFavorite(item);
+    // The toast, not a line of its own: under the head's actions a line landed on the tab strip (a design review).
+    toast(want ? "Added to your favorites, under My content › Favorites." : "Removed from your favorites.", true);
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    button.removeAttribute("aria-busy");
+  }
+}
+
+document.addEventListener("click", event => {
+  const button = event.target.closest?.("#itemFavorite");
+  if (button) toggleFavorite(button);
+});
 
 /** Turns the description into a box to type in, with Save and Cancel. */
 function editDescription(qualified) {
@@ -8601,6 +9153,13 @@ function editDescription(qualified) {
         placeholder="e.g. transport, Ankara, 2026" aria-describedby="describeTagsHint">
     </label>
     <span class="hint" id="describeTagsHint">Separate with commas.</span>
+    ${item?.itemId ? `<label class="field" style="display:block;margin-top:var(--gap-2)">Terms of use
+      <textarea id="describeTerms" rows="4" maxlength="64000" style="width:100%"
+        aria-describedby="describeTermsHint">${h(item.licenseInfo || "")}</textarea>
+    </label>
+    <span class="hint" id="describeTermsHint">Who may use this and how: a licence, a citation it asks for, a limit on
+      use. ArcGIS clients show it as the item's terms of use, and the OGC services say it where they have none of their
+      own.</span>` : ""}
     <div class="row" style="gap:var(--gap-2);margin-top:var(--gap-2)">
       <button type="button" class="primary" data-describe-save="${h(qualified)}">Save</button>
       <button type="button" class="ghost" data-describe-cancel="${h(qualified)}">Cancel</button>
@@ -8645,6 +9204,17 @@ async function saveDescription(qualified) {
       body: JSON.stringify({ credits }),
     });
 
+    // D-305: the terms are the item's, at its portal id, and sent only when they changed.
+    const termsBox = $("describeTerms");
+    const terms = termsBox ? termsBox.value.trim() : before.licenseInfo || "";
+    if (termsBox && terms !== (before.licenseInfo || "") && before.itemId) {
+      await api(`/content/items/${encodeURIComponent(before.itemId)}/license`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ licenseInfo: terms || null }),
+      });
+    }
+
     const tags = ($("describeTags")?.value || "").split(",").map(t => t.trim()).filter(Boolean);
     const saved = await api(`/admin/services/${encodeURIComponent(name)}/tags`
       + `?folder=${encodeURIComponent(folder || "")}`, {
@@ -8657,6 +9227,7 @@ async function saveDescription(qualified) {
       serviceItem.description = text;
       serviceItem.credits = credits;
       serviceItem.tags = saved?.tags || tags;
+      serviceItem.licenseInfo = terms;
     }
     redrawDescription(serviceItem || { name: qualified, description: text, credits });
 
@@ -8665,6 +9236,7 @@ async function saveDescription(qualified) {
       ["Description", before.description || "", text],
       ["Credits", before.credits || "", credits],
       ["Tags", (before.tags || []).join(","), (saved?.tags || tags).join(",")],
+      ["Terms of use", before.licenseInfo || "", terms],
     ].filter(([, was, now]) => was !== now);
     toast(changed.length === 0 ? "Nothing changed."
       : changed.length === 1 ? `${changed[0][0]} ${changed[0][2] ? "saved" : "removed"}.`
@@ -9569,6 +10141,7 @@ function drawServiceSettings(name, folder) {
   if (surfaceOfPath() === "server" && mine.includes("limits")) {
     drawServicePin();
     section("whether it is kept warm", () => loadServicePin(name, folder));
+    drawAnswerLifetimes();
   }
   if (open === "imagery") drawCoverageDisplay(name, folder, null);
   if (open === "images") drawCoverageImages(name, folder);
@@ -10557,6 +11130,14 @@ function serviceSettingsMarkup(name, folder) {
           connection open for it. Otherwise that first request waits about 70 ms longer after five idle minutes. It
           costs a connection, not a process. <span id="servicePinApplies">Applies at once; Save is not needed.</span></p>
       </div>
+      <!--
+        <b>How long a registered layer's answers are kept — D-308.</b> The box was in the Tile layer page, which is
+        drawn only for a layer with tiles, and ADR-206 took tiles off every registered layer while its query answers
+        kept the lifetime. Per layer, as the server stores it, and applied at once like Kept warm. Filled by
+        drawAnswerLifetimes; hidden for a service with tiles, whose Tile layer page has the same figure.
+      -->
+      <div id="answerLifeBox" hidden></div>
+      <p class="hint" id="answerLifeResult" role="status" aria-live="polite"></p>
       <p class="hint">Leave a box empty to follow the server. A value typed here applies to every layer in this
         service, and is held down to the server's own limit rather than refused.</p>
       <h4>Response</h4>
@@ -14701,6 +15282,63 @@ function categoryTree(all, item, parent = null) {
   return `<ul class="cattree">${here.map(c => `<li>${item(c)}${categoryTree(all, item, c.id)}</li>`).join("")}</ul>`;
 }
 
+/** The organization's content categories, with each one's parent where `categoryTree` looks for it. */
+let itemCategories = [];
+
+async function loadItemCategories() {
+  itemCategories = (((await api("/admin/item-categories")) || {}).categories || [])
+    .map(c => ({ ...c, parentId: c.parent || null }));
+}
+
+/**
+ * Categorize, for the open item — D-305: which of the organization's content categories it is in, a box for each.
+ * Whoever may manage all content is offered to make them where there are none; anybody else is told who does.
+ */
+async function openItemCategorize() {
+  const item = serviceItem;
+  if (!item?.itemId) return;
+  catKind = "item";
+
+  try { await loadItemCategories(); } catch (e) { toast(e.message); return; }
+  const mine = new Set(item.categories || []);
+  const manager = may("admin:manageAllContent");
+
+  $("catDialogTitle").textContent = `Categorize ${item.bare || item.name}`;
+  $("catDialogBody").innerHTML = itemCategories.length
+    ? `<p class="hint">ArcGIS clients offer these categories to filter by, and list this item under the ones ticked.</p>
+       ${categoryTree(itemCategories, c => `<label><input type="checkbox" data-cat-assign="${h(c.id)}"${
+         mine.has(c.path) ? " checked" : ""}> ${h(c.name)}</label>`)}
+       ${manager ? `<p><button type="button" class="linkbtn" id="catGoEdit">Edit the categories</button></p>` : ""}`
+    : manager
+      ? `<p class="hint">The organization has no content categories yet. <button type="button" class="linkbtn"
+           id="catGoEdit">Make some</button>.</p>`
+      : `<p class="hint">The organization has no content categories yet. An administrator makes them.</p>`;
+  $("catDialogFoot").innerHTML = `<span class="fill"></span>
+    <button type="button" class="ghost" id="catCancel">Cancel</button>
+    <button type="button" class="primary" id="catAssignSave"${itemCategories.length ? "" : " disabled"}>Save</button>`;
+  if (!$("catDialog").open) $("catDialog").showModal();
+  (document.querySelector("[data-cat-assign]") || $("catGoEdit") || $("catCancel"))?.focus();
+}
+
+/** Puts the open item in the ticked categories, and nothing else, and draws what it is in now. */
+async function saveItemCategories() {
+  const item = serviceItem;
+  if (!item?.itemId) return;
+  const ids = [...document.querySelectorAll("[data-cat-assign]")].filter(b => b.checked).map(b => b.dataset.catAssign);
+
+  try {
+    await api(`/content/items/${encodeURIComponent(item.itemId)}/categories`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categories: ids }),
+    });
+  } catch (e) { toast(e.message); return; }
+
+  item.categories = itemCategories.filter(c => ids.includes(c.id)).map(c => c.path);
+  $("catDialog").close();
+  if (!$("describeText") && $("serviceDescription")) $("serviceDescription").innerHTML = describedAs(item);
+  document.querySelector("#serviceDescription [data-item-categorize]")?.focus();
+  toast(ids.length ? `${item.bare || item.name}: categories saved.` : `${item.bare || item.name} is in no category now.`, true);
+}
+
 /** Shows Categorize when something is ticked, and keeps Select all honest. */
 function drawMemberPicks() {
   const button = $("memberCategorize");
@@ -14762,15 +15400,41 @@ async function saveCategorize() {
   }
 }
 
+/**
+ * The two kinds of category the one dialog edits — members' and content's (ADR-202, D-305). They are apart, as Portal
+ * keeps them, and differ in their route, what they hold, and what the server calls a parent.
+ */
+const CAT_KINDS = {
+  member: {
+    route: "/admin/member-categories", title: "Member categories", held: c => c.members, parent: "parentId", unit: "member",
+    lede: `Sort members into categories, and filter the list by them. A category may hold others; filtering by one
+      includes those under it. Deleting one takes members out of it and nothing else.`,
+    taken: n => n ? `${num(n)} member(s) are taken out of it; nothing else changes.` : "Nobody is in it.",
+  },
+  item: {
+    route: "/admin/item-categories", title: "Content categories", held: c => c.items, parent: "parent", unit: "item",
+    lede: `The organization's own categories for its content. ArcGIS clients offer them to filter by, and an item's
+      owner puts it in them from its page. A category may hold others. Deleting one takes items out of it and nothing
+      else.`,
+    taken: n => n ? `${num(n)} item(s) are taken out of it; nothing else changes.` : "No item is in it.",
+  },
+};
+
+/** Which kind the category dialog is showing. */
+let catKind = "member";
+
+/** The categories of the kind the dialog is showing. */
+const catList = () => catKind === "item" ? itemCategories : memberCategories;
+
 /** Edit categories: the tree, each name a box that renames on change, a child added under any, a delete beside. */
 function openCategoryEditor(focusId) {
-  $("catDialogTitle").textContent = "Member categories";
+  const kind = CAT_KINDS[catKind];
+  $("catDialogTitle").textContent = kind.title;
   $("catDialogBody").innerHTML = `
-    <p class="hint">Sort members into categories, and filter the list by them. A category may hold others; filtering by
-      one includes those under it. Deleting one takes members out of it and nothing else.</p>
-    ${categoryTree(memberCategories, c => `<div class="catedit">
+    <p class="hint">${kind.lede}</p>
+    ${categoryTree(catList(), c => `<div class="catedit">
         <input type="text" value="${h(c.name)}" data-cat-rename="${h(c.id)}" aria-label="Name of ${h(c.name)}" maxlength="100">
-        <span class="val">${num(c.members)}</span>
+        <span class="val">${num(kind.held(c) || 0)} ${kind.unit}${kind.held(c) === 1 ? "" : "s"}</span>
         <button type="button" class="tiny ghost" data-cat-child="${h(c.id)}">Add under</button>
         <button type="button" class="tiny ghost danger" data-cat-delete="${h(c.id)}" aria-label="Delete ${h(c.name)}">Delete</button>
       </div>`) || `<p class="hint">None yet.</p>`}
@@ -14785,7 +15449,7 @@ function openCategoryEditor(focusId) {
 }
 
 async function reloadCategories(focusId) {
-  memberCategories = ((await api("/admin/member-categories")) || {}).categories || [];
+  if (catKind === "item") await loadItemCategories(); else memberCategories = ((await api("/admin/member-categories")) || {}).categories || [];
   openCategoryEditor(focusId);
 }
 
@@ -14800,22 +15464,26 @@ document.addEventListener("click", async event => {
   const t = event.target;
   const d = t.dataset || {};
 
-  if (d.memberCategorize) { openCategorize([d.memberCategorize]); return; }
+  if (d.memberCategorize) { catKind = "member"; openCategorize([d.memberCategorize]); return; }
+  if (d.itemCategorize !== undefined) { openItemCategorize(); return; }
   if (d.memberChangeRole) { openMemberChange(d.memberChangeRole, "role"); return; }
   if (d.memberChangeType) { openMemberChange(d.memberChangeType, "type"); return; }
   if (t.id === "memberChangeSave") { await saveMemberChange(); return; }
   if (t.id === "memberChangeCancel" || t.id === "memberChangeClose") { $("memberChangeDialog").close(); return; }
-  if (t.id === "memberCategorize") { openCategorize([...memberPicked]); return; }
-  if (t.id === "mfCatEdit" || t.id === "catGoEdit") { openCategoryEditor(); return; }
-  if (t.id === "catAssignSave") { await saveCategorize(); return; }
+  if (t.id === "memberCategorize") { catKind = "member"; openCategorize([...memberPicked]); return; }
+  if (t.id === "mfCatEdit") { catKind = "member"; openCategoryEditor(); return; }
+  if (t.id === "catGoEdit") { openCategoryEditor(); return; }
+  if (t.id === "catAssignSave") { if (catKind === "item") await saveItemCategories(); else await saveCategorize(); return; }
   if (t.id === "catCancel" || t.id === "catDialogClose") { $("catDialog").close(); return; }
   if (t.id === "catDone") {
+    // Content's editor was opened from an item's Categorize, so it goes back there with the new tree.
+    if (catKind === "item" && serviceItem?.itemId) { openItemCategorize(); return; }
     $("catDialog").close();
     if (routeHash().startsWith("#/members")) section("members", loadMembers, "members");
     return;
   }
   if (d.catChild) {
-    const parent = memberCategories.find(c => c.id === d.catChild);
+    const parent = catList().find(c => c.id === d.catChild);
     $("catNewParent").value = d.catChild;
     $("catNewUnder").textContent = parent ? `under ${parent.name}` : "";
     $("catNewName").focus();
@@ -14825,24 +15493,27 @@ document.addEventListener("click", async event => {
     const name = $("catNewName").value.trim();
     if (!name) { catSay("A category needs a name."); return; }
     try {
-      const made = await api("/admin/member-categories", {
+      const made = await api(CAT_KINDS[catKind].route, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, parentId: $("catNewParent").value || null }),
+        body: JSON.stringify({ name, [CAT_KINDS[catKind].parent]: $("catNewParent").value || null }),
       });
       await reloadCategories();
       catSay("");
       $("catSays") && ($("catSays").hidden = true);
-      toast(`“${made.name}” was added.`, true);
+      toast(`“${made?.name || name}” was added.`, true);
     } catch (e) { catSay(e.message); }
     return;
   }
   if (d.catDelete) {
-    const c = memberCategories.find(x => x.id === d.catDelete);
-    if (!c || !confirm(`Delete “${c.name}” and any category under it? ${c.members
-      ? `${num(c.members)} member(s) are taken out of it; nothing else changes.` : "Nobody is in it."}`)) return;
+    const c = catList().find(x => x.id === d.catDelete);
+    const kind = CAT_KINDS[catKind];
+    // Deleting it deletes what is under it, so what it says is taken out counts those too (a design review).
+    const under = id => catList().filter(x => (x.parentId || null) === id).flatMap(x => [x, ...under(x.id)]);
+    const held = c ? [c, ...under(c.id)].reduce((n, x) => n + (kind.held(x) || 0), 0) : 0;
+    if (!c || !confirm(`Delete “${c.name}” and any category under it? ${kind.taken(held)}`)) return;
     try {
-      await api(`/admin/member-categories/${encodeURIComponent(c.id)}`, { method: "DELETE" });
-      memberFilter.categories.delete(c.id);
+      await api(`${kind.route}/${encodeURIComponent(c.id)}`, { method: "DELETE" });
+      if (catKind === "member") memberFilter.categories.delete(c.id);
       await reloadCategories();
     } catch (e) { catSay(e.message); }
   }
@@ -14857,7 +15528,7 @@ document.addEventListener("change", async event => {
   if (t.dataset?.catRename) {
     const name = t.value.trim();
     try {
-      await api(`/admin/member-categories/${encodeURIComponent(t.dataset.catRename)}`, {
+      await api(`${CAT_KINDS[catKind].route}/${encodeURIComponent(t.dataset.catRename)}`, {
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
       });
       await reloadCategories(t.dataset.catRename);
@@ -20288,6 +20959,118 @@ function drawServicePin(failed = null) {
   button.textContent = p.pinned ? "Stop keeping warm" : "Keep warm";
   const applies = $("servicePinApplies");
   if (applies) applies.textContent = mayChange ? "Applies at once; Save is not needed." : "Set by a server administrator.";
+}
+
+/**
+ * How long each of a registered service's layers keeps its query answers — D-308.
+ *
+ * <b>From the administrator's listing</b>, which carries the figure (`cacheSeconds`, null for the server's own) and
+ * what applies (`tileLifetimeSeconds`). A service with tiles shows nothing here: its Tile layer page sets the same
+ * figure. The rows are drawn once per service, so a number being typed is not wiped by another section's redraw.
+ */
+function drawAnswerLifetimes() {
+  const box = $("answerLifeBox");
+  if (!box || !serviceOpen) return;
+
+  const layers = serviceLayers
+    .filter(one => !(one.type || "").toLowerCase().includes("group"))
+    .map(one => known.find(l => l.name === one.name
+      && (l.folder || "") === (serviceOpen.folder || "") && l.service === serviceOpen.name))
+    .filter(Boolean);
+
+  box.hidden = serviceOpenKind === "ImageServer" || layers.length === 0 || !!tileLayerOf();
+  if (box.hidden || box.dataset.for === serviceOpen.qualified) return;
+  box.dataset.for = serviceOpen.qualified;
+
+  const mayChange = may("content:publishTiles");
+  const minutes = answerLifeWords;
+  const elsewhere = layers.some(l => l.coherence === "best-effort");
+
+  box.innerHTML = `
+    <h4>Answers kept</h4>
+    <p class="hint" id="answerLifeAbout">How long this server and a browser may keep a query's answer before asking the
+      database again. An edit made through this server clears them at once.${elsewhere ? ` An edit made by another tool
+      shows once they expire, so a shorter time follows the database more closely, and a longer one asks it less.` : ""}
+      Empty follows the server; 0 keeps nothing.</p>
+    <table class="answerlife">
+      <thead><tr><th scope="col">Layer</th><th scope="col">Kept for</th><th scope="col"><span class="sr-only">Apply</span></th></tr></thead>
+      <tbody>${layers.map((l, i) => {
+        const own = l.cacheSeconds != null;
+        const server = own ? null : l.tileLifetimeSeconds;
+        return `
+        <tr>
+          <th scope="row" class="name">${h(l.name)}</th>
+          <td><input type="number" min="0" step="1" inputmode="numeric" id="answerLife-${i}"
+              aria-label="Seconds ${h(l.name)}'s answers are kept" aria-describedby="answerLifeSays-${i}"
+              value="${own ? h(String(l.cacheSeconds)) : ""}"${mayChange ? "" : " disabled"}><span class="u">seconds</span>
+            <p class="hint inherit" id="answerLifeSays-${i}">${own
+              ? (l.cacheSeconds === 0 ? "Set here: nothing is kept." : `Set here: ${h(minutes(l.cacheSeconds))}.`)
+              : `Follows the server: ${h(minutes(server ?? 0))}.`}</p></td>
+          <td class="right">${mayChange
+            ? `<button type="button" class="tiny" data-answer-life="${i}" aria-describedby="answerLifeSays-${i}">Set</button>`
+            : ""}</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <p class="hint">${mayChange ? "Applies at once; Save is not needed."
+      : "Set by somebody whose role may publish tile layers — the same people who set it on a layer with tiles."}</p>`;
+
+  for (const button of box.querySelectorAll("[data-answer-life]")) {
+    const i = Number(button.dataset.answerLife);
+    button.addEventListener("click", () => setAnswerLifetime(layers[i], i, button));
+    $(`answerLife-${i}`).addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); setAnswerLifetime(layers[i], i, button); }
+    });
+  }
+}
+
+/** A lifetime as a person says it: whole minutes from two up, seconds otherwise. */
+function answerLifeWords(seconds) {
+  return seconds % 60 === 0 && seconds >= 120 ? `${num(seconds / 60)} minutes` : `${num(seconds)} seconds`;
+}
+
+/** Sets one layer's answer lifetime from its row, and says what now applies under the box. */
+async function setAnswerLifetime(layer, i, button) {
+  if (!layer || button.getAttribute("aria-busy") === "true") return;
+
+  const typed = $(`answerLife-${i}`).value.trim();
+  const seconds = typed === "" ? null : Number(typed);
+  const result = $("answerLifeResult");
+
+  // D-159's lesson: an empty box is "nobody has said", never zero.
+  if (seconds !== null && (!Number.isInteger(seconds) || seconds < 0)) {
+    result.textContent = `"${typed}" is not a whole number of seconds.`;
+    $(`answerLife-${i}`).setAttribute("aria-invalid", "true");
+    return;
+  }
+
+  $(`answerLife-${i}`).removeAttribute("aria-invalid");
+  button.setAttribute("aria-busy", "true");
+
+  try {
+    await api(`/admin/layers/${encodeURIComponent(layer.name)}/cache?service=${encodeURIComponent(layer.service)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ seconds }),
+    });
+
+    // The listing is read again so the row says what applies, the server's figure included.
+    known = (await api("/admin/layers")).layers;
+    const box = $("answerLifeBox");
+    if (box) box.dataset.for = "";
+    drawAnswerLifetimes();
+    $("answerLifeResult").textContent = seconds === null
+      ? `${layer.name} follows the server's time again.`
+      : seconds === 0
+      ? `${layer.name} keeps no answers: every query asks the database.`
+      : `${layer.name} keeps its answers for ${answerLifeWords(seconds)}.`;
+    // Drawn again, so focus goes back to the row's own button.
+    box?.querySelector(`[data-answer-life="${i}"]`)?.focus();
+  } catch (e) {
+    result.textContent = e.message;
+  } finally {
+    button.removeAttribute("aria-busy");
+  }
 }
 
 /** Keeps the open service warm, or stops, from the Parameters section's button. */
@@ -31309,6 +32092,9 @@ document.addEventListener("click", event => {
   // open a connection to somebody else's database, which is a thing the operator asks for by
   // pressing Probe. See drawProbeRows. D-103.
   else if (id === "probeRows") drawProbeRows();
+
+  // The bin is sliced from what was read, as the probe is: turning its page asks the server nothing new.
+  else if (id === "recycleRows") drawRecycleBin();
 });
 
 document.addEventListener("input", async event => {

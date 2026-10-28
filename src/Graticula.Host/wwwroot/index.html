@@ -602,7 +602,30 @@
       rows came in the order of the service path — case-sensitive, so a layer just uploaded landed last.
       Portal's list opens newest first with the search box in place, and so does this one.
     -->
-    <div class="toolbar">
+    <!--
+      <b>The recycle bin — ADR-203 condition 2, D-305.</b> A scope of My content, where ArcGIS Online keeps its own. It is
+      not a filter of the items above, so choosing it puts this panel where the list was; the toolbar, the ticks and the
+      table are hidden while it shows.
+    -->
+    <div id="recyclePanel" hidden>
+      <h3 id="recycleTitle" tabindex="-1">Recycle bin</h3>
+      <p class="hint" id="recycleAbout"></p>
+      <div class="toolbar">
+        <input type="search" id="recycleFilter" placeholder="Search by name&hellip;" autocomplete="off"
+               aria-label="Search the recycle bin">
+        <span class="val" id="recycleCount"></span>
+      </div>
+      <p class="hint" id="recycleSays" role="status" aria-live="polite"></p>
+      <div class="panel widetable">
+        <table class="rowblocks">
+          <thead><tr><th>Item</th><th>Deleted</th><th>Deleted for good</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="recycleRows"></tbody>
+        </table>
+      </div>
+      <div id="recyclePager"></div>
+    </div>
+
+    <div class="toolbar" id="contentToolbar">
       <input type="search" id="contentFilter" placeholder="Search by name, tag, owner or folder&hellip;"
              autocomplete="off" aria-label="Search your content">
       <!-- The type is chosen by the ticks in the left column; a Type select here filtered too, and the two combined. -->
@@ -628,7 +651,7 @@
     -->
     <!-- ADR-129: what is ticked, and what can be done to all of it at once. -->
     <div class="bulkbar" id="contentBulk" role="region" aria-label="Selected items" hidden></div>
-    <div class="panel widetable">
+    <div class="panel widetable" id="contentTable">
       <table>
         <thead><tr>
           <th class="tick"><input type="checkbox" id="contentPickAll" aria-label="Select every item of yours shown"></th>
@@ -2029,6 +2052,88 @@
         <span class="fill"></span>
         <button type="button" class="ghost" id="sfRequireCancel">Cancel</button>
         <button type="button" class="primary" id="sfRequireConfirm">Require it</button>
+      </footer>
+    </dialog>
+    <!--
+      <b>ADR-200 condition 3, D-303: service accounts and their API keys.</b> Built on 2026-10-18 with an API and no
+      screen, which left a key nobody could see — and a key nobody can see is a key nobody revokes. Under two-step
+      sign-in, because that card tells scripts to move to an API key, and this is where they get one. Drawn only for a
+      reader with admin:manageSecurity (`loadServiceAccounts`), as the server refuses anybody else.
+    -->
+    <div id="saCard" hidden>
+      <div class="pagehead sub">
+        <div>
+          <h3 id="saTitle" tabindex="-1">Service accounts</h3>
+          <p>Accounts for scripts and integrations, which sign in with an API key instead of a person's password. One
+            never owns anything and never administers; its keys open the ArcGIS services and the portal, not this
+            administration API.</p>
+        </div>
+        <div class="right">
+          <span class="val" id="saCount"></span>
+          <button class="primary" id="saNew">New service account</button>
+        </div>
+      </div>
+      <p class="hint" id="saSays" role="status" aria-live="polite"></p>
+      <div class="panel widetable">
+        <table class="rowblocks">
+          <thead><tr>
+            <th>Account</th><th>User type and role</th><th class="num">Live keys</th><th>State</th>
+            <th><span class="sr-only">Actions</span></th>
+          </tr></thead>
+          <tbody id="saRows"></tbody>
+        </table>
+      </div>
+    </div>
+    <dialog id="saDialog" class="formdialog" aria-labelledby="saDialogTitle">
+      <header class="dialoghead">
+        <h3 id="saDialogTitle">New service account</h3>
+        <button type="button" class="tiny ghost" id="saDialogClose" aria-label="Close"><svg class="closex" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </header>
+      <div class="dialogbody">
+      <div class="picker">
+        <label for="saName">Name <span class="val">letters, digits, <code>.</code>, <code>_</code> and <code>-</code></span></label>
+        <input id="saName" type="text" autocomplete="off" spellcheck="false" maxlength="64" placeholder="nightly-sync">
+
+        <label for="saDescription">What it is for <span class="val">optional</span></label>
+        <input id="saDescription" type="text" autocomplete="off" placeholder="Copies inspections to the archive every night">
+
+        <label for="saType">User type</label>
+        <select id="saType" aria-describedby="saTypeSays"></select>
+        <p class="hint" id="saTypeSays"></p>
+
+        <label for="saRole">Role</label>
+        <select id="saRole" aria-describedby="saRoleSays"></select>
+        <p class="hint" id="saRoleSays">Never the administrator role: a machine does not administer. Whatever its role
+          says, it cannot create content, publish, register data or make groups.</p>
+
+        <p class="bad-inline" id="saFormSays" role="alert" hidden></p>
+      </div>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="ghost" id="saCancel">Cancel</button>
+        <button type="button" class="primary" id="saSave">Create</button>
+      </footer>
+    </dialog>
+    <dialog id="saKeyIssued" class="formdialog" aria-labelledby="saKeyIssuedTitle" aria-describedby="saKeyOnce">
+      <header class="dialoghead">
+        <h3 id="saKeyIssuedTitle" tabindex="-1">Key created</h3>
+      </header>
+      <div class="dialogbody">
+        <p id="saKeyOnce"><b>This key is shown only now.</b> The server keeps only a fingerprint of it, so it cannot be
+          shown again. Copy it into the script or the app that uses it.</p>
+        <label class="tnlabel" for="saKeyText">API key</label>
+        <div class="copyrow">
+          <input id="saKeyText" type="text" readonly spellcheck="false" autocomplete="off">
+          <button type="button" id="saKeyCopy">Copy</button>
+        </div>
+        <p class="hint">Send it as an ArcGIS token: <code>token=</code> or <code>Authorization: Bearer</code>. The Maps SDK
+          takes it as <code>apiKey</code>, and the ArcGIS API for Python as <code>api_key</code>.</p>
+        <p class="hint" id="saKeySays" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="primary" id="saKeyDone">I have copied it</button>
       </footer>
     </dialog>
     <div class="pagehead sub">
