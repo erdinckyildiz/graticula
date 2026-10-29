@@ -138,9 +138,9 @@ def IDW(in_features, z_field, out_ga_layer=None, out_raster=None, cell_size=None
     if _given(weight_field):
         _refuse("IDW", "weight_field", weight_field, "how a weight enters the prediction is not documented")
     radius, most, fewest = _circle("IDW", search_neighborhood)
-    from . import ddd
-    xs, ys, _ = ddd._points(in_features, z_field, "IDW")
-    grid = ddd._point_grid(in_features, cell_size, xs, ys, "IDW")
+    from . import ddd, sa
+    xs, ys, _ = sa._points(in_features, z_field, "IDW")
+    grid = sa._point_grid(in_features, cell_size, xs, ys, "IDW")
     cx, cy = grid.centres()
     gx, gy = np.meshgrid(cx, cy)
     found = (np.hypot(gx[..., None] - xs, gy[..., None] - ys) <= radius).sum(axis=-1)
