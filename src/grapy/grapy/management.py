@@ -2595,12 +2595,16 @@ def Copy(in_data, out_data, data_type=None, associated_data=None):
     _gpkg.create(target, shape if shape != "Geometry" else "Geometry", srid, columns)
     out_connection, new_table = _gpkg.table_of(target)
     try:
-        out_connection.execute("attach database ? as source", (file,))
+        same = os.path.normcase(os.path.abspath(file)) == os.path.normcase(os.path.abspath(out_file))
+        if not same:
+            out_connection.execute("attach database ? as source", (file,))
         names = ", ".join(f'"{c.name}"' for c in columns)
+        origin = f'"{table}"' if same else f'source."{table}"'
         out_connection.execute(f'insert into "{new_table}" ({_gpkg.OID}, {_gpkg.GEOMETRY}{", " + names if names else ""}) '
-                               f'select "{oid}", "{geometry}"{", " + names if names else ""} from source."{table}"')
+                               f'select "{oid}", "{geometry}"{", " + names if names else ""} from {origin}')
         out_connection.commit()
-        out_connection.execute("detach database source")
+        if not same:
+            out_connection.execute("detach database source")
     except sqlite3.Error as error:
         raise ExecuteError(f"ERROR 000732: {error}") from error
     finally:

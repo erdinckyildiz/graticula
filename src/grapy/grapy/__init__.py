@@ -179,6 +179,14 @@ def ListFields(dataset, wild_card=None, field_type=None):
             and (field_type in (None, "All") or f.type == field_type)]
 
 
+def ListVersions(sde_workspace=None):
+    """The names of a workspace's versions — DEFAULT and the branch versions made off it (ADR-227) — as a list of
+    strings, as documented; ``env.workspace`` when none is given. arcpy.da.ListVersions answers them as objects.
+    INFERRED: names are written as they were made, DEFAULT unqualified: a GeoPackage has no database owners."""
+    from .da import ListVersions as versions
+    return [v.name for v in versions(sde_workspace)]
+
+
 def Exists(dataset):
     try:
         file, table = _gpkg.split(dataset)
@@ -557,7 +565,7 @@ _REFUSED_NAMES = {name: _NO_ACCESS for name in (
     "AcceptConnections", "AddDataStoreItem", "ArcSDESQLExecute", "ClearCredentials", "CreateAGSServerConnection",
     "CreateGPSDDraft", "CreateGeocodeSDDraft", "CreateImageSDDraft", "CreateSTACConnectionFile", "DisconnectUser",
     "GetActivePortalURL", "GetPortalDescription", "GetPortalInfo", "GetSigninToken", "GetSTACInfo", "ImportCredentials",
-    "ListDataStoreItems", "ListPortalURLs", "ListUsers", "ListVersions", "LogUsageMetering", "RemoveDataStoreItem",
+    "ListDataStoreItems", "ListPortalURLs", "ListUsers", "LogUsageMetering", "RemoveDataStoreItem",
     "SignInToPortal", "ValidateDataStoreItem", "EncryptPYT", "DecryptPYT", "ListInstallations", "SetProduct",
     "FromScriptingArcObject",
     "convertArcObjectToPythonObject", "GeoProcessor", "SetupDebugger")}

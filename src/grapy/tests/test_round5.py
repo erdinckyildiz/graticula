@@ -100,5 +100,16 @@ class Round5(unittest.TestCase):
             arcpy.conversion.FeaturesToGTFSStops(points, self.out("out_stops.txt"))
 
 
+
+class TopLevelListVersions(unittest.TestCase):
+    def test_list_versions_answers_names(self):
+        directory = tempfile.mkdtemp()
+        gpkg = arcpy.management.CreateFileGDB(directory, "versions")[0]
+        arcpy.management.CreateVersion(gpkg, "DEFAULT", "edit", "PUBLIC")
+        self.assertEqual(arcpy.ListVersions(gpkg), ["DEFAULT", "edit"])
+        arcpy.env.workspace = gpkg
+        self.assertEqual(arcpy.ListVersions(), ["DEFAULT", "edit"])
+
+
 if __name__ == "__main__":
     unittest.main()
