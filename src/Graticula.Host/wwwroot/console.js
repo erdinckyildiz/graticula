@@ -59,7 +59,8 @@ const stewarded = layer => !!layer && (layer.hosted || STEWARDED_KINDS.has(layer
 function toast(message, ok = false) {
   const t = $("toast");
   t.textContent = message;
-  t.className = "on " + (ok ? "good" : "bad");
+  // `"info"` for news that is neither, such as work still going on (design review, ADR-222).
+  t.className = "on " + (ok === "info" ? "" : ok ? "good" : "bad");
   clearTimeout(t._timer);
   t._timer = setTimeout(() => (t.className = ""), 7000);
 }
@@ -33846,10 +33847,10 @@ async function openAnalyze() {
       ${tools.map((t, i) => `<label class="check"><input type="radio" name="azTool" value="${t.task}"${i === 0 ? " checked" : ""}>
         <span><b>${h(t.label)}</b><span class="hint">${h(t.says)}</span></span></label>`).join("")}
     </fieldset>
-    <div id="azOptions"></div>
     <div class="stacked"><label for="azName">Result layer name</label>
       <input type="text" id="azName" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="azNameHint">
-      <span class="hint" id="azNameHint">Letters, digits, _ and -, up to 40. A name already in use is refused.</span></div>`;
+      <span class="hint" id="azNameHint">Letters, digits, _ and -, up to 40. A name already in use is refused.</span></div>
+    <div id="azOptions"></div>`;
   drawAnalyzeFoot(false);
   drawAnalyzeOptions();
   document.querySelector('input[name="azTool"]:checked')?.focus();
@@ -33993,12 +33994,28 @@ function analyzeSaid(message) {
     (said, [parameter, label]) => said.replace(new RegExp(`\\b${parameter}\\b`, "g"), label), String(message || "")));
 }
 
-/** Says a refusal on the field it is about, keeping the reader there. */
+/** Says a refusal in the footer and under the field it is about, keeping the reader there. */
 function analyzeRefuse(text, field) {
   $("analyzeSays").textContent = text;
-  if (field) {
-    field.setAttribute("aria-invalid", "true");
-    field.focus();
+  if (!field) return;
+
+  const error = document.createElement("span");
+  error.className = "fielderror";
+  error.id = `${field.id}Error`;
+  error.textContent = text.replace(/^Not run: /, "");
+  error.textContent = error.textContent.charAt(0).toUpperCase() + error.textContent.slice(1);
+  field.closest(".stacked")?.append(error);
+  field.setAttribute("aria-invalid", "true");
+  field.setAttribute("aria-describedby", `${field.getAttribute("aria-describedby") || ""} ${error.id}`.trim());
+  field.focus();
+}
+
+/** Takes back what the last refusal marked, before the next try. */
+function analyzeClearRefusals() {
+  for (const error of document.querySelectorAll("#analyzeDialog .fielderror")) error.remove();
+  for (const one of document.querySelectorAll("#analyzeDialog [aria-invalid]")) {
+    one.removeAttribute("aria-invalid");
+    one.setAttribute("aria-describedby", (one.getAttribute("aria-describedby") || "").split(" ").filter(d => !d.endsWith("Error")).join(" "));
   }
 }
 
@@ -34010,7 +34027,7 @@ async function runAnalysis() {
   const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
   const nameBox = $("azName");
   const name = (nameBox.value || "").trim();
-  for (const one of document.querySelectorAll("#analyzeDialog [aria-invalid]")) one.removeAttribute("aria-invalid");
+  analyzeClearRefusals();
 
   if (tool.task === "CreateBuffers" && !analyzeDistances()) {
     analyzeRefuse("Not run: enter distances as numbers above zero, such as 100, 250.", $("azDistances"));
@@ -34050,6 +34067,7 @@ async function runAnalysis() {
   const run = { job: job.jobId, tool, name };
   analyzeRun = run;
   $("analyzeSays").textContent = `Running ${tool.label.toLowerCase()}…`;
+  $("analyzeBody").inert = true;
   drawAnalyzeFoot(true);
   $("analyzeStop").focus();
 
@@ -34084,6 +34102,7 @@ async function runAnalysis() {
     }
 
     analyzeRun = null;
+    $("analyzeBody").inert = false;
     drawAnalyzeFoot(false);
 
     if (id) {
@@ -34135,10 +34154,13 @@ document.addEventListener("change", event => {
 // Closed while a job runs — by Close, the ✕ or Escape — the job goes on and the page says so; its end is a toast.
 $("analyzeDialog")?.addEventListener("close", () => {
   if (analyzeRun) {
-    toast(`${analyzeRun.name} is still running; it will appear in Content when it is done.`, true);
+    toast(`${analyzeRun.name} is still running; it will appear in Content when it is done.`, "info");
     analyzeRun = { ...analyzeRun, closed: true };
   }
-  const opener = $("analyzeOpen") || $("itemActions")?.querySelector("summary");
+  $("analyzeBody").inert = false;
+  // Analyze… is inside the More menu, closed by now; its summary is what is there to come back to (design review).
+  const opener = [$("analyzeOpen"), $("itemActions")?.querySelector(".itemmore summary")]
+    .find(one => one && one.getClientRects().length > 0);
   opener?.focus();
 });
 

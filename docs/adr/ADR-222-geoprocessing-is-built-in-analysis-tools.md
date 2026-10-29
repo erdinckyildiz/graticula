@@ -148,7 +148,16 @@ not reopen.
    before a request was sent while `snapToInput`, `tolerance` and the bin parameters were missing from it; every
    documented parameter is listed now, and a value asking for what is not built is refused by name.
    `SpatialAnalysisServiceTests` holds both.
-7. **Studio offers the tools** on a layer's page and in the map, designed with the ux-designer agent.
+7. **Studio offers the tools** on a layer's page and in the map, designed with the ux-designer agent. **PARTLY
+   DISCHARGED 2026-10-29 — the layer's page.** *Analyze…* in a hosted layer's More menu, for a member who may publish
+   hosted features: the tools that fit the layer, in Map Viewer's order (Aggregate points, Create buffers, Dissolve
+   boundaries, Merge layers, Overlay layers), each with its own questions; a second-layer list holding only the kind its
+   tool can use, read from each candidate's own document; the result's name under the tools, checked on its field; Run
+   that keeps focus while busy; Stop, which cancels the job; closing mid-run said in a toast, and its end in another;
+   Done as a link to the new layer that takes focus. Two ux-designer passes: the first sent it back (no layout, a
+   polygon list whose first entry was a point layer so every Aggregate failed, Cancel that silently let the layer be
+   made, focus lost on every run, the server's parameter names in its sentences), the second shipped it with fixes, all
+   taken. `AnalyzeDialogTests`. **Open: in the map** — Studio's map has no analysis pane yet.
 
 ## 6. Consequences
 

@@ -48,6 +48,9 @@ public sealed class AnalyzeDialogTests : ConsoleTest
         await Browser.EvaluateAsync<bool>("(document.getElementById('azName').value = 'not a name!', true)");
         await ClickAsync("#analyzeGo");
         await WaitForAsync("document.getElementById('azName').getAttribute('aria-invalid') === 'true'", "A bad name was not refused on its field.");
+        Assert.True(await Browser.EvaluateAsync<bool>(
+            "!!document.getElementById('azNameError') && document.getElementById('azName').getAttribute('aria-describedby').includes('azNameError')"),
+            "The refusal is not said under the name field, or the field is not described by it.");
         Assert.DoesNotContain(await WritesAsync(), w => w.Contains("submitJob", StringComparison.Ordinal));
 
         // A good one is sent with the documented parameter names.
@@ -62,6 +65,11 @@ public sealed class AnalyzeDialogTests : ConsoleTest
         // The trapped answer starts no job, and the dialog says so rather than waiting for ever.
         await WaitForAsync("(document.getElementById('analyzeSays')?.textContent || '').includes('did not start')",
             "An answer with no job id was not said.");
+
+        // Closed, the reader is back on something they can see: Analyze… is in the More menu, closed by then.
+        await ClickAsync("#analyzeCancel");
+        await WaitForAsync("document.activeElement?.matches('#itemActions .itemmore summary')",
+            "Closing the dialog left the focus on the page rather than on the menu it was opened from.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

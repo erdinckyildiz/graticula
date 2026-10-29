@@ -4647,6 +4647,7 @@ ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 #createView .fieldchips .linkbtn { margin-right: 6px; }
 /* ADR-222: the analysis dialog takes Create view's form rules, and keeps one width whichever tool is chosen (design review). */
 #analyzeDialog { width: min(640px, calc(100vw - 32px)); }
+#analyzeDialog .fielderror { color: var(--alert); font-size: 13px; }
 #analyzeDialog .check { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; }
 #analyzeDialog fieldset, #analyzeDialog .stacked + .check { margin-top: 10px; }
 
