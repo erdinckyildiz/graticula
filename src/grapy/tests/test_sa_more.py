@@ -512,5 +512,18 @@ class Equivalents(_Fixture):
         self.assertAlmostEqual(cells(sa.DarcyFlow(head, porosity, thickness, uneven))[1][2], 5.0, places=4)
 
 
+    def test_majority_filter(self):
+        # The centre 1 has all four orthogonal neighbours at 2 (3 of 4 needed): it becomes 2. The edge cells have two
+        # matching neighbours of their own value and nothing else to take.
+        island = grid([[2, 2, 2], [2, 1, 2], [2, 2, 2]])
+        self.assertEqual(cells(sa.MajorityFilter(island)), [[2, 2, 2], [2, 2, 2], [2, 2, 2]])
+        # With EIGHT, five 3s around the centre in two groups (N, NE, E and S, SW) are not contiguous: no change.
+        split = grid([[0, 0, 3, 3, 0], [0, 0, 1, 3, 0], [0, 3, 3, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]])
+        self.assertEqual(cells(sa.MajorityFilter(split, "EIGHT"))[1][2], 1)
+        joined = grid([[0, 3, 3, 3, 0], [0, 3, 1, 3, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0], [0, 0, 0, 0, 0]])
+        # N, NE, E, NW and W hold 3 and touch in a ring: five contiguous, so the centre becomes 3.
+        self.assertEqual(cells(sa.MajorityFilter(joined, "EIGHT"))[1][2], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

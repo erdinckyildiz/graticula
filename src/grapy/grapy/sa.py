@@ -4700,6 +4700,83 @@ for _built in ("DarcyFlow", "DarcyVelocity"):
     _REFUSED.pop(_built, None)
 
 
+# ---- round thirteen (ADR-224 §5.6): MajorityFilter
+
+_RING = [(-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1)]  # N, NE, E, SE, S, SW, W, NW
+_CROSS = [(-1, 0), (0, 1), (1, 0), (0, -1)]                                       # N, E, S, W
+
+
+def _contiguous(positions, eight):
+    """Whether the neighbour positions form one group: on the eight-cell ring two cells join when they share an edge;
+    of the four orthogonal neighbours two join when they share a corner (are not opposite), as the page defines it."""
+    positions = list(positions)
+    if len(positions) <= 1:
+        return True
+    seen, todo = {positions[0]}, [positions[0]]
+    while todo:
+        a = todo.pop()
+        for b in positions:
+            if b in seen:
+                continue
+            touching = (abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1) if eight else (a[0] != -b[0] or a[1] != -b[1])
+            if touching:
+                seen.add(b)
+                todo.append(b)
+    return len(seen) == len(positions)
+
+
+@_equivalent("majority filtering with a contiguity test", "the page's own replacement rule, with contiguity as "
+             "connectedness in the neighbour ring (Rosenfeld 1970, Journal of the ACM 17(1))")
+def MajorityFilter(in_raster, number_neighbors="FOUR", majority_definition="MAJORITY"):
+    """EQUIVALENT: a cell is replaced by a value held by enough of its neighbours, contiguous about it, as the page
+    documents: MAJORITY needs 3 of 4 or 5 of 8, HALF 2 of 4 or 4 of 8; with EIGHT neighbours contiguous means sharing an
+    edge, with FOUR sharing a corner; under HALF, two equal halves leave the cell as it is when it holds one of them. On
+    the raster's edge, with FOUR neighbours a cell needs two matching neighbours; with EIGHT a corner needs all three and
+    an edge cell three contiguous ones including one along the edge, as documented. The equivalent part is the
+    contiguity test: connectedness of the matching cells in the neighbour ring (Rosenfeld 1970).
+
+    INFERRED: the processing cell itself does not count; NoData neighbours match nothing and a NoData cell stays NoData;
+    two equal halves of which the cell holds neither leave it unchanged; edge cells use the same rule under HALF."""
+    _refuse_environment("arcpy.sa.MajorityFilter")
+    source = as_raster(in_raster, "MajorityFilter")
+    if not source.isInteger:
+        raise ValueError("MajorityFilter takes an integer raster.")
+    eight = str(number_neighbors or "FOUR").upper() == "EIGHT"
+    half = str(majority_definition or "MAJORITY").upper() == "HALF"
+    a, mask = source._array, source._mask
+    rows, columns = a.shape
+    offsets = _RING if eight else _CROSS
+    out = a.copy()
+    for r in range(rows):
+        for c in range(columns):
+            if mask[r, c]:
+                continue
+            inside = [(dr, dc) for dr, dc in offsets if 0 <= r + dr < rows and 0 <= c + dc < columns]
+            edge = len(inside) < len(offsets)
+            groups = {}
+            for dr, dc in inside:
+                if not mask[r + dr, c + dc]:
+                    groups.setdefault(int(a[r + dr, c + dc]), []).append((dr, dc))
+            if edge:
+                need = 3 if eight else 2
+            else:
+                need = (4 if half else 5) if eight else (2 if half else 3)
+            qualifying = [v for v, cells_ in groups.items() if len(cells_) >= need and _contiguous(cells_, eight)]
+            if eight and edge and len(inside) == 5:
+                along = {(0, 1), (0, -1)} if r in (0, rows - 1) else {(1, 0), (-1, 0)}
+                qualifying = [v for v in qualifying if along & set(groups[v])]
+            if not qualifying:
+                continue
+            if len(qualifying) > 1:
+                continue  # two equal halves: unchanged whether or not the cell holds one of them
+            if qualifying[0] != int(a[r, c]):
+                out[r, c] = qualifying[0]
+    return Raster._of(out, mask.copy(), source._grid)
+
+
+_REFUSED.pop("MajorityFilter", None)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
