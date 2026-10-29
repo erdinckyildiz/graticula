@@ -512,6 +512,58 @@ def NumPyArrayToTable(in_array, out_table):
     return out
 
 
+_TYPE_WORDS = {"TEXT": "String", "STRING": "String", "SHORT": "SmallInteger", "SMALLINTEGER": "SmallInteger",
+               "LONG": "Integer", "INTEGER": "Integer", "BIGINTEGER": "BigInteger", "FLOAT": "Single", "SINGLE": "Single",
+               "DOUBLE": "Double", "DATE": "Date", "GUID": "Guid", "BLOB": "Blob"}
+
+
+def CreateTable(path, fields=None, shape=None, configuration=None):
+    """A new table, or with ``shape`` a feature class, answering ``(path, [field names])``. The names are validated (an
+    invalid character becomes an underscore) and may differ from those asked, as documented.
+
+    ``fields`` is tuples ``(name, type, alias, length, nullable, default)``, Field objects, or a NumPy dtype. ``shape``
+    is a tuple ``(geometry type, spatial reference, has z, has m)``. Alias and length change nothing in a GeoPackage
+    (INFERRED, as for AddField); a default value, z, m, a multipatch and ``configuration`` (enterprise geodatabases only)
+    are refused by name."""
+    from . import ValidateFieldName
+    from ._reference import reference_of
+    if configuration not in (None, "", "#"):
+        raise NotBuiltError("arcpy.da.CreateTable: configuration applies to enterprise geodatabases only, which a GeoPackage is not.")
+    columns = []
+    if fields is not None and hasattr(fields, "names") and fields.names:
+        columns = [_gpkg.Column(ValidateFieldName(n), _column_type("CreateTable", n, fields[n])) for n in fields.names]
+    else:
+        for field in fields or []:
+            if isinstance(field, (tuple, list)):
+                name, kind = field[0], str(field[1])
+                if len(field) > 5 and field[5] is not None:
+                    raise NotBuiltError("arcpy.da.CreateTable: a field's default value is not built in grapy yet.")
+                nullable = True if len(field) <= 4 or field[4] in (None, True) else bool(field[4])
+            else:
+                name, kind, nullable = field.name, str(field.type), getattr(field, "isNullable", True)
+                if kind in ("OID", "Geometry", "GlobalID"):
+                    continue
+            stored = _TYPE_WORDS.get(kind.upper().replace(" ", ""))
+            if stored is None:
+                raise NotBuiltError(f"arcpy.da.CreateTable: field type '{kind}' is not built in grapy.")
+            columns.append(_gpkg.Column(ValidateFieldName(name), stored, bool(nullable)))
+    kind, srid = "Geometry", 0
+    if shape is not None:
+        shape = (shape,) if isinstance(shape, str) else tuple(shape)
+        geometry = str(shape[0]).upper()
+        if geometry == "MULTIPATCH" or any(bool(v) for v in shape[2:4]):
+            raise NotBuiltError("arcpy.da.CreateTable: z, m and multipatch geometry are not built — grapy's feature classes are 2D.")
+        kinds = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon"}
+        if geometry not in kinds:
+            raise ValueError(f"arcpy.da.CreateTable: '{shape[0]}' is not a geometry type.")
+        kind = kinds[geometry]
+        reference = reference_of(shape[1]) if len(shape) > 1 and shape[1] not in (None, "") else None
+        srid = reference.factoryCode if reference else 0
+    out = _new("CreateTable", path)
+    _gpkg.create(out, kind, srid, columns)
+    return out, [c.name for c in columns]
+
+
 def NumPyArrayToFeatureClass(in_array, out_table, shape_fields, spatial_reference=None):
     """A NumPy structured array written as a new point feature class: its x and y from two fields, or from one field
     of two values; the other fields as attributes. z and m are refused: grapy's shapes hold neither."""

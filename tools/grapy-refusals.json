@@ -208,7 +208,7 @@
   "unexamined": []
  },
  "arcpy.da": {
-  "built": 13,
+  "built": 14,
   "of": 29,
   "refused": {
    "ContingentFieldValue": "arcpy.da.ContingentFieldValue is not built in grapy — a GeoPackage holds no versions, replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
@@ -227,9 +227,7 @@
    "TableToArrowTable": "arcpy.da.TableToArrowTable is not built in grapy — pyarrow is not among the wheels a user tool runs with today.",
    "Version": "arcpy.da.Version is not built in grapy — a GeoPackage holds no versions, replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2)."
   },
-  "unexamined": [
-   "CreateTable"
-  ]
+  "unexamined": []
  },
  "arcpy.ddd": {
   "built": 18,

@@ -173,5 +173,22 @@ class DaMore(unittest.TestCase):
             arcpy.da.ListReplicas(self.directory)
 
 
+
+class CreateTableAsDocumented(unittest.TestCase):
+    def test_a_table_and_a_feature_class_with_validated_names(self):
+        import tempfile
+        directory = tempfile.mkdtemp()
+        path, names = arcpy.da.CreateTable(os.path.join(directory, "t.gpkg"),
+                                           [("street", "Text", "Street Address"), ("state", "Text", "", 2), ("bad name", "LONG")])
+        self.assertEqual(names, ["street", "state", "bad_name"])
+        self.assertEqual(arcpy.Describe(path).dataType, "Table")
+        fc, _ = arcpy.da.CreateTable(os.path.join(directory, "p.gpkg"), [("v", "DOUBLE")], ("POLYGON", 4326))
+        described = arcpy.Describe(fc)
+        self.assertEqual((described.shapeType, described.spatialReference.factoryCode), ("Polygon", 4326))
+        with self.assertRaises(NotImplementedError):
+            arcpy.da.CreateTable(os.path.join(directory, "z.gpkg"), None, ("POINT", 4326, True))
+        with self.assertRaises(RuntimeError):
+            arcpy.da.CreateTable(path)
+
 if __name__ == "__main__":
     unittest.main()
