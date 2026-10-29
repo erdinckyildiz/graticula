@@ -39,7 +39,7 @@ def point(x, y):
 DEM = [[100 - 10 * k - 3 * r for k in range(4)] for r in range(4)]
 
 
-class More(unittest.TestCase):
+class _Fixture(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         arcpy.env.workspace = self.directory
@@ -58,6 +58,8 @@ class More(unittest.TestCase):
                 written.insertRow(row)
         return path
 
+
+class More(_Fixture):
     # ---- mathematics
 
     def test_hyperbolic_bitwise_and_over(self):
@@ -219,6 +221,70 @@ class More(unittest.TestCase):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a", "b")
             self.assertIn(words, str(raised.exception))
+
+
+class RoundFour(_Fixture):
+    def test_corridor_fuzzy_overlay_and_transpose_bits(self):
+        self.assertEqual(cells(sa.Corridor(grid([[1, 2]]), grid([[10, 20]]))), [[11.0, 22.0]])
+        a, b = grid([[0.2, 0.9]]), grid([[0.5, 0.4]])
+        self.assertEqual(cells(sa.FuzzyOverlay([a, b], "AND")), [[0.2, 0.4]])
+        self.assertEqual(cells(sa.FuzzyOverlay([a, b], "OR")), [[0.5, 0.9]])
+        for kind in (None, "SUM"):
+            with self.assertRaises(arcpy.NotBuiltError):
+                sa.FuzzyOverlay([a, b], kind)
+        # Bits 12 and 13 (4096 + 8192) move to bits 0 and 1; a fill of 8 keeps bit 3.
+        bits = grid([[12288, 4096]])
+        self.assertEqual(cells(sa.TransposeBits(bits)), [[3, 1]])
+        self.assertEqual(cells(sa.TransposeBits(bits, [12, 13], [0, 1], 8)), [[11, 9]])
+
+    def test_point_and_line_statistics(self):
+        points = self.features("ps", "POINT", [(1.0, point(0, 0)), (3.0, point(20, 0)), (5.0, point(0, 20)),
+                                               (7.0, point(20, 20))], [("v", "DOUBLE")])
+        # A 2 × 2 grid of 10-unit cells; the default 3 × 3-cell rectangle reaches 15 each way, so every centre sees all
+        # four points (those exactly 15 away on its edge included).
+        self.assertEqual(cells(sa.PointStatistics(points, "v", 10)), [[4.0, 4.0], [4.0, 4.0]])
+        self.assertEqual(cells(sa.PointStatistics(points, "v", 10, statistics_type="MEDIAN"))[0][0], 3.0)
+        self.assertEqual(cells(sa.PointStatistics(points, "v", 10, statistics_type="MAJORITY"))[0][0], 1.0)
+        # A circle of 10 round (5,5) holds only the point at (0,0), 7.07 away.
+        self.assertEqual(cells(sa.PointStatistics(points, "v", 10, sa.NbrCircle(10, "MAP")))[1][0], 1.0)
+        lines = self.features("ls", "POLYLINE", [
+            (2.0, arcpy.Polyline(arcpy.Array([arcpy.Point(0, 0), arcpy.Point(20, 0)]), 3857)),
+            (4.0, arcpy.Polyline(arcpy.Array([arcpy.Point(0, 10), arcpy.Point(20, 10)]), 3857))], [("v", "DOUBLE")])
+        # One row of two cells, centres (5,5) and (15,5); each line is 5 from the centre, so √75 either side of x = 5
+        # lies in the circle of 10, cut at x = 0: 5 + √75 of each.
+        inside = 5 + math.sqrt(75)
+        self.assertAlmostEqual(cells(sa.LineStatistics(lines, "v", 10, 10))[0][0], 3.0)
+        self.assertAlmostEqual(cells(sa.LineStatistics(lines, "v", 10, 10, "LENGTH"))[0][0], 2 * inside)
+        self.assertEqual(cells(sa.LineStatistics(lines, "v", 10, 10, "RANGE"))[0][0], 2.0)
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.LineStatistics(lines, "v", 10, 10, "MEDIAN")
+
+    def test_aliases_and_classified_names(self):
+        self.assertIs(sa.Raster, arcpy.Raster)
+        self.assertIs(sa.Point, arcpy.Point)
+        self.assertIs(sa.Extent, arcpy.Extent)
+        for name, words in (("TfGaussian", "RescaleByFunction"), ("FuzzySmall", "images"), ("VfBinary", "path distance"),
+                            ("TopoLake", "TopoToRaster"), ("KernelDensity", "Predicted density formula")):
+            with self.assertRaises(arcpy.NotBuiltError) as raised:
+                getattr(sa, name)("a")
+            self.assertIn(words, str(raised.exception))
+        with self.assertRaises(arcpy.NotBuiltError) as raised:
+            sa.AreaSolarRadiation("a")
+        self.assertIn("hemispherical viewshed", str(raised.exception))
+
+    def test_buffered_and_an_irregular_neighbourhood(self):
+        values = grid([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        self.assertIs(sa.Buffered(values), values)
+        cross = os.path.join(self.directory, "cross.txt")
+        with open(cross, "w", encoding="utf-8") as kernel:
+            kernel.write("3 3\n0 1 0\n1 1 1\n0 2 0\n")
+        # The centre's cross: 2 + 4 + 5 + 6 + 8 (the 2 in the file counts as 1, being not 0).
+        self.assertEqual(cells(sa.FocalStatistics(values, sa.NbrIrregular(cross), "SUM"))[1][1], 25)
+        even = os.path.join(self.directory, "even.txt")
+        with open(even, "w", encoding="utf-8") as kernel:
+            kernel.write("2 2\n1 1\n1 1\n")
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.FocalStatistics(values, sa.NbrIrregular(even), "SUM")
 
 
 if __name__ == "__main__":

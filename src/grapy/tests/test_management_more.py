@@ -478,7 +478,10 @@ class ManagementMore(unittest.TestCase):
             self.assertIn("needs a data model this server does not hold yet (ADR-224 group 2)", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.management.ConvertCoordinateNotation()
-        self.assertIn("is not built in grapy yet", str(raised.exception))
+        self.assertIn("Esri does not document", str(raised.exception))
+        with self.assertRaises(arcpy.NotBuiltError) as raised:
+            arcpy.management.StandardizeField()
+        self.assertIn("standardize-field.html answered 404", str(raised.exception))
 
 
 if __name__ == "__main__":

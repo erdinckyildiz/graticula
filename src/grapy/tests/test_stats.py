@@ -438,6 +438,76 @@ class Stats(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "not unique"):
             stats.NeighborhoodSummaryStatistics(square, self.out("sq_out"), "v")
 
+    def test_similarity_search_by_standardized_values_and_profiles(self):
+        # Target T (a=0, b=0); candidates C1 (1, 0), C2 (2, 2), C3 (4, 0). Over all four: a has mean 1.75 and
+        # population variance (1.75² + .75² + .25² + 2.25²)/4 = 2.1875; b mean .5, variance (3·.25 + 2.25)/4 = .75.
+        # SIMINDEX = Δa²/2.1875 + Δb²/.75: C1 1/2.1875; C2 4/2.1875 + 4/.75; C3 16/2.1875 — so C1, C2, C3.
+        target = self.points("target", [(0, 0)], [[0.0], [0.0]], more=[("b", "DOUBLE")])
+        candidates = self.points("cands", [(10, 0), (20, 0), (30, 0)], [[1.0, 2.0, 4.0], [0.0, 2.0, 0.0]],
+                                 more=[("b", "DOUBLE")])
+        out = stats.SimilaritySearch(target, candidates, self.out("sim"), "NO_COLLAPSE", "MOST_SIMILAR",
+                                     "ATTRIBUTE_VALUES", 2, ["v", "b"]).getOutput(0)
+        got = self.rows(out, ["MATCH_ID", "CAND_ID", "SIMRANK", "SIMINDEX"])
+        self.assertEqual([r[:3] for r in got], [(1, None, None), (None, 1, 1), (None, 2, 2)])
+        self.assertAlmostEqual(got[1][3], 1 / 2.1875)
+        self.assertAlmostEqual(got[2][3], 4 / 2.1875 + 4 / 0.75)
+        both = stats.SimilaritySearch(target, candidates, self.out("both"), "NO_COLLAPSE", "BOTH", "ATTRIBUTE_VALUES",
+                                      10, ["v", "b"]).getOutput(0)
+        # Three candidates give at most one each way: C1 most similar, C3 least.
+        self.assertEqual(self.rows(both, ["CAND_ID", "SIMRANK", "DSIMRANK"])[1:], [(1, 1, None), (3, None, 1)])
+        # Profiles: standardized target (−1.75/√2.1875, −.5/√.75) and C1 (−.75/√2.1875, −.5/√.75); cosine of the two.
+        profiles = stats.SimilaritySearch(target, candidates, self.out("prof"), "NO_COLLAPSE", "MOST_SIMILAR",
+                                          "ATTRIBUTE_PROFILES", 0, ["v", "b"]).getOutput(0)
+        t = (-1.75 / math.sqrt(2.1875), -0.5 / math.sqrt(0.75))
+        c1 = (-0.75 / math.sqrt(2.1875), -0.5 / math.sqrt(0.75))
+        cosine = (t[0] * c1[0] + t[1] * c1[1]) / (math.hypot(*t) * math.hypot(*c1))
+        ranked = {r[0]: r[1] for r in self.rows(profiles, ["CAND_ID", "SIMINDEX"])[1:]}
+        self.assertAlmostEqual(ranked[1], cosine)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "RANKED_ATTRIBUTE_VALUES"):
+            stats.SimilaritySearch(target, candidates, self.out("r"), "NO_COLLAPSE", "MOST_SIMILAR",
+                                   "RANKED_ATTRIBUTE_VALUES", 2, ["v", "b"])
+
+    def test_spatial_association_between_zones_is_the_v_measure(self):
+        # Input zones a = [0,10]×[0,10], b = [10,20]×[0,10]; overlay x = [0,15]×[0,10], y = [15,20]×[0,10].
+        # Overlaps: a∩x 100, b∩x 50, b∩y 50 of 200: p = .5, .25, .25; p_a = p_b = .5; p_x = .75, p_y = .25.
+        # H(O) = −(.75 ln .75 + .25 ln .25); H(I) = ln 2; H(O|I) = −(.25 ln .5 + .25 ln .5) = .5 ln 2;
+        # H(I|O) = −(.5 ln(.5/.75) + .25 ln(.25/.75)). V is the harmonic mean of 1 − H(O|I)/H(O) and 1 − H(I|O)/H(I).
+        def box(x0, x1):
+            return arcpy.Polygon(arcpy.Array([arcpy.Point(x0, 0), arcpy.Point(x1, 0), arcpy.Point(x1, 10),
+                                              arcpy.Point(x0, 10)]), 3857)
+        zones = self.make("zones", "POLYGON", [("zone", "TEXT")], [("a", box(0, 10)), ("b", box(10, 20))])
+        overlay = self.make("over", "POLYGON", [("kind", "TEXT")], [("x", box(0, 15)), ("y", box(15, 20))])
+        result = stats.SpatialAssociationBetweenZones(zones, "zone", overlay, "kind")
+        h_o = -(0.75 * math.log(0.75) + 0.25 * math.log(0.25))
+        h_i = math.log(2)
+        overlay_in_input = 1 - 0.5 * math.log(2) / h_o
+        input_in_overlay = 1 - (-(0.5 * math.log(0.5 / 0.75) + 0.25 * math.log(0.25 / 0.75))) / h_i
+        self.assertAlmostEqual(result[5], overlay_in_input)
+        self.assertAlmostEqual(result[6], input_in_overlay)
+        self.assertAlmostEqual(result[4], 2 * overlay_in_input * input_in_overlay / (overlay_in_input + input_in_overlay))
+        # The same zones against themselves correspond perfectly.
+        self.assertAlmostEqual(stats.SpatialAssociationBetweenZones(zones, "zone", zones, "zone")[4], 1.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "output_features"):
+            stats.SpatialAssociationBetweenZones(zones, "zone", overlay, "kind", self.out("sab"))
+
+    def test_spatial_outlier_detection_by_local_outlier_factor(self):
+        # Points at x = 0, 1, 2, 3, 10 with k = 2. k-distances 2, 1, 1, 2, 8. Each of the first four has two
+        # reachability distances 1 and 2 (e.g. for 0: max(kd(1)=1, 1), max(kd(2)=1, 2)) → lrd 1/1.5 = 2/3; the point at
+        # 10 has max(2, 7) and max(1, 8) → lrd 1/7.5. LOF: 1 for the first four, (2/3)/(2/15) = 5 for the last.
+        # 20 percent of 5 points is one: the threshold is the highest LOF, 5.
+        path = self.points("lof", [(0, 0), (1, 0), (2, 0), (3, 0), (10, 0)])
+        out = stats.SpatialOutlierDetection(path, self.out("lof_out"), 2, 20, None, "LOCAL").getOutput(0)
+        got = self.rows(out, ["LOF", "IS_OUTLIER"])
+        for (lof, flag), (want, outlier) in zip(got, [(1, 0), (1, 0), (1, 0), (1, 0), (5, 1)]):
+            self.assertAlmostEqual(lof, want)
+            self.assertEqual(flag, outlier)
+        only = stats.SpatialOutlierDetection(path, self.out("lof_only"), 2, 20, None, "LOCAL", keep_type="KEEP_OUTLIER")
+        self.assertEqual(self.rows(only.getOutput(0), ["SHAPE@XY"]), [((10.0, 0.0),)])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "whole"):
+            stats.SpatialOutlierDetection(path, self.out("x"), 2, 30, None, "LOCAL")
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "GLOBAL"):
+            stats.SpatialOutlierDetection(path, self.out("g"), 2, 20)
+
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):
             stats.GenerateSpatialWeightsMatrix("x")

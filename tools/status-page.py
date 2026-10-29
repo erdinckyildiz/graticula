@@ -99,6 +99,8 @@ TEXT = {
         "assumptions": "Assumptions",
         "verified": "What is verified",
         "grapy": "grapy against arcpy",
+        "grapy_module": "Module", "grapy_built": "Built", "grapy_refused": "Refused, with the reason",
+        "grapy_unexamined": "Not yet examined",
         "grapy_sub": "Names grapy builds, of the public names arcpy {v} has in each module. Counted by tools/grapy_surface.py from grapy\u2019s source; a name grapy refuses is not counted.",
         "recent": "Recent work",
         "k_adrs": "ADRs",
@@ -195,6 +197,8 @@ TEXT = {
         "assumptions": "Varsay\u0131mlar",
         "verified": "Neyin do\u011fruland\u0131\u011f\u0131",
         "grapy": "grapy ve arcpy",
+        "grapy_module": "Modül", "grapy_built": "Kurulan", "grapy_refused": "Gerekçesiyle reddedilen",
+        "grapy_unexamined": "Henüz bakılmayan",
         "grapy_sub": "arcpy {v} her mod\u00fclde herkese a\u00e7\u0131k bir ad listesi sunar; grapy\u2019nin bunlardan ka\u00e7\u0131n\u0131 kurdu\u011fu. tools/grapy_surface.py grapy\u2019nin kayna\u011f\u0131ndan sayar; grapy\u2019nin reddetti\u011fi ad say\u0131lmaz.",
         "recent": "Son \u00e7al\u0131\u015fma",
         "k_adrs": "ADR",
@@ -1015,7 +1019,21 @@ def build():
         parts.append(f'<div class="bar"><div class="bar-l">{esc(module)}</div>'
                      f'<div class="bar-t"><div class="bar-f" style="width:{100*built/max(of, 1):.1f}%"></div></div>'
                      f'<div class="bar-n">{built} / {of}</div></div>')
-    parts.append('</div></section>')
+    parts.append('</div>')
+    # ADR-224 condition 4: what is not built is either refused with a reason or not yet examined; grapy answers which,
+    # through tools/grapy_refusals.py, and the file it writes is read here without grapy's wheels.
+    refusals_path = os.path.join(ROOT, "tools", "grapy-refusals.json")
+    if os.path.exists(refusals_path):
+        import json as _json
+        refusals = _json.load(io.open(refusals_path, encoding="utf-8"))
+        parts.append(f'<div class="scroll" style="margin-top:18px"><table><thead><tr><th>{esc(ui("grapy_module"))}</th>'
+                     f'<th class="num">{esc(ui("grapy_built"))}</th><th class="num">{esc(ui("grapy_refused"))}</th>'
+                     f'<th class="num">{esc(ui("grapy_unexamined"))}</th></tr></thead><tbody>')
+        for module, row in refusals.items():
+            parts.append(f'<tr><td class="id">{esc(module)}</td><td class="num">{row["built"]}</td>'
+                         f'<td class="num">{len(row["refused"])}</td><td class="num">{len(row["unexamined"])}</td></tr>')
+        parts.append('</tbody></table></div>')
+    parts.append('</section>')
 
     # ---- progress
     parts.append(f'<section><h2>{esc(ui("recent"))}</h2><ol class="log">')

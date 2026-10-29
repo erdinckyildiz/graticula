@@ -4,22 +4,31 @@ from __future__ import annotations
 
 from ._runtime import NotBuiltError
 from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
-    ACos, ACosH, ASin, ASinH, ATan, ATan2, ATanH, Abs, Aggregate, Aspect, BitwiseAnd, BitwiseLeftShift, BitwiseNot,
-    BitwiseOr, BitwiseRightShift, BitwiseXOr, BooleanAnd, BooleanNot, BooleanOr, BooleanXOr, CellStatistics, Con,
-    Contour, Cos, CosH, Curvature, Diff, Divide, EqualTo, EqualToFrequency, Exp, Exp10, Exp2, Float,
-    FocalStatistics, GreaterThan, GreaterThanEqual, GreaterThanFrequency, HighestPosition, Hillshade, Int, IsNull,
-    LessThan, LessThanEqual, LessThanFrequency, Ln, Log10, Log2, LowestPosition, Minus, Mod, NbrAnnulus, NbrCircle,
-    NbrRectangle, Negate, NotEqual, Over, Pick, Plus, Popularity, Power, RadiusFixed, RadiusVariable, Rank, Raster,
-    RasterCalculator, RemapRange, RemapValue, RoundDown, RoundUp, SetNull, Sin, SinH, Slope, Square, Tan, TanH,
-    Test, Times, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
+    ACos, ACosH, ASin, ASinH, ATan, ATan2, ATanH, Abs, Aggregate, Arithmetic, Aspect, BAI, BandArithmetic,
+    BitwiseAnd, BitwiseLeftShift, BitwiseNot, BitwiseOr, BitwiseRightShift, BitwiseXOr, BooleanAnd, BooleanNot,
+    BooleanOr, BooleanXOr, Buffered, CIg, CIre, CellStatistics, ClayMinerals, CompositeBand, Con, Contour, Cos,
+    CosH, Curvature, Diff, Divide, EVI, EqualTo, EqualToFrequency, Exp, Exp10, Exp2, Extent, ExtractBand,
+    FerrousMinerals, Float, FocalStatistics, GEMI, GVITM, GreaterThan, GreaterThanEqual, GreaterThanFrequency,
+    HighestPosition, Hillshade, Int, IronOxide, IsNull, LessThan, LessThanEqual, LessThanFrequency, Ln, Log10, Log2,
+    LowestPosition, MSAVI, Majority, Max, Mean, Median, Min, Minority, Minus, Mod, NBR, NDBI, NDMI, NDSI, NDVI,
+    NDVIre, NDWI, NbrAnnulus, NbrCircle, NbrIrregular, NbrRectangle, Negate, NotEqual, Over, PVI, Pick, Plus, Point,
+    Popularity, Power, RTVICore, RadiusFixed, RadiusVariable, Range, Rank, Raster, RasterCalculator, Remap,
+    RemapRange, RemapValue, RoundDown, RoundUp, SAVI, SR, SRre, SetNull, Sin, SinH, Slope, Square, SquareRoot,
+    StdDev, SubsetBands, Sum, TSAVI, Tan, TanH, Test, Times, TransposeBits, VARI, Variety, WSTable, WeightedSum,
+    ZonalStatistics, ZonalStatisticsAsTable,
 )
+from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
 
 
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
+    why = _REFUSED.get(name)
+    later = _NOT_YET.get(name)
 
     def missing(*_, **__):
-        raise NotBuiltError(f"arcpy.ia.{name} is not built in grapy yet.")
+        if why:
+            raise NotBuiltError(f"arcpy.ia.{name} is not built in grapy: {why}.")
+        raise NotBuiltError(f"arcpy.ia.{name} is not built in grapy yet" + (f": {later}." if later else "."))
 
     return missing

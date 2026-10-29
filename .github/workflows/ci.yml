@@ -828,6 +828,8 @@ jobs:
           python -m pip install --quiet shapely pyproj numpy rasterio scipy
           python -c "import ctypes; v = ctypes.CDLL(None).syscall(444, None, 0, 1); print('Landlock ABI', v); assert v >= 1, 'no Landlock on this kernel'"
           python -W error::DeprecationWarning -m unittest discover -s src/grapy/tests -v
+          # ADR-224 condition 4: the status page's refused/unexamined split is what grapy answers, not what it once did.
+          python tools/grapy_refusals.py --check
 
   registers:
     name: registers
