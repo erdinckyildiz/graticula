@@ -508,6 +508,77 @@ class Stats(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GLOBAL"):
             stats.SpatialOutlierDetection(path, self.out("g"), 2, 20)
 
+    # ---- equivalents (ADR-224 §5.6)
+
+    def test_ordinary_least_squares_by_the_textbook(self):
+        # x = 0..4, y = 1, 3, 4, 8, 9. x̄ = 2, ȳ = 5; Sxy = 8 + 2 + 0 + 3 + 8 = 21, Sxx = 10: β1 = 2.1, β0 = .8.
+        # Fitted .8, 2.9, 5, 7.1, 9.2; residuals .2, .1, −1, .9, −.2; RSS 1.9; TSS 46; σ² = 1.9/3; SE(β1) = √(σ²/10).
+        # White HC0 for the slope: Σ(x−x̄)²e²/Sxx² = (4·.04 + .01 + .81 + 4·.04)/100 = .0114.
+        # Koenker: e² = .04, .01, 1, .81, .04 on x has slope S(x,e²)/Sxx = .8/10 = .08, explained .064 of .9374: n·R².
+        # Jarque–Bera: m2 = .38, m3 = −.27/5, m4 = 1.6594/5; S = m3/m2^1.5, K = m4/m2²; JB = 5/6·(S² + (K−3)²/4).
+        # AICc = 5 ln(2π·1.9/5) + 5·7/(5 − 2 − 2).
+        path = self.points("ols", [(10 * i, 0) for i in range(5)], [[1.0, 3.0, 4.0, 8.0, 9.0], [0.0, 1, 2, 3, 4],
+                                                                     [1, 2, 3, 4, 5]],
+                           more=[("x", "DOUBLE"), ("uid", "LONG")])
+        result = stats.OrdinaryLeastSquares(path, "uid", self.out("ols_out"), "v", "x", self.out("coef"),
+                                            self.out("diag"))
+        coef = {r[0]: r[1:] for r in self.rows(result[1], ["Variable", "Coef", "StdError", "Robust_SE"])}
+        self.assertAlmostEqual(coef["Intercept"][0], 0.8)
+        self.assertAlmostEqual(coef["x"][0], 2.1)
+        self.assertAlmostEqual(coef["x"][1], math.sqrt(1.9 / 3 / 10))
+        self.assertAlmostEqual(coef["x"][2], math.sqrt(0.0114))
+        diag = dict(self.rows(result[2], ["Diag_Name", "Diag_Value"]))
+        self.assertAlmostEqual(diag["R2"], 1 - 1.9 / 46)
+        self.assertAlmostEqual(diag["K(BP)"], 5 * 0.064 / 0.9374)
+        m2, m3, m4 = 0.38, -0.27 / 5, 1.6594 / 5
+        self.assertAlmostEqual(diag["JB"], 5 / 6 * ((m3 / m2 ** 1.5) ** 2 + (m4 / m2 ** 2 - 3) ** 2 / 4))
+        self.assertAlmostEqual(diag["AICc"], 5 * math.log(2 * math.pi * 1.9 / 5) + 35)
+        residuals = [r[0] for r in self.rows(result[0], ["Residual"])]
+        for got, want in zip(residuals, [0.2, 0.1, -1.0, 0.9, -0.2]):
+            self.assertAlmostEqual(got, want)
+        self.assertIn("equivalent", stats.OrdinaryLeastSquares.__grapy_equivalent__ + " equivalent")
+
+    def test_generalized_linear_regression_logit_and_poisson(self):
+        # Logistic: at x = 0 one of four is 1, at x = 1 three of four. The MLE fits the two proportions exactly:
+        # β0 = logit(1/4) = −ln 3, β1 = logit(3/4) − logit(1/4) = 2 ln 3.
+        xs = [0, 0, 0, 0, 1, 1, 1, 1]
+        binary = self.points("bin", [(i * 10, 0) for i in range(8)], [[1.0, 0, 0, 0, 1, 1, 1, 0], xs],
+                             more=[("x", "DOUBLE")])
+        result = stats.GeneralizedLinearRegression(binary, "v", "BINARY", self.out("glr_b"), "x")
+        self.assertAlmostEqual(result[1], -math.log(3), places=8)
+        self.assertAlmostEqual(result[2], 2 * math.log(3), places=8)
+        # Poisson: counts 1, 3 at x = 0 (mean 2) and 4, 6 at x = 1 (mean 5): β0 = ln 2, β1 = ln(5/2).
+        counts = self.points("cnt", [(i * 10, 0) for i in range(4)], [[1.0, 3, 4, 6], [0.0, 0, 1, 1]],
+                             more=[("x", "DOUBLE")])
+        result = stats.GeneralizedLinearRegression(counts, "v", "COUNT", self.out("glr_c"), "x")
+        self.assertAlmostEqual(result[1], math.log(2), places=8)
+        self.assertAlmostEqual(result[2], math.log(2.5), places=8)
+        predicted = [r[0] for r in self.rows(result[0], ["PREDICTED"])]
+        for got, want in zip(predicted, [2, 2, 5, 5]):
+            self.assertAlmostEqual(got, want, places=8)
+
+    def test_gwr_local_fits_with_a_bisquare_band(self):
+        # Points at x = 0..4 with v = x and y = v². Bisquare band 2: weights (1 − (d/2)²)² — 1 at 0, .5625 at 1, 0 at 2.
+        # At 0: points 0 and 1 only — the line through (0,0) and (1,1): intercept 0, slope 1.
+        # At 1: points 0, 1, 2 weighted .5625, 1, .5625; weighted means v̄ = 1, ȳ = 3.25/2.125; S_vy = .5625(1.529…+2.470…)
+        #   = 2.25, S_vv = 1.125: slope 2, intercept 3.25/2.125 − 2.
+        # At 2: points 1, 2, 3, ȳ = 9.625/2.125, S_vy = .5625·8 = 4.5: slope 4, intercept 9.625/2.125 − 8.
+        # At 4: points 3 and 4: slope 7, intercept −12.
+        path = self.points("gwr", [(i, 0) for i in range(5)], [[0.0, 1, 4, 9, 16], [0.0, 1, 2, 3, 4]],
+                           more=[("x", "DOUBLE")])
+        out = stats.GWR(path, "v", "CONTINUOUS", "x", self.out("gwr_out"), "DISTANCE_BAND", "USER_DEFINED",
+                        distance_band=2).getOutput(0)
+        got = self.rows(out, ["INTERCEPT", "C_x", "PREDICTED"])
+        for (intercept, slope, _), (want_i, want_s) in zip(got, [(0, 1), (3.25 / 2.125 - 2, 2), (9.625 / 2.125 - 8, 4),
+                                                                  (None, None), (-12, 7)]):
+            if want_i is None:
+                continue
+            self.assertAlmostEqual(intercept, want_i)
+            self.assertAlmostEqual(slope, want_s)
+        self.assertAlmostEqual(got[2][2], 9.625 / 2.125)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "model_type"):
+            stats.GWR(path, "v", "COUNT", "x", self.out("g2"), "DISTANCE_BAND", "USER_DEFINED", distance_band=2)
+
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):
             stats.GenerateSpatialWeightsMatrix("x")
