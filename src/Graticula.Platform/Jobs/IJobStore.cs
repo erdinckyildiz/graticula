@@ -66,6 +66,12 @@ public enum JobKind
     /// reader of a service that offers <c>Extract</c>, not only the people who manage it.
     /// </remarks>
     FeatureExport,
+
+    /// <summary>
+    /// A task of the Spatial Analysis Service run over hosted layers, its result a new hosted layer —
+    /// <see href="../../../docs/adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md">ADR-222</see>.
+    /// </summary>
+    Analysis,
 }
 
 /// <summary>Where a job has got to.</summary>

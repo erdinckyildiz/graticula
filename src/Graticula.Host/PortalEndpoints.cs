@@ -331,6 +331,13 @@ internal static partial class PortalEndpoints
             }
         }
 
+        // ADR-222 §5.8b (INFERRED): an analysis writes a hosted layer, so whoever may publish one may run one — and Map
+        // Viewer looks for this word before it offers its Analysis pane.
+        if (current.Authorization.Allows(Privilege.ContentPublishFeatures))
+        {
+            held.Add("premium:user:spatialanalysis");
+        }
+
         if (current.Authorization.Allows(Privilege.FeaturesEdit))
         {
             held.Add("features:user:edit");
@@ -735,8 +742,9 @@ internal static partial class PortalEndpoints
             // the same basemap either way, so the two never disagree.
             defaultVectorBasemap = defaultBasemap,
 
+            // ADR-222: the analysis tools, at the address every client that runs analysis reads from here.
             helperServices = elsewhere is { Length: > 0 }
-                ? (object)new { geometry = new { url = elsewhere } }
+                ? (object)new { geometry = new { url = elsewhere }, analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" } }
                 : geometryOffered
                 ? new
                 {
@@ -744,8 +752,9 @@ internal static partial class PortalEndpoints
                     {
                         url = $"{Origin(context)}/rest/services/Utilities/Geometry/GeometryServer",
                     },
+                    analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" },
                 }
-                : new { },
+                : new { analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" } },
         });
     }
 

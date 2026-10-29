@@ -110,9 +110,20 @@ not reopen.
 ## Conditions
 
 1. **The protocol answers as documented** — service, task, submitJob, job, result, input and cancel resources, with
-   the documented status words and shapes — tested against a running server.
+   the documented status words and shapes — tested against a running server. **DISCHARGED 2026-10-29** by
+   `SpatialAnalysisServiceTests`: the service and task resources, `portals/self`'s `helperServices.analysis` and the
+   `premium:user:spatialanalysis` word, `execute` refused as asynchronous, an unknown job id answered as no job,
+   `submitJob`'s `{jobId, jobStatus: esriJobSubmitted}` with a `j` and 32 hex digits, the job's `results` as
+   `paramUrl`s, the result as `GPString` with `{url, itemId}`, and `cancel` refused for a job that has ended.
 2. **`CreateBuffers` and `DissolveBoundaries` make a hosted layer from a hosted layer** with the documented fields,
-   tested end to end through `submitJob`, and the result readable through its FeatureServer.
+   tested end to end through `submitJob`, and the result readable through its FeatureServer. **DISCHARGED 2026-10-29** by
+   `SpatialAnalysisServiceTests`: two distances over the suite's polygon layer make two buffers per feature with
+   `buff_dist`, `orig_fid` and `analysisarea`; dissolved by `buff_dist` they make one feature per distance whose `count`
+   is the number of features and whose `sum_analysisarea` is above zero; both read back through the new layers'
+   FeatureServer. Built as SQL in the datastore (`PostGisImporter.Analysis.cs`), filled by a parameterised insert into a
+   table made empty with the source's own column types, since PostgreSQL binds no parameters in `create table … as`.
+   **Field names are lower case** — `buff_dist`, not ArcGIS's `BUFF_DIST` — as every hosted column here is; a client
+   that reads them case-sensitively will not find them, and aliases are the repair if one does.
 3. **`OverlayLayers`, `MergeLayers`, `AggregatePoints`, `SummarizeWithin`, `JoinFeatures` and `FindCentroids`** are
    built under the same rules.
 4. **Inputs beyond this server's hosted layers** — a feature collection, a registered PostGIS table — or the reason

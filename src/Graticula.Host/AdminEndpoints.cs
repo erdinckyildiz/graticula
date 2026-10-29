@@ -1104,6 +1104,7 @@ internal static partial class AdminEndpoints
             JobKind.TileSeed => "tile.seed",
             JobKind.TileExport => "tile.export",
             JobKind.FeatureExport => "feature.export",
+            JobKind.Analysis => "analysis.run",
             _ => "unknown",
         },
         status = job.Status.ToString().ToLowerInvariant(),

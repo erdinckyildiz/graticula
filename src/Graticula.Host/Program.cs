@@ -453,6 +453,16 @@ public static class Program
 
         builder.Services.AddHostedService(services => services.GetRequiredService<FeatureExporter>());
 
+        // <b>The Spatial Analysis Service's runner — ADR-222 — a sixth poller on the same pool</b>, one run at a time per
+        // server, in the datastore.
+        builder.Services.AddSingleton<Graticula.Platform.Jobs.IAnalysisStore>(services =>
+            new PostgresAnalysisStore(services.GetRequiredService<NpgsqlDataSource>()));
+
+        builder.Services.AddHostedService(services =>
+            ActivatorUtilities.CreateInstance<AnalysisRunner>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
+
         // <b>Q-141's datum caution, aimed at the operator.</b> A singleton because
         // *said once* is a property of the server rather than of a request, and it is
         // read back by `/admin/health`.
@@ -2658,6 +2668,9 @@ public static class Program
 
         // ADR-106: the same layers as a job — several at once, a file kept for a day, a download of its own.
         FeatureExportEndpoints.Map(app);
+
+        // ADR-222: the analysis tools, where a portal's helperServices.analysis says they are.
+        AnalysisEndpoints.Map(app);
 
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol
