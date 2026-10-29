@@ -153,6 +153,119 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-222 condition 3: the two-layer tools — an overlay that intersects and erases, a merge, and points counted into
+    /// polygons — each judged by a relation the fixture cannot move rather than by a number it holds today.
+    /// </summary>
+    [Fact]
+    public async Task Overlay_merge_and_aggregate_make_hosted_layers_from_two_layers()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string Layer(string variable, string fallback) =>
+            $"{root}/rest/services/{(Environment.GetEnvironmentVariable(variable) ?? fallback).Trim('/')}/FeatureServer/0";
+        string buildings = Layer(QueryCapabilityConformanceTests.LayerVariable, "hosted/ci_buildings");
+        string parcels = Layer("GRATICULA_TEST_TILE_SERVICE", "hosted/ci_parcels");
+        string points = Layer("GRATICULA_TEST_TEMPORAL", "hosted/ci_observations");
+        string stamp = Guid.NewGuid().ToString("N")[..8];
+        List<string> made = [];
+        using HttpClient http = Unverified();
+
+        async Task<int> CountAsync(string url)
+        {
+            (_, JsonElement counted) = await SendAsync(http, token, HttpMethod.Get, $"{url}/query?where=1%3D1&returnCountOnly=true&f=json");
+            return counted.GetProperty("count").GetInt32();
+        }
+
+        async Task<string> MakeAsync(string task, string result, string name, Dictionary<string, string> form)
+        {
+            made.Add(name);
+            form["outputName"] = Json(new { serviceProperties = new { name } });
+            return await RunAsync(http, root, token, task, result, form);
+        }
+
+        try
+        {
+            int buildingCount = await CountAsync(buildings);
+            string rings = await MakeAsync("CreateBuffers", "bufferLayer", $"zz_ring_{stamp}", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = buildings }),
+                ["distances"] = "[100]",
+            });
+
+            // Every building meets its own buffer, and keeps its fields beside the buffer's, renamed where they clash.
+            string met = await MakeAsync("OverlayLayers", "outputLayer", $"zz_met_{stamp}", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = buildings }),
+                ["overlayLayer"] = Json(new { url = rings }),
+                ["overlayType"] = "Intersect",
+            });
+            Assert.True(await CountAsync(met) >= buildingCount, "An intersection with each building's own buffer lost a building.");
+            (_, JsonElement metLayer) = await SendAsync(http, token, HttpMethod.Get, $"{met}?f=json");
+            string[] metFields = [.. metLayer.GetProperty("fields").EnumerateArray().Select(f => f.GetProperty("name").GetString()!)];
+            Assert.Contains("buff_dist", metFields);
+            Assert.Contains(metFields, f => f.EndsWith("_1", StringComparison.Ordinal));
+
+            // A buffer less the buildings is a ring around each: as many as there were buffers.
+            string erased = await MakeAsync("OverlayLayers", "outputLayer", $"zz_ers_{stamp}", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = rings }),
+                ["overlayLayer"] = Json(new { url = buildings }),
+                ["overlayType"] = "Erase",
+            });
+            Assert.Equal(await CountAsync(rings), await CountAsync(erased));
+
+            // The union of buildings and their buffers: each building where they meet, and each ring outside it.
+            string united = await MakeAsync("OverlayLayers", "outputLayer", $"zz_uni_{stamp}", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = buildings }),
+                ["overlayLayer"] = Json(new { url = rings }),
+                ["overlayType"] = "Union",
+            });
+            Assert.True(await CountAsync(united) >= await CountAsync(rings) + buildingCount,
+                "A union of buildings with their buffers lost a piece.");
+
+            // Two polygon layers merged hold the features of both.
+            string merged = await MakeAsync("MergeLayers", "mergedLayer", $"zz_mrg_{stamp}", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = buildings }),
+                ["mergeLayer"] = Json(new { url = parcels }),
+            });
+            Assert.Equal(buildingCount + await CountAsync(parcels), await CountAsync(merged));
+
+            // Each point's own buffer holds at least that point.
+            string around = await MakeAsync("CreateBuffers", "bufferLayer", $"zz_ard_{stamp}", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = points }),
+                ["distances"] = "[500]",
+            });
+            string counted = await MakeAsync("AggregatePoints", "aggregatedLayer", $"zz_agg_{stamp}", new Dictionary<string, string>
+            {
+                ["pointLayer"] = Json(new { url = points }),
+                ["polygonLayer"] = Json(new { url = around }),
+            });
+            (_, JsonElement aggregated) = await SendAsync(http, token, HttpMethod.Get,
+                $"{counted}/query?where=1%3D1&outFields=point_count&returnGeometry=false&f=json");
+            JsonElement[] rows = [.. aggregated.GetProperty("features").EnumerateArray()];
+            Assert.Equal(await CountAsync(around), rows.Length);
+            Assert.All(rows, r => Assert.True(r.GetProperty("attributes").GetProperty("point_count").GetInt32() >= 1));
+        }
+        finally
+        {
+            foreach (string name in Enumerable.Reverse(made))
+            {
+                (int status, string body) = await AdminAsync(
+                    HttpMethod.Delete, $"/admin/featureservices/{Uri.EscapeDataString(name)}?folder=hosted&drop=true");
+
+                if (status == 200 && JsonDocument.Parse(body).RootElement.TryGetProperty("recycled", out JsonElement entry)
+                    && entry.ValueKind == JsonValueKind.String)
+                {
+                    await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{entry.GetString()}");
+                }
+            }
+        }
+    }
+
     private static async Task<string> RunAsync(
         HttpClient http, string root, string token, string task, string result, Dictionary<string, string> form)
     {

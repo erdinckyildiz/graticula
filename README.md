@@ -162,7 +162,7 @@ that works.
   ([ADR-082](docs/adr/ADR-082-offline-sync-is-not-in-v1.md)). Vector tiles can be exported as a
   package for them ([ADR-098](docs/adr/ADR-098-vector-tiles-can-be-exported-as-a-package.md)), which
   has not yet been tried in either.
-- **Analysis is built in and two tools deep; no geocoding.** The portal names a Spatial Analysis Service, as ArcGIS Enterprise's does, whose `CreateBuffers` and `DissolveBoundaries` run as jobs over hosted layers and write a new hosted layer ([ADR-222](docs/adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md)). The rest of that toolset, a result returned without being saved, and running it from Map Viewer or Studio are not built yet. No web tools and no Python toolboxes: nothing a user uploads is run.
+- **Analysis is built in and five tools deep; no geocoding.** The portal names a Spatial Analysis Service, as ArcGIS Enterprise's does, whose `CreateBuffers`, `DissolveBoundaries`, `OverlayLayers`, `MergeLayers` and `AggregatePoints` run as jobs over hosted layers and write a new hosted layer ([ADR-222](docs/adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md)). The rest of that toolset, a result returned without being saved, and running it from Map Viewer or Studio are not built yet. No web tools and no Python toolboxes: nothing a user uploads is run.
 - **No *New ArcGIS Server* connection.** That handshake is SOAP; it is not built and not
   planned. A portal connection reaches the same content.
 - **Backup is the server's own command, restore needs it stopped.** `graticula backup` and

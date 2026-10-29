@@ -125,7 +125,14 @@ not reopen.
    **Field names are lower case** — `buff_dist`, not ArcGIS's `BUFF_DIST` — as every hosted column here is; a client
    that reads them case-sensitively will not find them, and aliases are the repair if one does.
 3. **`OverlayLayers`, `MergeLayers`, `AggregatePoints`, `SummarizeWithin`, `JoinFeatures` and `FindCentroids`** are
-   built under the same rules.
+   built under the same rules. **PARTLY DISCHARGED 2026-10-29** — the first three, tested in `SpatialAnalysisServiceTests`
+   by relations the fixture cannot move: each building meets its own buffer in an intersection, and its fields sit
+   beside the buffer's with a clash renamed `_1`; a buffer less the buildings leaves one ring per buffer; the union of
+   the two holds at least a piece per building and per ring; two polygon layers merged hold both counts; and each
+   point's own buffer counts at least that point. `OverlayLayers` takes `Intersect`, `Union` (polygons only) and `Erase`,
+   `outputType` `Input` only; `MergeLayers` takes `Remove`, `Rename` and `Match` and refuses text matched into a number,
+   as ArcGIS does; `AggregatePoints` takes a polygon layer and `keepBoundariesWithNoPoints`, and refuses bins and a
+   group-by field by name. **Open:** `SummarizeWithin`, `JoinFeatures`, `FindCentroids`, bins.
 4. **Inputs beyond this server's hosted layers** — a feature collection, a registered PostGIS table — or the reason
    they are not.
 5. **Map Viewer's *Analysis* pane runs `CreateBuffers` against this server**, measured in the browser; what it reads

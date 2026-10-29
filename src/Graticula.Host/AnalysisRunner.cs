@@ -163,12 +163,27 @@ internal sealed partial class AnalysisRunner : BackgroundService
                 ?? throw new InvalidOperationException("The input layer was removed after the analysis was submitted.");
 
             (_, LayerDescription described) = await _contexts.GetAsync(layer, stop.Token).ConfigureAwait(false);
-            AnalysisInput input = InputOf(plan, layer, described);
+            AnalysisInput input = InputOf(plan, layer, described, "filter", run.Task);
+            AnalysisInput? second = null;
+
+            if (plan["layer2"]?.GetValue<string>() is { } secondId)
+            {
+                PublishedLayer other = await _layers.FindByIdAsync(Guid.Parse(secondId), stop.Token).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("The second input layer was removed after the analysis was submitted.");
+                (_, LayerDescription otherDescribed) = await _contexts.GetAsync(other, stop.Token).ConfigureAwait(false);
+                second = InputOf(plan, other, otherDescribed, "filter2", run.Task);
+            }
 
             ImportResult made = run.Task switch
             {
                 "CreateBuffers" => await _importer.BufferAsync(input, BufferOf(plan), table, stop.Token).ConfigureAwait(false),
                 "DissolveBoundaries" => await _importer.DissolveAsync(input, DissolveOf(plan), table, stop.Token).ConfigureAwait(false),
+                "OverlayLayers" => await _importer.OverlayAsync(input, second!, OverlayOf(plan), table, stop.Token).ConfigureAwait(false),
+                "MergeLayers" => await _importer.MergeAsync(input, second!, MergeOf(plan), table, stop.Token).ConfigureAwait(false),
+
+                // The polygons are what the result is made of, so theirs is the reference and the context's outSR applies to them.
+                "AggregatePoints" => await _importer.AggregateAsync(
+                    input, second! with { OutputSrid = input.OutputSrid }, AggregateOf(plan), table, stop.Token).ConfigureAwait(false),
                 _ => throw new InvalidOperationException($"'{run.Task}' is not a task this server runs."),
             };
 
@@ -187,7 +202,12 @@ internal sealed partial class AnalysisRunner : BackgroundService
                     "objectid",
                     "objectid",
                     made.StoredSrid,
-                    GeometryKind.MultiPolygon,
+                    (AnalysisShape)plan["shape"]!.GetValue<int>() switch
+                    {
+                        AnalysisShape.Points => GeometryKind.MultiPoint,
+                        AnalysisShape.Lines => GeometryKind.MultiLineString,
+                        _ => GeometryKind.MultiPolygon,
+                    },
                     SharingScope.Private,
                     ServiceName: output,
                     Folder: "hosted"),
@@ -197,7 +217,7 @@ internal sealed partial class AnalysisRunner : BackgroundService
             PublishedService service = await _layers.FindServiceAsync("hosted", output, stop.Token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException($"'{output}' was published and could not be found again.");
 
-            string result = run.Task == "CreateBuffers" ? "bufferLayer" : "dissolvedLayer";
+            string result = AnalysisEndpoints.Tasks.First(t => t.Name == run.Task).Result;
             JsonObject results = new()
             {
                 [result] = new JsonObject
@@ -280,20 +300,12 @@ internal sealed partial class AnalysisRunner : BackgroundService
     }
 
     /// <summary>The layer, the columns it keeps, its filter parsed again, and the context.</summary>
-    private static AnalysisInput InputOf(JsonObject plan, PublishedLayer layer, LayerDescription described)
+    private static AnalysisInput InputOf(JsonObject plan, PublishedLayer layer, LayerDescription described, string filter, string task)
     {
-        string identity = layer.Definition.IntegerIdentityColumn ?? layer.Definition.IdentityColumn;
-        string[] reserved = ["buff_dist", "orig_fid", "analysisarea", "geom", "objectid", "count"];
-
-        // Every attribute but the row's own id and its GlobalID, which the result has afresh.
-        string[] columns = [.. described.Fields
-            .Where(f => f.Type != FieldType.Guid
-                && !string.Equals(f.Name, identity, StringComparison.OrdinalIgnoreCase)
-                && !reserved.Contains(f.Name, StringComparer.OrdinalIgnoreCase))
-            .Select(f => f.Name)];
+        IReadOnlyList<string> columns = AnalysisEndpoints.CarriedColumns(layer, described, task);
 
         if (!WhereClause.TryParse(
-                plan["filter"]?.GetValue<string>(), [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote,
+                plan[filter]?.GetValue<string>(), [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote,
                 out ParsedWhere where, out string? bad, described.Fields.ToDictionary(f => f.Name, f => f.Type)))
         {
             throw new InvalidOperationException($"The input layer's filter no longer reads against its fields: {bad}");
@@ -329,6 +341,25 @@ internal sealed partial class AnalysisRunner : BackgroundService
         [.. plan["summaries"]!.AsArray().Select(s => (
             s!["field"]!.GetValue<string>(), s["statistic"]!.GetValue<string>(), s["output"]!.GetValue<string>()))],
         plan["multiPart"]!.GetValue<bool>());
+
+    private static IReadOnlyList<(string Source, string Output)> Pairs(JsonNode? node) =>
+        [.. (node?.AsArray() ?? []).Select(c => (c!["source"]!.GetValue<string>(), c["output"]!.GetValue<string>()))];
+
+    private static OverlayPlan OverlayOf(JsonObject plan) => new(
+        plan["overlayType"]!.GetValue<string>(),
+        (AnalysisShape)plan["shape"]!.GetValue<int>(),
+        Pairs(plan["overlayColumns"]));
+
+    private static MergePlan MergeOf(JsonObject plan) => new(
+        Pairs(plan["inputColumns"]),
+        Pairs(plan["mergeColumns"]),
+        Pairs(plan["mergeOnly"]),
+        (AnalysisShape)plan["shape"]!.GetValue<int>());
+
+    private static AggregatePlan AggregateOf(JsonObject plan) => new(
+        [.. plan["summaries"]!.AsArray().Select(s => (
+            s!["field"]!.GetValue<string>(), s["statistic"]!.GetValue<string>(), s["output"]!.GetValue<string>()))],
+        plan["keepEmpty"]!.GetValue<bool>());
 
     private static void Say(List<JsonObject> messages, string type, string description) =>
         messages.Add(new JsonObject { ["type"] = type, ["description"] = description });

@@ -98,7 +98,9 @@ internal static partial class AnalysisEndpoints
         object? DefaultValue = null, IReadOnlyList<string>? ChoiceList = null);
 
     /// <summary>One task: its name, what it does, its parameters, and the result parameter it writes.</summary>
-    internal sealed record TaskInfo(string Name, string DisplayName, string Description, string Result, IReadOnlyList<Parameter> Parameters);
+    internal sealed record TaskInfo(
+        string Name, string DisplayName, string Description, string Result, IReadOnlyList<Parameter> Parameters,
+        string Primary = "inputLayer", string? Second = null);
 
     private static readonly Parameter OutputName = new(
         "outputName", "GPString", "Output Name",
@@ -142,6 +144,49 @@ internal static partial class AnalysisEndpoints
                 ContextParameter,
                 new("dissolvedLayer", "GPString", "Dissolved Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
             ]),
+        new(
+            "OverlayLayers", "Overlay Layers",
+            "Combines two layers: their intersection, their union, or the first less the second.",
+            "outputLayer",
+            [
+                new("inputLayer", "GPFeatureRecordSetLayer", "Input Layer", "The features overlaid: {\"url\": \"<layer url>\"}.", false, true),
+                new("overlayLayer", "GPFeatureRecordSetLayer", "Overlay Layer", "The features they are overlaid with: {\"url\": \"<layer url>\"}.", false, true),
+                new("overlayType", "GPString", "Overlay Type", "Intersect, Union (polygons with polygons) or Erase.", false, false, "Intersect", ["Intersect", "Union", "Erase"]),
+                new("outputType", "GPString", "Output Type", "Input only, for now: an intersection keeps the lower dimension of the two.", false, false, "Input", ["Input"]),
+                OutputName,
+                ContextParameter,
+                new("outputLayer", "GPString", "Output Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
+            ],
+            Second: "overlayLayer"),
+        new(
+            "MergeLayers", "Merge Layers",
+            "Copies the features of two layers of the same kind of geometry into one.",
+            "mergedLayer",
+            [
+                new("inputLayer", "GPFeatureRecordSetLayer", "Input Layer", "The first layer: {\"url\": \"<layer url>\"}.", false, true),
+                new("mergeLayer", "GPFeatureRecordSetLayer", "Merge Layer", "The second layer, of the same kind of geometry.", false, true),
+                new("mergingAttributes", "GPMultiValue:GPString", "Merging Attributes",
+                    "\"<field> Remove\", \"<field> Rename <name>\" or \"<merge field> Match <input field>\"; fields of the same name are matched anyway.", false, false),
+                OutputName,
+                ContextParameter,
+                new("mergedLayer", "GPString", "Merged Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
+            ],
+            Second: "mergeLayer"),
+        new(
+            "AggregatePoints", "Aggregate Points",
+            "Counts the points that fall in each polygon, and summarises their fields.",
+            "aggregatedLayer",
+            [
+                new("pointLayer", "GPFeatureRecordSetLayer", "Point Layer", "The points: {\"url\": \"<layer url>\"}.", false, true),
+                new("polygonLayer", "GPFeatureRecordSetLayer", "Polygon Layer", "The polygons they are counted in. Bins are not built yet.", false, true),
+                new("keepBoundariesWithNoPoints", "GPBoolean", "Keep Boundaries With No Points", "False leaves out a polygon with no point in it.", false, false, true),
+                new("summaryFields", "GPMultiValue:GPString", "Summary Fields", "\"<field> <Sum|Mean|Min|Max|Stddev>\" over the points in each polygon.", false, false),
+                OutputName,
+                ContextParameter,
+                new("aggregatedLayer", "GPString", "Aggregated Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
+            ],
+            Primary: "pointLayer",
+            Second: "polygonLayer"),
     ];
 
     private static TaskInfo? TaskNamed(string name) =>
@@ -275,9 +320,9 @@ internal static partial class AnalysisEndpoints
             }
         }
 
-        // ---- the input layer
+        // ---- the input layer, and the second one where the task takes two
         (PublishedLayer? layer, string? filter, string? why) =
-            await InputLayerAsync(asked("inputLayer"), current, layers, cancellation).ConfigureAwait(false);
+            await InputLayerAsync(info.Primary, asked(info.Primary), current, layers, cancellation).ConfigureAwait(false);
 
         if (layer is null)
         {
@@ -290,7 +335,29 @@ internal static partial class AnalysisEndpoints
         if (!WhereClause.TryParse(filter, [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote, out _, out string? badFilter,
                 described.Fields.ToDictionary(f => f.Name, f => f.Type)))
         {
-            return (null, $"The input layer's filter could not be read: {badFilter}");
+            return (null, $"The {info.Primary}'s filter could not be read: {badFilter}");
+        }
+
+        PublishedLayer? second = null;
+        string? secondFilter = null;
+        LayerDescription? secondDescribed = null;
+
+        if (info.Second is { } secondName)
+        {
+            (second, secondFilter, why) = await InputLayerAsync(secondName, asked(secondName), current, layers, cancellation).ConfigureAwait(false);
+
+            if (second is null)
+            {
+                return (null, why);
+            }
+
+            (_, secondDescribed) = await contexts.GetAsync(second, cancellation).ConfigureAwait(false);
+
+            if (!WhereClause.TryParse(secondFilter, [.. secondDescribed.Fields.Select(f => f.Name)], LayerDefinition.Quote, out _, out badFilter,
+                    secondDescribed.Fields.ToDictionary(f => f.Name, f => f.Type)))
+            {
+                return (null, $"The {secondName}'s filter could not be read: {badFilter}");
+            }
         }
 
         // ---- the output
@@ -302,7 +369,8 @@ internal static partial class AnalysisEndpoints
         }
 
         // ---- the context
-        (JsonObject? extent, int? outSrid, string? badContext) = ContextOf(asked("context") ?? asked("env:outSR"), asked("env:outSR") is not null);
+        bool legacy = asked("context") is null && asked("env:outSR") is not null;
+        (JsonObject? extent, int? outSrid, string? badContext) = ContextOf(asked("context") ?? asked("env:outSR"), legacy);
 
         if (badContext is not null)
         {
@@ -317,12 +385,18 @@ internal static partial class AnalysisEndpoints
             ["output"] = output,
             ["extent"] = extent,
             ["outSrid"] = outSrid,
+            ["layer2"] = second?.Id.ToString(),
+            ["filter2"] = secondFilter,
+            ["shape"] = (int)AnalysisShape.Polygons,
         };
 
         string? refusal = info.Name switch
         {
             "CreateBuffers" => PlanBuffers(asked, layer, fields, plan),
             "DissolveBoundaries" => PlanDissolve(asked, layer, fields, plan),
+            "OverlayLayers" => PlanOverlay(asked, layer, described, second!, secondDescribed!, plan),
+            "MergeLayers" => PlanMerge(asked, layer, described, second!, secondDescribed!, plan),
+            "AggregatePoints" => PlanAggregate(asked, layer, described, second!, secondDescribed!, plan),
             _ => $"'{info.Name}' is listed and not built.",
         };
 
@@ -447,13 +521,239 @@ internal static partial class AnalysisEndpoints
         return null;
     }
 
+    /// <summary>Names every result writes for itself.</summary>
+    private static readonly string[] Always = ["objectid", "geom"];
+
+    /// <summary>The names a task's result writes beside the columns it carries, so a source column of the same name is left out.</summary>
+    internal static IReadOnlyList<string> WrittenBy(string task) => task switch
+    {
+        "CreateBuffers" => ["buff_dist", "orig_fid", "analysisarea"],
+        "AggregatePoints" => ["point_count"],
+        _ => [],
+    };
+
+    /// <summary>
+    /// The source columns a result keeps: every attribute but the row's own id and its GlobalID, which the result has
+    /// afresh, and a name the task writes itself. One rule, read by the plan and by the runner.
+    /// </summary>
+    internal static IReadOnlyList<string> CarriedColumns(PublishedLayer layer, LayerDescription described, string task)
+    {
+        string identity = layer.Definition.IntegerIdentityColumn ?? layer.Definition.IdentityColumn;
+        string[] written = [.. Always, .. WrittenBy(task)];
+
+        return [.. described.Fields
+            .Where(f => f.Type != FieldType.Guid
+                && !string.Equals(f.Name, identity, StringComparison.OrdinalIgnoreCase)
+                && !written.Contains(f.Name, StringComparer.OrdinalIgnoreCase))
+            .Select(f => f.Name)];
+    }
+
+    /// <summary>Points, lines or polygons, from a layer's geometry type.</summary>
+    internal static AnalysisShape ShapeOf(GeometryKind? kind) => kind switch
+    {
+        GeometryKind.Point or GeometryKind.MultiPoint => AnalysisShape.Points,
+        GeometryKind.LineString or GeometryKind.MultiLineString => AnalysisShape.Lines,
+        _ => AnalysisShape.Polygons,
+    };
+
+    /// <summary>A name not yet taken: the name itself, or with <c>_1</c>, <c>_2</c> … after it, as ArcGIS renames a clash.</summary>
+    private static string Unclaimed(string name, ICollection<string> taken)
+    {
+        string candidate = name;
+
+        for (int i = 1; taken.Contains(candidate) || Always.Contains(candidate, StringComparer.OrdinalIgnoreCase); i++)
+        {
+            candidate = PostGisImporter.ColumnNameFor($"{name}_{i.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        taken.Add(candidate);
+        return candidate;
+    }
+
+    private static string? PlanOverlay(
+        Func<string, string?> asked, PublishedLayer layer, LayerDescription described,
+        PublishedLayer overlay, LayerDescription overlayDescribed, JsonObject plan)
+    {
+        if (Choice(asked("overlayType"), "Intersect", ["Intersect", "Union", "Erase"]) is not { } operation)
+        {
+            return "overlayType is Intersect, Union or Erase.";
+        }
+
+        if (asked("outputType") is { Length: > 0 } type && !string.Equals(type, "Input", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"outputType {type} is not built here yet; an intersection keeps the lower dimension of the two layers (Input).";
+        }
+
+        AnalysisShape first = ShapeOf(layer.GeometryType);
+        AnalysisShape other = ShapeOf(overlay.GeometryType);
+
+        if (operation == "Union" && (first != AnalysisShape.Polygons || other != AnalysisShape.Polygons))
+        {
+            return "Union overlays polygons with polygons.";
+        }
+
+        if (operation == "Erase" && other != AnalysisShape.Polygons)
+        {
+            return "Erase takes away the area of a polygon layer; the overlay layer holds no area.";
+        }
+
+        HashSet<string> taken = new(CarriedColumns(layer, described, "OverlayLayers"), StringComparer.OrdinalIgnoreCase);
+        JsonArray columns = [];
+
+        foreach (string column in CarriedColumns(overlay, overlayDescribed, "OverlayLayers"))
+        {
+            columns.Add(new JsonObject { ["source"] = column, ["output"] = Unclaimed(column, taken) });
+        }
+
+        plan["overlayType"] = operation;
+        plan["overlayColumns"] = columns;
+        plan["shape"] = (int)(operation switch
+        {
+            "Intersect" => (AnalysisShape)Math.Min((int)first, (int)other),
+            "Erase" => first,
+            _ => AnalysisShape.Polygons,
+        });
+        return null;
+    }
+
+    private static string? PlanMerge(
+        Func<string, string?> asked, PublishedLayer layer, LayerDescription described,
+        PublishedLayer merge, LayerDescription mergeDescribed, JsonObject plan)
+    {
+        AnalysisShape shape = ShapeOf(layer.GeometryType);
+
+        if (ShapeOf(merge.GeometryType) != shape)
+        {
+            return "The two layers hold different kinds of geometry; merging takes points with points, lines with lines, polygons with polygons.";
+        }
+
+        Dictionary<string, FieldDescription> inputFields = described.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, FieldDescription> mergeFields = mergeDescribed.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> removed = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> renamed = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string> matched = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string entry in Strings(asked("mergingAttributes")) ?? [])
+        {
+            string[] parts = entry.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            switch (parts.Length >= 2 ? parts[1].ToLowerInvariant() : string.Empty)
+            {
+                case "remove" when parts.Length == 2 && (inputFields.ContainsKey(parts[0]) || mergeFields.ContainsKey(parts[0])):
+                    removed.Add(parts[0]);
+                    break;
+                case "rename" when parts.Length == 3 && mergeFields.ContainsKey(parts[0]):
+                    renamed[parts[0]] = PostGisImporter.ColumnNameFor(parts[2]);
+                    break;
+                case "match" when parts.Length == 3 && mergeFields.TryGetValue(parts[0], out FieldDescription from)
+                    && inputFields.TryGetValue(parts[2], out FieldDescription to):
+                    if (from.Type == FieldType.Text && IsNumeric(to.Type))
+                    {
+                        return $"'{from.Name}' holds text and '{to.Name}' numbers; text is not matched into a number.";
+                    }
+
+                    matched[parts[0]] = to.Name;
+                    break;
+                default:
+                    return $"'{entry}' is not a merging attribute: write \"<field> Remove\", \"<field> Rename <name>\" or "
+                        + "\"<merge field> Match <input field>\", with fields the layers have.";
+            }
+        }
+
+        string[] inputColumns = [.. CarriedColumns(layer, described, "MergeLayers").Where(c => !removed.Contains(c))];
+        HashSet<string> taken = new(inputColumns, StringComparer.OrdinalIgnoreCase);
+        JsonArray mergeColumns = [];
+        JsonArray mergeOnly = [];
+
+        foreach (string column in CarriedColumns(merge, mergeDescribed, "MergeLayers").Where(c => !removed.Contains(c)))
+        {
+            // Matched by name or by the request, the input's column takes it; otherwise it is a column of its own.
+            string? into = matched.TryGetValue(column, out string? target) ? target
+                : !renamed.ContainsKey(column) && inputColumns.Contains(column, StringComparer.OrdinalIgnoreCase)
+                    ? inputColumns.First(c => string.Equals(c, column, StringComparison.OrdinalIgnoreCase))
+                    : null;
+
+            if (into is not null && mergeFields[column].Type == FieldType.Text && IsNumeric(inputFields[into].Type))
+            {
+                return $"'{column}' holds text in the merge layer and numbers in the input layer; rename it to keep both.";
+            }
+
+            string output = into ?? Unclaimed(renamed.TryGetValue(column, out string? name) ? name : column, taken);
+            mergeColumns.Add(new JsonObject { ["source"] = column, ["output"] = output });
+
+            if (into is null)
+            {
+                mergeOnly.Add(new JsonObject { ["source"] = column, ["output"] = output });
+            }
+        }
+
+        plan["inputColumns"] = new JsonArray([.. inputColumns.Select(c => (JsonNode)new JsonObject { ["source"] = c, ["output"] = c })]);
+        plan["mergeColumns"] = mergeColumns;
+        plan["mergeOnly"] = mergeOnly;
+        plan["shape"] = (int)shape;
+        return null;
+    }
+
+    private static string? PlanAggregate(
+        Func<string, string?> asked, PublishedLayer points, LayerDescription pointsDescribed,
+        PublishedLayer polygons, LayerDescription polygonsDescribed, JsonObject plan)
+    {
+        if (ShapeOf(points.GeometryType) != AnalysisShape.Points)
+        {
+            return "pointLayer holds no points.";
+        }
+
+        if (ShapeOf(polygons.GeometryType) != AnalysisShape.Polygons)
+        {
+            return "polygonLayer holds no polygons.";
+        }
+
+        if (asked("binType") is { Length: > 0 } || asked("groupByField") is { Length: > 0 })
+        {
+            return "Bins and a group-by field are not built here yet; aggregate into a polygon layer.";
+        }
+
+        Dictionary<string, FieldDescription> fields = pointsDescribed.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        HashSet<string> taken = new([.. CarriedColumns(polygons, polygonsDescribed, "AggregatePoints"), "point_count"], StringComparer.OrdinalIgnoreCase);
+        JsonArray summaries = [];
+
+        foreach (string entry in Strings(asked("summaryFields")) ?? [])
+        {
+            string[] parts = entry.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length != 2 || !fields.TryGetValue(parts[0], out FieldDescription found)
+                || !Statistics.TryGetValue(parts[1], out string? aggregate))
+            {
+                return $"'{entry}' is not a summary: write a field of the points and one of Sum, Mean, Min, Max or Stddev.";
+            }
+
+            if (!IsNumeric(found.Type) && !(found.Type == FieldType.Date && aggregate is "min" or "max"))
+            {
+                return $"{parts[1]} of '{found.Name}' cannot be taken: it is not a number.";
+            }
+
+            summaries.Add(new JsonObject
+            {
+                ["field"] = found.Name,
+                ["statistic"] = aggregate,
+                ["output"] = Unclaimed(PostGisImporter.ColumnNameFor($"{parts[1]}_{found.Name}"), taken),
+            });
+        }
+
+        string? keep = asked("keepBoundariesWithNoPoints");
+        plan["summaries"] = summaries;
+        plan["keepEmpty"] = keep is null || !string.Equals(keep.Trim(), "false", StringComparison.OrdinalIgnoreCase);
+        plan["shape"] = (int)AnalysisShape.Polygons;
+        return null;
+    }
+
     /// <summary>The input layer a request names, if it is this server's, hosted, and readable by the caller.</summary>
     private static async Task<(PublishedLayer? Layer, string? Filter, string? Why)> InputLayerAsync(
-        string? sent, RequestPrincipal current, PostgresLayerCatalog layers, CancellationToken cancellation)
+        string parameter, string? sent, RequestPrincipal current, PostgresLayerCatalog layers, CancellationToken cancellation)
     {
         if (string.IsNullOrWhiteSpace(sent))
         {
-            return (null, null, "inputLayer is required: {\"url\": \"<a hosted feature layer of this server>\"}.");
+            return (null, null, $"{parameter} is required: {{\"url\": \"<a hosted feature layer of this server>\"}}.");
         }
 
         string? url;
@@ -474,7 +774,7 @@ internal static partial class AnalysisEndpoints
             }
             else
             {
-                return (null, null, "inputLayer is {\"url\": \"<layer url>\"}, optionally with a \"filter\".");
+                return (null, null, $"{parameter} is {{\"url\": \"<layer url>\"}}, optionally with a \"filter\".");
             }
         }
         catch (JsonException)

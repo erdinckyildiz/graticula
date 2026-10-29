@@ -264,44 +264,62 @@ public sealed partial class PostGisImporter
     }
 
     /// <summary>The filter and the extent, as one <c>where</c>; the extent's numbers are parameters too.</summary>
-    private static string Filter(AnalysisInput input, string geometry)
+    /// <summary>
+    /// The filter and the extent, as one <c>where</c>; the extent's numbers are parameters too. A second input's
+    /// parameters take another letter, so two filters can sit in one statement.
+    /// </summary>
+    private static string Filter(AnalysisInput input, string geometry, string letter = "w")
     {
         List<string> clauses = [];
 
         if (input.Where.Sql is { Length: > 0 } sql)
         {
+            // Highest first, so @w1 is not taken for the start of @w10.
+            for (int i = input.Where.Parameters.Count - 1; letter != "w" && i >= 0; i--)
+            {
+                sql = sql.Replace($"@w{i.ToString(CultureInfo.InvariantCulture)}", $"@{letter}{i.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal);
+            }
+
             clauses.Add($"({sql})");
         }
 
         if (input.Extent is not null)
         {
-            clauses.Add($"ST_Intersects({geometry}, ST_Transform(ST_MakeEnvelope(@xmin, @ymin, @xmax, @ymax, @boxsrid), "
+            clauses.Add($"ST_Intersects({geometry}, ST_Transform(ST_MakeEnvelope(@{letter}xmin, @{letter}ymin, @{letter}xmax, @{letter}ymax, @{letter}boxsrid), "
                 + $"{input.Layer.Srid.ToString(CultureInfo.InvariantCulture)}))");
         }
 
         return clauses.Count == 0 ? string.Empty : " where " + string.Join(" and ", clauses);
     }
 
-    private static void Bind(NpgsqlCommand command, AnalysisInput input)
+    private static void Bind(NpgsqlCommand command, AnalysisInput input, string letter = "w")
     {
         for (int i = 0; i < input.Where.Parameters.Count; i++)
         {
-            command.Parameters.AddWithValue($"w{i}", input.Where.Parameters[i] ?? DBNull.Value);
+            command.Parameters.AddWithValue($"{letter}{i.ToString(CultureInfo.InvariantCulture)}", input.Where.Parameters[i] ?? DBNull.Value);
         }
 
         if (input.Extent is { } box)
         {
-            command.Parameters.AddWithValue("xmin", box.XMin);
-            command.Parameters.AddWithValue("ymin", box.YMin);
-            command.Parameters.AddWithValue("xmax", box.XMax);
-            command.Parameters.AddWithValue("ymax", box.YMax);
-            command.Parameters.AddWithValue("boxsrid", box.Srid);
+            command.Parameters.AddWithValue(letter + "xmin", box.XMin);
+            command.Parameters.AddWithValue(letter + "ymin", box.YMin);
+            command.Parameters.AddWithValue(letter + "xmax", box.XMax);
+            command.Parameters.AddWithValue(letter + "ymax", box.YMax);
+            command.Parameters.AddWithValue(letter + "boxsrid", box.Srid);
         }
     }
 
+    private static string GeometryTypeOf(AnalysisShape shape) => shape switch
+    {
+        AnalysisShape.Points => "MultiPoint",
+        AnalysisShape.Lines => "MultiLineString",
+        _ => "MultiPolygon",
+    };
+
     /// <summary>The empty table, its identity and typed geometry, the rows, the index — in one transaction.</summary>
     private async Task<ImportResult> WriteAnalysisAsync(
-        string table, string shape, string insert, int srid, Action<NpgsqlCommand> bind, CancellationToken cancellationToken)
+        string table, string shape, string insert, int srid, Action<NpgsqlCommand> bind, CancellationToken cancellationToken,
+        AnalysisShape geometry = AnalysisShape.Polygons)
     {
         await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await EnsureHostedSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -313,7 +331,7 @@ public sealed partial class PostGisImporter
         await ExecuteAsync(
             connection, transaction,
             $"alter table {Qualified(table)} add column objectid integer generated always as identity primary key, "
-            + $"add column geom geometry(MultiPolygon, {srid.ToString(CultureInfo.InvariantCulture)})",
+            + $"add column geom geometry({GeometryTypeOf(geometry)}, {srid.ToString(CultureInfo.InvariantCulture)})",
             cancellationToken).ConfigureAwait(false);
 
         int rows;
