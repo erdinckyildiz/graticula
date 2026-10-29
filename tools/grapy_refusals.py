@@ -23,11 +23,23 @@ import grapy_surface  # noqa: E402
 TARGET = os.path.join(ROOT, "tools", "grapy-refusals.json")
 
 
+def _module(module):
+    """grapy's module for an arcpy module; one grapy has not written yet answers through the package's whole-module
+    refusal (``arcpy.na`` before ADR-226 builds it)."""
+    import grapy
+    if module == "arcpy":
+        return grapy
+    try:
+        return importlib.import_module("grapy." + module.split(".", 1)[1])
+    except ModuleNotFoundError:
+        return getattr(grapy, module.split(".", 1)[1])
+
+
 def _answer(module, name):
     """'refused' with the reason, or 'unexamined', for one name grapy does not build."""
     import grapy
     from grapy._runtime import NotBuiltError
-    target = grapy if module == "arcpy" else importlib.import_module("grapy." + module.split(".", 1)[1])
+    target = _module(module)
     try:
         found = getattr(target, name)
         if callable(found):
@@ -42,8 +54,7 @@ def _answer(module, name):
 
 def _equivalents(module):
     """The built names marked ``_runtime.equivalent`` (ADR-224 §5.6), with the method and source each names."""
-    import grapy
-    target = grapy if module == "arcpy" else importlib.import_module("grapy." + module.split(".", 1)[1])
+    target = _module(module)
     found = {}
     for name in dir(target):
         marked = getattr(getattr(target, name, None), "__grapy_equivalent__", None)
