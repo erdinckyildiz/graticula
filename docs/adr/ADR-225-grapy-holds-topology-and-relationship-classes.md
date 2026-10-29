@@ -102,8 +102,8 @@ None recorded.
 ## 11. Conditions
 
 1. **CreateTopology, AddFeatureClassToTopology, AddRuleToTopology, ValidateTopology and ExportTopologyErrors** are
-   built, each tested against a hand-worked violation.
+   built, each tested against a hand-worked violation. **PARTLY DISCHARGED 2026-10-30**: all five are built, and six rules are tested against hand-worked violations (Must Not Overlap, Must Not Have Gaps, Must Not Intersect, Must Not Have Dangles, Must Not Have Pseudo-Nodes, Must Be Properly Inside). The other 25 of the 31 documented rules are written from their one-line definitions and have no test yet. Esri's *Geodatabase topology rules* page answered 404, so each error's shape is INFERRED per rule. Clustering is marked as an equivalent.
 2. **CreateRelationshipClass and TableToRelationshipClass** are built, with cardinality, composite deletes and
    `da.SearchRelatedRecords`, and a relationship written to the OGC Related Tables Extension is read back by its
-   rules.
-3. **Every remaining topology and relationship name** is built or refused with its reason.
+   rules. **DISCHARGED 2026-10-30**: cardinality and composite deletes are enforced through grapy's own delete paths. `da.SearchRelatedRecords` follows its documented signature. A relationship's pairs are written to `gpkgext_relations` and a `<class>_rte` mapping table, then read back.
+3. **Every remaining topology and relationship name** is built or refused with its reason. **DISCHARGED 2026-10-30**: MigrateRelationshipClass is refused because it needs GlobalIDs (still group 2), and SetRelationshipClassSplitPolicy because it governs ArcGIS Pro's split edit.
