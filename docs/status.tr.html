@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>541bb2d5</code> · 2026-10-29 23:21</p>
+<p class="stamp">Şu commit’ten üretildi: <code>32c73827</code> · 2026-10-29 23:36</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">222</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
@@ -561,23 +561,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </div></section>
 <section><h2>grapy ve arcpy</h2>
 <p class="sub">arcpy 3.7 her modülde herkese açık bir ad listesi sunar; grapy’nin bunlardan kaçını kurduğu. tools/grapy_surface.py grapy’nin kaynağından sayar; grapy’nin reddettiği ad sayılmaz.</p><div class="bars">
-<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:44.8%"></div></div><div class="bar-n">82 / 183</div></div>
+<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:53.6%"></div></div><div class="bar-n">98 / 183</div></div>
 <div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:44.8%"></div></div><div class="bar-n">13 / 29</div></div>
 <div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:21.0%"></div></div><div class="bar-n">94 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:82.5%"></div></div><div class="bar-n">33 / 40</div></div>
 <div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:34.4%"></div></div><div class="bar-n">22 / 64</div></div>
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">1 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">9 / 19</div></div>
-<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:23.1%"></div></div><div class="bar-n">15 / 65</div></div>
+<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">18 / 65</div></div>
 <div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:31.5%"></div></div><div class="bar-n">119 / 378</div></div>
 <div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:35.2%"></div></div><div class="bar-n">122 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">18 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">7 / 42</div></div>
 </div>
 <div class="scroll" style="margin-top:18px"><table><thead><tr><th>Modül</th><th class="num">Kurulan</th><th class="num">Gerekçesiyle reddedilen</th><th class="num">Henüz bakılmayan</th></tr></thead><tbody>
-<tr><td class="id">arcpy</td><td class="num">82</td><td class="num">36</td><td class="num">65</td></tr>
+<tr><td class="id">arcpy</td><td class="num">98</td><td class="num">85</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.analysis</td><td class="num">33</td><td class="num">7</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.cartography</td><td class="num">1</td><td class="num">11</td><td class="num">37</td></tr>
+<tr><td class="id">arcpy.cartography</td><td class="num">1</td><td class="num">48</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.conversion</td><td class="num">22</td><td class="num">0</td><td class="num">42</td></tr>
 <tr><td class="id">arcpy.da</td><td class="num">13</td><td class="num">15</td><td class="num">1</td></tr>
 <tr><td class="id">arcpy.ddd</td><td class="num">18</td><td class="num">128</td><td class="num">10</td></tr>
@@ -586,10 +586,14 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.ia</td><td class="num">122</td><td class="num">94</td><td class="num">131</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">94</td><td class="num">75</td><td class="num">278</td></tr>
 <tr><td class="id">arcpy.sa</td><td class="num">119</td><td class="num">28</td><td class="num">230</td></tr>
-<tr><td class="id">arcpy.stats</td><td class="num">15</td><td class="num">7</td><td class="num">43</td></tr>
+<tr><td class="id">arcpy.stats</td><td class="num">18</td><td class="num">47</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>32c73827</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>e2733d8a</code><time>2026-10-29</time><span>grapy: SimilaritySearch, SpatialAssociationBetweenZones and SpatialOutlierDetection; nothing left unexamined (ADR-224)</span></li>
+<li><code>e0bf6499</code><time>2026-10-29</time><span>grapy: every remaining top-level, stats, cartography and edit name built or refused with its reason (ADR-224)</span></li>
+<li><code>507a1cdf</code><time>2026-10-29</time><span>The status page splits what grapy has not built into refused and unexamined (ADR-224 condition 4)</span></li>
 <li><code>541bb2d5</code><time>2026-10-29</time><span>grapy&#x27;s top level, da, ia&#x27;s own tools and more management (merging the agents&#x27; third rounds; D-323)</span></li>
 <li><code>144bca49</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>6f88506a</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
@@ -600,10 +604,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>fe32caa5</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>69aa1b62</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>d08faf25</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>2291f1c5</code><time>2026-10-29</time><span>grapy.management: MinimumBoundingGeometry by width and with MBG fields, CalculateEndTime, TransposeFields (ADR-224)</span></li>
-<li><code>b18c5a49</code><time>2026-10-29</time><span>grapy: field mappings, GeoPackage domains, random points, raster management and file conversions (ADR-224)</span></li>
-<li><code>07d12913</code><time>2026-10-29</time><span>grapy.sa: hydrology, cost and Euclidean distance, density, local, bitwise, extraction, Aggregate, RegionGroup; ddd&#x27;s surfaces move into sa (ADR-224)</span></li>
-<li><code>14609ce6</code><time>2026-10-29</time><span>grapy: arcpy.stats.NeighborhoodSummaryStatistics by the documented local formulas (ADR-224)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
