@@ -199,6 +199,30 @@ def NaturalNeighbor(in_point_features, z_field, out_raster, cell_size=None):
     return _saved(sa.NaturalNeighbor(in_point_features, z_field, cell_size), out_raster)
 
 
+@_equivalent("R3 line-of-sight viewshed", "Franklin and Ray 1994; How Viewshed works")
+def Viewshed(in_raster, in_observer_features, out_raster, z_factor=1, curvature_correction="FLAT_EARTH",
+             refractivity_coefficient=0.13, out_agl_raster=None):
+    """EQUIVALENT: arcpy.sa.Viewshed (R3 line of sight), saved; see its docstring."""
+    return _saved(sa.Viewshed(in_raster, in_observer_features, z_factor, curvature_correction, refractivity_coefficient,
+                              out_agl_raster), out_raster)
+
+
+@_equivalent("R3 line-of-sight visibility", "Franklin and Ray 1994; How Viewshed works")
+def Visibility(in_raster, in_observer_features, out_raster, out_agl_raster=None, analysis_type="FREQUENCY",
+               nonvisible_cell_value="ZERO", z_factor=1, curvature_correction="FLAT_EARTH", refractivity_coefficient=0.13,
+               surface_offset=None, observer_elevation=None, observer_offset=None, inner_radius=None, outer_radius=None,
+               horizontal_start_angle=None, horizontal_end_angle=None, vertical_upper_angle=None,
+               vertical_lower_angle=None):
+    """EQUIVALENT: arcpy.sa.Visibility (R3 line of sight with the observer parameters), saved; see its docstring.
+
+    INFERRED: the parameters follow arcpy.sa.Visibility's order with ``out_raster`` third, as every ddd raster tool
+    places its output."""
+    return _saved(sa.Visibility(in_raster, in_observer_features, out_agl_raster, analysis_type, nonvisible_cell_value,
+                                z_factor, curvature_correction, refractivity_coefficient, surface_offset,
+                                observer_elevation, observer_offset, inner_radius, outer_radius, horizontal_start_angle,
+                                horizontal_end_angle, vertical_upper_angle, vertical_lower_angle), out_raster)
+
+
 # ---- refused, by name, with the reason
 
 _GROUP_2 = "needs a data model this server does not hold yet (ADR-224 group 2)"
@@ -263,7 +287,7 @@ _REFUSED.update({
 })
 
 
-for _built in ("Kriging", "NaturalNeighbor"):
+for _built in ("Kriging", "NaturalNeighbor", "Viewshed", "Visibility"):
     _REFUSED.pop(_built, None)
 
 

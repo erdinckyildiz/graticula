@@ -3675,6 +3675,410 @@ for _built in ("KernelDensity", "Threshold", "Stretch", "PrincipalComponents", "
     _REFUSED.pop(_built, None)
 
 
+# ---- round seven (ADR-224 §5.6): visibility, generalization, filters and merge as equivalents
+
+_EARTH_DIAMETER = 12740000.0  # metres, as How Viewshed works gives it
+
+
+def _observers(in_observer_features, raster, zf, values, tool):
+    """The observers — each point, or each vertex of a line — with their parameters: a number, or a field read from
+    the feature, each defaulting to the documented field (SPOT, OFFSETA, OFFSETB …) and then to the documented value."""
+    from . import da
+    from .analysis import _schema
+    columns = {c.name.upper(): c.name for c in _schema(in_observer_features)[0]}
+    fields = {}
+    for key, (default_field, default_value, given) in values.items():
+        if isinstance(given, str) and given.upper() in columns:
+            fields[key] = columns[given.upper()]
+        elif _given(given):
+            fields[key] = float(given)
+        elif default_field in columns:
+            fields[key] = columns[default_field]
+        else:
+            fields[key] = default_value
+    names = sorted({v for v in fields.values() if isinstance(v, str)})
+    out = []
+    with da.SearchCursor(in_observer_features, [*names, "SHAPE@"]) as rows:
+        for row in rows:
+            shape = row[-1]._shape if row[-1] is not None else None
+            if shape is None:
+                continue
+            record = dict(zip(names, row[:-1]))
+            params = {k: (float(record[v]) if isinstance(v, str) and record[v] is not None else
+                          (None if isinstance(v, str) else v)) for k, v in fields.items()}
+            for part in getattr(shape, "geoms", [shape]):
+                coordinates = [part.coords[0]] if part.geom_type == "Point" else list(part.coords)
+                for x, y in coordinates:
+                    p = dict(params)
+                    if p.get("elevation") is None:
+                        sampled = _sample(raster, x, y, True)
+                        if sampled is None:
+                            continue
+                        p["elevation"] = sampled * zf
+                    out.append((x, y, p))
+    return out
+
+
+def _line_of_sight(z, mask, grid, ox, oy, oz, curved, refraction):
+    """For one observer, each cell's visibility and the height it would need to be seen: R3 line of sight (Franklin and
+    Ray 1994) — the line to each cell centre is sampled where it crosses the row and column centre lines between, each
+    sample linearly interpolated between the two cells it falls between; a cell is visible when its elevation angle is
+    at least the largest angle along the way. NoData cells are not visible and block nothing, as documented."""
+    rows, columns = z.shape
+    xs, ys = grid.centres()
+    visible = np.zeros(z.shape, bool)
+    needed = np.zeros(z.shape)
+
+    def corrected(height, distance):
+        if not curved:
+            return height
+        return height - distance * distance / _EARTH_DIAMETER + refraction * distance * distance / _EARTH_DIAMETER
+
+    oc = (ox - grid.left) / grid.width - 0.5
+    orow = (grid.top - oy) / grid.height - 0.5
+    for r in range(rows):
+        for c in range(columns):
+            if mask[r, c]:
+                continue
+            dx, dy = xs[c] - ox, ys[r] - oy
+            distance = math.hypot(dx, dy)
+            if distance == 0:
+                visible[r, c] = True
+                continue
+            target = (corrected(z[r, c], distance) - oz) / distance
+            steepest = -np.inf
+            # Crossings of column centre lines and row centre lines strictly between observer and target.
+            samples = []
+            for k in range(int(math.floor(min(oc, c))) + 1, int(math.ceil(max(oc, c)))):
+                t = (k - oc) / (c - oc)
+                if 0 < t < 1:
+                    fr = orow + t * (r - orow)
+                    r0 = int(math.floor(fr))
+                    samples.append((t, [(r0, k, 1 - (fr - r0)), (r0 + 1, k, fr - r0)]))
+            for k in range(int(math.floor(min(orow, r))) + 1, int(math.ceil(max(orow, r)))):
+                t = (k - orow) / (r - orow)
+                if 0 < t < 1:
+                    fc = oc + t * (c - oc)
+                    c0 = int(math.floor(fc))
+                    samples.append((t, [(k, c0, 1 - (fc - c0)), (k, c0 + 1, fc - c0)]))
+            for t, parts in samples:
+                parts = [(pr, pc, w) for pr, pc, w in parts if w > 0]
+                if any(not (0 <= pr < rows and 0 <= pc < columns) or mask[pr, pc] for pr, pc, _ in parts):
+                    continue
+                height = sum(z[pr, pc] * w for pr, pc, w in parts) / sum(w for _, _, w in parts)
+                angle = (corrected(height, t * distance) - oz) / (t * distance)
+                steepest = max(steepest, angle)
+            visible[r, c] = target >= steepest
+            if not visible[r, c]:
+                needed[r, c] = oz + steepest * distance - corrected(z[r, c], distance)
+    return visible, needed
+
+
+def _visibility(tool, in_raster, in_observer_features, z_factor, curvature_correction, refractivity_coefficient,
+                values, limits=None):
+    _refuse_environment(f"arcpy.sa.{tool}")
+    raster = as_raster(in_raster, tool)
+    zf = float(z_factor if _given(z_factor) else 1)
+    curved = str(curvature_correction or "FLAT_EARTH").upper() == "CURVED_EARTH"
+    if curved:
+        from ._reference import SpatialReference
+        g = raster._grid
+        if not g.srid or SpatialReference(g.srid).type != "Projected" or SpatialReference(g.srid).metersPerUnit != 1:
+            _refuse(tool, "curvature_correction", curvature_correction, "the correction is built for data in metres")
+    refraction = float(refractivity_coefficient if _given(refractivity_coefficient) else 0.13)
+    z = raster._array.astype(np.float64) * zf
+    count = np.zeros(z.shape, np.int32)
+    agl = np.full(z.shape, np.inf)
+    xs, ys = raster._grid.centres()
+    gx, gy = np.meshgrid(xs, ys)
+    for ox, oy, p in _observers(in_observer_features, raster, zf, values, tool):
+        oz = p["elevation"] + p["observer_offset"]
+        target = z + p["surface_offset"]
+        visible, needed = _line_of_sight(target, raster._mask, raster._grid, ox, oy, oz, curved, refraction)
+        if limits is not None:
+            visible &= limits(p, gx - ox, gy - oy, target - oz)
+        count += visible.astype(np.int32)
+        agl = np.minimum(agl, np.where(visible, 0.0, needed))
+    return raster, count, np.where(np.isfinite(agl), agl, 0.0)
+
+
+_VIEWSHED_SOURCE = ("R3 line of sight with linear interpolation between cells (Franklin and Ray 1994, Higher isn't "
+                    "necessarily better), with the curvature and refraction correction and observer fields of How "
+                    "Viewshed works")
+
+
+@_equivalent("R3 line-of-sight viewshed", _VIEWSHED_SOURCE)
+def Viewshed(in_raster, in_observer_features, z_factor=1, curvature_correction="FLAT_EARTH", refractivity_coefficient=0.13,
+             out_agl_raster=None):
+    """EQUIVALENT: the R3 line-of-sight viewshed (Franklin and Ray 1994) — each cell centre is visible from an observer
+    when its elevation angle is at least the largest along the line between, sampled where the line crosses row and
+    column centre lines and interpolated linearly between the two cells there. As documented: the output counts the
+    observers (points, or line vertices) that see each cell; an observer stands at SPOT, or the surface bilinearly
+    interpolated, plus OFFSETA (default 1); each cell is raised by OFFSETB (default 0); NoData cells are not visible and
+    block nothing; ``CURVED_EARTH`` applies Z − D²/12,740,000 + R·D²/12,740,000 in metres. ``out_agl_raster`` receives
+    the least height a cell would need to be seen, 0 where it is.
+
+    Refused: observers carrying AZIMUTH, VERT or RADIUS fields (use Visibility, which honours them).
+
+    INFERRED: the observer's own cell is visible; the AGL is measured from the cell's surface raised by OFFSETB."""
+    from .analysis import _schema
+    names = {c.name.upper() for c in _schema(in_observer_features)[0]}
+    for field in ("AZIMUTH1", "AZIMUTH2", "VERT1", "VERT2", "RADIUS1", "RADIUS2"):
+        if field in names:
+            _refuse("Viewshed", "in_observer_features", field, "observer limits are honoured by Visibility")
+    values = {"elevation": ("SPOT", None, None), "observer_offset": ("OFFSETA", 1.0, None),
+              "surface_offset": ("OFFSETB", 0.0, None)}
+    raster, count, agl = _visibility("Viewshed", in_raster, in_observer_features, z_factor, curvature_correction,
+                                     refractivity_coefficient, values)
+    if _given(out_agl_raster):
+        Raster._of(np.where(raster._mask, 0, agl).astype(np.float32), raster._mask.copy(), raster._grid).save(out_agl_raster)
+    return Raster._of(np.where(raster._mask, 0, count), raster._mask.copy(), raster._grid)
+
+
+@_equivalent("R3 line-of-sight visibility", _VIEWSHED_SOURCE)
+def Visibility(in_raster, in_observer_features, out_agl_raster=None, analysis_type="FREQUENCY",
+               nonvisible_cell_value="ZERO", z_factor=1, curvature_correction="FLAT_EARTH", refractivity_coefficient=0.13,
+               surface_offset=None, observer_elevation=None, observer_offset=None, inner_radius=None, outer_radius=None,
+               horizontal_start_angle=None, horizontal_end_angle=None, vertical_upper_angle=None,
+               vertical_lower_angle=None):
+    """EQUIVALENT: Viewshed's R3 line of sight, with the observer parameters Visibility documents — each a number or a
+    field, defaulting to OFFSETB, SPOT, OFFSETA, RADIUS1, RADIUS2, AZIMUTH1, AZIMUTH2, VERT1, VERT2 and then to 0,
+    the bilinear surface, 1, 0, infinity, 0, 360, 90 and −90. A cell counts for an observer when it is in sight, within
+    the radii (a negative radius measured flat, a positive one in three dimensions, as documented), within the
+    horizontal angles (clockwise from north) and within the vertical angles. ``nonvisible_cell_value`` ``NODATA``
+    writes NoData where no observer sees.
+
+    Refused: ``OBSERVERS``, whose encoding the page does not give.
+
+    INFERRED: a horizontal range whose start exceeds its end wraps through north; the vertical angle is the target's
+    elevation angle from the observer's eye."""
+    if str(analysis_type or "FREQUENCY").upper() != "FREQUENCY":
+        _refuse("Visibility", "analysis_type", analysis_type, "the OBSERVERS encoding is not documented")
+    values = {"surface_offset": ("OFFSETB", 0.0, surface_offset), "elevation": ("SPOT", None, observer_elevation),
+              "observer_offset": ("OFFSETA", 1.0, observer_offset), "inner": ("RADIUS1", 0.0, inner_radius),
+              "outer": ("RADIUS2", math.inf, outer_radius), "start": ("AZIMUTH1", 0.0, horizontal_start_angle),
+              "end": ("AZIMUTH2", 360.0, horizontal_end_angle), "upper": ("VERT1", 90.0, vertical_upper_angle),
+              "lower": ("VERT2", -90.0, vertical_lower_angle)}
+
+    def limits(p, dx, dy, dz):
+        flat = np.hypot(dx, dy)
+        def within(radius, below):
+            if radius is None or not np.isfinite(radius):
+                return np.ones(flat.shape, bool)
+            measure = flat if radius < 0 else np.hypot(flat, dz)
+            return measure <= abs(radius) if below else measure >= abs(radius)
+        keep = within(p["outer"], True) & within(p["inner"], False)
+        azimuth = np.degrees(np.arctan2(dx, dy)) % 360
+        start, end = p["start"] % 360, p["end"] % 360 if p["end"] != 360 else 360
+        keep &= ((azimuth >= start) & (azimuth <= end)) if start <= end else ((azimuth >= start) | (azimuth <= end))
+        angle = np.degrees(np.arctan2(dz, flat))
+        keep &= (angle <= p["upper"]) & (angle >= p["lower"])
+        keep |= (flat == 0)
+        return keep
+
+    raster, count, agl = _visibility("Visibility", in_raster, in_observer_features, z_factor, curvature_correction,
+                                     refractivity_coefficient, values, limits)
+    mask = raster._mask.copy()
+    if str(nonvisible_cell_value or "ZERO").upper() == "NODATA":
+        mask |= count == 0
+    if _given(out_agl_raster):
+        Raster._of(np.where(raster._mask, 0, agl).astype(np.float32), raster._mask.copy(), raster._grid).save(out_agl_raster)
+    return Raster._of(np.where(mask, 0, count), mask, raster._grid)
+
+
+# ---- generalization
+
+
+_EIGHT = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
+
+
+@_equivalent("zone growth by morphological dilation, or by Euclidean distance",
+             "Serra 1982, Image Analysis and Mathematical Morphology, ch. 2; Danielsson 1980, Computer Graphics and "
+             "Image Processing 14")
+def Expand(in_raster, number_cells, zone_values, expand_method="MORPHOLOGICAL"):
+    """EQUIVALENT: the zones listed grow into the other cells. ``MORPHOLOGICAL``: ``number_cells`` steps of dilation by
+    the 3 × 3 square (Serra 1982); a background cell reached by several zones takes the one most frequent among its
+    eight neighbours, as documented, the lower value on a tie. ``DISTANCE``: every background cell within
+    ``number_cells`` cell widths of a zone takes the nearest zone by exact Euclidean distance (Danielsson 1980).
+    NoData is background and never expands, as documented.
+
+    INFERRED: a DISTANCE tie goes to the zone SciPy's exact transform reports."""
+    _refuse_environment("arcpy.sa.Expand")
+    source = as_raster(in_raster, "Expand")
+    if not source.isInteger:
+        raise ValueError("Expand takes an integer raster.")
+    zones = {int(v) for v in (zone_values if isinstance(zone_values, (list, tuple)) else [zone_values])}
+    a = source._array.astype(np.int64).copy()
+    mask = source._mask.copy()
+    n = int(number_cells)
+    if str(expand_method or "MORPHOLOGICAL").upper() == "DISTANCE":
+        from scipy.ndimage import distance_transform_edt
+        foreground = np.isin(a, list(zones)) & ~mask
+        distance, (ri, ci) = distance_transform_edt(~foreground, return_indices=True)
+        reach = (distance <= n) & ~foreground
+        a = np.where(reach, a[ri, ci], a)
+        return Raster._of(a.astype(np.int32), mask & ~reach, source._grid)
+    if str(expand_method).upper() != "MORPHOLOGICAL":
+        _refuse("Expand", "expand_method", expand_method)
+    rows, columns = a.shape
+    for _ in range(n):
+        foreground = np.isin(a, list(zones)) & ~mask
+        new_a, new_mask = a.copy(), mask.copy()
+        for r in range(rows):
+            for c in range(columns):
+                if foreground[r, c]:
+                    continue
+                near = [a[r + dr, c + dc] for dr, dc in _EIGHT
+                        if 0 <= r + dr < rows and 0 <= c + dc < columns and foreground[r + dr, c + dc]]
+                if near:
+                    values, counts = np.unique(near, return_counts=True)
+                    new_a[r, c] = values[counts == counts.max()].min()
+                    new_mask[r, c] = False
+        a, mask = new_a, new_mask
+    return Raster._of(np.where(mask, 0, a).astype(np.int32), mask, source._grid)
+
+
+@_equivalent("zone shrinking by morphological erosion", "Serra 1982, Image Analysis and Mathematical Morphology, ch. 2")
+def Shrink(in_raster, number_cells, zone_values, shrink_method="MORPHOLOGICAL"):
+    """EQUIVALENT: the zones listed lose ``number_cells`` layers by erosion with the 3 × 3 square (Serra 1982): at each
+    step, a cell of a listed zone with a neighbour outside the listed zones takes the value most frequent among its
+    neighbours outside its own zone, as documented — NoData competing as any value does — the lower value on a tie
+    (NoData last). Where two listed zones meet, nothing changes at their boundary, as documented.
+
+    Refused: ``DISTANCE``, whose rule for the replacing value the page does not give."""
+    _refuse_environment("arcpy.sa.Shrink")
+    if str(shrink_method or "MORPHOLOGICAL").upper() != "MORPHOLOGICAL":
+        _refuse("Shrink", "shrink_method", shrink_method, "its replacing value is not documented")
+    source = as_raster(in_raster, "Shrink")
+    if not source.isInteger:
+        raise ValueError("Shrink takes an integer raster.")
+    zones = {int(v) for v in (zone_values if isinstance(zone_values, (list, tuple)) else [zone_values])}
+    a = source._array.astype(np.int64).copy()
+    mask = source._mask.copy()
+    rows, columns = a.shape
+    for _ in range(int(number_cells)):
+        selected = np.isin(a, list(zones)) & ~mask
+        new_a, new_mask = a.copy(), mask.copy()
+        for r in range(rows):
+            for c in range(columns):
+                if not selected[r, c]:
+                    continue
+                outside = [(None if mask[r + dr, c + dc] else int(a[r + dr, c + dc])) for dr, dc in _EIGHT
+                           if 0 <= r + dr < rows and 0 <= c + dc < columns and not selected[r + dr, c + dc]]
+                if not outside:
+                    continue
+                keys = sorted(set(outside), key=lambda v: (v is None, v if v is not None else 0))
+                best = max(keys, key=lambda v: (outside.count(v), -keys.index(v)))
+                if best is None:
+                    new_mask[r, c] = True
+                else:
+                    new_a[r, c] = best
+        a, mask = new_a, new_mask
+    return Raster._of(np.where(mask, 0, a).astype(np.int32), mask, source._grid)
+
+
+@_equivalent("nearest-neighbour replacement by exact Euclidean distance", "Danielsson 1980, Computer Graphics and "
+             "Image Processing 14")
+def Nibble(in_raster, in_mask_raster, nibble_values="ALL_VALUES", nibble_nodata="PRESERVE_NODATA", in_zone_raster=None):
+    """EQUIVALENT: each cell that is NoData in the mask, as documented, takes the value of the nearest cell outside the
+    mask by exact Euclidean distance (Danielsson 1980). ``DATA_ONLY`` lets only data replace; ``ALL_VALUES`` lets
+    NoData replace too. ``PRESERVE_NODATA`` keeps the input's NoData inside the mask.
+
+    Refused: ``in_zone_raster``.
+
+    INFERRED: a tie goes to the cell SciPy's exact transform reports."""
+    from scipy.ndimage import distance_transform_edt
+    _refuse_environment("arcpy.sa.Nibble")
+    if _given(in_zone_raster):
+        _refuse("Nibble", "in_zone_raster", in_zone_raster)
+    source, mask_raster = as_raster(in_raster, "Nibble"), as_raster(in_mask_raster, "Nibble")
+    if not mask_raster._grid.same(source._grid):
+        _refuse("Nibble", "in_mask_raster", in_mask_raster, "a mask on another grid needs resampling")
+    masked = mask_raster._mask
+    donors = ~masked & (~source._mask if str(nibble_values or "ALL_VALUES").upper() == "DATA_ONLY" else True)
+    if not donors.any():
+        return Raster._of(source._array.copy(), source._mask | masked, source._grid)
+    _, (ri, ci) = distance_transform_edt(~donors, return_indices=True)
+    a = np.where(masked, source._array[ri, ci], source._array)
+    out_mask = np.where(masked, source._mask[ri, ci], source._mask)
+    if str(nibble_nodata or "PRESERVE_NODATA").upper() == "PRESERVE_NODATA":
+        out_mask |= masked & source._mask
+    return Raster._of(np.where(out_mask, 0, a), out_mask, source._grid)
+
+
+@_equivalent("3 × 3 low-pass (mean) and high-pass (Laplacian, centre 8) filters",
+             "Gonzalez and Woods, Digital Image Processing, 3rd ed., §3.5–3.6")
+def Filter(in_raster, filter_type="LOW", ignore_nodata="DATA"):
+    """EQUIVALENT: ``LOW`` is the 3 × 3 mean, the averaging filter the page names; ``HIGH`` is the 3 × 3 Laplacian high
+    pass with centre 8 and −1 around it (Gonzalez and Woods §3.6). With ``DATA`` only valid cells take part, as
+    documented — the mean of those there, and the high pass with each missing neighbour left out (the centre weight
+    then the number of valid neighbours); with ``NODATA`` any NoData in the window makes the cell NoData. Off the raster
+    counts as NoData. The output is floating point.
+
+    INFERRED: a NoData centre with valid neighbours gets the low-pass mean under DATA, as the page says such cells can
+    receive values; under HIGH it stays NoData, having no centre value."""
+    _refuse_environment("arcpy.sa.Filter")
+    kind = str(filter_type or "LOW").upper()
+    if kind not in ("LOW", "HIGH"):
+        _refuse("Filter", "filter_type", filter_type)
+    source = as_raster(in_raster, "Filter")
+    z = np.where(source._mask, np.nan, source._array.astype(np.float64))
+    padded = np.pad(z, 1, constant_values=np.nan)
+    rows, columns = z.shape
+    stack = np.stack([padded[1 + dr:1 + dr + rows, 1 + dc:1 + dc + columns] for dr, dc in _EIGHT])
+    valid = ~np.isnan(stack)
+    strict = str(ignore_nodata or "DATA").upper() == "NODATA"
+    if kind == "LOW":
+        everything = np.concatenate([stack, z[None]])
+        count = (~np.isnan(everything)).sum(axis=0)
+        value = np.nansum(everything, axis=0) / np.where(count == 0, 1, count)
+        mask = count == 0
+        if strict:
+            mask |= np.isnan(everything).any(axis=0)
+    else:
+        value = valid.sum(axis=0) * np.nan_to_num(z) - np.nansum(stack, axis=0)
+        mask = np.isnan(z)
+        if strict:
+            mask |= (~valid).any(axis=0)
+    return Raster._of(np.where(mask, 0, value), mask, source._grid)
+
+
+@_equivalent("mosaic of rasters by local operations over the valid inputs",
+             "Tomlin 1990, Geographic Information Systems and Cartographic Modeling, ch. 3 (local operations)")
+def Merge(rasters, resolve_overlap="FIRST"):
+    """EQUIVALENT: rasters on one grid merged cell by cell over the inputs that have data there (Tomlin's local
+    operations): FIRST and LAST take the first or last such input, MIN, MAX, MEAN and SUM their statistic. A cell with
+    no data in any input is NoData.
+
+    Refused: rasters on different grids (the page does not give the output extent and cell size rules)."""
+    kind = str(resolve_overlap or "FIRST").upper()
+    if kind not in ("FIRST", "LAST", "MIN", "MAX", "MEAN", "SUM"):
+        _refuse("Merge", "resolve_overlap", resolve_overlap)
+    opened = [as_raster(r, "Merge") for r in rasters]
+    grid = opened[0]._grid
+    for r in opened[1:]:
+        if not r._grid.same(grid):
+            _refuse("Merge", "rasters", r, "the output extent and cell size rules for different grids are not documented")
+    stack = np.stack([np.where(r._mask, np.nan, r._array.astype(np.float64)) for r in opened])
+    empty = np.isnan(stack).all(axis=0)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        if kind in ("FIRST", "LAST"):
+            order = stack if kind == "FIRST" else stack[::-1]
+            first = np.argmax(~np.isnan(order), axis=0)
+            value = np.take_along_axis(order, first[None], axis=0)[0]
+        else:
+            value = {"MIN": np.nanmin, "MAX": np.nanmax, "MEAN": np.nanmean, "SUM": np.nansum}[kind](stack, axis=0)
+    integer = all(r.isInteger for r in opened) and kind != "MEAN"
+    out = np.where(empty, 0, value)
+    return Raster._of(out.astype(np.int32) if integer else out, empty, grid)
+
+
+for _built in ("Viewshed", "Visibility", "Expand", "Shrink", "Nibble", "Filter", "Merge"):
+    _REFUSED.pop(_built, None)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)

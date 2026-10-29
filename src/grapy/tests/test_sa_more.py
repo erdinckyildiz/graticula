@@ -360,5 +360,47 @@ class Equivalents(_Fixture):
         self.assertEqual((flat[1][1], flat[0][1], flat[1][3]), (-1.0, 90.0, 0.0))
 
 
+    def test_viewshed_and_visibility_by_r3_line_of_sight(self):
+        ridge = grid([[0.0, 0.0, 10.0, 0.0, 0.0]])
+        observer = self.features("obs", "POINT", [(point(5, 5),)])
+        # The eye at 0 + 1 (OFFSETA's default). The ridge at 20 rises at (10 − 1)/20 = 0.45; behind it the cells at
+        # 30 and 40 fall below that angle, and would need 1 + 0.45·30 = 14.5 and 1 + 0.45·40 = 19.
+        agl = os.path.join(self.directory, "agl.tif")
+        self.assertEqual(cells(sa.Viewshed(ridge, observer, out_agl_raster=agl)), [[1, 1, 1, 0, 0]])
+        self.assertEqual([round(v, 6) for v in cells(arcpy.Raster(agl))[0]], [0.0, 0.0, 0.0, 14.5, 19.0])
+        # A flat radius of 15 keeps the two nearest; a 3D radius of 25 reaches the ridge, √(20² + 9²) ≈ 21.9 away.
+        self.assertEqual(cells(sa.Visibility(ridge, observer, outer_radius=-15)), [[1, 1, 0, 0, 0]])
+        self.assertEqual(cells(sa.Visibility(ridge, observer, outer_radius=25)), [[1, 1, 1, 0, 0]])
+        self.assertEqual(cells(sa.Visibility(ridge, observer, nonvisible_cell_value="NODATA")), [[1, 1, 1, ND, ND]])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.Visibility(ridge, observer, analysis_type="OBSERVERS")
+
+    def test_expand_shrink_and_nibble(self):
+        two = grid([[1, 0, 0], [0, 0, 0], [0, 0, 2]])
+        # The centre is reached by 1 and 2 once each: the tie goes to the lower.
+        self.assertEqual(cells(sa.Expand(two, 1, [1, 2])), [[1, 1, 0], [1, 1, 2], [0, 2, 2]])
+        # Within one cell width: the orthogonal neighbours only, not the diagonal centre.
+        self.assertEqual(cells(sa.Expand(two, 1, [1, 2], "DISTANCE")), [[1, 1, 0], [1, 0, 2], [0, 2, 2]])
+        five = grid([[5, 5, 5], [5, 5, 5], [5, 5, 7]])
+        self.assertEqual(cells(sa.Shrink(five, 1, [5])), [[5, 5, 5], [5, 7, 7], [5, 7, 7]])
+        values = grid([[1, 2, 3, 4]])
+        mask = grid([[1, -9, -9, 1]], nodata=-9)
+        self.assertEqual(cells(sa.Nibble(values, mask)), [[1, 1, 4, 4]])
+
+    def test_filter_and_merge(self):
+        nine = grid([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]])
+        low = cells(sa.Filter(nine))
+        # The centre's mean is 5; the corner sees only 1, 2, 4 and 5.
+        self.assertEqual((low[1][1], low[0][0]), (5.0, 3.0))
+        high = cells(sa.Filter(nine, "HIGH"))
+        # 8·5 less the eight neighbours (40) is 0; at the corner 3·1 − (2 + 4 + 5) = −8.
+        self.assertEqual((high[1][1], high[0][0]), (0.0, -8.0))
+        a, b = grid([[1, -9]], nodata=-9), grid([[3, 4]])
+        self.assertEqual(cells(sa.Merge([a, b])), [[1, 4]])
+        self.assertEqual(cells(sa.Merge([a, b], "LAST")), [[3, 4]])
+        self.assertEqual(cells(sa.Merge([a, b], "SUM")), [[4, 4]])
+        self.assertEqual(cells(sa.Merge([a, b], "MEAN")), [[2.0, 4.0]])
+
+
 if __name__ == "__main__":
     unittest.main()
