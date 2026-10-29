@@ -2106,6 +2106,194 @@ def DensityBasedClustering(in_features, output_features, cluster_method, min_fea
     return Result(out)
 
 
+def _locational_outliers(d):
+    """Which features are locational outliers. EQUIVALENT: the page names them without a rule; grapy takes Tukey's fence
+    on the nearest-neighbour distance, Q3 + 1.5·IQR, quartiles by Hyndman and Fan's definition 7."""
+    import numpy as np
+    nearest = _nearest(d)
+    q1, q3 = np.quantile(nearest, [0.25, 0.75], method="linear")
+    return nearest > q3 + 1.5 * (q3 - q1)
+
+
+def _optimized_prepare(tool, Input_Features, Analysis_Field, method, bounding, aggregation_polygons, Cell_Size,
+                       Distance_Band, said):
+    """The weighted features (the input with its field, or incidents counted into cells or polygons) and the scale of
+    analysis, by the steps "How Optimized Hot Spot Analysis works" documents."""
+    import os
+    import numpy as np
+    scratch = os.path.join(env_scratch(), f"{tool.lower()}_weighted.gpkg")
+    if _given(Analysis_Field):
+        path, field = Input_Features, Analysis_Field
+    else:
+        method = _keyword(method or "COUNT_INCIDENTS_WITHIN_HEXAGON_POLYGONS")
+        features, _, kind, srid = _features(tool, Input_Features)
+        if kind not in ("Point", "Multipoint"):
+            raise ValueError(f"arcpy.stats.{tool}: incidents to aggregate are points; give an Analysis_Field for polygons.")
+        xy = np.array([(f[2], f[3]) for f in features])
+        field = "Join_Count"
+        if method == "COUNT_INCIDENTS_WITHIN_AGGREGATION_POLYGONS":
+            if not _given(aggregation_polygons):
+                raise ValueError(f"arcpy.stats.{tool}: this method needs Polygons_For_Aggregating_Incidents_Into_Counts.")
+            from shapely import points as to_points
+            polygons, _, pkind, psrid = _features(tool, aggregation_polygons)
+            located = to_points(xy)
+            _gpkg.create(scratch, "Polygon", psrid, [_gpkg.Column(field, "Integer")])
+            with da.InsertCursor(scratch, [field, "SHAPE@"]) as rows:
+                for p in polygons:
+                    rows.insertRow((int(sum(p[4].covers(q) for q in located)), p[4]))
+        elif method in ("COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS", "COUNT_INCIDENTS_WITHIN_HEXAGON_POLYGONS"):
+            unique = np.unique(xy, axis=0)
+            d = _distances(unique)
+            keep = ~_locational_outliers(d)
+            nearest = _nearest(d)[keep]
+            x0, y0 = xy.min(axis=0)
+            x1, y1 = xy.max(axis=0)
+            extent = max(x1 - x0, y1 - y0)
+            if _given(Cell_Size):
+                cell = _threshold(Cell_Size, srid)
+            else:
+                import shapely
+                hull = shapely.MultiPoint([tuple(p) for p in xy]).convex_hull.area
+                random_nn = 0.5 / math.sqrt(len(xy) / hull) if hull > 0 else math.inf
+                cell = extent / 100 if 2 * random_nn < extent / 100 else 2 * max(float(nearest.mean()),
+                                                                                    float(np.median(nearest)))
+            said(f"Cell size: {cell}")
+            if method == "COUNT_INCIDENTS_WITHIN_HEXAGON_POLYGONS":
+                if _given(bounding):
+                    _refuse(tool, "Bounding_Polygons_Defining_Where_Incidents_Are_Possible", bounding, "keeping empty "
+                            "hexagons inside bounding polygons is not built in this equivalent")
+                from .graticula import HexagonBins
+                HexagonBins(Input_Features, scratch, cell, field)
+            else:
+                from shapely.geometry import box
+                columns = int(math.floor((x1 - x0) / cell)) + 1
+                rows_ = int(math.floor((y1 - y0) / cell)) + 1
+                counts = np.zeros((rows_, columns), dtype=int)
+                for x, y in xy:
+                    counts[int((y - y0) // cell), int((x - x0) // cell)] += 1
+                area = None
+                if _given(bounding):
+                    import shapely
+                    area = shapely.union_all([f[4] for f in _features(tool, bounding)[0]])
+                _gpkg.create(scratch, "Polygon", srid, [_gpkg.Column(field, "Integer")])
+                with da.InsertCursor(scratch, [field, "SHAPE@"]) as written:
+                    for r in range(rows_):
+                        for c in range(columns):
+                            square = box(x0 + c * cell, y0 + r * cell, x0 + (c + 1) * cell, y0 + (r + 1) * cell)
+                            inside = area.contains(square.centroid) if area is not None else counts[r, c] > 0
+                            if inside:
+                                written.insertRow((int(counts[r, c]), square))
+        else:
+            _refuse(tool, "Incident_Data_Aggregation_Method", method, "the Integrate tool's snapping that it runs is "
+                    "not documented")
+        path = scratch
+    features, _, _, srid = _features(tool, path, [field])
+    if len(features) < 30:
+        raise ValueError(f"arcpy.stats.{tool}: {len(features)} weighted features; the tool needs at least 30.")
+    values = _values(tool, features, field)
+    if values.min() == values.max():
+        raise ValueError(f"arcpy.stats.{tool}: every weighted feature has the same value.")
+    if _given(Distance_Band):
+        return path, field, _threshold(Distance_Band, srid)
+    xy = np.array([(f[2], f[3]) for f in features])
+    d = _distances(xy)
+    keep = ~_locational_outliers(d)
+    nearest = _nearest(d)
+    begin = float(nearest[keep].max())
+    step = float(nearest[keep].mean())
+    distance = None
+    if not ((d <= begin + 9 * step).sum(axis=1) - 1 >= 500).any():
+        zs = []
+        for k in range(10):
+            band = begin + k * step
+            try:
+                zs.append(_moran(values, _standardized(_weights(tool, features, srid, "FIXED_DISTANCE_BAND",
+                                                                "EUCLIDEAN_DISTANCE", band, None), "ROW"))[3])
+            except ValueError:
+                zs.append(None)
+        peaks = [k for k in range(1, 9) if None not in zs[k - 1:k + 2] and zs[k] > zs[k - 1] and zs[k] > zs[k + 1]]
+        if peaks:
+            distance = begin + peaks[0] * step
+            said(f"Scale of analysis: the first peak of Incremental Spatial Autocorrelation, {distance}.")
+        neighbours = None
+    else:
+        neighbours = 30
+    if distance is None:
+        n = len(features)
+        k = neighbours or min(30, max(3, int(round(0.05 * n))))
+        average = float(np.sort(d, axis=1)[:, min(k, n - 1)].mean())
+        centre = xy.mean(axis=0)
+        standard = math.sqrt(float(((xy - centre) ** 2).sum(axis=1).mean()))
+        distance = standard if neighbours is None and average > standard else average
+        said(f"Scale of analysis: the average distance to {k} neighbours, or one standard distance: {distance}.")
+    return path, field, distance
+
+
+def env_scratch():
+    from ._runtime import env
+    return env.scratchWorkspace
+
+
+@_equivalent("Optimized Hot Spot Analysis's documented steps over grapy's Gi*, Benjamini–Hochberg FDR and Tukey's fence "
+             "for locational outliers", "the tool's How it works page; Getis and Ord 1992; Benjamini and Hochberg 1995; "
+             "Tukey 1977")
+def OptimizedHotSpotAnalysis(Input_Features, Output_Features, Analysis_Field=None, Incident_Data_Aggregation_Method=None,
+                             Bounding_Polygons_Defining_Where_Incidents_Are_Possible=None,
+                             Polygons_For_Aggregating_Incidents_Into_Counts=None, Density_Surface=None, Cell_Size=None,
+                             Distance_Band=None):
+    """EQUIVALENT: the page's steps — aggregate incidents (fishnet, hexagon or given polygons; the cell size twice the
+    larger of the average and median nearest-neighbour distances, or a hundredth of the extent when the data are dense
+    against N random points in their convex hull), find the scale of analysis (the first peak of Incremental Spatial
+    Autocorrelation; with none, the average distance to K = 5 percent of N neighbours, 3 to 30, capped at one standard
+    distance; 30 neighbours when a feature would have 500), then Gi* (HotSpots, fixed band) with the FDR correction —
+    here Benjamini–Hochberg. What the page leaves open, and grapy chose: locational outliers by Tukey's fence on the
+    nearest-neighbour distance; Incremental Spatial Autocorrelation's ten bands from the largest nearest-neighbour
+    distance in steps of the average one; the convex hull as the minimum bounding polygon; hexagons as
+    graticula.HexagonBins draws them, the cell size their height; incident counts in ``Join_Count``.
+
+    Refused: SNAP_NEARBY_INCIDENTS_TO_CREATE_WEIGHTED_POINTS (it runs the Integrate tool, whose snapping is not
+    documented) and bounding polygons with hexagons. Density_Surface is disabled in arcpy too.
+    """
+    from ._runtime import AddMessage
+    path, field, distance = _optimized_prepare("OptimizedHotSpotAnalysis", Input_Features, Analysis_Field,
+                                               Incident_Data_Aggregation_Method,
+                                               Bounding_Polygons_Defining_Where_Incidents_Are_Possible,
+                                               Polygons_For_Aggregating_Incidents_Into_Counts, Cell_Size, Distance_Band,
+                                               AddMessage)
+    return HotSpots(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE", distance, None,
+                    None, "APPLY_FDR")
+
+
+@_equivalent("Optimized Outlier Analysis's documented steps over grapy's Local Moran's I with seeded permutations, "
+             "Benjamini–Hochberg FDR and Tukey's fence for locational outliers",
+             "the tool's How it works page; Anselin 1995; Benjamini and Hochberg 1995; Tukey 1977")
+def OptimizedOutlierAnalysis(Input_Features, Output_Features, Analysis_Field=None, Incident_Data_Aggregation_Method=None,
+                             Bounding_Polygons_Defining_Where_Incidents_Are_Possible=None,
+                             Polygons_For_Aggregating_Incidents_Into_Counts=None, Performance_Adjustment="BALANCED_499",
+                             Cell_Size=None, Distance_Band=None):
+    """EQUIVALENT: OptimizedHotSpotAnalysis's preparation, then Local Moran's I (ClustersOutliers, fixed band, row
+    standardized) with 199, 499 or 999 conditional permutations as Performance_Adjustment says — seeded from
+    env.randomGenerator, so Pro's draws differ — and the FDR correction (Benjamini–Hochberg). "For features with no
+    neighbors at this distance, the Distance Band is extended to include their nearest neighbor": INFERRED, as one band
+    for all, the larger of the scale and the largest nearest-neighbour distance. Refusals as OptimizedHotSpotAnalysis's.
+    """
+    from ._runtime import AddMessage
+    permutations = {"QUICK_199": 199, "BALANCED_499": 499, "ROBUST_999": 999}.get(
+        _keyword(Performance_Adjustment or "BALANCED_499"))
+    if permutations is None:
+        raise ValueError("arcpy.stats.OptimizedOutlierAnalysis: Performance_Adjustment is QUICK_199, BALANCED_499 or "
+                         "ROBUST_999.")
+    path, field, distance = _optimized_prepare("OptimizedOutlierAnalysis", Input_Features, Analysis_Field,
+                                               Incident_Data_Aggregation_Method,
+                                               Bounding_Polygons_Defining_Where_Incidents_Are_Possible,
+                                               Polygons_For_Aggregating_Incidents_Into_Counts, Cell_Size, Distance_Band,
+                                               AddMessage)
+    features, _, _, _ = _features("OptimizedOutlierAnalysis", path, [field])
+    distance = max(distance, float(_nearest(_distances([(f[2], f[3]) for f in features])).max()))
+    return ClustersOutliers(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "ROW", distance,
+                            None, "APPLY_FDR", permutations)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -2146,9 +2334,6 @@ def CollectEvents(Input_Incident_Features, Output_Weighted_Point_Feature_Class):
 
 
 _REFUSED = {
-    "OptimizedHotSpotAnalysis": "it aggregates incidents and chooses its scale by procedures the documentation "
-                                "describes only in outline",
-    "OptimizedOutlierAnalysis": "it chooses its scale and permutes values at random",
     "GenerateSpatialWeightsMatrix": "its output, an .swm file, has no published layout",
     "GenerateNetworkSpatialWeights": "it needs a network dataset and writes an .swm file",
     "GenerateNetworkSWM": "it needs a network dataset and writes an .swm file",
