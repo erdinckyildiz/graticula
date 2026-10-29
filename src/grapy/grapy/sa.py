@@ -3055,6 +3055,133 @@ _NOT_YET.update({name: "FocalStatistics builds rectangle, circle and annulus nei
                        "this round" for name in ("NbrIrregular", "NbrWedge", "NbrWeight")})
 
 
+# ---- round five (ADR-224): the last names read and classified
+
+
+def Buffered(raster):
+    """The raster itself: Buffered only keeps a raster's pixel block in memory so an expression that reads it several
+    times is faster, and changes no value, so on grapy's in-memory rasters it answers the same raster."""
+    return as_raster(raster, "Buffered")
+
+
+class NbrIrregular:
+    """arcpy.sa.NbrIrregular: a neighbourhood read from a kernel file — a first line of width and height, then rows of
+    values in the neighbourhood's layout, where 0 excludes a cell and any other value includes it.
+
+    Refused: a kernel of even width or height, since the page does not say which cell is the centre."""
+
+    def __init__(self, inKernelFile):
+        self.inKernelFile = inKernelFile
+
+    def _footprint(self, grid):
+        with open(self.inKernelFile, encoding="utf-8") as kernel:
+            numbers = kernel.read().split()
+        width, height = int(float(numbers[0])), int(float(numbers[1]))
+        values = [float(v) for v in numbers[2:2 + width * height]]
+        if len(values) != width * height:
+            raise ValueError(f"NbrIrregular: the kernel file holds {len(values)} values, not {width} x {height}.")
+        if width % 2 == 0 or height % 2 == 0:
+            _refuse("NbrIrregular", "inKernelFile", self.inKernelFile, "the centre of an even-sized kernel is not documented")
+        return np.array(values).reshape(height, width) != 0
+
+
+_DISPLAY = "it makes a display rendering, and its page does not define the output values (it defers to a raster function topic)"
+_UNSPEC = "its page describes the algorithm in words and defers the method to another topic or a citation"
+_NOT_FOUND = "its reference page could not be read (404 on 2026-10-29)"
+_SIGNATURE_FILE = ("it reads or writes the ASCII signature (.gsg) file, whose layout is not documented (checked on Iso "
+                   "Cluster's page)")
+_CLASSIFIER_FILE = "it reads a classifier definition (.ecd) from the train classifier tools, which are refused"
+_SPECTRAL = "it reads or writes spectral libraries (.esl, .sli) whose layout the page does not give"
+_SOLAR = ("How solar radiation is calculated gives the direct and diffuse formulas as text, but the horizon "
+          "(hemispherical viewshed) algorithm, the sun-position equations and the sky map's zenith divisions are "
+          "described in words or cited (Rich et al. 1994; Fu and Rich 2000)")
+_REFUSED.update({name: _DISPLAY for name in (
+    "Colormap", "Render", "ShadedRelief", "AspectSlope", "ContrastBrightness", "ColorspaceConversion")})
+_REFUSED.update({name: _NOT_FOUND for name in (
+    "ColormapToRGB", "VectorField", "VectorFieldRenderer", "RasterInfo", "ZonalRemap", "SpectralConversion",
+    "ApplyEnvironment", "PixelBlock", "PixelBlockCollection", "Mensuration", "LinearUnmixing", "LabelBadBands",
+    "ExportRasterFunctionTemplate", "ElevationVoidFill")})
+_REFUSED.update({name: _SIGNATURE_FILE for name in ("CreateSignatures", "EditSignatures", "Dendrogram", "ClassProbability")})
+_REFUSED.update({name: _SPECTRAL for name in ("ExtractSpectraFromImage", "ResampleLibrarySpectra")})
+_REFUSED.update({name: _SOLAR for name in (
+    "AreaSolarRadiation", "PointsSolarRadiation", "RasterSolarRadiation", "FeatureSolarRadiation",
+    "SolarRadiationGraphics", "TimeMultipleDays", "TimeSpecialDays", "TimeWholeYear", "TimeWithinDay")})
+_REFUSED.update({
+    "NbrWedge": "the page does not say where the wedge's apex is, whether its boundary angles are inclusive, or how a "
+                "start angle above the end angle wraps",
+    "NbrWeight": "the page does not say how Focal Statistics combines the weighted values (weighted sum or mean)",
+    "RasterCellIterator": "the page does not give the iteration order, edge behaviour or integer NoData, and new output "
+                          "rasters come from RasterInfo, whose page could not be read (404)",
+    "Apply": "it runs Pro's raster function engine by function name or raster function template (.rft.xml)",
+    "Foreach": "it applies a raster function to every slice of a multidimensional raster (ADR-224 group 2)",
+    "Subset": "it subsets multidimensional rasters by variable and dimension (ADR-224 group 2)",
+    "SummarizeCategoricalRaster": "it summarises multidimensional categorical rasters (ADR-224 group 2)",
+    "Complex": "grapy's rasters hold no complex pixel types, and the page defers the magnitude formula",
+    "Geometric": "it orthorectifies with a sensor model and RPCs, a data model this server does not hold (ADR-224 group 2)",
+    "DetectControlPoints": "it works on a mosaic dataset, a data model this server does not hold (ADR-224 group 2)",
+    "TransformImageShapes": "it needs image orientations from a mosaic dataset and the deep learning tools' image-space "
+                            "shapes (ADR-224 groups 2 and 3)",
+    "ApparentReflectance": "it needs sensor metadata and the page defers its formula to a raster function topic",
+    "StatisticsHistogram": "it attaches statistics and histogram metadata, which grapy's rasters do not carry",
+    "Merge": "the page does not give the output extent and cell size rules or how NoData enters MEAN and SUM",
+    "Reproject": "no resampling method is specified",
+    "Gradient": "the forward differences are given, but not what the last row, column or slice gets",
+    "GeometricMedian": "the page names stopping rules but not the algorithm, and states two defaults for cellsize_type",
+    "RegionPixelCount": "the page does not say what each pixel gets, how maximum_region_size applies or how NoData is treated",
+    "CreateBinaryMask": "the page does not define the flood fill, the expansion metric or the region connectivity",
+    "CalculateCutFillVolume": "the page does not give the volume integration or how SURFACE's base is interpolated",
+    "OptimalInterpolation": _UNSPEC,
+    "ExtractWater": "it classifies radar backscatter by a method the page does not name (ADR-224 group 2 for SAR)",
+    "DetectImageAnomalies": "RXD and UTD are given, but not how the mean and covariance are estimated nor the scaling "
+                            "to 0-1, and KMEANS is not defined",
+    "ClassifyRasterUsingSpectra": "its methods (SAM, SID, SIDSAM, NS3) are described without formulas",
+    "DetectTargetUsingSpectra": "its methods (SAM, SID, ACE, CEM, MF and others) are described without formulas",
+    "ReduceSpectralBands": "MNF's noise covariance estimate and the decomposition are not specified",
+    "LinearSpectralUnmixing": "the page does not name the solver or how its constraints are enforced",
+    "InspectTrainingSamples": _CLASSIFIER_FILE,
+    "GenerateTrainingSamplesFromSeedPoints": "the page does not give the region grow's connectivity or order",
+    "IsoCluster": "its isodata algorithm (initial means, splits, merges) and signature file layout are not specified",
+    "IsoClusterUnsupervisedClassification": "it runs Iso Cluster, whose isodata algorithm is not specified",
+    "CreateAccuracyAssessmentPoints": "its random sampling has no documented seed and its output fields are not named",
+    "UpdateAccuracyAssessmentPoints": "it updates Create Accuracy Assessment Points' output, whose fields are not named",
+    "CreateNormalRaster": "it is seeded from the system clock with no documented seed or generator",
+    "BandCollectionStats": "the page does not say whether covariance divides by n or n - 1",
+    "RasterizeFeatures": "the page does not say whether a cell is assigned by its centre or by any feature it touches",
+    "ValuePercentileContours": "the percentile definition and the output fields are not documented",
+    "VolumePercentileContours": "the output polygons' fields are not documented",
+    "ZonalCharacterization": "its output field types and computation details are deferred to How zonal statistics "
+                             "tools work",
+    "GenerateWeightedVoronoi": "the influence formulas are given but the output fields are not named",
+    "MultiscaleSurfaceDeviation": "the page does not say whether the deviation is signed, whether the centre is in the "
+                                  "mean, how scales follow from nonlinearity, or how edges are handled",
+    "MultiscaleSurfaceDifference": "the page does not say whether the difference is signed, whether the centre is in "
+                                   "the mean, how distances become cells, or how edges are handled",
+    "MultiscaleSurfacePercentile": "the percentile definition, scale sequence, ties and edges are not specified",
+    "DarcyFlow": "the page gives no Darcy velocity, head gradient or volume balance formula",
+    "DarcyVelocity": "the page gives no formulas; it defers to How Darcy Flow and Darcy Velocity work",
+    "ParticleTrack": "the page names no integration scheme and no velocity interpolation between cell centres",
+    "PorousPuff": "the page gives the puff only by reference; its one equation is an image",
+    "FeaturePreservingSmoothing": "the page does not say how the new value or the surface normals are computed",
+    "GenerateBreachLines": "its cost and path search are only cited (Lindsay and Dhun 2015)",
+    "GeodesicFlowDirection": "it needs the Greenlee lookup table and geodesic distance, neither published",
+    "ValidateFlowDirection": "the page does not say how LoopID values are numbered",
+    "AdjustRasterToStream": "the interpolation, V-shaped channel geometry and cell selection are not specified",
+    "AdjustStreamToRaster": "the page describes the adjusted path but not how cells are selected or flow assigned",
+    "DeriveStreamAsRaster": "its least-steep-uphill routing is not formally defined (neighbours, ties)",
+    "DeriveStreamAsLine": "its routing is not formally defined and the output fields are not named",
+    "LocateRegions": "its region growth, seed placement and selection are described in words only",
+    "LeastCostCorridor": "the back-direction connection step and NoData are not specified",
+    "CostConnectivity": "the spanning tree's construction, neighbours and PATHCOST are not specified",
+    "OptimalRegionConnections": "the cost distance, spanning tree and entry points are not specified",
+    "OptimalCorridorConnections": "the corridor construction and the shortest-path algorithm are not specified",
+    "MulticriteriaOverlay": "its weighted overlay rescaling, quantifier-guided OWA and TOPSIS closeness are not given",
+    "CreateColorComposite": "its channel expressions' NoData, division by zero and output type are not documented",
+})
+for _name in list(_NOT_YET):
+    if _name in _REFUSED or _name == "NbrIrregular":
+        _NOT_YET.pop(_name)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)

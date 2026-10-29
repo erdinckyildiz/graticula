@@ -270,7 +270,21 @@ class RoundFour(_Fixture):
             self.assertIn(words, str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             sa.AreaSolarRadiation("a")
-        self.assertIn("not built in grapy yet: the solar radiation model", str(raised.exception))
+        self.assertIn("hemispherical viewshed", str(raised.exception))
+
+    def test_buffered_and_an_irregular_neighbourhood(self):
+        values = grid([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        self.assertIs(sa.Buffered(values), values)
+        cross = os.path.join(self.directory, "cross.txt")
+        with open(cross, "w", encoding="utf-8") as kernel:
+            kernel.write("3 3\n0 1 0\n1 1 1\n0 2 0\n")
+        # The centre's cross: 2 + 4 + 5 + 6 + 8 (the 2 in the file counts as 1, being not 0).
+        self.assertEqual(cells(sa.FocalStatistics(values, sa.NbrIrregular(cross), "SUM"))[1][1], 25)
+        even = os.path.join(self.directory, "even.txt")
+        with open(even, "w", encoding="utf-8") as kernel:
+            kernel.write("2 2\n1 1\n1 1\n")
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.FocalStatistics(values, sa.NbrIrregular(even), "SUM")
 
 
 if __name__ == "__main__":
