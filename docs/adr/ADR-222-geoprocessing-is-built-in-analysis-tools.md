@@ -110,7 +110,7 @@ not reopen.
    analysis takes `content:publishFeatures`, since its output is a hosted layer, and holding it is what the portal
    reports as `premium:user:spatialanalysis`, with no privilege of its own; (c) geodesic buffers for every reference,
    where ArcGIS documents geodesic for geographic data; (d) the output service private and in the root folder.
-9. **INFERRED on 2026-10-29, for confirmation in [Q-193](../open-questions.md)** — choices ArcGIS's documents leave open:
+9. ~~**INFERRED on 2026-10-29, for confirmation in [Q-193](../open-questions.md)**~~ **Confirmed 2026-10-29 by owner decision in Q-193:** *"Kalsın"*. — choices ArcGIS's documents leave open:
    (a) the output field names, lower case as every hosted column here: `point_count` for points and `count` for lines and
    polygons, `sum_length_<unit>` and `sum_area_<unit>`, `<statistic>_<field>`, `join_id`, `majority_<field>` and
    `minority_<field>`, `percent_points` and `percent_shape`; (b) a grouped summary's table published in the result's

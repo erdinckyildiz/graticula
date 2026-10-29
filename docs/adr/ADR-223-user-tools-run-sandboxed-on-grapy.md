@@ -102,7 +102,7 @@ is Esri's. Rejected for the name, not the shape: grapy keeps `arcpy`'s documente
    run at publish; every task is asynchronous. Running a tool takes read access to its item and a signed-in caller.
 8. **A run is a job** (`tool.run`), as an analysis is: its parameters, messages and results kept, its status the GP
    job's, cancel stops the process.
-9. **INFERRED, for confirmation in Q-194:** (a) no `arcpy`-named module — `import grapy as arcpy`; (b) user tools
+9. ~~**INFERRED, for confirmation in Q-194:**~~ **Confirmed 2026-10-29 by owner decision in Q-194:** *"Beşi de kalsın"*. (a) no `arcpy`-named module — `import grapy as arcpy`; (b) user tools
    refused on Windows unless an operator opts into an unsafe development setting; (c) default limits — 2 GB of memory,
    10 minutes of CPU, 30 minutes of wall clock, 1 GB written, and a ceiling of 1,024 tasks — *not* 64 as first written:
    Linux counts RLIMIT_NPROC per OS user, the server's own threads included, so it is a ceiling against a fork bomb
