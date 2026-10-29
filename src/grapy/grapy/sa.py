@@ -1654,8 +1654,11 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
 
     ``DINF`` is an EQUIVALENT: Tarboton's (1997) D-infinity, see ``_flow_direction_dinf``; it says so in its run.
 
-    Refused rather than guessed (D8): a cell whose steepest drop is shared by several neighbours, or is zero (a flat)
-    — the documentation resolves those with a lookup table (Greenlee 1987) it does not publish; a surface with NoData;
+    Flats (a steepest drop of zero) are an EQUIVALENT: Garbrecht and Martz (1997) as Barnes et al. (2014) make it
+    exact, see ``_resolve_flats``; it says so in its run.
+
+    Refused rather than guessed (D8): a cell whose positive steepest drop is shared by several neighbours — the
+    documentation resolves it with a lookup table (Greenlee 1987) it does not publish; a surface with NoData;
     MFD and the geodesic method; and ``out_drop_raster``.
 
     INFERRED: outward from an edge is straight across it (64 on the top row, 4 bottom, 16 left, 1 right) and
@@ -1679,6 +1682,7 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
     rows, columns = z.shape
     g = raster._grid
     out = np.zeros(z.shape, np.int32)
+    flats = {}
     for r in range(rows):
         for k in range(columns):
             edge = r in (0, rows - 1) or k in (0, columns - 1)
@@ -1706,13 +1710,109 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
                 lowest = min(v for _, _, v in drops)
                 winners = [code for _, code, v in drops if v == lowest]
             else:
-                winners = []
+                # A flat: left for the flat resolution below, with its tied directions kept for the undefined case.
+                flats[(r, k)] = sum(code for d, code, _ in drops if d == 0)
+                continue
             if len(winners) != 1:
                 raise NotBuiltError(f"arcpy.sa.FlowDirection: the cell at row {r}, column {k} has no single steepest "
                                     "descent; the documentation resolves it with an unpublished lookup table (Greenlee "
                                     "1987), so grapy does not guess. Fill the surface or break the tie.")
             out[r, k] = winners[0]
+    if flats:
+        out = _resolve_flats(z, out, flats)
     return Raster._of(out, np.zeros(z.shape, bool), g)
+
+
+def _flats_tool():
+    @_equivalent_early("flat resolution by gradients towards lower and away from higher terrain",
+                       "Garbrecht and Martz 1997, Journal of Hydrology 193; as made exact by Barnes, Lehman and Mulla "
+                       "2014, Computers & Geosciences 62")
+    def FlowDirection(z, out, flats):
+        """EQUIVALENT: D8 across flats as Garbrecht and Martz (1997) define it, in Barnes, Lehman and Mulla's (2014)
+        exact formulation: a flat's cells that border lower terrain through a draining cell (low edges) and those that
+        border higher terrain (high edges) are found; each flat draining somewhere is labelled from its low edges; a
+        gradient away from higher terrain (steps from the high edges) and one towards lower terrain (steps from the low
+        edges, doubled) are combined as Barnes et al. combine them; and each flat cell flows to the neighbour of its
+        flat with the least combined value. A flat that drains nowhere keeps the sum of its tied directions, the value
+        Esri documents for an undefined cell.
+
+        INFERRED: of neighbours with equal least values, the first in the code order 1, 2, 4 … 128 wins."""
+        from collections import deque
+        rows, columns = z.shape
+        noflow = np.zeros(z.shape, bool)
+        for (r, k) in flats:
+            noflow[r, k] = True
+
+        def neighbours(r, k):
+            for code, (dr, dk) in _D8.items():
+                nr, nk = r + dr, k + dk
+                if 0 <= nr < rows and 0 <= nk < columns:
+                    yield code, nr, nk
+
+        low, high = [], []
+        for r in range(rows):
+            for k in range(columns):
+                for _, nr, nk in neighbours(r, k):
+                    if not noflow[r, k] and noflow[nr, nk] and z[nr, nk] == z[r, k]:
+                        low.append((r, k))
+                        break
+                for _, nr, nk in neighbours(r, k):
+                    if noflow[r, k] and z[nr, nk] > z[r, k]:
+                        high.append((r, k))
+                        break
+        labels = np.zeros(z.shape, np.int64)
+        label = 0
+        for start in low:
+            if labels[start]:
+                continue
+            label += 1
+            queue = deque([start])
+            labels[start] = label
+            while queue:
+                r, k = queue.popleft()
+                for _, nr, nk in neighbours(r, k):
+                    if not labels[nr, nk] and z[nr, nk] == z[start]:
+                        labels[nr, nk] = label
+                        queue.append((nr, nk))
+        high = [c for c in high if labels[c]]
+        mask = np.zeros(z.shape, np.int64)
+        height = {}
+        front, loops = list(high), 1
+        while front:
+            following = []
+            for c in front:
+                if mask[c] > 0:
+                    continue
+                mask[c] = loops
+                height[labels[c]] = loops
+                for _, nr, nk in neighbours(*c):
+                    if labels[nr, nk] == labels[c] and noflow[nr, nk] and mask[nr, nk] == 0:
+                        following.append((nr, nk))
+            front, loops = following, loops + 1
+        mask = -mask
+        front, loops = list(low), 1
+        while front:
+            following = []
+            for c in front:
+                if mask[c] > 0:
+                    continue
+                mask[c] = height.get(labels[c], 0) + mask[c] + 2 * loops if mask[c] < 0 else 2 * loops
+                for _, nr, nk in neighbours(*c):
+                    if labels[nr, nk] == labels[c] and noflow[nr, nk] and mask[nr, nk] <= 0:
+                        following.append((nr, nk))
+            front, loops = following, loops + 1
+        result = out.copy()
+        for (r, k), tied in flats.items():
+            if not labels[r, k]:
+                result[r, k] = tied
+                continue
+            least, direction = mask[r, k], 0
+            for code, nr, nk in neighbours(r, k):
+                if labels[nr, nk] == labels[r, k] and mask[nr, nk] < least:
+                    least, direction = mask[nr, nk], code
+            result[r, k] = direction if direction else tied
+        return result
+    return FlowDirection
 
 
 def Fill(in_surface_raster, z_limit=None):
@@ -2237,6 +2337,7 @@ def _curvature_tool():
 
 
 _profile_and_plan = _curvature_tool()
+_resolve_flats = _flats_tool()
 
 
 def ReclassByTable(in_raster, in_remap_table, from_value_field, to_value_field, output_value_field, missing_values="DATA"):

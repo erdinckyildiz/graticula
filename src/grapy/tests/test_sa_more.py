@@ -185,8 +185,9 @@ class More(_Fixture):
         self.assertEqual(cells(sa.FlowDirection(surface)), [[1, 1, 1, 4], [1, 1, 1, 4], [1, 1, 1, 4], [1, 1, 1, 2]])
         self.assertEqual(cells(sa.FlowDirection(surface, "FORCE")),
                          [[32, 64, 64, 128], [16, 1, 1, 1], [16, 1, 1, 1], [8, 4, 4, 2]])
+        # A positive steepest drop shared by two neighbours still needs Greenlee's unpublished table.
         with self.assertRaises(arcpy.NotBuiltError):
-            sa.FlowDirection(grid([[5] * 4] * 4))
+            sa.FlowDirection(grid([[9, 9, 9], [9, 9, 0], [9, 0, 9]]))
 
     def test_accumulation_basin_watershed_length_and_streams(self):
         direction = sa.FlowDirection(grid(DEM))
@@ -457,6 +458,26 @@ class Equivalents(_Fixture):
         self.assertEqual(cells(sa.Percentile(four, 50)), [[2]])
         # Floating point takes type 7: position 1 + 3·0.5 = 2.5, half way between 2 and 3.
         self.assertEqual(cells(sa.Percentile([grid([[float(v)]]) for v in (1, 2, 3, 4)], 50)), [[2.5]])
+
+
+    def test_flats_drain_by_garbrecht_and_martz(self):
+        # A 3 × 3 flat at 5 inside a rim of 10, draining through the rim cell at 4 on the right of the middle row.
+        dem = [[10, 10, 10, 10, 10], [10, 5, 5, 5, 10], [10, 5, 5, 5, 4], [10, 5, 5, 5, 10], [10, 10, 10, 10, 10]]
+        # The cells beside the outlet fall to it (1, 2, 128); the six flat cells are resolved by Barnes et al.'s
+        # gradients: away from the rim, (2,2) is 2 steps in and the rest 1; towards the outlet the low edges are
+        # step 1. Combined: the low edges 2, (1,2) and (3,2) 2 − 1 + 4 = 5, (2,2) 2 − 2 + 4 = 4, the west column
+        # 2 − 1 + 6 = 7. Each flat cell flows to its least neighbour, the first in code order on a tie.
+        self.assertEqual(cells(sa.FlowDirection(grid(dem))),
+                         [[2, 4, 4, 4, 8], [1, 2, 1, 2, 4], [1, 1, 1, 1, 1], [1, 128, 1, 128, 64],
+                          [128, 64, 64, 64, 32]])
+        # With the flat resolved, everything reaches the outlet: 24 cells flow into it.
+        self.assertEqual(cells(sa.FlowAccumulation(sa.FlowDirection(grid(dem))))[2][4], 24)
+        # A flat with no outlet keeps the sum of its tied directions, Esri's undefined value.
+        pit = [[10] * 5, [10, 5, 5, 5, 10], [10, 5, 5, 5, 10], [10, 5, 5, 5, 10], [10] * 5]
+        got = cells(sa.FlowDirection(grid(pit)))
+        self.assertEqual((got[2][2], got[1][1]), (255, 7))
+        flat = cells(sa.FlowDirection(grid([[5] * 4] * 4)))
+        self.assertEqual([flat[1][1:3], flat[2][1:3]], [[8, 1], [2, 1]])
 
 
 if __name__ == "__main__":
