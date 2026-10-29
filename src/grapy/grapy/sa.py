@@ -4777,6 +4777,26 @@ def MajorityFilter(in_raster, number_neighbors="FOUR", majority_definition="MAJO
 _REFUSED.pop("MajorityFilter", None)
 
 
+# ---- round fourteen (ADR-224 §5.6): what stays refused after the equivalents, and why no standard method fits
+
+_REFUSED.update({
+    "BoundaryClean": "its smoothing expands and shrinks zones in an order set by sort_type and number_of_runs, which "
+                     "the page describes but no standard morphological operation defines; an opening or closing would "
+                     "not honour sort_type",
+    "Thin": "a standard skeletonisation (Zhang and Suen 1984) cannot honour its corners (ROUND or SHARP), filter and "
+            "maximum_thickness parameters, which the page does not define",
+})
+_REFUSED.update({name: ("Fu and Rich's (2000) model is given only in part: the direct and diffuse formulas are text, "
+                        "but the sun map and sky map are discretised by sky_size and the zenith and azimuth divisions "
+                        "in ways defined only in Fu 2000 (a thesis) and the hemispherical viewshed in Rich et al. 1994; "
+                        "an equivalent evaluating the sun continuously would leave sky_size and the divisions unhonoured")
+                 for name in ("AreaSolarRadiation", "PointsSolarRadiation", "RasterSolarRadiation",
+                              "FeatureSolarRadiation", "SolarRadiationGraphics", "TimeMultipleDays", "TimeSpecialDays",
+                              "TimeWholeYear", "TimeWithinDay")})
+_REFUSED["GeodesicFlowDirection"] = ("its D8 on the ellipsoid ties with Greenlee's unpublished lookup table, and no "
+                                     "published source defines Esri's geodesic flat and tie handling")
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
