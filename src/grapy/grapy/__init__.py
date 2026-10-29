@@ -858,6 +858,16 @@ _REFUSED_NAMES.update({
     "GetRasterKeyMetadata": "Esri's raster key metadata names are not documented as a mapping to GDAL's metadata",
     "SetRasterKeyMetadata": "Esri's raster key metadata names are not documented as a mapping to GDAL's metadata",
     "GenerateOptimalCoordinateSystem": "how it chooses a projection and its parameters is not documented",
+    "Render": "it applies display symbology — band combinations, stretches and colour maps — for a notebook's view, "
+              "and the stretches' rules and the rendered raster it saves are not specified closely enough to reproduce",
+    "NetCDFFileProperties": "GDAL's netCDF driver, the one grapy's rasters read through, reports attributes and extra "
+                            "dimensions as metadata text, not the typed variables and dimensions the class answers "
+                            "(getFieldType, getDimensionsByVariable, getSpatialReference); answering through it would "
+                            "be approximate",
+    **{name: "its documentation could not be found (looked under the arcpy functions and classes alphabetical lists, "
+             "its pro.arcgis.com address, and the arcpy.mp, arcpy.ia and arcpy.sharing sections)"
+       for name in ("GetUTMFromLocation", "GetPCSFromDataSource", "Guide", "Mensuration", "TimeBinningProperties",
+                    "ViewContext")},
     "RandomNumberGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same answer",
     "CreateRandomValueGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same "
                                   "answer",

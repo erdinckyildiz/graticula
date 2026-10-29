@@ -306,6 +306,8 @@ _REFUSED.update({
                                      "string grapy does not parse",
     "CalculateAdjacentFields": "how a neighbouring page's direction is decided is not documented",
     "GridIndexFeatures": "its PageName labelling scheme is not documented, and page units need a map frame",
+    "MapServerCacheTilingSchemeToPolygons": "its first parameter is the current ArcGIS Pro map, whose extent it uses, "
+                                            "and a run on this server has no map",
 })
 
 
