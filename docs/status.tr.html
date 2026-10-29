@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>928118d0</code> · 2026-10-30 01:01</p>
+<p class="stamp">Şu commit’ten üretildi: <code>411a194e</code> · 2026-10-30 01:09</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">225</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">483/567</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">74 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">485/567</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">72 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">201 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">303 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-195</b> — [OWNER] How grapy stores the three group-2 data models, INFERRED 2026-10-30 (ADR-225, ADR-226, ADR-227): (a) each model lives in grapy&#x27;s own tables inside the GeoPackage a tool works on, not on the server; (b) relationships are also written to the OGC Related…</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">88 madde</span></div><p><b>74 ADR conditions</b> outstanding across 50 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">86 madde</span></div><p><b>72 ADR conditions</b> outstanding across 50 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -135,7 +135,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:86%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-226 · grapy holds network datasets and s</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -180,6 +179,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-218 · A pinned service is kept warm</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-222 · Geoprocessing is built-in analysis</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-225 · grapy holds topology rules and rel</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-226 · grapy holds network datasets and s</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-227 · grapy holds branch versions and ar</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 </div>
 </section>
@@ -422,7 +422,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">6/6</td></tr>
 <tr><td class="id">224</td><td>grapy aims at arcpy&#x27;s whole buildable surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
 <tr><td class="id">225</td><td>grapy holds topology rules and relationship classes in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
-<tr><td class="id">226</td><td>grapy holds network datasets and solves routes on them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · LOW for agreement with Pro&#x27;s numbers, which this cannot reproduce…</td><td class="num">0/3</td></tr>
+<tr><td class="id">226</td><td>grapy holds network datasets and solves routes on them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · LOW for agreement with Pro&#x27;s numbers, which this cannot reproduce…</td><td class="num">2/3</td></tr>
 <tr><td class="id">227</td><td>grapy holds branch versions and archives in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
@@ -580,8 +580,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:44.7%"></div></div><div class="bar-n">155 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:14.7%"></div></div><div class="bar-n">23 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">7 / 42</div></div>
-<div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 62</div></div>
-<div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 95</div></div>
+<div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:25.8%"></div></div><div class="bar-n">16 / 62</div></div>
+<div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:27.4%"></div></div><div class="bar-n">26 / 95</div></div>
 <div class="bar"><div class="bar-l">arcpy.nd</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 74</div></div>
 </div>
 <div class="scroll" style="margin-top:18px"><table><thead><tr><th>Modül</th><th class="num">Kurulan</th><th class="num">bunların eşdeğer olanı (ADR-224 §5.6)</th><th class="num">Gerekçesiyle reddedilen</th><th class="num">Henüz bakılmayan</th></tr></thead><tbody>
@@ -595,14 +595,18 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.ga</td><td class="num">7</td><td class="num">0</td><td class="num">35</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ia</td><td class="num">155</td><td class="num">4</td><td class="num">192</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">132</td><td class="num">1</td><td class="num">315</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.na</td><td class="num">0</td><td class="num">0</td><td class="num">62</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.nax</td><td class="num">0</td><td class="num">0</td><td class="num">95</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.na</td><td class="num">16</td><td class="num">1</td><td class="num">24</td><td class="num">22</td></tr>
+<tr><td class="id">arcpy.nax</td><td class="num">26</td><td class="num">5</td><td class="num">11</td><td class="num">58</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">0</td><td class="num">0</td><td class="num">74</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.sa</td><td class="num">196</td><td class="num">20</td><td class="num">182</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">24</td><td class="num">6</td><td class="num">41</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>411a194e</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>9bc1e245</code><time>2026-10-30</time><span>grapy: arcpy.nax solver objects over the network model, na and nax out of the refused modules (ADR-226)</span></li>
+<li><code>1ef947f3</code><time>2026-10-30</time><span>grapy: network datasets and arcpy.na&#x27;s Route, Closest Facility, Service Area and OD Cost Matrix (ADR-226, part)</span></li>
+<li><code>dc384116</code><time>2026-10-30</time><span>Q-195 asks about the versioned history&#x27;s place too</span></li>
 <li><code>928118d0</code><time>2026-10-30</time><span>Branch versioning and archiving in the GeoPackage (merging grapy-b; ADR-227, amended)</span></li>
 <li><code>cc35de5b</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>310ffd74</code><time>2026-10-30</time><span>FlowDirection resolves flats, and RescaleByFunction, Darcy flow and MajorityFilter are built (merging grapy-a)</span></li>
@@ -613,10 +617,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>f57eb3cb</code><time>2026-10-30</time><span>grapy: DarcyFlow and DarcyVelocity as equivalents (ADR-224 §5.6)</span></li>
 <li><code>9e649957</code><time>2026-10-30</time><span>grapy: RescaleByFunction and the 13 Tf classes as an equivalent (ADR-224 §5.6)</span></li>
 <li><code>8e6e7475</code><time>2026-10-30</time><span>grapy: FlowDirection resolves flats by Garbrecht and Martz 1997, as Barnes et al. 2014 make it exact (ADR-224 §5.6)</span></li>
-<li><code>a991757a</code><time>2026-10-30</time><span>The counter covers arcpy&#x27;s network modules as ADR-226 begins building them</span></li>
-<li><code>25b25041</code><time>2026-10-30</time><span>Equivalents where the documentation is silent, and topology and relationship classes in the GeoPackage (merging grapy-a, -b, -c; ADR-224 §5.6, ADR-225)</span></li>
-<li><code>2bff3502</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>f42a8cab</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

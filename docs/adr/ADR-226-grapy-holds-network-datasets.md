@@ -97,7 +97,7 @@ None recorded.
 ## 11. Conditions
 
 1. **CreateNetworkDataset and BuildNetwork** build edges and junctions from line classes by end-point and any-vertex
-   connectivity, tested on a hand-drawn network.
+   connectivity, tested on a hand-drawn network. **DISCHARGED 2026-10-30**: the same hand-drawn network builds 6 edges and 7 junctions with end-point connectivity, and 9 and 8 with any-vertex. Seven grapy tables hold the model, registered as the `grapy_network` extension.
 2. **Route, ClosestFacility, ServiceArea and OD Cost Matrix** solve a network whose answers are unique, against
-   hand-worked costs, each marked as an equivalent.
-3. **Every remaining name** in `na`, `nax` and `nd` is built or refused with its reason.
+   hand-worked costs, each marked as an equivalent. **DISCHARGED 2026-10-30**: through `arcpy.na` (the Make*AnalysisLayer tools, AddLocations, Solve) and through `arcpy.nax`'s object API. Each solver is Dijkstra over `scipy.sparse.csgraph`, marked as an equivalent, with Service Area polygons as an equivalent of their own.
+3. **Every remaining name** in `na`, `nax` and `nd` is built or refused with its reason. **PARTLY DISCHARGED 2026-10-30**: `nd` turned out to be Network Diagrams, a different data model; all 74 of its names are refused as group 2. Of `na` and `nax`, 22 and 58 names were still unexamined when the reference list reached the builder. NP-hard solvers, turns, directions and Esri's template formats are refused by name.
