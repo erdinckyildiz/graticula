@@ -174,7 +174,9 @@ def GlobalPolynomialInterpolation(in_features, z_field, out_ga_layer=None, out_r
 
 
 _LAYER = "it reads or writes a geostatistical layer, a model object grapy does not have"
-_KRIGING = "kriging's semivariogram fitting is an optimisation the documentation does not specify"
+_KRIGING = ("empirical Bayesian kriging (Krivoruchko 2012) simulates semivariograms at random from subsets, "
+            "and the subset, simulation and transformation choices are not specified; ordinary kriging, which "
+            "grapy builds as arcpy.sa.Kriging, is not EBK")
 _RANDOM = "its answer is drawn at random"
 _UNSPECIFIED = "its kernel or fitting is named but not given as a formula"
 

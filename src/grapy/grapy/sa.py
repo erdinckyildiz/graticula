@@ -1654,8 +1654,11 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
 
     ``DINF`` is an EQUIVALENT: Tarboton's (1997) D-infinity, see ``_flow_direction_dinf``; it says so in its run.
 
-    Refused rather than guessed (D8): a cell whose steepest drop is shared by several neighbours, or is zero (a flat)
-    — the documentation resolves those with a lookup table (Greenlee 1987) it does not publish; a surface with NoData;
+    Flats (a steepest drop of zero) are an EQUIVALENT: Garbrecht and Martz (1997) as Barnes et al. (2014) make it
+    exact, see ``_resolve_flats``; it says so in its run.
+
+    Refused rather than guessed (D8): a cell whose positive steepest drop is shared by several neighbours — the
+    documentation resolves it with a lookup table (Greenlee 1987) it does not publish; a surface with NoData;
     MFD and the geodesic method; and ``out_drop_raster``.
 
     INFERRED: outward from an edge is straight across it (64 on the top row, 4 bottom, 16 left, 1 right) and
@@ -1679,6 +1682,7 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
     rows, columns = z.shape
     g = raster._grid
     out = np.zeros(z.shape, np.int32)
+    flats = {}
     for r in range(rows):
         for k in range(columns):
             edge = r in (0, rows - 1) or k in (0, columns - 1)
@@ -1706,13 +1710,109 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
                 lowest = min(v for _, _, v in drops)
                 winners = [code for _, code, v in drops if v == lowest]
             else:
-                winners = []
+                # A flat: left for the flat resolution below, with its tied directions kept for the undefined case.
+                flats[(r, k)] = sum(code for d, code, _ in drops if d == 0)
+                continue
             if len(winners) != 1:
                 raise NotBuiltError(f"arcpy.sa.FlowDirection: the cell at row {r}, column {k} has no single steepest "
                                     "descent; the documentation resolves it with an unpublished lookup table (Greenlee "
                                     "1987), so grapy does not guess. Fill the surface or break the tie.")
             out[r, k] = winners[0]
+    if flats:
+        out = _resolve_flats(z, out, flats)
     return Raster._of(out, np.zeros(z.shape, bool), g)
+
+
+def _flats_tool():
+    @_equivalent_early("flat resolution by gradients towards lower and away from higher terrain",
+                       "Garbrecht and Martz 1997, Journal of Hydrology 193; as made exact by Barnes, Lehman and Mulla "
+                       "2014, Computers & Geosciences 62")
+    def FlowDirection(z, out, flats):
+        """EQUIVALENT: D8 across flats as Garbrecht and Martz (1997) define it, in Barnes, Lehman and Mulla's (2014)
+        exact formulation: a flat's cells that border lower terrain through a draining cell (low edges) and those that
+        border higher terrain (high edges) are found; each flat draining somewhere is labelled from its low edges; a
+        gradient away from higher terrain (steps from the high edges) and one towards lower terrain (steps from the low
+        edges, doubled) are combined as Barnes et al. combine them; and each flat cell flows to the neighbour of its
+        flat with the least combined value. A flat that drains nowhere keeps the sum of its tied directions, the value
+        Esri documents for an undefined cell.
+
+        INFERRED: of neighbours with equal least values, the first in the code order 1, 2, 4 … 128 wins."""
+        from collections import deque
+        rows, columns = z.shape
+        noflow = np.zeros(z.shape, bool)
+        for (r, k) in flats:
+            noflow[r, k] = True
+
+        def neighbours(r, k):
+            for code, (dr, dk) in _D8.items():
+                nr, nk = r + dr, k + dk
+                if 0 <= nr < rows and 0 <= nk < columns:
+                    yield code, nr, nk
+
+        low, high = [], []
+        for r in range(rows):
+            for k in range(columns):
+                for _, nr, nk in neighbours(r, k):
+                    if not noflow[r, k] and noflow[nr, nk] and z[nr, nk] == z[r, k]:
+                        low.append((r, k))
+                        break
+                for _, nr, nk in neighbours(r, k):
+                    if noflow[r, k] and z[nr, nk] > z[r, k]:
+                        high.append((r, k))
+                        break
+        labels = np.zeros(z.shape, np.int64)
+        label = 0
+        for start in low:
+            if labels[start]:
+                continue
+            label += 1
+            queue = deque([start])
+            labels[start] = label
+            while queue:
+                r, k = queue.popleft()
+                for _, nr, nk in neighbours(r, k):
+                    if not labels[nr, nk] and z[nr, nk] == z[start]:
+                        labels[nr, nk] = label
+                        queue.append((nr, nk))
+        high = [c for c in high if labels[c]]
+        mask = np.zeros(z.shape, np.int64)
+        height = {}
+        front, loops = list(high), 1
+        while front:
+            following = []
+            for c in front:
+                if mask[c] > 0:
+                    continue
+                mask[c] = loops
+                height[labels[c]] = loops
+                for _, nr, nk in neighbours(*c):
+                    if labels[nr, nk] == labels[c] and noflow[nr, nk] and mask[nr, nk] == 0:
+                        following.append((nr, nk))
+            front, loops = following, loops + 1
+        mask = -mask
+        front, loops = list(low), 1
+        while front:
+            following = []
+            for c in front:
+                if mask[c] > 0:
+                    continue
+                mask[c] = height.get(labels[c], 0) + mask[c] + 2 * loops if mask[c] < 0 else 2 * loops
+                for _, nr, nk in neighbours(*c):
+                    if labels[nr, nk] == labels[c] and noflow[nr, nk] and mask[nr, nk] <= 0:
+                        following.append((nr, nk))
+            front, loops = following, loops + 1
+        result = out.copy()
+        for (r, k), tied in flats.items():
+            if not labels[r, k]:
+                result[r, k] = tied
+                continue
+            least, direction = mask[r, k], 0
+            for code, nr, nk in neighbours(r, k):
+                if labels[nr, nk] == labels[r, k] and mask[nr, nk] < least:
+                    least, direction = mask[nr, nk], code
+            result[r, k] = direction if direction else tied
+        return result
+    return FlowDirection
 
 
 def Fill(in_surface_raster, z_limit=None):
@@ -2237,6 +2337,7 @@ def _curvature_tool():
 
 
 _profile_and_plan = _curvature_tool()
+_resolve_flats = _flats_tool()
 
 
 def ReclassByTable(in_raster, in_remap_table, from_value_field, to_value_field, output_value_field, missing_values="DATA"):
@@ -4341,6 +4442,359 @@ def Percentile(rasters, percentile_value=90, percentile_interpolation_type="AUTO
 
 
 _REFUSED.pop("Percentile", None)
+
+
+# ---- round eleven (ADR-224 §5.6): RescaleByFunction and its transformation functions
+
+
+class _Tf:
+    """A transformation function's parameters, by the names and order of its arcpy class."""
+    _shape = ()
+    _defaults = {}
+
+    def __init__(self, *args, **kwargs):
+        names = [*self._shape, "lowerThreshold", "valueBelowThreshold", "upperThreshold", "valueAboveThreshold"]
+        values = {**{n: self._defaults.get(n) for n in names}, **dict(zip(names, args)), **kwargs}
+        for name in names:
+            setattr(self, name, values.get(name))
+
+
+def _tf_class(name, shape, defaults=None, doc=""):
+    cls = type(name, (_Tf,), {"_shape": shape, "_defaults": defaults or {},
+                              "__doc__": f"arcpy.sa.{name}({', '.join(shape)}, lowerThreshold, valueBelowThreshold, "
+                                         f"upperThreshold, valueAboveThreshold){': ' + doc if doc else ''}"})
+    cls.__module__ = __name__
+    return cls
+
+
+TfExponential = _tf_class("TfExponential", ("shift", "baseFactor"))
+TfGaussian = _tf_class("TfGaussian", ("midpoint", "spread"))
+TfLarge = _tf_class("TfLarge", ("midpoint", "spread"), {"spread": 5})
+TfLinear = _tf_class("TfLinear", ("minimum", "maximum"))
+TfLogarithm = _tf_class("TfLogarithm", ("shift", "factor"))
+TfLogisticDecay = _tf_class("TfLogisticDecay", ("minimum", "maximum", "yInterceptPercent"), {"yInterceptPercent": 99.0})
+TfLogisticGrowth = _tf_class("TfLogisticGrowth", ("minimum", "maximum", "yInterceptPercent"), {"yInterceptPercent": 1.0})
+TfMSLarge = _tf_class("TfMSLarge", ("meanMultiplier", "STDMultiplier"), {"meanMultiplier": 1.0, "STDMultiplier": 1.0})
+TfMSSmall = _tf_class("TfMSSmall", ("meanMultiplier", "STDMultiplier"), {"meanMultiplier": 1.0, "STDMultiplier": 1.0})
+TfNear = _tf_class("TfNear", ("midpoint", "spread"))
+TfPower = _tf_class("TfPower", ("shift", "exponent"))
+TfSmall = _tf_class("TfSmall", ("midpoint", "spread"), {"spread": 5})
+TfSymmetricLinear = _tf_class("TfSymmetricLinear", ("minimum", "maximum"))
+
+
+def _transform(f, x, low, high, from_scale, to_scale, everything):
+    """f(x) by Esri's *Formulas for the transformation functions*, each default fitted to ``low`` and ``high`` (the
+    thresholds, or the input's minimum and maximum) as that page gives it."""
+    ln, ex = math.log, math.exp
+    name = type(f).__name__
+    rising = to_scale > from_scale
+    mid = f.midpoint if getattr(f, "midpoint", None) is not None else (high + low) / 2 if hasattr(f, "midpoint") else None
+    if name == "TfExponential":
+        shift = f.shift if f.shift is not None else (
+            (low * ln(to_scale) - high * ln(from_scale)) / (ln(to_scale) - ln(from_scale)) if rising else
+            (low * ln(from_scale) - high * ln(to_scale)) / (ln(from_scale) - ln(to_scale)))
+        base = f.baseFactor if f.baseFactor is not None else (
+            (ln(to_scale) - ln(from_scale)) / (high - low) if rising else (ln(from_scale) - ln(to_scale)) / (high - low))
+        return np.exp((x - shift) * base)
+    if name == "TfLogarithm":
+        shift = f.shift if f.shift is not None else (
+            (low * ex(to_scale) - high * ex(from_scale)) / (ex(to_scale) - ex(from_scale)) if rising else
+            (low * ex(from_scale) - high * ex(to_scale)) / (ex(from_scale) - ex(to_scale)))
+        factor = f.factor if f.factor is not None else (
+            (ex(to_scale) - ex(from_scale)) / (high - low) if rising else (ex(from_scale) - ex(to_scale)) / (high - low))
+        with np.errstate(all="ignore"):
+            return np.log((x - shift) * factor)
+    if name == "TfGaussian":
+        spread = f.spread if f.spread is not None else ln(10) * 4 / (mid - low) ** 2
+        return np.exp(-spread * (x - mid) ** 2)
+    if name == "TfNear":
+        spread = f.spread if f.spread is not None else 36 / (mid - low) ** 2
+        return 1.0 / (1.0 + spread * (x - mid) ** 2)
+    if name in ("TfLarge", "TfSmall"):
+        with np.errstate(all="ignore"):
+            return 1.0 / (1.0 + np.power(x / mid, -f.spread if name == "TfLarge" else f.spread))
+    lo = f.minimum if getattr(f, "minimum", None) is not None else low
+    hi = f.maximum if getattr(f, "maximum", None) is not None else high
+    if name == "TfLinear":
+        diff = hi - lo
+        if lo < hi:
+            return np.where(x < lo, 0.0, np.where(x > hi, 1.0, (x - lo) / diff))
+        return np.where(x > lo, 0.0, np.where(x < hi, 1.0, (x - lo) / diff))
+    if name == "TfSymmetricLinear":
+        hdiff = 0.5 * (hi - lo)
+        midp = lo + hdiff
+        if lo < hi:
+            return np.where(x < lo, 0.0, np.where(x < midp, (x - lo) / hdiff, np.where(x > hi, 0.0, (hi - x) / hdiff)))
+        return np.where(x < hi, 1.0, np.where(x < midp, (x - midp) / hdiff, np.where(x > lo, 1.0, (midp - x) / hdiff)))
+    if name in ("TfLogisticGrowth", "TfLogisticDecay"):
+        c = 100.0
+        a = c / float(f.yInterceptPercent) - 1
+        b = ln(a) / (0.5 * (hi + lo) - lo)
+        sign = -1 if name == "TfLogisticGrowth" else 1
+        return c / (1 + a * np.exp(sign * (x - lo) * b))
+    if name in ("TfMSLarge", "TfMSSmall"):
+        n_means = float(f.meanMultiplier) * everything.mean()
+        n_std = float(f.STDMultiplier) * everything.std()
+        with np.errstate(all="ignore"):
+            ratio = n_std / (x - n_means + n_std)
+        return np.where(x > n_means, 1 - ratio, 0.0) if name == "TfMSLarge" else np.where(x > n_means, ratio, 1.0)
+    if name == "TfPower":
+        shift = f.shift if f.shift is not None else (
+            (low - 1 if from_scale == 1 else low) if rising else (low - 1 if to_scale == 1 else low))
+        if f.exponent is not None:
+            exponent = f.exponent
+        elif rising:
+            exponent = (1 if to_scale <= 1 else ln(to_scale) / (high - shift)) if from_scale == 0 else \
+                (ln(to_scale) / ln(high - shift) if from_scale == 1 else 2)
+        else:
+            exponent = (1 if from_scale <= 1 else ln(from_scale) / (high - shift)) if to_scale == 0 else \
+                (ln(from_scale) / ln(high - shift) if to_scale == 1 else 2)
+        with np.errstate(all="ignore"):
+            return np.power(x - shift, exponent)
+    _refuse("RescaleByFunction", "transformation_function", name)
+
+
+@_equivalent("linear rescaling of the transformed values onto the evaluation scale",
+             "the min-max normalisation of the transformed cells; the functions and their fitted defaults are Esri's "
+             "Formulas for the transformation functions, given as text")
+def RescaleByFunction(in_raster, transformation_function=None, from_scale=1, to_scale=10):
+    """EQUIVALENT: each cell between the lower and upper thresholds (by default the input's minimum and maximum) is
+    transformed by the function as Esri's *Formulas for the transformation functions* gives it — with every default
+    shape parameter fitted to the thresholds as that page writes — and the transformed values are rescaled linearly so
+    that the smallest of them over those cells becomes ``from_scale`` and the largest ``to_scale``, as *How Rescale by
+    Function works* describes. Cells below the lower threshold take ``valueBelowThreshold`` (by default
+    ``from_scale``), cells above the upper one ``valueAboveThreshold`` (by default ``to_scale``); ``"NODATA"`` makes
+    them NoData. The default function is TfMSSmall; the output is floating point.
+
+    The equivalent part is the rescaling's endpoints: the page names the minimum and maximum transformed values without
+    saying over which cells; here they are those of the cells transformed.
+
+    INFERRED: a cell where the function has no value (the logarithm of a negative number) is NoData; MSSmall's and
+    MSLarge's mean and standard deviation are of every cell, the standard deviation the population one."""
+    _refuse_environment("arcpy.sa.RescaleByFunction")
+    source = as_raster(in_raster, "RescaleByFunction")
+    f = transformation_function if transformation_function is not None else TfMSSmall()
+    if not isinstance(f, _Tf):
+        _refuse("RescaleByFunction", "transformation_function", f, "only the Tf classes are built")
+    lo_s, hi_s = float(from_scale), float(to_scale)
+    if lo_s == hi_s or lo_s < 0 or hi_s < 0:
+        raise ValueError("RescaleByFunction: from_scale and to_scale must differ and not be negative.")
+    values = source._values().astype(np.float64)
+    low = float(f.lowerThreshold) if f.lowerThreshold is not None else values.min()
+    high = float(f.upperThreshold) if f.upperThreshold is not None else values.max()
+    x = source._array.astype(np.float64)
+    within = (x >= low) & (x <= high) & ~source._mask
+    with np.errstate(all="ignore"):
+        transformed = np.asarray(_transform(f, x, low, high, lo_s, hi_s, values), dtype=np.float64)
+    usable = within & np.isfinite(transformed)
+    out = np.zeros(x.shape)
+    mask = source._mask | (within & ~np.isfinite(transformed))
+    if usable.any():
+        fmin, fmax = transformed[usable].min(), transformed[usable].max()
+        scaled = lo_s + (transformed - fmin) / ((fmax - fmin) or 1.0) * (hi_s - lo_s) if fmax > fmin else \
+            np.full(x.shape, lo_s)
+        out = np.where(usable, scaled, out)
+    for side, value, default in ((x < low, f.valueBelowThreshold, lo_s), (x > high, f.valueAboveThreshold, hi_s)):
+        side = side & ~source._mask
+        if isinstance(value, str) and value.upper() == "NODATA":
+            mask |= side
+        else:
+            out = np.where(side, float(value) if value is not None else default, out)
+    return Raster._of(np.where(mask, 0, out), mask, source._grid)
+
+
+for _built in ("RescaleByFunction", "TfExponential", "TfGaussian", "TfLarge", "TfLinear", "TfLogarithm",
+               "TfLogisticDecay", "TfLogisticGrowth", "TfMSLarge", "TfMSSmall", "TfNear", "TfPower", "TfSmall",
+               "TfSymmetricLinear"):
+    _REFUSED.pop(_built, None)
+
+
+# ---- round twelve (ADR-224 §5.6): Darcy flow
+
+
+def _darcy(in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster, tool):
+    """Face fluxes U = −T ∇h with T the harmonic mean of the two cells' transmissivities and ∇h the difference of heads
+    over the cell spacing (as How Darcy Flow and Darcy Velocity work writes Darcy's law and the face gradient), the
+    cell-centre seepage velocity as the mean of the two faces' fluxes divided by the cell's porosity and thickness, and
+    the volume balance residual as the net discharge Q = U·(face width) out of each cell."""
+    rasters = [as_raster(r, tool) for r in (in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster)]
+    from ._raster import _align
+    (h, n, b, t), masks, grid = _align(rasters, tool)
+    mask = np.logical_or.reduce(masks)
+    if mask.any():
+        _refuse(tool, "in_head_raster", in_head_raster, "how NoData cells enter the fluxes is not documented")
+    if not math.isclose(grid.width, grid.height):
+        _refuse(tool, "in_head_raster", in_head_raster, "the scheme is built for square cells")
+    h, n, b, t = (np.asarray(a, dtype=np.float64) for a in (h, n, b, t))
+    d = grid.width
+    rows, columns = h.shape
+    if rows < 3 or columns < 3:
+        raise ValueError(f"{tool} needs at least 3 rows and 3 columns.")
+    harmonic = lambda a, c: 2 * a * c / (a + c)  # noqa: E731
+    # Faces between columns (x, east positive) and between rows (y, north positive: row r−1 is north of r).
+    ux = -harmonic(t[:, :-1], t[:, 1:]) * (h[:, 1:] - h[:, :-1]) / d          # face between column k and k+1
+    uy = -harmonic(t[1:, :], t[:-1, :]) * (h[:-1, :] - h[1:, :]) / d          # face between row r (south) and r−1
+    vx = np.zeros(h.shape)
+    vy = np.zeros(h.shape)
+    vx[:, 1:-1] = (ux[:, :-1] + ux[:, 1:]) / 2
+    vy[1:-1, :] = (uy[:-1, :] + uy[1:, :]) / 2
+    vx, vy = vx / (n * b), vy / (n * b)
+    residual = np.zeros(h.shape)
+    residual[:, :-1] += ux * d          # out through the east face
+    residual[:, 1:] -= ux * d           # in through the west face of the next cell
+    residual[1:, :] += uy * d           # out through the north face (row r to r−1)
+    residual[:-1, :] -= uy * d
+    # Bounding cells copy the nearest interior cell's velocity, as documented.
+    for a in (vx, vy, residual):
+        a[0, :], a[-1, :] = a[1, :], a[-2, :]
+        a[:, 0], a[:, -1] = a[:, 1], a[:, -2]
+    direction = np.degrees(np.arctan2(vx, vy)) % 360.0
+    magnitude = np.hypot(vx, vy)
+    return residual, direction, magnitude, grid
+
+
+_DARCY_SOURCE = ("Darcy's law on a finite-difference grid with harmonic-mean face transmissivity, as How Darcy Flow and "
+                 "Darcy Velocity work writes it; Anderson, Woessner and Hunt 2015, Applied Groundwater Modeling, ch. 3")
+
+
+@_equivalent("finite-difference Darcy flux and volume balance", _DARCY_SOURCE)
+def DarcyFlow(in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster, out_direction_raster=None,
+              out_magnitude_raster=None):
+    """EQUIVALENT: the volume balance residual of steady flow — each cell's net discharge out through its four faces,
+    with the face flux U = −T·Δh/Δx from the harmonic mean of the two cells' transmissivities, as the page writes
+    Darcy's law, the face gradient and the harmonic average. ``out_direction_raster`` receives the seepage velocity's
+    direction in compass degrees clockwise from north, ``out_magnitude_raster`` its magnitude; the velocity at a cell
+    centre is the mean of its two faces' fluxes in each axis divided by the cell's porosity and thickness, as the page
+    says. Bounding cells copy the nearest interior cell, as documented.
+
+    Refused: NoData in any input; rectangular cells.
+
+    INFERRED: the residual is outflow minus inflow (the page shows it only as an image); the bounding cells' residual
+    is copied as their velocity is."""
+    _refuse_environment("arcpy.sa.DarcyFlow")
+    residual, direction, magnitude, grid = _darcy(in_head_raster, in_porosity_raster, in_thickness_raster,
+                                                  in_transmissivity_raster, "DarcyFlow")
+    blank = np.zeros(residual.shape, bool)
+    if _given(out_direction_raster):
+        Raster._of(direction.astype(np.float32), blank.copy(), grid).save(out_direction_raster)
+    if _given(out_magnitude_raster):
+        Raster._of(magnitude.astype(np.float32), blank.copy(), grid).save(out_magnitude_raster)
+    return Raster._of(residual.astype(np.float32), blank, grid)
+
+
+@_equivalent("finite-difference Darcy seepage velocity", _DARCY_SOURCE)
+def DarcyVelocity(in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster,
+                  out_magnitude_raster=None):
+    """EQUIVALENT: the seepage velocity's direction, in compass degrees clockwise from north (answered), and its
+    magnitude (``out_magnitude_raster``), computed as DarcyFlow computes them."""
+    _refuse_environment("arcpy.sa.DarcyVelocity")
+    _, direction, magnitude, grid = _darcy(in_head_raster, in_porosity_raster, in_thickness_raster,
+                                           in_transmissivity_raster, "DarcyVelocity")
+    blank = np.zeros(direction.shape, bool)
+    if _given(out_magnitude_raster):
+        Raster._of(magnitude.astype(np.float32), blank.copy(), grid).save(out_magnitude_raster)
+    return Raster._of(direction.astype(np.float32), blank, grid)
+
+
+for _built in ("DarcyFlow", "DarcyVelocity"):
+    _REFUSED.pop(_built, None)
+
+
+# ---- round thirteen (ADR-224 §5.6): MajorityFilter
+
+_RING = [(-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1), (0, -1), (-1, -1)]  # N, NE, E, SE, S, SW, W, NW
+_CROSS = [(-1, 0), (0, 1), (1, 0), (0, -1)]                                       # N, E, S, W
+
+
+def _contiguous(positions, eight):
+    """Whether the neighbour positions form one group: on the eight-cell ring two cells join when they share an edge;
+    of the four orthogonal neighbours two join when they share a corner (are not opposite), as the page defines it."""
+    positions = list(positions)
+    if len(positions) <= 1:
+        return True
+    seen, todo = {positions[0]}, [positions[0]]
+    while todo:
+        a = todo.pop()
+        for b in positions:
+            if b in seen:
+                continue
+            touching = (abs(a[0] - b[0]) + abs(a[1] - b[1]) == 1) if eight else (a[0] != -b[0] or a[1] != -b[1])
+            if touching:
+                seen.add(b)
+                todo.append(b)
+    return len(seen) == len(positions)
+
+
+@_equivalent("majority filtering with a contiguity test", "the page's own replacement rule, with contiguity as "
+             "connectedness in the neighbour ring (Rosenfeld 1970, Journal of the ACM 17(1))")
+def MajorityFilter(in_raster, number_neighbors="FOUR", majority_definition="MAJORITY"):
+    """EQUIVALENT: a cell is replaced by a value held by enough of its neighbours, contiguous about it, as the page
+    documents: MAJORITY needs 3 of 4 or 5 of 8, HALF 2 of 4 or 4 of 8; with EIGHT neighbours contiguous means sharing an
+    edge, with FOUR sharing a corner; under HALF, two equal halves leave the cell as it is when it holds one of them. On
+    the raster's edge, with FOUR neighbours a cell needs two matching neighbours; with EIGHT a corner needs all three and
+    an edge cell three contiguous ones including one along the edge, as documented. The equivalent part is the
+    contiguity test: connectedness of the matching cells in the neighbour ring (Rosenfeld 1970).
+
+    INFERRED: the processing cell itself does not count; NoData neighbours match nothing and a NoData cell stays NoData;
+    two equal halves of which the cell holds neither leave it unchanged; edge cells use the same rule under HALF."""
+    _refuse_environment("arcpy.sa.MajorityFilter")
+    source = as_raster(in_raster, "MajorityFilter")
+    if not source.isInteger:
+        raise ValueError("MajorityFilter takes an integer raster.")
+    eight = str(number_neighbors or "FOUR").upper() == "EIGHT"
+    half = str(majority_definition or "MAJORITY").upper() == "HALF"
+    a, mask = source._array, source._mask
+    rows, columns = a.shape
+    offsets = _RING if eight else _CROSS
+    out = a.copy()
+    for r in range(rows):
+        for c in range(columns):
+            if mask[r, c]:
+                continue
+            inside = [(dr, dc) for dr, dc in offsets if 0 <= r + dr < rows and 0 <= c + dc < columns]
+            edge = len(inside) < len(offsets)
+            groups = {}
+            for dr, dc in inside:
+                if not mask[r + dr, c + dc]:
+                    groups.setdefault(int(a[r + dr, c + dc]), []).append((dr, dc))
+            if edge:
+                need = 3 if eight else 2
+            else:
+                need = (4 if half else 5) if eight else (2 if half else 3)
+            qualifying = [v for v, cells_ in groups.items() if len(cells_) >= need and _contiguous(cells_, eight)]
+            if eight and edge and len(inside) == 5:
+                along = {(0, 1), (0, -1)} if r in (0, rows - 1) else {(1, 0), (-1, 0)}
+                qualifying = [v for v in qualifying if along & set(groups[v])]
+            if not qualifying:
+                continue
+            if len(qualifying) > 1:
+                continue  # two equal halves: unchanged whether or not the cell holds one of them
+            if qualifying[0] != int(a[r, c]):
+                out[r, c] = qualifying[0]
+    return Raster._of(out, mask.copy(), source._grid)
+
+
+_REFUSED.pop("MajorityFilter", None)
+
+
+# ---- round fourteen (ADR-224 §5.6): what stays refused after the equivalents, and why no standard method fits
+
+_REFUSED.update({
+    "BoundaryClean": "its smoothing expands and shrinks zones in an order set by sort_type and number_of_runs, which "
+                     "the page describes but no standard morphological operation defines; an opening or closing would "
+                     "not honour sort_type",
+    "Thin": "a standard skeletonisation (Zhang and Suen 1984) cannot honour its corners (ROUND or SHARP), filter and "
+            "maximum_thickness parameters, which the page does not define",
+})
+_REFUSED.update({name: ("Fu and Rich's (2000) model is given only in part: the direct and diffuse formulas are text, "
+                        "but the sun map and sky map are discretised by sky_size and the zenith and azimuth divisions "
+                        "in ways defined only in Fu 2000 (a thesis) and the hemispherical viewshed in Rich et al. 1994; "
+                        "an equivalent evaluating the sun continuously would leave sky_size and the divisions unhonoured")
+                 for name in ("AreaSolarRadiation", "PointsSolarRadiation", "RasterSolarRadiation",
+                              "FeatureSolarRadiation", "SolarRadiationGraphics", "TimeMultipleDays", "TimeSpecialDays",
+                              "TimeWholeYear", "TimeWithinDay")})
+_REFUSED["GeodesicFlowDirection"] = ("its D8 on the ellipsoid ties with Greenlee's unpublished lookup table, and no "
+                                     "published source defines Esri's geodesic flat and tie handling")
 
 
 def __getattr__(name):
