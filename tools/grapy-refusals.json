@@ -108,14 +108,14 @@
   "unexamined": []
  },
  "arcpy.cartography": {
-  "built": 2,
+  "built": 3,
   "equivalents": {
+   "AggregatePolygons": "morphological closing by the half aggregation distance, less each polygon's own closing (Serra, Image Analysis and Mathematical Morphology, 1982)",
    "SimplifyPolygon": "Douglas–Peucker or Visvalingam–Whyatt on each ring, the ring opened at its first stored vertex (Douglas and Peucker 1973; Visvalingam and Whyatt 1992)"
   },
   "of": 49,
   "refused": {
    "AggregatePoints": "arcpy.cartography.AggregatePoints is not built in grapy — the shape of the aggregation polygon is described only in outline.",
-   "AggregatePolygons": "arcpy.cartography.AggregatePolygons is not built in grapy — how gaps are bridged and orthogonal shapes kept is described only in outline.",
    "AlignMarkerToStrokeOrFill": "arcpy.cartography.AlignMarkerToStrokeOrFill is not built in grapy — it works on symbolized layers, labels or annotation in an ArcGIS Pro map — symbols at a reference scale — which a run on this server does not have.",
    "AnnotateSelectedFeatures": "arcpy.cartography.AnnotateSelectedFeatures is not built in grapy — it works on symbolized layers, labels or annotation in an ArcGIS Pro map — symbols at a reference scale — which a run on this server does not have.",
    "CalculateAdjacentFields": "arcpy.cartography.CalculateAdjacentFields is not built in grapy — how a neighbouring page's direction is decided is not documented.",
@@ -213,7 +213,7 @@
   "unexamined": []
  },
  "arcpy.da": {
-  "built": 17,
+  "built": 18,
   "equivalents": {},
   "of": 29,
   "refused": {
@@ -223,7 +223,6 @@
    "DatabaseSequence": "arcpy.da.DatabaseSequence is not built in grapy — a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
    "ListContingentValues": "arcpy.da.ListContingentValues is not built in grapy — a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
    "ListDatabaseSequences": "arcpy.da.ListDatabaseSequences is not built in grapy — a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
-   "ListFieldConflictFilters": "arcpy.da.ListFieldConflictFilters is not built in grapy — field conflict filters are not yet honoured by grapy's branch versions (ADR-227).",
    "ListReplicas": "arcpy.da.ListReplicas is not built in grapy — a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
    "ListSubtypes": "arcpy.da.ListSubtypes is not built in grapy — a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
    "Replica": "arcpy.da.Replica is not built in grapy — a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
@@ -380,15 +379,16 @@
   "unexamined": []
  },
  "arcpy.edit": {
-  "built": 9,
-  "equivalents": {},
+  "built": 10,
+  "equivalents": {
+   "RubbersheetFeatures": "piecewise-linear rubber-sheeting on a Delaunay triangulation of the links' sources (Saalfeld 1985, A fast rubber-sheeting transformation using simplicial coordinates, The American Cartographer 12(2))"
+  },
   "of": 19,
   "refused": {
    "AlignFeatures": "arcpy.edit.AlignFeatures is not built in grapy: its matching of candidates is documented only in words — no similarity measure, thresholds or tie-breaking — so any answer would be grapy's own under arcpy's name.",
    "EdgematchFeatures": "arcpy.edit.EdgematchFeatures is not built in grapy: it moves features along edgematch links whose generation is documented only in words.",
    "GenerateEdgematchLinks": "arcpy.edit.GenerateEdgematchLinks is not built in grapy: its matching of features across an edge is documented only in words.",
    "GenerateRubbersheetLinks": "arcpy.edit.GenerateRubbersheetLinks is not built in grapy: its matching of source and target features is documented only in words.",
-   "RubbersheetFeatures": "arcpy.edit.RubbersheetFeatures is not built in grapy: its natural-neighbour and linear adjustments are named but not specified, and the links it takes come from GenerateRubbersheetLinks, which is not built.",
    "SimplifyByStraightLinesAndCircularArcs": "arcpy.edit.SimplifyByStraightLinesAndCircularArcs is not built in grapy: it writes true circular arcs, which a GeoPackage feature class here does not hold, and its fitting is not specified.",
    "SimplifyByTangentSegments": "arcpy.edit.SimplifyByTangentSegments is not built in grapy: it writes true curves, which a GeoPackage feature class here does not hold, and its fitting is not specified.",
    "SplitLineByMatch": "arcpy.edit.SplitLineByMatch is not built in grapy: its line matching is documented only in words.",
@@ -646,7 +646,7 @@
   "unexamined": []
  },
  "arcpy.management": {
-  "built": 132,
+  "built": 134,
   "equivalents": {
    "ValidateTopology": "vertices within the cluster tolerance snap to the best-ranked class's vertex (lowest xy rank, then class order, then object id) (ADR-225 §5.3)"
   },
@@ -658,7 +658,6 @@
    "AddColormap": "arcpy.management.AddColormap needs multiband, multidimensional, colormapped or attribute-table rasters; grapy's rasters are single-band grids (ADR-224 §5.5).",
    "AddContingentValue": "arcpy.management.AddContingentValue needs a data model this server does not hold yet (ADR-224 group 2): contingent values and field groups.",
    "AddDataToTrajectoryDataset": "arcpy.management.AddDataToTrajectoryDataset needs a data model this server does not hold yet (ADR-224 group 2): trajectory datasets.",
-   "AddFieldConflictFilter": "arcpy.management.AddFieldConflictFilter keeps field conflict filters, which grapy's branch versions do not yet honour in ReconcileVersions (ADR-227).",
    "AddFilesToLasDataset": "arcpy.management.AddFilesToLasDataset needs Z values or 3D data — LAS datasets, TINs, multipatches, voxels, scenes — which grapy's 2D shapes do not hold.",
    "AddFullTextIndex": "arcpy.management.AddFullTextIndex is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "AddGPSMetadataFields": "arcpy.management.AddGPSMetadataFields follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
@@ -915,7 +914,6 @@
    "RemoveAttachments": "arcpy.management.RemoveAttachments needs a data model this server does not hold yet (ADR-224 group 2): geodatabase attachments.",
    "RemoveContingentValue": "arcpy.management.RemoveContingentValue needs a data model this server does not hold yet (ADR-224 group 2): contingent values and field groups.",
    "RemoveDepthMap": "arcpy.management.RemoveDepthMap needs a data model this server does not hold yet (ADR-224 group 2): ortho mapping and stereo workspaces.",
-   "RemoveFieldConflictFilter": "arcpy.management.RemoveFieldConflictFilter keeps field conflict filters, which grapy's branch versions do not yet honour in ReconcileVersions (ADR-227).",
    "RemoveFilesFromLasDataset": "arcpy.management.RemoveFilesFromLasDataset needs Z values or 3D data — LAS datasets, TINs, multipatches, voxels, scenes — which grapy's 2D shapes do not hold.",
    "RemoveRastersFromMosaicDataset": "arcpy.management.RemoveRastersFromMosaicDataset needs a data model this server does not hold yet (ADR-224 group 2): mosaic datasets, catalog datasets and raster collections.",
    "RemoveRelate": "arcpy.management.RemoveRelate needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
@@ -1405,13 +1403,16 @@
   "unexamined": []
  },
  "arcpy.stats": {
-  "built": 24,
+  "built": 27,
   "equivalents": {
    "DensityBasedClustering": "DBSCAN (Ester, Kriegel, Sander and Xu 1996)",
    "GWR": "geographically weighted regression with a Gaussian or bisquare kernel and an AICc bandwidth chosen by golden-section search (Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002)",
    "GeneralizedLinearRegression": "a generalized linear model fitted by iteratively reweighted least squares — Gaussian identity, binomial logit, Poisson log (McCullagh and Nelder, Generalized Linear Models, 2nd ed., 1989)",
    "IncrementalSpatialAutocorrelation": "Global Moran's I over a series of fixed distance bands, its peaks read as distances (the Spatial Autocorrelation page's formulas; the outputs as the tool page's own sample reads them)",
+   "MGWR": "multiscale geographically weighted regression by back-fitting, a bandwidth per variable chosen on AICc (Fotheringham, Yang and Kang 2017; Oshan, Li, Kang, Wolf and Fotheringham 2019 (mgwr))",
    "MultivariateClustering": "k-means by Lloyd's algorithm with k-means++ seeding, the number of clusters by the Calinski–Harabasz pseudo F (Lloyd 1982; Arthur and Vassilvitskii 2007; Calinski and Harabasz 1974)",
+   "OptimizedHotSpotAnalysis": "Optimized Hot Spot Analysis's documented steps over grapy's Gi*, Benjamini–Hochberg FDR and Tukey's fence for locational outliers (the tool's How it works page; Getis and Ord 1992; Benjamini and Hochberg 1995; Tukey 1977)",
+   "OptimizedOutlierAnalysis": "Optimized Outlier Analysis's documented steps over grapy's Local Moran's I with seeded permutations, Benjamini–Hochberg FDR and Tukey's fence for locational outliers (the tool's How it works page; Anselin 1995; Benjamini and Hochberg 1995; Tukey 1977)",
    "OrdinaryLeastSquares": "ordinary least squares with classical, White (HC0), Koenker–Bassett and Jarque–Bera diagnostics (Greene, Econometric Analysis, 7th ed., ch. 4–5 and 9; White 1980; Koenker 1981; Jarque and Bera 1980)"
   },
   "of": 65,
@@ -1447,9 +1448,6 @@
    "GroupingAnalysis": "arcpy.stats.GroupingAnalysis is not built in grapy — it was retired for Multivariate Clustering, whose seeds are random.",
    "HotSpotAnalysisComparison": "arcpy.stats.HotSpotAnalysisComparison is not built in grapy — its page answers 404, so its similarity measures cannot be checked.",
    "LocalBivariateRelationships": "arcpy.stats.LocalBivariateRelationships is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
-   "MGWR": "arcpy.stats.MGWR is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
-   "OptimizedHotSpotAnalysis": "arcpy.stats.OptimizedHotSpotAnalysis is not built in grapy — it aggregates incidents and chooses its scale by procedures the documentation describes only in outline.",
-   "OptimizedOutlierAnalysis": "arcpy.stats.OptimizedOutlierAnalysis is not built in grapy — it chooses its scale and permutes values at random.",
    "PredictUsingSSMFile": "arcpy.stats.PredictUsingSSMFile is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "PrepareData": "arcpy.stats.PrepareData is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
    "PresenceOnlyPrediction": "arcpy.stats.PresenceOnlyPrediction is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
