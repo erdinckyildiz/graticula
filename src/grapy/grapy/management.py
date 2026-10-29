@@ -131,6 +131,7 @@ def Delete(in_data, data_type=None):
             os.remove(file)
     else:
         connection = _gpkg.connect(file)
+        _drop_models(connection, table)
         connection.execute(f'drop table if exists "{table}"')
         connection.execute("delete from gpkg_contents where table_name = ?", (table,))
         connection.execute("delete from gpkg_geometry_columns where table_name = ?", (table,))
@@ -539,10 +540,15 @@ def AddFields(in_table, field_description, *_, **__):
 
 
 def DeleteFeatures(in_features):
-    """Every row deleted — of a layer, only its selected rows."""
+    """Every row deleted — of a layer, only its selected rows; through a composite relationship class, their
+    destination rows too (ADR-225)."""
+    from . import _relationships
     path, where = _source(in_features)
     connection, table = _gpkg.table_of(path)
     try:
+        oid = _gpkg.oid_column(connection, table)
+        doomed = [r[0] for r in connection.execute(f'select "{oid}" from "{table}"' + (f" where {where}" if where else ""))]
+        _relationships.cascade(connection, table, doomed)
         connection.execute(f'delete from "{table}"' + (f" where {where}" if where else ""))
         connection.commit()
     finally:
@@ -1379,10 +1385,14 @@ def CreateTable(out_path, out_name, template=None, config_keyword=None, out_alia
 
 
 def TruncateTable(in_table):
-    """Every row of a table or feature class deleted; its schema stays."""
+    """Every row of a table or feature class deleted; its schema stays. Composite relationship classes delete their
+    destination rows too (ADR-225)."""
+    from . import _relationships
     path = _plain("TruncateTable", in_table)
     connection, table = _gpkg.table_of(path)
     try:
+        oid = _gpkg.oid_column(connection, table)
+        _relationships.cascade(connection, table, [r[0] for r in connection.execute(f'select "{oid}" from "{table}"')])
         connection.execute(f'delete from "{table}"')
         connection.commit()
     finally:
@@ -2288,7 +2298,9 @@ def DeleteIdentical(in_dataset, fields, xy_tolerance=None, z_tolerance=None, out
     path, _ = _source(in_dataset)
     connection, table = _gpkg.table_of(path)
     try:
+        from . import _relationships
         oid_name = _gpkg.oid_column(connection, table)
+        _relationships.cascade(connection, table, doomed)
         connection.executemany(f'delete from "{table}" where "{oid_name}" = ?', [(o,) for o in doomed])
         connection.commit()
     finally:
@@ -4197,6 +4209,28 @@ def AlterCodedValueDescription(in_workspace, domain_name, code, new_description)
     return Result(_text(in_workspace))
 
 
+def _drop_models(connection, table):
+    """INFERRED: a table that is deleted takes with it the relationship classes it takes part in (their relationship
+    tables and Related Tables mappings) and its place, rules and errors in any topology (ADR-225)."""
+    from . import _relationships
+    for rc in _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table):
+        for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
+            if extra:
+                connection.execute(f'drop table if exists "{extra}"')
+                connection.execute("delete from gpkg_contents where table_name = ?", (extra,))
+                connection.execute("delete from gpkg_geometry_columns where table_name = ?", (extra,))
+        connection.execute("delete from gpkgext_relations where mapping_table_name = ?", (f'{rc["name"]}_rte',))
+        connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (rc["name"],))
+        connection.execute("delete from grapy_relationship_class where name = ?", (rc["name"],))
+    if connection.execute("select 1 from sqlite_master where name = 'grapy_topology_class'").fetchone():
+        rules = [r[0] for r in connection.execute("select rule_id from grapy_topology_rule where origin = ? or destination = ?",
+                                                  (table, table))]
+        for rule_id in rules:
+            connection.execute("delete from grapy_topology_error where rule_id = ?", (rule_id,))
+            connection.execute("delete from grapy_topology_rule where rule_id = ?", (rule_id,))
+        connection.execute("delete from grapy_topology_class where class_name = ?", (table,))
+
+
 def DeleteMultiple(in_data):
     """Each item deleted, as Delete deletes one: ``[[data, {type}], …]`` or ``"a;b"``; the output is ``true``."""
     kinds = ("FEATURECLASS", "FEATUREDATASET", "MOSAICDATASET", "PARCELFABRIC", "RELATIONSHIPCLASS", "TOPOLOGY")
@@ -4302,6 +4336,465 @@ def BatchUpdateFields(in_table, out_table, field_definition_table, script_file=N
     return Result(out)
 
 
+# ---- topology (ADR-225) -------------------------------------------------------------------------------------------------
+
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+def _default_tolerance(srid):
+    """INFERRED: a geodatabase's default xy tolerance, 0.001 m in the data's units, or 8.98e-9° on geographic data."""
+    from ._reference import SpatialReference
+    if srid > 0 and SpatialReference(srid).type == "Geographic":
+        return 8.983152841195214e-09
+    return 0.001 / (_per_unit(srid) or 1.0)
+
+
+def _topology(in_topology):
+    """(connection, file, dataset, name, row) of an existing topology; the caller closes the connection."""
+    from . import _topology as topo
+    from ._runtime import ExecuteError
+    file, dataset, name = topo.locate(_text(in_topology))
+    connection = _gpkg.connect(file)
+    topo.ensure(connection)
+    row = connection.execute("select dataset, cluster_tolerance from grapy_topology where name = ?", (name,)).fetchone()
+    if row is None or row[0] != dataset:
+        connection.close()
+        raise ExecuteError(f"ERROR 000732: there is no topology '{name}' in the feature dataset '{dataset}'.")
+    return connection, file, dataset, name, row
+
+
+def _class_in(file, dataset, in_featureclass, tool):
+    from ._runtime import ExecuteError
+    path = _plain(tool, in_featureclass)
+    their_file, table = _gpkg.split(path)
+    if os.path.normcase(os.path.abspath(their_file)) != os.path.normcase(os.path.abspath(file)) or not table \
+            or not table.startswith(dataset + "/"):
+        raise ExecuteError(f"ERROR 000732: '{in_featureclass}' is not in the topology's feature dataset '{dataset}'.")
+    return table
+
+
+def CreateTopology(in_dataset, out_name, in_cluster_tolerance=None):
+    """A new, empty topology in a feature dataset, its name unique in the workspace, as documented. A cluster tolerance
+    of 0 or none is the default xy tolerance (see ``_default_tolerance``). The topology is kept in grapy's tables in the
+    GeoPackage (``grapy._topology``, ADR-225)."""
+    from . import _topology as topo
+    from ._runtime import ExecuteError
+    file, dataset = _gpkg.split(_text(in_dataset))
+    srid = _feature_dataset_of(f"{file}/{dataset}/x") if dataset else None
+    if srid is None:
+        raise ExecuteError("ERROR 000732: a topology is created within a feature dataset (CreateFeatureDataset).")
+    tolerance = float(in_cluster_tolerance) if _given(in_cluster_tolerance) else 0.0
+    connection = _gpkg.connect(file)
+    try:
+        topo.ensure(connection)
+        if connection.execute("select 1 from grapy_topology where name = ?", (str(out_name),)).fetchone():
+            raise ExecuteError(f"ERROR 000258: a topology named '{out_name}' already exists in the workspace.")
+        connection.execute("insert into grapy_topology values (?, ?, ?)",
+                           (str(out_name), dataset, tolerance if tolerance > 0 else _default_tolerance(srid)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset).rstrip("/\\") + "/" + str(out_name))
+
+
+def SetClusterTolerance(in_topology, cluster_tolerance):
+    """A topology's cluster tolerance changed; 0 gives the default, as documented."""
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        tolerance = float(cluster_tolerance or 0)
+        if tolerance <= 0:
+            tolerance = _default_tolerance(_feature_dataset_of(f"{file}/{dataset}/x") or 0)
+        connection.execute("update grapy_topology set cluster_tolerance = ? where name = ?", (tolerance, name))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def AddFeatureClassToTopology(in_topology, in_featureclass, xy_rank=1, z_rank=1):
+    """A feature class of the topology's feature dataset added, with its xy and z ranks — 1 the most accurate, up to 50,
+    as documented. INFERRED: the z rank is kept though grapy's shapes are 2D."""
+    from ._runtime import ExecuteError
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        table = _class_in(file, dataset, in_featureclass, "AddFeatureClassToTopology")
+        for rank in (xy_rank, z_rank):
+            if not 1 <= int(rank) <= 50:
+                raise ExecuteError("ERROR 000800: a rank is from 1 to 50.")
+        if connection.execute("select 1 from grapy_topology_class where topology = ? and class_name = ?", (name, table)).fetchone():
+            raise ExecuteError(f"ERROR 001029: '{table}' is in the topology already.")
+        connection.execute("insert into grapy_topology_class (topology, class_name, xy_rank, z_rank) values (?, ?, ?, ?)",
+                           (name, table, int(xy_rank), int(z_rank)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def RemoveFeatureClassFromTopology(in_topology, in_featureclass):
+    """A feature class taken out of a topology, with every rule it takes part in, as documented, and their errors."""
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        table = _class_in(file, dataset, in_featureclass, "RemoveFeatureClassFromTopology")
+        rules = [r[0] for r in connection.execute("select rule_id from grapy_topology_rule where topology = ? and "
+                                                  "(origin = ? or destination = ?)", (name, table, table))]
+        for rule_id in rules:
+            connection.execute("delete from grapy_topology_error where rule_id = ?", (rule_id,))
+            connection.execute("delete from grapy_topology_rule where rule_id = ?", (rule_id,))
+        connection.execute("delete from grapy_topology_class where topology = ? and class_name = ?", (name, table))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def _class_kind(file, table):
+    return {"Polygon": "area", "Polyline": "line", "Point": "point", "Multipoint": "point"}.get(_schema(f"{file}/{table}")[1])
+
+
+def AddRuleToTopology(in_topology, rule_type, in_featureclass, subtype=None, in_featureclass2=None, subtype2=None):
+    """A rule of the documented list added between the topology's classes, of the shape types its name gives. The same
+    rule twice is an error (INFERRED). Subtypes are refused: grapy holds none (ADR-224 group 2)."""
+    from . import _topology as topo
+    from ._runtime import ExecuteError
+    if _given(subtype) or _given(subtype2):
+        raise NotBuiltError("arcpy.management.AddRuleToTopology: subtypes need a data model this server does not hold "
+                            "yet (ADR-224 group 2).")
+    name_found, entry = topo.rule(rule_type)
+    if entry is None:
+        raise ExecuteError(f"ERROR 000800: '{rule_type}' is not a topology rule.")
+    kinds = entry[0]
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        origin = _class_in(file, dataset, in_featureclass, "AddRuleToTopology")
+        destination = _class_in(file, dataset, in_featureclass2, "AddRuleToTopology") if len(kinds) == 2 else None
+        if len(kinds) == 2 and not _given(in_featureclass2):
+            raise ExecuteError(f"ERROR 000735: '{name_found}' needs a second feature class.")
+        for table in [t for t in (origin, destination) if t]:
+            if not connection.execute("select 1 from grapy_topology_class where topology = ? and class_name = ?",
+                                      (name, table)).fetchone():
+                raise ExecuteError(f"ERROR 001029: '{table}' is not in the topology.")
+        for table, kind in zip([origin, destination], kinds):
+            if _class_kind(file, table) != kind:
+                raise ExecuteError(f"ERROR 000800: '{name_found}' takes {kind} features; '{table}' holds others.")
+        if connection.execute("select 1 from grapy_topology_rule where topology = ? and rule_type = ? and origin = ? and "
+                              "destination is ?", (name, name_found, origin, destination)).fetchone():
+            raise ExecuteError(f"ERROR 001029: the rule '{name_found}' is in the topology already.")
+        connection.execute("insert into grapy_topology_rule (topology, rule_type, origin, destination) values (?, ?, ?, ?)",
+                           (name, name_found, origin, destination))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def RemoveRuleFromTopology(in_topology, in_rule):
+    """A rule removed, named as documented: its name and the object-class id of its class, or of both classes joined
+    by a hyphen — ``"Must Not Have Dangles (21)"``, ``"Must Be Properly Inside (78-79)"`` — the ids being the
+    ``class_id`` of ``grapy_topology_class``. Its errors go with it."""
+    import re
+    from ._runtime import ExecuteError
+    match = re.fullmatch(r"\s*(.+?)\s*\((\d+)(?:-(\d+))?\)\s*", str(in_rule))
+    if not match:
+        raise ExecuteError(f"ERROR 000800: '{in_rule}' is not a rule name with its class ids in parentheses.")
+    label, first, second = match.group(1).lower(), int(match.group(2)), match.group(3)
+    connection, _, _, name, _ = _topology(in_topology)
+    try:
+        ids = {r[1]: r[0] for r in connection.execute("select class_id, class_name from grapy_topology_class where "
+                                                      "topology = ?", (name,))}
+        found = None
+        for rule_id, rule_type, origin, destination in connection.execute(
+                "select rule_id, rule_type, origin, destination from grapy_topology_rule where topology = ?", (name,)):
+            from ._topology import description
+            if description(rule_type).lower() == label and ids.get(origin) == first and \
+                    (second is None and destination is None or second is not None and ids.get(destination) == int(second)):
+                found = rule_id
+        if found is None:
+            raise ExecuteError(f"ERROR 000800: the topology has no rule '{in_rule}'.")
+        connection.execute("delete from grapy_topology_error where rule_id = ?", (found,))
+        connection.execute("delete from grapy_topology_rule where rule_id = ?", (found,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def _validate_topology(in_topology, visible_extent="Full_Extent"):
+    """The topology's vertices clustered within its cluster tolerance — the equivalent of ADR-225 §5.3, moving a vertex
+    onto the nearest-ranked class's vertex — and then every rule evaluated over the whole topology, the errors replacing
+    the last validation's. ``Visible_Extent`` and the extent environment are refused: a server tool has no map view.
+    Cracking (inserting a shared vertex where features cross) is not done; the rules' predicates do not need it."""
+    from . import _topology as topo, da
+    from ._runtime import env
+    if str(visible_extent or "Full_Extent").upper() in ("VISIBLE_EXTENT", "TRUE") or env.extent not in (None, "", "DEFAULT", "MAXOF"):
+        raise NotBuiltError("arcpy.management.ValidateTopology over the visible or an environment extent is not built in "
+                            "grapy; a server tool has no map view, and the whole topology is validated.")
+    connection, file, _, name, (_, tolerance) = _topology(in_topology)
+    try:
+        members = connection.execute("select class_name, xy_rank from grapy_topology_class where topology = ? "
+                                     "order by class_id", (name,)).fetchall()
+        rules = connection.execute("select rule_id, rule_type, origin, destination from grapy_topology_rule where "
+                                   "topology = ?", (name,)).fetchall()
+        srid = _schema(f"{file}/{members[0][0]}")[2] if members else 0
+    finally:
+        connection.close()
+    features = {}
+    for table, _ in members:
+        with da.SearchCursor(f"{file}/{table}", ["OID@", "SHAPE@"]) as rows:
+            features[table] = [(oid, shape._shape) for oid, shape in rows if shape is not None and not shape._shape.is_empty]
+    moved = topo.cluster([(rank, features[table]) for table, rank in members], tolerance)
+    for index, (table, _) in enumerate(members):
+        changed = {oid: shape for (i, oid), shape in moved.items() if i == index}
+        if not changed:
+            continue
+        with da.UpdateCursor(f"{file}/{table}", ["OID@", "SHAPE@"]) as rows:
+            for oid, _ in rows:
+                if oid in changed:
+                    rows.updateRow([oid, changed[oid]])
+        features[table] = [(oid, changed.get(oid, shape)) for oid, shape in features[table]]
+    connection = _gpkg.connect(file)
+    try:
+        connection.execute("delete from grapy_topology_error where topology = ?", (name,))
+        for rule_id, rule_type, origin, destination in rules:
+            for shape, origin_oid, destination_oid in topo.evaluate(rule_type, features[origin],
+                                                                    features[destination] if destination else []):
+                connection.execute(
+                    "insert into grapy_topology_error (topology, rule_id, kind, origin_class, origin_oid, destination_class, "
+                    "destination_oid, rule_type, description, is_exception, shape) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                    (name, rule_id, topo.kind_of(shape), origin.rsplit("/", 1)[1],
+                     int(origin_oid), (destination or origin).rsplit("/", 1)[1] if destination_oid else "",
+                     int(destination_oid), topo.rule(rule_type)[1][1], topo.description(rule_type),
+                     _gpkg.encode(shape, srid)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+@_equivalent("vertices within the cluster tolerance snap to the best-ranked class's vertex (lowest xy rank, then class "
+             "order, then object id)", "ADR-225 §5.3")
+def ValidateTopology(in_topology, visible_extent="Full_Extent"):
+    """EQUIVALENT: clustering within the cluster tolerance snaps a vertex to the vertex of the best-ranked class within
+    the tolerance (lowest xy rank, then class order, then object id), as ADR-225 §5.3 decides — Esri describes its
+    cracking and clustering only in words. Every rule is then evaluated as the AddRuleToTopology page defines it; see
+    ``_validate_topology``."""
+    return _validate_topology(in_topology, visible_extent)
+
+
+def ExportTopologyErrors(in_topology, out_path=None, out_basename=None):
+    """The last validation's errors as three feature classes, always made even when empty — ``<basename>PointsErrors``,
+    ``<basename>LineErrors`` and ``<basename>PolygonErrors`` — with ``OriginObjectClassName``, ``OriginObjectID``,
+    ``DestinationObjectClassName``, ``DestinationObjectID``, ``RuleType``, ``RuleDescription`` and ``IsException``, as
+    documented; ``out_path`` defaults to the topology's workspace and ``out_basename`` to its name. INFERRED: RuleType
+    holds the esriTopologyRuleType name, RuleDescription the rule's name without its shape types, and a rule within one
+    class has no destination class name and destination id 0."""
+    from . import da
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        members = [r[0] for r in connection.execute("select class_name from grapy_topology_class where topology = ?", (name,))]
+        errors = connection.execute("select kind, origin_class, origin_oid, destination_class, destination_oid, rule_type, "
+                                    "description, is_exception, shape from grapy_topology_error where topology = ? "
+                                    "order by error_id", (name,)).fetchall()
+    finally:
+        connection.close()
+    srid = _schema(f"{file}/{members[0]}")[2] if members else (_feature_dataset_of(f"{file}/{dataset}/x") or 0)
+    base = str(out_basename) if _given(out_basename) else name
+    where = _text(out_path) if _given(out_path) else file
+    fields = [_gpkg.Column("OriginObjectClassName", "String"), _gpkg.Column("OriginObjectID", "Integer"),
+              _gpkg.Column("DestinationObjectClassName", "String"), _gpkg.Column("DestinationObjectID", "Integer"),
+              _gpkg.Column("RuleType", "String"), _gpkg.Column("RuleDescription", "String"),
+              _gpkg.Column("IsException", "Integer")]
+    outputs = []
+    for suffix, kind, shape in (("PointsErrors", "point", "Point"), ("LineErrors", "line", "Polyline"),
+                                ("PolygonErrors", "area", "Polygon")):
+        out = f"{where}/{base}{suffix}"
+        _gpkg.create(out, shape, srid, fields)
+        with da.InsertCursor(out, [*[f.name for f in fields], "SHAPE@"]) as written:
+            for row in errors:
+                if row[0] == kind:
+                    written.insertRow((*row[1:8], _gpkg.decode(row[8])))
+        outputs.append(out)
+    return Result(*outputs)
+
+
+# ---- relationship classes (ADR-225) -------------------------------------------------------------------------------------
+
+def _relationship_path(value):
+    from ._runtime import ExecuteError
+    file, table = _gpkg.split(_text(value))
+    if not table:
+        raise ExecuteError(f"ERROR 000732: write a relationship class as <file>.gpkg/<name>, not '{value}'.")
+    return file, table
+
+
+def _same_file(*paths):
+    from ._runtime import ExecuteError
+    files = {os.path.normcase(os.path.abspath(_gpkg.split(p)[0])) for p in paths}
+    if len(files) != 1:
+        raise ExecuteError("ERROR 000732: a relationship class relates tables of one workspace.")
+
+
+def _make_relationship(origin_table, destination_table, out_relationship_class, relationship_type, forward_label,
+                       backward_label, message_direction, cardinality, attributed, origin_primary_key, origin_foreign_key,
+                       destination_primary_key, destination_foreign_key, relationship_rows=None, attribute_fields=()):
+    from . import _relationships as rel
+    from ._runtime import ExecuteError
+    origin_path, destination_path = _plain("CreateRelationshipClass", origin_table), _plain("CreateRelationshipClass", destination_table)
+    _same_file(origin_path, destination_path, _text(out_relationship_class))
+    file, name = _relationship_path(out_relationship_class)
+    origin, destination = _gpkg.split(origin_path)[1] or _stem_of(origin_path), _gpkg.split(destination_path)[1] or _stem_of(destination_path)
+    kind = str(relationship_type or "SIMPLE").upper()
+    cardinality = str(cardinality or "ONE_TO_ONE").upper()
+    with_table = cardinality == "MANY_TO_MANY" or str(attributed or "NONE").upper() == "ATTRIBUTED" or relationship_rows is not None
+    if kind not in ("SIMPLE", "COMPOSITE") or cardinality not in ("ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_MANY"):
+        raise ExecuteError("ERROR 000800: relationship_type is SIMPLE or COMPOSITE; cardinality ONE_TO_ONE, ONE_TO_MANY or "
+                           "MANY_TO_MANY.")
+    if kind == "COMPOSITE" and with_table:
+        raise NotBuiltError("arcpy.management.CreateRelationshipClass: a composite class kept in a relationship table is "
+                            "not built in grapy; the page says composite relationships are one to many.")
+    origin_columns = {c.name.lower(): c for c in _schema(origin_path)[0]}
+    destination_columns = {c.name.lower(): c for c in _schema(destination_path)[0]}
+    origin_oid, destination_oid = _oid_of(origin_path), _oid_of(destination_path)
+
+    def column(columns, oid, key, where):
+        if str(key).lower() == oid.lower():
+            return _gpkg.Column(oid, "Integer")
+        if str(key).lower() not in columns:
+            raise ExecuteError(f"ERROR 000728: the field '{key}' does not exist in {where}.")
+        return columns[str(key).lower()]
+
+    origin_pk = column(origin_columns, origin_oid, origin_primary_key, origin)
+    destination_pk = None
+    if with_table:
+        if not (_given(destination_primary_key) and _given(destination_foreign_key)):
+            raise ExecuteError("ERROR 000735: a many-to-many or attributed class needs destination keys.")
+        destination_pk = column(destination_columns, destination_oid, destination_primary_key, destination)
+    else:
+        column(destination_columns, destination_oid, origin_foreign_key, destination)
+    connection = _gpkg.connect(file)
+    try:
+        rel.ensure(connection)
+        if connection.execute("select 1 from grapy_relationship_class where name = ?", (name,)).fetchone() or \
+                connection.execute("select 1 from gpkg_contents where table_name = ?", (name,)).fetchone():
+            raise ExecuteError(f"ERROR 000258: '{name}' already exists.")
+    finally:
+        connection.close()
+    if with_table:
+        extra = [_gpkg.Column(c.name, c.type) for c in attribute_fields]
+        _gpkg.create(f"{file}/{name}", "Geometry", 0, [_gpkg.Column(str(origin_foreign_key), origin_pk.type),
+                                                       _gpkg.Column(str(destination_foreign_key), destination_pk.type), *extra])
+        if relationship_rows:
+            from . import da
+            with da.InsertCursor(f"{file}/{name}", [str(origin_foreign_key), str(destination_foreign_key),
+                                                     *[c.name for c in extra], "SHAPE@"]) as written:
+                for row in relationship_rows:
+                    written.insertRow((*row, None))
+    connection = _gpkg.connect(file)
+    try:
+        values = (name, origin, destination, kind, forward_label, backward_label,
+                  str(message_direction or "NONE").upper(), cardinality, int(str(attributed or "NONE").upper() == "ATTRIBUTED"),
+                  origin_pk.name, str(origin_foreign_key), destination_pk.name if destination_pk else None,
+                  str(destination_foreign_key) if with_table else None, name if with_table else None)
+        connection.execute("insert into grapy_relationship_class values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+        rel.write_related_tables(connection, rel.classes(connection, name=name)[0])
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(out_relationship_class))
+
+
+def CreateRelationshipClass(origin_table, destination_table, out_relationship_class, relationship_type="SIMPLE",
+                            forward_label=None, backward_label=None, message_direction="NONE", cardinality="ONE_TO_ONE",
+                            attributed="NONE", origin_primary_key=None, origin_foreign_key=None,
+                            destination_primary_key=None, destination_foreign_key=None):
+    """A relationship class between two tables of one workspace, as documented: SIMPLE or COMPOSITE (deleting an origin
+    row deletes its destination rows, through grapy's delete paths), labels, message direction, cardinality, and keys —
+    the destination's ``origin_foreign_key`` holding the origin's ``origin_primary_key`` for a one-to-one or
+    one-to-many class, or a relationship table for a many-to-many or attributed one. Kept in grapy's tables and in the
+    OGC Related Tables Extension (``grapy._relationships``). INFERRED: the relationship table is named after the class
+    and holds the two foreign keys under the names given; messages are kept but nothing in grapy sends them; a
+    composite class is one to one or one to many, the page saying composites are one to many."""
+    return _make_relationship(origin_table, destination_table, out_relationship_class, relationship_type, forward_label,
+                              backward_label, message_direction, cardinality, attributed, origin_primary_key,
+                              origin_foreign_key, destination_primary_key, destination_foreign_key)
+
+
+def TableToRelationshipClass(origin_table, destination_table, out_relationship_class, relationship_type="SIMPLE",
+                             forward_label=None, backward_label=None, message_direction="NONE", cardinality="ONE_TO_ONE",
+                             relationship_table=None, attribute_fields=None, origin_primary_key=None,
+                             origin_foreign_key=None, destination_primary_key=None, destination_foreign_key=None):
+    """A relationship class made from a table of pairs: each row of ``relationship_table`` relates the origin row whose
+    ``origin_primary_key`` is its ``origin_foreign_key`` to the destination row whose ``destination_primary_key`` is its
+    ``destination_foreign_key``, carrying its ``attribute_fields``; a null key is an error, as documented. The pairs are
+    kept in the class's own relationship table, as CreateRelationshipClass keeps a many-to-many class's."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(relationship_table)
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    attributes = [columns[f.lower()] for f in _list(attribute_fields)]
+    keys = [columns[str(origin_foreign_key).lower()].name, columns[str(destination_foreign_key).lower()].name]
+    with da.SearchCursor(path, [*keys, *[c.name for c in attributes]], where) as rows:
+        listed = [tuple(r) for r in rows]
+    if any(r[0] is None or r[1] is None for r in listed):
+        raise ExecuteError("ERROR 000800: a relationship table's foreign keys cannot be null.")
+    return _make_relationship(origin_table, destination_table, out_relationship_class, relationship_type, forward_label,
+                              backward_label, message_direction, cardinality, "ATTRIBUTED" if attributes else "NONE",
+                              origin_primary_key, keys[0], destination_primary_key, keys[1], listed, attributes)
+
+
+def AddRuleToRelationshipClass(in_rel_class, origin_subtype=None, origin_minimum=None, origin_maximum=None,
+                               destination_subtype=None, destination_minimum=None, destination_maximum=None):
+    """A rule narrowing the class's cardinality kept with it, as documented. INFERRED: the page does not say when a rule
+    is checked, and no grapy tool checks it; subtypes are refused, grapy holding none (ADR-224 group 2)."""
+    from . import _relationships as rel
+    from ._runtime import ExecuteError
+    if _given(origin_subtype) or _given(destination_subtype):
+        raise NotBuiltError("arcpy.management.AddRuleToRelationshipClass: subtypes need a data model this server does "
+                            "not hold yet (ADR-224 group 2).")
+    file, name = _relationship_path(in_rel_class)
+    connection = _gpkg.connect(file)
+    try:
+        rel.ensure(connection)
+        if not rel.classes(connection, name=name):
+            raise ExecuteError(f"ERROR 000732: there is no relationship class '{name}'.")
+        number = lambda v: int(v) if _given(v) else None  # noqa: E731
+        connection.execute("insert into grapy_relationship_rule (relationship_class, origin_minimum, origin_maximum, "
+                           "destination_minimum, destination_maximum) values (?, ?, ?, ?, ?)",
+                           (name, number(origin_minimum), number(origin_maximum), number(destination_minimum),
+                            number(destination_maximum)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_rel_class))
+
+
+def RemoveRuleFromRelationshipClass(in_rel_class, origin_subtype=None, destination_subtype=None, remove_all="NOT_ALL"):
+    """The class's rule removed — or with ``REMOVE`` every rule, as documented. Subtypes are refused, as for adding."""
+    from . import _relationships as rel
+    if _given(origin_subtype) or _given(destination_subtype):
+        raise NotBuiltError("arcpy.management.RemoveRuleFromRelationshipClass: subtypes need a data model this server "
+                            "does not hold yet (ADR-224 group 2).")
+    file, name = _relationship_path(in_rel_class)
+    connection = _gpkg.connect(file)
+    try:
+        rel.ensure(connection)
+        connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (name,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_rel_class))
+
+
+def _cascade(path, oids):
+    """Composite deletes and relationship-table rows for rows about to be deleted from ``path``."""
+    from . import _relationships as rel
+    connection, table = _gpkg.table_of(path)
+    try:
+        rel.cascade(connection, table, oids)
+        connection.commit()
+    finally:
+        connection.close()
+
+
 # ---- refused by name ----------------------------------------------------------------------------------------------------
 #
 # Every arcpy.management name grapy does not build is refused here with its own reason (ADR-224): a data model this
@@ -4321,9 +4814,6 @@ _GROUP_2_MODELS = {
         "ExportReplicaSchema", "ImportReplicaSchema", "EnableReplicaTracking", "DisableReplicaTracking",
         "ExportAcknowledgementMessage", "ExportDataChangeMessage", "ImportMessage", "ReExportUnacknowledgedMessages",
         "ExtractDataFromGeodatabase"),
-    "geodatabase topology": (
-        "CreateTopology", "AddFeatureClassToTopology", "RemoveFeatureClassFromTopology", "AddRuleToTopology",
-        "RemoveRuleFromTopology", "ValidateTopology", "ExportTopologyErrors", "SetClusterTolerance"),
     "attribute rules": (
         "AddAttributeRule", "AlterAttributeRule", "DeleteAttributeRule", "DisableAttributeRules", "EnableAttributeRules",
         "EvaluateRules", "ExportAttributeRules", "ImportAttributeRules", "ReorderAttributeRule",
@@ -4338,9 +4828,8 @@ _GROUP_2_MODELS = {
         "CreateUnRegisteredFeatureclass", "CreateUnRegisteredTable", "AddIncrementingIDField"),
     "parcel fabrics": ("EnableCOGO", "DisableCOGO"),
     "geodatabase subtypes": ("AddSubtype", "AlterSubtype", "RemoveSubtype", "SetDefaultSubtype", "SetSubtypeField"),
-    "geodatabase relationship classes": (
-        "CreateRelationshipClass", "TableToRelationshipClass", "MigrateRelationshipClass", "AddRuleToRelationshipClass",
-        "RemoveRuleFromRelationshipClass", "SetRelationshipClassSplitPolicy"),
+    "global IDs (MigrateRelationshipClass moves a relationship class's keys to GlobalID fields)": (
+        "MigrateRelationshipClass",),
     "geodatabase attachments": (
         "AddAttachments", "RemoveAttachments", "EnableAttachments", "DisableAttachments", "ExportAttachments",
         "GenerateAttachmentMatchTable", "DowngradeAttachments", "UpgradeAttachments", "GeoTaggedPhotosToPoints",
@@ -4427,6 +4916,8 @@ _REASONS = {
         "AddSpatialIndex", "RemoveSpatialIndex"),
     "makes a layer over a table read live (an event layer) or over a raster; grapy's layers are over feature classes "
     "and tables — XYTableToPoint makes the points": ("MakeXYEventLayer", "MakeRasterLayer"),
+    "sets how ArcGIS Pro's split edit treats a relationship class's related rows; grapy has no split edit": (
+        "SetRelationshipClassSplitPolicy",),
     "converts between Windows time zone names, whose mapping to the IANA zones Python holds Esri does not publish": (
         "ConvertTimeZone",),
     "writes DTED, a military elevation format grapy does not write": ("RasterToDTED",),

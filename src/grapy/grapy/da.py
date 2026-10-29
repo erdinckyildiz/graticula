@@ -270,6 +270,9 @@ class UpdateCursor(SearchCursor):
         self._connection.execute(f'update "{self._table}" set {assignments} where "{self._oid}" = ?', [*values, oid])
 
     def deleteRow(self):
+        # A composite relationship class deletes the row's destination rows with it (ADR-225, grapy._relationships).
+        from . import _relationships
+        _relationships.cascade(self._connection, self._table, [self._rows[self._at][0]])
         self._connection.execute(f'delete from "{self._table}" where "{self._oid}" = ?', (self._rows[self._at][0],))
 
 
@@ -796,3 +799,69 @@ def __getattr__(name):
         raise AttributeError(name)
     why = _REFUSED.get(name)
     raise NotBuiltError(f"arcpy.da.{name} is not built in grapy" + (f" — {why}." if why else " yet."))
+
+
+# ---- relationship classes (ADR-225) -------------------------------------------------------------------------------
+
+
+class SearchRelatedRecords:
+    """Reads related rows through a relationship class (``<file>.gpkg/<class>``), as documented: for each related
+    pair, a tuple of the origin row and the destination row, each holding ``origin_fields`` and ``destination_fields``
+    (fields or tokens); ``oids_to_search`` (``"*"`` for all) are origin object ids, or with ``backward`` destination
+    ones; an id with no related rows yields nothing. INFERRED: a side whose fields are not asked for is an empty
+    tuple; pairs come in order of origin and then destination object id."""
+
+    def __init__(self, relationship_class, oids_to_search="*", origin_fields=None, destination_fields=None, backward=False):
+        import os
+        from . import _relationships
+        if origin_fields is None and destination_fields is None:
+            raise ValueError("SearchRelatedRecords needs origin_fields or destination_fields.")
+        file, name = _gpkg.split(os.fspath(relationship_class) if isinstance(relationship_class, os.PathLike)
+                                 else str(relationship_class))
+        connection = _gpkg.connect(file)
+        try:
+            found = _relationships.classes(connection, name=name)
+            if not found:
+                raise RuntimeError(f"'{relationship_class}' is not a relationship class.")
+            rc = found[0]
+            pairs = _relationships.pairs(connection, rc)
+        finally:
+            connection.close()
+        if oids_to_search not in (None, "*", ["*"]):
+            wanted = {int(o) for o in (oids_to_search if isinstance(oids_to_search, (list, tuple, set)) else [oids_to_search])}
+            pairs = [p for p in pairs if (p[1] if backward else p[0]) in wanted]
+
+        def rows(table, fields):
+            if fields is None:
+                return None, []
+            listed = [fields] if isinstance(fields, str) else list(fields)
+            with SearchCursor(f"{file}/{table}", ["OID@", *listed]) as read:
+                return {r[0]: tuple(r[1:]) for r in read}, listed
+
+        self._origin, _ = rows(rc["origin"], origin_fields)
+        self._destination, _ = rows(rc["destination"], destination_fields)
+        self._pairs = pairs
+        self._at = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._at >= len(self._pairs):
+            raise StopIteration
+        origin, destination = self._pairs[self._at]
+        self._at += 1
+        return (self._origin[origin] if self._origin is not None else (),
+                self._destination[destination] if self._destination is not None else ())
+
+    def next(self):
+        return self.__next__()
+
+    def reset(self):
+        self._at = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
