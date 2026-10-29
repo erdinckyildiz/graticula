@@ -264,7 +264,7 @@ class RoundFour(_Fixture):
         self.assertIs(sa.Raster, arcpy.Raster)
         self.assertIs(sa.Point, arcpy.Point)
         self.assertIs(sa.Extent, arcpy.Extent)
-        for name, words in (("TfGaussian", "RescaleByFunction"), ("VfBinary", "path distance"),
+        for name, words in (("VfBinary", "path distance"),
                             ("TopoLake", "TopoToRaster")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a")
@@ -478,6 +478,22 @@ class Equivalents(_Fixture):
         self.assertEqual((got[2][2], got[1][1]), (255, 7))
         flat = cells(sa.FlowDirection(grid([[5] * 4] * 4)))
         self.assertEqual([flat[1][1:3], flat[2][1:3]], [[8, 1], [2, 1]])
+
+
+    def test_rescale_by_function(self):
+        x = grid([[0.0, 5.0, 10.0]])
+        # Linear from 0 to 10: f = 0, ½, 1, onto 1 … 10.
+        self.assertEqual(cells(sa.RescaleByFunction(x, sa.TfLinear(0, 10))), [[1.0, 5.5, 10.0]])
+        # Exponential with the page's fitted defaults from 1 to 10: shift 0 and base ln 10 / 10, so f = 1, √10, 10.
+        got = cells(sa.RescaleByFunction(x, sa.TfExponential()))[0]
+        for value, want in zip(got, (1.0, math.sqrt(10), 10.0)):
+            self.assertAlmostEqual(value, want)
+        # Gaussian with its default spread ln 10 · 4 / 5² about 5: f = 10⁻⁴, 1, 10⁻⁴, rescaled to 1, 10, 1.
+        self.assertEqual([round(v, 6) for v in cells(sa.RescaleByFunction(x, sa.TfGaussian()))[0]], [1.0, 10.0, 1.0])
+        # Thresholds at 2 and 8: the cells outside take the defaults, from_scale and to_scale, or NoData.
+        wide = grid([[0.0, 2.0, 5.0, 8.0, 10.0]])
+        self.assertEqual(cells(sa.RescaleByFunction(wide, sa.TfLinear(2, 8, 2, None, 8, "NODATA")), nodata=-1),
+                         [[1.0, 1.0, 5.5, 10.0, -1]])
 
 
 if __name__ == "__main__":

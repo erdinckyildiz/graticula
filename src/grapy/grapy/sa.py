@@ -4444,6 +4444,171 @@ def Percentile(rasters, percentile_value=90, percentile_interpolation_type="AUTO
 _REFUSED.pop("Percentile", None)
 
 
+# ---- round eleven (ADR-224 §5.6): RescaleByFunction and its transformation functions
+
+
+class _Tf:
+    """A transformation function's parameters, by the names and order of its arcpy class."""
+    _shape = ()
+    _defaults = {}
+
+    def __init__(self, *args, **kwargs):
+        names = [*self._shape, "lowerThreshold", "valueBelowThreshold", "upperThreshold", "valueAboveThreshold"]
+        values = {**{n: self._defaults.get(n) for n in names}, **dict(zip(names, args)), **kwargs}
+        for name in names:
+            setattr(self, name, values.get(name))
+
+
+def _tf_class(name, shape, defaults=None, doc=""):
+    cls = type(name, (_Tf,), {"_shape": shape, "_defaults": defaults or {},
+                              "__doc__": f"arcpy.sa.{name}({', '.join(shape)}, lowerThreshold, valueBelowThreshold, "
+                                         f"upperThreshold, valueAboveThreshold){': ' + doc if doc else ''}"})
+    cls.__module__ = __name__
+    return cls
+
+
+TfExponential = _tf_class("TfExponential", ("shift", "baseFactor"))
+TfGaussian = _tf_class("TfGaussian", ("midpoint", "spread"))
+TfLarge = _tf_class("TfLarge", ("midpoint", "spread"), {"spread": 5})
+TfLinear = _tf_class("TfLinear", ("minimum", "maximum"))
+TfLogarithm = _tf_class("TfLogarithm", ("shift", "factor"))
+TfLogisticDecay = _tf_class("TfLogisticDecay", ("minimum", "maximum", "yInterceptPercent"), {"yInterceptPercent": 99.0})
+TfLogisticGrowth = _tf_class("TfLogisticGrowth", ("minimum", "maximum", "yInterceptPercent"), {"yInterceptPercent": 1.0})
+TfMSLarge = _tf_class("TfMSLarge", ("meanMultiplier", "STDMultiplier"), {"meanMultiplier": 1.0, "STDMultiplier": 1.0})
+TfMSSmall = _tf_class("TfMSSmall", ("meanMultiplier", "STDMultiplier"), {"meanMultiplier": 1.0, "STDMultiplier": 1.0})
+TfNear = _tf_class("TfNear", ("midpoint", "spread"))
+TfPower = _tf_class("TfPower", ("shift", "exponent"))
+TfSmall = _tf_class("TfSmall", ("midpoint", "spread"), {"spread": 5})
+TfSymmetricLinear = _tf_class("TfSymmetricLinear", ("minimum", "maximum"))
+
+
+def _transform(f, x, low, high, from_scale, to_scale, everything):
+    """f(x) by Esri's *Formulas for the transformation functions*, each default fitted to ``low`` and ``high`` (the
+    thresholds, or the input's minimum and maximum) as that page gives it."""
+    ln, ex = math.log, math.exp
+    name = type(f).__name__
+    rising = to_scale > from_scale
+    mid = f.midpoint if getattr(f, "midpoint", None) is not None else (high + low) / 2 if hasattr(f, "midpoint") else None
+    if name == "TfExponential":
+        shift = f.shift if f.shift is not None else (
+            (low * ln(to_scale) - high * ln(from_scale)) / (ln(to_scale) - ln(from_scale)) if rising else
+            (low * ln(from_scale) - high * ln(to_scale)) / (ln(from_scale) - ln(to_scale)))
+        base = f.baseFactor if f.baseFactor is not None else (
+            (ln(to_scale) - ln(from_scale)) / (high - low) if rising else (ln(from_scale) - ln(to_scale)) / (high - low))
+        return np.exp((x - shift) * base)
+    if name == "TfLogarithm":
+        shift = f.shift if f.shift is not None else (
+            (low * ex(to_scale) - high * ex(from_scale)) / (ex(to_scale) - ex(from_scale)) if rising else
+            (low * ex(from_scale) - high * ex(to_scale)) / (ex(from_scale) - ex(to_scale)))
+        factor = f.factor if f.factor is not None else (
+            (ex(to_scale) - ex(from_scale)) / (high - low) if rising else (ex(from_scale) - ex(to_scale)) / (high - low))
+        with np.errstate(all="ignore"):
+            return np.log((x - shift) * factor)
+    if name == "TfGaussian":
+        spread = f.spread if f.spread is not None else ln(10) * 4 / (mid - low) ** 2
+        return np.exp(-spread * (x - mid) ** 2)
+    if name == "TfNear":
+        spread = f.spread if f.spread is not None else 36 / (mid - low) ** 2
+        return 1.0 / (1.0 + spread * (x - mid) ** 2)
+    if name in ("TfLarge", "TfSmall"):
+        with np.errstate(all="ignore"):
+            return 1.0 / (1.0 + np.power(x / mid, -f.spread if name == "TfLarge" else f.spread))
+    lo = f.minimum if getattr(f, "minimum", None) is not None else low
+    hi = f.maximum if getattr(f, "maximum", None) is not None else high
+    if name == "TfLinear":
+        diff = hi - lo
+        if lo < hi:
+            return np.where(x < lo, 0.0, np.where(x > hi, 1.0, (x - lo) / diff))
+        return np.where(x > lo, 0.0, np.where(x < hi, 1.0, (x - lo) / diff))
+    if name == "TfSymmetricLinear":
+        hdiff = 0.5 * (hi - lo)
+        midp = lo + hdiff
+        if lo < hi:
+            return np.where(x < lo, 0.0, np.where(x < midp, (x - lo) / hdiff, np.where(x > hi, 0.0, (hi - x) / hdiff)))
+        return np.where(x < hi, 1.0, np.where(x < midp, (x - midp) / hdiff, np.where(x > lo, 1.0, (midp - x) / hdiff)))
+    if name in ("TfLogisticGrowth", "TfLogisticDecay"):
+        c = 100.0
+        a = c / float(f.yInterceptPercent) - 1
+        b = ln(a) / (0.5 * (hi + lo) - lo)
+        sign = -1 if name == "TfLogisticGrowth" else 1
+        return c / (1 + a * np.exp(sign * (x - lo) * b))
+    if name in ("TfMSLarge", "TfMSSmall"):
+        n_means = float(f.meanMultiplier) * everything.mean()
+        n_std = float(f.STDMultiplier) * everything.std()
+        with np.errstate(all="ignore"):
+            ratio = n_std / (x - n_means + n_std)
+        return np.where(x > n_means, 1 - ratio, 0.0) if name == "TfMSLarge" else np.where(x > n_means, ratio, 1.0)
+    if name == "TfPower":
+        shift = f.shift if f.shift is not None else (
+            (low - 1 if from_scale == 1 else low) if rising else (low - 1 if to_scale == 1 else low))
+        if f.exponent is not None:
+            exponent = f.exponent
+        elif rising:
+            exponent = (1 if to_scale <= 1 else ln(to_scale) / (high - shift)) if from_scale == 0 else \
+                (ln(to_scale) / ln(high - shift) if from_scale == 1 else 2)
+        else:
+            exponent = (1 if from_scale <= 1 else ln(from_scale) / (high - shift)) if to_scale == 0 else \
+                (ln(from_scale) / ln(high - shift) if to_scale == 1 else 2)
+        with np.errstate(all="ignore"):
+            return np.power(x - shift, exponent)
+    _refuse("RescaleByFunction", "transformation_function", name)
+
+
+@_equivalent("linear rescaling of the transformed values onto the evaluation scale",
+             "the min-max normalisation of the transformed cells; the functions and their fitted defaults are Esri's "
+             "Formulas for the transformation functions, given as text")
+def RescaleByFunction(in_raster, transformation_function=None, from_scale=1, to_scale=10):
+    """EQUIVALENT: each cell between the lower and upper thresholds (by default the input's minimum and maximum) is
+    transformed by the function as Esri's *Formulas for the transformation functions* gives it — with every default
+    shape parameter fitted to the thresholds as that page writes — and the transformed values are rescaled linearly so
+    that the smallest of them over those cells becomes ``from_scale`` and the largest ``to_scale``, as *How Rescale by
+    Function works* describes. Cells below the lower threshold take ``valueBelowThreshold`` (by default
+    ``from_scale``), cells above the upper one ``valueAboveThreshold`` (by default ``to_scale``); ``"NODATA"`` makes
+    them NoData. The default function is TfMSSmall; the output is floating point.
+
+    The equivalent part is the rescaling's endpoints: the page names the minimum and maximum transformed values without
+    saying over which cells; here they are those of the cells transformed.
+
+    INFERRED: a cell where the function has no value (the logarithm of a negative number) is NoData; MSSmall's and
+    MSLarge's mean and standard deviation are of every cell, the standard deviation the population one."""
+    _refuse_environment("arcpy.sa.RescaleByFunction")
+    source = as_raster(in_raster, "RescaleByFunction")
+    f = transformation_function if transformation_function is not None else TfMSSmall()
+    if not isinstance(f, _Tf):
+        _refuse("RescaleByFunction", "transformation_function", f, "only the Tf classes are built")
+    lo_s, hi_s = float(from_scale), float(to_scale)
+    if lo_s == hi_s or lo_s < 0 or hi_s < 0:
+        raise ValueError("RescaleByFunction: from_scale and to_scale must differ and not be negative.")
+    values = source._values().astype(np.float64)
+    low = float(f.lowerThreshold) if f.lowerThreshold is not None else values.min()
+    high = float(f.upperThreshold) if f.upperThreshold is not None else values.max()
+    x = source._array.astype(np.float64)
+    within = (x >= low) & (x <= high) & ~source._mask
+    with np.errstate(all="ignore"):
+        transformed = np.asarray(_transform(f, x, low, high, lo_s, hi_s, values), dtype=np.float64)
+    usable = within & np.isfinite(transformed)
+    out = np.zeros(x.shape)
+    mask = source._mask | (within & ~np.isfinite(transformed))
+    if usable.any():
+        fmin, fmax = transformed[usable].min(), transformed[usable].max()
+        scaled = lo_s + (transformed - fmin) / ((fmax - fmin) or 1.0) * (hi_s - lo_s) if fmax > fmin else \
+            np.full(x.shape, lo_s)
+        out = np.where(usable, scaled, out)
+    for side, value, default in ((x < low, f.valueBelowThreshold, lo_s), (x > high, f.valueAboveThreshold, hi_s)):
+        side = side & ~source._mask
+        if isinstance(value, str) and value.upper() == "NODATA":
+            mask |= side
+        else:
+            out = np.where(side, float(value) if value is not None else default, out)
+    return Raster._of(np.where(mask, 0, out), mask, source._grid)
+
+
+for _built in ("RescaleByFunction", "TfExponential", "TfGaussian", "TfLarge", "TfLinear", "TfLogarithm",
+               "TfLogisticDecay", "TfLogisticGrowth", "TfMSLarge", "TfMSSmall", "TfNear", "TfPower", "TfSmall",
+               "TfSymmetricLinear"):
+    _REFUSED.pop(_built, None)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
