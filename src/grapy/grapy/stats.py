@@ -1092,6 +1092,42 @@ _REFUSED = {
     "Forest": "random forests are random by definition",
     "DensityBasedClustering": "HDBSCAN and OPTICS are not in the libraries grapy runs on",
 }
+_RANDOM = "its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call " \
+          "would not give arcpy's answer"
+_SWM = "it reads or writes spatial weights matrix (.swm) files, whose layout is not published"
+_SSM = "it reads or writes a spatial statistics model (.ssm) file, whose layout is not published"
+_FIT = "its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not " \
+       "specified closely enough to reproduce"
+_REFUSED.update({name: _RANDOM for name in (
+    "AttributeUncertainty", "BivariateSpatialAssociation", "MultivariateClustering",
+    "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData", "PresenceOnlyPrediction",
+    "ColocationAnalysis", "LocalBivariateRelationships", "BuildBalancedZones")})
+_REFUSED.update({name: _SWM for name in (
+    "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations", "DecomposeSpatialStructure",
+    "CreateSpatialComponentExplanatoryVariables", "FilterSpatialAutocorrelationFromField")})
+_REFUSED.update({name: _SSM for name in (
+    "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
+_REFUSED.update({name: _FIT for name in (
+    "GWR", "GeographicallyWeightedRegression", "MGWR", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "OrdinaryLeastSquares", "GeneralizedLinearRegression")})
+_REFUSED.update({
+    "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",
+    "ConvertSSPopup": "it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts",
+    "IncrementalSpatialAutocorrelation": "its documented outputs contradict its own sample (z-scores against a "
+                                         "distance read with getOutput(2)), and the default increment rests on an "
+                                         "undefined maximum threshold",
+    "TimeSeriesSmoothing": "its output field names are not documented, nor how a month or year window is counted",
+    "ExportXYv": "its header names and number formatting are not documented closely enough to write the same file",
+    "CalculateCompositeIndex": "its output field names are not documented",
+    "CalculateRates": "the page giving its empirical Bayes smoothing formulas answers 404, so the rates cannot be "
+                      "checked against them",
+    "CalculateAreas": "its page is retired (404), so its output field cannot be checked; "
+                      "management.CalculateGeometryAttributes does its work",
+    "GroupingAnalysis": "it was retired for Multivariate Clustering, whose seeds are random",
+    "DimensionReduction": "its page answers 404, so its components and output fields cannot be checked",
+    "EvaluateBinSizes": "its page answers 404, so its recommendation cannot be checked",
+    "HotSpotAnalysisComparison": "its page answers 404, so its similarity measures cannot be checked",
+})
 
 
 def __getattr__(name):

@@ -148,7 +148,13 @@ def Exists(dataset):
         return True
     connection = _gpkg.connect(file)
     try:
-        return connection.execute("select 1 from gpkg_contents where table_name = ?", (table,)).fetchone() is not None
+        if connection.execute("select 1 from gpkg_contents where table_name = ?", (table,)).fetchone() is not None:
+            return True
+        # A feature dataset made by management.CreateFeatureDataset is a row of grapy_feature_datasets.
+        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+            return connection.execute("select 1 from grapy_feature_datasets where name = ?",
+                                      (table.strip("/"),)).fetchone() is not None
+        return False
     finally:
         connection.close()
 
@@ -521,6 +527,341 @@ _REFUSED_NAMES.update({name: _NO_APPLICATION for name in ("ListPrinterNames", "P
 
 from . import analysis, cartography, conversion, da, ddd, edit, ga, graticula, ia, management, sa, stats  # noqa: E402 — they import the names above
 from .management import AlterAliasName, FieldMap, FieldMappings  # noqa: E402,F401 — arcpy's own names
+
+
+# ---- round 4: names that need the modules above -------------------------------------------------------------------
+
+SearchNeighborhoodStandard = ga.SearchNeighborhoodStandard
+SearchNeighborhoodSmooth = ga.SearchNeighborhoodSmooth
+SearchNeighborhoodStandardCircular = ga.SearchNeighborhoodStandardCircular
+SearchNeighborhoodSmoothCircular = ga.SearchNeighborhoodSmoothCircular
+SearchNeighborhoodStandard3D = ga.SearchNeighborhoodStandard3D
+
+
+def _parameter_index(value):
+    from ._runtime import PARAMETERS
+    if isinstance(value, int):
+        return value
+    for i, parameter in enumerate(PARAMETERS):
+        if getattr(parameter, "name", None) == value:
+            return i
+    raise ValueError(f"No parameter is named '{value}'.")
+
+
+def CopyParameter(from_param, to_param):
+    """The value of one script tool parameter given to another, each by index or name."""
+    from ._runtime import PARAMETERS
+    PARAMETERS[_parameter_index(to_param)].value = PARAMETERS[_parameter_index(from_param)].value
+
+
+_OBJECTS = {"array": Array, "extent": Extent, "featureset": lambda *a: FeatureSet(*a), "field": Field,
+            "fieldinfo": FieldInfo, "fieldmap": FieldMap, "fieldmappings": FieldMappings, "geometry": Geometry,
+            "point": Point, "recordset": lambda *a: RecordSet(*a), "result": Result, "spatialreference": SpatialReference,
+            "valuetable": ValueTable}
+
+
+def CreateObject(name, *options):
+    """The geoprocessing object of that name, built as its class is: CreateObject("ValueTable", 2) is ValueTable(2).
+    ArcSDESQLExecute and NetCDFFileProperties are refused: the first needs an enterprise geodatabase a fenced tool
+    cannot reach, the second is not built."""
+    key = str(name).replace(" ", "").lower()
+    if key in ("arcsdesqlexecute", "netcdffileproperties"):
+        raise NotBuiltError(f"arcpy.CreateObject: '{name}' is not built in grapy.")
+    if key not in _OBJECTS:
+        raise ValueError(f"arcpy.CreateObject: '{name}' is not an object it creates.")
+    return _OBJECTS[key](*options)
+
+
+class SeverityLevel:
+    """A severity level for a ``with`` block or a decorated function. As SetSeverityLevel, only 2 — a tool raises on
+    an error, arcpy's default — is built; 0 and 1 would change how every tool ends."""
+
+    def __init__(self, severity_level=2):
+        self._level = int(severity_level)
+        SetSeverityLevel(self._level)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+    def __call__(self, function):
+        return function
+
+
+def IsBeingEdited(dataset):
+    """Whether the dataset's GeoPackage is in a da.Editor session in this run."""
+    try:
+        file, _ = _gpkg.split(dataset)
+    except ValueError:
+        file = os.fspath(dataset)
+    return da._file_key(file) in da._EDITING
+
+
+def IsSynchronous(tool_name):
+    """True: "all non-server tools are synchronous", and a user tool here runs only grapy's own tools — it cannot import
+    a server's toolbox (ImportToolbox is refused)."""
+    return True
+
+
+class Value:
+    """What GetParameterInfo and GetParameter answer for some parameters: ``value`` and ``isEmpty``."""
+
+    def __init__(self, value=None):
+        self.value = value
+
+    @property
+    def isEmpty(self):
+        return self.value in (None, "")
+
+    def __str__(self):
+        return "" if self.value is None else str(self.value)
+
+
+# ---- the legacy cursors (Cursor, Row, SearchCursor, UpdateCursor, InsertCursor) -----------------------------------
+#
+# Superseded by arcpy.da's and kept "for use in legacy scripts". They are built on the da cursors. INFERRED: a row's
+# shape is read and written under the GeoPackage's geometry column name and under "Shape" (any case), the name a
+# geodatabase gives it and legacy scripts use.
+
+
+class Row:
+    """A row of a legacy cursor: getValue, setValue, isNull, setNull, and each field as an attribute."""
+
+    def __init__(self, names, values, geometry):
+        object.__setattr__(self, "_names", list(names))
+        object.__setattr__(self, "_values", dict(zip([n.lower() for n in names], values)))
+        object.__setattr__(self, "_geometry", geometry)
+
+    def _key(self, name):
+        key = str(name).lower()
+        if key == "shape" and self._geometry is not None:
+            return self._geometry.lower()
+        if key not in self._values:
+            raise RuntimeError(f"Row: no field '{name}'.")
+        return key
+
+    def getValue(self, field_name):
+        return self._values[self._key(field_name)]
+
+    def setValue(self, field_name, value):
+        self._values[self._key(field_name)] = value
+
+    def isNull(self, field_name):
+        return self.getValue(field_name) is None
+
+    def setNull(self, field_name):
+        self.setValue(field_name, None)
+
+    def __getattr__(self, name):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        try:
+            return self.getValue(name)
+        except RuntimeError as error:
+            raise AttributeError(str(error)) from None
+
+    def __setattr__(self, name, value):
+        self.setValue(name, value)
+
+    def _ordered(self):
+        return [self._values[n.lower()] for n in self._names]
+
+
+def _legacy_fields(dataset, fields):
+    """The OID column, the fields asked (all by default) and the geometry column."""
+    connection, table = _gpkg.table_of(dataset)
+    try:
+        columns, _, _, geometry = _gpkg.describe(connection, table)
+        oid = _gpkg.oid_column(connection, table)
+    finally:
+        connection.close()
+    names = [c.name for c in columns]
+    if fields not in (None, "", "*"):
+        wanted = {f.strip().lower() for f in (fields.split(";") if isinstance(fields, str) else fields)}
+        names = [n for n in names if n.lower() in wanted]
+    return oid, names, geometry
+
+
+def _order_by(sort_fields):
+    """``"A A;B D"`` as an SQL ORDER BY: A ascending, then B descending."""
+    if sort_fields in (None, ""):
+        return None
+    parts = []
+    for item in str(sort_fields).split(";"):
+        bits = item.split()
+        if bits:
+            parts.append(f'"{bits[0]}" {"DESC" if len(bits) > 1 and bits[1].upper().startswith("D") else "ASC"}')
+    return "ORDER BY " + ", ".join(parts)
+
+
+class Cursor:
+    """A legacy cursor: ``next()`` answers the next Row, or None after the last; it can be iterated."""
+
+    def __init__(self):
+        self._rows = iter(())
+
+    def next(self):
+        return next(self._rows, None)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        row = self.next()
+        if row is None:
+            raise StopIteration
+        return row
+
+    def reset(self):
+        raise NotBuiltError("arcpy.Cursor.reset is not built in grapy; open a new cursor.")
+
+    def newRow(self):
+        raise RuntimeError("newRow is an insert cursor's.")
+
+    def insertRow(self, row):
+        raise RuntimeError("insertRow is an insert cursor's.")
+
+    def updateRow(self, row):
+        raise RuntimeError("updateRow is an update cursor's.")
+
+    def deleteRow(self, row):
+        raise RuntimeError("deleteRow is an update cursor's.")
+
+    def _close(self):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self._close()
+        return False
+
+    def __del__(self):
+        try:
+            self._close()
+        except Exception:
+            pass
+
+
+class _SearchCursor(Cursor):
+    def __init__(self, dataset, where_clause=None, spatial_reference=None, fields=None, sort_fields=None):
+        oid, names, geometry = _legacy_fields(dataset, fields)
+        self._cursor = da.SearchCursor(dataset, ["OID@", *names, "SHAPE@"], where_clause or None, spatial_reference,
+                                       sql_clause=(None, _order_by(sort_fields)))
+        labels = [oid, *names, geometry]
+        self._rows = (Row(labels, list(values), geometry) for values in self._cursor)
+
+    def _close(self):
+        cursor = getattr(self, "_cursor", None)
+        if cursor is not None:
+            cursor._close()
+
+
+class _UpdateCursor(Cursor):
+    def __init__(self, dataset, where_clause=None, spatial_reference=None, fields=None, sort_fields=None):
+        if spatial_reference not in (None, ""):
+            raise NotBuiltError("arcpy.UpdateCursor: spatial_reference is not built in grapy; edit in the data's own "
+                                "reference.")
+        if sort_fields not in (None, ""):
+            raise NotBuiltError("arcpy.UpdateCursor: sort_fields is not built in grapy.")
+        oid, names, geometry = _legacy_fields(dataset, fields)
+        self._labels = [oid, *names, geometry]
+        self._cursor = da.UpdateCursor(dataset, ["OID@", *names, "SHAPE@"], where_clause or None)
+        self._geometry = geometry
+        self._rows = (Row(self._labels, list(values), geometry) for values in self._cursor)
+
+    def updateRow(self, row):
+        self._cursor.updateRow(row._ordered())
+
+    def deleteRow(self, row):
+        self._cursor.deleteRow()
+
+    def _close(self):
+        cursor = getattr(self, "_cursor", None)
+        if cursor is not None:
+            cursor._close()
+
+
+class _InsertCursor(Cursor):
+    def __init__(self, dataset, spatial_reference=None):
+        if spatial_reference not in (None, ""):
+            raise NotBuiltError("arcpy.InsertCursor: spatial_reference is not built in grapy; insert in the data's own "
+                                "reference.")
+        _, names, geometry = _legacy_fields(dataset, None)
+        self._labels = [*names, geometry]
+        self._cursor = da.InsertCursor(dataset, [*names, "SHAPE@"])
+        self._geometry = geometry
+
+    def next(self):
+        return None
+
+    def newRow(self):
+        return Row(self._labels, [None] * len(self._labels), self._geometry)
+
+    def insertRow(self, row):
+        return self._cursor.insertRow(row._ordered())
+
+    def _close(self):
+        cursor = getattr(self, "_cursor", None)
+        if cursor is not None:
+            cursor._close()
+
+
+def SearchCursor(dataset, where_clause=None, spatial_reference=None, fields=None, sort_fields=None):
+    """Legacy: Row objects of a table, filtered, projected, narrowed to ``fields`` ("a;b") and sorted ("a A;b D")."""
+    return _SearchCursor(dataset, where_clause, spatial_reference, fields, sort_fields)
+
+
+def UpdateCursor(dataset, where_clause=None, spatial_reference=None, fields=None, sort_fields=None):
+    """Legacy: Row objects to change with updateRow or remove with deleteRow. spatial_reference and sort_fields are
+    refused."""
+    return _UpdateCursor(dataset, where_clause, spatial_reference, fields, sort_fields)
+
+
+def InsertCursor(dataset, spatial_reference=None):
+    """Legacy: newRow() makes an empty Row, insertRow(row) writes it. spatial_reference is refused."""
+    return _InsertCursor(dataset, spatial_reference)
+
+
+# ---- the remaining names, each refused with its reason ---------------------------------------------------------------
+
+_NO_ARCGIS = "it answers about an ArcGIS installation, license or product, and grapy is not ArcGIS"
+_NO_TOOLBOXES = "it reads Esri's toolbox catalogue — tool parameters, usage text, toolbox lists — which grapy does not reproduce"
+_NO_NETWORK_STORAGE = "it reaches cloud storage, and a fenced user tool has no network (ADR-223 §5.4)"
+_ESRI_CATALOGUE = "it answers from Esri's own catalogue of coordinate systems, transformations or raster products, " \
+                  "which grapy does not hold"
+_REFUSED_NAMES.update({name: _NO_ARCGIS for name in ("GetInstallInfo", "ProductInfo", "ListInstallations", "SetProduct",
+                                                     "GetPackageInfo")})
+_REFUSED_NAMES.update({name: _NO_TOOLBOXES for name in ("AddToolbox", "ImportToolbox", "RemoveToolbox", "ListToolboxes",
+                                                        "ListTools", "Usage", "GetParameterInfo", "GetParameterValue",
+                                                        "Command")})
+_REFUSED_NAMES.update({name: _NO_NETWORK_STORAGE for name in ("AIO", "AIOFileOpen", "CloudPathType")})
+_REFUSED_NAMES.update({name: _ESRI_CATALOGUE for name in ("ListSpatialReferences", "ListTransformations",
+                                                          "ListRasterProducts")})
+_REFUSED_NAMES.update({name: _NO_APPLICATION for name in (
+    "Chart", "Schema", "GetLogHistory", "SetLogHistory", "LogHistory",
+    "GetLogMetadata", "SetLogMetadata", "LogMetadata")})
+_REFUSED_NAMES["SetMessageLevels"] = "its message categories are the internal diagnostics of Esri's own tools, which "                                      "grapy's tools do not write"
+_REFUSED_NAMES.update({
+    "Annotation": "annotation features are a geodatabase data model this server does not hold (ADR-224 group 2)",
+    "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
+    "Multipatch": "a multipatch is a 3D geometry, and grapy's geometries hold no z values",
+    "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
+    "ListLasDatasetFiles": "LAS datasets are a data model this server does not hold (ADR-224 group 2)",
+    "CrossValidationResult": "it reads a geostatistical layer, a model object grapy does not have",
+    "GeostatisticalDatasets": "it reads a geostatistical layer, a model object grapy does not have",
+    "GetIDMessage": "its text is Esri's message catalogue, which is not published as data",
+    "GetImageEXIFProperties": "its answer's keys and conversions are not documented closely enough to reproduce",
+    "GetRasterKeyMetadata": "Esri's raster key metadata names are not documented as a mapping to GDAL's metadata",
+    "SetRasterKeyMetadata": "Esri's raster key metadata names are not documented as a mapping to GDAL's metadata",
+    "GenerateOptimalCoordinateSystem": "how it chooses a projection and its parameters is not documented",
+    "RandomNumberGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same answer",
+    "CreateRandomValueGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same "
+                                  "answer",
+})
 
 
 # ADR-224 §5.1: modules that answer from an Esri data model this server does not hold (group 2), and modules that

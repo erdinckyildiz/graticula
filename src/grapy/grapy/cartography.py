@@ -281,6 +281,32 @@ _REFUSED = {
     "DelineateBuiltUpAreas": "its grouping procedure is described only in outline",
     "CalculatePolygonMainAngle": "what makes segments' orientations 'similar' is not defined",
 }
+_MAP = "it works on symbolized layers, labels or annotation in an ArcGIS Pro map — symbols at a reference scale — " \
+       "which a run on this server does not have"
+_OUTLINE = "its procedure is described only in outline, not specified closely enough to reproduce"
+_PE_STRING = "it writes an Esri projection-engine string whose exact text grapy cannot reproduce, from the map's " \
+             "coordinate system, which a server run does not have"
+_REFUSED.update({name: _MAP for name in (
+    "AnnotateSelectedFeatures", "ContourAnnotation", "ConvertLabelsToAnnotation", "ConvertLabelsToGraphics",
+    "TiledLabelsToAnnotation", "UpdateAnnotationReferenceScale", "AlignMarkerToStrokeOrFill", "CalculateLineCaps",
+    "ConvertMarkerPlacementToPoints", "CreateOverpass", "CreateUnderpass", "DisperseMarkers", "DetectGraphicConflict",
+    "ResolveBuildingConflicts", "ResolveRoadConflicts", "PropagateDisplacement", "CulDeSacMasks", "FeatureOutlineMasks",
+    "IntersectingLayersMasks")})
+_REFUSED.update({name: "control points are vertex flags of a geodatabase geometry, which a GeoPackage geometry does "
+                       "not carry" for name in ("ConvertControlPointsToVertices", "SetControlPointAtIntersect",
+                                                "SetControlPointByAngle")})
+_REFUSED.update({name: _OUTLINE for name in (
+    "CollapseHydroPolygon", "CollapseRoadDetail", "MergeDividedRoads", "ThinRoadNetwork", "CreateCartographicPartitions",
+    "GenerateContiguousCartogram", "GenerateHachuresForDefinedSlopes", "CalculateColorTheoremField",
+    "StripMapIndexFeatures")})
+_REFUSED.update({name: _PE_STRING for name in ("CalculateUTMZone", "CalculateCentralMeridianAndParallels")})
+_REFUSED.update({
+    "CalculateGridConvergenceAngle": "with no coordinate system field it reads the Cartographic Coordinate System "
+                                     "environment of an ArcGIS Pro session, and a field holds an Esri projection-engine "
+                                     "string grapy does not parse",
+    "CalculateAdjacentFields": "how a neighbouring page's direction is decided is not documented",
+    "GridIndexFeatures": "its PageName labelling scheme is not documented, and page units need a map frame",
+})
 
 
 def __getattr__(name):
