@@ -147,6 +147,25 @@
   #baseLayerList > li.off { background: var(--surface-2); }
   #baseLayerList .lkind { white-space: normal; }
   .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 10px; }
+
+  /* The analysis tools (analysis.js), in the panel: the item dialog's questions, in this page's own forms. */
+  #pane-analysis .stacked { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+  #pane-analysis .stacked .hint { margin: 0; }
+  #pane-analysis fieldset.offered { border: 0; padding: 0; margin: 10px 0; }
+  #pane-analysis fieldset.offered legend { font-weight: 600; padding: 0; margin-bottom: 4px; }
+  #pane-analysis label.check { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; }
+  #pane-analysis label.check > span > .hint { display: block; margin: 2px 0 0; }
+  #pane-analysis .azrow { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+  #pane-analysis .azrow > .stacked { margin: 0; }
+  #pane-analysis .fielderror { color: var(--alert); font-size: 12.5px; }
+  /* Run stays in reach while the questions scroll (design review): pinned to the bottom of the panel, and over the
+     pane's 18px bottom padding too, which the form otherwise showed through beneath it (second review). */
+  #pane-analysis .azfoot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end;
+    border-top: 1px solid var(--rule); padding: 10px 0 28px; margin: 10px 0 -18px; position: sticky; bottom: -18px;
+    background: var(--surface); }
+  #pane-analysis .azfoot .fill { flex: 1 1 100%; margin: 0; }
+  #pane-analysis #analyzeButtons { display: flex; gap: 8px; }
+  #pane-analysis .bad { color: var(--alert); }
   .said { font-size: 12.5px; color: var(--muted); min-height: 1.2em; margin: 6px 0; }
   .said.bad { color: var(--alert); }
 
@@ -160,7 +179,7 @@
   button.danger { color: var(--alert); }
   button.tiny { padding: 1px 7px; font-size: 12px; }
   input[type="text"], input[type="search"], textarea, select {
-    border: 1px solid var(--rule); border-radius: 3px; padding: 5px 7px; background: var(--surface);
+    border: 1px solid var(--control-edge); border-radius: 3px; padding: 5px 7px; background: var(--surface);
     color: var(--ink); width: 100%; }
   label.field { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 3px; }
   .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -477,6 +496,7 @@
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
   <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21l-4-4Z"/><path d="m7 13 2 2M10 10l2 2M13 7l2 2"/></symbol>
+  <symbol id="i-analysis" viewBox="0 0 24 24"><circle cx="8" cy="9" r="4"/><circle cx="15" cy="14" r="5"/><path d="M3 21h18"/></symbol>
   <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4V3Z"/></symbol>
   <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M7 14h10v7H7z"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></symbol>
@@ -512,6 +532,7 @@
       <button role="tab" id="tab-layers" aria-controls="pane-layers" aria-selected="true"><svg class="i" aria-hidden="true"><use href="#i-layers"/></svg><span class="tl">Layers</span></button>
       <button role="tab" id="tab-search" aria-controls="pane-search" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><span class="tl">Search</span></button>
       <button role="tab" id="tab-measure" aria-controls="pane-measure" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-ruler"/></svg><span class="tl">Measure</span></button>
+      <button role="tab" id="tab-analysis" aria-controls="pane-analysis" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-analysis"/></svg><span class="tl">Analysis</span></button>
       <button role="tab" id="tab-bookmarks" aria-controls="pane-bookmarks" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-bookmark"/></svg><span class="tl">Bookmarks</span></button>
       <button role="tab" id="tab-print" aria-controls="pane-print" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-print"/></svg><span class="tl">Print</span></button>
       <button role="tab" id="tab-map" aria-controls="pane-map" aria-selected="false" tabindex="-1"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span class="tl">Map</span></button>
@@ -567,6 +588,15 @@
         <ul id="measureList" aria-label="Measurements"></ul>
       </section>
 
+      <!-- ADR-222 condition 7: the Spatial Analysis Service's tools, run on a layer of this map; the result joins the map.
+           The tools and their questions are analysis.js's, shared with an item's Analyze… dialog. -->
+      <section class="tabpanel" id="pane-analysis" role="tabpanel" aria-labelledby="tab-analysis" hidden>
+        <div class="stacked" id="azPick"><label for="azLayer">Analyze</label>
+          <select id="azLayer"></select></div>
+        <p class="hint" id="azNone" hidden></p>
+        <div id="analyzeBody"></div>
+        <div class="azfoot" id="analyzeFoot"></div>
+      </section>
       <section class="tabpanel" id="pane-bookmarks" role="tabpanel" aria-labelledby="tab-bookmarks" hidden>
           <!-- ADR-130: places to come back to, kept with the map as the Web Map's own bookmarks. -->
           <div class="bookmarks">
@@ -688,6 +718,7 @@
 <!-- For OSM_TILES and OSM_CREDIT, the one place the ground is decided. Declares those names, so
      webmap.js must not. -->
 <script src="ground.js" defer></script>
+<script src="analysis.js" defer></script>
 <script src="webmap.js" defer></script>
 </body>
 </html>

@@ -36,6 +36,13 @@ _spec = importlib.util.spec_from_file_location(
 _conditions = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_conditions)
 
+# ADR-223 condition 6: grapy counted against arcpy's names, by the one counter there is.
+_spec = importlib.util.spec_from_file_location(
+    "gis_grapy_surface",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "grapy_surface.py"))
+_grapy_surface = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_grapy_surface)
+
 
 def read(*parts):
     path = os.path.join(ROOT, *parts)
@@ -91,6 +98,8 @@ TEXT = {
         "debt": "Architecture debt",
         "assumptions": "Assumptions",
         "verified": "What is verified",
+        "grapy": "grapy against arcpy",
+        "grapy_sub": "Names grapy builds, of the public names arcpy {v} has in each module. Counted by tools/grapy_surface.py from grapy\u2019s source; a name grapy refuses is not counted.",
         "recent": "Recent work",
         "k_adrs": "ADRs",
         "k_conditions": "ADR conditions discharged",
@@ -185,6 +194,8 @@ TEXT = {
         "debt": "Mimari bor\u00e7",
         "assumptions": "Varsay\u0131mlar",
         "verified": "Neyin do\u011fruland\u0131\u011f\u0131",
+        "grapy": "grapy ve arcpy",
+        "grapy_sub": "arcpy {v} her mod\u00fclde herkese a\u00e7\u0131k bir ad listesi sunar; grapy\u2019nin bunlardan ka\u00e7\u0131n\u0131 kurdu\u011fu. tools/grapy_surface.py grapy\u2019nin kayna\u011f\u0131ndan sayar; grapy\u2019nin reddetti\u011fi ad say\u0131lmaz.",
         "recent": "Son \u00e7al\u0131\u015fma",
         "k_adrs": "ADR",
         "k_conditions": "kapat\u0131lan ADR ko\u015fulu",
@@ -995,6 +1006,15 @@ def build():
         parts.append(f'<div class="bar"><div class="bar-l">{esc(name)}</div>'
                      f'<div class="bar-t"><div class="bar-f" style="width:{100*count/top:.1f}%"></div></div>'
                      f'<div class="bar-n">{count}</div></div>')
+    parts.append('</div></section>')
+
+    # ---- grapy
+    parts.append(f'<section><h2>{esc(ui("grapy"))}</h2>')
+    parts.append(f'<p class="sub">{esc(ui("grapy_sub").format(v=_grapy_surface.version()))}</p><div class="bars">')
+    for module, built, of, _ in _grapy_surface.surface():
+        parts.append(f'<div class="bar"><div class="bar-l">{esc(module)}</div>'
+                     f'<div class="bar-t"><div class="bar-f" style="width:{100*built/max(of, 1):.1f}%"></div></div>'
+                     f'<div class="bar-n">{built} / {of}</div></div>')
     parts.append('</div></section>')
 
     # ---- progress

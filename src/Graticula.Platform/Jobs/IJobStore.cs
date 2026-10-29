@@ -72,6 +72,13 @@ public enum JobKind
     /// <see href="../../../docs/adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md">ADR-222</see>.
     /// </summary>
     Analysis,
+
+    /// <summary>
+    /// One tool of a user's Python toolbox, run in a fenced process —
+    /// <see href="../../../docs/adr/ADR-223-user-tools-run-sandboxed-on-grapy.md">ADR-223</see>. Its parameters,
+    /// results and messages are kept where an analysis's are; the kind is what keeps the two runners apart.
+    /// </summary>
+    Tool,
 }
 
 /// <summary>Where a job has got to.</summary>

@@ -143,6 +143,7 @@ public static class JobKinds
         // holds if the first run got that far: the publish is refused and the job fails with that sentence, so a lost
         // lease can never leave two results.
         JobKind.Analysis => JobRerun.RefusedByTheStore,
+        JobKind.Tool => JobRerun.RefusedByTheStore,
 
         _ => throw new ArgumentOutOfRangeException(
             nameof(kind),

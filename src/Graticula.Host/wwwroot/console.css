@@ -4719,6 +4719,35 @@ h4.spaced { margin-top: 24px; }
 .sharewarn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 6px;
   padding: 8px 10px; margin: 8px 0; }
 .sharewarn > span[aria-hidden] { font-weight: 700; }
+/* D-267: the server suggests measuring a layer's range again. Amber, as the share warning: nothing failed, but a
+   map of this layer is slower than it needs to be, and the administrator is the one who can say whether it should. */
+.rangeadvice { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 6px;
+  padding: 8px 10px; margin: 8px 0; font-size: var(--t-small); line-height: 1.45; }
+.rangeadvice p { margin: 0 0 6px; }
+.rangeadvice .row { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Analysis (analysis.js): two questions side by side share the width and line up at the top (design review 2026-10-29). */
+#analyzeDialog .azrow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3); align-items: start; }
+#analyzeDialog .azrow > .stacked { margin: 0; }
+#analyzeButtons { display: flex; gap: var(--gap-3); }
+/* ADR-223: a toolbox's page — a card per tool, its questions and what a run made. */
+#view-toolbox .profilecard {
+  max-width: 640px; margin: 0 auto; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--round-lg, 10px); padding: var(--gap-5);
+}
+#view-toolbox .profilehead { border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
+#view-toolbox .profilehead h2 { margin: 0; }
+#view-toolbox .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#view-toolbox .stacked > label { font-weight: 600; }
+#view-toolbox .tburl { overflow-wrap: anywhere; }
+#view-toolbox .tbmanage { align-items: flex-end; }
+#view-toolbox .tbmanage .stacked { margin-bottom: 0; }
+.toolboxcard .tbtool { border-top: 1px solid var(--rule); padding-top: var(--gap-4); margin-top: var(--gap-4); }
+.toolboxcard .tbtool h3 { margin: 0 0 var(--gap-2); }
+.toolboxcard .tbmanage { align-items: flex-end; gap: var(--gap-3); flex-wrap: wrap; }
+.toolboxcard .tbresults { margin: var(--gap-2) 0; padding-left: 1.2em; }
+.toolboxcard .tbmessages { margin-top: var(--gap-2); font-size: var(--t-small); }
+.rowmeta.rangeflag a { color: var(--warn); text-decoration: underline; }
+.rangeadvice button.tiny.ghost { border-color: currentColor; color: inherit; background: none; }
 /* At phone width the picture gives its room to the name, which a bulk delete must be read by. */
 @media (max-width: 480px) {
   #contentRows td.thumbcell { display: none; }

@@ -68,6 +68,22 @@ internal static partial class AnalysisEndpoints
         ["Stddev"] = "stddev_samp",
     };
 
+    /// <summary>The spatial relationships <c>JoinFeatures</c> takes, as ArcGIS documents them.</summary>
+    internal static readonly string[] Relationships =
+        ["Intersects", "WithinDistance", "Contains", "Within", "CompletelyContains", "CompletelyWithin", "IdenticalTo"];
+
+    /// <summary>The units an area may be summed in, and a square metre's worth of each.</summary>
+    internal static readonly IReadOnlyDictionary<string, double> AreaUnits = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["SquareMeters"] = 1,
+        ["SquareKilometers"] = 1_000_000,
+        ["Hectares"] = 10_000,
+        ["Acres"] = 4046.8564224,
+        ["SquareMiles"] = 2_589_988.110336,
+        ["SquareYards"] = 0.83612736,
+        ["SquareFeet"] = 0.09290304,
+    };
+
     /// <summary>Maps the routes.</summary>
     public static void Map(WebApplication app)
     {
@@ -104,7 +120,8 @@ internal static partial class AnalysisEndpoints
 
     private static readonly Parameter OutputName = new(
         "outputName", "GPString", "Output Name",
-        "The result is written as a new hosted feature layer: {\"serviceProperties\": {\"name\": \"<name>\"}}.", false, false);
+        "{\"serviceProperties\": {\"name\": \"<name>\"}} writes the result as a new hosted feature layer; without it, the result "
+        + "is returned as a feature collection.", false, false);
 
     private static readonly Parameter ContextParameter = new(
         "context", "GPString", "Context",
@@ -125,8 +142,8 @@ internal static partial class AnalysisEndpoints
                 new("units", "GPString", "Units", "The unit of the distances.", false, false, "Meters", [.. Units.Keys]),
                 new("dissolveType", "GPString", "Dissolve Type", "None keeps a buffer per feature; Dissolve makes one per distance.", false, false, "None", ["None", "Dissolve"]),
                 new("ringType", "GPString", "Ring Type", "Disks overlap; Rings leave out each smaller distance's area.", false, false, "Disks", ["Disks", "Rings"]),
-                new("sideType", "GPString", "Side Type", "Full only, for now.", false, false, "Full", ["Full"]),
-                new("endType", "GPString", "End Type", "Round only, for now.", false, false, "Round", ["Round"]),
+                new("sideType", "GPString", "Side Type", "Full; Left or Right of a line; Outside a polygon — for a single distance.", false, false, "Full", ["Full", "Left", "Right", "Outside"]),
+                new("endType", "GPString", "End Type", "Round or Flat line ends — for a single distance.", false, false, "Round", ["Round", "Flat"]),
                 OutputName,
                 ContextParameter,
                 new("bufferLayer", "GPString", "Buffer Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
@@ -152,9 +169,9 @@ internal static partial class AnalysisEndpoints
                 new("inputLayer", "GPFeatureRecordSetLayer", "Input Layer", "The features overlaid: {\"url\": \"<layer url>\"}.", false, true),
                 new("overlayLayer", "GPFeatureRecordSetLayer", "Overlay Layer", "The features they are overlaid with: {\"url\": \"<layer url>\"}.", false, true),
                 new("overlayType", "GPString", "Overlay Type", "Intersect, Union (polygons with polygons) or Erase.", false, false, "Intersect", ["Intersect", "Union", "Erase"]),
-                new("outputType", "GPString", "Output Type", "Input only, for now: an intersection keeps the lower dimension of the two.", false, false, "Input", ["Input"]),
-                new("snapToInput", "GPBoolean", "Snap To Input", "False only, for now: no vertex is moved.", false, false, false),
-                new("tolerance", "GPDouble", "Tolerance", "Not used while snapping is not built.", false, false),
+                new("outputType", "GPString", "Output Type", "Intersect only: Input keeps the lower dimension of the two; Line or Point the meeting lines or points.", false, false, "Input", ["Input", "Line", "Point"]),
+                new("snapToInput", "GPBoolean", "Snap To Input", "True moves only the overlay's vertices to the input's; false moves both.", false, false, false),
+                new("tolerance", "GPDouble", "Tolerance", "How near vertices snap, in the input layer's units; none when empty or 0.", false, false),
                 OutputName,
                 ContextParameter,
                 new("outputLayer", "GPString", "Output Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
@@ -180,18 +197,17 @@ internal static partial class AnalysisEndpoints
             "aggregatedLayer",
             [
                 new("pointLayer", "GPFeatureRecordSetLayer", "Point Layer", "The points: {\"url\": \"<layer url>\"}.", false, true),
-                new("polygonLayer", "GPFeatureRecordSetLayer", "Polygon Layer", "The polygons they are counted in. Bins are not built yet.", false, true),
+                new("polygonLayer", "GPFeatureRecordSetLayer", "Polygon Layer", "The polygons they are counted in; required unless binType is given.", false, false),
                 new("keepBoundariesWithNoPoints", "GPBoolean", "Keep Boundaries With No Points", "False leaves out a polygon with no point in it.", false, false, true),
                 new("summaryFields", "GPMultiValue:GPString", "Summary Fields", "\"<field> <Sum|Mean|Min|Max|Stddev>\" over the points in each polygon.", false, false),
-                new("groupByField", "GPString", "Group By Field", "Not built yet.", false, false),
-                new("minorityMajority", "GPBoolean", "Minority Majority", "Not built yet: it goes with groupByField.", false, false, false),
-                new("percentPoints", "GPBoolean", "Percent Points", "Not built yet: it goes with groupByField.", false, false, false),
-                new("binType", "GPString", "Bin Type", "Not built yet: give a polygon layer.", false, false, null, ["Square", "Hexagon"]),
-                new("binSize", "GPDouble", "Bin Size", "Not built yet.", false, false),
-                new("binSizeUnit", "GPString", "Bin Size Unit", "Not built yet.", false, false, null, [.. Units.Keys]),
+                new("groupByField", "GPString", "Group By Field", "A field of the points: its values are counted apart, in the groupSummary table.", false, false),
+                new("minorityMajority", "GPBoolean", "Minority Majority", "With groupByField: the value with the most and the fewest points in each polygon.", false, false, false),
+                new("percentPoints", "GPBoolean", "Percent Points", "With groupByField: each value's share of its polygon's points.", false, false, false),
+                .. BinParameters,
                 OutputName,
                 ContextParameter,
                 new("aggregatedLayer", "GPString", "Aggregated Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
+                new("groupSummary", "GPString", "Group Summary", "With groupByField: the table of each value's statistics in each polygon.", true, false),
             ],
             Primary: "pointLayer",
             Second: "polygonLayer"),
@@ -206,7 +222,76 @@ internal static partial class AnalysisEndpoints
                 ContextParameter,
                 new("outputLayer", "GPString", "Output Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
             ]),
+        new(
+            "SummarizeWithin", "Summarize Within",
+            "Counts the points, sums the length of the lines or the area of the polygons, and summarises the fields of the "
+            + "features inside each polygon or bin; lines and polygons in proportion to their part inside.",
+            "resultLayer",
+            [
+                new("sumWithinLayer", "GPFeatureRecordSetLayer", "Sum Within Layer", "The polygons summarised in; required unless binType is given.", false, false),
+                new("summaryLayer", "GPFeatureRecordSetLayer", "Summary Layer", "The points, lines or polygons summarised.", false, true),
+                new("sumShape", "GPBoolean", "Sum Shape", "Count the points, sum the lines' length or the polygons' area.", false, false, true),
+                new("shapeUnits", "GPString", "Shape Units", "Lines: a length unit; polygons: an area unit.", false, false, null,
+                    [.. Units.Keys, .. AreaUnits.Keys]),
+                new("summaryFields", "GPMultiValue:GPString", "Summary Fields", "\"<field> <Sum|Mean|Min|Max|Stddev>\"; required when sumShape is false.", false, false),
+                new("groupByField", "GPString", "Group By Field", "A field of the summarised features: its values are summarised apart, in the groupBySummary table.", false, false),
+                new("minorityMajority", "GPBoolean", "Minority Majority", "With groupByField: the value with the most and the least in each polygon.", false, false, false),
+                new("percentShape", "GPBoolean", "Percent Shape", "With groupByField: each value's share of its polygon.", false, false, false),
+                .. BinParameters,
+                OutputName,
+                ContextParameter,
+                new("resultLayer", "GPString", "Result Layer", "The new hosted layer, or the feature collection.", true, false),
+                new("groupBySummary", "GPString", "Group By Summary", "With groupByField: the table of each value's statistics in each polygon.", true, false),
+            ],
+            Primary: "summaryLayer",
+            Second: "sumWithinLayer"),
+        new(
+            "JoinFeatures", "Join Features",
+            "Adds the join layer's attributes to the target's features where they meet, are near, or hold equal values.",
+            "outputLayer",
+            [
+                new("targetLayer", "GPFeatureRecordSetLayer", "Target Layer", "The features that receive the attributes.", false, true),
+                new("joinLayer", "GPFeatureRecordSetLayer", "Join Layer", "The features whose attributes are joined.", false, true),
+                new("spatialRelationship", "GPString", "Spatial Relationship", "How the features must meet; empty for an attribute join only.", false, false, null,
+                    [.. Relationships]),
+                new("spatialRelationshipDistance", "GPDouble", "Spatial Relationship Distance", "The distance for WithinDistance.", false, false),
+                new("spatialRelationshipDistanceUnits", "GPString", "Spatial Relationship Distance Units", "The unit of that distance.", false, false, "Meters", [.. Units.Keys]),
+                new("attributeRelationship", "GPString", "Attribute Relationship",
+                    "[{\"targetField\": …, \"operator\": \"equal\", \"joinField\": …}].", false, false),
+                new("joinOperation", "GPString", "Join Operation", "One output feature per target, or one per matching pair.", false, false,
+                    "JoinOneToOne", ["JoinOneToOne", "JoinOneToMany"]),
+                new("summaryFields", "GPString", "Summary Fields",
+                    "[{\"statisticType\": \"SUM|MEAN|MIN|MAX|STDDEV\", \"onStatisticField\": …}], in a one-to-one join.", false, false),
+                new("recordsToMatch", "GPString", "Records To Match",
+                    "{\"groupByFields\": \"\", \"orderByFields\": \"<field> ASC|DESC\", \"topCount\": 1}: which match a one-to-one join keeps.", false, false),
+                new("joinType", "GPString", "Join Type", "Inner keeps the targets that match; Left keeps them all.", false, false,
+                    "Inner", ["Inner", "Left"]),
+                OutputName,
+                ContextParameter,
+                new("outputLayer", "GPString", "Output Layer", "The new hosted layer, or the feature collection.", true, false),
+            ],
+            Primary: "targetLayer",
+            Second: "joinLayer"),
     ];
+
+    /// <summary>The bin parameters <c>AggregatePoints</c> and <c>SummarizeWithin</c> share.</summary>
+    private static Parameter[] BinParameters =>
+    [
+        new("binType", "GPString", "Bin Type", "Square or Hexagon bins over the features, in place of a polygon layer.", false, false, null, ["Square", "Hexagon"]),
+        new("binSize", "GPDouble", "Bin Size", "A square's side, or a hexagon's distance between parallel sides; required with binType.", false, false),
+        new("binSizeUnit", "GPString", "Bin Size Unit", "The unit of the bin size.", false, false, "Meters", [.. Units.Keys]),
+    ];
+
+    /// <summary>The name a grouped summary's table is published under, beside its layer.</summary>
+    internal static string GroupLayerName(string output) => output + "_groups";
+
+    /// <summary>The result parameter a grouped summary's table is answered by, as each task documents it.</summary>
+    internal static string? GroupResultOf(string task) => task switch
+    {
+        "AggregatePoints" => "groupSummary",
+        "SummarizeWithin" => "groupBySummary",
+        _ => null,
+    };
 
     private static TaskInfo? TaskNamed(string name) =>
         Tasks.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -309,8 +394,8 @@ internal static partial class AnalysisEndpoints
         signal.Wake(JobKind.Analysis);
 
         await AdminEndpoints.AuditAsync(
-            context, audit, "analysis.submit", plan["output"]!.GetValue<string>(),
-            AdminEndpoints.Detail(new { task = info.Name, job = run.Job.Id, layer = plan["layer"]!.GetValue<string>() }),
+            context, audit, "analysis.submit", plan["output"]?.GetValue<string>() ?? "(feature collection)",
+            AdminEndpoints.Detail(new { task = info.Name, job = run.Job.Id, layer = plan["layer"]?.GetValue<string>() ?? "(feature collection)" }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
         await WriteAsync(context, new { jobId = JobIdOf(run.Job.Id), jobStatus = "esriJobSubmitted" }).ConfigureAwait(false);
@@ -340,7 +425,7 @@ internal static partial class AnalysisEndpoints
         }
 
         // ---- the input layer, and the second one where the task takes two
-        (PublishedLayer? layer, string? filter, string? why) =
+        (PublishedLayer? layer, string? filter, string? why, JsonObject? collection, LayerDescription? collected) =
             await InputLayerAsync(info.Primary, asked(info.Primary), current, layers, cancellation).ConfigureAwait(false);
 
         if (layer is null)
@@ -348,7 +433,8 @@ internal static partial class AnalysisEndpoints
             return (null, why);
         }
 
-        (_, LayerDescription described) = await contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+        LayerDescription described = collected
+            ?? (await contexts.GetAsync(layer, cancellation).ConfigureAwait(false)).Item2;
         Dictionary<string, FieldDescription> fields = described.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
 
         if (!WhereClause.TryParse(filter, [.. described.Fields.Select(f => f.Name)], LayerDefinition.Quote, out _, out string? badFilter,
@@ -360,17 +446,25 @@ internal static partial class AnalysisEndpoints
         PublishedLayer? second = null;
         string? secondFilter = null;
         LayerDescription? secondDescribed = null;
+        JsonObject? secondCollection = null;
 
-        if (info.Second is { } secondName)
+        // The areas of AggregatePoints and SummarizeWithin may be bins instead, and then no second layer is read.
+        bool binned = !string.IsNullOrWhiteSpace(asked("binType")) && string.IsNullOrWhiteSpace(asked(info.Second ?? string.Empty));
+
+        if (info.Second is { } secondName && !(binned && info.Name is "AggregatePoints" or "SummarizeWithin"))
         {
-            (second, secondFilter, why) = await InputLayerAsync(secondName, asked(secondName), current, layers, cancellation).ConfigureAwait(false);
+            LayerDescription? secondCollected;
+            (second, secondFilter, why, secondCollection, secondCollected) =
+                await InputLayerAsync(secondName, asked(secondName), current, layers, cancellation).ConfigureAwait(false);
 
             if (second is null)
             {
-                return (null, why);
+                return (null, info.Name is "AggregatePoints" or "SummarizeWithin" && string.IsNullOrWhiteSpace(asked(secondName))
+                    ? $"{secondName} is required unless binType is given."
+                    : why);
             }
 
-            (_, secondDescribed) = await contexts.GetAsync(second, cancellation).ConfigureAwait(false);
+            secondDescribed = secondCollected ?? (await contexts.GetAsync(second, cancellation).ConfigureAwait(false)).Item2;
 
             if (!WhereClause.TryParse(secondFilter, [.. secondDescribed.Fields.Select(f => f.Name)], LayerDefinition.Quote, out _, out badFilter,
                     secondDescribed.Fields.ToDictionary(f => f.Name, f => f.Type)))
@@ -379,12 +473,30 @@ internal static partial class AnalysisEndpoints
             }
         }
 
-        // ---- the output
-        (string? output, string? badName) = await OutputNameAsync(asked("outputName"), catalog, layers, cancellation).ConfigureAwait(false);
+        // ---- the output: a new hosted layer when named, a feature collection returned when not (ADR-222 condition 4), or
+        // a layer of the caller's overwritten when itemProperties says so
+        string? output = null;
+        PublishedService? overwritten = null;
 
-        if (output is null)
+        if (Overwrites(asked("outputName")) is { } named)
         {
-            return (null, badName);
+            (overwritten, string? badTarget) = await OverwrittenAsync(named, current, layers, cancellation).ConfigureAwait(false);
+
+            if (overwritten is null)
+            {
+                return (null, badTarget);
+            }
+
+            output = overwritten.Name;
+        }
+        else if (!string.IsNullOrWhiteSpace(asked("outputName")))
+        {
+            (output, string? badName) = await OutputNameAsync(asked("outputName"), catalog, layers, cancellation).ConfigureAwait(false);
+
+            if (output is null)
+            {
+                return (null, badName);
+            }
         }
 
         // ---- the context
@@ -399,12 +511,15 @@ internal static partial class AnalysisEndpoints
         JsonObject plan = new()
         {
             ["sent"] = sent,
-            ["layer"] = layer.Id.ToString(),
+            ["layer"] = collection is null ? layer.Id.ToString() : null,
+            ["collection"] = collection,
             ["filter"] = filter,
             ["output"] = output,
+            ["overwrite"] = overwritten?.Id.ToString(),
             ["extent"] = extent,
             ["outSrid"] = outSrid,
-            ["layer2"] = second?.Id.ToString(),
+            ["layer2"] = second is null || secondCollection is not null ? null : second.Id.ToString(),
+            ["collection2"] = secondCollection,
             ["filter2"] = secondFilter,
             ["shape"] = (int)AnalysisShape.Polygons,
         };
@@ -415,10 +530,33 @@ internal static partial class AnalysisEndpoints
             "DissolveBoundaries" => PlanDissolve(asked, layer, fields, plan),
             "OverlayLayers" => PlanOverlay(asked, layer, described, second!, secondDescribed!, plan),
             "MergeLayers" => PlanMerge(asked, layer, described, second!, secondDescribed!, plan),
-            "AggregatePoints" => PlanAggregate(asked, layer, described, second!, secondDescribed!, plan),
+            "AggregatePoints" => PlanAggregate(asked, layer, described, second, secondDescribed, plan),
             "FindCentroids" => PlanCentroids(asked, layer, plan),
+            "SummarizeWithin" => PlanSummarize(asked, layer, described, second, secondDescribed, plan),
+            "JoinFeatures" => PlanJoin(asked, layer, described, second!, secondDescribed!, plan),
             _ => $"'{info.Name}' is listed and not built.",
         };
+
+        // An overwritten layer keeps its kind: a point layer is not overwritten with polygons.
+        if (refusal is null && overwritten is not null)
+        {
+            refusal = plan["group"] is not null
+                ? "A summary grouped by a field writes a table beside its layer, and is not written over an existing layer; "
+                  + "write it under a new name."
+                : overwritten.Layers[0].GeometryType is { } kind && ShapeOf(kind) != (AnalysisShape)plan["shape"]!.GetValue<int>()
+                    ? $"'{overwritten.Name}' holds {ShapeOf(kind).ToString().ToLowerInvariant()}, and this result is "
+                      + $"{((AnalysisShape)plan["shape"]!.GetValue<int>()).ToString().ToLowerInvariant()}; a layer is overwritten "
+                      + "only with its own kind."
+                    : null;
+        }
+
+        // A grouped summary publishes its table beside the layer, under a name of its own that must be free as well.
+        if (refusal is null && output is not null && overwritten is null && plan["group"] is not null
+            && await HostedDataEndpoints.NameTakenAsync(catalog, GroupLayerName(output), cancellation).ConfigureAwait(false))
+        {
+            refusal = $"A layer named '{GroupLayerName(output)}' already exists, and a grouped summary writes its table under that name. "
+                + "Choose another output name.";
+        }
 
         return refusal is null ? (plan, null) : (null, refusal);
     }
@@ -473,17 +611,42 @@ internal static partial class AnalysisEndpoints
             return "ringType is Disks or Rings.";
         }
 
-        // ADR-222 §5.5: what is not done is refused by name, never approximated.
-        if (asked("sideType") is { Length: > 0 } side && !string.Equals(side, "Full", StringComparison.OrdinalIgnoreCase))
+        // sideType and endType, as documented: Left or Right of a line, Outside a polygon, flat line ends — each for a
+        // single distance only.
+        AnalysisShape shape = ShapeOf(layer.GeometryType);
+        string side = asked("sideType")?.Trim() is { Length: > 0 } sent ? sent : "Full";
+        string end = asked("endType")?.Trim() is { Length: > 0 } ended ? ended : "Round";
+        string[] sides = shape switch
         {
-            return $"sideType {side} is not built here yet; buffers are drawn on both sides (Full).";
+            AnalysisShape.Lines => ["Full", "Left", "Right"],
+            AnalysisShape.Polygons => ["Full", "Outside"],
+            _ => ["Full"],
+        };
+
+        if (!sides.Contains(side, StringComparer.OrdinalIgnoreCase))
+        {
+            return $"sideType for {shape.ToString().ToLowerInvariant()} is {string.Join(" or ", sides)}.";
         }
 
-        if (asked("endType") is { Length: > 0 } end && !string.Equals(end, "Round", StringComparison.OrdinalIgnoreCase))
+        if (Choice(end, "Round", ["Round", "Flat"]) is not { } endType)
         {
-            return $"endType {end} is not built here yet; line ends are round.";
+            return "endType is Round or Flat.";
         }
 
+        if (endType == "Flat" && shape != AnalysisShape.Lines)
+        {
+            return "endType Flat is for lines; a point's or a polygon's buffer has no ends.";
+        }
+
+        bool shaped = !string.Equals(side, "Full", StringComparison.OrdinalIgnoreCase) || endType == "Flat";
+
+        if (shaped && plan["distances"] is JsonArray several && several.Count > 1)
+        {
+            return "sideType and endType are for a single distance; give one distance, or buffer both sides with round ends.";
+        }
+
+        plan["side"] = sides.First(s => string.Equals(s, side, StringComparison.OrdinalIgnoreCase));
+        plan["flat"] = endType == "Flat";
         plan["dissolve"] = dissolve == "Dissolve";
         plan["rings"] = rings == "Rings";
         return null;
@@ -599,19 +762,38 @@ internal static partial class AnalysisEndpoints
             return "overlayType is Intersect, Union or Erase.";
         }
 
-        if (asked("outputType") is { Length: > 0 } type && !string.Equals(type, "Input", StringComparison.OrdinalIgnoreCase))
-        {
-            return $"outputType {type} is not built here yet; an intersection keeps the lower dimension of the two layers (Input).";
-        }
-
-        // Sent by every client that reads the task, as false; true asks for snapping, which is not built.
-        if (string.Equals(asked("snapToInput")?.Trim(), "true", StringComparison.OrdinalIgnoreCase))
-        {
-            return "snapToInput is not built here yet; overlay without snapping.";
-        }
-
         AnalysisShape first = ShapeOf(layer.GeometryType);
         AnalysisShape other = ShapeOf(overlay.GeometryType);
+
+        // outputType, for an intersection only: Line where neither layer is points, Point anywhere.
+        if (Choice(asked("outputType"), "Input", ["Input", "Line", "Point"]) is not { } outputType)
+        {
+            return "outputType is Input, Line or Point.";
+        }
+
+        if (outputType != "Input" && operation != "Intersect")
+        {
+            return $"outputType {outputType} is for Intersect; {operation} keeps the input's kind.";
+        }
+
+        if (outputType == "Line" && (first == AnalysisShape.Points || other == AnalysisShape.Points))
+        {
+            return "outputType Line takes lines or polygons; a point meets nothing along a line.";
+        }
+
+        // Snapping: within the tolerance, in the input layer's own units, vertices move to each other — or, with
+        // snapToInput, only the overlay's move to the input's.
+        double tolerance = 0;
+
+        if (!string.IsNullOrWhiteSpace(asked("tolerance"))
+            && (!double.TryParse(asked("tolerance"), NumberStyles.Float, CultureInfo.InvariantCulture, out tolerance) || tolerance < 0))
+        {
+            return "tolerance is a distance of zero or more, in the input layer's units.";
+        }
+
+        plan["tolerance"] = tolerance;
+        plan["snapToInput"] = string.Equals(asked("snapToInput")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        plan["outputType"] = outputType;
 
         if (operation == "Union" && (first != AnalysisShape.Polygons || other != AnalysisShape.Polygons))
         {
@@ -635,6 +817,8 @@ internal static partial class AnalysisEndpoints
         plan["overlayColumns"] = columns;
         plan["shape"] = (int)(operation switch
         {
+            "Intersect" when outputType == "Line" => AnalysisShape.Lines,
+            "Intersect" when outputType == "Point" => AnalysisShape.Points,
             "Intersect" => (AnalysisShape)Math.Min((int)first, (int)other),
             "Erase" => first,
             _ => AnalysisShape.Polygons,
@@ -722,26 +906,27 @@ internal static partial class AnalysisEndpoints
 
     private static string? PlanAggregate(
         Func<string, string?> asked, PublishedLayer points, LayerDescription pointsDescribed,
-        PublishedLayer polygons, LayerDescription polygonsDescribed, JsonObject plan)
+        PublishedLayer? polygons, LayerDescription? polygonsDescribed, JsonObject plan)
     {
         if (ShapeOf(points.GeometryType) != AnalysisShape.Points)
         {
             return "pointLayer holds no points.";
         }
 
-        if (ShapeOf(polygons.GeometryType) != AnalysisShape.Polygons)
+        if (polygons is not null && ShapeOf(polygons.GeometryType) != AnalysisShape.Polygons)
         {
             return "polygonLayer holds no polygons.";
         }
 
-        // A polygon layer is what is counted into, so bin settings beside it say nothing; a group-by field is not built.
-        if (asked("groupByField") is { Length: > 0 } group && !string.IsNullOrWhiteSpace(group) && group.Trim() != "\"\"")
+        if (polygons is null && PlanBins(asked, plan) is { } badBins)
         {
-            return "A group-by field is not built here yet; aggregate without one.";
+            return badBins;
         }
 
+
         Dictionary<string, FieldDescription> fields = pointsDescribed.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
-        HashSet<string> taken = new([.. CarriedColumns(polygons, polygonsDescribed, "AggregatePoints"), "point_count"], StringComparer.OrdinalIgnoreCase);
+        HashSet<string> taken = new([.. polygons is null ? [] : CarriedColumns(polygons, polygonsDescribed!, "AggregatePoints"), "point_count"],
+            StringComparer.OrdinalIgnoreCase);
         JsonArray summaries = [];
 
         foreach (string entry in Strings(asked("summaryFields")) ?? [])
@@ -767,10 +952,403 @@ internal static partial class AnalysisEndpoints
             });
         }
 
+        if (PlanGroup(asked, pointsDescribed, taken, "percentPoints", "percent_points", plan) is { } badGroup)
+        {
+            return badGroup;
+        }
+
         string? keep = asked("keepBoundariesWithNoPoints");
         plan["summaries"] = summaries;
         plan["keepEmpty"] = keep is null || !string.Equals(keep.Trim(), "false", StringComparison.OrdinalIgnoreCase);
         plan["shape"] = (int)AnalysisShape.Polygons;
+        return null;
+    }
+
+    /// <summary>Bins in place of a polygon layer: their kind and their size in metres — or why not.</summary>
+    private static string? PlanBins(Func<string, string?> asked, JsonObject plan)
+    {
+        if (Choice(asked("binType"), "Square", ["Square", "Hexagon"]) is not { } kind)
+        {
+            return "binType is Square or Hexagon.";
+        }
+
+        if (!double.TryParse(asked("binSize"), NumberStyles.Float, CultureInfo.InvariantCulture, out double size) || !(size > 0))
+        {
+            return "binSize is required with binType, and is a distance above zero.";
+        }
+
+        if (Choice(asked("binSizeUnit"), "Meters", [.. Units.Keys]) is not { } unit)
+        {
+            return $"binSizeUnit is one of {string.Join(", ", Units.Keys)}.";
+        }
+
+        double metres = size * Units[unit];
+
+        // A bin smaller than a metre over a city is millions of rows nobody asked for; ArcGIS caps its bins in count.
+        if (metres < 1)
+        {
+            return "A bin is at least a metre across.";
+        }
+
+        plan["bins"] = new JsonObject { ["hexagon"] = kind == "Hexagon", ["metres"] = metres };
+        return null;
+    }
+
+    /// <summary>
+    /// A summary by a field's values — its column, the areas' majority and minority columns, the group table's share
+    /// column — or why not. Nothing is planned when no field is named, and the two booleans then say nothing.
+    /// </summary>
+    private static string? PlanGroup(
+        Func<string, string?> asked, LayerDescription summarized, ICollection<string> taken, string percentParameter,
+        string percentName, JsonObject plan)
+    {
+        string? sent = asked("groupByField")?.Trim();
+
+        if (string.IsNullOrEmpty(sent) || sent == "\"\"")
+        {
+            return null;
+        }
+
+        // A struct: FirstOrDefault of none is an empty field, not null, so the match is asked for by index.
+        int at = summarized.Fields.ToList().FindIndex(f => string.Equals(f.Name, sent, StringComparison.OrdinalIgnoreCase));
+
+        if (at < 0 || summarized.Fields[at].Type == FieldType.Binary)
+        {
+            return $"groupByField is a field of the summarised features; there is no '{sent}' to group by.";
+        }
+
+        FieldDescription field = summarized.Fields[at];
+
+        bool True(string parameter) => string.Equals(asked(parameter)?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        bool majority = True("minorityMajority");
+
+        plan["group"] = new JsonObject
+        {
+            ["column"] = field.Name,
+            ["majority"] = majority ? Unclaimed(PostGisImporter.ColumnNameFor($"majority_{field.Name}"), taken) : null,
+            ["minority"] = majority ? Unclaimed(PostGisImporter.ColumnNameFor($"minority_{field.Name}"), taken) : null,
+            ["percent"] = True(percentParameter) ? percentName : null,
+        };
+        return null;
+    }
+
+    /// <summary>The summary fields of a summarised layer — or why one cannot be taken.</summary>
+    private static (JsonArray? Summaries, string? Why) SummariesOf(
+        IReadOnlyList<string>? entries, LayerDescription described, ICollection<string> taken, bool weighted)
+    {
+        Dictionary<string, FieldDescription> fields = described.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        JsonArray summaries = [];
+
+        foreach (string entry in entries ?? [])
+        {
+            string[] parts = entry.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length != 2 || !fields.TryGetValue(parts[0], out FieldDescription found)
+                || !Statistics.TryGetValue(parts[1], out string? aggregate))
+            {
+                return (null, $"'{entry}' is not a summary: write a field and one of Sum, Mean, Min, Max or Stddev.");
+            }
+
+            if (!IsNumeric(found.Type) && !(found.Type == FieldType.Date && aggregate is "min" or "max"))
+            {
+                return (null, $"{parts[1]} of '{found.Name}' cannot be taken: it is not a number.");
+            }
+
+            // A weighted minimum of a date is still a date; a weighted sum of one would not be.
+            _ = weighted;
+            summaries.Add(new JsonObject
+            {
+                ["field"] = found.Name,
+                ["statistic"] = aggregate,
+                ["output"] = Unclaimed(PostGisImporter.ColumnNameFor($"{parts[1]}_{found.Name}"), taken),
+            });
+        }
+
+        return (summaries, null);
+    }
+
+    private static string? PlanSummarize(
+        Func<string, string?> asked, PublishedLayer summarized, LayerDescription summarizedDescribed,
+        PublishedLayer? areas, LayerDescription? areasDescribed, JsonObject plan)
+    {
+        if (areas is not null && ShapeOf(areas.GeometryType) != AnalysisShape.Polygons)
+        {
+            return "sumWithinLayer holds no polygons.";
+        }
+
+        if (areas is null && PlanBins(asked, plan) is { } badBins)
+        {
+            return badBins;
+        }
+
+        AnalysisShape shape = ShapeOf(summarized.GeometryType);
+        bool sumShape = asked("sumShape") is not { } s || !string.Equals(s.Trim(), "false", StringComparison.OrdinalIgnoreCase);
+        IReadOnlyList<string>? entries = Strings(asked("summaryFields"));
+
+        if (!sumShape && (entries is null || entries.Count == 0))
+        {
+            return "summaryFields is required when sumShape is false: there would be nothing to summarise.";
+        }
+
+        HashSet<string> taken = new(areas is null ? [] : CarriedColumns(areas, areasDescribed!, "SummarizeWithin"), StringComparer.OrdinalIgnoreCase);
+        string? countName = null;
+        string? measureName = null;
+        double perUnit = 1;
+
+        if (sumShape)
+        {
+            countName = Unclaimed(shape == AnalysisShape.Points ? "point_count" : "count", taken);
+
+            if (shape != AnalysisShape.Points)
+            {
+                bool lines = shape == AnalysisShape.Lines;
+                IReadOnlyDictionary<string, double> units = lines ? Units : AreaUnits;
+                string fallback = lines ? "Meters" : "SquareMeters";
+
+                if (Choice(asked("shapeUnits"), fallback, [.. units.Keys]) is not { } unit)
+                {
+                    return $"shapeUnits for {(lines ? "lines" : "polygons")} is one of {string.Join(", ", units.Keys)}.";
+                }
+
+                perUnit = units[unit];
+                measureName = Unclaimed(PostGisImporter.ColumnNameFor($"sum_{(lines ? "length" : "area")}_{unit}"), taken);
+            }
+        }
+
+        (JsonArray? summaries, string? why) = SummariesOf(entries, summarizedDescribed, taken, shape != AnalysisShape.Points);
+
+        if (summaries is null)
+        {
+            return why;
+        }
+
+        if (PlanGroup(asked, summarizedDescribed, taken, "percentShape", "percent_shape", plan) is { } badGroup)
+        {
+            return badGroup;
+        }
+
+        plan["summary"] = new JsonObject
+        {
+            ["count"] = countName,
+            ["measure"] = shape == AnalysisShape.Points || !sumShape ? 0 : (int)shape - 1,
+            ["measureName"] = measureName,
+            ["perUnit"] = perUnit,
+            ["keepEmpty"] = true,
+            ["weighted"] = shape != AnalysisShape.Points,
+        };
+        plan["summaries"] = summaries;
+        plan["summarizedShape"] = (int)shape;
+        plan["shape"] = (int)AnalysisShape.Polygons;
+        return null;
+    }
+
+    private static string? PlanJoin(
+        Func<string, string?> asked, PublishedLayer target, LayerDescription targetDescribed,
+        PublishedLayer join, LayerDescription joinDescribed, JsonObject plan)
+    {
+        string? relationship = null;
+
+        if (!string.IsNullOrWhiteSpace(asked("spatialRelationship")))
+        {
+            relationship = Relationships.FirstOrDefault(r => string.Equals(r, asked("spatialRelationship")!.Trim(), StringComparison.OrdinalIgnoreCase));
+
+            if (relationship is null)
+            {
+                return $"spatialRelationship is one of {string.Join(", ", Relationships)}.";
+            }
+        }
+
+        double metres = 0;
+
+        if (relationship == "WithinDistance")
+        {
+            if (!double.TryParse(asked("spatialRelationshipDistance"), NumberStyles.Float, CultureInfo.InvariantCulture, out double distance)
+                || distance < 0)
+            {
+                return "WithinDistance needs spatialRelationshipDistance, a distance of zero or more.";
+            }
+
+            if (Choice(asked("spatialRelationshipDistanceUnits"), "Meters", [.. Units.Keys]) is not { } unit)
+            {
+                return $"spatialRelationshipDistanceUnits is one of {string.Join(", ", Units.Keys)}.";
+            }
+
+            metres = distance * Units[unit];
+        }
+
+        Dictionary<string, FieldDescription> targetFields = targetDescribed.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, FieldDescription> joinFields = joinDescribed.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
+        JsonArray attributes = [];
+
+        if (!string.IsNullOrWhiteSpace(asked("attributeRelationship")))
+        {
+            try
+            {
+                foreach (JsonObject pair in (JsonNode.Parse(asked("attributeRelationship")!) as JsonArray ?? []).OfType<JsonObject>())
+                {
+                    string? targetField = pair["targetField"]?.GetValue<string>();
+                    string? joinField = pair["joinField"]?.GetValue<string>();
+                    string operation = pair["operator"]?.GetValue<string>() ?? "equal";
+
+                    if (!string.Equals(operation, "equal", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return $"An attribute relationship's operator is equal; '{operation}' is not one ArcGIS documents.";
+                    }
+
+                    if (targetField is null || !targetFields.TryGetValue(targetField, out FieldDescription tf))
+                    {
+                        return $"The target layer has no field '{targetField}'.";
+                    }
+
+                    if (joinField is null || !joinFields.TryGetValue(joinField, out FieldDescription jf))
+                    {
+                        return $"The join layer has no field '{joinField}'.";
+                    }
+
+                    if (IsNumeric(tf.Type) != IsNumeric(jf.Type))
+                    {
+                        return $"'{tf.Name}' and '{jf.Name}' cannot be equal: one is a number and the other is not.";
+                    }
+
+                    attributes.Add(new JsonObject { ["target"] = tf.Name, ["join"] = jf.Name });
+                }
+            }
+            catch (JsonException)
+            {
+                return "attributeRelationship is [{\"targetField\": …, \"operator\": \"equal\", \"joinField\": …}].";
+            }
+        }
+
+        if (relationship is null && attributes.Count == 0)
+        {
+            return "Join Features needs a spatialRelationship, an attributeRelationship, or both.";
+        }
+
+        if (Choice(asked("joinOperation"), "JoinOneToOne", ["JoinOneToOne", "JoinOneToMany"]) is not { } operationName)
+        {
+            return "joinOperation is JoinOneToOne or JoinOneToMany.";
+        }
+
+        if (Choice(asked("joinType"), "Inner", ["Inner", "Left"]) is not { } joinType)
+        {
+            return "joinType is Inner or Left.";
+        }
+
+        bool oneToMany = operationName == "JoinOneToMany";
+        HashSet<string> taken = new(CarriedColumns(target, targetDescribed, "JoinFeatures"), StringComparer.OrdinalIgnoreCase);
+        string countName = oneToMany ? "count" : Unclaimed("count", taken);
+
+        // Summaries: ArcGIS's [{statisticType, onStatisticField}], or the "<field> <Statistic>" every other task takes.
+        JsonArray summaries = [];
+        string? sentSummaries = asked("summaryFields");
+
+        if (!string.IsNullOrWhiteSpace(sentSummaries))
+        {
+            List<string> entries = [];
+
+            try
+            {
+                foreach (JsonNode? one in JsonNode.Parse(sentSummaries) as JsonArray ?? [])
+                {
+                    if (one is JsonObject o)
+                    {
+                        string statistic = o["statisticType"]?.GetValue<string>() ?? string.Empty;
+                        string? field = o["onStatisticField"]?.GetValue<string>();
+
+                        // COUNT is always returned, so asking for it adds nothing.
+                        if (!string.Equals(statistic, "COUNT", StringComparison.OrdinalIgnoreCase) && field is not null)
+                        {
+                            entries.Add($"{field} {statistic}");
+                        }
+                    }
+                    else if (one is JsonValue v)
+                    {
+                        entries.Add(v.GetValue<string>());
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                entries.AddRange(Strings(sentSummaries) ?? []);
+            }
+
+            if (oneToMany && entries.Count > 0)
+            {
+                return "Summary statistics are taken in a one-to-one join; a one-to-many join keeps each match whole.";
+            }
+
+            (JsonArray? read, string? why) = SummariesOf(entries, joinDescribed, taken, weighted: false);
+
+            if (read is null)
+            {
+                return why;
+            }
+
+            summaries = read;
+        }
+
+        JsonArray joinColumns = [];
+
+        if (oneToMany || summaries.Count == 0)
+        {
+            foreach (string column in CarriedColumns(join, joinDescribed, "JoinFeatures"))
+            {
+                joinColumns.Add(new JsonObject { ["source"] = column, ["output"] = Unclaimed(column, taken) });
+            }
+        }
+
+        // recordsToMatch: which match a one-to-one join keeps, when no spatial relationship decides.
+        JsonArray orderBy = [];
+
+        if (!string.IsNullOrWhiteSpace(asked("recordsToMatch")))
+        {
+            try
+            {
+                JsonObject records = JsonNode.Parse(asked("recordsToMatch")!) as JsonObject ?? [];
+
+                if (records["groupByFields"]?.GetValue<string>() is { Length: > 0 } grouped && grouped.Trim().Length > 0)
+                {
+                    return "recordsToMatch's groupByFields is not built here; order the matches with orderByFields.";
+                }
+
+                foreach (string part in (records["orderByFields"]?.GetValue<string>() ?? string.Empty)
+                             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    string[] words = part.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                    if (!joinFields.TryGetValue(words[0], out FieldDescription by))
+                    {
+                        return $"recordsToMatch orders by '{words[0]}', which the join layer does not have.";
+                    }
+
+                    orderBy.Add(new JsonObject
+                    {
+                        ["field"] = by.Name,
+                        ["descending"] = words.Length > 1 && string.Equals(words[1], "DESC", StringComparison.OrdinalIgnoreCase),
+                    });
+                }
+            }
+            catch (JsonException)
+            {
+                return "recordsToMatch is {\"groupByFields\": \"\", \"orderByFields\": \"<field> ASC|DESC\", \"topCount\": 1}.";
+            }
+        }
+
+        AnalysisShape shape = ShapeOf(target.GeometryType);
+        plan["join"] = new JsonObject
+        {
+            ["relationship"] = relationship,
+            ["metres"] = metres,
+            ["attributes"] = attributes,
+            ["oneToMany"] = oneToMany,
+            ["keepAll"] = joinType == "Left",
+            ["columns"] = joinColumns,
+            ["count"] = countName,
+            ["orderBy"] = orderBy,
+        };
+        plan["summaries"] = summaries;
+        plan["shape"] = (int)shape;
+        plan["single"] = target.GeometryType == GeometryKind.Point;
         return null;
     }
 
@@ -790,12 +1368,12 @@ internal static partial class AnalysisEndpoints
     }
 
     /// <summary>The input layer a request names, if it is this server's, hosted, and readable by the caller.</summary>
-    private static async Task<(PublishedLayer? Layer, string? Filter, string? Why)> InputLayerAsync(
+    internal static async Task<(PublishedLayer? Layer, string? Filter, string? Why, JsonObject? Collection, LayerDescription? Described)> InputLayerAsync(
         string parameter, string? sent, RequestPrincipal current, PostgresLayerCatalog layers, CancellationToken cancellation)
     {
         if (string.IsNullOrWhiteSpace(sent))
         {
-            return (null, null, $"{parameter} is required: {{\"url\": \"<a hosted feature layer of this server>\"}}.");
+            return (null, null, $"{parameter} is required: {{\"url\": \"<a hosted feature layer of this server>\"}} or a feature collection.", null, null);
         }
 
         string? url;
@@ -810,13 +1388,20 @@ internal static partial class AnalysisEndpoints
                 url = address.GetValue<string>();
                 filter = named["filter"]?.GetValue<string>();
             }
-            else if (node is JsonObject collection && (collection["featureSet"] is not null || collection["layerDefinition"] is not null))
+            else if (node is JsonObject collection && AnalysisCollections.IsCollection(collection))
             {
-                return (null, null, "A feature collection as the input is not taken here yet; name a hosted layer of this server by its url.");
+                // ADR-222 condition 4: read now, so a malformed one is refused before it is queued; written by the runner.
+                if (!AnalysisCollections.TryRead(collection, parameter, out AnalysisCollections.Collection? read, out string? bad)
+                    || !AnalysisCollections.TryRows(read!, parameter, out _, out bad))
+                {
+                    return (null, null, bad, null, null);
+                }
+
+                return (AnalysisCollections.LayerOf(read!, "collection"), collection["filter"]?.GetValue<string>(), null, collection, read!.Described);
             }
             else
             {
-                return (null, null, $"{parameter} is {{\"url\": \"<layer url>\"}}, optionally with a \"filter\".");
+                return (null, null, $"{parameter} is {{\"url\": \"<layer url>\"}}, optionally with a \"filter\", or a feature collection.", null, null);
             }
         }
         catch (JsonException)
@@ -831,7 +1416,7 @@ internal static partial class AnalysisEndpoints
 
         if (face < 1 || face != path.Length - 2 || !int.TryParse(path[^1], NumberStyles.None, CultureInfo.InvariantCulture, out int index))
         {
-            return (null, null, $"'{url}' is not a layer of this server: a hosted feature layer's url ends in /FeatureServer/<layer>.");
+            return (null, null, $"'{url}' is not a layer of this server: a hosted feature layer's url ends in /FeatureServer/<layer>.", null, null);
         }
 
         string? folder = face == 2 ? path[0] : null;
@@ -841,20 +1426,103 @@ internal static partial class AnalysisEndpoints
             || !LayerAccess.Evaluate(service.Sharing, service.Owner, current.Principal, current.Authorization, service.SharedWith).IsAllowed()
             || service.LayerOrTable(index) is not { } layer)
         {
-            return (null, null, $"There is no layer at '{url}' that you may read.");
+            return (null, null, $"There is no layer at '{url}' that you may read.", null, null);
         }
 
         if (!layer.Definition.IsHosted || !string.Equals(layer.Definition.SchemaName, PostGisImporter.HostedSchema, StringComparison.Ordinal))
         {
-            return (null, null, "Analysis reads hosted layers for now; this layer is read from a registered source.");
+            return (null, null, "Analysis reads hosted layers for now; this layer is read from a registered source.", null, null);
         }
 
         if (layer.GeometryType is null)
         {
-            return (null, null, "This is a table, which has no shapes to analyse.");
+            return (null, null, "This is a table, which has no shapes to analyse.", null, null);
         }
 
-        return (layer, filter, null);
+        return (layer, filter, null, null, null);
+    }
+
+    /// <summary>
+    /// The layer an <c>outputName</c> asks to overwrite — <c>{"itemProperties": {"itemId" | "serviceURL" | "name": …,
+    /// "overwrite": true}}</c>, as ArcGIS documents it, or <c>serviceProperties.name</c> beside an <c>overwrite</c> —
+    /// or null when it asks for a new layer.
+    /// </summary>
+    private static JsonObject? Overwrites(string? sent)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(sent) || JsonNode.Parse(sent) is not JsonObject output)
+            {
+                return null;
+            }
+
+            JsonObject item = output["itemProperties"] as JsonObject ?? [];
+            bool overwrite = item["overwrite"]?.GetValueKind() == JsonValueKind.True || output["overwrite"]?.GetValueKind() == JsonValueKind.True;
+
+            if (!overwrite)
+            {
+                return null;
+            }
+
+            return new JsonObject
+            {
+                ["itemId"] = item["itemId"]?.GetValue<string>(),
+                ["serviceURL"] = item["serviceURL"]?.GetValue<string>() ?? item["serviceUrl"]?.GetValue<string>(),
+                ["name"] = item["name"]?.GetValue<string>() ?? output["serviceProperties"]?["name"]?.GetValue<string>(),
+            };
+        }
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// The hosted service an overwrite names, found by item id, address or name — and refused unless it is one layer,
+    /// the caller's or theirs to administer, and not protected.
+    /// </summary>
+    private static async Task<(PublishedService? Service, string? Why)> OverwrittenAsync(
+        JsonObject named, RequestPrincipal current, PostgresLayerCatalog layers, CancellationToken cancellation)
+    {
+        PublishedService? service = null;
+
+        if (named["itemId"]?.GetValue<string>() is { Length: > 0 } itemId)
+        {
+            service = (await layers.ListServicesAsync(cancellation).ConfigureAwait(false))
+                .FirstOrDefault(s => string.Equals(s.Id.ToString("N"), itemId.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+        else if (named["serviceURL"]?.GetValue<string>() is { Length: > 0 } url)
+        {
+            int at = url.IndexOf("/rest/services/", StringComparison.OrdinalIgnoreCase);
+            string[] path = at < 0 ? [] : url[(at + "/rest/services/".Length)..].Split('?')[0].Trim('/').Split('/');
+            int face = Array.IndexOf(path, "FeatureServer");
+
+            if (face >= 1)
+            {
+                service = await layers.FindServiceAsync(face == 2 ? path[0] : null, path[face - 1], cancellation).ConfigureAwait(false);
+            }
+        }
+        else if (named["name"]?.GetValue<string>() is { Length: > 0 } name)
+        {
+            service = await layers.FindServiceAsync("hosted", name.Trim(), cancellation).ConfigureAwait(false);
+        }
+
+        if (service is null || !string.Equals(service.Folder, "hosted", StringComparison.OrdinalIgnoreCase))
+        {
+            return (null, "outputName asks to overwrite a layer that is not a hosted layer here: name it by itemId, serviceURL or name.");
+        }
+
+        if (service.Owner != current.Principal.Id && !current.Authorization.Allows(Privilege.AdminManageAllContent))
+        {
+            return (null, $"'{service.Name}' is not yours, so a result is not written over it.");
+        }
+
+        if (service.Layers.Count != 1 || service.Tables.Count != 0 || service.ViewOf is not null || service.HasViews)
+        {
+            return (null, $"'{service.Name}' is not a single layer of its own, so a result is not written over it.");
+        }
+
+        return (service, null);
     }
 
     /// <summary>The service name the result is written under, free and valid — or why not.</summary>
@@ -874,8 +1542,6 @@ internal static partial class AnalysisEndpoints
             name = JsonNode.Parse(sent) switch
             {
                 JsonObject o when o["serviceProperties"]?["name"] is JsonValue v => v.GetValue<string>(),
-                JsonObject o when o["itemProperties"]?["overwrite"] is not null =>
-                    throw new NotSupportedException("Overwriting an existing layer with a result is not built here yet."),
                 JsonValue v => v.GetValue<string>(),
                 _ => null,
             };
@@ -980,6 +1646,12 @@ internal static partial class AnalysisEndpoints
             return;
         }
 
+        await JobAnswerAsync(context, run).ConfigureAwait(false);
+    }
+
+    /// <summary>A job's resource, as the documented shape answers it — for this service's runs and a toolbox's (ADR-223).</summary>
+    internal static async Task JobAnswerAsync(HttpContext context, AnalysisRun run)
+    {
         JsonObject answer = new()
         {
             ["jobId"] = JobIdOf(run.Job.Id),
@@ -1016,6 +1688,12 @@ internal static partial class AnalysisEndpoints
             return;
         }
 
+        await ResultAnswerAsync(context, run, param).ConfigureAwait(false);
+    }
+
+    /// <summary>One result parameter of a run — for this service's runs and a toolbox's (ADR-223).</summary>
+    internal static async Task ResultAnswerAsync(HttpContext context, AnalysisRun run, string param)
+    {
         if (run.Results is null || JsonNode.Parse(run.Results)?[param] is not JsonObject result)
         {
             await RefuseAsync(context, 400, $"The job has no result '{param}'{(run.Job.Status == JobStatus.Done ? string.Empty : " yet: it has not succeeded")}.").ConfigureAwait(false);
@@ -1023,7 +1701,8 @@ internal static partial class AnalysisEndpoints
         }
 
         // The layer's address is stored as a path, and given back on the origin the caller reached this server by.
-        if (result["value"]?["url"] is JsonValue path && path.GetValue<string>().StartsWith('/'))
+        // A value that is not an object — a tool's number or text (ADR-223) — has no address to rewrite.
+        if (result["value"] is JsonObject held && held["url"] is JsonValue path && path.GetValue<string>().StartsWith('/'))
         {
             result["value"]!["url"] = TileFaces.Origin(context) + path.GetValue<string>();
         }
@@ -1055,6 +1734,12 @@ internal static partial class AnalysisEndpoints
             return;
         }
 
+        await CancelRunAsync(context, run, runs, jobs, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks a run to stop — for this service's runs and a toolbox's (ADR-223).</summary>
+    internal static async Task CancelRunAsync(HttpContext context, AnalysisRun run, IAnalysisStore runs, IJobStore jobs, CancellationToken cancellation)
+    {
         if (run.Job.Status is not (JobStatus.Queued or JobStatus.Running))
         {
             await RefuseAsync(context, 400, $"The job has ended ({StatusOf(run)}); there is nothing to cancel.").ConfigureAwait(false);
@@ -1073,13 +1758,21 @@ internal static partial class AnalysisEndpoints
     }
 
     /// <summary>The caller's run named by a job id, or a refusal written — another member's is no job (ADR-037).</summary>
-    private static async Task<AnalysisRun?> RunOfAsync(HttpContext context, string task, string jobId, IAnalysisStore runs, CancellationToken cancellation)
+    private static Task<AnalysisRun?> RunOfAsync(HttpContext context, string task, string jobId, IAnalysisStore runs, CancellationToken cancellation) =>
+        OwnRunAsync(context, jobId, TaskNamed(task)?.Name, runs, cancellation);
+
+    /// <summary>
+    /// The caller's run of a task, or an administrator's view of anybody's — refused as no such job otherwise, as every
+    /// job route here answers (ADR-037). A toolbox's runs are found the same way, by their own task string (ADR-223).
+    /// </summary>
+    internal static async Task<AnalysisRun?> OwnRunAsync(
+        HttpContext context, string jobId, string? task, IAnalysisStore runs, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         if (TryJob(jobId, out Guid id)
             && await runs.FindAsync(id, cancellation).ConfigureAwait(false) is { } run
-            && string.Equals(run.Task, TaskNamed(task)?.Name, StringComparison.Ordinal)
+            && string.Equals(run.Task, task, StringComparison.Ordinal)
             && !current.Principal.IsAnonymous
             && (run.Job.Owner == current.Principal.Id || LayerAccess.MayManage(null, current.Principal, current.Authorization)))
         {
@@ -1109,7 +1802,7 @@ internal static partial class AnalysisEndpoints
 
     // ------------------------------------------------------------------ reading a request, writing an answer
 
-    private static async Task<Func<string, string?>> ParametersOfAsync(HttpContext context, CancellationToken cancellation)
+    internal static async Task<Func<string, string?>> ParametersOfAsync(HttpContext context, CancellationToken cancellation)
     {
         IFormCollection? form = context.Request.HasFormContentType
             ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
@@ -1131,14 +1824,14 @@ internal static partial class AnalysisEndpoints
     private static string? Asked(HttpContext context, string name) =>
         context.Request.Query.TryGetValue(name, out StringValues value) ? value.ToString() : null;
 
-    private static async Task WriteAsync(HttpContext context, object answer)
+    internal static async Task WriteAsync(HttpContext context, object answer)
     {
         bool pretty = string.Equals(Asked(context, "f"), "pjson", StringComparison.OrdinalIgnoreCase);
         await Results.Json(answer, pretty ? Pretty : Compact).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>A refusal in the GP error shape: <c>{"error": {"code", "message", "details"}}</c>.</summary>
-    private static async Task RefuseAsync(HttpContext context, int code, string message)
+    internal static async Task RefuseAsync(HttpContext context, int code, string message)
     {
         // An ArcGIS client reads the code from the body; the HTTP status says the same where HTTP has the number.
         int status = code is 499 ? 401 : code;

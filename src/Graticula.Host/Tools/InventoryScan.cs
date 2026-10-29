@@ -472,11 +472,23 @@ internal static class InventoryScan
                     ? said.GetString() ?? "an error"
                     : $"HTTP {(int)response.StatusCode}";
 
-            throw new InvalidOperationException(message);
+            // A 404 — in the status or, as ArcGIS sends it, in the error's own code — is a thing that is not there,
+            // which a walk of a live server meets when something is deleted between the listing and the read.
+            bool gone = response.StatusCode == System.Net.HttpStatusCode.NotFound
+                || (document.ValueKind == JsonValueKind.Object
+                    && document.TryGetProperty("error", out JsonElement coded)
+                    && coded.TryGetProperty("code", out JsonElement code)
+                    && code.ValueKind == JsonValueKind.Number && code.GetInt32() == 404);
+
+            throw gone ? new GoneException(message) : new InvalidOperationException(message);
         }
 
         return document;
     }
+
+    /// <summary>What <see cref="GetAsync"/> throws for a 404: the address answered that nothing is there.</summary>
+    /// <param name="message">The server's sentence.</param>
+    internal sealed class GoneException(string message) : InvalidOperationException(message);
 
     private static bool True(JsonElement element, string name) =>
         element.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.True;

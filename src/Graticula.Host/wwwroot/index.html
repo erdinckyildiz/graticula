@@ -2477,6 +2477,17 @@
     kullanıcı ya da admin onlara fotoğraf koyabilse."* One card: the photo, the name, what they say about themselves and
     who may read it — and, to themselves and to whoever manages members, what they hold. `#/user/{name}`.
   -->
+  <!-- ADR-223: a Python toolbox's page — its tools, each with the questions its parameters ask, and what a run made. -->
+  <section class="view" id="view-toolbox">
+    <div class="profilecard toolboxcard">
+      <div class="profilehead">
+        <h2 id="tbTitle" tabindex="-1"></h2>
+        <p class="val" id="tbSub"></p>
+      </div>
+      <div id="tbBody"></div>
+    </div>
+  </section>
+
   <section class="view" id="view-user">
     <div class="profilecard">
       <div class="profilehead">
@@ -3457,6 +3468,7 @@
 -->
 <script src="surface.js"></script>
 <script src="ground.js" defer></script>
+<script src="analysis.js" defer></script>
 <script src="console.js" defer></script>
 </body>
 </html>

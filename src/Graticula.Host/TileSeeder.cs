@@ -69,6 +69,7 @@ internal sealed class TileSeeder : BackgroundService
     private readonly GeoParquetSources _geoParquet;
     private readonly TimeProvider _clock;
     private readonly ILogger<TileSeeder> _log;
+    private readonly DenseTileNotices? _dense;
 
     private readonly RepeatedFailure _claims = new();
     private readonly LeaseSweep _leases = new();
@@ -91,7 +92,8 @@ internal sealed class TileSeeder : BackgroundService
         ILoggerFactory loggers,
         GeoParquetSources geoParquet,
         TimeProvider clock,
-        ILogger<TileSeeder> log)
+        ILogger<TileSeeder> log,
+        DenseTileNotices? dense = null)
     {
         _jobs = jobs;
         _seeds = seeds;
@@ -108,6 +110,7 @@ internal sealed class TileSeeder : BackgroundService
         _geoParquet = geoParquet;
         _clock = clock;
         _log = log;
+        _dense = dense;
     }
 
     /// <summary>
@@ -395,7 +398,7 @@ internal sealed class TileSeeder : BackgroundService
         PublishedService service, TileAddress address, TimeSpan defaultLifetime, CancellationToken token) =>
         (await ServiceTileAsync(
                 service, address, defaultLifetime, _contexts, _connections, _cache, _building, _projector,
-                _datumShifts, _unindexed, _loggers, _geoParquet, token)
+                _datumShifts, _unindexed, _loggers, _geoParquet, token, _dense)
             .ConfigureAwait(false)).Outcome;
 
     /// <summary>
@@ -421,7 +424,8 @@ internal sealed class TileSeeder : BackgroundService
         UnindexedLayerNotices unindexed,
         ILoggerFactory loggers,
         GeoParquetSources geoParquet,
-        CancellationToken token)
+        CancellationToken token,
+        DenseTileNotices? dense = null)
     {
         bool any = false;
         bool built = false;
@@ -464,6 +468,14 @@ internal sealed class TileSeeder : BackgroundService
             if (part.Came == VectorTileEndpoints.PartCame.Built)
             {
                 connections.ObserveTileBuild(layer, null);
+
+                // D-267, as serving does: a seed builds every level, so it meets a dense tile first. Under the job's
+                // tenant scope, which is the layer's.
+                if (dense is not null)
+                {
+                    await dense.LookAsync(layer.Id, layer.Definition.Name, address, part.Bytes, token)
+                        .ConfigureAwait(false);
+                }
             }
 
             built |= part.Came != VectorTileEndpoints.PartCame.Cached;

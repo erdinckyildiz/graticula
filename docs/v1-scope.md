@@ -193,7 +193,7 @@ rather than by shipping an interpreter. **This document is the authoritative sco
 
 ***Amended 2026-10-29 by [ADR-222](adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md):*** *a GPServer comes back, for tools this server writes — ArcGIS's Spatial Analysis Service shape, no user code. ~~The scope is INFERRED ([Q-192](open-questions.md)); everything else below stands.~~*
 
-***Amended again the same day by owner decision** ([Q-192](open-questions.md)): *"Kullanıcı araçları da gelsin"* — **user-supplied tools come back into scope.** The paragraph below is therefore no longer the scope: Q-75 and Q-74 are live again and ADR-006 reopens by the route Q-17b took on 2026-08-13. The decision that designs them — sandbox, SDK, who publishes — is not yet written, and **until it is, nothing user-supplied runs**: O3's finding is the reason that sentence exists and it has not been answered, only scheduled.*
+***Amended again the same day by owner decision** ([Q-192](open-questions.md)): *"Kullanıcı araçları da gelsin"* — **user-supplied tools come back into scope.** The paragraph below is therefore no longer the scope: Q-75 and Q-74 are live again and ADR-006 reopens by the route Q-17b took on 2026-08-13. The decision that designs them — sandbox, SDK, who publishes — is [ADR-223](adr/ADR-223-user-tools-run-sandboxed-on-grapy.md), on the owner's four answers of the same day, and **until its fence is built and measured, nothing user-supplied runs**: O3's finding is the reason that sentence exists and it has not been answered, only scheduled.*
 
 **Everything else in this section stays cut, and the line is one sentence wide.**
 GPServer, the Python SDK, the sandbox and the *user* wheel set remain out;

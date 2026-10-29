@@ -1105,6 +1105,7 @@ internal static partial class AdminEndpoints
             JobKind.TileExport => "tile.export",
             JobKind.FeatureExport => "feature.export",
             JobKind.Analysis => "analysis.run",
+            JobKind.Tool => "tool.run",
             _ => "unknown",
         },
         status = job.Status.ToString().ToLowerInvariant(),
@@ -10471,6 +10472,11 @@ internal static partial class AdminEndpoints
         // ADR-070: the scales it draws at; 0 or null is no limit on that side.
         minScale = l.MinScale ?? 0,
         maxScale = l.MaxScale ?? 0,
+
+        // D-267: the densest tile drawn past what the range is measured for, or null — a suggestion to measure again.
+        denseTile = l.DenseTile is { } d
+            ? new { level = d.Level, x = d.X, y = d.Y, features = d.Features, noted = d.Noted, kept = d.Kept }
+            : null,
     };
 
     /// <remarks>

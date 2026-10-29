@@ -132,6 +132,13 @@ public enum Privilege
     /// organisation, and that is the ordinary case rather than an exotic one.
     /// </remarks>
     GroupsShareTo,
+
+    /// <summary>Publish a Python toolbox as a geoprocessing service — ADR-223 §5.7.</summary>
+    /// <remarks>
+    /// <b>Last, so no stored grant moves</b>, and its own privilege by the owner's decision of 2026-10-29: publishing a
+    /// toolbox is publishing code this server runs, a different risk from publishing data (ADR-015 §7).
+    /// </remarks>
+    ContentPublishTools,
 }
 
 /// <summary>
@@ -262,6 +269,7 @@ public static class Roles
     {
         Privilege.ContentCreate => "content:create",
         Privilege.ContentPublishFeatures => "content:publishFeatures",
+        Privilege.ContentPublishTools => "content:publishTools",
         Privilege.ContentPublishTiles => "content:publishTiles",
         Privilege.ContentRegisterDataStore => "content:registerDataStore",
         Privilege.FeaturesEdit => "features:edit",
@@ -317,6 +325,10 @@ public static class Roles
         Privilege.ContentPublishFeatures =>
             "Publish a hosted feature layer — upload data and turn it into a service this "
             + "server stores and serves.",
+
+        Privilege.ContentPublishTools =>
+            "Publish a Python toolbox as a geoprocessing service — code this server runs, in a fenced process with no "
+            + "network, for everybody it is shared with.",
 
         Privilege.ContentPublishTiles =>
             "Publish a hosted tile layer, which is the same upload served as pre-cut tiles "
@@ -443,6 +455,7 @@ public static class Roles
             // Publishing puts content into the catalogue, and content is what `create` allows.
             // Esri states the same dependency for the same privilege.
             [Privilege.ContentPublishFeatures] = [Privilege.ContentCreate],
+            [Privilege.ContentPublishTools] = [Privilege.ContentCreate],
             [Privilege.ContentPublishTiles] = [Privilege.ContentCreate],
 
             // Registering a data source is only useful to somebody who can publish from it, and
@@ -537,7 +550,11 @@ public static class Roles
         // D-20's note about `features:edit`. Moved by changing the grant rather than the endpoint,
         // so `content:registerDataStore` keeps its name and meaning and does not become a
         // privilege with nothing behind it.
+        // <b>Publishing a toolbox is publishing code this server runs</b> — ADR-223 §5.7, owner decision 2026-10-29: a
+        // privilege of its own, held by the administrator role only until an administrator gives it to another
+        // (ADR-015 §7: code publication defaults to administrators).
         ImmutableHashSet<Privilege> administrator = publisher
+            .Add(Privilege.ContentPublishTools)
             .Add(Privilege.ContentRegisterDataStore)
             .Add(Privilege.AdminManageMembers)
             .Add(Privilege.AdminManageRoles)
@@ -637,6 +654,7 @@ public static class UserTypes
             .Add(Privilege.ContentPublishFeatures)
             .Add(Privilege.ContentPublishTiles)
             .Add(Privilege.ContentRegisterDataStore)
+            .Add(Privilege.ContentPublishTools)
             .Add(Privilege.FeaturesFullEdit)
             .Add(Privilege.SharingShareToOrganization)
             .Add(Privilege.SharingShareToPublic)

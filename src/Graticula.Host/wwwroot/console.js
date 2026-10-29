@@ -207,6 +207,8 @@ const ICONS = {
   // A table: rows and a header, because what is published is a table and nothing is copied.
   // A page with a folded corner: a file kept as it was uploaded (ADR-188).
   document: '<path d="M4 1.8h5.4l3 3v9.4H4z"/><path d="M9.2 1.8v3.2h3.2M6 8.4h4.4M6 10.8h4.4"/>',
+  // ADR-223: a toolbox — two overlapping areas over a ground line, the sign the analysis tools have in the map's rail.
+  analysis: '<circle cx="6" cy="6.8" r="3.2"/><circle cx="10.4" cy="9.6" r="3.6"/><path d="M1.6 14.2h12.8"/>',
 
   table: '<rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.1"/>'
        + '<path d="M2.2 6.3h11.6M6.6 6.3v6.5"/>',
@@ -3439,6 +3441,12 @@ function route() {
     return;
   }
 
+  // A Python toolbox's page — `#/toolbox/{name}` (ADR-223).
+  if (rest[0] === "toolbox" && rest[1]) {
+    showToolbox(decodeURIComponent(rest[1]));
+    return;
+  }
+
   // A member's profile — `#/user/{name}` (2026-10-17), Studio's, as Portal's user page is.
   if (rest[0] === "user" && rest[1]) {
     showProfile(decodeURIComponent(rest[1]));
@@ -5149,6 +5157,8 @@ async function loadMyContent() {
     // ADR-188: documents beside them, optional as the maps are.
     api("/content/documents").then(a => a || {}).catch(() => ({ documents: [] })),
   ]);
+  // ADR-223: toolboxes too, optional as the documents are; read here so New item knows whether to offer one.
+  toolboxAnswer = await api("/content/toolboxes").catch(() => ({ toolboxes: [], mayPublish: false })) || toolboxAnswer;
   if (docs.accepted) {
     docRules = { accepted: docs.accepted, maximumBytes: docs.maximumBytes || docRules.maximumBytes, mayCreate: docs.mayCreate !== false };
   }
@@ -5195,7 +5205,8 @@ function drawMyContent() {
 
   const { answer, maps, docs } = contentAnswer;
   const mapItems = (maps.webMaps || []).map(mapAsItem);
-  const items = [...(answer.items || []), ...mapItems, ...((docs || {}).documents || []).map(docAsItem)];
+  const items = [...(answer.items || []), ...mapItems, ...((docs || {}).documents || []).map(docAsItem),
+    ...(toolboxAnswer.toolboxes || []).map(toolboxAsItem)];
   // Counted here, by the same rule the list is filtered by, so a tab's number is what pressing it shows.
   const counts = Object.fromEntries(CONTENT_SCOPES.map(([key]) =>
     [key, items.filter(i => inContentScope(i, key)).length]));
@@ -5394,6 +5405,7 @@ function drawMyContent() {
         : pageOf("contentRows", visible).map(i => {
           if (i.map) return mapRow(i);
           if (i.doc) return docRow(i);
+          if (i.toolbox) return toolboxRow(i);
 
           // The map is driven per layer, and a service's cover layer is the one this row draws and
           // shows. A multi-layer service is opened from its own page for the rest.
@@ -7701,6 +7713,15 @@ function drawServiceLayers(layers, qualified) {
       // Inside the item, on the layer's data (ADR-102 step 9); Studio has no layer page left.
       const at = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${layer.id ?? 0}`;
 
+      // D-267: a layer drawn into a tile denser than its range is measured for says so here too, where an owner looks
+      // first, and the link opens the Style panel whose Visible range holds the suggestion (design review 2026-10-29).
+      const serviceName = qualified.split("/").pop();
+      const dense = group ? null : (known || []).find(k => k.name === layer.name
+        && String(k.service || "").toLowerCase() === serviceName.toLowerCase())?.denseTile;
+      const advice = dense && !dense.kept
+        ? `<div class="rowmeta rangeflag"><a href="#/service/${qualified.split("/").map(encodeURIComponent).join("/")}?tab=visualization&layer=${layer.id ?? 0}&panel=style&focus=range">Its visible range may need measuring again</a></div>`
+        : "";
+
       return `<tr>
         <td class="lid">${group ? "" : num(layer.id ?? 0)}</td>
         <td class="lsw">${group
@@ -7709,7 +7730,7 @@ function drawServiceLayers(layers, qualified) {
         <td class="name${nested ? " nested" : ""}">${group
             ? h(layer.name || "")
             : `<a href="${at}">${h(layer.shown || layer.name || "")}</a>`}
-          <div class="rowmeta">${h(said)}</div></td>
+          <div class="rowmeta">${h(said)}</div>${advice}</td>
 
         <!--
           <b>Each of the three opens with *this* layer, and it took a revision to say so.</b>
@@ -9642,8 +9663,19 @@ function drawVisStyle() {
     drawSymStrip(name, placeOf(name), [`<a href="#/content">Content</a>`,
       `<a href="#/service/${path}">${h(serviceOpen.name)}</a>`]);
 
-    section("the symbology", () => loadSymbology(name), "symState");
+    const drawn = section("the symbology", () => loadSymbology(name), "symState");
     lockForReader(name, { ...layerNamed(name), manages: may, owner: serviceItem?.owner }, host);
+
+    // D-267: Overview's "visible range may need measuring again" lands on the suggestion itself, once the style has
+    // drawn — not at the top of a rail whose range section is a thousand pixels down (design review 2026-10-29).
+    if (hashQuery.get("focus") === "range") {
+      Promise.resolve(drawn).then(() => {
+        const box = $("rangeAdvice");
+        if (!box) return;
+        box.scrollIntoView({ block: "center" });
+        box.querySelector("[data-range-suggest]")?.focus();
+      });
+    }
   }
 
   const strip = host.querySelector(".symstrip");
@@ -11003,17 +11035,64 @@ function layerRangeMarkup(l, name) {
         asking for it. This is what keeps a map zoomed out over a dense layer — every building
         in a city — from making the server draw all of it. Publishing sets the zoomed-out limit
         from the data: the first scale at which no tile holds more than 10,000 features.</p>
-      <p class="hint"><b>${h(rangeText(l.minScale, l.maxScale))}</b></p>
+      <p class="hint"><b id="rangeSaved">${h(rangeText(l.minScale, l.maxScale))}</b></p>
+      ${rangeAdviceMarkup(l, name)}
       <p class="hint" id="rangeSays" role="status" aria-live="polite"></p>
       <div class="row" style="margin-top:10px">
         <button data-range="${h(name)}">Set</button>
-        <button data-range-suggest="${h(name)}" class="ghost">Measure from the data</button>
+        <button data-range-suggest="${h(name)}" class="ghost" id="rangeMeasure"${l.denseTile && !l.denseTile.kept ? " hidden" : ""}>Measure from the data</button>
         <span style="flex:1"></span>
         <button data-range="${h(name)}" data-clear="1" class="ghost"
           title="Clears both limits and saves at once">No limit</button>
       </div>
 
 `;
+}
+
+/**
+ * D-267, owner decision 2026-10-29: when the server drew this layer into a tile denser than its range is measured for,
+ * it suggests measuring again — and never changes the range itself. Keeping it as it is answers the suggestion, which
+ * then comes back only for a tile twice as dense.
+ */
+function rangeAdviceMarkup(l, name) {
+  const d = l.denseTile;
+  if (!d || d.kept) return "";
+  const when = new Date(d.noted);
+  const day = Number.isNaN(when.getTime()) ? "" : ` on ${when.toLocaleDateString(undefined, { dateStyle: "medium" })}`;
+  // A level's scale on the Web Mercator grid at 96 dpi, as the range fields are written — ADR-070.
+  const scale = Math.round(591657527.591555 / 2 ** Number(d.level)).toLocaleString("en-US");
+  const count = Number(d.features).toLocaleString("en-US");
+  const lead = l.minScale > 0
+    ? `<b>This layer may have outgrown its range.</b> A map${h(day)} drew ${count} of its features into one tile at
+          level ${Number(d.level)} (about 1:${scale}), which is still inside the range.`
+    : `<b>This layer has no zoomed-out limit.</b> A map${h(day)} drew ${count} of its features into one tile at
+          level ${Number(d.level)} (about 1:${scale}).`;
+  return `
+      <div class="rangeadvice" id="rangeAdvice">
+        <p>${lead} More than 10,000 features in one tile make zoomed-out maps of it slow. Measuring fills in a
+          range from the data; nothing changes until you press Set.</p>
+        <div class="row">
+          <button type="button" class="primary tiny" data-range-suggest="${h(name)}">Measure from the data</button>
+          <button type="button" class="ghost tiny" data-range-keep="${h(name)}">Keep the range as it is</button>
+        </div>
+      </div>`;
+}
+
+/**
+ * After the range was set or kept: the listing is read again for the rest of the console, and this section is
+ * updated where it stands. <b>Not <code>loadLayers()</code></b>, which redraws the Server editor's layer page — from
+ * Studio's Style rail it threw the whole item view away and left a blank page with focus on the body (design review
+ * 2026-10-29, found on Keep and then true of Set and No limit since the rail moved into Studio).
+ */
+async function rangeChanged(name, minScale, maxScale) {
+  try {
+    known = (await api("/admin/layers")).layers;
+  } catch { /* the listing is read again on the next visit */ }
+  const saved = $("rangeSaved");
+  if (saved && minScale != null) saved.textContent = rangeText(minScale, maxScale);
+  if (minScale != null) $("rangeAdvice")?.remove();
+  // The row's Measure stood aside while the box held one.
+  if (!$("rangeAdvice") && $("rangeMeasure")) $("rangeMeasure").hidden = false;
 }
 
 function layerHistoryMarkup(l, name) {
@@ -27424,6 +27503,7 @@ function drawAddItem() {
   else if (itemStep === "publish") drawPublish();
   else if (itemStep === "imagery") drawImageryForm();
   else if (itemStep === "document") drawDocumentForm();
+  else if (itemStep === "toolbox") drawToolboxForm();
   else drawRouteForm(itemStep);
 
   nameTheScreen();
@@ -27489,6 +27569,11 @@ function drawItemKinds() {
         <span><b>Document</b>
           <span>Keep a PDF, an Office file, a CSV or a picture as an item people find in Content and download.</span></span>
       </button>
+      ${toolboxAnswer.mayPublish ? `<button type="button" class="newtile" id="kindToolbox">
+        <span class="glyph">${icon("analysis")}</span>
+        <span><b>Python toolbox</b>
+          <span>Publish tools written against grapy as a geoprocessing service your organization can run.</span></span>
+      </button>` : ""}
       <button type="button" class="newtile" id="kindFeatureLayer">
         <span class="glyph">${icon("featurelayer")}</span>
         <span><b>Feature layer</b>
@@ -27558,6 +27643,15 @@ function takeFile(files) {
   }
   if (others.length > 1) {
     refuse("A feature layer is made from one file at a time. Drop one of them.");
+    return;
+  }
+
+  // ADR-223: a Python toolbox goes to its own form, for whoever may publish one (design review: it went to the layer import).
+  if (others.length === 1 && /\.pyt$/i.test(others[0].name || "") && toolboxAnswer.mayPublish) {
+    handedFile = others[0];
+    handedImages = null;
+    itemStep = "toolbox";
+    drawAddItem();
     return;
   }
 
@@ -29474,14 +29568,31 @@ async function handleClick(event) {
         body: JSON.stringify({ minScale, maxScale }),
       });
       toast(r.note, true);
+      if ($("rangeSays")) $("rangeSays").textContent = r.note || "";
+      if (d.clear) { if ($("minScale")) $("minScale").value = ""; if ($("maxScale")) $("maxScale").value = ""; }
+      await rangeChanged(d.range, r.minScale, r.maxScale);
+      t.focus();
     } catch (e) { toast(e.message); }
-    await loadLayers();
+    return;
+  }
+
+  if (d.rangeKeep) {
+    // D-267: the answer "no" to the suggestion. The box goes, and focus moves to the range's own controls.
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.rangeKeep)}/visible-range/keep`, { method: "POST" });
+      $("rangeAdvice")?.remove();
+      const says = $("rangeSays");
+      if (says) says.textContent = r.note;
+      $("minScale")?.focus();
+      await rangeChanged(d.rangeKeep, null, null);
+    } catch (e) { toast(e.message); }
     return;
   }
 
   if (d.rangeSuggest) {
     // Measures and fills the box; nothing is stored until Set, so the number can be looked at first.
     const says = $("rangeSays");
+    let toField = null;
     t.disabled = true;
     if (says) says.textContent = "Counting features tile by tile — this can take up to half a minute on a large layer…";
     try {
@@ -29489,12 +29600,14 @@ async function handleClick(event) {
         { method: "POST" });
       if (r.minScale != null && $("minScale")) $("minScale").value = r.minScale > 0 ? Math.round(r.minScale) : "";
       if (says) says.textContent = r.minScale == null ? r.note : `Measured, not saved: ${r.note} Press Set to keep it.`;
+      // From the suggestion box, the next step is reading the filled field and pressing Set: focus goes there.
+      if (r.minScale != null && t.closest("#rangeAdvice")) toField = $("minScale");
     } catch (e) {
       if (says) says.textContent = e.message;
     } finally {
       // Disabling the pressed button threw focus to the page; it goes back where the keyboard left it.
       t.disabled = false;
-      t.focus();
+      (toField || t).focus();
     }
     return;
   }
@@ -33767,405 +33880,47 @@ function logEmpty() {
 
 // ---------------------------------------------------------------- analysis (ADR-222 condition 7)
 
-/** Where the Spatial Analysis Service is — what portals/self names as helperServices.analysis. */
-const ANALYSIS = "/rest/services/System/SpatialAnalysisTools/GPServer";
+/*
+  The tools are analysis.js's, shared with the map (webmap.js); this is the item page's half — the dialog, the layer it
+  opens on, and a result that is a link into Content.
+*/
 
-/**
- * The tools, in Map Viewer's order — summarize, find locations, proximity, manage data (design review) — what each says it does, the
- * kind of layer it starts from, and the kind its second layer must be.
- */
-const ANALYSIS_TOOLS = [
-  { task: "AggregatePoints", label: "Aggregate points", short: "counts", result: "aggregatedLayer", from: "points",
-    second: "polygons", secondLabel: "Polygons to count in", says: "How many of these points fall in each polygon of another layer." },
-  { task: "FindCentroids", label: "Find centroids", short: "centroids", result: "outputLayer", notFrom: "points",
-    says: "A point at the centre of each feature, or on it." },
-  { task: "CreateBuffers", label: "Create buffers", short: "buffers", result: "bufferLayer",
-    says: "Areas within a distance of each feature, measured on the ground." },
-  { task: "DissolveBoundaries", label: "Dissolve boundaries", short: "dissolved", result: "dissolvedLayer", from: "polygons",
-    says: "Polygons that share a value, or that touch, merged into one." },
-  { task: "MergeLayers", label: "Merge layers", short: "merged", result: "mergedLayer", second: "same",
-    secondLabel: "Merge with", says: "This layer's features and another's of the same kind, in one layer." },
-  { task: "OverlayLayers", label: "Overlay layers", short: "overlay", result: "outputLayer", second: "any",
-    secondLabel: "Overlay layer", says: "Where this layer meets another, both together, or this one less the other." },
-];
-
-/** What the server's parameter names are called on this screen, for a refusal it words in them. */
-const ANALYSIS_LABELS = {
-  inputLayer: "this layer", pointLayer: "this layer", polygonLayer: "Polygons to count in", overlayLayer: "Overlay layer",
-  mergeLayer: "Merge with", distances: "Distances", outputName: "Result layer name", dissolveFields: "the fields chosen",
-};
-
-/** The run in progress: its job and tool, its result's name, and whether the dialog still listens. */
-let analyzeRun = null;
-
-/** The layer the dialog analyses: its address, name, geometry and fields, as its own document says. */
-let analyzeLayer = null;
-
-/** The other hosted layers this reader may use as a second input, each with the kind of geometry it holds. */
-let analyzeOthers = [];
-
-const analyzeKind = geometryType => /Point/.test(geometryType || "") ? "points"
-  : /Polyline/.test(geometryType || "") ? "lines" : "polygons";
-
-/** Opens the dialog on the open service's first hosted layer. */
+/** Opens the tools on the open service's first hosted layer, in the dialog. */
 async function openAnalyze() {
   const item = serviceItem;
   const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group") && layerNamed(one.name || "").hosted);
   if (!item || hosted.length === 0) return;
 
-  const qualified = serviceOpen.qualified;
-  const path = `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${hosted[0].id}`;
-  analyzeRun = null;
-  $("analyzeBody").innerHTML = `<p class="hint">Reading the layer…</p>`;
-  $("analyzeFoot").innerHTML = "";
+  const path = `/rest/services/${serviceOpen.qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${hosted[0].id}`;
   $("analyzeDialog").showModal();
   $("analyzeTitle").focus();
 
-  try {
-    const [doc, found] = await Promise.all([
-      api(`${path}?f=json`),
-      api(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] })),
-    ]);
-    analyzeLayer = { url: location.origin + path, name: item.bare, kind: analyzeKind(doc.geometryType),
-      fields: (doc.fields || []).filter(f => !/OID|GlobalID|Geometry/.test(f.type || "")) };
-
-    // Each candidate's own geometry, so a list offers only what its tool can use (design review: the default
-    // polygon layer for Aggregate points was a point layer, and every run of it failed).
-    const candidates = (found.results || []).filter(r => r.url && !r.url.endsWith(`/${qualified}/FeatureServer`));
-    analyzeOthers = (await Promise.all(candidates.map(async r => {
-      const layer = await api(`${new URL(r.url).pathname}/0?f=json`).catch(() => null);
-      return layer?.geometryType ? { url: `${r.url}/0`, title: r.title || r.name, kind: analyzeKind(layer.geometryType) } : null;
-    }))).filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
-  } catch (e) {
-    $("analyzeBody").innerHTML = `<p class="bad">${h(e.message || e)}</p>`;
-    return;
-  }
-
-  const tools = ANALYSIS_TOOLS.filter(t => (!t.from || t.from === analyzeLayer.kind) && t.notFrom !== analyzeLayer.kind);
-
-  $("analyzeBody").innerHTML = `
-    <p class="hint">Runs on <b>${h(item.bare)}</b> and writes a new hosted layer of yours, private until you share it.</p>
-    <fieldset class="offered"><legend>Tool</legend>
-      ${tools.map((t, i) => `<label class="check"><input type="radio" name="azTool" value="${t.task}"${i === 0 ? " checked" : ""}>
-        <span><b>${h(t.label)}</b><span class="hint">${h(t.says)}</span></span></label>`).join("")}
-    </fieldset>
-    <div class="stacked"><label for="azName">Result layer name</label>
-      <input type="text" id="azName" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="azNameHint">
-      <span class="hint" id="azNameHint">Letters, digits, _ and -, up to 40. A name already in use is refused.</span></div>
-    <div id="azOptions"></div>`;
-  drawAnalyzeFoot(false);
-  drawAnalyzeOptions();
-  document.querySelector('input[name="azTool"]:checked')?.focus();
-}
-
-/** The footer: Cancel and Run, or, while a job runs, Stop and Close — closing lets it finish and says so. */
-function drawAnalyzeFoot(running) {
-  const said = $("analyzeSays")?.innerHTML || "";
-  $("analyzeFoot").innerHTML = `<p class="hint fill" id="analyzeSays" role="status" aria-live="polite">${said}</p>
-    ${running
-      ? `<button type="button" class="ghost" id="analyzeClosing">Close</button>
-         <button type="button" id="analyzeStop">Stop</button>`
-      : `<button type="button" class="ghost" id="analyzeCancel">Cancel</button>
-         <button type="button" class="primary" id="analyzeGo">Run</button>`}`;
-}
-
-/** The second layers a tool may use: the kind it needs, never the layer itself. */
-function analyzeCandidates(tool) {
-  const overlay = document.querySelector('input[name="azOverlay"]:checked')?.value;
-  return analyzeOthers.filter(o =>
-    tool.second === "polygons" ? o.kind === "polygons"
-    : tool.second === "same" ? o.kind === analyzeLayer.kind
-    : overlay === "Erase" || overlay === "Union" ? o.kind === "polygons"
-    : true);
-}
-
-/** The second layer's list, said plainly when nothing fits. */
-function drawAnalyzeSecond(tool) {
-  const box = $("azSecond");
-  if (!box) return;
-  const fits = analyzeCandidates(tool);
-  const what = tool.second === "polygons" ? "polygon layer" : tool.second === "same" ? `layer of ${analyzeLayer.kind}`
-    : "layer of polygons";
-  box.innerHTML = fits.length
-    ? `<label for="azOther">${h(tool.secondLabel)}</label>
-       <select id="azOther">${fits.map(o => `<option value="${h(o.url)}">${h(o.title)}</option>`).join("")}</select>`
-    : `<span class="label">${h(tool.secondLabel)}</span><p class="hint" id="azNoSecond">You have no other ${what} to use here.</p>`;
-}
-
-/** The chosen tool's own questions, and a name for its result that says what it is. */
-function drawAnalyzeOptions() {
-  const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
-  if (!tool || !analyzeLayer) return;
-
-  const fieldBoxes = analyzeLayer.fields.map(f => `<label class="check"><input type="checkbox" data-az-field="${h(f.name)}">
-    <span>${h(f.alias || f.name)}</span></label>`).join("");
-  const polygons = analyzeLayer.kind === "polygons";
-
-  $("azOptions").innerHTML = {
-    CreateBuffers: `
-      <div class="stacked"><label for="azDistances">Distances</label>
-        <input type="text" id="azDistances" value="100" inputmode="decimal" aria-describedby="azDistancesHint">
-        <span class="hint" id="azDistancesHint">One or more, separated by commas: 100, 250, 500.</span></div>
-      <div class="stacked"><label for="azUnits">Units</label>
-        <select id="azUnits">${["Meters", "Kilometers", "Feet", "Miles", "NauticalMiles", "Yards"]
-          .map(u => `<option value="${u}">${u === "NauticalMiles" ? "Nautical miles" : u}</option>`).join("")}</select></div>
-      <label class="check"><input type="checkbox" id="azDissolve"> <span>One area per distance, for all features together</span></label>
-      <label class="check"><input type="checkbox" id="azRings"> <span>Rings: each distance leaves out the smaller ones</span></label>`,
-    DissolveBoundaries: `
-      <fieldset class="offered"><legend>Merge polygons that share</legend>
-        ${fieldBoxes || `<p class="hint">This layer has no fields to dissolve by.</p>`}
-        <p class="hint">Choose none to merge every polygon that touches or overlaps another.</p></fieldset>
-      <label class="check"><input type="checkbox" id="azMulti" checked> <span>Keep each group as one feature, even in separate parts</span></label>`,
-    OverlayLayers: `
-      <fieldset class="offered"><legend>Keep</legend>
-        <label class="check"><input type="radio" name="azOverlay" value="Intersect" checked> <span>Where the two meet</span></label>
-        ${polygons ? `<label class="check"><input type="radio" name="azOverlay" value="Union"> <span>Both, split where they meet</span></label>` : ""}
-        <label class="check"><input type="radio" name="azOverlay" value="Erase"> <span>This layer, less the other's area</span></label>
-      </fieldset>
-      <div class="stacked" id="azSecond"></div>`,
-    MergeLayers: `
-      <div class="stacked" id="azSecond"></div>
-      <p class="hint">Fields of the same name become one; the others are kept apart.</p>`,
-    FindCentroids: `
-      <label class="check"><input type="checkbox" id="azInside"> <span>On each feature, where its centre would fall outside it</span></label>`,
-    AggregatePoints: `
-      <div class="stacked" id="azSecond"></div>
-      <label class="check"><input type="checkbox" id="azKeep" checked> <span>Keep polygons with no points, counted 0</span></label>`,
-  }[tool.task];
-  drawAnalyzeSecond(tool);
-
-  const name = $("azName");
-  if (name && (!name.value || name.dataset.made === name.value)) {
-    name.value = analyzeNameFor(`${analyzeLayer.name}_${tool.short}`);
-    name.dataset.made = name.value;
-  }
-}
-
-/** A layer name the server takes: letters, digits, _ and -, starting with a letter or digit, up to 40. */
-function analyzeNameFor(text) {
-  return (String(text).replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "") || "result").slice(0, 40);
-}
-
-/** The distances typed, or null when one is not a number above zero. */
-function analyzeDistances() {
-  const parts = ($("azDistances")?.value || "").split(/[,;\s]+/).filter(Boolean);
-  const numbers = parts.map(Number);
-  return parts.length && numbers.every(n => Number.isFinite(n) && n > 0) ? numbers : null;
-}
-
-/** What the chosen tool is sent, by the parameter names the service documents. */
-function analyzeForm(tool, name) {
-  const form = new FormData();
-  form.set("f", "json");
-  form.set("outputName", JSON.stringify({ serviceProperties: { name } }));
-  const input = JSON.stringify({ url: analyzeLayer.url });
-  const other = $("azOther")?.value ? JSON.stringify({ url: $("azOther").value }) : null;
-
-  switch (tool.task) {
-    case "CreateBuffers":
-      form.set("inputLayer", input);
-      form.set("distances", JSON.stringify(analyzeDistances()));
-      form.set("units", $("azUnits").value);
-      form.set("dissolveType", $("azDissolve").checked ? "Dissolve" : "None");
-      form.set("ringType", $("azRings").checked ? "Rings" : "Disks");
-      break;
-    case "DissolveBoundaries":
-      form.set("inputLayer", input);
-      form.set("dissolveFields", JSON.stringify([...document.querySelectorAll("[data-az-field]:checked")].map(b => b.dataset.azField)));
-      form.set("multiPartFeatures", String($("azMulti").checked));
-      break;
-    case "OverlayLayers":
-      form.set("inputLayer", input);
-      form.set("overlayLayer", other);
-      form.set("overlayType", document.querySelector('input[name="azOverlay"]:checked').value);
-      break;
-    case "MergeLayers":
-      form.set("inputLayer", input);
-      form.set("mergeLayer", other);
-      break;
-    case "FindCentroids":
-      form.set("inputLayer", input);
-      form.set("pointLocation", String($("azInside").checked));
-      break;
-    default:
-      form.set("pointLayer", input);
-      form.set("polygonLayer", other);
-      form.set("keepBoundariesWithNoPoints", String($("azKeep").checked));
-  }
-
-  return form;
-}
-
-/** A refusal in the screen's words: the server words it in its parameter names. */
-function analyzeSaid(message) {
-  return lowerFirst(Object.entries(ANALYSIS_LABELS).reduce(
-    (said, [parameter, label]) => said.replace(new RegExp(`\\b${parameter}\\b`, "g"), label), String(message || "")));
-}
-
-/** Says a refusal in the footer and under the field it is about, keeping the reader there. */
-function analyzeRefuse(text, field) {
-  $("analyzeSays").textContent = text;
-  if (!field) return;
-
-  const error = document.createElement("span");
-  error.className = "fielderror";
-  error.id = `${field.id}Error`;
-  error.textContent = text.replace(/^Not run: /, "");
-  error.textContent = error.textContent.charAt(0).toUpperCase() + error.textContent.slice(1);
-  field.closest(".stacked")?.append(error);
-  field.setAttribute("aria-invalid", "true");
-  field.setAttribute("aria-describedby", `${field.getAttribute("aria-describedby") || ""} ${error.id}`.trim());
-  field.focus();
-}
-
-/** Takes back what the last refusal marked, before the next try. */
-function analyzeClearRefusals() {
-  for (const error of document.querySelectorAll("#analyzeDialog .fielderror")) error.remove();
-  for (const one of document.querySelectorAll("#analyzeDialog [aria-invalid]")) {
-    one.removeAttribute("aria-invalid");
-    one.setAttribute("aria-describedby", (one.getAttribute("aria-describedby") || "").split(" ").filter(d => !d.endsWith("Error")).join(" "));
-  }
-}
-
-/** Submits, then follows the job until it ends, saying where it is; the result is a link to the new layer. */
-async function runAnalysis() {
-  const go = $("analyzeGo");
-  if (!go || go.getAttribute("aria-disabled") === "true") return;
-
-  const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
-  const nameBox = $("azName");
-  const name = (nameBox.value || "").trim();
-  analyzeClearRefusals();
-
-  if (tool.task === "CreateBuffers" && !analyzeDistances()) {
-    analyzeRefuse("Not run: enter distances as numbers above zero, such as 100, 250.", $("azDistances"));
-    return;
-  }
-
-  if (tool.second && !$("azOther")?.value) {
-    analyzeRefuse(`Not run: ${$("azNoSecond")?.textContent || "there is no second layer to use."}`, null);
-    return;
-  }
-
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(name)) {
-    analyzeRefuse("Not run: the result's name takes letters, digits, _ and -, starting with a letter or digit.", nameBox);
-    return;
-  }
-
-  // Not `disabled`: a disabled button drops the focus it holds (design review); it says it is busy instead.
-  go.setAttribute("aria-disabled", "true");
-  $("analyzeSays").textContent = "Starting…";
-
-  let job;
-  try {
-    job = await api(`${ANALYSIS}/${tool.task}/submitJob`, { method: "POST", body: analyzeForm(tool, name) });
-  } catch (e) {
-    const message = String(e.message || e);
-    go.removeAttribute("aria-disabled");
-    analyzeRefuse(`Not run: ${analyzeSaid(message)}`, /already exists|cannot name/.test(message) ? nameBox : null);
-    return;
-  }
-
-  if (!job?.jobId) {
-    go.removeAttribute("aria-disabled");
-    analyzeRefuse("Not run: the server did not start the job.", null);
-    return;
-  }
-
-  const run = { job: job.jobId, tool, name };
-  analyzeRun = run;
-  $("analyzeSays").textContent = `Running ${tool.label.toLowerCase()}…`;
-  $("analyzeBody").inert = true;
-  drawAnalyzeFoot(true);
-  $("analyzeStop").focus();
-
-  for (;;) {
-    await new Promise(done => setTimeout(done, 1500));
-
-    let status;
-    try {
-      status = await api(`${ANALYSIS}/${tool.task}/jobs/${encodeURIComponent(run.job)}?f=json`);
-    } catch {
-      continue;
-    }
-
-    const ended = ["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus);
-    if (!ended) continue;
-
-    let line;
-    let id = null;
-    if (status.jobStatus === "esriJobSucceeded") {
-      const result = await api(`${ANALYSIS}/${tool.task}/jobs/${encodeURIComponent(run.job)}/results/${tool.result}?f=json`).catch(() => null);
-      id = result?.value?.itemId || null;
-    } else {
-      const last = [...(status.messages || [])].reverse().find(m => m.type === "esriJobMessageTypeError");
-      line = status.jobStatus === "esriJobCancelled" ? `${run.name} was stopped; nothing was made.`
-        : `${run.name} failed: ${analyzeSaid(last?.description || "the server did not say why.")}`;
-    }
-
-    // Closed while it ran: the page says how it ended, since the dialog cannot.
-    if (analyzeRun !== run) {
-      toast(id ? `${run.name} is ready, in Content.` : line, Boolean(id));
-      return;
-    }
-
-    analyzeRun = null;
-    $("analyzeBody").inert = false;
-    drawAnalyzeFoot(false);
-
-    if (id) {
-      $("analyzeSays").innerHTML = `Done: <a href="#/item/${h(id)}" id="analyzeResult">open ${h(run.name)}</a>.`;
-      // The next run needs a name of its own; this one is taken now.
-      nameBox.value = analyzeNameFor(`${run.name.replace(/_\d+$/, "")}_${(Number(/_(\d+)$/.exec(run.name)?.[1]) || 1) + 1}`);
-      nameBox.dataset.made = nameBox.value;
-      $("analyzeResult").focus();
-    } else {
-      $("analyzeSays").textContent = line;
-      $("analyzeGo").focus();
-    }
-    return;
-  }
+  await GraticulaAnalysis.open({ url: location.origin + path, name: item.bare }, {
+    fetch: api,
+    notify: toast,
+    body: $("analyzeBody"),
+    foot: $("analyzeFoot"),
+    lead: name => `Runs on <b>${name}</b> and writes a new hosted layer of yours, private until you share it.`,
+    close: () => $("analyzeDialog").close(),
+    succeeded: async (run, value, open) => {
+      if (!open) {
+        toast(`${run.name} is ready, in Content.`, true);
+        return {};
+      }
+      return { html: `Done: <a href="#/item/${h(value.itemId)}" id="analyzeResult">open ${h(run.name)}</a>.`, focus: "analyzeResult" };
+    },
+  });
 }
 
 document.addEventListener("click", async event => {
   const t = event.target;
   if (t.id === "analyzeOpen") { t.closest("details")?.removeAttribute("open"); await openAnalyze(); return; }
-  if (t.id === "analyzeGo") { await runAnalysis(); return; }
-
-  if (t.id === "analyzeStop" && analyzeRun) {
-    const run = analyzeRun;
-    t.setAttribute("aria-disabled", "true");
-    $("analyzeSays").textContent = "Stopping…";
-    await api(`${ANALYSIS}/${run.tool.task}/jobs/${encodeURIComponent(run.job)}/cancel`, { method: "POST" }).catch(() => null);
-    return;
-  }
-
-  if (t.id === "analyzeCancel" || t.id === "analyzeClosing" || t.closest?.("#analyzeClose")) {
-    $("analyzeDialog").close();
-    return;
-  }
-
-  if (t.closest?.("#analyzeResult")) $("analyzeDialog").close();
-});
-
-document.addEventListener("change", event => {
-  if (event.target.name === "azTool") {
-    drawAnalyzeOptions();
-    return;
-  }
-  // Erase and Union take a polygon layer to overlay with; the list follows the choice.
-  if (event.target.name === "azOverlay") {
-    drawAnalyzeSecond(ANALYSIS_TOOLS.find(t => t.task === "OverlayLayers"));
-  }
+  if (t.closest?.("#analyzeClose") || t.closest?.("#analyzeResult")) $("analyzeDialog").close();
 });
 
 // Closed while a job runs — by Close, the ✕ or Escape — the job goes on and the page says so; its end is a toast.
 $("analyzeDialog")?.addEventListener("close", () => {
-  if (analyzeRun) {
-    toast(`${analyzeRun.name} is still running; it will appear in Content when it is done.`, "info");
-    analyzeRun = { ...analyzeRun, closed: true };
-  }
-  $("analyzeBody").inert = false;
+  GraticulaAnalysis.closed();
   // Analyze… is inside the More menu, closed by now; its summary is what is there to come back to (design review).
   const opener = [$("analyzeOpen"), $("itemActions")?.querySelector(".itemmore summary")]
     .find(one => one && one.getClientRects().length > 0);
@@ -38935,3 +38690,376 @@ async function drawGroupPartnerCount() {
     slot.textContent = "";
   }
 }
+
+// ---------------------------------------------------------------- toolboxes (ADR-223 condition 5)
+
+/** What `/content/toolboxes` last answered: the toolboxes this reader may run, and whether they may publish one. */
+let toolboxAnswer = { toolboxes: [], mayPublish: false, fenced: false };
+
+/** The toolbox the page shows, by name — kept here rather than read back from an address the router rewrites (design review). */
+let toolboxShown = null;
+
+/** The run in progress on the toolbox page, which Stop cancels. */
+let toolboxRun = null;
+
+/** A parameter's label: its display name, or its name made into words when the author gave none. */
+const toolboxLabel = p => p.displayName && p.displayName !== p.name ? p.displayName
+  : String(p.name).replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+
+/** A toolbox as a Content row's item: its title, kind and scope, as a document's are. */
+function toolboxAsItem(t) {
+  return {
+    toolbox: t,
+    name: t.title || t.name,
+    bare: t.title || t.name,
+    kind: "Python toolbox",
+    description: `${t.tools.length} tool${t.tools.length === 1 ? "" : "s"}: ${t.tools.map(x => x.label || x.name).join(", ")}`,
+    tags: [],
+    contentFolder: null,
+    owner: t.owner,
+    sharing: t.sharing || "private",
+    manages: t.manages,
+    updated: t.created,
+    scope: t.mine ? "mine"
+      : t.sharing === "public" ? "public"
+      : t.sharing === "organization" || t.sharing === "allorganizations" ? "organization"
+      : t.sharing === "group" ? "group"
+      : "administrative",
+  };
+}
+
+function toolboxRow(i) {
+  const t = i.toolbox;
+  const open = `#/toolbox/${encodeURIComponent(t.name)}`;
+  const facts = [
+    pill(i.sharing),
+    i.scope !== "mine" && i.owner ? `<span title="Owner">${h(i.owner)}</span>` : "",
+    `<span title="Published">${day(i.updated)}</span>`,
+  ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
+
+  return `<tr class="mediarow">
+    <td class="pick"></td>
+    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">
+      <div class="thumb doctile" aria-hidden="true">${icon("analysis")}<span>PYT</span></div></a></td>
+    <td class="name">
+      <div class="svctitle"><a href="${open}">${h(i.name)}</a>
+        <span class="svctype type">Python toolbox</span></div>
+      <p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>
+      <div class="svcmeta">${facts}</div>
+    </td>
+    <td class="acts"></td>
+  </tr>`;
+}
+
+/** The New item screen for a toolbox: one .pyt or .py file, a name and a title. */
+function drawToolboxForm() {
+  $("addItemTitle").textContent = "Publish a Python toolbox";
+  $("addItemBody").innerHTML = `
+    <p class="picklede">A toolbox written against grapy, <code>import grapy as arcpy</code>. Its tools run on this server
+      in a process of their own with no network, and become a geoprocessing service, private until you share it.</p>
+    <div class="stacked"><label for="tbFile">Toolbox</label>
+      <input type="file" id="tbFile" accept=".pyt,.py" aria-describedby="tbFileSays tbNewSays"></div>
+    <p class="hint" id="tbFileSays">One .pyt or .py file, up to 512 KB.</p>
+    <div class="stacked"><label for="tbNewName">Service name</label>
+      <input type="text" id="tbNewName" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="tbNewNameSays"
+        pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,39}"></div>
+    <p class="hint" id="tbNewNameSays">Letters, digits, _ and -, up to 40: the address its tools are run at.</p>
+    <div class="stacked"><label for="tbNewTitle">Title</label>
+      <input type="text" id="tbNewTitle" maxlength="250" autocomplete="off"></div>
+    <p class="hint" id="tbNewSays" role="status" aria-live="polite"></p>`;
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="tbPublish">Publish</button>`;
+
+  if (handedFile) {
+    const carried = new DataTransfer();
+    carried.items.add(handedFile);
+    $("tbFile").files = carried.files;
+  }
+  const named = () => {
+    const file = $("tbFile").files?.[0];
+    if (!file) return;
+    const stem = file.name.replace(/\.[^.]+$/, "");
+    if (!$("tbNewName").dataset.typed) $("tbNewName").value = stem.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
+    if (!$("tbNewTitle").dataset.typed) $("tbNewTitle").value = stem;
+  };
+  named();
+  $("tbFile").addEventListener("change", named);
+  $("tbNewName").addEventListener("input", () => { $("tbNewName").dataset.typed = "true"; });
+  $("tbNewTitle").addEventListener("input", () => { $("tbNewTitle").dataset.typed = "true"; });
+  $("itemBack").addEventListener("click", () => { itemStep = "item"; handedFile = null; drawAddItem(); });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("#kindToolbox, #tbPublish") : null;
+  if (!t) return;
+
+  if (t.id === "kindToolbox") {
+    itemStep = "toolbox";
+    drawAddItem();
+    return;
+  }
+
+  const file = $("tbFile").files?.[0];
+  const says = $("tbNewSays");
+  says.classList.remove("bad-inline");
+  $("tbNewName").removeAttribute("aria-invalid");
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test($("tbNewName").value.trim())) {
+    says.textContent = "Not published: the service name takes letters, digits, _ and -, up to 40, starting with a letter or digit.";
+    says.classList.add("bad-inline");
+    $("tbNewName").setAttribute("aria-invalid", "true");
+    $("tbNewName").focus();
+    return;
+  }
+  if (!file) {
+    says.textContent = "Not published: choose the toolbox's file.";
+    says.classList.add("bad-inline");
+    $("tbFile").focus();
+    return;
+  }
+
+  // Not `disabled`: it keeps focus while the server reads the toolbox by running it.
+  if (t.getAttribute("aria-disabled") === "true") return;
+  t.setAttribute("aria-disabled", "true");
+  says.textContent = "Reading the toolbox — it is run once, " + (toolboxAnswer.fenced ? "fenced, " : "") + "to list its tools…";
+
+  const form = new FormData();
+  form.set("file", file);
+  form.set("name", $("tbNewName").value.trim());
+  form.set("title", $("tbNewTitle").value.trim());
+
+  try {
+    const made = await api("/content/toolboxes", { method: "POST", body: form });
+    $("addItem").close();
+    toast(`${made.title} is published, with ${made.tools.length} tool${made.tools.length === 1 ? "" : "s"}.`, true);
+    location.hash = `#/toolbox/${encodeURIComponent(made.name)}`;
+  } catch (e) {
+    t.removeAttribute("aria-disabled");
+    says.textContent = `Not published: ${lowerFirst(e.message)}`;
+    says.classList.add("bad-inline");
+  }
+});
+
+/** The hosted layers a tool may be given: every Feature Service this reader can find, its first layer. */
+let toolboxLayers = null;
+
+async function toolboxLayerChoices() {
+  if (toolboxLayers) return toolboxLayers;
+  const found = await api(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] }));
+  toolboxLayers = (found.results || []).filter(r => r.url && /\/rest\/services\/hosted\//.test(r.url))
+    .map(r => ({ url: `${new URL(r.url, location.origin).href}/0`, title: r.title || r.name }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  return toolboxLayers;
+}
+
+/** The toolbox page `#/toolbox/{name}`. */
+async function showToolbox(name) {
+  showView("view-toolbox", "content");
+  $("tbTitle").textContent = name;
+  $("tbSub").textContent = "";
+  $("tbBody").innerHTML = `<p class="hint">Reading the toolbox…</p>`;
+
+  let answer;
+  try {
+    answer = await api("/content/toolboxes");
+  } catch (e) {
+    $("tbBody").innerHTML = `<p class="bad-inline">${h(e.message)}</p>`;
+    return;
+  }
+  toolboxAnswer = answer;
+  const t = (answer.toolboxes || []).find(x => x.name.toLowerCase() === name.toLowerCase());
+  toolboxShown = t ? t.name : null;
+  if (!t) {
+    $("tbBody").innerHTML = `<p class="bad-inline">No toolbox '${h(name)}' is visible to you.</p>`;
+    return;
+  }
+
+  const layers = await toolboxLayerChoices();
+  $("tbTitle").textContent = t.title;
+  $("tbSub").textContent = `Python toolbox · ${t.owner} · ${t.tools.length} tool${t.tools.length === 1 ? "" : "s"}`;
+
+  const field = (tool, p) => {
+    const id = `tb_${tool.name}_${p.name}`;
+    const label = `<label for="${h(id)}">${h(toolboxLabel(p))}${p.required ? "" : ` <span class="hint">(optional)</span>`}</label>`;
+    if (p.dataType === "GPFeatureRecordSetLayer") {
+      // Nothing chosen to start: a run on a layer nobody picked is a run nobody asked for (design review).
+      return `<div class="stacked">${label}${layers.length
+        ? `<select id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-kind="layer" data-tb-label="${h(toolboxLabel(p))}"${p.required ? " data-tb-required" : ""}>
+            <option value="">Choose a layer</option>${layers.map(l =>
+            `<option value="${h(l.url)}">${h(l.title)}</option>`).join("")}</select>`
+        : `<p class="hint">You have no hosted layer to give it.</p>`}</div>`;
+    }
+    if (Array.isArray(p.choiceList) && p.choiceList.length) {
+      return `<div class="stacked">${label}<select id="${h(id)}" data-tb-param="${h(p.name)}">${p.choiceList.map(c =>
+        `<option${String(c) === String(p.defaultValue ?? "") ? " selected" : ""}>${h(c)}</option>`).join("")}</select></div>`;
+    }
+    if (p.dataType === "GPBoolean") {
+      return `<label class="check"><input type="checkbox" id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-kind="boolean"${p.defaultValue ? " checked" : ""}>
+        <span>${h(toolboxLabel(p))}</span></label>`;
+    }
+    const numeric = p.dataType === "GPDouble" || p.dataType === "GPLong";
+    return `<div class="stacked">${label}<input type="text" id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-label="${h(toolboxLabel(p))}"${numeric ? ` inputmode="decimal"` : ""}${p.required ? " data-tb-required" : ""}
+      value="${h(p.defaultValue ?? "")}"></div>`;
+  };
+
+  // A feature output's layer name, as a web tool asks it in ArcGIS (design review).
+  const output = (tool, p) => p.dataType !== "GPFeatureRecordSetLayer" ? "" : `<div class="stacked">
+      <label for="${h(`tb_${tool.name}_${p.name}`)}">${h(toolboxLabel(p))} — result layer name <span class="hint">(optional)</span></label>
+      <input type="text" id="${h(`tb_${tool.name}_${p.name}`)}" data-tb-param="${h(p.name)}" data-tb-label="${h(toolboxLabel(p))}" maxlength="40"
+        autocomplete="off" spellcheck="false"></div>`;
+
+  $("tbBody").innerHTML = `
+    <p class="hint">${answer.fenced
+      ? "Its tools run on this server in a process of their own, with no network and limits on memory and time."
+      : "This server runs its tools without the sandbox: an operator switched it off for development (Graticula:Tools:UnsafeUnfenced)."}
+      Its service: <a class="tburl" href="${h(t.url)}" target="_blank" rel="noopener">${h(t.url)}</a></p>
+    ${t.manages ? `<div class="row tbmanage">
+      <div class="stacked"><label for="tbSharing">Who can run it</label>
+        <select id="tbSharing">${[["private", "Owner — only you"], ["organization", "Your organization"], ["public", "Everyone (public)"]]
+          .map(([v, l]) => `<option value="${v}"${t.sharing === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+      <button type="button" id="tbShare">Save sharing</button>
+      <span class="fill"></span>
+      <button type="button" class="danger" id="tbDelete">Delete…</button>
+    </div>` : ""}
+    ${t.tools.map(tool => `
+      <section class="tbtool" aria-labelledby="tbh_${h(tool.name)}">
+        <h3 id="tbh_${h(tool.name)}">${h(tool.label || tool.name)}</h3>
+        ${tool.description ? `<p class="hint">${h(tool.description)}</p>` : ""}
+        ${tool.parameters.filter(p => p.direction === "Input").map(p => field(tool, p)).join("")}
+        ${tool.parameters.filter(p => p.direction === "Output").map(p => output(tool, p)).join("")}
+        <div class="row"><button type="button" class="primary" data-tb-run="${h(tool.name)}">Run</button>
+          <button type="button" class="ghost" data-tb-stop="${h(tool.name)}" hidden>Stop</button></div>
+        <p class="hint" id="tbSays_${h(tool.name)}" role="status" aria-live="polite"></p>
+        <div id="tbOut_${h(tool.name)}"></div>
+      </section>`).join("")}`;
+  $("tbTitle").focus({ preventScroll: true });
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("[data-tb-run], [data-tb-stop], #tbShare, #tbDelete") : null;
+  if (!t) return;
+  const toolbox = (toolboxAnswer.toolboxes || []).find(x => x.name === toolboxShown);
+  if (!toolbox) return;
+
+  if (t.dataset.tbStop && toolboxRun) {
+    t.setAttribute("aria-disabled", "true");
+    $(`tbSays_${toolboxRun.tool}`).textContent = "Stopping…";
+    await api(`${toolboxRun.gp}/${encodeURIComponent(toolboxRun.tool)}/jobs/${encodeURIComponent(toolboxRun.job)}/cancel`, { method: "POST" })
+      .catch(() => null);
+    return;
+  }
+
+  if (t.id === "tbShare") {
+    try {
+      await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}/sharing`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing: $("tbSharing").value }),
+      });
+      toast(`${toolbox.title} is shared: ${$("tbSharing").selectedOptions[0].textContent}.`, true);
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
+  if (t.id === "tbDelete") {
+    if (!confirm(`Delete the toolbox ${toolbox.title}? Its service goes with it; layers its runs made stay.`)) return;
+    try {
+      await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}`, { method: "DELETE" });
+      toast(`${toolbox.title} was deleted.`, true);
+      location.hash = "#/content";
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
+  // Run: the tool's inputs by the names its parameters have, then the job followed until it ends.
+  const tool = toolbox.tools.find(x => x.name === t.dataset.tbRun);
+  const says = $(`tbSays_${tool.name}`);
+  const out = $(`tbOut_${tool.name}`);
+  if (t.getAttribute("aria-disabled") === "true" || toolboxRun) return;
+  says.classList.remove("bad-inline");
+  const fail = text => { says.textContent = text; says.classList.add("bad-inline"); };
+
+  // A required question left empty is said on its field, before anything is sent.
+  const empty = [...t.closest(".tbtool").querySelectorAll("[data-tb-required]")].find(i => !i.value.trim());
+  if (empty) {
+    fail(`Not run: ${empty.dataset.tbLabel} is required.`);
+    empty.setAttribute("aria-invalid", "true");
+    empty.focus();
+    return;
+  }
+  for (const i of t.closest(".tbtool").querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+
+  // The server words a refusal in parameter names; the page's labels go back in their place.
+  const labelled = message => tool.parameters.reduce(
+    (text, p) => text.replace(new RegExp(`\\b${p.name}\\b`, "g"), toolboxLabel(p)), String(message || ""));
+
+  const form = new FormData();
+  form.set("f", "json");
+  for (const input of t.closest(".tbtool").querySelectorAll("[data-tb-param]")) {
+    const value = input.dataset.tbKind === "layer" ? JSON.stringify({ url: input.value })
+      : input.dataset.tbKind === "boolean" ? String(input.checked) : input.value.trim();
+    if (value !== "") form.set(input.dataset.tbParam, value);
+  }
+
+  t.setAttribute("aria-disabled", "true");
+  out.innerHTML = "";
+  says.textContent = "Starting…";
+  const gp = new URL(toolbox.url).pathname;
+  const stop = t.parentElement.querySelector("[data-tb-stop]");
+
+  try {
+    const job = await api(`${gp}/${encodeURIComponent(tool.name)}/submitJob`, { method: "POST", body: form });
+    if (!job?.jobId) {
+      fail("Not run: the server did not start the job.");
+      return;
+    }
+    toolboxRun = { gp, tool: tool.name, job: job.jobId };
+    stop.hidden = false;
+    stop.removeAttribute("aria-disabled");
+    says.textContent = `Running ${tool.label || tool.name}…`;
+    let status = null;
+    // As long as the server lets a run take, and a little more: past it the page stops asking and says so.
+    const until = Date.now() + 35 * 60 * 1000;
+    while (Date.now() < until) {
+      await new Promise(done => setTimeout(done, 1500));
+      status = await api(`${gp}/${encodeURIComponent(tool.name)}/jobs/${encodeURIComponent(job.jobId)}?f=json`).catch(() => null);
+      if (status && ["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus)) break;
+    }
+    if (!status || !["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus)) {
+      fail(`${tool.label || tool.name} has not ended after 35 minutes; the page stopped asking.`);
+      return;
+    }
+
+    const lines = (status.messages || []).filter(m => !/^(Start Time|Succeeded at|Failed at):?/.test(m.description));
+    if (status.jobStatus === "esriJobCancelled") {
+      says.textContent = `${tool.label || tool.name} was stopped; nothing was made.`;
+    } else if (status.jobStatus !== "esriJobSucceeded") {
+      const last = [...(status.messages || [])].reverse().find(m => m.type === "esriJobMessageTypeError");
+      fail(`${tool.label || tool.name} failed: ${labelled(last?.description || "the server did not say why.")}`);
+    } else {
+      const results = [];
+      for (const param of Object.keys(status.results || {})) {
+        const r = await api(`${gp}/${encodeURIComponent(tool.name)}/jobs/${encodeURIComponent(job.jobId)}/results/${encodeURIComponent(param)}?f=json`)
+          .catch(() => null);
+        if (!r) continue;
+        const named = toolboxLabel(tool.parameters.find(p => p.name === param) || { name: param });
+        results.push(r.value && r.value.itemId
+          ? `<li>${h(named)}: <a href="#/item/${h(r.value.itemId)}">${h(r.value.name || "a new layer")}</a></li>`
+          : `<li>${h(named)}: <b>${h(r.value ?? "")}</b></li>`);
+      }
+      says.textContent = `${tool.label || tool.name} ran.`;
+      out.innerHTML = `${results.length ? `<ul class="tbresults">${results.join("")}</ul>` : ""}`;
+    }
+    if (lines.length) {
+      out.insertAdjacentHTML("beforeend", `<details class="tbmessages"><summary>Messages (${lines.length})</summary>
+        <ul>${lines.map(m => `<li class="${m.type === "esriJobMessageTypeError" ? "bad-inline" : ""}">${h(m.description)}</li>`).join("")}</ul></details>`);
+    }
+  } catch (e) {
+    fail(`Not run: ${lowerFirst(labelled(e.message))}`);
+  } finally {
+    toolboxRun = null;
+    stop.hidden = true;
+    t.removeAttribute("aria-disabled");
+  }
+});

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
+using Graticula.Cartography;
 using Graticula.Catalog;
 using Graticula.Features;
 using Graticula.Geometries;
@@ -14,6 +15,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Jobs;
 using Graticula.Platform.Postgres;
 using Graticula.Providers.PostGis;
+using Graticula.Tiles;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -52,6 +54,7 @@ internal sealed partial class AnalysisRunner : BackgroundService
     private readonly IAdminCatalog _catalog;
     private readonly ServiceContexts _contexts;
     private readonly PostGisImporter _importer;
+    private readonly ITileCache _tiles;
     private readonly TimeProvider _clock;
     private readonly ILogger<AnalysisRunner> _log;
     private readonly LeaseSweep _leases = new();
@@ -66,8 +69,10 @@ internal sealed partial class AnalysisRunner : BackgroundService
         ServiceContexts contexts,
         PostGisImporter importer,
         TimeProvider clock,
-        ILogger<AnalysisRunner> log)
+        ILogger<AnalysisRunner> log,
+        ITileCache tiles)
     {
+        _tiles = tiles;
         _jobs = jobs;
         _runs = runs;
         _signal = signal;
@@ -157,22 +162,11 @@ internal sealed partial class AnalysisRunner : BackgroundService
             }
 
             JsonObject plan = (JsonObject)JsonNode.Parse(run.Parameters)!;
-            string output = plan["output"]!.GetValue<string>();
+            string? output = plan["output"]?.GetValue<string>();
 
-            PublishedLayer layer = await _layers.FindByIdAsync(Guid.Parse(plan["layer"]!.GetValue<string>()), stop.Token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("The input layer was removed after the analysis was submitted.");
-
-            (_, LayerDescription described) = await _contexts.GetAsync(layer, stop.Token).ConfigureAwait(false);
-            AnalysisInput input = InputOf(plan, layer, described, "filter", run.Task);
-            AnalysisInput? second = null;
-
-            if (plan["layer2"]?.GetValue<string>() is { } secondId)
-            {
-                PublishedLayer other = await _layers.FindByIdAsync(Guid.Parse(secondId), stop.Token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("The second input layer was removed after the analysis was submitted.");
-                (_, LayerDescription otherDescribed) = await _contexts.GetAsync(other, stop.Token).ConfigureAwait(false);
-                second = InputOf(plan, other, otherDescribed, "filter2", run.Task);
-            }
+            AnalysisInput input = await InputAsync(plan, job.Id, 1, run.Task, stop.Token).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("The submission named no input.");
+            AnalysisInput? second = await InputAsync(plan, job.Id, 2, run.Task, stop.Token).ConfigureAwait(false);
 
             ImportResult made = run.Task switch
             {
@@ -182,58 +176,89 @@ internal sealed partial class AnalysisRunner : BackgroundService
                 "MergeLayers" => await _importer.MergeAsync(input, second!, MergeOf(plan), table, stop.Token).ConfigureAwait(false),
 
                 // The polygons are what the result is made of, so theirs is the reference and the context's outSR applies to them.
-                "AggregatePoints" => await _importer.AggregateAsync(
-                    input, second! with { OutputSrid = input.OutputSrid }, AggregateOf(plan), table, stop.Token).ConfigureAwait(false),
+                "AggregatePoints" => await _importer.SummarizeAsync(
+                    second is null ? null : second with { OutputSrid = input.OutputSrid }, input, AnalysisShape.Points,
+                    AggregateOf(plan), table, stop.Token).ConfigureAwait(false),
+                "SummarizeWithin" => await _importer.SummarizeAsync(
+                    second is null ? null : second with { OutputSrid = input.OutputSrid }, input,
+                    (AnalysisShape)plan["summarizedShape"]!.GetValue<int>(), SummarizeOf(plan), table, stop.Token).ConfigureAwait(false),
+                "JoinFeatures" => await _importer.JoinAsync(input, second!, JoinOf(plan), table, stop.Token).ConfigureAwait(false),
                 "FindCentroids" => await _importer.CentroidsAsync(input, plan["inside"]!.GetValue<bool>(), table, stop.Token).ConfigureAwait(false),
                 _ => throw new InvalidOperationException($"'{run.Task}' is not a task this server runs."),
             };
 
             Say(messages, "esriJobMessageTypeInformative", $"{made.Rows} feature(s) written.");
 
-            Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(_catalog, stop.Token).ConfigureAwait(false);
-
-            // ADR-222 §5.6: a new service of the caller's, private, under the name they gave.
-            await _catalog.PublishLayerAsync(
-                new LayerPublication(
-                    output,
-                    datastore,
-                    made.SchemaName,
-                    made.TableName,
-                    "geom",
-                    "objectid",
-                    "objectid",
-                    made.StoredSrid,
-                    (AnalysisShape)plan["shape"]!.GetValue<int>() switch
-                    {
-                        AnalysisShape.Points when plan["single"]?.GetValue<bool>() == true => GeometryKind.Point,
-                        AnalysisShape.Points => GeometryKind.MultiPoint,
-                        AnalysisShape.Lines => GeometryKind.MultiLineString,
-                        _ => GeometryKind.MultiPolygon,
-                    },
-                    SharingScope.Private,
-                    ServiceName: output,
-                    Folder: "hosted"),
-                job.Owner,
-                stop.Token).ConfigureAwait(false);
-
-            PublishedService service = await _layers.FindServiceAsync("hosted", output, stop.Token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException($"'{output}' was published and could not be found again.");
-
-            string result = AnalysisEndpoints.Tasks.First(t => t.Name == run.Task).Result;
-            JsonObject results = new()
+            GeometryKind kind = (AnalysisShape)plan["shape"]!.GetValue<int>() switch
             {
-                [result] = new JsonObject
-                {
-                    ["paramName"] = result,
-                    ["dataType"] = "GPString",
-                    ["value"] = new JsonObject
-                    {
-                        // A path, given its origin when it is read (AnalysisEndpoints.ResultAsync).
-                        ["url"] = $"/rest/services/{service.QualifiedName}/FeatureServer/0",
-                        ["itemId"] = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
-                    },
-                },
+                AnalysisShape.Points when plan["single"]?.GetValue<bool>() == true => GeometryKind.Point,
+                AnalysisShape.Points => GeometryKind.MultiPoint,
+                AnalysisShape.Lines => GeometryKind.MultiLineString,
+                _ => GeometryKind.MultiPolygon,
             };
+            string result = AnalysisEndpoints.Tasks.First(t => t.Name == run.Task).Result;
+            JsonObject results;
+
+            if (output is null)
+            {
+                // ADR-222 condition 4: no name, so the result is returned as a feature collection and nothing is kept.
+                if (made.Rows > AnalysisCollections.Limit)
+                {
+                    throw new InvalidOperationException(
+                        $"The result holds {made.Rows:N0} features, more than the {AnalysisCollections.Limit:N0} returned without "
+                        + "being saved. Give an outputName to keep it as a hosted layer.");
+                }
+
+                AnalysisRows read = await _importer.ReadAnalysisAsync(table, AnalysisCollections.Limit, stop.Token).ConfigureAwait(false);
+                AnalysisRows? groups = plan["group"] is null
+                    ? null
+                    : await _importer.ReadAnalysisAsync(PostGisImporter.GroupTableFor(table), AnalysisCollections.Limit, stop.Token).ConfigureAwait(false);
+                await _importer.DropAnalysisAsync(table, CancellationToken.None).ConfigureAwait(false);
+
+                results = new JsonObject
+                {
+                    [result] = new JsonObject
+                    {
+                        ["paramName"] = result,
+                        ["dataType"] = "GPString",
+                        ["value"] = AnalysisCollections.Write(read, kind),
+                    },
+                };
+
+                if (groups is not null && AnalysisEndpoints.GroupResultOf(run.Task) is { } groupResult)
+                {
+                    results[groupResult] = new JsonObject
+                    {
+                        ["paramName"] = groupResult,
+                        ["dataType"] = "GPString",
+                        ["value"] = AnalysisCollections.Write(groups, null),
+                    };
+                }
+            }
+            else
+            {
+                // A summary is drawn by its count, so the result says something the moment it is opened (design review
+                // 2026-10-29: every hexagon one flat colour until somebody restyled it).
+                string? counted = run.Task switch
+                {
+                    "AggregatePoints" => "point_count",
+                    "SummarizeWithin" => plan["summary"]?["count"]?.GetValue<string>() ?? plan["summary"]?["measureName"]?.GetValue<string>(),
+                    _ => null,
+                };
+                string? drawn = counted is null
+                    ? null
+                    : DrawnBy(counted, await _importer.LargestAsync(table, counted, stop.Token).ConfigureAwait(false), kind);
+
+                results = plan["overwrite"]?.GetValue<string>() is { } replaced
+                    ? await OverwriteAsync(output, Guid.Parse(replaced), made, result, drawn, stop.Token).ConfigureAwait(false)
+                    : await PublishAsync(job, output, made, kind, result, stop.Token, drawn).ConfigureAwait(false);
+
+                // The groups' table, published into the same service as its layer, as ArcGIS's result service holds both.
+                if (plan["group"] is not null && AnalysisEndpoints.GroupResultOf(run.Task) is { } groupResult)
+                {
+                    results[groupResult] = await PublishGroupsAsync(job, output, made, groupResult, stop.Token).ConfigureAwait(false);
+                }
+            }
 
             double seconds = (_clock.GetUtcNow() - started).TotalSeconds;
             Say(messages, "esriJobMessageTypeInformative",
@@ -241,7 +266,7 @@ internal sealed partial class AnalysisRunner : BackgroundService
 
             await _runs.RecordAsync(job.Id, results.ToJsonString(), new JsonArray([.. messages]).ToJsonString(), stopping).ConfigureAwait(false);
             await _jobs.FinishAsync(job.Id, JobStatus.Done, null, null, stopping, Who).ConfigureAwait(false);
-            Made(run.Task, output, made.Rows, seconds);
+            Made(run.Task, output ?? "(returned)", made.Rows, seconds);
         }
         catch (OperationCanceledException) when (!stopping.IsCancellationRequested && !lease.Lost)
         {
@@ -276,6 +301,20 @@ internal sealed partial class AnalysisRunner : BackgroundService
         {
             await watching.CancelAsync().ConfigureAwait(false);
 
+            // A collection's table lives as long as its run, however the run ended.
+            foreach (int index in (int[])[1, 2])
+            {
+                try
+                {
+                    await _importer.DropAnalysisAsync(PostGisImporter.CollectionTableFor(job.Id, index), CancellationToken.None)
+                        .ConfigureAwait(false);
+                }
+                catch (Exception left)
+                {
+                    RunFailed(task, "a collection's table was left behind: " + left.Message);
+                }
+            }
+
             try
             {
                 await watcher.ConfigureAwait(false);
@@ -285,6 +324,235 @@ internal sealed partial class AnalysisRunner : BackgroundService
                 // Its own end.
             }
         }
+    }
+
+    /// <summary>
+    /// <c>outputName</c>'s overwrite: the run's table in place of the layer's, the layer's drawing the result's, and every
+    /// cache of it emptied — the service, its layer and its item stay, as ArcGIS's overwrite keeps the item.
+    /// </summary>
+    private async Task<JsonObject> OverwriteAsync(
+        string output, Guid serviceId, ImportResult made, string result, string? drawn, CancellationToken cancellation)
+    {
+        PublishedService service = await _layers.FindServiceAsync("hosted", output, cancellation).ConfigureAwait(false) is { } found
+            && found.Id == serviceId
+                ? found
+                : throw new InvalidOperationException($"'{output}' was removed or replaced after the analysis was submitted.");
+        PublishedLayer layer = service.Layers[0];
+
+        await _importer.ReplaceWithAnalysisAsync(made.TableName, layer.Definition.TableName, cancellation).ConfigureAwait(false);
+
+        if (drawn is not null)
+        {
+            await _catalog.SetSymbologyAsync(layer.Id, drawn, cancellation).ConfigureAwait(false);
+        }
+
+        _contexts.Forget(layer);
+        _tiles.Purge(layer.Id);
+        await _catalog.TouchServiceAsync(service.Id, cancellation).ConfigureAwait(false);
+
+        return new JsonObject
+        {
+            [result] = new JsonObject
+            {
+                ["paramName"] = result,
+                ["dataType"] = "GPString",
+                ["value"] = new JsonObject
+                {
+                    ["url"] = $"/rest/services/{service.QualifiedName}/FeatureServer/0",
+                    ["itemId"] = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
+                },
+            },
+        };
+    }
+
+    /// <summary>
+    /// A light-to-dark ramp, five classes, yellow through orange to red — strong from its first class, since the palest
+    /// yellow was invisible on OpenStreetMap's own pale ground (second design review, 2026-10-29).
+    /// </summary>
+    private static readonly int[][] Ramp =
+    [
+        [254, 217, 118, 215], [254, 178, 76, 220], [253, 141, 60, 225], [240, 59, 32, 230], [189, 0, 38, 235],
+    ];
+
+    /// <summary>
+    /// A summary's drawing: up to five equal classes of its count from 1 to the largest, as an Esri class-breaks renderer
+    /// read into the canonical document — or null, for the generated appearance, when there is nothing to class.
+    /// </summary>
+    internal static string? DrawnBy(string column, double? largest, GeometryKind kind)
+    {
+        if (largest is not { } top || top <= 0)
+        {
+            return null;
+        }
+
+        int classes = (int)Math.Min(5, Math.Ceiling(top));
+        JsonArray infos = [];
+        double from = 0;
+
+        for (int i = 0; i < classes; i++)
+        {
+            double to = i == classes - 1 ? top : Math.Ceiling(top * (i + 1) / classes);
+            int[] colour = Ramp[i * (Ramp.Length - 1) / Math.Max(1, classes - 1)];
+
+            infos.Add(new JsonObject
+            {
+                ["classMinValue"] = from,
+                ["classMaxValue"] = to,
+                ["label"] = from == 0 ? $"up to {to.ToString("0.##", CultureInfo.InvariantCulture)}"
+                    : $"{from.ToString("0.##", CultureInfo.InvariantCulture)} to {to.ToString("0.##", CultureInfo.InvariantCulture)}",
+                ["symbol"] = new JsonObject
+                {
+                    ["type"] = "esriSFS",
+                    ["style"] = "esriSFSSolid",
+                    ["color"] = new JsonArray([.. colour.Select(c => (JsonNode)c)]),
+                    ["outline"] = new JsonObject
+                    {
+                        ["type"] = "esriSLS", ["style"] = "esriSLSSolid", ["color"] = new JsonArray(90, 40, 20, 220), ["width"] = 0.75,
+                    },
+                },
+            });
+            from = to;
+        }
+
+        JsonObject drawing = new()
+        {
+            ["renderer"] = new JsonObject
+            {
+                ["type"] = "classBreaks",
+                ["field"] = column,
+                ["minValue"] = 0,
+                ["classBreakInfos"] = infos,
+            },
+        };
+
+        try
+        {
+            return SymbologyConversion.Read(drawing.ToJsonString(), kind).Canonical;
+        }
+        catch (SymbologyException)
+        {
+            // A drawing this server cannot read back is not worth a failed analysis; the generated one stands in.
+            return null;
+        }
+    }
+
+    /// <summary>A grouped summary's table, published as the result service's table, and its result parameter.</summary>
+    private async Task<JsonObject> PublishGroupsAsync(
+        JobRecord job, string output, ImportResult made, string groupResult, CancellationToken cancellation)
+    {
+        Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(_catalog, cancellation).ConfigureAwait(false);
+        PublishedLayerAddress address = await _catalog.PublishLayerAsync(
+            new LayerPublication(
+                AnalysisEndpoints.GroupLayerName(output),
+                datastore,
+                made.SchemaName,
+                PostGisImporter.GroupTableFor(made.TableName),
+                null,
+                "objectid",
+                "objectid",
+                made.StoredSrid,
+                null,
+                SharingScope.Private,
+                ServiceName: output,
+                Folder: "hosted"),
+            job.Owner,
+            cancellation).ConfigureAwait(false);
+
+        PublishedService service = await _layers.FindServiceAsync("hosted", output, cancellation).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"'{output}' was published and could not be found again.");
+
+        return new JsonObject
+        {
+            ["paramName"] = groupResult,
+            ["dataType"] = "GPString",
+            ["value"] = new JsonObject
+            {
+                ["url"] = $"/rest/services/{service.QualifiedName}/FeatureServer/{address.LayerIndex.ToString(CultureInfo.InvariantCulture)}",
+                ["itemId"] = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
+            },
+        };
+    }
+
+    /// <summary>ADR-222 §5.6: the result as a new service of the caller's, private, under the name they gave.</summary>
+    private async Task<JsonObject> PublishAsync(
+        JobRecord job, string output, ImportResult made, GeometryKind kind, string result, CancellationToken cancellation,
+        string? symbology = null)
+    {
+        Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(_catalog, cancellation).ConfigureAwait(false);
+
+        // ADR-222 §5.6: a new service of the caller's, private, under the name they gave.
+        await _catalog.PublishLayerAsync(
+            new LayerPublication(
+                output,
+                datastore,
+                made.SchemaName,
+                made.TableName,
+                "geom",
+                "objectid",
+                "objectid",
+                made.StoredSrid,
+                kind,
+                SharingScope.Private,
+                ServiceName: output,
+                Folder: "hosted",
+                Symbology: symbology),
+            job.Owner,
+            cancellation).ConfigureAwait(false);
+
+        PublishedService service = await _layers.FindServiceAsync("hosted", output, cancellation).ConfigureAwait(false)
+            ?? throw new InvalidOperationException($"'{output}' was published and could not be found again.");
+
+        return new JsonObject
+        {
+            [result] = new JsonObject
+            {
+                ["paramName"] = result,
+                ["dataType"] = "GPString",
+                ["value"] = new JsonObject
+                {
+                    // A path, given its origin when it is read (AnalysisEndpoints.ResultAsync).
+                    ["url"] = $"/rest/services/{service.QualifiedName}/FeatureServer/0",
+                    ["itemId"] = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
+                },
+            },
+        };
+    }
+
+    /// <summary>
+    /// The run's <paramref name="index"/>th input: a hosted layer found again by id, or a feature collection written to
+    /// the run's own table — ADR-222 condition 4 — or null when the plan has none.
+    /// </summary>
+    private async Task<AnalysisInput?> InputAsync(JsonObject plan, Guid job, int index, string task, CancellationToken cancellation)
+    {
+        string suffix = index == 1 ? string.Empty : "2";
+        string filter = "filter" + suffix;
+
+        if (plan["collection" + suffix] is JsonObject sent)
+        {
+            if (!AnalysisCollections.TryRead(sent, "the collection", out AnalysisCollections.Collection? collection, out string? bad)
+                || !AnalysisCollections.TryRows(collection!, "the collection", out IReadOnlyList<CollectionRow> rows, out bad))
+            {
+                throw new InvalidOperationException(bad);
+            }
+
+            string table = PostGisImporter.CollectionTableFor(job, index);
+            await _importer.WriteCollectionAsync(table, [.. collection!.Columns.Select(c => c.Column)], collection.Srid, rows, cancellation)
+                .ConfigureAwait(false);
+
+            return InputOf(plan, AnalysisCollections.LayerOf(collection, table), collection.Described, filter, task);
+        }
+
+        if (plan["layer" + suffix]?.GetValue<string>() is not { } id)
+        {
+            return null;
+        }
+
+        PublishedLayer layer = await _layers.FindByIdAsync(Guid.Parse(id), cancellation).ConfigureAwait(false)
+            ?? throw new InvalidOperationException(
+                $"The {(index == 1 ? "input" : "second input")} layer was removed after the analysis was submitted.");
+
+        (_, LayerDescription described) = await _contexts.GetAsync(layer, cancellation).ConfigureAwait(false);
+        return InputOf(plan, layer, described, filter, task);
     }
 
     private async Task WatchForCancelAsync(Guid job, CancellationTokenSource stop, CancellationToken watching)
@@ -335,7 +603,11 @@ internal sealed partial class AnalysisRunner : BackgroundService
             AnalysisEndpoints.Units[units],
             plan["dissolve"]!.GetValue<bool>(),
             plan["rings"]!.GetValue<bool>(),
-            imperial ? 2_589_988.110336 : 1_000_000);
+            imperial ? 2_589_988.110336 : 1_000_000)
+        {
+            Side = plan["side"]?.GetValue<string>() ?? "Full",
+            FlatEnds = plan["flat"]?.GetValue<bool>() == true,
+        };
     }
 
     private static DissolvePlan DissolveOf(JsonObject plan) => new(
@@ -350,7 +622,12 @@ internal sealed partial class AnalysisRunner : BackgroundService
     private static OverlayPlan OverlayOf(JsonObject plan) => new(
         plan["overlayType"]!.GetValue<string>(),
         (AnalysisShape)plan["shape"]!.GetValue<int>(),
-        Pairs(plan["overlayColumns"]));
+        Pairs(plan["overlayColumns"]))
+    {
+        Linework = (plan["outputType"]?.GetValue<string>() ?? "Input") != "Input",
+        Tolerance = plan["tolerance"]?.GetValue<double>() ?? 0,
+        SnapToInput = plan["snapToInput"]?.GetValue<bool>() == true,
+    };
 
     private static MergePlan MergeOf(JsonObject plan) => new(
         Pairs(plan["inputColumns"]),
@@ -358,10 +635,60 @@ internal sealed partial class AnalysisRunner : BackgroundService
         Pairs(plan["mergeOnly"]),
         (AnalysisShape)plan["shape"]!.GetValue<int>());
 
-    private static AggregatePlan AggregateOf(JsonObject plan) => new(
-        [.. plan["summaries"]!.AsArray().Select(s => (
-            s!["field"]!.GetValue<string>(), s["statistic"]!.GetValue<string>(), s["output"]!.GetValue<string>()))],
-        plan["keepEmpty"]!.GetValue<bool>());
+    private static IReadOnlyList<(string Column, string Statistic, string Output)> SummariesOf(JsonObject plan) =>
+        [.. (plan["summaries"]?.AsArray() ?? []).Select(s => (
+            s!["field"]!.GetValue<string>(), s["statistic"]!.GetValue<string>(), s["output"]!.GetValue<string>()))];
+
+    private static BinPlan? BinsOf(JsonObject plan) =>
+        plan["bins"] is JsonObject bins ? new BinPlan(bins["hexagon"]!.GetValue<bool>(), bins["metres"]!.GetValue<double>()) : null;
+
+    /// <summary>AggregatePoints as SummarizeWithin's case of points: a count named as ArcGIS names it, nothing weighted.</summary>
+    private static SummaryPlan AggregateOf(JsonObject plan) => new(
+        "point_count", SummaryMeasure.None, null, 1, SummariesOf(plan), plan["keepEmpty"]!.GetValue<bool>(), BinsOf(plan), Weighted: false,
+        GroupOf(plan));
+
+    private static GroupPlan? GroupOf(JsonObject plan) =>
+        plan["group"] is JsonObject group
+            ? new GroupPlan(
+                group["column"]!.GetValue<string>(),
+                group["majority"]?.GetValue<string>(),
+                group["minority"]?.GetValue<string>(),
+                group["percent"]?.GetValue<string>())
+            : null;
+
+    private static SummaryPlan SummarizeOf(JsonObject plan)
+    {
+        JsonObject summary = plan["summary"]!.AsObject();
+
+        return new SummaryPlan(
+            summary["count"]?.GetValue<string>(),
+            (SummaryMeasure)summary["measure"]!.GetValue<int>(),
+            summary["measureName"]?.GetValue<string>(),
+            summary["perUnit"]!.GetValue<double>(),
+            SummariesOf(plan),
+            summary["keepEmpty"]!.GetValue<bool>(),
+            BinsOf(plan),
+            summary["weighted"]!.GetValue<bool>(),
+            GroupOf(plan));
+    }
+
+    private static JoinPlan JoinOf(JsonObject plan)
+    {
+        JsonObject join = plan["join"]!.AsObject();
+
+        return new JoinPlan(
+            join["relationship"]?.GetValue<string>(),
+            join["metres"]!.GetValue<double>(),
+            [.. join["attributes"]!.AsArray().Select(a => (a!["target"]!.GetValue<string>(), a["join"]!.GetValue<string>()))],
+            join["oneToMany"]!.GetValue<bool>(),
+            join["keepAll"]!.GetValue<bool>(),
+            Pairs(join["columns"]),
+            join["count"]!.GetValue<string>(),
+            SummariesOf(plan),
+            [.. join["orderBy"]!.AsArray().Select(o => (o!["field"]!.GetValue<string>(), o["descending"]!.GetValue<bool>()))],
+            (AnalysisShape)plan["shape"]!.GetValue<int>(),
+            plan["single"]?.GetValue<bool>() == true);
+    }
 
     private static void Say(List<JsonObject> messages, string type, string description) =>
         messages.Add(new JsonObject { ["type"] = type, ["description"] = description });

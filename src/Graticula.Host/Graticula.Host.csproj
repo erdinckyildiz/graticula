@@ -73,7 +73,7 @@
     <!-- The console (ADR-020). The web SDK already includes wwwroot as Content;
          this only makes it land beside the assembly, because the file provider
          is rooted at AppContext.BaseDirectory rather than the content root. -->
-    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" />
+    <Content Update="wwwroot\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 
@@ -84,7 +84,7 @@
       adding a font stack is dropping a directory in rather than a rebuild.
       Q-15: nothing is fetched at runtime, so they have to be in the image.
     -->
-    <Content Include="glyphs\**\*.pbf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="glyphs\**\*.pbf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 
@@ -95,4 +95,10 @@
     <PackageReference Include="ITfoxtec.Identity.Saml2" />
     <PackageReference Include="SharpCompress" />
   </ItemGroup>
+  <!-- ADR-223: grapy, the library users' toolboxes run against, beside the server so the runner finds it at
+       <base>/grapy/grapy (Graticula:Tools:Grapy). Python source, copied as it is. -->
+  <ItemGroup>
+    <None Include="..\grapy\grapy\**\*.py" LinkBase="grapy\grapy" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

@@ -97,8 +97,10 @@ not reopen.
 4. **Inputs are this server's hosted layers**, named by URL with an optional `filter`, read only by a caller who may
    read them. A registered database's layer, another server's URL and an inline feature collection are refused by
    name, for now (condition 4).
-5. **What a tool does not do it refuses by name**, never approximates: `sideType` other than Full, `endType` Flat, a
-   feature collection input, a result without `outputName`.
+5. **What a tool does not do it refuses by name**, never approximates: ~~`sideType` other than Full, `endType` Flat, a
+   feature collection input, a result without `outputName`~~ — all four built on 2026-10-29 (conditions 3 and 4); what
+   is refused by name now is a registered layer or another server's as an input, `recordsToMatch.groupByFields`, an
+   overwrite of a layer that keeps attachments or a history, and a grouped summary written over an existing layer.
 6. **The result is a new hosted feature layer** in a new service named by `outputName.serviceProperties.name`, owned
    by the caller, private, in their root folder, and the task's result parameter answers
    `{"paramName": …, "dataType": "GPString", "value": {"url": "<layer url>", "itemId": "<item id>"}}` — the documented
@@ -108,6 +110,15 @@ not reopen.
    analysis takes `content:publishFeatures`, since its output is a hosted layer, and holding it is what the portal
    reports as `premium:user:spatialanalysis`, with no privilege of its own; (c) geodesic buffers for every reference,
    where ArcGIS documents geodesic for geographic data; (d) the output service private and in the root folder.
+9. ~~**INFERRED on 2026-10-29, for confirmation in [Q-193](../open-questions.md)**~~ **Confirmed 2026-10-29 by owner decision in Q-193:** *"Kalsın"*. — choices ArcGIS's documents leave open:
+   (a) the output field names, lower case as every hosted column here: `point_count` for points and `count` for lines and
+   polygons, `sum_length_<unit>` and `sum_area_<unit>`, `<statistic>_<field>`, `join_id`, `majority_<field>` and
+   `minority_<field>`, `percent_points` and `percent_shape`; (b) a grouped summary's table published in the result's
+   service as `<name>_groups`; (c) bins drawn in Web Mercator scaled to the ground at the middle of the features, a
+   hexagon's size the distance between its flat sides as documented; (d) `outputType` Line and Point taken from the
+   layers' linework, a polygon by its boundary; (e) a result returned unsaved, and a collection sent in, at most 50,000
+   features; (f) a summary drawn by its count in up to five equal classes from the start; (g) `JoinFeatures` one-to-one
+   without summaries keeps the first match by `recordsToMatch`'s order or the join layer's id.
 
 ## Conditions
 
@@ -134,11 +145,44 @@ not reopen.
    point's own buffer counts at least that point. `OverlayLayers` takes `Intersect`, `Union` (polygons only) and `Erase`,
    `outputType` `Input` only; `MergeLayers` takes `Remove`, `Rename` and `Match` and refuses text matched into a number,
    as ArcGIS does; `AggregatePoints` takes a polygon layer and `keepBoundariesWithNoPoints`, and refuses bins and a
-   group-by field by name. `FindCentroids` the same night: a point per line or polygon, on it with `pointLocation`, stored as a point as ArcGIS's are, its feature's fields kept. **Open:** `SummarizeWithin`, `JoinFeatures`, bins.
+   group-by field by name. `FindCentroids` the same night: a point per line or polygon, on it with `pointLocation`, stored as a point as ArcGIS's are, its feature's fields kept. ~~**Open:** `SummarizeWithin`, `JoinFeatures`, bins.~~
+   **DISCHARGED 2026-10-29, the rest of the six and every option they document** — `SpatialAnalysisSummariesTests`, by
+   relations the fixture cannot move. **Bins** (Square and Hexagon, a size and unit) in `AggregatePoints` and
+   `SummarizeWithin`: every point in exactly one bin, no empty bin kept. **`SummarizeWithin`**: points counted; lines'
+   length and polygons' area inside each area, in any documented unit; summary fields weighted by the part inside, as
+   documented — every parcel kept, and no more building area inside one than it covers. **`JoinFeatures`**: the seven
+   relationships, `WithinDistance` on the ground, equal attributes, one-to-one with a count, summaries or the first match,
+   one-to-many, Inner and Left — a one-to-many join has one row per pair the one-to-one join counted, a left join keeps
+   every target. **`groupByField`** in both summaries, with `minorityMajority` and `percentPoints`/`percentShape`: the
+   group table's counts add up to the points, each area's shares to 100, the majority is the value with the most. **The
+   options this condition had refused by name**: `sideType` Left and Right of a line and Outside a polygon, `endType`
+   Flat, for a single distance as documented — one side is about half the whole, flat ends less than round, outside less
+   than the whole buffer; `outputType` Line and Point of an intersection; `snapToInput` and `tolerance`. Each summary is
+   drawn by its count from the start (design review). The ArcGIS API for Python runs `aggregate_points` into hexagons,
+   `summarize_within` and `join_features` too (`tools/sdk-probe/python-analysis.py`, ten tools counted). **Open:
+   `ExtractData`**, which §5.3 lists with these: its result is an item holding a file, which is a feature export
+   (ADR-106) feeding a document item (ADR-188) — two job systems chained, not an analysis — and it is not built.
 4. **Inputs beyond this server's hosted layers** — a feature collection, a registered PostGIS table — or the reason
-   they are not.
+   they are not. **DISCHARGED 2026-10-29.** **A feature collection** — `{layerDefinition, featureSet}`, with or without a
+   layer definition, a `filter` beside it — is read when the job is submitted, so a malformed one is refused before it is
+   queued, and written to a table of the run's own, which every tool reads exactly as it reads a hosted layer and which
+   is dropped when the run ends however it ends. **And out**: a request without `outputName` gets its result back as a
+   feature collection and keeps nothing, as ArcGIS documents — a grouped summary's table as a table collection beside
+   it. **A registered PostGIS table, or another server's layer, is refused by name, and that is the reason:** the tools
+   run as SQL in the datastore where hosted tables are; a registered table is in another database, and reading it in
+   would be an import the caller did not ask for, under no quota. A client that has such a layer sends its features as
+   a collection, which is what Map Viewer does with a layer it cannot name by URL. Also built the same day:
+   **`outputName`'s overwrite** (`itemProperties.itemId`, `serviceURL` or `name` with `overwrite: true`) puts the run's
+   table in place of the layer's in one transaction — the service, layer and item stay; refused for another's layer, a
+   layer of another kind, a service of more than one layer, and a layer keeping attachments or a history.
 5. **Map Viewer's *Analysis* pane runs `CreateBuffers` against this server**, measured in the browser; what it reads
-   before showing the pane is recorded.
+   before showing the pane is recorded. *(Not measurable as written, found 2026-10-29: Map Viewer is ArcGIS Online's and
+   ArcGIS Enterprise's own application, served by their portal, and it runs analysis through **its** portal's
+   `helperServices.analysis` — there is no way to point it at this server's without hosting Esri's application, which
+   §5 of CLAUDE.md and Tier 3 forbid. The client that can be pointed here and runs the same service is **ArcGIS Pro's
+   *Standard Feature Analysis* toolbox (`arcpy.sfa`)**, present on the owner's machine (Pro 3.7) with `CreateBuffers`,
+   `SummarizeWithin` and the rest; it uses Pro's **active portal**, which is the owner's working portal and cannot be
+   restored without their credentials, so the measurement waits for the owner's word. Open.)*
 6. **The ArcGIS API for Python's `create_buffers` runs against this server**, measured. **DISCHARGED 2026-10-29**, and
    wider than asked: `tools/sdk-probe/python-analysis.py` signs in with a name and password, lets the API find the
    service through `helperServices.analysis`, and runs `create_buffers`, `dissolve_boundaries`, `overlay_layers`,
@@ -159,7 +203,15 @@ not reopen.
    Done as a link to the new layer that takes focus. Two ux-designer passes: the first sent it back (no layout, a
    polygon list whose first entry was a point layer so every Aggregate failed, Cancel that silently let the layer be
    made, focus lost on every run, the server's parameter names in its sentences), the second shipped it with fixes, all
-   taken. `AnalyzeDialogTests`. **Open: in the map** — Studio's map has no analysis pane yet.
+   taken. `AnalyzeDialogTests`. ~~**Open: in the map** — Studio's map has no analysis pane yet.~~
+   **The rest DISCHARGED 2026-10-29 — in the map.** The map's tool rail has **Analysis** beside Measure: one of the map's
+   hosted layers, the same tools, and the result added to the map as a layer, with a link to it in Content. The tools are
+   one script, `analysis.js`, that the item's dialog and the map both run, each saying only how it asks the server,
+   how it tells the reader and what a result becomes — a second copy would be D-130's shape. The dialog gained Join
+   features, Summarize within and bins the same day. Design review, two passes: the first sent it back (a tool list that
+   filled the first screen, form borders at 1.23:1, a footer divider drawn with a colour the page never defines, unaligned
+   rows, a live region rebuilt with its text, relationships in words no GIS user uses, one flat colour for a summary);
+   the second (see the review record) passed it. `AnalyzeDialogTests`, `WebMapAnalysisTests`.
 
 ## 6. Consequences
 

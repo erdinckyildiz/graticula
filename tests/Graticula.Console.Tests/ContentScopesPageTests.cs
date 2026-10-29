@@ -80,10 +80,10 @@ public sealed class ContentScopesPageTests : ConsoleTest
             + "them means `pageOf` is not being applied — which is what it looked like at 512.");
 
         // A picture per row: a rendered thumbnail where there is a cover, the hatch where the
-        // service holds no layers. Both are legitimate here — unlike the add page, where an empty
+        // service holds no layers, a file's tile for a document or a toolbox. All are legitimate here — unlike the add page, where an empty
         // service is held back.
         int pictures = await Browser.EvaluateAsync<int>(
-            "document.querySelectorAll('#contentRows img.thumb, #contentRows .thumb.empty').length");
+            "document.querySelectorAll('#contentRows img.thumb, #contentRows .thumb.empty, #contentRows .thumb.doctile').length");
 
         Assert.Equal(rows, pictures);
 

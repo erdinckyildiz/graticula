@@ -463,11 +463,22 @@ public static class Program
                 services,
                 services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
 
+        // <b>Users' Python toolboxes — ADR-223 — and a seventh poller</b>: the toolbox store, the settings a run is fenced
+        // and limited by, and the runner, one run at a time per server, each a process of its own.
+        builder.Services.AddSingleton<Graticula.Platform.Catalog.IToolboxStore>(services =>
+            new PostgresToolboxStore(services.GetRequiredService<NpgsqlDataSource>()));
+        builder.Services.AddSingleton(services => ToolSettings.From(services.GetRequiredService<IConfiguration>()));
+        builder.Services.AddHostedService(services =>
+            ActivatorUtilities.CreateInstance<ToolRunner>(
+                services,
+                services.GetRequiredKeyedService<Graticula.Platform.Jobs.IJobStore>(JobPool)));
+
         // <b>Q-141's datum caution, aimed at the operator.</b> A singleton because
         // *said once* is a property of the server rather than of a request, and it is
         // read back by `/admin/health`.
         builder.Services.AddSingleton<DatumShiftNotices>();
         builder.Services.AddSingleton<UnindexedLayerNotices>();
+        builder.Services.AddSingleton<DenseTileNotices>();
 
         // ADR-010 §5.1a: how many answers each service has had stale, for its cache read-back.
         builder.Services.AddSingleton<StaleTileNotices>();
@@ -2671,6 +2682,7 @@ public static class Program
 
         // ADR-222: the analysis tools, where a portal's helperServices.analysis says they are.
         AnalysisEndpoints.Map(app);
+        ToolboxEndpoints.Map(app);
 
         // <b>Outside /rest/services, deliberately.</b> Every surface above is
         // ArcGIS-shaped and lives under that prefix; WFS is a different protocol

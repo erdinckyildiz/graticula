@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Geometries;
@@ -613,11 +615,16 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type,
-               service_id, layer_index, parent_layer_index, cache_seconds)
+               service_id, layer_index, parent_layer_index, cache_seconds,
+               symbology, symbology_updated_at)
             select
                @id, @source, @name, @schema, @table, @geometry,
                @identity, @objectid, @srid, @type,
-               slot.id, slot.layer_index, @parent, @cache
+               slot.id, slot.layer_index, @parent, @cache,
+               -- <b>The drawing it was given, which this statement dropped until 2026-10-29</b>: LayerPublication
+               -- carried a Symbology that only the composing publish read, so an analysis's drawn result arrived
+               -- in one flat colour. Stamped only when there is one, as the composing publish stamps it.
+               @symbology::text, case when @symbology::text is null then null else now() end
             from slot
             -- <b>The folder comes back with the index</b>, because the caller may have asked
             -- for one it did not get: a datastore publish naming 'turkiye' lands in 'hosted',
@@ -654,6 +661,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         });
         command.Parameters.AddWithValue("owner", owner);
         command.Parameters.AddWithValue("sharing", Wire(publication.Sharing));
+        command.Parameters.Add(new NpgsqlParameter("symbology", NpgsqlDbType.Text) { Value = (object?)publication.Symbology ?? DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("objectid", NpgsqlDbType.Text)
         {
             Value = (object?)publication.ObjectIdColumn ?? DBNull.Value,
@@ -759,11 +767,55 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         Guid id, double minScale, double maxScale, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
-            "update layer set min_scale = @min, max_scale = @max, updated_at = now() where id = @id");
+            // A range set is an answer to the dense tile's note, whatever it says (D-267).
+            "update layer set min_scale = @min, max_scale = @max, dense_tile = null, updated_at = now() where id = @id");
 
         command.Parameters.AddWithValue("id", id);
         command.Parameters.AddWithValue("min", minScale);
         command.Parameters.AddWithValue("max", maxScale);
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// <b>The condition is in the statement</b>, so several nodes drawing dense tiles of one layer write it a few
+    /// times at most rather than once per tile, and a kept note comes back only for a tile twice as dense. Not
+    /// <c>updated_at</c>: nothing about the layer changed, only what was seen of it.
+    /// </remarks>
+    public async Task<bool> NoteDenseTileAsync(Guid id, DenseTile tile, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(tile);
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update layer set dense_tile = jsonb_build_object(
+                    'level', @level, 'x', @x, 'y', @y, 'features', @features, 'noted', @noted, 'kept', false)
+             where id = @id
+               and (dense_tile is null
+                    or (not coalesce((dense_tile ->> 'kept')::boolean, false)
+                        and (dense_tile ->> 'features')::integer < @features)
+                    or (coalesce((dense_tile ->> 'kept')::boolean, false)
+                        and (dense_tile ->> 'features')::integer * 2 <= @features))
+            """);
+
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.AddWithValue("level", tile.Level);
+        command.Parameters.AddWithValue("x", tile.X);
+        command.Parameters.AddWithValue("y", tile.Y);
+        command.Parameters.AddWithValue("features", tile.Features);
+        command.Parameters.AddWithValue("noted", tile.Noted.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> KeepVisibleRangeAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update layer set dense_tile = dense_tile || '{\"kept\": true}'::jsonb where id = @id and dense_tile is not null");
+
+        command.Parameters.AddWithValue("id", id);
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
@@ -988,7 +1040,10 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                    d.kind,
 
                    -- ADR-179: the title the OGC faces show, so Studio shows what is set.
-                   l.title
+                   l.title,
+
+                   -- D-267: the densest tile drawn past the range's measure, so the range is suggested again.
+                   l.dense_tile::text
             from layer l
             join data_source d on d.id = l.data_source_id
             join service s on s.id = l.service_id
@@ -1025,10 +1080,28 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
                 reader.IsDBNull(17) ? null : reader.GetDouble(17),
                 TileSources.Tiled(reader.GetBoolean(10)),
                 reader.GetString(18),
-                reader.IsDBNull(19) ? null : reader.GetString(19)));
+                reader.IsDBNull(19) ? null : reader.GetString(19),
+                reader.IsDBNull(20) ? null : DenseTileOf(reader.GetString(20))));
         }
 
         return layers;
+    }
+
+    /// <summary>Reads <c>layer.dense_tile</c> as <see cref="NoteDenseTileAsync"/> wrote it.</summary>
+    /// <param name="json">The column.</param>
+    /// <returns>The note.</returns>
+    private static DenseTile DenseTileOf(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement r = document.RootElement;
+
+        return new DenseTile(
+            r.GetProperty("level").GetInt32(),
+            r.GetProperty("x").GetInt32(),
+            r.GetProperty("y").GetInt32(),
+            r.GetProperty("features").GetInt32(),
+            DateTimeOffset.Parse(r.GetProperty("noted").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal),
+            r.TryGetProperty("kept", out JsonElement kept) && kept.ValueKind == JsonValueKind.True);
     }
 
     /// <inheritdoc/>

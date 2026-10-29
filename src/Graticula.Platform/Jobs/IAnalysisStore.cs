@@ -35,8 +35,10 @@ public interface IAnalysisStore
     /// <param name="task">The task.</param>
     /// <param name="parameters">The parameters, a JSON object.</param>
     /// <param name="cancellationToken">Cancellation.</param>
+    /// <param name="kind">An analysis, or a user tool's run (ADR-223) — one store for both.</param>
     /// <returns>The run, queued.</returns>
-    Task<AnalysisRun> CreateAsync(Guid owner, string task, string parameters, CancellationToken cancellationToken);
+    Task<AnalysisRun> CreateAsync(
+        Guid owner, string task, string parameters, CancellationToken cancellationToken, JobKind kind = JobKind.Analysis);
 
     /// <summary>A run, or null when there is none in this tenant.</summary>
     /// <param name="job">The job's id.</param>

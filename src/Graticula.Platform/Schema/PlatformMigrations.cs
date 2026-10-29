@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(110);
+    public static SchemaVersion ComponentSchemaVersion => new(112);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -145,7 +145,72 @@ public static class PlatformMigrations
         SharedWithEveryOrganisationV108,
         AnOrganisationDescribesItselfV109,
         AnAnalysisIsAJobV110,
+        ADenseTileIsNotedV111,
+        AToolboxIsAnItemV112,
     ]);
+
+    /// <summary>
+    /// A user's Python toolbox is an item, its source and tools beside it, and a run of one of its tools is a job —
+    /// ADR-223, owner decisions 2026-10-29.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand</b>: an item kind and a job kind nothing older writes, and a table nothing older reads. The run's
+    /// parameters, results and messages go in <c>analysis_job</c>, an analysis's table; the job's kind keeps the two
+    /// runners apart. Behind the tenant floor from its first day.
+    /// </remarks>
+    private static Migration AToolboxIsAnItemV112 => Migration.Expand(
+        new SchemaVersion(112),
+        "A Python toolbox is an item and a run of one of its tools is a job (ADR-223).",
+
+        "alter table item drop constraint item_kind_known",
+
+        "alter table item add constraint item_kind_known check (kind in ('service', 'web map', 'document', 'toolbox'))",
+
+        "alter table job drop constraint if exists job_kind_known",
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.inspect', 'geodatabase.import', 'tile.seed', 'tile.export', 'feature.export',
+                          'analysis.run', 'tool.run'))
+        """,
+
+        """
+        create table if not exists toolbox (
+            item_id    uuid        not null primary key references item (id) on delete cascade,
+            tenant_id  uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            name       text        not null,
+            file_name  text        not null,
+            source     text        not null,
+            tools      jsonb       not null,
+            created_at timestamptz not null default now(),
+            constraint toolbox_name_shape check (name ~ '^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$')
+        )
+        """,
+
+        "create unique index if not exists toolbox_name on toolbox (tenant_id, lower(name))",
+
+        "alter table toolbox enable row level security",
+
+        "alter table toolbox force row level security",
+
+        "drop policy if exists tenant_floor on toolbox",
+
+        """
+        create policy tenant_floor on toolbox
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
+
+    /// <summary>
+    /// A tile drawn over the features a visible range is measured for is noted on its layer — D-267, owner decision
+    /// 2026-10-29: the range is suggested again when the data has grown past it, and never tightened by the server.
+    /// </summary>
+    /// <remarks><b>Expand</b>: a column nobody older reads.</remarks>
+    private static Migration ADenseTileIsNotedV111 => Migration.Expand(
+        new SchemaVersion(111),
+        "A layer notes the densest tile it was drawn into, so its range can be suggested again (D-267).",
+
+        "alter table layer add column if not exists dense_tile jsonb");
 
     /// <summary>
     /// An analysis run is a job — ADR-222: a task of the Spatial Analysis Service, its parameters as sent, and what it
