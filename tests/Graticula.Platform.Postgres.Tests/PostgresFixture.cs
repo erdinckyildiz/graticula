@@ -43,6 +43,31 @@ public abstract class PostgresFixture : IAsyncLifetime
     private static string? ConnectionString =>
         Environment.GetEnvironmentVariable(ConnectionVariable);
 
+    /// <summary>
+    /// Creates the shared <c>hosted</c> schema if it is not there, forgiving another test class doing the same at once.
+    /// </summary>
+    /// <remarks>
+    /// <b>CI, 2026-10-29, on the v1.0.471 release commit.</b> <c>create schema if not exists</c> is not safe against
+    /// itself: two test classes starting together on a fresh database both found <c>hosted</c> missing, and the second
+    /// failed with <c>23505</c> on <c>pg_namespace_nspname_index</c>. <c>PostGisImporter.EnsureHostedSchemaAsync</c> has
+    /// forgiven the same race since 2026-09-23; three tests carried their own unguarded copy of the statement.
+    /// </remarks>
+    /// <param name="schema">The schema, unquoted — <c>hosted</c> unless a test needs another shared one.</param>
+    /// <returns>When it exists.</returns>
+    protected async Task SharedSchemaAsync(string schema = "hosted")
+    {
+        try
+        {
+            await using NpgsqlCommand command = DataSource.CreateCommand($"create schema if not exists \"{schema}\"");
+            await command.ExecuteNonQueryAsync();
+        }
+        catch (PostgresException raced)
+            when (raced.SqlState is PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.DuplicateSchema)
+        {
+            // Another class created it between our look and our create; it is there, which is all we wanted.
+        }
+    }
+
     /// <summary>The data source, scoped to this test's private schema.</summary>
     protected NpgsqlDataSource DataSource
     {

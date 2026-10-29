@@ -70,10 +70,7 @@ public sealed class PostGisAttachmentStoreTests : PostgresFixture
     [Fact]
     public async Task In_the_datastore_an_upload_asks_for_its_feature_and_a_deleted_feature_s_attachments_go()
     {
-        await using (NpgsqlCommand schema = DataSource.CreateCommand($"create schema if not exists {PostGisImporter.HostedSchema}"))
-        {
-            await schema.ExecuteNonQueryAsync();
-        }
+        await SharedSchemaAsync(PostGisImporter.HostedSchema);
 
         LayerDefinition elsewhere = new(
             name: "elsewhere", schemaName: "theirs", tableName: "parcels", geometryColumn: "geom", srid: 3857,

@@ -282,7 +282,7 @@ public sealed class ATableIsStoredReadAndEditedTests : PostgresFixture
     {
         string name = "table_" + Guid.NewGuid().ToString("n")[..10];
 
-        await ExecuteAsync("create schema if not exists hosted");
+        await SharedSchemaAsync();
         await ExecuteAsync(
             $"""
              create table hosted."{name}" (

@@ -455,7 +455,7 @@ public sealed class FeatureHistoryTests : PostgresFixture
     {
         string name = "history_" + Guid.NewGuid().ToString("n")[..10];
 
-        await ExecuteAsync("create schema if not exists hosted");
+        await SharedSchemaAsync();
         await ExecuteAsync(
             $"""
              create table hosted."{name}" (
