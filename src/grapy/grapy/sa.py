@@ -2188,14 +2188,12 @@ def Curvature(in_raster, z_factor=1, out_profile_curve_raster=None, out_plan_cur
     ``−2(D + E) · 100`` with ``D = ((Z4 + Z6)/2 − Z5)/L²`` and ``E = ((Z2 + Z8)/2 − Z5)/L²`` — the second differences
     across the row and the column through the centre cell. Positive is convex; the unit is one hundredth of a z unit.
 
-    The profile and plan outputs are refused: their formulas are not written in the documentation's text.
+    The profile and plan outputs are an EQUIVALENT (see ``_profile_and_plan``): Moore et al.'s (1991) formulas on the
+    page's D, E, F, G and H, signed as the page documents; they say so in the run.
 
     INFERRED: L is the cell width across a row and the cell height down a column; a neighbour that is NoData or off the
     grid takes the centre cell's value, as Slope does by Esri's documentation of that tool.
     """
-    for name, value in (("out_profile_curve_raster", out_profile_curve_raster), ("out_plan_curve_raster", out_plan_curve_raster)):
-        if _given(value):
-            _refuse("Curvature", name, value, "its formula is not written in the documentation's text")
     _refuse_environment("arcpy.sa.Curvature")
     raster = as_raster(in_raster, "Curvature")
     n = _neighbours(raster)
@@ -2204,7 +2202,41 @@ def Curvature(in_raster, z_factor=1, out_profile_curve_raster=None, out_plan_cur
     d = ((n["d"] + n["f"]) / 2 - n["e"]) * zf / (w * w)
     e = ((n["b"] + n["h"]) / 2 - n["e"]) * zf / (h * h)
     curvature = -2 * (d + e) * 100
+    if _given(out_profile_curve_raster) or _given(out_plan_curve_raster):
+        profile, plan = _profile_and_plan(n, zf, w, h, d, e)
+        for path, value in ((out_profile_curve_raster, profile), (out_plan_curve_raster, plan)):
+            if _given(path):
+                Raster._of(value.astype(np.float32), raster._mask.copy(), raster._grid).save(path)
     return Raster._of(curvature.astype(np.float32), raster._mask.copy(), raster._grid)
+
+
+from ._runtime import equivalent as _equivalent_early  # noqa: E402
+
+
+def _curvature_tool():
+    @_equivalent_early("profile and plan curvature", "Moore, Grayson and Ladson 1991, Hydrological Processes 5(1), "
+                       "on the coefficients of Zevenbergen and Thorne 1987")
+    def Curvature(n, zf, w, h, d, e):
+        """EQUIVALENT: profile and plan curvature by Moore et al. (1991) on Zevenbergen and Thorne's (1987)
+        coefficients — the page's D and E, with F = (−Z1 + Z3 + Z7 − Z9)/(4L²), G = (−Z4 + Z6)/(2L) and
+        H = (Z2 − Z8)/(2L) in Zevenbergen and Thorne's numbering (Z1 top left, row by row): profile
+        ``2(DG² + EH² + FGH)/(G² + H²) · 100`` and plan ``−2(DH² + EG² − FGH)/(G² + H²) · 100``. These are Moore's
+        expressions with the signs the page documents: profile negative where the surface is upwardly convex, plan
+        positive where it is laterally convex. A flat cell (G = H = 0) is 0.
+
+        INFERRED: the flat case; L as in Curvature."""
+        f = (-n["a"] + n["c"] + n["g"] - n["i"]) * zf / (4 * w * h)
+        g = (-n["d"] + n["f"]) * zf / (2 * w)
+        hh = (n["b"] - n["h"]) * zf / (2 * h)
+        slope2 = g * g + hh * hh
+        safe = np.where(slope2 == 0, 1.0, slope2)
+        profile = np.where(slope2 == 0, 0.0, 2 * (d * g * g + e * hh * hh + f * g * hh) / safe * 100)
+        plan = np.where(slope2 == 0, 0.0, -2 * (d * hh * hh + e * g * g - f * g * hh) / safe * 100)
+        return profile, plan
+    return Curvature
+
+
+_profile_and_plan = _curvature_tool()
 
 
 def ReclassByTable(in_raster, in_remap_table, from_value_field, to_value_field, output_value_field, missing_values="DATA"):
@@ -4076,6 +4108,121 @@ def Merge(rasters, resolve_overlap="FIRST"):
 
 
 for _built in ("Viewshed", "Visibility", "Expand", "Shrink", "Nibble", "Filter", "Merge"):
+    _REFUSED.pop(_built, None)
+
+
+# ---- round eight (ADR-224 §5.6): fuzzy membership
+
+
+class _Fuzzy:
+    def __init__(self, *values):
+        for name, value in zip(self._names, values):
+            setattr(self, name, value)
+
+
+class FuzzyGaussian(_Fuzzy):
+    """arcpy.sa.FuzzyGaussian(midpoint, spread): midpoint defaults to the middle of the input's range, spread to 0.1."""
+    _names = ("midpoint", "spread")
+
+    def __init__(self, midpoint=None, spread=0.1):
+        super().__init__(midpoint, spread)
+
+
+class FuzzyLarge(_Fuzzy):
+    """arcpy.sa.FuzzyLarge(midpoint, spread): midpoint defaults to the middle of the input's range, spread to 5."""
+    _names = ("midpoint", "spread")
+
+    def __init__(self, midpoint=None, spread=5):
+        super().__init__(midpoint, spread)
+
+
+class FuzzySmall(FuzzyLarge):
+    """arcpy.sa.FuzzySmall(midpoint, spread): midpoint defaults to the middle of the input's range, spread to 5."""
+
+
+class FuzzyNear(FuzzyGaussian):
+    """arcpy.sa.FuzzyNear(midpoint, spread): midpoint defaults to the middle of the input's range, spread to 0.1."""
+
+
+class FuzzyLinear(_Fuzzy):
+    """arcpy.sa.FuzzyLinear(minimum, maximum): 1 and 2 by default, as documented."""
+    _names = ("minimum", "maximum")
+
+    def __init__(self, minimum=1, maximum=2):
+        super().__init__(minimum, maximum)
+
+
+class FuzzyMSLarge(_Fuzzy):
+    """arcpy.sa.FuzzyMSLarge(meanMultiplier, STDMultiplier): 1 and 2 by default, as documented."""
+    _names = ("meanMultiplier", "STDMultiplier")
+
+    def __init__(self, meanMultiplier=1, STDMultiplier=2):
+        super().__init__(meanMultiplier, STDMultiplier)
+
+
+class FuzzyMSSmall(FuzzyMSLarge):
+    """arcpy.sa.FuzzyMSSmall(meanMultiplier, STDMultiplier): 1 and 2 by default, as documented."""
+
+
+@_equivalent("the fuzzy membership functions in the forms of Esri's transformation-function formulas",
+             "Esri, Formulas for the transformation functions (Spatial Analyst reference), which give the same shapes "
+             "as text; hedges after Zadeh 1972, A fuzzy-set-theoretic interpretation of linguistic hedges")
+def FuzzyMembership(in_raster, fuzzy_function=None, hedge="NONE"):
+    """EQUIVALENT: the membership functions in the forms Esri's *Formulas for the transformation functions* page gives as
+    text for the same shapes — Gaussian exp(−s·(x − m)²); Near 1/(1 + s·(x − m)²); Large 1/(1 + (x/m)^(−s));
+    Small 1/(1 + (x/m)^s); Linear (x − min)/(max − min) held to 0 … 1; MSLarge 1 − b·σ/(x − a·μ + b·σ) above a·μ and 0
+    below; MSSmall b·σ/(x − a·μ + b·σ) above a·μ and 1 below — with μ and σ the input's mean and standard deviation and
+    the documented defaults. ``VERY`` squares the membership and ``SOMEWHAT`` takes its square root, as documented
+    (Zadeh's concentration and dilation).
+
+    Refused: Small and Large on negative values, which the page says they do not accept.
+
+    INFERRED: σ is the population standard deviation; the default midpoint is (min + max)/2 of the cells."""
+    _refuse_environment("arcpy.sa.FuzzyMembership")
+    source = as_raster(in_raster, "FuzzyMembership")
+    f = fuzzy_function if fuzzy_function is not None else FuzzyMSSmall()
+    values = source._values().astype(np.float64)
+    x = source._array.astype(np.float64)
+    middle = (values.min() + values.max()) / 2 if values.size else 0.0
+    with np.errstate(all="ignore"):
+        if isinstance(f, (FuzzyGaussian, FuzzyLarge)):
+            m = float(f.midpoint) if f.midpoint is not None else middle
+            s = float(f.spread)
+            if isinstance(f, FuzzyNear):
+                out = 1 / (1 + s * (x - m) ** 2)
+            elif isinstance(f, FuzzyGaussian):
+                out = np.exp(-s * (x - m) ** 2)
+            else:
+                if (values < 0).any():
+                    _refuse("FuzzyMembership", "in_raster", in_raster, "Small and Large do not accept negative values")
+                out = 1 / (1 + (x / m) ** (s if isinstance(f, FuzzySmall) else -s))
+        elif isinstance(f, FuzzyLinear):
+            low, high = float(f.minimum), float(f.maximum)
+            if low == high:
+                raise ValueError("FuzzyLinear: the minimum and maximum must differ.")
+            out = np.clip((x - low) / (high - low), 0, 1)
+        elif isinstance(f, FuzzyMSLarge):
+            mean, std = values.mean(), values.std()
+            a, b = float(f.meanMultiplier) * mean, float(f.STDMultiplier) * std
+            if isinstance(f, FuzzyMSSmall):
+                out = np.where(x > a, b / (x - a + b), 1.0)
+            else:
+                out = np.where(x > a, 1 - b / (x - a + b), 0.0)
+        else:
+            _refuse("FuzzyMembership", "fuzzy_function", type(f).__name__)
+    kind = str(hedge or "NONE").upper()
+    if kind == "VERY":
+        out = out ** 2
+    elif kind == "SOMEWHAT":
+        out = np.sqrt(out)
+    elif kind != "NONE":
+        _refuse("FuzzyMembership", "hedge", hedge)
+    mask = source._mask | ~np.isfinite(out)
+    return Raster._of(np.where(mask, 0, out), mask, source._grid)
+
+
+for _built in ("FuzzyMembership", "FuzzyGaussian", "FuzzyLarge", "FuzzyLinear", "FuzzyMSLarge", "FuzzyMSSmall",
+               "FuzzyNear", "FuzzySmall"):
     _REFUSED.pop(_built, None)
 
 

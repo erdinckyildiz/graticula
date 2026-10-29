@@ -140,8 +140,9 @@ class Ddd(unittest.TestCase):
         # Along a row (x−10)² + (x+10)² over 2, less x², is 100; over L² = 100 that is D = 1; E = 0; −2·(1 + 0)·100.
         got = cells(ddd.Curvature(bowl, self.out("c.tif")).getOutput(0))
         self.assertAlmostEqual(got[2][2], -200.0, places=3)
-        with self.assertRaises(arcpy.NotBuiltError):
-            ddd.Curvature(bowl, self.out("c2.tif"), 1, self.out("profile.tif"))
+        # The bowl's profile output, an equivalent, is written beside it.
+        ddd.Curvature(bowl, self.out("c2.tif"), 1, self.out("profile.tif"))
+        self.assertTrue(os.path.exists(self.out("profile.tif")))
 
     def test_contours_run_through_the_interpolated_triangles(self):
         # Centres x = 5 and 15, y = 15 and 5; values 0 west, 10 east. The block's centre (10,10) is 5.
@@ -176,7 +177,7 @@ class Ddd(unittest.TestCase):
 
     def test_tools_not_built_say_why(self):
         for name, words in (("CreateTin", "ADR-224 group 2"), ("InterpolateShape", "two-dimensional"),
-                            ("Viewshed", "not specified"), ("CutFill", "attribute table")):
+                            ("Spline", "not specified"), ("CutFill", "attribute table")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(ddd, name)("a", "b", "c")
             self.assertIn(words, str(raised.exception))

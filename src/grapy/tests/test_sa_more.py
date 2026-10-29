@@ -263,7 +263,7 @@ class RoundFour(_Fixture):
         self.assertIs(sa.Raster, arcpy.Raster)
         self.assertIs(sa.Point, arcpy.Point)
         self.assertIs(sa.Extent, arcpy.Extent)
-        for name, words in (("TfGaussian", "RescaleByFunction"), ("FuzzySmall", "images"), ("VfBinary", "path distance"),
+        for name, words in (("TfGaussian", "RescaleByFunction"), ("VfBinary", "path distance"),
                             ("TopoLake", "TopoToRaster")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a")
@@ -400,6 +400,36 @@ class Equivalents(_Fixture):
         self.assertEqual(cells(sa.Merge([a, b], "LAST")), [[3, 4]])
         self.assertEqual(cells(sa.Merge([a, b], "SUM")), [[4, 4]])
         self.assertEqual(cells(sa.Merge([a, b], "MEAN")), [[2.0, 4.0]])
+
+
+    def test_fuzzy_membership_functions(self):
+        x = grid([[0.0, 5.0, 10.0]])
+        # Gaussian about 5 with spread 0.1: exp(−0.1·25) at 0 and 10, 1 at 5.
+        got = cells(sa.FuzzyMembership(x, sa.FuzzyGaussian(5, 0.1)))[0]
+        self.assertAlmostEqual(got[0], math.exp(-2.5))
+        self.assertEqual(got[1], 1.0)
+        self.assertAlmostEqual(cells(sa.FuzzyMembership(x, sa.FuzzyNear(5, 0.1)))[0][0], 1 / 3.5)
+        # Large about 5: 1/(1 + (10/5)^−5) = 32/33 at 10, ½ at the midpoint, 0 at 0.
+        large = cells(sa.FuzzyMembership(x, sa.FuzzyLarge(5, 5)))[0]
+        self.assertEqual((large[0], large[1]), (0.0, 0.5))
+        self.assertAlmostEqual(large[2], 32 / 33)
+        self.assertEqual(cells(sa.FuzzyMembership(x, sa.FuzzyLinear(0, 10)))[0], [0.0, 0.5, 1.0])
+        # Mean 5, σ = √(50/3): MSSmall above the mean is 2σ/(x − 5 + 2σ).
+        sigma = math.sqrt(50 / 3)
+        self.assertAlmostEqual(cells(sa.FuzzyMembership(x))[0][2], 2 * sigma / (5 + 2 * sigma))
+        self.assertAlmostEqual(cells(sa.FuzzyMembership(x, sa.FuzzyMSLarge()))[0][2], 1 - 2 * sigma / (5 + 2 * sigma))
+        self.assertAlmostEqual(cells(sa.FuzzyMembership(x, sa.FuzzyLinear(0, 10), "VERY"))[0][1], 0.25)
+
+
+    def test_profile_and_plan_curvature(self):
+        xs = [5 + 10 * c for c in range(5)]
+        ridge = grid([[-x * x for x in xs] for _ in range(5)])
+        profile, plan = os.path.join(self.directory, "profile.tif"), os.path.join(self.directory, "plan.tif")
+        sa.Curvature(ridge, 1, profile, plan)
+        # At x = 25: D = ((−225 − 1225)/2 + 625)/100 = −1, G = (225 − 1225)/20 = −50, E = F = H = 0, so profile is
+        # 2·D·G²/G²·100 = −200 (upwardly convex is negative) and plan is −2·E·100 = 0.
+        self.assertAlmostEqual(cells(arcpy.Raster(profile))[2][2], -200.0, places=3)
+        self.assertAlmostEqual(cells(arcpy.Raster(plan))[2][2], 0.0, places=3)
 
 
 if __name__ == "__main__":
