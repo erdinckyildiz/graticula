@@ -11,6 +11,7 @@ class SpatialReference:
         self.type = "Unknown"
         self.linearUnitName = ""
         self.angularUnitName = ""
+        self.metersPerUnit = 1.0
         if item is not None:
             self.loadFromString(str(item)) if not isinstance(item, int) else self._load(item)
 
@@ -23,6 +24,7 @@ class SpatialReference:
         axis = crs.axis_info[0] if crs.axis_info else None
         self.linearUnitName = "" if crs.is_geographic else (axis.unit_name.title() if axis else "")
         self.angularUnitName = "Degree" if crs.is_geographic else ""
+        self.metersPerUnit = 1.0 if crs.is_geographic or not axis else float(axis.unit_conversion_factor)
 
     def loadFromString(self, text):
         text = text.strip()

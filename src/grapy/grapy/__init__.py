@@ -128,7 +128,7 @@ def ValidateFieldName(name, workspace=None):
     return cleaned if cleaned and not cleaned[0].isdigit() else f"_{cleaned}"
 
 
-from . import analysis, da, graticula, management  # noqa: E402 — they import the names above
+from . import analysis, conversion, da, graticula, management  # noqa: E402 — they import the names above
 
 
 def __getattr__(name):
