@@ -172,6 +172,36 @@ class Cartography(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "ORTHOGONAL"):
             cartography.AggregatePolygons(path, self.out("o"), 5, 0, 0, "ORTHOGONAL")
 
+    def test_simplify_building_by_rectangle_or_douglas_peucker(self):
+        # A 20 × 10 rectangle with a 0.5-deep notch is within 1 of its minimum rectangle: BLD_STATUS 2, area 200.
+        # An L of three 10 × 10 squares lies 10 from its 20 × 20 rectangle (at (120, 20)), so Douglas–Peucker at 1 keeps its
+        # six corners — nothing to remove: status 5. A 0.5 × 0.5 square is under 1² and becomes its rectangle: 3.
+        path = self.polygons("bld", [
+            [(0, 0), (20, 0), (20, 10), (12, 10), (12, 9.5), (8, 9.5), (8, 10), (0, 10)],
+            [(100, 0), (120, 0), (120, 10), (110, 10), (110, 20), (100, 20)],
+            [(200, 0), (200.5, 0), (200.5, 0.5), (200, 0.5)]])
+        out = cartography.SimplifyBuilding(path, self.out("b"), 1).getOutput(0)
+        with arcpy.da.SearchCursor(out, ["BLD_STATUS", "SHAPE@AREA"]) as rows:
+            got = [tuple(r) for r in rows]
+        self.assertEqual([g[0] for g in got], [2, 5, 3])
+        self.assertAlmostEqual(got[0][1], 200.0)
+        self.assertAlmostEqual(got[1][1], 300.0)
+
+    def test_collapse_dual_lines_to_centerline_is_the_medial_axis(self):
+        # Casings y = 0 and y = 10 from x = 0 to 100: their medial axis is y = 5. The first casing runs east, so the one
+        # at y = 10 is on the left. A line far away stays unpaired: LnType 2.
+        path = self.make("casings", [("a", line((0, 0), (100, 0))), ("b", line((0, 10), (100, 10))),
+                                     ("c", line((0, 500), (100, 500)))])
+        out = cartography.CollapseDualLinesToCenterline(path, self.out("cl"), 20).getOutput(0)
+        with arcpy.da.SearchCursor(out, ["LnType", "LeftLn_FID", "RightLn_FID", "SHAPE@"]) as rows:
+            got = [tuple(r) for r in rows]
+        centre = [g for g in got if g[0] == 1]
+        self.assertEqual([(g[1], g[2]) for g in centre], [(2, 1)])
+        ys = {round(c[1], 9) for c in centre[0][3]._shape.coords}
+        self.assertEqual(ys, {5.0})
+        self.assertGreater(centre[0][3].length, 90)
+        self.assertEqual([g[:3] for g in got if g[0] == 2], [(2, 0, 0)])
+
 
 if __name__ == "__main__":
     unittest.main()
