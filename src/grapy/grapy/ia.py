@@ -13,10 +13,11 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
     Hillshade, Int, IronOxide, IsNull, KrigingModelOrdinary, KrigingModelUniversal, LessThan, LessThanEqual,
     LessThanFrequency, Ln, Log10, Log2, LowestPosition, MSAVI, Majority, Max, Mean, Median, Merge, Min, Minority,
     Minus, Mod, NBR, NDBI, NDMI, NDSI, NDVI, NDVIre, NDWI, NbrAnnulus, NbrCircle, NbrIrregular, NbrRectangle,
-    Negate, NotEqual, Over, PVI, Pick, Plus, Point, Popularity, Power, RTVICore, RadiusFixed, RadiusVariable, Range,
-    Rank, Raster, RasterCalculator, Remap, RemapRange, RemapValue, RoundDown, RoundUp, SAVI, SR, SRre, SetNull, Sin,
-    SinH, Slope, Square, SquareRoot, StdDev, Stretch, SubsetBands, Sum, TSAVI, Tan, TanH, Test, Threshold, Times,
-    TransposeBits, VARI, Variety, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
+    Negate, NotEqual, Over, PVI, Percentile, Pick, Plus, Point, Popularity, Power, RTVICore, RadiusFixed,
+    RadiusVariable, Range, Rank, Raster, RasterCalculator, Remap, RemapRange, RemapValue, RoundDown, RoundUp, SAVI,
+    SR, SRre, SetNull, Sin, SinH, Slope, Square, SquareRoot, StdDev, Stretch, SubsetBands, Sum, TSAVI, Tan, TanH,
+    Test, Threshold, Times, TransposeBits, VARI, Variety, WSTable, WeightedSum, ZonalStatistics,
+    ZonalStatisticsAsTable,
 )
 from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
 

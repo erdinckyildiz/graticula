@@ -4300,6 +4300,49 @@ def Spline(in_point_features, z_field, cell_size=None, spline_type="REGULARIZED"
 _REFUSED.pop("Spline", None)
 
 
+# ---- round ten (ADR-224 §5.6): Percentile across rasters
+
+
+@_equivalent("sample quantiles: nearest rank (type 1) and linear interpolation (type 7)",
+             "Hyndman and Fan 1996, The American Statistician 50(4)")
+def Percentile(rasters, percentile_value=90, percentile_interpolation_type="AUTO_DETECT", extent_type="FirstOf",
+               cellsize_type="FirstOf", ignore_nodata=False, process_as_multiband=False):
+    """EQUIVALENT: the percentile of the rasters' values in each cell, as one of Hyndman and Fan's (1996) sample
+    quantiles: ``NEAREST`` is their type 1, the value at rank ⌈p·n/100⌉ (an actual input value, keeping the input's
+    pixel type, as documented); ``LINEAR`` is their type 7, interpolating between the two values around position
+    1 + (n − 1)·p/100 (floating point, as documented). ``AUTO_DETECT`` takes NEAREST for integer inputs and LINEAR for
+    floating point, as documented. NoData in any input makes the cell NoData unless ``ignore_nodata`` is True.
+
+    Refused: ``process_as_multiband``; rasters on different grids except under IntersectionOf."""
+    if process_as_multiband:
+        _refuse("Percentile", "process_as_multiband", process_as_multiband)
+    opened = _same_grid_or_intersection(list(rasters), extent_type, cellsize_type, "Percentile")
+    arrays, mask, grid = _many(opened, "Percentile")
+    integer = all(isinstance(r, Raster) and r.isInteger for r in opened)
+    kind = str(percentile_interpolation_type or "AUTO_DETECT").upper()
+    if kind == "AUTO_DETECT":
+        kind = "NEAREST" if integer else "LINEAR"
+    if kind not in ("NEAREST", "LINEAR"):
+        _refuse("Percentile", "percentile_interpolation_type", percentile_interpolation_type)
+    from ._raster import _align
+    raw, masks, _ = _align([r for r in opened if isinstance(r, Raster)], "Percentile")
+    stack = np.stack([np.where(m, np.nan, a.astype(np.float64)) for a, m in zip(raw, masks)])
+    p = float(percentile_value)
+    method = "inverted_cdf" if kind == "NEAREST" else "linear"
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        value = np.nanpercentile(stack, p, axis=0, method=method)
+    empty = np.isnan(value)
+    if not ignore_nodata:
+        empty |= np.isnan(stack).any(axis=0)
+    out = np.where(empty, 0, value)
+    return Raster._of(out.astype(np.int64) if kind == "NEAREST" and integer else out, empty, grid)
+
+
+_REFUSED.pop("Percentile", None)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)

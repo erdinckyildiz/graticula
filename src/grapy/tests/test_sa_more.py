@@ -451,5 +451,13 @@ class Equivalents(_Fixture):
             sa.Spline(many, "z", 1)
 
 
+    def test_percentile_across_rasters(self):
+        four = [grid([[v]]) for v in (1, 2, 3, 4)]
+        # Integers take type 1: the 50th percentile of 1…4 is the value at rank ⌈0.5·4⌉ = 2.
+        self.assertEqual(cells(sa.Percentile(four, 50)), [[2]])
+        # Floating point takes type 7: position 1 + 3·0.5 = 2.5, half way between 2 and 3.
+        self.assertEqual(cells(sa.Percentile([grid([[float(v)]]) for v in (1, 2, 3, 4)], 50)), [[2.5]])
+
+
 if __name__ == "__main__":
     unittest.main()
