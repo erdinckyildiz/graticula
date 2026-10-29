@@ -233,8 +233,22 @@ internal static class MigrationPlan
                 continue;
             }
 
-            JsonElement document = await InventoryScan.GetAsync(http, $"{services}/{name}/{type}", token, cancellationToken)
-                .ConfigureAwait(false);
+            // <b>A service listed and gone by the time it is read is skipped and said</b> — CI 2026-10-29: another test
+            // deleted its own service between this walk's listing and its read, and the whole plan failed on a service
+            // nobody meant to migrate. Anything other than a 404 still stops the plan.
+            JsonElement document;
+
+            try
+            {
+                document = await InventoryScan.GetAsync(http, $"{services}/{name}/{type}", token, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (InventoryScan.GoneException gone)
+            {
+                await output.WriteLineAsync($"skipped {name}/{type}: listed, then gone when read ({gone.Message})")
+                    .ConfigureAwait(false);
+                continue;
+            }
 
             // The service's layers and, since ADR-213, its tables, each listed as the service lists it.
             List<(JsonElement Listed, bool IsTable)> members = [];
@@ -260,8 +274,20 @@ internal static class MigrationPlan
                 }
 
                 int id = listedLayer.GetProperty("id").GetInt32();
-                JsonElement layer = await InventoryScan.GetAsync(http, $"{services}/{name}/{type}/{id}", token, cancellationToken)
-                    .ConfigureAwait(false);
+                JsonElement layer;
+
+                try
+                {
+                    layer = await InventoryScan.GetAsync(http, $"{services}/{name}/{type}/{id}", token, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (InventoryScan.GoneException gone)
+                {
+                    // The same race one level down: the service was read and its layer is gone.
+                    await output.WriteLineAsync($"skipped {name}/{type}/{id}: listed, then gone when read ({gone.Message})")
+                        .ConfigureAwait(false);
+                    continue;
+                }
 
                 string layerName = layer.TryGetProperty("name", out JsonElement n) ? n.GetString() ?? $"{id}" : $"{id}";
                 (Table? match, string note) = Match(layerName, tables, isTable);
