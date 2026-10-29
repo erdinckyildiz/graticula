@@ -88,6 +88,9 @@ class _Environment:
         self.overwriteOutput = True
         self.outputCoordinateSystem = None
         self.extent = None
+        self.cellSize = None
+        self.mask = None
+        self.snapRaster = None
         self.addOutputsToMap = False
 
     @property

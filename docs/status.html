@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>1eca9049</code> · 2026-10-29 15:12</p>
+<p class="stamp">Generated from commit <code>26a715f5</code> · 2026-10-29 15:15</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">222</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
@@ -561,7 +561,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </div></section>
 <section><h2>grapy against arcpy</h2>
 <p class="sub">Names grapy builds, of the public names arcpy 3.7 has in each module. Counted by tools/grapy_surface.py from grapy’s source; a name grapy refuses is not counted.</p><div class="bars">
-<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:20.8%"></div></div><div class="bar-n">38 / 183</div></div>
+<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">41 / 183</div></div>
 <div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:13.8%"></div></div><div class="bar-n">4 / 29</div></div>
 <div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:5.1%"></div></div><div class="bar-n">23 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:47.5%"></div></div><div class="bar-n">19 / 40</div></div>
@@ -569,12 +569,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:18.5%"></div></div><div class="bar-n">70 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:17.6%"></div></div><div class="bar-n">61 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 42</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>26a715f5</code><time>2026-10-29</time><span>grapy aims at arcpy&#x27;s whole buildable surface, and the counter covers it (ADR-224, condition 1)</span></li>
 <li><code>1eca9049</code><time>2026-10-29</time><span>User toolboxes run fenced on grapy, analysis is complete, and a dense layer&#x27;s visible range is suggested (ADR-223, ADR-222, D-267; migrations 111 and 112)</span></li>
 <li><code>d23f7222</code><time>2026-10-29</time><span>Analysis is built in: six tools as ArcGIS&#x27;s Spatial Analysis Service, run from Studio and from the ArcGIS API for Python; MySqlConnector 2.6.1; debts closed (ADR-222 c1, c2, c6, c3 and c7 partly; D-313, D-279, D-270, D-287, D-266 and D-321 partly; Q-192)</span></li>
 <li><code>ce52afbc</code><time>2026-10-29</time><span>Studio keeps documents, System gets Backups, and screens for service accounts, answer lifetimes, terms, categories, favourites and the recycle bin (ADR-188 c4, ADR-193 c4, ADR-200 c3, ADR-202 c1, ADR-203 c2, ADR-211 c1, ADR-214 c1; D-303, D-305, D-308, D-318, D-319, D-320; Q-187, Q-190)</span></li>
@@ -588,7 +589,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>dbd13da4</code><time>2026-10-26</time><span>Two organisations partner before their groups mix, as in ArcGIS Online&#x27;s partnered collaboration (ADR-219, ADR-204 §5e item 17.3)</span></li>
 <li><code>3aec1d9f</code><time>2026-10-25</time><span>The issued-password form is shown alone, without the console painted under it</span></li>
 <li><code>9a97a3fe</code><time>2026-10-25</time><span>A new organisation&#x27;s host needs no change to the proxy: /healthz/certificate answers an on-demand TLS ask (ADR-204 §5e item 19)</span></li>
-<li><code>344aaa66</code><time>2026-10-25</time><span>README and the deployment guide say what organisations own since v1.0.458 (ADR-204 §5e items 14-18)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

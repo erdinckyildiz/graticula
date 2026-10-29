@@ -2,7 +2,8 @@
 
 arcpy's names are tools/arcpy-surface.json, read from an installed arcpy (its `about` says which). grapy's are read from
 its source with `ast`, so this needs none of grapy's wheels: a module-level `def` or `class` whose name does not begin
-with `_`, a public name assigned one (an alias), and in the package itself the names it imports from its private modules. A name grapy answers only through a
+with `_`, a public name assigned one (an alias), the names it imports from a sibling public module (arcpy.ia answers sa's functions), and in the package itself the names it
+imports from its private modules. A name grapy answers only through a
 module `__getattr__` is one it refuses (NotBuiltError), and is not counted.
 
     python tools/grapy_surface.py            # one line per module
@@ -28,7 +29,7 @@ def _defined(path, imports=False):
         elif isinstance(node, ast.Assign):
             # A documented alias of a tool built above — DeleteRows = DeleteFeatures — is that name built.
             names.update(t.id for t in node.targets if isinstance(t, ast.Name) and not t.id.startswith("_"))
-        elif imports and isinstance(node, ast.ImportFrom) and node.level == 1 and (node.module or "").startswith("_"):
+        elif isinstance(node, ast.ImportFrom) and node.level == 1 and (imports or not (node.module or "").startswith("_")):
             names.update(a.asname or a.name for a in node.names if not (a.asname or a.name).startswith("_"))
     return names
 

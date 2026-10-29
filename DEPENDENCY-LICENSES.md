@@ -160,6 +160,30 @@ DejaVu holds for them in the SIL Open Font License's own terms:
   nothing here modifies them, and the served stack keeps the name `DejaVu Sans Regular`,
   which is a stack name and not a font's.
 
+## grapy's Python wheels — the image's `/opt/grapy`, added 2026-10-29
+
+[ADR-223](docs/adr/ADR-223-user-tools-run-sandboxed-on-grapy.md) §5.6 and
+[ADR-224](docs/adr/ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) put a curated wheel set in the server
+image for users' toolboxes. **None of them is linked into anything .NET.** They are installed into a virtual
+environment that only the tool runner's child process loads. This section was missing until 2026-10-29: the first
+seven wheels went into the image with ADR-223, and no row was written for them. Licences were read from each project's
+PyPI metadata (`license_expression`, or the classifier where that is all there is) on 2026-10-29.
+
+| Package | Version read | Licence | Compatible with the outbound licence |
+|---|---|---|---|
+| numpy | 2.5.4 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | **Yes**, all permissive |
+| pandas | 3.1.0 | BSD-3-Clause | **Yes** |
+| shapely | 2.2.0 | BSD-3-Clause; its wheel bundles **GEOS**, LGPL-2.1, as a shared library | **Yes**: LGPL, dynamically loaded, unmodified |
+| pyproj | 3.8.0 | MIT; its wheel bundles **PROJ**, MIT | **Yes** |
+| pyarrow | 26.0.0 | Apache-2.0 | **Yes** |
+| pyogrio | 0.13.0 | MIT; its wheel bundles **GDAL**, MIT-style (see *GDAL* below for the components) | **Yes** |
+| geopandas | 1.2.0 | BSD-3-Clause | **Yes** |
+| rasterio | 1.5.2 | BSD-3-Clause; its wheel bundles GDAL as pyogrio's does | **Yes** — added with `grapy.sa` (ADR-224) |
+| scipy | 1.18.1 | BSD-3-Clause (the classifier says *BSD License*) | **Yes** — added with `grapy.sa` (ADR-224) |
+
+**The image installs the newest of each when it is built**, so the version column says what was read, not what was
+pinned. A wheel whose licence changes would change here only if somebody looked. Pinning is the open part of this row.
+
 ## Transitive dependencies — enumerated 2026-08-24
 
 **[D-06](docs/architecture-debt.md)'s missing step, which was one command.** The §66

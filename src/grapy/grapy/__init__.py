@@ -12,6 +12,7 @@ from ._geometry import Array, Geometry, Multipoint, Point, PointGeometry, Polygo
 from ._parameter import Field, Filter, Parameter
 from ._reference import Extent, SpatialReference
 from ._result import Result
+from ._raster import NumPyArrayToRaster, Raster, RasterToNumPyArray
 from ._runtime import (AddError, AddIDMessage, AddMessage, AddWarning, ExecuteError, ExecuteWarning, NotBuiltError, GetMessageCount,
                        GetMessages, GetParameter, GetParameterAsText, GetParameterCount, ResetProgressor, SetParameter,
                        SetParameterAsText, SetProgressor, SetProgressorLabel, SetProgressorPosition, env)
@@ -128,7 +129,7 @@ def ValidateFieldName(name, workspace=None):
     return cleaned if cleaned and not cleaned[0].isdigit() else f"_{cleaned}"
 
 
-from . import analysis, conversion, da, graticula, management  # noqa: E402 — they import the names above
+from . import analysis, conversion, da, graticula, ia, management, sa  # noqa: E402 — they import the names above
 
 
 def __getattr__(name):
