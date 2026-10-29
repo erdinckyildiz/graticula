@@ -26,7 +26,11 @@ def _path(out_path, out_name=None):
 
 def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=None, has_m="DISABLED", has_z="DISABLED",
                        spatial_reference=None, *_, **__):
+    """A new, empty feature class. Inside a feature dataset (``<file>.gpkg/<dataset>``, see CreateFeatureDataset) it
+    takes the dataset's spatial reference when none is given, and one that differs is an error, as a feature dataset's
+    classes share one coordinate system."""
     from ._reference import reference_of
+    from ._runtime import ExecuteError
     shape = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon"}[geometry_type.upper()]
     reference = reference_of(spatial_reference)
     columns = []
@@ -35,8 +39,31 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
         columns = _gpkg.describe(connection, table)[0]
         connection.close()
     path = _path(out_path, out_name)
-    _gpkg.create(path, shape, reference.factoryCode if reference else 0, columns)
+    code = reference.factoryCode if reference else 0
+    dataset = _feature_dataset_of(path)
+    if dataset is not None:
+        if reference is None:
+            code = dataset
+        elif dataset and code != dataset:
+            raise ExecuteError(f"ERROR 000622: the feature dataset's spatial reference is EPSG:{dataset}, not EPSG:{code}.")
+    _gpkg.create(path, shape, code, columns)
     return Result(path)
+
+
+def _feature_dataset_of(path):
+    """The spatial reference code of the feature dataset a feature class path lies in, or None outside one."""
+    file, table = _gpkg.split(path)
+    if not table or "/" not in table or not os.path.exists(file):
+        return None
+    connection = _gpkg.connect(file)
+    try:
+        if not connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+            return None
+        row = connection.execute("select srs_id from grapy_feature_datasets where name = ?",
+                                 (table.rsplit("/", 1)[0],)).fetchone()
+        return int(row[0]) if row else None
+    finally:
+        connection.close()
 
 
 def AddField(in_table, field_name, field_type, field_precision=None, field_scale=None, field_length=None,
@@ -3168,6 +3195,586 @@ def Shift(in_raster, out_raster, x_value, y_value, in_snap_raster=None):
     g = raster._grid
     grid = _Grid(g.left + float(x_value), g.top + float(y_value), g.width, g.height, g.rows, g.columns, g.srid)
     return _write_raster(raster._array.copy(), raster._mask.copy(), grid, _raster_path(out_raster, "Shift"))
+
+
+# ---- workspaces, values and caches ---------------------------------------------------------------------------------------
+
+def CreateFeatureDataset(out_dataset_path, out_name, spatial_reference=None):
+    """A feature dataset: a group of feature classes sharing one coordinate system. INFERRED: a GeoPackage has no such
+    container, so the dataset is a name prefix — its classes are ``<file>.gpkg/<dataset>/<class>`` tables — and its
+    spatial reference is kept in a table of grapy's, ``grapy_feature_datasets``, which CreateFeatureclass reads to give
+    a class created there the dataset's reference. The answer is the dataset's path, to create classes in."""
+    from ._reference import reference_of
+    from ._runtime import ExecuteError
+    file, table = _gpkg.split(_text(out_dataset_path))
+    if table:
+        raise ExecuteError("ERROR 000732: a feature dataset is made in a GeoPackage, not inside a table or dataset.")
+    if not os.path.exists(file):
+        raise ExecuteError(f"ERROR 000732: '{file}' does not exist.")
+    reference = None
+    if _given(spatial_reference):
+        try:
+            reference = reference_of(spatial_reference)
+        except Exception:
+            code = _schema(_source(spatial_reference)[0])[2]
+            reference = reference_of(code) if code > 0 else None
+    name = _text(out_name)
+    connection = _gpkg.connect(file)
+    try:
+        connection.execute("create table if not exists grapy_feature_datasets (name text primary key, srs_id integer not null)")
+        if connection.execute("select 1 from grapy_feature_datasets where name = ?", (name,)).fetchone():
+            raise ExecuteError(f"ERROR 000258: the feature dataset '{name}' already exists.")
+        connection.execute("insert into grapy_feature_datasets values (?, ?)", (name, reference.factoryCode if reference else 0))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(out_dataset_path).rstrip("/\\") + "/" + name)
+
+
+def CalculateValue(expression, code_block=None, data_type="Variant"):
+    """A Python expression's value, with the functions of ``code_block`` in scope, converted to ``data_type`` when it
+    names a plain type. INFERRED: the output is written as text, as GetCount's is; ``Long``, ``Double``, ``String`` and
+    ``Boolean`` convert, other types are kept as computed."""
+    scope: dict = {}
+    if code_block:
+        exec(code_block, scope)  # noqa: S102 — the tool's own code, in the tool's own fenced process (ADR-223 §5.3)
+    value = eval(str(expression), scope)  # noqa: S307 — as above
+    kind = str(data_type or "Variant").upper()
+    convert = {"LONG": int, "DOUBLE": float, "STRING": str, "BOOLEAN": bool}.get(kind)
+    if convert is not None:
+        value = convert(value)
+    return Result(str(value))
+
+
+def ClearWorkspaceCache(in_data=None):
+    """Clears the cache of enterprise geodatabase connections. grapy keeps no connection open between tools, so there
+    is nothing to clear and nothing any later answer depends on."""
+    return Result(_text(in_data) if in_data is not None else "")
+
+
+# ---- tables -------------------------------------------------------------------------------------------------------------
+
+def PivotTable(in_table, fields, pivot_field, value_field, out_table):
+    """A row for each combination of ``fields``, and a field for each value of ``pivot_field`` holding that row's
+    ``value_field``. A numeric pivot value is appended to the pivot field's name, as documented; a combination of
+    fields and pivot value that is not unique, or a null pivot value, fails, as documented. INFERRED: a text pivot value
+    is the field name itself (a value starting with a digit is not built: the page says its values become 0); rows come
+    in the order their combination is first read and pivot fields in ascending order of value; a missing combination
+    is null."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(in_table)
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    keys = [columns[f.lower()] for f in _list(fields)]
+    pivot, value = columns[str(pivot_field).lower()], columns[str(value_field).lower()]
+    table: dict = {}
+    seen = set()
+    with da.SearchCursor(path, [*[k.name for k in keys], pivot.name, value.name], where) as rows:
+        for row in rows:
+            key, label, cell = tuple(row[:len(keys)]), row[-2], row[-1]
+            if label is None:
+                raise ExecuteError(f"ERROR 001156: the pivot field '{pivot.name}' holds a null value.")
+            if (key, label) in seen:
+                raise ExecuteError("ERROR 001156: the combination of input fields and pivot field is not unique.")
+            seen.add((key, label))
+            table.setdefault(key, {})[label] = cell
+    labels = sorted({label for _, label in seen})
+    names = []
+    for label in labels:
+        if isinstance(label, (int, float)):
+            names.append(f"{pivot.name}{int(label) if float(label).is_integer() else label}")
+        else:
+            if not str(label) or str(label)[0].isdigit():
+                raise NotBuiltError("arcpy.management.PivotTable: a text pivot value starting with a digit is not built in grapy.")
+            names.append(str(label))
+    out = _table_out("PivotTable", out_table)
+    _gpkg.create(out, "Geometry", 0, [*keys, *[_gpkg.Column(n, value.type) for n in names]])
+    with da.InsertCursor(out, [*[k.name for k in keys], *names, "SHAPE@"]) as written:
+        for key, cells in table.items():
+            written.insertRow((*key, *[cells.get(label) for label in labels], None))
+    return Result(out)
+
+
+_FORMAT_TOKENS = ("unix_hex", "unix_us", "unix_ms", "unix_s", "yyyy", "MMM", "MM", "ddd", "dd", "HH", "hh", "mm", "ss",
+                  "tt", "t")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _tokens(fmt, tool):
+    """A custom time format as a list of tokens and literal characters; any other letter is refused."""
+    parts, i = [], 0
+    while i < len(fmt):
+        for token in _FORMAT_TOKENS:
+            if fmt.startswith(token, i):
+                parts.append(("token", token))
+                i += len(token)
+                break
+        else:
+            ch = fmt[i]
+            if ch.isalpha() and ch not in "TZ":
+                raise NotBuiltError(f"arcpy.management.{tool}: the format letter '{ch}' in '{fmt}' is not built in grapy.")
+            parts.append(("literal", ch))
+            i += 1
+    return parts
+
+
+def _parse_time(value, fmt, tool):
+    """A value read by a custom format, or None when it does not fit it."""
+    import datetime
+    import re
+    if fmt is None:
+        try:
+            parsed = datetime.datetime.fromisoformat(str(value))
+        except ValueError:
+            return None
+        if parsed.tzinfo is not None:
+            raise NotBuiltError(f"arcpy.management.{tool}: times with a UTC offset are not built in grapy.")
+        return parsed
+    parts = _tokens(fmt, tool)
+    if len(parts) == 1 and parts[0][1].startswith("unix_"):
+        token = parts[0][1]
+        try:
+            number = int(str(value), 16) if token == "unix_hex" else float(value)
+        except ValueError:
+            return None
+        scale = {"unix_us": 1e6, "unix_ms": 1e3}.get(token, 1)
+        return datetime.datetime(1970, 1, 1) + datetime.timedelta(seconds=number / scale)
+    patterns = {"yyyy": r"(?P<yyyy>\d{4})", "MMM": r"(?P<MMM>[A-Za-z]{3})", "MM": r"(?P<MM>\d{1,2})",
+                "ddd": r"(?P<ddd>[A-Za-z]{3})", "dd": r"(?P<dd>\d{1,2})", "HH": r"(?P<HH>\d{1,2})",
+                "hh": r"(?P<hh>\d{1,2})", "mm": r"(?P<mm>\d{1,2})", "ss": r"(?P<ss>\d{1,2}(?:\.\d+)?)",
+                "tt": r"(?P<tt>[AaPp][Mm])", "t": r"(?P<t>[AaPp])"}
+    regex = "".join(patterns[p] if kind == "token" else re.escape(p) for kind, p in parts)
+    match = re.fullmatch(regex, str(value).strip())
+    if not match:
+        return None
+    got = match.groupdict()
+    try:
+        month = int(got["MM"]) if got.get("MM") else (_MONTHS.index(got["MMM"].title()) + 1 if got.get("MMM") else 1)
+        hour = int(got["HH"]) if got.get("HH") else int(got.get("hh") or 0)
+        marker = (got.get("tt") or got.get("t") or "").upper()
+        if got.get("hh") and marker:
+            hour = hour % 12 + (12 if marker.startswith("P") else 0)
+        seconds = float(got.get("ss") or 0)
+        return datetime.datetime(int(got.get("yyyy") or 1899), month, int(got.get("dd") or 1), hour, int(got.get("mm") or 0),
+                                 int(seconds), int(round((seconds - int(seconds)) * 1e6)))
+    except (ValueError, KeyError):
+        return None
+
+
+def _format_time(moment, fmt, tool):
+    out = []
+    for kind, part in _tokens(fmt, tool):
+        if kind == "literal":
+            out.append(part)
+            continue
+        out.append({"yyyy": f"{moment.year:04d}", "MMM": _MONTHS[moment.month - 1], "MM": f"{moment.month:02d}",
+                    "ddd": _DAYS[moment.weekday()], "dd": f"{moment.day:02d}", "HH": f"{moment.hour:02d}",
+                    "hh": f"{(moment.hour % 12) or 12:02d}", "mm": f"{moment.minute:02d}", "ss": f"{moment.second:02d}",
+                    "tt": "AM" if moment.hour < 12 else "PM", "t": "A" if moment.hour < 12 else "P"}.get(part)
+                   or _unix(moment, part))
+    return "".join(out)
+
+
+def _unix(moment, token):
+    import datetime
+    seconds = (moment - datetime.datetime(1970, 1, 1)).total_seconds()
+    if token == "unix_hex":
+        return format(int(seconds), "x")
+    return str(int(round(seconds * {"unix_us": 1e6, "unix_ms": 1e3}.get(token, 1))))
+
+
+def ConvertTimeField(in_table, input_time_field, input_time_format=None, output_time_field=None, output_time_type="DATE",
+                     output_time_format=None, timezone_or_field=None):
+    """A new field holding each row's time read from ``input_time_field`` by ``input_time_format`` — the documented
+    tokens ``yyyy MM MMM dd ddd HH hh mm ss t tt`` and ``unix_s``, ``unix_ms``, ``unix_us``, ``unix_hex`` — and
+    written as ``output_time_type``, by ``output_time_format`` for text and numbers. INFERRED: a value that does not fit
+    the format is null; a date is written ``YYYY-MM-DDTHH:MM:SS``, a date only ``YYYY-MM-DD`` and a time only
+    ``HH:MM:SS``; unix times are UTC; a part the format lacks is taken from 1899-01-01 00:00:00. Locale prefixes, ``TIMESTAMPOFFSET``, times with a UTC offset and time zones are not
+    built."""
+    from . import da
+    from ._runtime import ExecuteError
+    if _given(timezone_or_field):
+        raise NotBuiltError("arcpy.management.ConvertTimeField: time zones are not built in grapy.")
+    kind = str(output_time_type or "DATE").upper()
+    types = {"DATE": "Date", "DATEONLY": "Date", "TIMEONLY": "String", "TEXT": "String", "LONG": "Integer",
+             "SHORT": "SmallInteger", "BIGINTEGER": "Integer", "DOUBLE": "Double", "FLOAT": "Single"}
+    if kind not in types:
+        raise NotBuiltError(f"arcpy.management.ConvertTimeField: output_time_type '{kind}' is not built in grapy.")
+    for fmt in (input_time_format, output_time_format):
+        if _given(fmt) and ";" in str(fmt):
+            raise NotBuiltError("arcpy.management.ConvertTimeField: locale-prefixed formats are not built in grapy.")
+    if kind not in ("DATE", "DATEONLY", "TIMEONLY") and not _given(output_time_format):
+        raise ExecuteError("ERROR 000735: an output time format is needed for a text or numeric output.")
+    path = _plain("ConvertTimeField", in_table)
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    source = columns[str(input_time_field).lower()]
+    if str(output_time_field).lower() in columns:
+        raise ExecuteError(f"ERROR 000012: the field '{output_time_field}' already exists.")
+    fmt = None if source.type == "Date" or not _given(input_time_format) else str(input_time_format)
+    if fmt is None and source.type != "Date":
+        raise ExecuteError("ERROR 000735: an input time format is needed for a text or numeric field.")
+    _gpkg.add_column(path, _gpkg.Column(str(output_time_field), types[kind]))
+    with da.UpdateCursor(path, [source.name, str(output_time_field)]) as rows:
+        for row in rows:
+            raw = row[0]
+            if isinstance(raw, float) and raw.is_integer() and fmt and not fmt.startswith("unix_"):
+                raw = int(raw)
+            moment = _parse_time(raw, fmt, "ConvertTimeField") if raw is not None else None
+            if moment is None:
+                out = None
+            elif kind == "DATE":
+                out = moment.isoformat(sep="T", timespec="seconds")
+            elif kind == "DATEONLY":
+                out = moment.date().isoformat()
+            elif kind == "TIMEONLY":
+                out = moment.time().isoformat(timespec="seconds")
+            else:
+                text = _format_time(moment, str(output_time_format), "ConvertTimeField")
+                try:
+                    out = text if kind == "TEXT" else (float(text) if kind in ("DOUBLE", "FLOAT") else int(text))
+                except ValueError:
+                    raise NotBuiltError(f"arcpy.management.ConvertTimeField: '{text}' is not a number for {kind}.")
+            rows.updateRow([row[0], out])
+    return Result(_text(in_table))
+
+
+# ---- comparing ----------------------------------------------------------------------------------------------------------
+
+def _compare_rows(base, test, sort_field, tolerances, omit, with_shapes, xy_tolerance):
+    """Whether two datasets' rows, each sorted ascending by ``sort_field``, hold the same values pair by pair."""
+    import shapely
+    from . import da
+    names = [c.name for c in _schema(_source(base)[0])[0] if c.name.lower() not in omit]
+    order = ", ".join(f'"{f}"' for f in _list(sort_field))
+
+    def read(value):
+        path, where = _source(value)
+        test_names = {c.name.lower(): c.name for c in _schema(path)[0]}
+        fields = [test_names.get(n.lower(), n) for n in names] + (["SHAPE@"] if with_shapes else [])
+        with da.SearchCursor(path, fields, where, sql_clause=(None, f"order by {order}" if order else None)) as rows:
+            return [list(r) for r in rows]
+
+    left, right = read(base), read(test)
+    if len(left) != len(right):
+        return False
+    for a, b in zip(left, right):
+        for i, name in enumerate(names):
+            x, y = a[i], b[i]
+            tolerance = tolerances.get(name.lower())
+            if tolerance is not None and x is not None and y is not None:
+                if abs(float(x) - float(y)) > tolerance:
+                    return False
+            elif x != y:
+                return False
+        if with_shapes:
+            x, y = a[-1], b[-1]
+            if (x is None) != (y is None):
+                return False
+            if x is not None and not shapely.equals_exact(shapely.normalize(x._shape), shapely.normalize(y._shape),
+                                                          xy_tolerance):
+                return False
+    return True
+
+
+def _same_schema(base, test, omit):
+    def described(value):
+        columns, shape, _, _ = _schema(_source(value)[0])
+        return [(c.name.lower(), c.type) for c in columns if c.name.lower() not in omit], shape
+    return described(base) == described(test)
+
+
+def _compare_common(tool, out_compare_file, attribute_tolerances, omit_field):
+    if _given(out_compare_file):
+        raise NotBuiltError(f"arcpy.management.{tool}: out_compare_file is not built in grapy; its columns and messages "
+                            "are not documented.")
+    tolerances = {f.lower(): float(t) for f, *rest in _pairs(attribute_tolerances) for t in (rest or ["0"])}
+    omit = {f.lower() for f in _list(omit_field)}
+    return tolerances, omit
+
+
+def TableCompare(in_base_table, in_test_table, sort_field, compare_type="ALL", ignore_options=None,
+                 attribute_tolerances=None, omit_field=None, continue_compare="NO_CONTINUE_COMPARE", out_compare_file=None):
+    """Whether two tables are the same: their schemas (field names and types, omitted fields left out) and their rows,
+    both sorted ascending by ``sort_field`` and compared pair by pair, numeric fields within their tolerance. The
+    outputs are the base table and ``'true'`` or ``'false'``, as documented. INFERRED: field names compare without
+    regard to case and in order; ``ignore_options`` change nothing here, grapy keeping no aliases, subtypes, extension
+    properties or relationship classes. The compare file is not built."""
+    tolerances, omit = _compare_common("TableCompare", out_compare_file, attribute_tolerances, omit_field)
+    kind = str(compare_type or "ALL").upper()
+    same = True
+    if kind in ("ALL", "SCHEMA_ONLY"):
+        same = _same_schema(in_base_table, in_test_table, omit)
+    if same and kind in ("ALL", "ATTRIBUTES_ONLY"):
+        same = _compare_rows(in_base_table, in_test_table, sort_field, tolerances, omit, False, 0.0)
+    return Result(_text(in_base_table), "true" if same else "false")
+
+
+def FeatureCompare(in_base_features, in_test_features, sort_field, compare_type="ALL", ignore_options=None,
+                   xy_tolerance=None, m_tolerance=None, z_tolerance=None, attribute_tolerances=None, omit_field=None,
+                   continue_compare="NO_CONTINUE_COMPARE", out_compare_file=None):
+    """Whether two feature classes are the same — schema, spatial reference, geometry and attributes, or one of them as
+    ``compare_type`` says — the features paired after sorting both ascending by ``sort_field``, as documented. The
+    outputs are the base features and ``'true'`` or ``'false'``. Geometry is compared only between the same spatial
+    reference, with no projecting on the fly, as documented. INFERRED: two shapes are equal when, their vertices in a
+    canonical order, each pair of vertices lies within ``xy_tolerance``; with none given the tolerance is 0.001 m (or
+    its equivalent in the data's units), the default xy tolerance of a geodatabase. The compare file is not built."""
+    from ._reference import SpatialReference
+    tolerances, omit = _compare_common("FeatureCompare", out_compare_file, attribute_tolerances, omit_field)
+    kind = str(compare_type or "ALL").upper()
+    base_srid = _schema(_source(in_base_features)[0])[2]
+    test_srid = _schema(_source(in_test_features)[0])[2]
+    if _given(xy_tolerance):
+        tolerance = _linear(xy_tolerance, base_srid, "FeatureCompare")
+    elif base_srid > 0 and SpatialReference(base_srid).type == "Geographic":
+        tolerance = 8.983152841195214e-09
+    else:
+        tolerance = 0.001 / (_per_unit(base_srid) or 1.0)
+    same = True
+    if kind in ("ALL", "SPATIAL_REFERENCE_ONLY", "GEOMETRY_ONLY"):
+        same = base_srid == test_srid
+    if same and kind in ("ALL", "SCHEMA_ONLY"):
+        same = _same_schema(in_base_features, in_test_features, omit)
+    if same and kind in ("ALL", "GEOMETRY_ONLY", "ATTRIBUTES_ONLY"):
+        with_shapes = kind in ("ALL", "GEOMETRY_ONLY")
+        with_values = kind in ("ALL", "ATTRIBUTES_ONLY")
+        drop = omit if with_values else omit | {c.name.lower() for c in _schema(_source(in_base_features)[0])[0]}
+        same = _compare_rows(in_base_features, in_test_features, sort_field, tolerances, drop, with_shapes, tolerance)
+    return Result(_text(in_base_features), "true" if same else "false")
+
+
+# ---- polygons and lines -------------------------------------------------------------------------------------------------
+
+def _areal(value, srid, tool):
+    """An areal unit such as ``"100 SquareMeters"`` in the data's square units; a bare number is in them already."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    parts = str(value).split()
+    if len(parts) == 1 or parts[1].upper() == "UNKNOWN":
+        return float(parts[0])
+    unit = parts[1].upper().replace("_", "")
+    per = _per_unit(srid)
+    if per is None or unit not in _SQUARE_UNITS:
+        raise NotBuiltError(f"arcpy.management.{tool}: an area in {parts[1]} here is not built in grapy.")
+    return float(parts[0]) * _SQUARE_UNITS[unit] / per ** 2
+
+
+def EliminatePolygonPart(in_features, out_feature_class, condition="AREA", part_area=0, part_area_percent=0,
+                         part_option="CONTAINED_ONLY"):
+    """Small parts and holes removed from polygons: a part or hole is small when its area is under ``part_area``, or
+    its share of the feature's total outer area (holes included) under ``part_area_percent``, or both or either, as
+    ``condition`` says. A small hole is filled, with any part inside it; with ``CONTAINED_ONLY`` only parts inside
+    another part are removed, with ``ANY`` any small part — but when every part is small the largest is kept, as
+    documented. INFERRED: a part's area is its outer ring's; fields are carried as they are."""
+    import shapely
+    from shapely.geometry import Polygon as ShapelyPolygon
+    from . import da
+    columns, _, srid, _ = _schema(_source(in_features)[0])
+    how = str(condition or "AREA").upper()
+    limit = _areal(part_area, srid, "EliminatePolygonPart") if _given(part_area) else 0.0
+    percent = float(part_area_percent or 0)
+    contained_only = str(part_option or "CONTAINED_ONLY").upper() == "CONTAINED_ONLY"
+
+    def small(area, total):
+        by_area, by_percent = area < limit, (area / total * 100 if total else 0) < percent
+        return {"AREA": by_area, "PERCENT": by_percent, "AREA_AND_PERCENT": by_area and by_percent,
+                "AREA_OR_PERCENT": by_area or by_percent}[how]
+
+    out = _path(out_feature_class)
+    _gpkg.create(out, "Polygon", srid, columns)
+    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for _, values, shape in _features(in_features):
+            if shape is None or shape.is_empty:
+                written.insertRow((*values, shape))
+                continue
+            parts = _parts(shape)
+            total = sum(ShapelyPolygon(p.exterior).area for p in parts)
+            kept = []
+            for part in parts:
+                holes = [h for h in part.interiors if not small(ShapelyPolygon(h).area, total)]
+                kept.append(ShapelyPolygon(part.exterior, holes))
+            outers = [ShapelyPolygon(p.exterior) for p in kept]
+            survivors = []
+            for i, part in enumerate(kept):
+                inside = any(j != i and outers[j].contains(outers[i]) for j in range(len(kept)))
+                covered = inside and any(j != i and kept[j].contains(outers[i]) for j in range(len(kept)))
+                if covered:
+                    continue                      # it lay in a hole that has been filled
+                if small(outers[i].area, total) and (inside or not contained_only):
+                    continue
+                survivors.append(part)
+            if not survivors:
+                survivors = [max(kept, key=lambda p: ShapelyPolygon(p.exterior).area)]
+            written.insertRow((*values, shapely.MultiPolygon(survivors) if len(survivors) > 1 else survivors[0]))
+    return Result(out)
+
+
+def GenerateTransectsAlongLines(in_features, out_feature_class, interval, transect_length, include_ends="NO_END_POINTS"):
+    """Lines across each input line every ``interval`` from its start, ``transect_length`` long in all and centred on
+    it, perpendicular to it, with ``ORIG_FID``, as documented. INFERRED: the transects stop short of the end, which
+    ``END_POINTS`` adds with the start; at a vertex the transect is square to the segment leaving it (at the end, the
+    one arriving). Multipart lines are not built."""
+    import math
+    from shapely.geometry import LineString
+    from . import da
+    srid = _schema(_source(in_features)[0])[2]
+    step = _linear(interval, srid, "GenerateTransectsAlongLines")
+    half = _linear(transect_length, srid, "GenerateTransectsAlongLines") / 2
+    ends = str(include_ends or "NO_END_POINTS").upper() == "END_POINTS"
+    out = _path(out_feature_class)
+    _gpkg.create(out, "Polyline", srid, [_gpkg.Column("ORIG_FID", "Integer")])
+    with da.InsertCursor(out, ["ORIG_FID", "SHAPE@"]) as written:
+        for oid, _, shape in _features(in_features):
+            if shape is None or shape.is_empty:
+                continue
+            lines = _parts(shape)
+            if len(lines) > 1:
+                raise NotBuiltError("arcpy.management.GenerateTransectsAlongLines on a multipart line is not built in grapy.")
+            line = lines[0]
+            coordinates = [c[:2] for c in line.coords]
+            stops = _steps(step, line.length)
+            if ends:
+                stops = sorted({0.0, *stops, line.length})
+            for at in stops:
+                travelled, segment = 0.0, None
+                for a, b in zip(coordinates, coordinates[1:]):
+                    piece = math.hypot(b[0] - a[0], b[1] - a[1])
+                    if at < travelled + piece or (a, b) == (coordinates[-2], coordinates[-1]):
+                        segment = (a, b)
+                        break
+                    travelled += piece
+                (x0, y0), (x1, y1) = segment
+                length = math.hypot(x1 - x0, y1 - y0)
+                nx, ny = -(y1 - y0) / length, (x1 - x0) / length
+                centre = line.interpolate(at)
+                written.insertRow((oid, LineString([(centre.x + nx * half, centre.y + ny * half),
+                                                    (centre.x - nx * half, centre.y - ny * half)])))
+    return Result(out)
+
+
+# ---- raster datasets ----------------------------------------------------------------------------------------------------
+
+def Mosaic(inputs, target, mosaic_type="LAST", colormap="FIRST", background_value=None, nodata_value=None,
+           onebit_to_eightbit="NONE", mosaicking_tolerance=0, MatchingMethod="NONE"):
+    """Rasters mosaicked into an existing raster, the target's own cells taking part first; where cells overlap
+    ``mosaic_type`` decides, and cells holding ``background_value`` or ``nodata_value`` become NoData, as documented.
+    INFERRED: the target keeps its extent (the page grows it only for CRF), so inputs are cut to it; NoData cells take
+    no part; a ``MEAN`` that is not whole in an integer target is not built. Inputs that do not share the target's
+    cells need resampling and are refused, as are ``BLEND`` and colour matching."""
+    import numpy
+    method = str(mosaic_type or "LAST").upper()
+    if method not in ("FIRST", "LAST", "MEAN", "MINIMUM", "MAXIMUM", "SUM"):
+        raise NotBuiltError(f"arcpy.management.Mosaic: mosaic_type '{method}' is not built in grapy.")
+    if _given(MatchingMethod) and str(MatchingMethod).upper() != "NONE":
+        raise NotBuiltError("arcpy.management.Mosaic: MatchingMethod is not built in grapy.")
+    if _given(onebit_to_eightbit) and str(onebit_to_eightbit).upper() != "NONE":
+        raise NotBuiltError("arcpy.management.Mosaic: onebit_to_eightbit is not built in grapy.")
+    base = _raster_in(target, "Mosaic")
+    g = base._grid
+    layers = [numpy.where(base._mask, numpy.nan, base._array.astype(float))]
+    for each in _list(inputs):
+        r = _raster_in(each, "Mosaic")
+        h = r._grid
+        if h.srid != g.srid or not numpy.isclose(h.width, g.width) or not numpy.isclose(h.height, g.height):
+            raise NotBuiltError("arcpy.management.Mosaic: inputs of another cell size or reference need resampling, "
+                                "which is not built in grapy.")
+        dx, dy = (h.left - g.left) / g.width, (g.top - h.top) / g.height
+        if not (numpy.isclose(dx, round(dx)) and numpy.isclose(dy, round(dy))):
+            raise NotBuiltError("arcpy.management.Mosaic: inputs whose cells do not line up need resampling, which is "
+                                "not built in grapy.")
+        dx, dy = int(round(dx)), int(round(dy))
+        layer = numpy.full((g.rows, g.columns), numpy.nan)
+        r0, c0 = max(0, dy), max(0, dx)
+        r1, c1 = min(g.rows, dy + h.rows), min(g.columns, dx + h.columns)
+        if r1 > r0 and c1 > c0:
+            piece = numpy.where(r._mask, numpy.nan, r._array.astype(float))
+            layer[r0:r1, c0:c1] = piece[r0 - dy:r1 - dy, c0 - dx:c1 - dx]
+        layers.append(layer)
+    stack = numpy.stack(layers)
+    present = ~numpy.isnan(stack)
+    mask = ~present.any(axis=0)
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        if method == "FIRST":
+            result = numpy.take_along_axis(stack, numpy.argmax(present, axis=0)[None], 0)[0]
+        elif method == "LAST":
+            result = numpy.take_along_axis(stack, (len(layers) - 1 - numpy.argmax(present[::-1], axis=0))[None], 0)[0]
+        else:
+            result = {"MEAN": numpy.nanmean, "MINIMUM": numpy.nanmin, "MAXIMUM": numpy.nanmax, "SUM": numpy.nansum}[method](stack, axis=0)
+    result = numpy.where(mask, 0, result)
+    for value in (background_value, nodata_value):
+        if _given(value):
+            mask |= result == float(value)
+    kind = base._array.dtype
+    if numpy.issubdtype(kind, numpy.integer) and not numpy.all(numpy.mod(result[~mask], 1) == 0):
+        raise NotBuiltError("arcpy.management.Mosaic: fractional values in an integer target are not built in grapy.")
+    return _write_raster(result.astype(kind), mask, g, base.catalogPath)
+
+
+def _band_tags(path):
+    import rasterio
+    with rasterio.open(path) as read:
+        return read.tags(1)
+
+
+def CalculateStatistics(in_raster_dataset, x_skip_factor=1, y_skip_factor=1, ignore_values=None,
+                        skip_existing="OVERWRITE", area_of_interest=None):
+    """A raster's statistics stored with it — minimum, maximum, mean and standard deviation of every ``x_skip_factor``
+    -th column and ``y_skip_factor``-th row, NoData and ``ignore_values`` left out. INFERRED: they are stored as the
+    GeoTIFF band's ``STATISTICS_*`` metadata, which GDAL-based readers use, and the standard deviation is the
+    population form. No cell changes. An area of interest is not built."""
+    import numpy
+    import rasterio
+    if _given(area_of_interest):
+        raise NotBuiltError("arcpy.management.CalculateStatistics: area_of_interest is not built in grapy.")
+    raster = _raster_in(in_raster_dataset, "CalculateStatistics")
+    path = raster.catalogPath
+    if str(skip_existing or "OVERWRITE").upper() == "SKIP_EXISTING" and "STATISTICS_MINIMUM" in _band_tags(path):
+        return Result(_text(in_raster_dataset))
+    xs, ys = int(x_skip_factor or 1), int(y_skip_factor or 1)
+    array, mask = raster._array[::ys, ::xs], raster._mask[::ys, ::xs].copy()
+    for value in _list(ignore_values) if not isinstance(ignore_values, (int, float)) else [ignore_values]:
+        mask |= array == float(value)
+    values = array[~mask].astype(float)
+    tags = {} if values.size == 0 else {
+        "STATISTICS_MINIMUM": repr(float(values.min())), "STATISTICS_MAXIMUM": repr(float(values.max())),
+        "STATISTICS_MEAN": repr(float(values.mean())), "STATISTICS_STDDEV": repr(float(values.std()))}
+    with rasterio.open(path, "r+") as dataset:
+        dataset.update_tags(1, **tags)
+    return Result(_text(in_raster_dataset))
+
+
+def BuildPyramids(in_raster_dataset, pyramid_level=-1, SKIP_FIRST="NONE", resample_technique="NEAREST",
+                  compression_type="DEFAULT", compression_quality=75, skip_existing="OVERWRITE"):
+    """Reduced-resolution overviews for display, as the page says pyramids are, built into the GeoTIFF; the cells
+    themselves do not change. INFERRED: each level halves the last; ``-1`` builds levels until the smaller is no more
+    than 256 cells on its longer side; ``SKIP_FIRST`` leaves out the half-size level; the compression options are the
+    file's own. Deleting pyramids (level 0) is not built."""
+    import rasterio
+    from rasterio.enums import Resampling
+    level = int(pyramid_level if pyramid_level not in (None, "", "#") else -1)
+    if level == 0:
+        raise NotBuiltError("arcpy.management.BuildPyramids: deleting pyramids (pyramid_level 0) is not built in grapy.")
+    technique = {"NEAREST": Resampling.nearest, "BILINEAR": Resampling.bilinear, "CUBIC": Resampling.cubic}.get(
+        str(resample_technique or "NEAREST").upper())
+    if technique is None:
+        raise NotBuiltError(f"arcpy.management.BuildPyramids: resample_technique '{resample_technique}' is not built in grapy.")
+    raster = _raster_in(in_raster_dataset, "BuildPyramids")
+    with rasterio.open(raster.catalogPath, "r+") as dataset:
+        if str(skip_existing or "OVERWRITE").upper() == "SKIP_EXISTING" and dataset.overviews(1):
+            return Result(_text(in_raster_dataset))
+        longest = max(dataset.width, dataset.height)
+        factors, factor = [], 2
+        while (level == -1 and longest / factor >= 1 and (not factors or longest / factors[-1] > 256)) or \
+                (level > 0 and len(factors) < level):
+            factors.append(factor)
+            factor *= 2
+        if str(SKIP_FIRST or "NONE").upper() == "SKIP_FIRST":
+            factors = factors[1:]
+        if factors:
+            dataset.build_overviews(factors, technique)
+    return Result(_text(in_raster_dataset))
 
 
 # ---- refused by name ----------------------------------------------------------------------------------------------------

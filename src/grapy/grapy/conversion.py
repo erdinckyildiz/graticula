@@ -830,6 +830,112 @@ def FloatToRaster(in_float_file, out_raster):
     return Result(Raster._of(values, mask, grid).save(out_raster))
 
 
+# ---- KML 2.2 (OGC 07-147r2) ----------------------------------------------------------------------------------------------
+
+def _kml_document(path):
+    import zipfile
+    from xml.etree import ElementTree
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as package:
+            names = [n for n in package.namelist() if n.lower().endswith(".kml")]
+            chosen = "doc.kml" if "doc.kml" in names else (names[0] if names else None)
+            if chosen is None:
+                raise NotBuiltError("arcpy.conversion.KMLToLayer: the KMZ holds no .kml document.")
+            return ElementTree.fromstring(package.read(chosen))
+    return ElementTree.parse(path).getroot()
+
+
+def _kml_coordinates(element, namespace):
+    found = element.find(f"{{{namespace}}}coordinates")
+    text = found.text if found is not None and found.text else ""
+    return [tuple(float(v) for v in item.split(",")[:2]) for item in text.split()]
+
+
+def _kml_shapes(geometry, namespace):
+    """(kind, shapely shape) of each simple geometry in a KML geometry, MultiGeometry opened."""
+    from shapely.geometry import LineString, Point as ShapelyPoint, Polygon as ShapelyPolygon
+    tag = geometry.tag.split("}")[-1]
+    if tag == "Point":
+        return [("Points", ShapelyPoint(_kml_coordinates(geometry, namespace)[0]))]
+    if tag in ("LineString", "LinearRing"):
+        return [("Lines", LineString(_kml_coordinates(geometry, namespace)))]
+    if tag == "Polygon":
+        outer = geometry.find(f"{{{namespace}}}outerBoundaryIs/{{{namespace}}}LinearRing")
+        inner = geometry.findall(f"{{{namespace}}}innerBoundaryIs/{{{namespace}}}LinearRing")
+        return [("Polygons", ShapelyPolygon(_kml_coordinates(outer, namespace),
+                                            [_kml_coordinates(r, namespace) for r in inner]))]
+    if tag == "MultiGeometry":
+        return [s for child in geometry for s in _kml_shapes(child, namespace)]
+    raise NotBuiltError(f"arcpy.conversion.KMLToLayer: the KML geometry '{tag}' is not built in grapy.")
+
+
+def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverlay="NO_GROUNDOVERLAY", out_suffix=None):
+    """A KML 2.2 or KMZ file's placemarks as feature classes in WGS 1984 — ``Points``, ``Lines`` and ``Polygons`` in a
+    feature dataset ``Placemarks`` of a workspace named ``output_data`` (the file's name when none is given), as
+    documented. INFERRED: the workspace is a GeoPackage (see CreateFileGDB) and the dataset a name prefix (see
+    CreateFeatureDataset); the fields are ``Name`` (the placemark's name), ``FolderPath`` (the names of its document
+    and folders, joined with ``/``) and ``PopupInfo`` (its description) — the page names only ``PopupInfo``, and the other
+    fields arcpy writes are not documented, so they are not written; a MultiGeometry's parts of one kind make one
+    multipart feature; altitude is dropped, grapy's shapes being 2D. The layer file, ground overlays, models and
+    ``out_suffix`` are not built."""
+    import shapely
+    from . import da
+    from .management import CreateFeatureDataset, CreateFileGDB
+    if str(include_groundoverlay or "NO_GROUNDOVERLAY").upper() == "GROUNDOVERLAY":
+        raise NotBuiltError("arcpy.conversion.KMLToLayer: ground overlays are not built in grapy.")
+    if _given(out_suffix):
+        raise NotBuiltError("arcpy.conversion.KMLToLayer: out_suffix is not built in grapy; the page does not say how it "
+                            "joins the names.")
+    root = _kml_document(str(in_kml_file))
+    namespace = root.tag[1:root.tag.index("}")] if root.tag.startswith("{") else ""
+    found = {"Points": [], "Lines": [], "Polygons": []}
+
+    def walk(element, folders):
+        for child in element:
+            tag = child.tag.split("}")[-1]
+            if tag in ("Document", "Folder"):
+                name = child.find(f"{{{namespace}}}name")
+                walk(child, folders + ([name.text] if name is not None and name.text else []))
+            elif tag == "Placemark":
+                name = child.find(f"{{{namespace}}}name")
+                description = child.find(f"{{{namespace}}}description")
+                by_kind: dict = {}
+                for geometry in child:
+                    if geometry.tag.split("}")[-1] in ("Point", "LineString", "LinearRing", "Polygon", "MultiGeometry", "Model"):
+                        for kind, shape in _kml_shapes(geometry, namespace):
+                            by_kind.setdefault(kind, []).append(shape)
+                for kind, shapes in by_kind.items():
+                    merged = shapes[0] if len(shapes) == 1 else shapely.union_all(shapes) if kind == "Polygons" else (
+                        shapely.MultiPoint(shapes) if kind == "Points" else shapely.MultiLineString(shapes))
+                    found[kind].append((name.text if name is not None else None, "/".join(folders),
+                                        description.text if description is not None else None, merged))
+
+    walk(root, [])
+    stem = str(output_data) if _given(output_data) else os.path.splitext(os.path.basename(str(in_kml_file)))[0]
+    target = os.path.join(str(output_folder), stem + ".gpkg")
+    if not os.path.exists(target):
+        CreateFileGDB(str(output_folder), stem)
+    dataset = f"{target}/Placemarks"
+    from .management import _feature_dataset_of
+    if _feature_dataset_of(f"{dataset}/x") is None:
+        CreateFeatureDataset(target, "Placemarks", 4326)
+    columns = [_gpkg.Column("Name", "String"), _gpkg.Column("FolderPath", "String"), _gpkg.Column("PopupInfo", "String")]
+    shapes = {"Points": "Multipoint", "Lines": "Polyline", "Polygons": "Polygon"}
+    for kind, rows in found.items():
+        if not rows:
+            continue
+        kinds = {r[3].geom_type for r in rows}
+        shape = "Point" if kind == "Points" and kinds == {"Point"} else shapes[kind]
+        path = f"{dataset}/{kind}"
+        _gpkg.create(path, shape, 4326, columns)
+        with da.InsertCursor(path, ["Name", "FolderPath", "PopupInfo", "SHAPE@"]) as written:
+            for name, folder, popup, geometry in rows:
+                if shape == "Multipoint" and geometry.geom_type == "Point":
+                    geometry = shapely.MultiPoint([geometry])
+                written.insertRow((name, folder, popup, geometry))
+    return Result(target, target)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
