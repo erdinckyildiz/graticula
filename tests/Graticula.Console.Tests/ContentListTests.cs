@@ -45,10 +45,11 @@ public sealed class ContentListTests : ConsoleTest
 
         // The rows' own dates, as the server sent them, in the order drawn.
         string[] dates = await Browser.EvaluateAsync<string[]>(
-            "(() => { const all = [...(contentAnswer.answer.items || []), ...((contentAnswer.maps.webMaps || []).map(mapAsItem))];"
+            "(() => { const all = [...(contentAnswer.answer.items || []), ...((contentAnswer.maps.webMaps || []).map(mapAsItem)),"
+            + " ...(((contentAnswer.docs || {}).documents || []).map(docAsItem)), ...((toolboxAnswer.toolboxes || []).map(toolboxAsItem))];"
             + " return [...document.querySelectorAll('#contentRows td.name a')].map(a => {"
             + "   const href = a.getAttribute('href') || '';"
-            + "   const hit = all.find(i => i.map ? href.includes(i.map.id) : (i.itemId && href.includes(i.itemId)) || href.endsWith('/service/' + i.name.split('/').map(encodeURIComponent).join('/')));"
+            + "   const hit = all.find(i => i.map ? href.includes(i.map.id) : i.doc ? href.includes(i.doc.id) : i.toolbox ? href.endsWith('/toolbox/' + encodeURIComponent(i.toolbox.name)) : (i.itemId && href.includes(i.itemId)) || href.endsWith('/service/' + i.name.split('/').map(encodeURIComponent).join('/')));"
             + "   return hit ? String(hit.updated || '') : '?'; }); })()")
             ?? [];
 
