@@ -14,6 +14,7 @@ namespace Graticula.Conformance.Tests;
 /// is: <c>no-store</c> for a layer somebody can edit, <c>max-age</c> for one nobody can. Before 2026-10-29 the four
 /// other faces carried no <c>Cache-Control</c> at all.
 /// </remarks>
+[Collection("catalogue walk")]
 public sealed class EveryReadOfALayerKeepsAsLongTests : ArcGisClient
 {
     [Fact]

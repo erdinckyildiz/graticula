@@ -76,6 +76,9 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved 2026-10-29 for D-287, and the version deliberately did not move.</b> `SpriteLayout.Fit` keeps a
+        // generated sprite sheet within 4,096 pixels; a sheet that fitted is laid out as before, and no tile byte moves —
+        // the sheet is a picture beside the tiles, not in them.
         // <b>Moved 2026-10-20 for ADR-206, and the version deliberately did not move.</b> Tiles come from the datastore
         // only: the encoder for rows read elsewhere left this list, `ITileSource`'s remarks and the tile route's refusal
         // were rewritten, and `Tileable` asks `hosted` alone. Every datastore tile is cut, keyed and encoded as before;
@@ -229,7 +232,7 @@ public sealed class TilePipelineVersionTests
         // became nullable for tables, and the tile source and the style read them through `RequireGeometryColumn()` and
         // `RequireGeometryType()`, which answer the same names for every layer a tile draws; a table is never in a tile.
         // And `Tileable` answers false for a table, which only ever took a table out of tile lists it was never in.
-        "20007ac3060123713c446659dad5ff3d95886457d34f2f30cd8299119b1e6587";
+        "ffc0256bbdf50814c601e63bd2bbd1a132162268d382826a408060c6b9ced9b9";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;
