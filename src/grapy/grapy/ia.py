@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from ._runtime import NotBuiltError
 from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
-    ACos, ASin, ATan, ATan2, Abs, Aspect, BooleanAnd, BooleanNot, BooleanOr, BooleanXOr, CellStatistics, Con, Cos,
-    CosH, Diff, Divide, EqualTo, Exp, Exp10, Exp2, Float, FocalStatistics, GreaterThan, GreaterThanEqual,
-    HighestPosition, Hillshade, Int, IsNull, LessThan, LessThanEqual, Ln, Log10, Log2, LowestPosition, Minus, Mod,
-    NbrAnnulus, NbrCircle, NbrRectangle, Negate, NotEqual, Pick, Plus, Power, Raster, RasterCalculator, RemapRange,
-    RemapValue, RoundDown, RoundUp, SetNull, Sin, SinH, Slope, Square, Tan, TanH, Test, Times, ZonalStatistics,
-    ZonalStatisticsAsTable,
+    ACos, ACosH, ASin, ASinH, ATan, ATan2, ATanH, Abs, Aggregate, Aspect, BitwiseAnd, BitwiseLeftShift, BitwiseNot,
+    BitwiseOr, BitwiseRightShift, BitwiseXOr, BooleanAnd, BooleanNot, BooleanOr, BooleanXOr, CellStatistics, Con,
+    Contour, Cos, CosH, Curvature, Diff, Divide, EqualTo, EqualToFrequency, Exp, Exp10, Exp2, Float,
+    FocalStatistics, GreaterThan, GreaterThanEqual, GreaterThanFrequency, HighestPosition, Hillshade, Int, IsNull,
+    LessThan, LessThanEqual, LessThanFrequency, Ln, Log10, Log2, LowestPosition, Minus, Mod, NbrAnnulus, NbrCircle,
+    NbrRectangle, Negate, NotEqual, Over, Pick, Plus, Popularity, Power, RadiusFixed, RadiusVariable, Rank, Raster,
+    RasterCalculator, RemapRange, RemapValue, RoundDown, RoundUp, SetNull, Sin, SinH, Slope, Square, Tan, TanH,
+    Test, Times, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
 )
 
 
