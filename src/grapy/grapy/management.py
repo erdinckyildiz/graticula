@@ -73,7 +73,12 @@ def AddField(in_table, field_name, field_type, field_precision=None, field_scale
 
 
 def GetCount(in_rows):
-    """The number of rows — of a layer or table view, its selected rows, or all it shows when nothing is selected."""
+    """The number of rows — of a layer or table view, its selected rows, or all it shows when nothing is selected; of a
+    layer joined with ``KEEP_COMMON``, only the rows that found a match."""
+    if _joined_layer(in_rows) is not None:
+        from . import da
+        with da.SearchCursor(_text(in_rows), ["OID@"]) as rows:
+            return Result(str(sum(1 for _ in rows)))
     path, where = _source(in_rows)
     connection, table = _gpkg.table_of(path)
     try:
@@ -84,8 +89,11 @@ def GetCount(in_rows):
 
 
 def CopyFeatures(in_features, out_feature_class, *_, **__):
-    """The features copied to a new feature class — of a layer, its selected features."""
+    """The features copied to a new feature class — of a layer, its selected features; of a joined layer, its own
+    fields and the join tables' (see ``_joined_columns``)."""
     from . import da
+    if _joined_layer(in_features) is not None:
+        return _copy_joined(in_features, _path(out_feature_class), True)
     in_features, where = _source(in_features)
     connection, table = _gpkg.table_of(in_features)
     columns, shape, srid, _ = _gpkg.describe(connection, table)
@@ -137,6 +145,8 @@ def _python_only(tool, expression_type):
 
 def _calculate(in_table, field, expression, code_block, where_clause, field_type="TEXT", scope=None):
     from . import da
+    if _joined_layer(in_table) is not None:
+        return _calculate_joined(in_table, field, expression, code_block, where_clause, field_type, scope)
     path, where = _source(in_table)
     if where_clause:
         where = f"({where}) and ({where_clause})" if where else where_clause
@@ -928,10 +938,14 @@ def _oid_of(path):
 
 def _source(value):
     """The dataset and the where clause a value names: a path as it is, or a layer's source with its definition query
-    and selection."""
+    and selection. A joined layer is refused: a tool reading its dataset this way would leave the join's fields and
+    its KEEP_COMMON out without a word."""
     layer = _LAYERS.get(_text(value))
     if layer is None:
         return _text(value), None
+    if layer.joins:
+        raise NotBuiltError(f"This tool on the joined layer '{layer.name}' is not built in grapy; copy the layer first "
+                            "(CopyFeatures or CopyRows keep the joined fields), or remove the join.")
     clauses = [f"({layer.where})"] if layer.where else []
     if layer.selection:
         clauses.append(f'"{_oid_of(layer.source)}" in ({", ".join(str(int(i)) for i in sorted(layer.selection))})')
@@ -943,7 +957,7 @@ def _plain(tool, value):
     layer = _LAYERS.get(_text(value))
     if layer is None:
         return _text(value)
-    if layer.where or layer.selection:
+    if layer.where or layer.selection or layer.joins:
         raise NotBuiltError(f"arcpy.management.{tool} on a layer with a selection or definition query is not built in "
                             "grapy; pass the dataset or copy the selection first.")
     return layer.source
@@ -957,8 +971,9 @@ def _make_layer(tool, in_features, out_layer, where_clause, field_info, kind):
     if ".gpkg" in name.lower():
         raise ExecuteError(f"ERROR 000725: a layer's name may not contain '.gpkg' in grapy: {name}.")
     parent = _LAYERS.get(_text(in_features))
+    joins = []
     if parent is not None:
-        source, where, selection = parent.source, parent.where, set(parent.selection)
+        source, where, selection, joins = parent.source, parent.where, set(parent.selection), list(parent.joins)
     else:
         source, where, selection = _text(in_features), None, set()
         _schema(source)
@@ -966,6 +981,7 @@ def _make_layer(tool, in_features, out_layer, where_clause, field_info, kind):
         where = f"({where}) and ({where_clause})" if where else str(where_clause)
     layer = _Layer(name, source, where, kind)
     layer.selection = selection
+    layer.joins = joins
     _LAYERS[name] = layer
     return Result(name)
 
@@ -1000,11 +1016,17 @@ def _as_layer(value):
 
 def _eligible(layer, where_clause=None):
     """The OIDs a layer shows (its definition query), within ``where_clause`` when one is given."""
+    from . import _layers
     clauses = [f"({c})" for c in (layer.where, where_clause) if _given(c)]
     connection, table = _gpkg.table_of(layer.source)
     try:
         oid = _gpkg.oid_column(connection, table)
-        sql = f'select "{oid}" from "{table}"' + (" where " + " and ".join(clauses) if clauses else "")
+        if layer.joins:
+            joined = _layers.joined(layer, connection, table, oid, _gpkg.describe(connection, table)[3])
+            sql = f"select {joined.oid_sql} from {joined.from_sql}"
+        else:
+            sql = f'select "{oid}" from "{table}"'
+        sql += " where " + " and ".join(clauses) if clauses else ""
         return {r[0] for r in connection.execute(sql)}
     finally:
         connection.close()
@@ -1180,10 +1202,155 @@ def _table_out(tool, out_table):
     return _path(out_table)
 
 
+# ---- joins --------------------------------------------------------------------------------------------------------------
+
+def _joined_layer(value):
+    layer = _LAYERS.get(_text(value))
+    return layer if layer is not None and layer.joins else None
+
+
+def _joined_fields(layer):
+    """The qualified fields a joined layer shows, (name, type, is the layer's own), read as a cursor reads them."""
+    from . import _layers
+    connection, table = _gpkg.table_of(layer.source)
+    try:
+        _, _, _, geometry = _gpkg.describe(connection, table)
+        joined = _layers.joined(layer, connection, table, _gpkg.oid_column(connection, table), geometry)
+        for schema in joined.attached:
+            connection.execute(f"detach database {schema}")
+        return [(name, kind, column is not None) for name, _, kind, column in joined.fields]
+    finally:
+        connection.close()
+
+
+def _joined_columns(layer):
+    """The output fields of a joined layer copied to a new table, as the Maintain Fully Qualified Field Names environment
+    says: ``env.qualifiedFieldNames`` True (the default) keeps the table's name with each field, False drops it.
+    INFERRED: a qualified name is written ``table_field``, a dot being no character of a geodatabase field name; an
+    unqualified name already taken — by another field or by the output's own object ID and shape — gets ``_1``, ``_2`` …; the join tables' object IDs are copied as fields."""
+    from ._runtime import env
+    qualified = str(getattr(env, "qualifiedFieldNames", True)).upper() not in ("FALSE", "UNQUALIFIED", "0")
+    out, taken = [], {_gpkg.OID.lower(), _gpkg.GEOMETRY.lower()}
+    for name, kind, _ in _joined_fields(layer):
+        new = name.replace(".", "_") if qualified else name.split(".", 1)[1]
+        base, i = new, 0
+        while new.lower() in taken:
+            i += 1
+            new = f"{base}_{i}"
+        taken.add(new.lower())
+        out.append((name, _gpkg.Column(new, kind)))
+    return out
+
+
+def _copy_joined(value, out, with_shapes):
+    from . import da
+    layer = _joined_layer(value)
+    pairs = _joined_columns(layer)
+    _, kind, srid, _ = _schema(layer.source)
+    columns = [c for _, c in pairs]
+    _gpkg.create(out, kind if with_shapes else "Geometry", srid if with_shapes else 0, columns)
+    with da.SearchCursor(layer.name, [n for n, _ in pairs] + ["SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for row in rows:
+            written.insertRow((*row[:-1], row[-1] if with_shapes else None))
+    return Result(out)
+
+
+def _calculate_joined(in_table, field, expression, code_block, where_clause, field_type, scope):
+    """CalculateField on a joined layer: fields and ``!table.field!`` references are qualified; only the layer's own
+    table's fields can be calculated, as only they are written through the cursor."""
+    from . import da
+    layer = _joined_layer(in_table)
+    fields = _joined_fields(layer)
+    names = [n for n, _, _ in fields]
+    own = {n.lower(): n for n, _, mine in fields if mine}
+    if field.lower() not in own:
+        if "." not in field or field.split(".", 1)[0].lower() != _stem_of(layer.source).lower():
+            raise NotBuiltError(f"arcpy.management.CalculateField: '{field}' is not a field of the layer's own table; a "
+                                "joined table's fields are not written through the join in grapy.")
+        AddField(layer.source, field.split(".", 1)[1], field_type or "TEXT")
+        names = [n for n, _, _ in _joined_fields(layer)]
+        own = {n.lower(): n for n in names if n.lower() == field.lower()}
+    field = own[field.lower()]
+    if scope is None:
+        scope = {}
+        if code_block:
+            exec(code_block, scope)  # noqa: S102 — the tool's own code, in the tool's own fenced process (ADR-223 §5.3)
+    compiled = expression
+    for name in sorted(names, key=len, reverse=True):
+        compiled = compiled.replace(f"!{name}!", f"__row[{names.index(name)}]")
+    with da.UpdateCursor(layer.name, names, where_clause) as rows:
+        for row in rows:
+            scope["__row"] = row
+            row[names.index(field)] = eval(compiled, scope)  # noqa: S307 — as above
+            rows.updateRow(row)
+
+
+def AddJoin(in_layer_or_view, in_field, join_table, join_field, join_type="KEEP_ALL", index_join_fields="NO_INDEX_JOIN_FIELDS",
+            rebuild_index="NO_REBUILD_INDEX", join_operation=None):
+    """A join of a table to a layer on matching field values: the layer then shows its own fields as ``<table>.<field>``
+    and the join table's as ``<join table>.<field>``, as documented; ``KEEP_ALL`` keeps every row, ``KEEP_COMMON`` only
+    those with a match. A dataset path is given a new layer, as documented. The join is one to first — each row meets
+    the first match, text matched without regard to case, as the page says of one-to-first joins. ``INDEX_JOIN_FIELDS``
+    indexes both fields. INFERRED: with no ``join_operation`` the join is one to first, the page listing GeoPackage
+    among neither the workspaces that support one to many; the first match is the one of lowest object ID; the layer's
+    own table is named by its dataset's table name. ``JOIN_ONE_TO_MANY``, a join table that is itself a filtered or
+    joined layer, and a join table of the same name as the layer's are not built."""
+    from ._runtime import ExecuteError
+    if str(join_operation or "JOIN_ONE_TO_FIRST").upper() not in ("JOIN_ONE_TO_FIRST", "#"):
+        raise NotBuiltError(f"arcpy.management.AddJoin: join_operation '{join_operation}' is not built in grapy; "
+                            "JOIN_ONE_TO_FIRST is.")
+    layer = _as_layer(in_layer_or_view)
+    join_path = _plain("AddJoin", join_table)
+    connection, their_table = _gpkg.table_of(join_path)
+    try:
+        theirs = {c.name.lower(): c.name for c in _gpkg.describe(connection, their_table)[0]}
+    finally:
+        connection.close()
+    mine = {c.name.lower(): c.name for c in _schema(layer.source)[0]}
+    own_table = _stem_of(layer.source)
+    if str(in_field).lower() not in mine:
+        raise ExecuteError(f"ERROR 000728: the field '{in_field}' does not exist in {own_table}.")
+    if str(join_field).lower() not in theirs:
+        raise ExecuteError(f"ERROR 000728: the field '{join_field}' does not exist in {their_table}.")
+    if their_table.lower() == own_table.lower() or any(j.name.lower() == their_table.lower() for j in layer.joins):
+        raise NotBuiltError(f"arcpy.management.AddJoin: a second table named '{their_table}' in one join is not built in grapy.")
+    from ._layers import Join
+    if str(index_join_fields or "").upper() == "INDEX_JOIN_FIELDS":
+        import sqlite3
+        for table_path, table_name, column in ((join_path, their_table, theirs[str(join_field).lower()]),
+                                               (layer.source, own_table, mine[str(in_field).lower()])):
+            try:
+                AddIndex(table_path, column, f"{table_name}_{column}_join")
+            except sqlite3.OperationalError:
+                pass                                  # the index is there already
+    layer.joins.append(Join(join_path, their_table, mine[str(in_field).lower()], theirs[str(join_field).lower()],
+                            str(join_type or "KEEP_ALL").upper() == "KEEP_COMMON"))
+    return Result(layer.name)
+
+
+def RemoveJoin(in_layer_or_view, join_name=None):
+    """The join named — by its join table's name, as documented — removed from a layer; with no name, every join."""
+    from ._runtime import ExecuteError
+    layer = _LAYERS.get(_text(in_layer_or_view))
+    if layer is None:
+        raise ExecuteError(f"ERROR 000732: '{in_layer_or_view}' is not a layer or table view.")
+    if not _given(join_name):
+        layer.joins = []
+    else:
+        kept = [j for j in layer.joins if j.name.lower() != str(join_name).lower()]
+        if len(kept) == len(layer.joins):
+            raise ExecuteError(f"ERROR 000800: the layer has no join named '{join_name}'.")
+        layer.joins = kept
+    return Result(layer.name)
+
+
 def CopyRows(in_rows, out_table, config_keyword=None):
     """The rows of a table, feature class or view — a view's selected rows — copied to a new table, shapes left behind
     as documented."""
     from . import da
+    if _joined_layer(in_rows) is not None:
+        return _copy_joined(in_rows, _table_out("CopyRows", out_table), False)
     path, where = _source(in_rows)
     columns = _schema(path)[0]
     out = _table_out("CopyRows", out_table)

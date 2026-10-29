@@ -21,7 +21,12 @@ def ExportFeatures(in_features, out_features, where_clause=None, use_field_alias
                    field_mapping=None, sort_field=None):
     """The features a where clause chooses — all of them when none is given — copied, in the order of ``sort_field``
     (``[[field, ASCENDING|DESCENDING]]``) when one is named."""
-    from .management import _pairs
+    from .management import _copy_joined, _joined_layer, _pairs
+    if _joined_layer(in_features) is not None:
+        if where_clause or sort_field or field_mapping:
+            raise NotBuiltError("arcpy.conversion.ExportFeatures of a joined layer with a where clause, sort or field "
+                                "mapping is not built in grapy.")
+        return _copy_joined(in_features, _out(out_features), True)
     connection, table = _gpkg.table_of(in_features)
     columns, shape, srid, _ = _gpkg.describe(connection, table)
     connection.close()
