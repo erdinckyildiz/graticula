@@ -1043,6 +1043,289 @@ def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=
     return Result(out)
 
 
+def _rows_of(tool, path, fields):
+    """(oid, {field: value}, shape) of every feature with a shape, the fields read case-insensitively."""
+    columns, kind, srid, _ = _schema(path)
+    by_name = {c.name.lower(): c.name for c in columns}
+    names = []
+    for field in fields:
+        if field.lower() not in by_name:
+            raise ValueError(f"arcpy.stats.{tool}: '{path}' has no field '{field}'.")
+        names.append(by_name[field.lower()])
+    out = []
+    with da.SearchCursor(path, ["OID@", *names, "SHAPE@"]) as rows:
+        for row in rows:
+            out.append((row[0], dict(zip([n.lower() for n in names], row[1:-1])), row[-1]._shape if row[-1] else None))
+    return out, columns, kind, srid
+
+
+def SimilaritySearch(Input_Features_To_Match, Candidate_Features, Output_Features, Collapse_Output_To_Points="NO_COLLAPSE",
+                     Most_Or_Least_Similar="MOST_SIMILAR", Match_Method="ATTRIBUTE_VALUES", Number_Of_Results=10,
+                     Attributes_Of_Interest=None, Fields_To_Append_To_Output=None, scale="SCALE_DATA"):
+    """The candidates most (or least) like the features to match, from "How Similarity Search works". Several features
+    to match are averaged into one target. Each attribute is standardized — "the mean for all values is subtracted
+    from each value and divided by the standard deviation for all values (both the Input Features to Match and the
+    Candidate Features are included)". ATTRIBUTE_VALUES: SIMINDEX is the sum of squared differences from the target,
+    smallest most similar. ATTRIBUTE_PROFILES: SIMINDEX is the cosine similarity ΣAB/(√ΣA² √ΣB²), largest most similar
+    (two attributes or more).
+
+    The output lists the features to match first (MATCH_ID their object id), then the matches (CAND_ID theirs), with
+    the attributes of interest, the appended fields, SIMRANK (most similar first, 1 for the best) and/or DSIMRANK
+    (least similar first), and SIMINDEX. Number_Of_Results 0, or more than there are candidates, ranks them all; with
+    BOTH at most half the candidates each way. Geometry stays polygon or line when both inputs are, unless COLLAPSE;
+    otherwise each feature is its centroid.
+
+    Refused: RANKED_ATTRIBUTE_VALUES (the page does not say how ties are ranked, or whether the target is ranked among
+    the candidates or with them), and ATTRIBUTE_PROFILES with NO_SCALE_DATA (whether the mean is still subtracted is
+    not said, and the cosine depends on it).
+    INFERRED: the standard deviation is the population one (divided by n); with ATTRIBUTE_VALUES and NO_SCALE_DATA the
+    values are compared as they are. INFERRED: a feature with a null attribute of interest is left out; candidates
+    with equal SIMINDEX are ranked by object id; the attribute values written are the original ones; the features to
+    match carry no SIMINDEX; LABELRANK, a display field whose values are not documented, is not written.
+    """
+    import numpy as np
+    tool = "SimilaritySearch"
+    method = _keyword(Match_Method)
+    if method == "RANKED_ATTRIBUTE_VALUES":
+        _refuse(tool, "Match_Method", method, "how ties are ranked, and whether the target is ranked among the "
+                "candidates, is not documented")
+    if method not in ("ATTRIBUTE_VALUES", "ATTRIBUTE_PROFILES"):
+        raise ValueError(f"arcpy.stats.{tool}: Match_Method '{Match_Method}' is not one it takes.")
+    scaled = _keyword(scale) not in ("NO_SCALE_DATA", "FALSE")
+    if method == "ATTRIBUTE_PROFILES" and not scaled:
+        _refuse(tool, "scale", "NO_SCALE_DATA", "whether the mean is still subtracted for a cosine is not documented")
+    direction = _keyword(Most_Or_Least_Similar)
+    if direction not in ("MOST_SIMILAR", "LEAST_SIMILAR", "BOTH"):
+        raise ValueError(f"arcpy.stats.{tool}: Most_Or_Least_Similar '{Most_Or_Least_Similar}' is not one it takes.")
+    attributes = [a for a in _list(Attributes_Of_Interest) if _given(a)]
+    if not attributes:
+        raise ValueError(f"arcpy.stats.{tool} needs Attributes_Of_Interest.")
+    candidate_columns = {c.name.lower() for c in _schema(Candidate_Features)[0]}
+    kept = [a for a in attributes if a.lower() in candidate_columns]
+    if len(kept) < len(attributes):
+        from ._runtime import AddWarning
+        AddWarning(f"Attributes missing from the candidates were dropped: "
+                   f"{', '.join(a for a in attributes if a not in kept)}.")
+    if not kept:
+        raise ValueError(f"arcpy.stats.{tool}: none of the attributes of interest is in the candidates.")
+    if method == "ATTRIBUTE_PROFILES" and len(kept) < 2:
+        raise ValueError(f"arcpy.stats.{tool}: ATTRIBUTE_PROFILES needs two attributes of interest or more.")
+    appended = [f for f in _list(Fields_To_Append_To_Output) if _given(f)]
+    targets, target_columns, target_kind, srid = _rows_of(tool, Input_Features_To_Match, kept + appended)
+    candidates, _, candidate_kind, candidate_srid = _rows_of(tool, Candidate_Features, kept + appended)
+    _projected(tool, srid)
+    if candidate_srid and srid and candidate_srid != srid:
+        _refuse(tool, "Candidate_Features", Candidate_Features, "its reference differs from the features to match; "
+                "project one first")
+    keys = [a.lower() for a in kept]
+    complete = lambda rows: [r for r in rows if r[2] is not None and all(r[1][k] is not None for k in keys)]
+    targets, candidates = complete(targets), complete(candidates)
+    if not targets or not candidates:
+        raise ValueError(f"arcpy.stats.{tool} needs a feature to match and a candidate, each with every attribute.")
+    t = np.array([[float(r[1][k]) for k in keys] for r in targets])
+    c = np.array([[float(r[1][k]) for k in keys] for r in candidates])
+    every = np.vstack([t, c])
+    if scaled:
+        mean, sd = every.mean(axis=0), every.std(axis=0)
+        if (sd == 0).any():
+            raise ValueError(f"arcpy.stats.{tool}: an attribute of interest has one value everywhere.")
+        t, c = (t - mean) / sd, (c - mean) / sd
+    target = t.mean(axis=0)
+    if method == "ATTRIBUTE_VALUES":
+        index = ((c - target) ** 2).sum(axis=1)
+        order = sorted(range(len(candidates)), key=lambda i: (index[i], candidates[i][0]))
+    else:
+        norms = np.sqrt((c * c).sum(axis=1)) * math.sqrt(float((target * target).sum()))
+        if (norms == 0).any():
+            raise ValueError(f"arcpy.stats.{tool}: a cosine similarity is undefined for a vector of zeros.")
+        index = (c @ target) / norms
+        order = sorted(range(len(candidates)), key=lambda i: (-index[i], candidates[i][0]))
+    count = int(Number_Of_Results) if _given(Number_Of_Results) else 10
+    limit = len(candidates) // 2 if direction == "BOTH" else len(candidates)
+    count = limit if count <= 0 or count > limit else count
+    most = order[:count] if direction in ("MOST_SIMILAR", "BOTH") else []
+    least = list(reversed(order))[:count] if direction in ("LEAST_SIMILAR", "BOTH") else []
+    keep_shape = _keyword(Collapse_Output_To_Points) not in ("COLLAPSE", "TRUE") and target_kind == candidate_kind \
+        and target_kind in ("Polygon", "Polyline")
+    kind = target_kind if keep_shape else "Point"
+    by_name = {col.name.lower(): col for col in target_columns}
+    columns = [by_name[k] for k in keys] + [by_name[f.lower()] for f in appended if f.lower() not in keys]
+    extra = [_gpkg.Column("MATCH_ID", "Integer"), _gpkg.Column("CAND_ID", "Integer")]
+    if most:
+        extra.append(_gpkg.Column("SIMRANK", "Integer"))
+    if least:
+        extra.append(_gpkg.Column("DSIMRANK", "Integer"))
+    extra.append(_gpkg.Column("SIMINDEX", "Double"))
+    out = _out(Output_Features)
+    _gpkg.create(out, kind, srid, [*columns, *extra])
+    names = [col.name.lower() for col in columns]
+
+    def shape_of(shape):
+        return shape if keep_shape or shape.geom_type == "Point" else shape.centroid
+
+    with da.InsertCursor(out, [*[col.name for col in columns], *[e.name for e in extra], "SHAPE@"]) as rows:
+        for oid, values, shape in targets:
+            ranks = [None] * (bool(most) + bool(least))
+            rows.insertRow((*[values[n] for n in names], oid, None, *ranks, None, shape_of(shape)))
+        for position, i in enumerate(most, start=1):
+            oid, values, shape = candidates[i]
+            ranks = [position] + ([None] if least else [])
+            rows.insertRow((*[values[n] for n in names], None, oid, *ranks, float(index[i]), shape_of(shape)))
+        for position, i in enumerate(least, start=1):
+            oid, values, shape = candidates[i]
+            ranks = ([None] if most else []) + [position]
+            rows.insertRow((*[values[n] for n in names], None, oid, *ranks, float(index[i]), shape_of(shape)))
+    return Result(out)
+
+
+def SpatialAssociationBetweenZones(input_feature_or_raster, categorical_zone_field, overlay_feature_or_raster,
+                                   categorical_overlay_zone_field, output_features=None, output_raster=None,
+                                   correspondence_overlay_to_input=None, correspondence_input_to_overlay=None):
+    """The V-measure between two sets of polygon zones, from "How Spatial Association Between Zones works" and its
+    reference (Nowosad and Stepinski 2018, after Rosenberg and Hirschberg 2007). With p_ij the share of the overlapping
+    area where input zone i meets overlay zone j: H(O|I) = −Σ p_ij ln(p_ij/p_i), H(I|O) = −Σ p_ij ln(p_ij/p_j);
+    the correspondence of overlay zones within input zones is 1 − H(O|I)/H(O) — 1 when every input zone holds one
+    overlay zone, as documented — and that of input zones within overlay zones 1 − H(I|O)/H(I); the global measure is
+    their harmonic mean. Zones that meet no zone of the other set are left out, as documented.
+
+    Outputs, in order: output_features, output_raster, the two correspondence feature classes (all empty), the global
+    measure, the correspondence of overlay within input, the correspondence of input within overlay.
+
+    Refused: rasters as zones or as output, and the local outputs (output_features and the two correspondence
+    feature classes) — how the measures are partitioned per intersection is left to the paper.
+    INFERRED: a set of zones with one zone only (zero entropy) corresponds perfectly, 1, as Rosenberg and Hirschberg
+    define it. INFERRED: the derived values are numbers, as the page's own sample compares result[4] with 0.9 — though
+    the derived-output list says, contrary to the usage notes, that lower correspondence values are better; the usage
+    notes and How it works are followed.
+    """
+    tool = "SpatialAssociationBetweenZones"
+    for name, value in (("output_features", output_features), ("output_raster", output_raster),
+                        ("correspondence_overlay_to_input", correspondence_overlay_to_input),
+                        ("correspondence_input_to_overlay", correspondence_input_to_overlay)):
+        if _given(value):
+            _refuse(tool, name, value, "how the measures are partitioned per zone or intersection is not given on the "
+                    "page, only in its reference")
+    for value in (input_feature_or_raster, overlay_feature_or_raster):
+        if str(value).lower().endswith((".tif", ".tiff", ".img")) or type(value).__name__ == "Raster":
+            _refuse(tool, "input_feature_or_raster", value, "rasters as zones are not built in grapy")
+    zones, _, kind, srid = _rows_of(tool, input_feature_or_raster, [categorical_zone_field])
+    overlay, _, overlay_kind, overlay_srid = _rows_of(tool, overlay_feature_or_raster, [categorical_overlay_zone_field])
+    if kind != "Polygon" or overlay_kind != "Polygon":
+        raise ValueError(f"arcpy.stats.{tool}: the zones must be polygons.")
+    _projected(tool, srid)
+    if overlay_srid and srid and overlay_srid != srid:
+        _refuse(tool, "overlay_feature_or_raster", overlay_feature_or_raster, "its reference differs from the input "
+                "zones'; project one first")
+    from shapely.strtree import STRtree
+    key, overlay_key = categorical_zone_field.lower(), categorical_overlay_zone_field.lower()
+    shapes = [o[2] for o in overlay]
+    tree = STRtree(shapes)
+    areas: dict = {}
+    for _, values, shape in zones:
+        if shape is None or values[key] is None:
+            continue
+        for j in tree.query(shape, predicate="intersects"):
+            other = overlay[int(j)]
+            if other[1][overlay_key] is None:
+                continue
+            area = shape.intersection(other[2]).area
+            if area > 0:
+                pair = (values[key], other[1][overlay_key])
+                areas[pair] = areas.get(pair, 0.0) + area
+    total = sum(areas.values())
+    if total <= 0:
+        raise ValueError(f"arcpy.stats.{tool}: the input and overlay zones do not overlap.")
+    p = {pair: a / total for pair, a in areas.items()}
+    p_i, p_j = {}, {}
+    for (i, j), share in p.items():
+        p_i[i] = p_i.get(i, 0.0) + share
+        p_j[j] = p_j.get(j, 0.0) + share
+    entropy = lambda shares: -sum(s * math.log(s) for s in shares if s > 0)
+    h_i, h_j = entropy(p_i.values()), entropy(p_j.values())
+    h_j_given_i = -sum(s * math.log(s / p_i[i]) for (i, j), s in p.items())
+    h_i_given_j = -sum(s * math.log(s / p_j[j]) for (i, j), s in p.items())
+    overlay_in_input = 1.0 if h_j == 0 else 1 - h_j_given_i / h_j
+    input_in_overlay = 1.0 if h_i == 0 else 1 - h_i_given_j / h_i
+    both = overlay_in_input + input_in_overlay
+    v = 0.0 if both == 0 else 2 * overlay_in_input * input_in_overlay / both
+    return Result("", "", "", "", v, overlay_in_input, input_in_overlay)
+
+
+def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, percent_outlier=None, output_raster=None,
+                            outlier_type="GLOBAL", sensitivity="MEDIUM", keep_type="KEEP_ALL"):
+    """Local spatial outliers by the local outlier factor, from "How Spatial Outlier Detection works" (Breunig et al.
+    2000): the neighbourhood N(A) of the k nearest, ReachabilityDistance(A, B) = max(KDistance(B), d(A, B)), the local
+    reachability density the inverse of the mean reachability distance over N(A), and LOF(A) the mean over N(A) of
+    lrd(B)/lrd(A). The percent_outlier percent of points with the highest LOF are outliers: with m = percent × n / 100,
+    every point whose LOF is at least the m-th highest, so ties at the threshold are all outliers, as the page's own
+    example shows ([0, 1, 2, 3, 4, 5, 9, 9, 9, 9] at 10 percent gives the threshold 9).
+
+    Refused: GLOBAL, the default (its box-plot threshold is Q3 plus 1, 1.5 or 2 interquartile ranges, and the page does
+    not say how the quartiles are computed); an omitted n_neighbors or percent_outlier (they are then estimated by a
+    t-statistic search over a domain the page does not give); a percent_outlier that does not make m a whole number of
+    points (the page does not say how m is rounded); output_raster (the cells' grid is not specified).
+    INFERRED: the output keeps the input's fields and adds LOF (Double) and IS_OUTLIER (1 or 0) — the page names the
+    contents, not the fields. INFERRED: N(A) holds every point within the k-distance, ties included, as Breunig et al.
+    define it; coincident points, whose reachability density is infinite, are refused.
+    """
+    import numpy as np
+    tool = "SpatialOutlierDetection"
+    if _keyword(outlier_type) == "GLOBAL":
+        _refuse(tool, "outlier_type", "GLOBAL", "its box-plot threshold rests on quartiles whose computation the page "
+                "does not give; pass LOCAL")
+    if _keyword(outlier_type) != "LOCAL":
+        raise ValueError(f"arcpy.stats.{tool}: outlier_type '{outlier_type}' is GLOBAL or LOCAL.")
+    if _given(output_raster):
+        _refuse(tool, "output_raster", output_raster, "the grid of the prediction surface is not specified")
+    if not _given(n_neighbors):
+        _refuse(tool, "n_neighbors", "(empty)", "it is then estimated by a t-statistic search whose domain the page "
+                "does not give")
+    if not _given(percent_outlier):
+        _refuse(tool, "percent_outlier", "(empty)", "it is then estimated by a t-statistic search whose domain the page "
+                "does not give")
+    k = int(n_neighbors)
+    percent = float(percent_outlier)
+    if k < 2:
+        raise ValueError(f"arcpy.stats.{tool}: n_neighbors must be at least 2 for local outliers.")
+    if not 0 < percent <= 50:
+        raise ValueError(f"arcpy.stats.{tool}: percent_outlier is above 0 and at most 50.")
+    features, columns, kind, srid = _features(tool, in_features)
+    if kind not in ("Point", "Multipoint"):
+        raise ValueError(f"arcpy.stats.{tool} takes point features.")
+    n = len(features)
+    if k >= n:
+        raise ValueError(f"arcpy.stats.{tool}: n_neighbors must be fewer than the {n} points.")
+    m = percent * n / 100
+    if abs(m - round(m)) > 1e-9:
+        _refuse(tool, "percent_outlier", percent_outlier, f"{percent:g} percent of {n} points is {m:g}, not a whole "
+                "number, and the page does not say how it is rounded")
+    m = int(round(m))
+    if len({(f[2], f[3]) for f in features}) != n:
+        _refuse(tool, "in_features", in_features, "coincident points have an infinite reachability density")
+    d = _distances([(f[2], f[3]) for f in features])
+    np.fill_diagonal(d, np.inf)
+    sorted_d = np.sort(d, axis=1)
+    k_distance = sorted_d[:, k - 1]
+    neighbours = [np.nonzero(d[i] <= k_distance[i])[0] for i in range(n)]
+    lrd = np.array([1.0 / np.mean([max(k_distance[j], d[i, j]) for j in neighbours[i]]) for i in range(n)])
+    lof = np.array([np.mean([lrd[j] / lrd[i] for j in neighbours[i]]) for i in range(n)])
+    threshold = np.sort(lof)[::-1][m - 1]
+    outlier = lof >= threshold - 1e-12 * abs(threshold)
+    keep_all = _keyword(keep_type) not in ("KEEP_OUTLIER", "FALSE")
+    out = _out(output_features)
+    names = [c.name for c in columns]
+    _gpkg.create(out, kind, srid, [*columns, _gpkg.Column("LOF", "Double"), _gpkg.Column("IS_OUTLIER", "Integer")])
+    by_oid = {f[0]: i for i, f in enumerate(features)}
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*names, "LOF", "IS_OUTLIER", "SHAPE@"]) as written:
+        for row in rows:
+            i = by_oid.get(row[0])
+            if i is None or (not keep_all and not outlier[i]):
+                continue
+            written.insertRow((*row[1:-1], float(lof[i]), int(outlier[i]), row[-1]))
+    return Result(out)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -1092,6 +1375,42 @@ _REFUSED = {
     "Forest": "random forests are random by definition",
     "DensityBasedClustering": "HDBSCAN and OPTICS are not in the libraries grapy runs on",
 }
+_RANDOM = "its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call " \
+          "would not give arcpy's answer"
+_SWM = "it reads or writes spatial weights matrix (.swm) files, whose layout is not published"
+_SSM = "it reads or writes a spatial statistics model (.ssm) file, whose layout is not published"
+_FIT = "its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not " \
+       "specified closely enough to reproduce"
+_REFUSED.update({name: _RANDOM for name in (
+    "AttributeUncertainty", "BivariateSpatialAssociation", "MultivariateClustering",
+    "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData", "PresenceOnlyPrediction",
+    "ColocationAnalysis", "LocalBivariateRelationships", "BuildBalancedZones")})
+_REFUSED.update({name: _SWM for name in (
+    "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations", "DecomposeSpatialStructure",
+    "CreateSpatialComponentExplanatoryVariables", "FilterSpatialAutocorrelationFromField")})
+_REFUSED.update({name: _SSM for name in (
+    "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
+_REFUSED.update({name: _FIT for name in (
+    "GWR", "GeographicallyWeightedRegression", "MGWR", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "OrdinaryLeastSquares", "GeneralizedLinearRegression", "EstimateTimeToEvent")})
+_REFUSED.update({
+    "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",
+    "ConvertSSPopup": "it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts",
+    "IncrementalSpatialAutocorrelation": "its documented outputs contradict its own sample (z-scores against a "
+                                         "distance read with getOutput(2)), and the default increment rests on an "
+                                         "undefined maximum threshold",
+    "TimeSeriesSmoothing": "its output field names are not documented, nor how a month or year window is counted",
+    "ExportXYv": "its header names and number formatting are not documented closely enough to write the same file",
+    "CalculateCompositeIndex": "its output field names are not documented",
+    "CalculateRates": "the page giving its empirical Bayes smoothing formulas answers 404, so the rates cannot be "
+                      "checked against them",
+    "CalculateAreas": "its page is retired (404), so its output field cannot be checked; "
+                      "management.CalculateGeometryAttributes does its work",
+    "GroupingAnalysis": "it was retired for Multivariate Clustering, whose seeds are random",
+    "DimensionReduction": "its page answers 404, so its components and output fields cannot be checked",
+    "EvaluateBinSizes": "its page answers 404, so its recommendation cannot be checked",
+    "HotSpotAnalysisComparison": "its page answers 404, so its similarity measures cannot be checked",
+})
 
 
 def __getattr__(name):

@@ -25,7 +25,7 @@ def line(*xys, srid=3857):
     return arcpy.Polyline(arcpy.Array([arcpy.Point(*xy) for xy in xys]), srid)
 
 
-class Workspace(unittest.TestCase):
+class _Folder(unittest.TestCase):
     """A folder holding pts.gpkg (points), multi.gpkg (parcels and roads), t.gpkg (a table), r.tif, x.csv and sub/."""
 
     def setUp(self):
@@ -52,6 +52,9 @@ class Workspace(unittest.TestCase):
     def tearDown(self):
         _runtime.env._reset()
 
+
+
+class Workspace(_Folder):
     def test_list_functions_read_the_workspace(self):
         self.assertEqual(arcpy.ListFeatureClasses(), ["multi.gpkg/parcels", "multi.gpkg/roads", "pts.gpkg"])
         self.assertEqual(arcpy.ListFeatureClasses(feature_type="Polygon"), ["multi.gpkg/parcels"])
@@ -322,6 +325,87 @@ class GeometryMethods(unittest.TestCase):
         self.assertTrue(square(0, 0, 5).within(square(0, 0)))
         with self.assertRaisesRegex(arcpy.NotBuiltError, "transformation_name"):
             edge.projectAs(4326, "WGS_1984_(ITRF00)_To_NAD_1983")
+
+
+class LegacyAndScriptTools(_Folder):
+    def test_legacy_cursors_read_change_and_insert_rows(self):
+        # pts holds a at (1,2) and b at (3,4). Sorted by name descending, b comes first.
+        names = [row.getValue("name") for row in arcpy.SearchCursor(self.pts, sort_fields="name D")]
+        self.assertEqual(names, ["b", "a"])
+        cursor = arcpy.SearchCursor(self.pts, "name = 'a'", None, "name")
+        row = cursor.next()
+        self.assertEqual((row.name, row.Shape.firstPoint.X, row.isNull("name")), ("a", 1.0, False))
+        self.assertIsNone(cursor.next())
+        del cursor
+        updater = arcpy.UpdateCursor(self.pts)
+        for row in updater:
+            if row.getValue("name") == "a":
+                row.setValue("name", "A")
+                updater.updateRow(row)
+            else:
+                updater.deleteRow(row)
+        del updater
+        inserter = arcpy.InsertCursor(self.pts)
+        new = inserter.newRow()
+        new.setValue("name", "c")
+        new.Shape = arcpy.PointGeometry(arcpy.Point(5, 6), 3857)
+        inserter.insertRow(new)
+        del inserter
+        with arcpy.da.SearchCursor(self.pts, ["name", "SHAPE@XY"]) as rows:
+            self.assertEqual([tuple(r) for r in rows], [("A", (1.0, 2.0)), ("c", (5.0, 6.0))])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "sort_fields"):
+            arcpy.UpdateCursor(self.pts, sort_fields="name")
+
+    def test_script_tool_helpers(self):
+        first, second = arcpy.Parameter("a", datatype="GPString"), arcpy.Parameter("b", datatype="GPString")
+        first.value = "copied"
+        _runtime.PARAMETERS[:] = [first, second]
+        try:
+            arcpy.CopyParameter("a", "b")
+            self.assertEqual(second.value, "copied")
+            second.value = None
+            arcpy.CopyParameter(0, 1)
+            self.assertEqual(second.value, "copied")
+        finally:
+            _runtime.PARAMETERS.clear()
+        table = arcpy.CreateObject("ValueTable", 2)
+        self.assertEqual((type(table).__name__, table.columnCount), ("ValueTable", 2))
+        self.assertEqual(arcpy.CreateObject("point", 1, 2).Y, 2)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "ArcSDESQLExecute"):
+            arcpy.CreateObject("ArcSDESQLExecute")
+        with arcpy.SeverityLevel(2):
+            self.assertEqual(arcpy.GetSeverityLevel(), 2)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "severity_level 1"):
+            arcpy.SeverityLevel(1)
+        self.assertTrue(arcpy.IsSynchronous("Buffer"))
+        self.assertTrue(arcpy.Value("").isEmpty)
+        self.assertIs(arcpy.SearchNeighborhoodStandardCircular, arcpy.ga.SearchNeighborhoodStandardCircular)
+
+    def test_is_being_edited_and_feature_datasets_exist(self):
+        self.assertFalse(arcpy.IsBeingEdited(self.pts))
+        with arcpy.da.Editor(self.pts):
+            self.assertTrue(arcpy.IsBeingEdited(self.pts))
+        self.assertFalse(arcpy.IsBeingEdited(self.pts))
+        multi = os.path.join(self.directory, "multi.gpkg")
+        dataset = arcpy.management.CreateFeatureDataset(multi, "transport", 3857).getOutput(0)
+        self.assertTrue(arcpy.Exists(dataset))
+        self.assertFalse(arcpy.Exists(multi + "/nowhere"))
+
+    def test_each_refused_name_says_why(self):
+        for name, said in (("GetInstallInfo", "not ArcGIS"), ("ListTools", "toolbox catalogue"),
+                           ("AIO", "network"), ("ListTransformations", "catalogue"), ("Multipatch", "z values"),
+                           ("Annotation", "group 2"), ("Chart", "application"), ("ViewContext", "could not be found"),
+                           ("NetCDFFileProperties", "netCDF"), ("Render", "symbology")):
+            with self.assertRaisesRegex(arcpy.NotBuiltError, said):
+                getattr(arcpy, name)
+        for name, said in (("GWR", "estimation"), ("MultivariateClustering", "random"),
+                           ("GenerateSpatialWeightsMatrix", ".swm"), ("TimeSeriesSmoothing", "field names")):
+            with self.assertRaisesRegex(arcpy.NotBuiltError, said):
+                getattr(arcpy.stats, name)()
+        for name, said in (("CreateOverpass", "symbolized"), ("SetControlPointByAngle", "control points"),
+                           ("CalculateUTMZone", "projection-engine")):
+            with self.assertRaisesRegex(arcpy.NotBuiltError, said):
+                getattr(arcpy.cartography, name)()
 
 
 if __name__ == "__main__":
