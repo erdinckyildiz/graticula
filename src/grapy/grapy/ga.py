@@ -193,7 +193,8 @@ _REFUSED.update({name: _RANDOM for name in (
 _REFUSED.update({name: _UNSPECIFIED for name in (
     "LocalPolynomialInterpolation", "RadialBasisFunctions", "KernelInterpolationWithBarriers",
     "DiffusionInterpolationWithBarriers")})
-_REFUSED.update({name: "it interpolates in three dimensions, and grapy's feature classes hold no z values yet"
+_REFUSED.update({name: "its required output is a netCDF file of a 3D grid (and a voxel layer), a multidimensional "
+                       "format this server does not hold yet (ADR-224 group 2) and grapy's libraries cannot write"
                  for name in ("IDW3D", "NearestNeighbor3D")})
 _REFUSED["GenerateSubsetPolygons"] = "its curve through the points and its segmentation are described, not specified"
 _REFUSED["ExtractValuesToTable"] = "the output table's fields are not named in the documentation"

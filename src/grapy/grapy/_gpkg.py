@@ -185,7 +185,8 @@ def _number(value) -> str:
 
 def rebuild(geometry, has_z: bool, has_m: bool, change=None, change_z=None):
     """The geometry with exactly the dimensions asked — a missing z 0, a missing m NaN — and ``change`` applied to its
-    x and y columns (an (n, 2) array in, one out) and ``change_z`` to its z column, m kept."""
+    x and y columns (an (n, 2) array in, one out) and ``change_z(z, xy)`` to its z column (given the part's x and y),
+    m kept."""
     import numpy as np
     if geometry is None or geometry.is_empty:
         return geometry
@@ -200,7 +201,7 @@ def rebuild(geometry, has_z: bool, has_m: bool, change=None, change_z=None):
         columns = [xy]
         if has_z:
             z = raw[:, 2:3] if own_z else np.zeros((len(raw), 1))
-            columns.append(np.asarray(change_z(z), dtype=np.float64) if change_z is not None else z)
+            columns.append(np.asarray(change_z(z, xy), dtype=np.float64).reshape(-1, 1) if change_z is not None else z)
         if has_m:
             columns.append(raw[:, -1:] if own_m else np.full((len(raw), 1), np.nan))
         rows = np.hstack(columns)

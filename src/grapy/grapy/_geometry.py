@@ -481,7 +481,7 @@ class Geometry:
             from ._gpkg import rebuild
             shift = numpy.array([float(dx), float(dy)])
             return _wrap(rebuild(self._shape, self.hasZ, self.hasM, lambda xy: xy + shift,
-                                 (lambda z: z + float(dz)) if self.hasZ else None), self.spatialReference)
+                                 (lambda z, xy: z + float(dz)) if self.hasZ else None), self.spatialReference)
         from shapely import affinity
         return _wrap(affinity.translate(self._shape, float(dx), float(dy)), self.spatialReference)
 
