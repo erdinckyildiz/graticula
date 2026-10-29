@@ -52,6 +52,11 @@ def _given(value):
     return value not in (None, "", "#")
 
 
+def _keyword(value):
+    """A keyword as arcpy takes it: the Python form (``FIXED_DISTANCE_BAND``) or the label (``Fixed distance band``)."""
+    return str(value).strip().upper().replace(" ", "_")
+
+
 def _projected(tool, srid):
     """The tools measure a geographic reference in chordal metres; grapy measures planar distance only."""
     from ._reference import SpatialReference
@@ -94,9 +99,9 @@ def _distances(xy, method="EUCLIDEAN_DISTANCE"):
     xy = np.asarray(xy, dtype=float)
     dx = xy[:, 0][:, None] - xy[:, 0][None, :]
     dy = xy[:, 1][:, None] - xy[:, 1][None, :]
-    if str(method).upper() in ("MANHATTAN_DISTANCE", "MANHATTAN"):
+    if _keyword(method) in ("MANHATTAN_DISTANCE", "MANHATTAN"):
         return np.abs(dx) + np.abs(dy)
-    if str(method).upper() not in ("EUCLIDEAN_DISTANCE", "EUCLIDEAN", "EUCLIDEAN DISTANCE"):
+    if _keyword(method) not in ("EUCLIDEAN_DISTANCE", "EUCLIDEAN"):
         raise ValueError(f"Distance_Method '{method}' is neither EUCLIDEAN_DISTANCE nor MANHATTAN_DISTANCE.")
     return np.hypot(dx, dy)
 
@@ -143,7 +148,7 @@ def _weights(tool, features, srid, concept, method, band, k, self_weight=False):
     id is taken first.
     """
     import numpy as np
-    concept = str(concept).upper()
+    concept = _keyword(concept)
     n = len(features)
     if concept == "GET_SPATIAL_WEIGHTS_FROM_FILE":
         _refuse(tool, "Conceptualization_of_Spatial_Relationships", concept, "a spatial weights matrix file's .swm "
@@ -203,7 +208,7 @@ def _weights(tool, features, srid, concept, method, band, k, self_weight=False):
 
 def _standardized(w, standardization):
     import numpy as np
-    option = str(standardization).upper()
+    option = _keyword(standardization)
     if option == "ROW":
         sums = w.sum(axis=1, keepdims=True)
         return np.divide(w, sums, out=np.zeros_like(w), where=sums != 0)
@@ -213,12 +218,12 @@ def _standardized(w, standardization):
 
 
 def _no_report(tool, report):
-    if str(report).upper() in ("GENERATE_REPORT", "TRUE"):
+    if _keyword(report) in ("GENERATE_REPORT", "TRUE"):
         _refuse(tool, "Generate_Report", report, "the report's content is not documented")
 
 
 def _no_fdr(tool, fdr):
-    if str(fdr).upper() in ("APPLY_FDR", "TRUE"):
+    if _keyword(fdr) in ("APPLY_FDR", "TRUE"):
         _refuse(tool, "Apply_False_Discovery_Rate__FDR__Correction", fdr, "the correction for multiple testing and "
                 "spatial dependence is not documented as a formula")
 
@@ -638,7 +643,7 @@ _SIZES = {"1_STANDARD_DEVIATION": 1, "2_STANDARD_DEVIATIONS": 2, "3_STANDARD_DEV
 
 
 def _size(tool, parameter, value):
-    key = str(value).upper()
+    key = _keyword(value)
     if key not in _SIZES:
         raise ValueError(f"arcpy.stats.{tool}: {parameter} '{value}' is not one of {', '.join(_SIZES)}.")
     return _SIZES[key]
@@ -737,7 +742,7 @@ def DirectionalMean(Input_Feature_Class, Output_Feature_Class, Orientation_Only=
     part's and its last its last part's.
     """
     import numpy as np
-    if str(Orientation_Only).upper() in ("ORIENTATION_ONLY", "TRUE"):
+    if _keyword(Orientation_Only) in ("ORIENTATION_ONLY", "TRUE"):
         _refuse("DirectionalMean", "Orientation_Only", Orientation_Only, "how orientation without direction is averaged "
                 "is not documented")
     groups, columns, kind, srid = _cases("DirectionalMean", Input_Feature_Class, None, Case_Field)
@@ -795,12 +800,12 @@ def MultiDistanceSpatialClustering(Input_Feature_Class, Output_Table, Number_of_
     import numpy as np
     import shapely
     tool = "MultiDistanceSpatialClustering"
-    if not str(Compute_Confidence_Envelope).upper().startswith("0_PERMUTATIONS"):
+    if not _keyword(Compute_Confidence_Envelope).startswith("0_PERMUTATIONS"):
         _refuse(tool, "Compute_Confidence_Envelope", Compute_Confidence_Envelope, "a confidence envelope is built from "
                 "random permutations")
     if _given(Weight_Field):
         _refuse(tool, "Weight_Field", Weight_Field, "the weighted K function is not given as a formula")
-    if str(Boundary_Correction_Method).upper() != "NONE":
+    if _keyword(Boundary_Correction_Method) != "NONE":
         _refuse(tool, "Boundary_Correction_Method", Boundary_Correction_Method, "the edge corrections are described, not "
                 "specified")
     features, _, _, srid = _features(tool, Input_Feature_Class)
@@ -809,7 +814,7 @@ def MultiDistanceSpatialClustering(Input_Feature_Class, Output_Table, Number_of_
         raise ValueError(f"arcpy.stats.{tool} needs two features or more.")
     points = shapely.MultiPoint([(f[2], f[3]) for f in features])
     rectangle = shapely.minimum_rotated_rectangle(points)
-    if str(Study_Area_Method).upper() == "USER_PROVIDED_STUDY_AREA_FEATURE_CLASS":
+    if _keyword(Study_Area_Method) == "USER_PROVIDED_STUDY_AREA_FEATURE_CLASS":
         if not _given(Study_Area_Feature_Class):
             raise ValueError(f"arcpy.stats.{tool}: a user-provided study area needs Study_Area_Feature_Class.")
         with da.SearchCursor(Study_Area_Feature_Class, ["SHAPE@"]) as rows:

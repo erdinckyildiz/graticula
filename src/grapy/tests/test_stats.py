@@ -220,6 +220,12 @@ class Stats(unittest.TestCase):
         self.assertAlmostEqual(self.rows(edges[0], ["GiZScore"])[0][0], -2 / math.sqrt(5 / 3))
         self.assertAlmostEqual(self.rows(corners[0], ["GiZScore"])[0][0], -1.5 / math.sqrt(1.25))
 
+    def test_keywords_are_taken_as_labels_too(self):
+        # Esri's own sample passes "Fixed Distance Band", "Euclidean Distance", "None": the same answer as above.
+        out = stats.HotSpots(self.line4(), "v", self.out("labels"), "Fixed Distance Band", "Euclidean Distance", "None",
+                             10)
+        self.assertAlmostEqual(self.rows(out[0], ["GiZScore"])[0][0], -2 / math.sqrt(5 / 3))
+
     def test_fdr_is_refused(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "FDR"):
             stats.HotSpots(self.line4(), "v", self.out("fdr"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE",
