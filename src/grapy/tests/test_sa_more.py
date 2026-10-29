@@ -496,5 +496,21 @@ class Equivalents(_Fixture):
                          [[1.0, 1.0, 5.5, 10.0, -1]])
 
 
+    def test_darcy_flow_and_velocity(self):
+        # Head falling 10 per 10-unit cell to the east, T = 1: every face carries U = −1·(−10)/10 = 1 eastward, the
+        # seepage velocity is 1/(0.5·2) = 1 due east (90°), and what enters each cell leaves it: the residual is 0.
+        head = grid([[100.0 - 10 * k for k in range(4)] for _ in range(4)])
+        porosity, thickness, transmissivity = grid([[0.5] * 4] * 4), grid([[2.0] * 4] * 4), grid([[1.0] * 4] * 4)
+        magnitude = os.path.join(self.directory, "mag.tif")
+        direction = cells(sa.DarcyVelocity(head, porosity, thickness, transmissivity, magnitude))
+        self.assertAlmostEqual(direction[1][1], 90.0, places=4)
+        self.assertAlmostEqual(cells(arcpy.Raster(magnitude))[1][1], 1.0, places=5)
+        self.assertAlmostEqual(cells(sa.DarcyFlow(head, porosity, thickness, transmissivity))[1][1], 0.0, places=5)
+        # A cell whose east neighbour has T = 3: the face between them carries the harmonic mean 2·1·3/4 = 1.5, so it
+        # loses 1.5·10 = 15 east and gains 1·10 = 10 from the west: a residual of 5.
+        uneven = grid([[1.0, 1.0, 1.0, 3.0]] * 4)
+        self.assertAlmostEqual(cells(sa.DarcyFlow(head, porosity, thickness, uneven))[1][2], 5.0, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()

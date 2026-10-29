@@ -4609,6 +4609,97 @@ for _built in ("RescaleByFunction", "TfExponential", "TfGaussian", "TfLarge", "T
     _REFUSED.pop(_built, None)
 
 
+# ---- round twelve (ADR-224 §5.6): Darcy flow
+
+
+def _darcy(in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster, tool):
+    """Face fluxes U = −T ∇h with T the harmonic mean of the two cells' transmissivities and ∇h the difference of heads
+    over the cell spacing (as How Darcy Flow and Darcy Velocity work writes Darcy's law and the face gradient), the
+    cell-centre seepage velocity as the mean of the two faces' fluxes divided by the cell's porosity and thickness, and
+    the volume balance residual as the net discharge Q = U·(face width) out of each cell."""
+    rasters = [as_raster(r, tool) for r in (in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster)]
+    from ._raster import _align
+    (h, n, b, t), masks, grid = _align(rasters, tool)
+    mask = np.logical_or.reduce(masks)
+    if mask.any():
+        _refuse(tool, "in_head_raster", in_head_raster, "how NoData cells enter the fluxes is not documented")
+    if not math.isclose(grid.width, grid.height):
+        _refuse(tool, "in_head_raster", in_head_raster, "the scheme is built for square cells")
+    h, n, b, t = (np.asarray(a, dtype=np.float64) for a in (h, n, b, t))
+    d = grid.width
+    rows, columns = h.shape
+    if rows < 3 or columns < 3:
+        raise ValueError(f"{tool} needs at least 3 rows and 3 columns.")
+    harmonic = lambda a, c: 2 * a * c / (a + c)  # noqa: E731
+    # Faces between columns (x, east positive) and between rows (y, north positive: row r−1 is north of r).
+    ux = -harmonic(t[:, :-1], t[:, 1:]) * (h[:, 1:] - h[:, :-1]) / d          # face between column k and k+1
+    uy = -harmonic(t[1:, :], t[:-1, :]) * (h[:-1, :] - h[1:, :]) / d          # face between row r (south) and r−1
+    vx = np.zeros(h.shape)
+    vy = np.zeros(h.shape)
+    vx[:, 1:-1] = (ux[:, :-1] + ux[:, 1:]) / 2
+    vy[1:-1, :] = (uy[:-1, :] + uy[1:, :]) / 2
+    vx, vy = vx / (n * b), vy / (n * b)
+    residual = np.zeros(h.shape)
+    residual[:, :-1] += ux * d          # out through the east face
+    residual[:, 1:] -= ux * d           # in through the west face of the next cell
+    residual[1:, :] += uy * d           # out through the north face (row r to r−1)
+    residual[:-1, :] -= uy * d
+    # Bounding cells copy the nearest interior cell's velocity, as documented.
+    for a in (vx, vy, residual):
+        a[0, :], a[-1, :] = a[1, :], a[-2, :]
+        a[:, 0], a[:, -1] = a[:, 1], a[:, -2]
+    direction = np.degrees(np.arctan2(vx, vy)) % 360.0
+    magnitude = np.hypot(vx, vy)
+    return residual, direction, magnitude, grid
+
+
+_DARCY_SOURCE = ("Darcy's law on a finite-difference grid with harmonic-mean face transmissivity, as How Darcy Flow and "
+                 "Darcy Velocity work writes it; Anderson, Woessner and Hunt 2015, Applied Groundwater Modeling, ch. 3")
+
+
+@_equivalent("finite-difference Darcy flux and volume balance", _DARCY_SOURCE)
+def DarcyFlow(in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster, out_direction_raster=None,
+              out_magnitude_raster=None):
+    """EQUIVALENT: the volume balance residual of steady flow — each cell's net discharge out through its four faces,
+    with the face flux U = −T·Δh/Δx from the harmonic mean of the two cells' transmissivities, as the page writes
+    Darcy's law, the face gradient and the harmonic average. ``out_direction_raster`` receives the seepage velocity's
+    direction in compass degrees clockwise from north, ``out_magnitude_raster`` its magnitude; the velocity at a cell
+    centre is the mean of its two faces' fluxes in each axis divided by the cell's porosity and thickness, as the page
+    says. Bounding cells copy the nearest interior cell, as documented.
+
+    Refused: NoData in any input; rectangular cells.
+
+    INFERRED: the residual is outflow minus inflow (the page shows it only as an image); the bounding cells' residual
+    is copied as their velocity is."""
+    _refuse_environment("arcpy.sa.DarcyFlow")
+    residual, direction, magnitude, grid = _darcy(in_head_raster, in_porosity_raster, in_thickness_raster,
+                                                  in_transmissivity_raster, "DarcyFlow")
+    blank = np.zeros(residual.shape, bool)
+    if _given(out_direction_raster):
+        Raster._of(direction.astype(np.float32), blank.copy(), grid).save(out_direction_raster)
+    if _given(out_magnitude_raster):
+        Raster._of(magnitude.astype(np.float32), blank.copy(), grid).save(out_magnitude_raster)
+    return Raster._of(residual.astype(np.float32), blank, grid)
+
+
+@_equivalent("finite-difference Darcy seepage velocity", _DARCY_SOURCE)
+def DarcyVelocity(in_head_raster, in_porosity_raster, in_thickness_raster, in_transmissivity_raster,
+                  out_magnitude_raster=None):
+    """EQUIVALENT: the seepage velocity's direction, in compass degrees clockwise from north (answered), and its
+    magnitude (``out_magnitude_raster``), computed as DarcyFlow computes them."""
+    _refuse_environment("arcpy.sa.DarcyVelocity")
+    _, direction, magnitude, grid = _darcy(in_head_raster, in_porosity_raster, in_thickness_raster,
+                                           in_transmissivity_raster, "DarcyVelocity")
+    blank = np.zeros(direction.shape, bool)
+    if _given(out_magnitude_raster):
+        Raster._of(magnitude.astype(np.float32), blank.copy(), grid).save(out_magnitude_raster)
+    return Raster._of(direction.astype(np.float32), blank, grid)
+
+
+for _built in ("DarcyFlow", "DarcyVelocity"):
+    _REFUSED.pop(_built, None)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
