@@ -114,7 +114,18 @@ internal static partial class ToolboxEndpoints
             }
         }
 
-        string name = NameFor(form["name"].ToString() is { Length: > 0 } asked ? asked : Path.GetFileNameWithoutExtension(file.FileName));
+        // A name typed is used as typed or refused; only one taken from the file's name is made into a name (design review:
+        // "bad name!" was published as bad_name_ without a word).
+        string typedName = form["name"].ToString().Trim();
+
+        if (typedName.Length > 0 && !ServiceName().IsMatch(typedName))
+        {
+            await AnalysisEndpoints.RefuseAsync(context, 400,
+                $"'{typedName}' cannot name a toolbox: letters, digits, _ and -, up to 40, starting with a letter or digit.").ConfigureAwait(false);
+            return;
+        }
+
+        string name = typedName.Length > 0 ? typedName : NameFor(Path.GetFileNameWithoutExtension(file.FileName));
         string title = form["title"].ToString() is { Length: > 0 } titled ? titled.Trim() : name;
 
         if (await toolboxes.FindByNameAsync(name, cancellation).ConfigureAwait(false) is not null)
@@ -168,18 +179,21 @@ internal static partial class ToolboxEndpoints
             context, audit, "toolbox.publish", name, AdminEndpoints.Detail(new { id = made.Id, tools = tools.Count }),
             succeeded: true, cancellation).ConfigureAwait(false);
 
-        await Results.Json(Describe(context, made), statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
+        await Results.Json(Describe(context, made, current), statusCode: StatusCodes.Status201Created).ExecuteAsync(context).ConfigureAwait(false);
     }
 
-    private static async Task ListAsync(HttpContext context, IToolboxStore toolboxes, CancellationToken cancellation)
+    private static async Task ListAsync(HttpContext context, IToolboxStore toolboxes, ToolSettings settings, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
         IReadOnlyList<Toolbox> all = await toolboxes.ListAsync(cancellation).ConfigureAwait(false);
 
         await Results.Json(new
         {
-            toolboxes = all.Where(t => MayRun(t, current)).Select(t => Describe(context, t)),
+            toolboxes = all.Where(t => MayRun(t, current)).Select(t => Describe(context, t, current)),
             mayPublish = current.Authorization.Allows(Privilege.ContentPublishTools),
+
+            // Whether a run here is fenced, so a page promises a sandbox only where there is one (design review).
+            fenced = settings.Refusal is null && !settings.Unfenced,
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
@@ -351,7 +365,29 @@ internal static partial class ToolboxEndpoints
 
             if (IsOutput(parameter))
             {
-                outputs.Add(new JsonObject { ["name"] = parameterName, ["dataType"] = dataType });
+                // A feature output's value, when sent, is the name its layer is published under — what a web tool's
+                // output name is in ArcGIS (design review); checked now so a run does not fail at its end on it.
+                string? layerName = dataType == "GPFeatureRecordSetLayer" ? asked(parameterName)?.Trim() : null;
+
+                if (!string.IsNullOrEmpty(layerName))
+                {
+                    if (!ServiceName().IsMatch(layerName))
+                    {
+                        await AnalysisEndpoints.RefuseAsync(context, 400,
+                            $"'{layerName}' cannot name {parameterName}'s layer: letters, digits, _ and -, up to 40, starting with a letter or digit.")
+                            .ConfigureAwait(false);
+                        return;
+                    }
+
+                    if (await layers.FindServiceAsync("hosted", layerName, cancellation).ConfigureAwait(false) is not null)
+                    {
+                        await AnalysisEndpoints.RefuseAsync(context, 400,
+                            $"A layer named '{layerName}' already exists. Choose another name for {parameterName}.").ConfigureAwait(false);
+                        return;
+                    }
+                }
+
+                outputs.Add(new JsonObject { ["name"] = parameterName, ["dataType"] = dataType, ["layerName"] = layerName });
                 continue;
             }
 
@@ -566,9 +602,14 @@ internal static partial class ToolboxEndpoints
     [GeneratedRegex("[^A-Za-z0-9_-]+")]
     private static partial Regex NotAName();
 
-    private static object Describe(HttpContext context, Toolbox toolbox) => new
+    [GeneratedRegex("^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$")]
+    private static partial Regex ServiceName();
+
+    private static object Describe(HttpContext context, Toolbox toolbox, RequestPrincipal current) => new
     {
         id = toolbox.Id,
+        mine = toolbox.Owner == current.Principal.Id,
+        manages = toolbox.Owner == current.Principal.Id || current.Authorization.Allows(Privilege.AdminManageAllContent),
         name = toolbox.Name,
         title = toolbox.Title,
         owner = toolbox.OwnerName,

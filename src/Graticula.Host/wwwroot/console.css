@@ -4729,6 +4729,23 @@ h4.spaced { margin-top: 24px; }
 #analyzeDialog .azrow { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-3); align-items: start; }
 #analyzeDialog .azrow > .stacked { margin: 0; }
 #analyzeButtons { display: flex; gap: var(--gap-3); }
+/* ADR-223: a toolbox's page — a card per tool, its questions and what a run made. */
+#view-toolbox .profilecard {
+  max-width: 640px; margin: 0 auto; background: var(--surface); border: 1px solid var(--rule);
+  border-radius: var(--round-lg, 10px); padding: var(--gap-5);
+}
+#view-toolbox .profilehead { border-bottom: 1px solid var(--rule); padding-bottom: var(--gap-4); margin-bottom: var(--gap-4); }
+#view-toolbox .profilehead h2 { margin: 0; }
+#view-toolbox .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#view-toolbox .stacked > label { font-weight: 600; }
+#view-toolbox .tburl { overflow-wrap: anywhere; }
+#view-toolbox .tbmanage { align-items: flex-end; }
+#view-toolbox .tbmanage .stacked { margin-bottom: 0; }
+.toolboxcard .tbtool { border-top: 1px solid var(--rule); padding-top: var(--gap-4); margin-top: var(--gap-4); }
+.toolboxcard .tbtool h3 { margin: 0 0 var(--gap-2); }
+.toolboxcard .tbmanage { align-items: flex-end; gap: var(--gap-3); flex-wrap: wrap; }
+.toolboxcard .tbresults { margin: var(--gap-2) 0; padding-left: 1.2em; }
+.toolboxcard .tbmessages { margin-top: var(--gap-2); font-size: var(--t-small); }
 .rowmeta.rangeflag a { color: var(--warn); text-decoration: underline; }
 .rangeadvice button.tiny.ghost { border-color: currentColor; color: inherit; background: none; }
 /* At phone width the picture gives its room to the name, which a bulk delete must be read by. */

@@ -113,10 +113,10 @@ is Esri's. Rejected for the name, not the shape: grapy keeps `arcpy`'s documente
 
 1. **The fence is measured holding**, on the CI runner's and the showcase's kernels: a tool that opens a socket, reads
    the server's state directory, reads `/proc/1/environ`, forks without limit, allocates past its memory, or loops past
-   its time is stopped, each by name, and the run says which fence stopped it.
-2. **A Python toolbox publishes** as an item and a GPServer whose tasks and parameters are read from its tools.
-3. **A run reads a hosted layer and writes one**, through `da.SearchCursor` and `da.InsertCursor`, end to end.
-4. **The privilege exists** and a member without it is refused publishing with its name.
+   its time is stopped, each by name, and the run says which fence stopped it. **PARTLY DISCHARGED 2026-10-29** — on the showcase's machine (Linux 6.1, arm64, inside Docker's own seccomp profile) by grapy's `TheFenceHolds`: a socket, a file outside the run, `/proc/1/environ`, memory past the limit and a process are each refused, and the same toolbox run unfenced did all four, the control that shows the tests can fail. CI runs the same tests on its runner's kernel (the `grapy` job, which also fails by name on a kernel without Landlock) and runs every conformance tool fenced; the showcase image itself is measured when it ships.
+2. **A Python toolbox publishes** as an item and a GPServer whose tasks and parameters are read from its tools. **DISCHARGED 2026-10-29** by `AToolboxIsPublishedAndRunTests`: two tools, their parameters' types and directions as the task resource lists them; a toolbox with no `Toolbox` or one that will not import is refused with what its describe run said.
+3. **A run reads a hosted layer and writes one**, through `da.SearchCursor` and `da.InsertCursor`, end to end. **DISCHARGED 2026-10-29**, the same test: a number back typed as its parameter declares (a GPLong is a number), and a layer back — every point buffered — published as the caller's and counted; a required parameter not sent is refused before a run is queued.
+4. **The privilege exists** and a member without it is refused publishing with its name. **PARTLY DISCHARGED 2026-10-29**: `content:publishTools`, last in the enum so no stored grant moves, held by the administrator role alone (`RolePrivilegeCatalogueTests`), and the publish route asks it first. Open: the refusal of a member without it, asserted.
 5. **Studio publishes and runs a toolbox**, designed with the ux-designer agent.
 6. **grapy's surface is counted** against `arcpy`'s published function and tool list by a tool in this repository, and
    the count is on the status page.

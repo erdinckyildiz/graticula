@@ -238,7 +238,8 @@ internal sealed partial class ToolRunner : BackgroundService
 
                 if (layers[name] is JsonObject layer)
                 {
-                    results[name] = await PublishAsync(job, name, Path.Combine(directory, layer["geojson"]!.GetValue<string>()), stop.Token)
+                    results[name] = await PublishAsync(
+                            job, name, output["layerName"]?.GetValue<string>(), Path.Combine(directory, layer["geojson"]!.GetValue<string>()), stop.Token)
                         .ConfigureAwait(false);
                 }
                 else
@@ -297,7 +298,7 @@ internal sealed partial class ToolRunner : BackgroundService
     }
 
     /// <summary>A feature class the tool answered, as a hosted layer of the caller's, and its result parameter.</summary>
-    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string geojson, CancellationToken cancellation)
+    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, string geojson, CancellationToken cancellation)
     {
         using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(geojson, cancellation).ConfigureAwait(false));
 
@@ -306,7 +307,8 @@ internal sealed partial class ToolRunner : BackgroundService
             throw new InvalidOperationException($"The tool's {parameter} could not be read back: {bad}");
         }
 
-        string name = ToolboxEndpoints.NameFor($"{parameter}_{job.Id.ToString("N")[..8]}").ToLowerInvariant();
+        // The name the caller gave the output, or the parameter's with the job's first digits.
+        string name = named ?? ToolboxEndpoints.NameFor($"{parameter}_{job.Id.ToString("N")[..8]}").ToLowerInvariant();
         ImportResult imported = await _importer.ImportAsync(dataset!, name, cancellation).ConfigureAwait(false);
         Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(_catalog, cancellation).ConfigureAwait(false);
 
@@ -338,6 +340,7 @@ internal sealed partial class ToolRunner : BackgroundService
             {
                 ["url"] = $"/rest/services/{service.QualifiedName}/FeatureServer/0",
                 ["itemId"] = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
+                ["name"] = name,
             },
         };
     }

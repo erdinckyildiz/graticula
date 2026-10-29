@@ -207,6 +207,8 @@ const ICONS = {
   // A table: rows and a header, because what is published is a table and nothing is copied.
   // A page with a folded corner: a file kept as it was uploaded (ADR-188).
   document: '<path d="M4 1.8h5.4l3 3v9.4H4z"/><path d="M9.2 1.8v3.2h3.2M6 8.4h4.4M6 10.8h4.4"/>',
+  // ADR-223: a toolbox — two overlapping areas over a ground line, the sign the analysis tools have in the map's rail.
+  analysis: '<circle cx="6" cy="6.8" r="3.2"/><circle cx="10.4" cy="9.6" r="3.6"/><path d="M1.6 14.2h12.8"/>',
 
   table: '<rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.1"/>'
        + '<path d="M2.2 6.3h11.6M6.6 6.3v6.5"/>',
@@ -3439,6 +3441,12 @@ function route() {
     return;
   }
 
+  // A Python toolbox's page — `#/toolbox/{name}` (ADR-223).
+  if (rest[0] === "toolbox" && rest[1]) {
+    showToolbox(decodeURIComponent(rest[1]));
+    return;
+  }
+
   // A member's profile — `#/user/{name}` (2026-10-17), Studio's, as Portal's user page is.
   if (rest[0] === "user" && rest[1]) {
     showProfile(decodeURIComponent(rest[1]));
@@ -5149,6 +5157,8 @@ async function loadMyContent() {
     // ADR-188: documents beside them, optional as the maps are.
     api("/content/documents").then(a => a || {}).catch(() => ({ documents: [] })),
   ]);
+  // ADR-223: toolboxes too, optional as the documents are; read here so New item knows whether to offer one.
+  toolboxAnswer = await api("/content/toolboxes").catch(() => ({ toolboxes: [], mayPublish: false })) || toolboxAnswer;
   if (docs.accepted) {
     docRules = { accepted: docs.accepted, maximumBytes: docs.maximumBytes || docRules.maximumBytes, mayCreate: docs.mayCreate !== false };
   }
@@ -5195,7 +5205,8 @@ function drawMyContent() {
 
   const { answer, maps, docs } = contentAnswer;
   const mapItems = (maps.webMaps || []).map(mapAsItem);
-  const items = [...(answer.items || []), ...mapItems, ...((docs || {}).documents || []).map(docAsItem)];
+  const items = [...(answer.items || []), ...mapItems, ...((docs || {}).documents || []).map(docAsItem),
+    ...(toolboxAnswer.toolboxes || []).map(toolboxAsItem)];
   // Counted here, by the same rule the list is filtered by, so a tab's number is what pressing it shows.
   const counts = Object.fromEntries(CONTENT_SCOPES.map(([key]) =>
     [key, items.filter(i => inContentScope(i, key)).length]));
@@ -5394,6 +5405,7 @@ function drawMyContent() {
         : pageOf("contentRows", visible).map(i => {
           if (i.map) return mapRow(i);
           if (i.doc) return docRow(i);
+          if (i.toolbox) return toolboxRow(i);
 
           // The map is driven per layer, and a service's cover layer is the one this row draws and
           // shows. A multi-layer service is opened from its own page for the rest.
@@ -27491,6 +27503,7 @@ function drawAddItem() {
   else if (itemStep === "publish") drawPublish();
   else if (itemStep === "imagery") drawImageryForm();
   else if (itemStep === "document") drawDocumentForm();
+  else if (itemStep === "toolbox") drawToolboxForm();
   else drawRouteForm(itemStep);
 
   nameTheScreen();
@@ -27556,6 +27569,11 @@ function drawItemKinds() {
         <span><b>Document</b>
           <span>Keep a PDF, an Office file, a CSV or a picture as an item people find in Content and download.</span></span>
       </button>
+      ${toolboxAnswer.mayPublish ? `<button type="button" class="newtile" id="kindToolbox">
+        <span class="glyph">${icon("analysis")}</span>
+        <span><b>Python toolbox</b>
+          <span>Publish tools written against grapy as a geoprocessing service your organization can run.</span></span>
+      </button>` : ""}
       <button type="button" class="newtile" id="kindFeatureLayer">
         <span class="glyph">${icon("featurelayer")}</span>
         <span><b>Feature layer</b>
@@ -27625,6 +27643,15 @@ function takeFile(files) {
   }
   if (others.length > 1) {
     refuse("A feature layer is made from one file at a time. Drop one of them.");
+    return;
+  }
+
+  // ADR-223: a Python toolbox goes to its own form, for whoever may publish one (design review: it went to the layer import).
+  if (others.length === 1 && /\.pyt$/i.test(others[0].name || "") && toolboxAnswer.mayPublish) {
+    handedFile = others[0];
+    handedImages = null;
+    itemStep = "toolbox";
+    drawAddItem();
     return;
   }
 
@@ -38663,3 +38690,376 @@ async function drawGroupPartnerCount() {
     slot.textContent = "";
   }
 }
+
+// ---------------------------------------------------------------- toolboxes (ADR-223 condition 5)
+
+/** What `/content/toolboxes` last answered: the toolboxes this reader may run, and whether they may publish one. */
+let toolboxAnswer = { toolboxes: [], mayPublish: false, fenced: false };
+
+/** The toolbox the page shows, by name — kept here rather than read back from an address the router rewrites (design review). */
+let toolboxShown = null;
+
+/** The run in progress on the toolbox page, which Stop cancels. */
+let toolboxRun = null;
+
+/** A parameter's label: its display name, or its name made into words when the author gave none. */
+const toolboxLabel = p => p.displayName && p.displayName !== p.name ? p.displayName
+  : String(p.name).replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
+
+/** A toolbox as a Content row's item: its title, kind and scope, as a document's are. */
+function toolboxAsItem(t) {
+  return {
+    toolbox: t,
+    name: t.title || t.name,
+    bare: t.title || t.name,
+    kind: "Python toolbox",
+    description: `${t.tools.length} tool${t.tools.length === 1 ? "" : "s"}: ${t.tools.map(x => x.label || x.name).join(", ")}`,
+    tags: [],
+    contentFolder: null,
+    owner: t.owner,
+    sharing: t.sharing || "private",
+    manages: t.manages,
+    updated: t.created,
+    scope: t.mine ? "mine"
+      : t.sharing === "public" ? "public"
+      : t.sharing === "organization" || t.sharing === "allorganizations" ? "organization"
+      : t.sharing === "group" ? "group"
+      : "administrative",
+  };
+}
+
+function toolboxRow(i) {
+  const t = i.toolbox;
+  const open = `#/toolbox/${encodeURIComponent(t.name)}`;
+  const facts = [
+    pill(i.sharing),
+    i.scope !== "mine" && i.owner ? `<span title="Owner">${h(i.owner)}</span>` : "",
+    `<span title="Published">${day(i.updated)}</span>`,
+  ].filter(Boolean).join(`<span class="sep" aria-hidden="true">·</span>`);
+
+  return `<tr class="mediarow">
+    <td class="pick"></td>
+    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">
+      <div class="thumb doctile" aria-hidden="true">${icon("analysis")}<span>PYT</span></div></a></td>
+    <td class="name">
+      <div class="svctitle"><a href="${open}">${h(i.name)}</a>
+        <span class="svctype type">Python toolbox</span></div>
+      <p class="svcdesc" title="${h(i.description)}">${h(i.description)}</p>
+      <div class="svcmeta">${facts}</div>
+    </td>
+    <td class="acts"></td>
+  </tr>`;
+}
+
+/** The New item screen for a toolbox: one .pyt or .py file, a name and a title. */
+function drawToolboxForm() {
+  $("addItemTitle").textContent = "Publish a Python toolbox";
+  $("addItemBody").innerHTML = `
+    <p class="picklede">A toolbox written against grapy, <code>import grapy as arcpy</code>. Its tools run on this server
+      in a process of their own with no network, and become a geoprocessing service, private until you share it.</p>
+    <div class="stacked"><label for="tbFile">Toolbox</label>
+      <input type="file" id="tbFile" accept=".pyt,.py" aria-describedby="tbFileSays tbNewSays"></div>
+    <p class="hint" id="tbFileSays">One .pyt or .py file, up to 512 KB.</p>
+    <div class="stacked"><label for="tbNewName">Service name</label>
+      <input type="text" id="tbNewName" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="tbNewNameSays"
+        pattern="[A-Za-z0-9][A-Za-z0-9_-]{0,39}"></div>
+    <p class="hint" id="tbNewNameSays">Letters, digits, _ and -, up to 40: the address its tools are run at.</p>
+    <div class="stacked"><label for="tbNewTitle">Title</label>
+      <input type="text" id="tbNewTitle" maxlength="250" autocomplete="off"></div>
+    <p class="hint" id="tbNewSays" role="status" aria-live="polite"></p>`;
+  $("addItemFoot").innerHTML = `
+    <button type="button" class="ghost" id="itemBack">Back</button>
+    <span class="fill"></span>
+    <button type="button" class="ghost" id="itemCancel">Cancel</button>
+    <button type="button" class="primary" id="tbPublish">Publish</button>`;
+
+  if (handedFile) {
+    const carried = new DataTransfer();
+    carried.items.add(handedFile);
+    $("tbFile").files = carried.files;
+  }
+  const named = () => {
+    const file = $("tbFile").files?.[0];
+    if (!file) return;
+    const stem = file.name.replace(/\.[^.]+$/, "");
+    if (!$("tbNewName").dataset.typed) $("tbNewName").value = stem.replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "").slice(0, 40);
+    if (!$("tbNewTitle").dataset.typed) $("tbNewTitle").value = stem;
+  };
+  named();
+  $("tbFile").addEventListener("change", named);
+  $("tbNewName").addEventListener("input", () => { $("tbNewName").dataset.typed = "true"; });
+  $("tbNewTitle").addEventListener("input", () => { $("tbNewTitle").dataset.typed = "true"; });
+  $("itemBack").addEventListener("click", () => { itemStep = "item"; handedFile = null; drawAddItem(); });
+  $("itemCancel").addEventListener("click", () => $("addItem").close());
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("#kindToolbox, #tbPublish") : null;
+  if (!t) return;
+
+  if (t.id === "kindToolbox") {
+    itemStep = "toolbox";
+    drawAddItem();
+    return;
+  }
+
+  const file = $("tbFile").files?.[0];
+  const says = $("tbNewSays");
+  says.classList.remove("bad-inline");
+  $("tbNewName").removeAttribute("aria-invalid");
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test($("tbNewName").value.trim())) {
+    says.textContent = "Not published: the service name takes letters, digits, _ and -, up to 40, starting with a letter or digit.";
+    says.classList.add("bad-inline");
+    $("tbNewName").setAttribute("aria-invalid", "true");
+    $("tbNewName").focus();
+    return;
+  }
+  if (!file) {
+    says.textContent = "Not published: choose the toolbox's file.";
+    says.classList.add("bad-inline");
+    $("tbFile").focus();
+    return;
+  }
+
+  // Not `disabled`: it keeps focus while the server reads the toolbox by running it.
+  if (t.getAttribute("aria-disabled") === "true") return;
+  t.setAttribute("aria-disabled", "true");
+  says.textContent = "Reading the toolbox — it is run once, " + (toolboxAnswer.fenced ? "fenced, " : "") + "to list its tools…";
+
+  const form = new FormData();
+  form.set("file", file);
+  form.set("name", $("tbNewName").value.trim());
+  form.set("title", $("tbNewTitle").value.trim());
+
+  try {
+    const made = await api("/content/toolboxes", { method: "POST", body: form });
+    $("addItem").close();
+    toast(`${made.title} is published, with ${made.tools.length} tool${made.tools.length === 1 ? "" : "s"}.`, true);
+    location.hash = `#/toolbox/${encodeURIComponent(made.name)}`;
+  } catch (e) {
+    t.removeAttribute("aria-disabled");
+    says.textContent = `Not published: ${lowerFirst(e.message)}`;
+    says.classList.add("bad-inline");
+  }
+});
+
+/** The hosted layers a tool may be given: every Feature Service this reader can find, its first layer. */
+let toolboxLayers = null;
+
+async function toolboxLayerChoices() {
+  if (toolboxLayers) return toolboxLayers;
+  const found = await api(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] }));
+  toolboxLayers = (found.results || []).filter(r => r.url && /\/rest\/services\/hosted\//.test(r.url))
+    .map(r => ({ url: `${new URL(r.url, location.origin).href}/0`, title: r.title || r.name }))
+    .sort((a, b) => a.title.localeCompare(b.title));
+  return toolboxLayers;
+}
+
+/** The toolbox page `#/toolbox/{name}`. */
+async function showToolbox(name) {
+  showView("view-toolbox", "content");
+  $("tbTitle").textContent = name;
+  $("tbSub").textContent = "";
+  $("tbBody").innerHTML = `<p class="hint">Reading the toolbox…</p>`;
+
+  let answer;
+  try {
+    answer = await api("/content/toolboxes");
+  } catch (e) {
+    $("tbBody").innerHTML = `<p class="bad-inline">${h(e.message)}</p>`;
+    return;
+  }
+  toolboxAnswer = answer;
+  const t = (answer.toolboxes || []).find(x => x.name.toLowerCase() === name.toLowerCase());
+  toolboxShown = t ? t.name : null;
+  if (!t) {
+    $("tbBody").innerHTML = `<p class="bad-inline">No toolbox '${h(name)}' is visible to you.</p>`;
+    return;
+  }
+
+  const layers = await toolboxLayerChoices();
+  $("tbTitle").textContent = t.title;
+  $("tbSub").textContent = `Python toolbox · ${t.owner} · ${t.tools.length} tool${t.tools.length === 1 ? "" : "s"}`;
+
+  const field = (tool, p) => {
+    const id = `tb_${tool.name}_${p.name}`;
+    const label = `<label for="${h(id)}">${h(toolboxLabel(p))}${p.required ? "" : ` <span class="hint">(optional)</span>`}</label>`;
+    if (p.dataType === "GPFeatureRecordSetLayer") {
+      // Nothing chosen to start: a run on a layer nobody picked is a run nobody asked for (design review).
+      return `<div class="stacked">${label}${layers.length
+        ? `<select id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-kind="layer" data-tb-label="${h(toolboxLabel(p))}"${p.required ? " data-tb-required" : ""}>
+            <option value="">Choose a layer</option>${layers.map(l =>
+            `<option value="${h(l.url)}">${h(l.title)}</option>`).join("")}</select>`
+        : `<p class="hint">You have no hosted layer to give it.</p>`}</div>`;
+    }
+    if (Array.isArray(p.choiceList) && p.choiceList.length) {
+      return `<div class="stacked">${label}<select id="${h(id)}" data-tb-param="${h(p.name)}">${p.choiceList.map(c =>
+        `<option${String(c) === String(p.defaultValue ?? "") ? " selected" : ""}>${h(c)}</option>`).join("")}</select></div>`;
+    }
+    if (p.dataType === "GPBoolean") {
+      return `<label class="check"><input type="checkbox" id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-kind="boolean"${p.defaultValue ? " checked" : ""}>
+        <span>${h(toolboxLabel(p))}</span></label>`;
+    }
+    const numeric = p.dataType === "GPDouble" || p.dataType === "GPLong";
+    return `<div class="stacked">${label}<input type="text" id="${h(id)}" data-tb-param="${h(p.name)}" data-tb-label="${h(toolboxLabel(p))}"${numeric ? ` inputmode="decimal"` : ""}${p.required ? " data-tb-required" : ""}
+      value="${h(p.defaultValue ?? "")}"></div>`;
+  };
+
+  // A feature output's layer name, as a web tool asks it in ArcGIS (design review).
+  const output = (tool, p) => p.dataType !== "GPFeatureRecordSetLayer" ? "" : `<div class="stacked">
+      <label for="${h(`tb_${tool.name}_${p.name}`)}">${h(toolboxLabel(p))} — result layer name <span class="hint">(optional)</span></label>
+      <input type="text" id="${h(`tb_${tool.name}_${p.name}`)}" data-tb-param="${h(p.name)}" data-tb-label="${h(toolboxLabel(p))}" maxlength="40"
+        autocomplete="off" spellcheck="false"></div>`;
+
+  $("tbBody").innerHTML = `
+    <p class="hint">${answer.fenced
+      ? "Its tools run on this server in a process of their own, with no network and limits on memory and time."
+      : "This server runs its tools without the sandbox: an operator switched it off for development (Graticula:Tools:UnsafeUnfenced)."}
+      Its service: <a class="tburl" href="${h(t.url)}" target="_blank" rel="noopener">${h(t.url)}</a></p>
+    ${t.manages ? `<div class="row tbmanage">
+      <div class="stacked"><label for="tbSharing">Who can run it</label>
+        <select id="tbSharing">${[["private", "Owner — only you"], ["organization", "Your organization"], ["public", "Everyone (public)"]]
+          .map(([v, l]) => `<option value="${v}"${t.sharing === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+      <button type="button" id="tbShare">Save sharing</button>
+      <span class="fill"></span>
+      <button type="button" class="danger" id="tbDelete">Delete…</button>
+    </div>` : ""}
+    ${t.tools.map(tool => `
+      <section class="tbtool" aria-labelledby="tbh_${h(tool.name)}">
+        <h3 id="tbh_${h(tool.name)}">${h(tool.label || tool.name)}</h3>
+        ${tool.description ? `<p class="hint">${h(tool.description)}</p>` : ""}
+        ${tool.parameters.filter(p => p.direction === "Input").map(p => field(tool, p)).join("")}
+        ${tool.parameters.filter(p => p.direction === "Output").map(p => output(tool, p)).join("")}
+        <div class="row"><button type="button" class="primary" data-tb-run="${h(tool.name)}">Run</button>
+          <button type="button" class="ghost" data-tb-stop="${h(tool.name)}" hidden>Stop</button></div>
+        <p class="hint" id="tbSays_${h(tool.name)}" role="status" aria-live="polite"></p>
+        <div id="tbOut_${h(tool.name)}"></div>
+      </section>`).join("")}`;
+  $("tbTitle").focus({ preventScroll: true });
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target instanceof Element ? event.target.closest("[data-tb-run], [data-tb-stop], #tbShare, #tbDelete") : null;
+  if (!t) return;
+  const toolbox = (toolboxAnswer.toolboxes || []).find(x => x.name === toolboxShown);
+  if (!toolbox) return;
+
+  if (t.dataset.tbStop && toolboxRun) {
+    t.setAttribute("aria-disabled", "true");
+    $(`tbSays_${toolboxRun.tool}`).textContent = "Stopping…";
+    await api(`${toolboxRun.gp}/${encodeURIComponent(toolboxRun.tool)}/jobs/${encodeURIComponent(toolboxRun.job)}/cancel`, { method: "POST" })
+      .catch(() => null);
+    return;
+  }
+
+  if (t.id === "tbShare") {
+    try {
+      await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}/sharing`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sharing: $("tbSharing").value }),
+      });
+      toast(`${toolbox.title} is shared: ${$("tbSharing").selectedOptions[0].textContent}.`, true);
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
+  if (t.id === "tbDelete") {
+    if (!confirm(`Delete the toolbox ${toolbox.title}? Its service goes with it; layers its runs made stay.`)) return;
+    try {
+      await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}`, { method: "DELETE" });
+      toast(`${toolbox.title} was deleted.`, true);
+      location.hash = "#/content";
+    } catch (e) { toast(e.message); }
+    return;
+  }
+
+  // Run: the tool's inputs by the names its parameters have, then the job followed until it ends.
+  const tool = toolbox.tools.find(x => x.name === t.dataset.tbRun);
+  const says = $(`tbSays_${tool.name}`);
+  const out = $(`tbOut_${tool.name}`);
+  if (t.getAttribute("aria-disabled") === "true" || toolboxRun) return;
+  says.classList.remove("bad-inline");
+  const fail = text => { says.textContent = text; says.classList.add("bad-inline"); };
+
+  // A required question left empty is said on its field, before anything is sent.
+  const empty = [...t.closest(".tbtool").querySelectorAll("[data-tb-required]")].find(i => !i.value.trim());
+  if (empty) {
+    fail(`Not run: ${empty.dataset.tbLabel} is required.`);
+    empty.setAttribute("aria-invalid", "true");
+    empty.focus();
+    return;
+  }
+  for (const i of t.closest(".tbtool").querySelectorAll("[aria-invalid]")) i.removeAttribute("aria-invalid");
+
+  // The server words a refusal in parameter names; the page's labels go back in their place.
+  const labelled = message => tool.parameters.reduce(
+    (text, p) => text.replace(new RegExp(`\\b${p.name}\\b`, "g"), toolboxLabel(p)), String(message || ""));
+
+  const form = new FormData();
+  form.set("f", "json");
+  for (const input of t.closest(".tbtool").querySelectorAll("[data-tb-param]")) {
+    const value = input.dataset.tbKind === "layer" ? JSON.stringify({ url: input.value })
+      : input.dataset.tbKind === "boolean" ? String(input.checked) : input.value.trim();
+    if (value !== "") form.set(input.dataset.tbParam, value);
+  }
+
+  t.setAttribute("aria-disabled", "true");
+  out.innerHTML = "";
+  says.textContent = "Starting…";
+  const gp = new URL(toolbox.url).pathname;
+  const stop = t.parentElement.querySelector("[data-tb-stop]");
+
+  try {
+    const job = await api(`${gp}/${encodeURIComponent(tool.name)}/submitJob`, { method: "POST", body: form });
+    if (!job?.jobId) {
+      fail("Not run: the server did not start the job.");
+      return;
+    }
+    toolboxRun = { gp, tool: tool.name, job: job.jobId };
+    stop.hidden = false;
+    stop.removeAttribute("aria-disabled");
+    says.textContent = `Running ${tool.label || tool.name}…`;
+    let status = null;
+    // As long as the server lets a run take, and a little more: past it the page stops asking and says so.
+    const until = Date.now() + 35 * 60 * 1000;
+    while (Date.now() < until) {
+      await new Promise(done => setTimeout(done, 1500));
+      status = await api(`${gp}/${encodeURIComponent(tool.name)}/jobs/${encodeURIComponent(job.jobId)}?f=json`).catch(() => null);
+      if (status && ["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus)) break;
+    }
+    if (!status || !["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus)) {
+      fail(`${tool.label || tool.name} has not ended after 35 minutes; the page stopped asking.`);
+      return;
+    }
+
+    const lines = (status.messages || []).filter(m => !/^(Start Time|Succeeded at|Failed at):?/.test(m.description));
+    if (status.jobStatus === "esriJobCancelled") {
+      says.textContent = `${tool.label || tool.name} was stopped; nothing was made.`;
+    } else if (status.jobStatus !== "esriJobSucceeded") {
+      const last = [...(status.messages || [])].reverse().find(m => m.type === "esriJobMessageTypeError");
+      fail(`${tool.label || tool.name} failed: ${labelled(last?.description || "the server did not say why.")}`);
+    } else {
+      const results = [];
+      for (const param of Object.keys(status.results || {})) {
+        const r = await api(`${gp}/${encodeURIComponent(tool.name)}/jobs/${encodeURIComponent(job.jobId)}/results/${encodeURIComponent(param)}?f=json`)
+          .catch(() => null);
+        if (!r) continue;
+        const named = toolboxLabel(tool.parameters.find(p => p.name === param) || { name: param });
+        results.push(r.value && r.value.itemId
+          ? `<li>${h(named)}: <a href="#/item/${h(r.value.itemId)}">${h(r.value.name || "a new layer")}</a></li>`
+          : `<li>${h(named)}: <b>${h(r.value ?? "")}</b></li>`);
+      }
+      says.textContent = `${tool.label || tool.name} ran.`;
+      out.innerHTML = `${results.length ? `<ul class="tbresults">${results.join("")}</ul>` : ""}`;
+    }
+    if (lines.length) {
+      out.insertAdjacentHTML("beforeend", `<details class="tbmessages"><summary>Messages (${lines.length})</summary>
+        <ul>${lines.map(m => `<li class="${m.type === "esriJobMessageTypeError" ? "bad-inline" : ""}">${h(m.description)}</li>`).join("")}</ul></details>`);
+    }
+  } catch (e) {
+    fail(`Not run: ${lowerFirst(labelled(e.message))}`);
+  } finally {
+    toolboxRun = null;
+    stop.hidden = true;
+    t.removeAttribute("aria-disabled");
+  }
+});

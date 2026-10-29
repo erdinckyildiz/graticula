@@ -110,31 +110,31 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>a35f1f1e</code> · 2026-10-29 11:49</p>
+<p class="stamp">Şu commit’ten üretildi: <code>560ea096</code> · 2026-10-29 13:38</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">221</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">470/552</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">73 canlı · 9 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">472/552</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">71 canlı · 9 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">2</div><div class="kpi-l">açık soru</div><div class="kpi-n">199 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">303 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5560</div><div class="kpi-l">test</div><div class="kpi-n">599 kaynak dosya, 267,459 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5562</div><div class="kpi-l">test</div><div class="kpi-n">604 kaynak dosya, 269,012 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">2 açık</span></div><p><b>Q-194</b> — [OWNER] What ADR-223 infers under your four answers on user tools (§5.9): (a) no module named arcpy — a tool begins import grapy as arcpy, since the name is Esri&#x27;s; (b) user tools do not run on a Windows host, which has no unprivileged filesystem and network…</p><p><b>Q-193</b> — [OWNER] The analysis choices ArcGIS&#x27;s documents leave open, INFERRED 2026-10-29 while completing ADR-222 (&quot;Eksik olan her şeyi tamamla&quot;), listed in its §5 item 9: lower-case output field names (pointcount, count, sumarea&lt;unit, majority&lt;field, percentpoints…</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">86 madde</span></div><p><b>73 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">84 madde</span></div><p><b>71 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">7</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:86%"></div></div><div class="bar-n">6</div></div>
-<div class="bar"><div class="bar-l">ADR-223 · User tools are Python toolboxes wr</div><div class="bar-t"><div class="bar-f" style="width:86%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-223 · User tools are Python toolboxes wr</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -416,7 +416,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">220</td><td>An item may be shared with every organisation on the server</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reading rule, which is one line in the one place reading is decided · MEDIUM…</td><td class="num">5/5</td></tr>
 <tr><td class="id">221</td><td>The system administrator has a surface of their own</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split, which follows the API&#x27;s own (TenantRouting.SystemOnly) · MEDIUM for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">222</td><td>Geoprocessing is built-in analysis tools, served as ArcGIS&#x27;s Spatial Analysis Service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the protocol is publicly documented and copied as documented; which clients find…</td><td class="num">5/7</td></tr>
-<tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">0/6</td></tr>
+<tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">2/6</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -544,7 +544,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bars">
 <div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1524</div></div>
 <div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.8%"></div></div><div class="bar-n">942</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.6%"></div></div><div class="bar-n">878</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.7%"></div></div><div class="bar-n">880</div></div>
 <div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.7%"></div></div><div class="bar-n">560</div></div>
 <div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.8%"></div></div><div class="bar-n">423</div></div>
 <div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">369</div></div>
@@ -560,6 +560,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.6%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>560ea096</code><time>2026-10-29</time><span>A Python toolbox publishes as a GPServer and its tools run fenced, reading and writing hosted layers (ADR-223 conditions 2, 3 and 4; migration 112)</span></li>
+<li><code>1cbddd02</code><time>2026-10-29</time><span>grapy: arcpy&#x27;s documented names over GeoPackage, shapely and pyproj, a runner for Python toolboxes, and the fence each run puts up on itself (ADR-223 conditions 1 and 3 partly)</span></li>
+<li><code>9bf75fa0</code><time>2026-10-29</time><span>Analysis is complete as ArcGIS documents it: SummarizeWithin, JoinFeatures, bins, groups, collections in and out, overwrite, every buffer and overlay option, and Studio&#x27;s map runs it (ADR-222 c3, c4, c7; Q-193)</span></li>
+<li><code>0afbbb32</code><time>2026-10-29</time><span>ADR-223: user tools are Python toolboxes written against grapy, run in a sandboxed process with no network (owner decisions 2026-10-29; Q-194)</span></li>
 <li><code>a35f1f1e</code><time>2026-10-29</time><span>A migration plan skips a service deleted between its listing and its read, and says so; anything else still stops it</span></li>
 <li><code>af14cabc</code><time>2026-10-29</time><span>A layer drawn into a tile denser than its range is measured for says so beside its range, and the range is never changed for you (D-267)</span></li>
 <li><code>bb49e93a</code><time>2026-10-29</time><span>The datastore tests create the shared hosted schema as the importer does, forgiving a second class doing it at once</span></li>
@@ -570,10 +574,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>db4df49c</code><time>2026-10-27</time><span>SQL Server is chosen in Add a source, and the Oracle probe skips the geodatabase classes publish refuses (ADR-210 condition 3, ADR-217 condition 2, D-318, D-319)</span></li>
 <li><code>ae63f8ce</code><time>2026-10-27</time><span>A registered layer leaves nothing recording when it goes, a restore keeps its foreign keys, and the probe offers only what publish takes (D-307, D-309, D-311, D-312, D-314, D-315, D-316, D-317; ADR-214, ADR-217)</span></li>
 <li><code>abc42a92</code><time>2026-10-27</time><span>A reason carried to the next page is said only on that page, and soon; two console tests wait for their landing (ADR-221)</span></li>
-<li><code>1ea7dca4</code><time>2026-10-27</time><span>The system administrator has a surface of their own, /system/, and an organisation names itself (ADR-221)</span></li>
-<li><code>418dbc93</code><time>2026-10-26</time><span>An item may be shared with every organisation on the server, and found from another (ADR-220); Q-189 confirmed</span></li>
-<li><code>dbd13da4</code><time>2026-10-26</time><span>Two organisations partner before their groups mix, as in ArcGIS Online&#x27;s partnered collaboration (ADR-219, ADR-204 §5e item 17.3)</span></li>
-<li><code>3aec1d9f</code><time>2026-10-25</time><span>The issued-password form is shown alone, without the console painted under it</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
