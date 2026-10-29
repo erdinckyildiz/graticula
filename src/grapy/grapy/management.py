@@ -4209,6 +4209,99 @@ def DeleteMultiple(in_data):
     return Result("true")
 
 
+_BATCH_TYPES = {"BIGINTEGER": "BIGINTEGER", "DATE": "DATE", "DOUBLE": "DOUBLE", "GUID": "GUID", "INTEGER": "LONG",
+                "LONG": "LONG", "FLOAT": "FLOAT", "SINGLE": "FLOAT", "SHORT": "SHORT", "SMALLINTEGER": "SHORT",
+                "TEXT": "TEXT", "STRING": "TEXT"}
+
+
+def _definition_rows(table):
+    """The rows of a field definition table — a CSV file or a table grapy reads — as dictionaries by column name."""
+    import csv
+    path = _text(table)
+    if path.lower().endswith((".csv", ".txt")):
+        with open(path, encoding="utf-8-sig", newline="") as read:
+            return [dict(row) for row in csv.DictReader(read)]
+    from . import da
+    names = [c.name for c in _schema(_source(path)[0])[0]]
+    with da.SearchCursor(path, names) as rows:
+        return [dict(zip(names, r)) for r in rows]
+
+
+def BatchUpdateFields(in_table, out_table, field_definition_table, script_file=None, output_field_name=None,
+                      source_field_name=None, output_field_type=None, output_field_decimals_or_length=None,
+                      output_field_alias=None, output_field_script=None):
+    """A new table whose fields are the definition table's rows, in their order: each copied from its source field or
+    calculated by its Python script (``!field!`` for a field, a function of ``script_file`` callable), of its type and
+    alias, as documented; a later field may use an earlier calculated one, as documented. The columns default to
+    ``Target field``, ``Source field``, ``Type``, ``Decimals/Length``, ``Alias`` and ``Script``. INFERRED: a feature
+    class keeps its shapes; a copied value is converted to the field's type; a calculated field's value overrides an
+    input field of the same name for the fields after it; decimals and lengths change nothing in a GeoPackage, whose
+    numbers and text have neither. ``Blob``, ``DateOnly``, ``TimeOnly``, ``TimestampOffset``, ``GlobalID`` and
+    ``Raster`` types and a joined input are not built."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(in_table)
+    columns, kind, srid, _ = _schema(path)
+    keys = {"name": output_field_name or "Target field", "source": source_field_name or "Source field",
+            "type": output_field_type or "Type", "alias": output_field_alias or "Alias", "script": output_field_script or "Script"}
+    definitions = []
+    for row in _definition_rows(field_definition_table):
+        lower = {str(k).lower(): v for k, v in row.items()}
+
+        def cell(key):
+            value = lower.get(keys[key].lower())
+            return None if value is None or str(value).strip() == "" else str(value).strip()
+
+        name, source, script = cell("name"), cell("source"), cell("script")
+        if name is None:
+            continue
+        if source is None and script is None:
+            raise ExecuteError(f"ERROR 000735: the field '{name}' needs a source field or a script.")
+        word = (cell("type") or "TEXT").upper()
+        if word not in _BATCH_TYPES:
+            raise NotBuiltError(f"arcpy.management.BatchUpdateFields: the field type '{word}' is not built in grapy.")
+        definitions.append((name, source, script, _BATCH_TYPES[word], cell("alias")))
+    scope: dict = {}
+    if _given(script_file):
+        with open(_text(script_file), encoding="utf-8") as read:
+            exec(read.read(), scope)  # noqa: S102 — the tool's own code, in the tool's own fenced process (ADR-223 §5.3)
+    out_columns = [_gpkg.Column(name, _FIELD_TYPES[kind_word]) for name, _, _, kind_word, _ in definitions]
+    with_shapes = kind != "Geometry"
+    out = _table_out("BatchUpdateFields", out_table) if not with_shapes else _path(out_table)
+    _gpkg.create(out, kind if with_shapes else "Geometry", srid if with_shapes else 0, out_columns)
+    names = [c.name for c in columns]
+    convert = {"SHORT": int, "LONG": int, "BIGINTEGER": int, "FLOAT": float, "DOUBLE": float, "TEXT": str}
+    compiled = []
+    for name, source, script, kind_word, _ in definitions:
+        if script is None:
+            compiled.append(None)
+            continue
+        import re
+        compiled.append(compile(re.sub(r"!([^!]+)!", lambda m: f"__row[{m.group(1).lower()!r}]", script), name, "eval"))
+    with da.SearchCursor(path, [*names, "SHAPE@"], where) as rows, \
+            da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
+        for row in rows:
+            values = {n.lower(): v for n, v in zip(names, row[:-1])}
+            record = []
+            for (name, source, _, kind_word, _), code in zip(definitions, compiled):
+                if code is None:
+                    if source.lower() not in values:
+                        raise ExecuteError(f"ERROR 000728: the source field '{source}' does not exist.")
+                    value = values[source.lower()]
+                else:
+                    scope["__row"] = values
+                    value = eval(code, scope)  # noqa: S307 — as above
+                if value is not None and kind_word in convert:
+                    value = convert[kind_word](value)
+                values[name.lower()] = value
+                record.append(value)
+            written.insertRow((*record, row[-1] if with_shapes else None))
+    for name, _, _, _, alias in definitions:
+        if alias:
+            _set_alias(out, name, alias)
+    return Result(out)
+
+
 # ---- refused by name ----------------------------------------------------------------------------------------------------
 #
 # Every arcpy.management name grapy does not build is refused here with its own reason (ADR-224): a data model this
@@ -4345,9 +4438,10 @@ _REFUSED = {name: f"needs a data model this server does not hold yet (ADR-224 gr
             for model, names in _GROUP_2_MODELS.items() for name in names}
 _REFUSED.update({name: reason for reason, names in _REASONS.items() for name in names})
 
-# Left on the generic message: StandardizeField, whose page could not be reached when it was checked (2026-10-29), and
-# BatchUpdateFields, whose page documents it well enough to build and which is not built yet.
-_UNEXAMINED = ("StandardizeField", "BatchUpdateFields")
+_REFUSED["StandardizeField"] = (
+    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/standardize-field.html "
+    "answered 404, and pro.arcgis.com's .../data-management/standardize-field.htm redirects to it (checked 2026-10-29), "
+    "so its formulas and field names are unknown")
 
 
 def __getattr__(name):

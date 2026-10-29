@@ -481,7 +481,7 @@ class ManagementMore(unittest.TestCase):
         self.assertIn("Esri does not document", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.management.StandardizeField()
-        self.assertIn("is not built in grapy yet", str(raised.exception))
+        self.assertIn("standardize-field.html answered 404", str(raised.exception))
 
 
 if __name__ == "__main__":
