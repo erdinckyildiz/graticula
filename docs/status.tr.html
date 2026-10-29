@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>fe32caa5</code> · 2026-10-29 22:53</p>
+<p class="stamp">Şu commit’ten üretildi: <code>144bca49</code> · 2026-10-29 23:19</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">222</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">479/557</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">68 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">201 yanıtlandı</div></div>
-<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">açık borç</div><div class="kpi-n">303 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">303 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5565</div><div class="kpi-l">test</div><div class="kpi-n">604 kaynak dosya, 269,201 satır</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">81 madde</span></div><p><b>68 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">82 madde</span></div><p><b>68 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -440,6 +440,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-322</td><td>The Analyze dialog reads up to a hundred layer documents to open, and offers nothing past them.</td><td class="muted-t">A reader with more than a hundred services, or an open slower than a second.</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-323</td><td>grapy reads &quot;Feet&quot; two ways.</td><td class="muted-t">The Linear Unit keywords&#x27; page is found, or a run of Pro against a known distance is measured</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">303 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -560,20 +561,26 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </div></section>
 <section><h2>grapy ve arcpy</h2>
 <p class="sub">arcpy 3.7 her modülde herkese açık bir ad listesi sunar; grapy’nin bunlardan kaçını kurduğu. tools/grapy_surface.py grapy’nin kaynağından sayar; grapy’nin reddettiği ad sayılmaz.</p><div class="bars">
-<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">44 / 183</div></div>
-<div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:13.8%"></div></div><div class="bar-n">4 / 29</div></div>
-<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:18.3%"></div></div><div class="bar-n">82 / 447</div></div>
+<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:44.8%"></div></div><div class="bar-n">82 / 183</div></div>
+<div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:44.8%"></div></div><div class="bar-n">13 / 29</div></div>
+<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:21.0%"></div></div><div class="bar-n">94 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:82.5%"></div></div><div class="bar-n">33 / 40</div></div>
-<div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:32.8%"></div></div><div class="bar-n">21 / 64</div></div>
+<div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:34.4%"></div></div><div class="bar-n">22 / 64</div></div>
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">1 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">9 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:23.1%"></div></div><div class="bar-n">15 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:31.2%"></div></div><div class="bar-n">118 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:23.9%"></div></div><div class="bar-n">83 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:31.5%"></div></div><div class="bar-n">119 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:35.2%"></div></div><div class="bar-n">122 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">18 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">7 / 42</div></div>
 </div></section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>144bca49</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>6f88506a</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>a8d5660c</code><time>2026-10-29</time><span>grapy: arcpy&#x27;s own top level and more of arcpy.da (ADR-224)</span></li>
+<li><code>5010d23b</code><time>2026-10-29</time><span>grapy: feature datasets, pivots, time fields, comparisons, polygon parts, transects, mosaic, statistics, pyramids and KML (ADR-224)</span></li>
+<li><code>26473c66</code><time>2026-10-29</time><span>grapy.ia: band indexes, BandArithmetic, CompositeBand/ExtractBand, local statistics, Arithmetic, Remap; rasters of several bands (ADR-224)</span></li>
+<li><code>cb165e9a</code><time>2026-10-29</time><span>grapy gains ga, more sa, management and conversion, and the owner keeps SOAP out of scope (merging the agents&#x27; second rounds; ADR-222 condition 5 deferred)</span></li>
 <li><code>fe32caa5</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>69aa1b62</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>d08faf25</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
@@ -582,12 +589,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>07d12913</code><time>2026-10-29</time><span>grapy.sa: hydrology, cost and Euclidean distance, density, local, bitwise, extraction, Aggregate, RegionGroup; ddd&#x27;s surfaces move into sa (ADR-224)</span></li>
 <li><code>14609ce6</code><time>2026-10-29</time><span>grapy: arcpy.stats.NeighborhoodSummaryStatistics by the documented local formulas (ADR-224)</span></li>
 <li><code>5ef97ea8</code><time>2026-10-29</time><span>grapy: arcpy.ga — IDW and GlobalPolynomialInterpolation to a raster, the search neighbourhood classes (ADR-224)</span></li>
-<li><code>b6379e6d</code><time>2026-10-29</time><span>Every grapy module honours a layer&#x27;s query and selection (ADR-224)</span></li>
-<li><code>b450f703</code><time>2026-10-29</time><span>grapy gains stats, cartography and ddd, and Divide answers as documented (merging grapy-a, grapy-b and grapy-c)</span></li>
-<li><code>42f3a5a8</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>b1ea448b</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>9eb58fe5</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>4518d450</code><time>2026-10-29</time><span>The fence is measured on the shipped image, and Pro&#x27;s analysis toolbox is measured to need SOAP (ADR-223 condition 1, ADR-222 condition 5)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
