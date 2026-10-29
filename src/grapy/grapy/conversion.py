@@ -166,6 +166,160 @@ def FeaturesToJSON(in_features, out_json_file, format_json="NOT_FORMATTED", incl
     return Result(out_json_file)
 
 
+def _raster_of(value, tool):
+    from ._raster import as_raster
+    return as_raster(value, tool)
+
+
+def RasterToPolygon(in_raster, out_polygon_features, simplify="SIMPLIFY", raster_field="Value",
+                    create_multipart_features="SINGLE_OUTER_PART", max_vertices_per_feature=None):
+    """A polygon for each connected region of equal cell values, with ``Id`` and ``gridcode`` as arcpy writes them.
+    Regions follow cell edges exactly; ``SIMPLIFY``'s smoothing is not documented closely enough to reproduce, so a
+    call that asks for it is refused (pass ``NO_SIMPLIFY``)."""
+    from rasterio.features import shapes
+    from shapely.geometry import shape as as_shape
+    from ._runtime import NotBuiltError
+    from ._raster import _refuse_environment
+    _refuse_environment("RasterToPolygon")
+    if str(simplify).upper() != "NO_SIMPLIFY":
+        raise NotBuiltError("RasterToPolygon: simplify 'SIMPLIFY' is not built in grapy yet; pass 'NO_SIMPLIFY'.")
+    if str(raster_field).upper() not in ("VALUE", "VALUES"):
+        raise NotBuiltError(f"RasterToPolygon: raster_field '{raster_field}' needs an attribute table, which is not built in grapy yet.")
+    if max_vertices_per_feature not in (None, "", "#"):
+        raise NotBuiltError("RasterToPolygon: max_vertices_per_feature is not built in grapy yet.")
+    raster = _raster_of(in_raster, "RasterToPolygon")
+    if not raster.isInteger:
+        from ._runtime import ExecuteError
+        raise ExecuteError("ERROR 010247: RasterToPolygon needs an integer raster.")
+    import numpy as np
+    from shapely import union_all
+    found = list(shapes(raster._array.astype(np.int32), mask=~raster._mask, connectivity=4, transform=raster._grid.transform()))
+    out = _out(out_polygon_features)
+    _gpkg.create(out, "Polygon", raster._grid.srid, [_gpkg.Column("Id", "Integer"), _gpkg.Column("gridcode", "Integer")])
+    multipart = str(create_multipart_features).upper() == "MULTIPLE_OUTER_PART"
+    with da.InsertCursor(out, ["Id", "gridcode", "SHAPE@"]) as written:
+        if multipart:
+            by_value: dict = {}
+            for geometry, value in found:
+                by_value.setdefault(int(value), []).append(as_shape(geometry))
+            for i, (value, parts) in enumerate(sorted(by_value.items()), start=1):
+                written.insertRow((i, value, union_all(parts)))
+        else:
+            for i, (geometry, value) in enumerate(found, start=1):
+                written.insertRow((i, int(value), as_shape(geometry)))
+    return Result(out)
+
+
+def RasterToPoint(in_raster, out_point_features, raster_field="Value"):
+    """A point at the centre of each cell that is not NoData, with ``pointid`` and ``grid_code``."""
+    from shapely.geometry import Point
+    if str(raster_field).upper() not in ("VALUE", "VALUES"):
+        from ._runtime import NotBuiltError
+        raise NotBuiltError(f"RasterToPoint: raster_field '{raster_field}' needs an attribute table, which is not built in grapy yet.")
+    raster = _raster_of(in_raster, "RasterToPoint")
+    xs, ys = raster._grid.centres()
+    out = _out(out_point_features)
+    _gpkg.create(out, "Point", raster._grid.srid, [_gpkg.Column("pointid", "Integer"),
+                                                     _gpkg.Column("grid_code", "Integer" if raster.isInteger else "Double")])
+    with da.InsertCursor(out, ["pointid", "grid_code", "SHAPE@"]) as written:
+        n = 0
+        for r in range(raster.height):
+            for c in range(raster.width):
+                if not raster._mask[r, c]:
+                    n += 1
+                    written.insertRow((n, raster._array[r, c].item(), Point(xs[c], ys[r])))
+    return Result(out)
+
+
+def _feature_grid(in_features, cellsize, tool):
+    from ._runtime import NotBuiltError
+    from .sa import _grid_over
+    if cellsize in (None, "", "#"):
+        raise NotBuiltError(f"{tool}: the default cell size (the extent's shorter side over 250) is not built in grapy yet; pass cellsize.")
+    if hasattr(cellsize, "meanCellWidth"):
+        cellsize = cellsize.meanCellWidth
+    return _grid_over(in_features, float(cellsize))
+
+
+def _value_raster(in_features, value_field, grid, assignment, tool):
+    """Each cell's value from the features it holds, by the assignment rule; NoData where it holds none."""
+    import numpy as np
+    from rasterio.features import rasterize
+    from ._raster import Raster
+    from ._runtime import NotBuiltError
+    field = "OID@" if str(value_field).upper() in ("OBJECTID", "OID", "FID") else value_field
+    with da.SearchCursor(in_features, [field, "SHAPE@"]) as rows:
+        pairs = [(s._shape, v) for v, s in rows if s is not None and v is not None]
+    shape = (grid.rows, grid.columns)
+    rule = str(assignment).upper()
+    numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for _, v in pairs)
+    if not numeric:
+        raise NotBuiltError(f"{tool}: a text value field needs an attribute table, which is not built in grapy yet.")
+    integer = all(isinstance(v, int) for _, v in pairs)
+    if rule == "CELL_CENTER":
+        # Later features are drawn over earlier ones (INFERRED: arcpy documents no order without a priority field).
+        burnt = rasterize([(s, float(v)) for s, v in pairs], out_shape=shape, transform=grid.transform(), fill=0, dtype="float64")
+        covered = rasterize([(s, 1) for s, _ in pairs], out_shape=shape, transform=grid.transform(), fill=0, dtype="uint8") > 0
+        array, mask = burnt, ~covered
+    else:
+        values: dict = {}
+        for s, v in pairs:
+            for point in getattr(s, "geoms", [s]):
+                if point.geom_type != "Point":
+                    raise NotBuiltError(f"{tool}: cell_assignment '{assignment}' is built for points only in grapy yet.")
+                # INFERRED: a point on the grid's eastern or southern edge belongs to the last cell, not outside it.
+                cell = grid.cell_of(min(point.x, grid.right - grid.width * 1e-9), max(point.y, grid.bottom + grid.height * 1e-9))
+                if cell is not None:
+                    values.setdefault(cell, []).append(v)
+        array = np.zeros(shape)
+        mask = np.ones(shape, bool)
+        for cell, vs in values.items():
+            if rule == "MOST_FREQUENT":
+                kinds, counts = np.unique(vs, return_counts=True)
+                # INFERRED: a tie goes to the lowest value.
+                value = kinds[counts == counts.max()].min()
+            elif rule in ("SUM", "MEAN", "MAXIMUM", "MINIMUM", "RANGE", "COUNT", "STANDARD_DEVIATION"):
+                a = np.asarray(vs, float)
+                value = {"SUM": a.sum(), "MEAN": a.mean(), "MAXIMUM": a.max(), "MINIMUM": a.min(),
+                         "RANGE": a.max() - a.min(), "COUNT": len(a), "STANDARD_DEVIATION": a.std()}[rule]
+            else:
+                raise NotBuiltError(f"{tool}: cell_assignment '{assignment}' is not built in grapy yet.")
+            array[cell] = value
+            mask[cell] = False
+        integer = integer and rule in ("MOST_FREQUENT", "SUM", "MAXIMUM", "MINIMUM", "RANGE", "COUNT")
+    return Raster._of(np.where(mask, 0, array).astype(np.int32 if integer else np.float64), mask, grid)
+
+
+def PolygonToRaster(in_features, value_field, out_rasterdataset, cell_assignment="CELL_CENTER", priority_field="NONE",
+                    cellsize=None, build_rat=None):
+    """Polygons burnt onto a grid over their extent: a cell takes the value of the polygon at its centre."""
+    from ._runtime import NotBuiltError
+    if str(cell_assignment).upper() != "CELL_CENTER":
+        raise NotBuiltError(f"PolygonToRaster: cell_assignment '{cell_assignment}' is not built in grapy yet; CELL_CENTER is.")
+    if str(priority_field).upper() not in ("NONE", "", "#"):
+        raise NotBuiltError("PolygonToRaster: priority_field is not built in grapy yet.")
+    grid = _feature_grid(in_features, cellsize, "PolygonToRaster")
+    raster = _value_raster(in_features, value_field, grid, "CELL_CENTER", "PolygonToRaster")
+    return Result(raster.save(out_rasterdataset))
+
+
+def FeatureToRaster(in_features, field, out_raster, cell_size=None):
+    grid = _feature_grid(in_features, cell_size, "FeatureToRaster")
+    raster = _value_raster(in_features, field, grid, "CELL_CENTER", "FeatureToRaster")
+    return Result(raster.save(out_raster))
+
+
+def PointToRaster(in_features, value_field, out_rasterdataset, cell_assignment="MOST_FREQUENT", priority_field="NONE",
+                  cellsize=None, build_rat=None):
+    """Points gathered into cells, each cell's value by the assignment rule over the points it holds."""
+    from ._runtime import NotBuiltError
+    if str(priority_field).upper() not in ("NONE", "", "#"):
+        raise NotBuiltError("PointToRaster: priority_field is not built in grapy yet.")
+    grid = _feature_grid(in_features, cellsize, "PointToRaster")
+    raster = _value_raster(in_features, value_field, grid, cell_assignment, "PointToRaster")
+    return Result(raster.save(out_rasterdataset))
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
