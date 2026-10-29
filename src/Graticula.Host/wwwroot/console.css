@@ -4638,13 +4638,17 @@ dialog h3[tabindex="-1"]:focus { outline: none; }
 ul.plain { list-style: none; margin: 4px 0 0; padding: 0; }
 
 /* The view dialog's own layout (design review 2026-10-01): a label over its control, an option's name over its hint. */
-#createView .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
-#createView .check > span { display: flex; flex-direction: column; }
-#createView .check .hint, #createView .dialogfoot .fill { margin: 0; }
-#createView .dialogfoot .fill { flex: 1; }
-#createView input[type=text], #createView select { width: 100%; font: inherit; }
-#createView fieldset + fieldset { margin-top: 14px; }
+#createView .stacked, #analyzeDialog .stacked { display: flex; flex-direction: column; gap: 4px; margin-bottom: var(--gap-3); }
+#createView .check > span, #analyzeDialog .check > span { display: flex; flex-direction: column; }
+#createView .check .hint, #createView .dialogfoot .fill, #analyzeDialog .check .hint, #analyzeDialog .dialogfoot .fill { margin: 0; }
+#createView .dialogfoot .fill, #analyzeDialog .dialogfoot .fill { flex: 1; }
+#createView input[type=text], #createView select, #analyzeDialog input[type=text], #analyzeDialog select { width: 100%; font: inherit; }
+#createView fieldset + fieldset, #analyzeDialog fieldset + fieldset { margin-top: 14px; }
 #createView .fieldchips .linkbtn { margin-right: 6px; }
+/* ADR-222: the analysis dialog takes Create view's form rules, and keeps one width whichever tool is chosen (design review). */
+#analyzeDialog { width: min(640px, calc(100vw - 32px)); }
+#analyzeDialog .check { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; }
+#analyzeDialog fieldset, #analyzeDialog .stacked + .check { margin-top: 10px; }
 
 /* ADR-114: the caller's folders under the content scopes. */
 .folderbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }

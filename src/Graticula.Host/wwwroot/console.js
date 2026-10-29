@@ -7891,6 +7891,8 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
+      ${!knownKind && may("content:publishFeatures") && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+        ? `<button type="button" id="analyzeOpen">Analyze…</button>` : ""}
       ${serviceOpenKind === "ImageServer" && manages
         // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
         // says the image was uploaded here, with the Download button.
@@ -33761,6 +33763,384 @@ function logEmpty() {
 
   return `Nothing in this window matches. Widen <b>Since</b>, or clear the filters.`;
 }
+
+// ---------------------------------------------------------------- analysis (ADR-222 condition 7)
+
+/** Where the Spatial Analysis Service is — what portals/self names as helperServices.analysis. */
+const ANALYSIS = "/rest/services/System/SpatialAnalysisTools/GPServer";
+
+/**
+ * The tools, in Map Viewer's order — summarize, proximity, manage data (design review) — what each says it does, the
+ * kind of layer it starts from, and the kind its second layer must be.
+ */
+const ANALYSIS_TOOLS = [
+  { task: "AggregatePoints", label: "Aggregate points", short: "counts", result: "aggregatedLayer", from: "points",
+    second: "polygons", secondLabel: "Polygons to count in", says: "How many of these points fall in each polygon of another layer." },
+  { task: "CreateBuffers", label: "Create buffers", short: "buffers", result: "bufferLayer",
+    says: "Areas within a distance of each feature, measured on the ground." },
+  { task: "DissolveBoundaries", label: "Dissolve boundaries", short: "dissolved", result: "dissolvedLayer", from: "polygons",
+    says: "Polygons that share a value, or that touch, merged into one." },
+  { task: "MergeLayers", label: "Merge layers", short: "merged", result: "mergedLayer", second: "same",
+    secondLabel: "Merge with", says: "This layer's features and another's of the same kind, in one layer." },
+  { task: "OverlayLayers", label: "Overlay layers", short: "overlay", result: "outputLayer", second: "any",
+    secondLabel: "Overlay layer", says: "Where this layer meets another, both together, or this one less the other." },
+];
+
+/** What the server's parameter names are called on this screen, for a refusal it words in them. */
+const ANALYSIS_LABELS = {
+  inputLayer: "this layer", pointLayer: "this layer", polygonLayer: "Polygons to count in", overlayLayer: "Overlay layer",
+  mergeLayer: "Merge with", distances: "Distances", outputName: "Result layer name", dissolveFields: "the fields chosen",
+};
+
+/** The run in progress: its job and tool, its result's name, and whether the dialog still listens. */
+let analyzeRun = null;
+
+/** The layer the dialog analyses: its address, name, geometry and fields, as its own document says. */
+let analyzeLayer = null;
+
+/** The other hosted layers this reader may use as a second input, each with the kind of geometry it holds. */
+let analyzeOthers = [];
+
+const analyzeKind = geometryType => /Point/.test(geometryType || "") ? "points"
+  : /Polyline/.test(geometryType || "") ? "lines" : "polygons";
+
+/** Opens the dialog on the open service's first hosted layer. */
+async function openAnalyze() {
+  const item = serviceItem;
+  const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group") && layerNamed(one.name || "").hosted);
+  if (!item || hosted.length === 0) return;
+
+  const qualified = serviceOpen.qualified;
+  const path = `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${hosted[0].id}`;
+  analyzeRun = null;
+  $("analyzeBody").innerHTML = `<p class="hint">Reading the layer…</p>`;
+  $("analyzeFoot").innerHTML = "";
+  $("analyzeDialog").showModal();
+  $("analyzeTitle").focus();
+
+  try {
+    const [doc, found] = await Promise.all([
+      api(`${path}?f=json`),
+      api(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] })),
+    ]);
+    analyzeLayer = { url: location.origin + path, name: item.bare, kind: analyzeKind(doc.geometryType),
+      fields: (doc.fields || []).filter(f => !/OID|GlobalID|Geometry/.test(f.type || "")) };
+
+    // Each candidate's own geometry, so a list offers only what its tool can use (design review: the default
+    // polygon layer for Aggregate points was a point layer, and every run of it failed).
+    const candidates = (found.results || []).filter(r => r.url && !r.url.endsWith(`/${qualified}/FeatureServer`));
+    analyzeOthers = (await Promise.all(candidates.map(async r => {
+      const layer = await api(`${new URL(r.url).pathname}/0?f=json`).catch(() => null);
+      return layer?.geometryType ? { url: `${r.url}/0`, title: r.title || r.name, kind: analyzeKind(layer.geometryType) } : null;
+    }))).filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
+  } catch (e) {
+    $("analyzeBody").innerHTML = `<p class="bad">${h(e.message || e)}</p>`;
+    return;
+  }
+
+  const tools = ANALYSIS_TOOLS.filter(t => !t.from || t.from === analyzeLayer.kind);
+
+  $("analyzeBody").innerHTML = `
+    <p class="hint">Runs on <b>${h(item.bare)}</b> and writes a new hosted layer of yours, private until you share it.</p>
+    <fieldset class="offered"><legend>Tool</legend>
+      ${tools.map((t, i) => `<label class="check"><input type="radio" name="azTool" value="${t.task}"${i === 0 ? " checked" : ""}>
+        <span><b>${h(t.label)}</b><span class="hint">${h(t.says)}</span></span></label>`).join("")}
+    </fieldset>
+    <div id="azOptions"></div>
+    <div class="stacked"><label for="azName">Result layer name</label>
+      <input type="text" id="azName" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="azNameHint">
+      <span class="hint" id="azNameHint">Letters, digits, _ and -, up to 40. A name already in use is refused.</span></div>`;
+  drawAnalyzeFoot(false);
+  drawAnalyzeOptions();
+  document.querySelector('input[name="azTool"]:checked')?.focus();
+}
+
+/** The footer: Cancel and Run, or, while a job runs, Stop and Close — closing lets it finish and says so. */
+function drawAnalyzeFoot(running) {
+  const said = $("analyzeSays")?.innerHTML || "";
+  $("analyzeFoot").innerHTML = `<p class="hint fill" id="analyzeSays" role="status" aria-live="polite">${said}</p>
+    ${running
+      ? `<button type="button" class="ghost" id="analyzeClosing">Close</button>
+         <button type="button" id="analyzeStop">Stop</button>`
+      : `<button type="button" class="ghost" id="analyzeCancel">Cancel</button>
+         <button type="button" class="primary" id="analyzeGo">Run</button>`}`;
+}
+
+/** The second layers a tool may use: the kind it needs, never the layer itself. */
+function analyzeCandidates(tool) {
+  const overlay = document.querySelector('input[name="azOverlay"]:checked')?.value;
+  return analyzeOthers.filter(o =>
+    tool.second === "polygons" ? o.kind === "polygons"
+    : tool.second === "same" ? o.kind === analyzeLayer.kind
+    : overlay === "Erase" || overlay === "Union" ? o.kind === "polygons"
+    : true);
+}
+
+/** The second layer's list, said plainly when nothing fits. */
+function drawAnalyzeSecond(tool) {
+  const box = $("azSecond");
+  if (!box) return;
+  const fits = analyzeCandidates(tool);
+  const what = tool.second === "polygons" ? "polygon layer" : tool.second === "same" ? `layer of ${analyzeLayer.kind}`
+    : "layer of polygons";
+  box.innerHTML = fits.length
+    ? `<label for="azOther">${h(tool.secondLabel)}</label>
+       <select id="azOther">${fits.map(o => `<option value="${h(o.url)}">${h(o.title)}</option>`).join("")}</select>`
+    : `<span class="label">${h(tool.secondLabel)}</span><p class="hint" id="azNoSecond">You have no other ${what} to use here.</p>`;
+}
+
+/** The chosen tool's own questions, and a name for its result that says what it is. */
+function drawAnalyzeOptions() {
+  const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
+  if (!tool || !analyzeLayer) return;
+
+  const fieldBoxes = analyzeLayer.fields.map(f => `<label class="check"><input type="checkbox" data-az-field="${h(f.name)}">
+    <span>${h(f.alias || f.name)}</span></label>`).join("");
+  const polygons = analyzeLayer.kind === "polygons";
+
+  $("azOptions").innerHTML = {
+    CreateBuffers: `
+      <div class="stacked"><label for="azDistances">Distances</label>
+        <input type="text" id="azDistances" value="100" inputmode="decimal" aria-describedby="azDistancesHint">
+        <span class="hint" id="azDistancesHint">One or more, separated by commas: 100, 250, 500.</span></div>
+      <div class="stacked"><label for="azUnits">Units</label>
+        <select id="azUnits">${["Meters", "Kilometers", "Feet", "Miles", "NauticalMiles", "Yards"]
+          .map(u => `<option value="${u}">${u === "NauticalMiles" ? "Nautical miles" : u}</option>`).join("")}</select></div>
+      <label class="check"><input type="checkbox" id="azDissolve"> <span>One area per distance, for all features together</span></label>
+      <label class="check"><input type="checkbox" id="azRings"> <span>Rings: each distance leaves out the smaller ones</span></label>`,
+    DissolveBoundaries: `
+      <fieldset class="offered"><legend>Merge polygons that share</legend>
+        ${fieldBoxes || `<p class="hint">This layer has no fields to dissolve by.</p>`}
+        <p class="hint">Choose none to merge every polygon that touches or overlaps another.</p></fieldset>
+      <label class="check"><input type="checkbox" id="azMulti" checked> <span>Keep each group as one feature, even in separate parts</span></label>`,
+    OverlayLayers: `
+      <fieldset class="offered"><legend>Keep</legend>
+        <label class="check"><input type="radio" name="azOverlay" value="Intersect" checked> <span>Where the two meet</span></label>
+        ${polygons ? `<label class="check"><input type="radio" name="azOverlay" value="Union"> <span>Both, split where they meet</span></label>` : ""}
+        <label class="check"><input type="radio" name="azOverlay" value="Erase"> <span>This layer, less the other's area</span></label>
+      </fieldset>
+      <div class="stacked" id="azSecond"></div>`,
+    MergeLayers: `
+      <div class="stacked" id="azSecond"></div>
+      <p class="hint">Fields of the same name become one; the others are kept apart.</p>`,
+    AggregatePoints: `
+      <div class="stacked" id="azSecond"></div>
+      <label class="check"><input type="checkbox" id="azKeep" checked> <span>Keep polygons with no points, counted 0</span></label>`,
+  }[tool.task];
+  drawAnalyzeSecond(tool);
+
+  const name = $("azName");
+  if (name && (!name.value || name.dataset.made === name.value)) {
+    name.value = analyzeNameFor(`${analyzeLayer.name}_${tool.short}`);
+    name.dataset.made = name.value;
+  }
+}
+
+/** A layer name the server takes: letters, digits, _ and -, starting with a letter or digit, up to 40. */
+function analyzeNameFor(text) {
+  return (String(text).replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "") || "result").slice(0, 40);
+}
+
+/** The distances typed, or null when one is not a number above zero. */
+function analyzeDistances() {
+  const parts = ($("azDistances")?.value || "").split(/[,;\s]+/).filter(Boolean);
+  const numbers = parts.map(Number);
+  return parts.length && numbers.every(n => Number.isFinite(n) && n > 0) ? numbers : null;
+}
+
+/** What the chosen tool is sent, by the parameter names the service documents. */
+function analyzeForm(tool, name) {
+  const form = new FormData();
+  form.set("f", "json");
+  form.set("outputName", JSON.stringify({ serviceProperties: { name } }));
+  const input = JSON.stringify({ url: analyzeLayer.url });
+  const other = $("azOther")?.value ? JSON.stringify({ url: $("azOther").value }) : null;
+
+  switch (tool.task) {
+    case "CreateBuffers":
+      form.set("inputLayer", input);
+      form.set("distances", JSON.stringify(analyzeDistances()));
+      form.set("units", $("azUnits").value);
+      form.set("dissolveType", $("azDissolve").checked ? "Dissolve" : "None");
+      form.set("ringType", $("azRings").checked ? "Rings" : "Disks");
+      break;
+    case "DissolveBoundaries":
+      form.set("inputLayer", input);
+      form.set("dissolveFields", JSON.stringify([...document.querySelectorAll("[data-az-field]:checked")].map(b => b.dataset.azField)));
+      form.set("multiPartFeatures", String($("azMulti").checked));
+      break;
+    case "OverlayLayers":
+      form.set("inputLayer", input);
+      form.set("overlayLayer", other);
+      form.set("overlayType", document.querySelector('input[name="azOverlay"]:checked').value);
+      break;
+    case "MergeLayers":
+      form.set("inputLayer", input);
+      form.set("mergeLayer", other);
+      break;
+    default:
+      form.set("pointLayer", input);
+      form.set("polygonLayer", other);
+      form.set("keepBoundariesWithNoPoints", String($("azKeep").checked));
+  }
+
+  return form;
+}
+
+/** A refusal in the screen's words: the server words it in its parameter names. */
+function analyzeSaid(message) {
+  return lowerFirst(Object.entries(ANALYSIS_LABELS).reduce(
+    (said, [parameter, label]) => said.replace(new RegExp(`\\b${parameter}\\b`, "g"), label), String(message || "")));
+}
+
+/** Says a refusal on the field it is about, keeping the reader there. */
+function analyzeRefuse(text, field) {
+  $("analyzeSays").textContent = text;
+  if (field) {
+    field.setAttribute("aria-invalid", "true");
+    field.focus();
+  }
+}
+
+/** Submits, then follows the job until it ends, saying where it is; the result is a link to the new layer. */
+async function runAnalysis() {
+  const go = $("analyzeGo");
+  if (!go || go.getAttribute("aria-disabled") === "true") return;
+
+  const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
+  const nameBox = $("azName");
+  const name = (nameBox.value || "").trim();
+  for (const one of document.querySelectorAll("#analyzeDialog [aria-invalid]")) one.removeAttribute("aria-invalid");
+
+  if (tool.task === "CreateBuffers" && !analyzeDistances()) {
+    analyzeRefuse("Not run: enter distances as numbers above zero, such as 100, 250.", $("azDistances"));
+    return;
+  }
+
+  if (tool.second && !$("azOther")?.value) {
+    analyzeRefuse(`Not run: ${$("azNoSecond")?.textContent || "there is no second layer to use."}`, null);
+    return;
+  }
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(name)) {
+    analyzeRefuse("Not run: the result's name takes letters, digits, _ and -, starting with a letter or digit.", nameBox);
+    return;
+  }
+
+  // Not `disabled`: a disabled button drops the focus it holds (design review); it says it is busy instead.
+  go.setAttribute("aria-disabled", "true");
+  $("analyzeSays").textContent = "Starting…";
+
+  let job;
+  try {
+    job = await api(`${ANALYSIS}/${tool.task}/submitJob`, { method: "POST", body: analyzeForm(tool, name) });
+  } catch (e) {
+    const message = String(e.message || e);
+    go.removeAttribute("aria-disabled");
+    analyzeRefuse(`Not run: ${analyzeSaid(message)}`, /already exists|cannot name/.test(message) ? nameBox : null);
+    return;
+  }
+
+  if (!job?.jobId) {
+    go.removeAttribute("aria-disabled");
+    analyzeRefuse("Not run: the server did not start the job.", null);
+    return;
+  }
+
+  const run = { job: job.jobId, tool, name };
+  analyzeRun = run;
+  $("analyzeSays").textContent = `Running ${tool.label.toLowerCase()}…`;
+  drawAnalyzeFoot(true);
+  $("analyzeStop").focus();
+
+  for (;;) {
+    await new Promise(done => setTimeout(done, 1500));
+
+    let status;
+    try {
+      status = await api(`${ANALYSIS}/${tool.task}/jobs/${encodeURIComponent(run.job)}?f=json`);
+    } catch {
+      continue;
+    }
+
+    const ended = ["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus);
+    if (!ended) continue;
+
+    let line;
+    let id = null;
+    if (status.jobStatus === "esriJobSucceeded") {
+      const result = await api(`${ANALYSIS}/${tool.task}/jobs/${encodeURIComponent(run.job)}/results/${tool.result}?f=json`).catch(() => null);
+      id = result?.value?.itemId || null;
+    } else {
+      const last = [...(status.messages || [])].reverse().find(m => m.type === "esriJobMessageTypeError");
+      line = status.jobStatus === "esriJobCancelled" ? `${run.name} was stopped; nothing was made.`
+        : `${run.name} failed: ${analyzeSaid(last?.description || "the server did not say why.")}`;
+    }
+
+    // Closed while it ran: the page says how it ended, since the dialog cannot.
+    if (analyzeRun !== run) {
+      toast(id ? `${run.name} is ready, in Content.` : line, Boolean(id));
+      return;
+    }
+
+    analyzeRun = null;
+    drawAnalyzeFoot(false);
+
+    if (id) {
+      $("analyzeSays").innerHTML = `Done: <a href="#/item/${h(id)}" id="analyzeResult">open ${h(run.name)}</a>.`;
+      // The next run needs a name of its own; this one is taken now.
+      nameBox.value = analyzeNameFor(`${run.name.replace(/_\d+$/, "")}_${(Number(/_(\d+)$/.exec(run.name)?.[1]) || 1) + 1}`);
+      nameBox.dataset.made = nameBox.value;
+      $("analyzeResult").focus();
+    } else {
+      $("analyzeSays").textContent = line;
+      $("analyzeGo").focus();
+    }
+    return;
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target;
+  if (t.id === "analyzeOpen") { t.closest("details")?.removeAttribute("open"); await openAnalyze(); return; }
+  if (t.id === "analyzeGo") { await runAnalysis(); return; }
+
+  if (t.id === "analyzeStop" && analyzeRun) {
+    const run = analyzeRun;
+    t.setAttribute("aria-disabled", "true");
+    $("analyzeSays").textContent = "Stopping…";
+    await api(`${ANALYSIS}/${run.tool.task}/jobs/${encodeURIComponent(run.job)}/cancel`, { method: "POST" }).catch(() => null);
+    return;
+  }
+
+  if (t.id === "analyzeCancel" || t.id === "analyzeClosing" || t.closest?.("#analyzeClose")) {
+    $("analyzeDialog").close();
+    return;
+  }
+
+  if (t.closest?.("#analyzeResult")) $("analyzeDialog").close();
+});
+
+document.addEventListener("change", event => {
+  if (event.target.name === "azTool") {
+    drawAnalyzeOptions();
+    return;
+  }
+  // Erase and Union take a polygon layer to overlay with; the list follows the choice.
+  if (event.target.name === "azOverlay") {
+    drawAnalyzeSecond(ANALYSIS_TOOLS.find(t => t.task === "OverlayLayers"));
+  }
+});
+
+// Closed while a job runs — by Close, the ✕ or Escape — the job goes on and the page says so; its end is a toast.
+$("analyzeDialog")?.addEventListener("close", () => {
+  if (analyzeRun) {
+    toast(`${analyzeRun.name} is still running; it will appear in Content when it is done.`, true);
+    analyzeRun = { ...analyzeRun, closed: true };
+  }
+  const opener = $("analyzeOpen") || $("itemActions")?.querySelector("summary");
+  opener?.focus();
+});
 
 // ---------------------------------------------------------------- documents (ADR-188 condition 4)
 
