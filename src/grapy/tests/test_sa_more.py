@@ -217,7 +217,7 @@ class More(_Fixture):
             sa.Fill(grid([[1]]), 3)
 
     def test_tools_refused_by_name_say_why(self):
-        for name, words in (("Combine", "attribute table"), ("Spline", "not specified")):
+        for name, words in (("Combine", "attribute table"), ("TopoToRaster", "not specified")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a", "b")
             self.assertIn(words, str(raised.exception))
@@ -430,6 +430,25 @@ class Equivalents(_Fixture):
         # 2·D·G²/G²·100 = −200 (upwardly convex is negative) and plan is −2·E·100 = 0.
         self.assertAlmostEqual(cells(arcpy.Raster(profile))[2][2], -200.0, places=3)
         self.assertAlmostEqual(cells(arcpy.Raster(plan))[2][2], 0.0, places=3)
+
+
+    def test_spline_passes_through_the_points(self):
+        # Three points on the plane z = x + 2y: the regularized spline's linear trend takes them exactly and every λ is
+        # 0, so each cell centre lies on the plane.
+        plane = self.features("sp", "POINT", [(0.0, point(0, 0)), (20.0, point(20, 0)), (40.0, point(0, 20))],
+                              [("z", "DOUBLE")])
+        got = cells(sa.Spline(plane, "z", 10))
+        for row, y in zip(got, (15, 5)):
+            for value, x in zip(row, (5, 15)):
+                self.assertAlmostEqual(value, x + 2 * y, places=3)
+        # Tension, two points 20 apart on one row: T = a₁ is their mean and the λs are opposite, so the midpoint is the
+        # mean, 5.
+        pair = self.features("pr", "POINT", [(0.0, point(0, 0)), (10.0, point(20, 0))], [("z", "DOUBLE")])
+        middle = cells(sa.Spline(pair, "z", 10, "TENSION"))
+        self.assertAlmostEqual((middle[0][0] + middle[0][1]) / 2, 5.0, places=3)
+        many = self.features("many", "POINT", [(float(k), point(k, k)) for k in range(13)], [("z", "DOUBLE")])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.Spline(many, "z", 1)
 
 
 if __name__ == "__main__":

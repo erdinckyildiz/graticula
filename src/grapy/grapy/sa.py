@@ -4226,6 +4226,80 @@ for _built in ("FuzzyMembership", "FuzzyGaussian", "FuzzyLarge", "FuzzyLinear", 
     _REFUSED.pop(_built, None)
 
 
+# ---- round nine (ADR-224 §5.6): Spline
+
+_EULER = 0.577215
+
+
+def _spline_basis(kind, r, weight):
+    """R(r) of the regularized spline (Mitas and Mitasova 1988, with τ² = weight) or of the spline with tension (the
+    page's own text, with φ² = weight). R(0) is the limit, 0 for both."""
+    from scipy.special import k0
+    r = np.asarray(r, dtype=np.float64)
+    safe = np.where(r > 0, r, 1.0)
+    if kind == "REGULARIZED":
+        tau = math.sqrt(weight)
+        value = (safe * safe / 4 * (np.log(safe / (2 * tau)) + _EULER - 1)
+                 + tau * tau * (k0(safe / tau) + _EULER + np.log(safe / (2 * tau)))) / (2 * math.pi)
+    else:
+        phi = math.sqrt(weight)
+        value = -1 / (2 * math.pi * phi * phi) * (np.log(safe * phi / 2) + _EULER + k0(safe * phi))
+    return np.where(r > 0, value, 0.0)
+
+
+@_equivalent("the regularized spline and the spline with tension", "Mitas and Mitasova 1988, Mathematical Geology "
+             "20(8); Franke 1982, Computers and Mathematics with Applications 8(4); the page's own tension basis")
+def Spline(in_point_features, z_field, cell_size=None, spline_type="REGULARIZED", weight=0.1, number_points=12):
+    """EQUIVALENT: S(x, y) = T(x, y) + Σ λⱼ R(rⱼ), as the page writes it, solved exactly through the points: for
+    ``REGULARIZED``, T = a₁ + a₂x + a₃y and Mitas and Mitasova's (1988) basis
+    R(r) = (1/2π)·{r²/4·[ln(r/2τ) + c − 1] + τ²·[K₀(r/τ) + c + ln(r/2τ)]} with τ² = ``weight``; for ``TENSION``,
+    T = a₁ and the page's R(r) = −1/(2πφ²)·[ln(rφ/2) + c + K₀(rφ)] with φ² = ``weight``; c = 0.577215. The
+    regularized basis is the published one; Esri's page shows it only as an image (where its last logarithm reads
+    ln(r/2π), which differs by a constant that the condition Σλⱼ = 0 cancels).
+
+    ``number_points`` divides the output into regions of that many points, as documented; the equivalent builds the
+    case of one region — as many points as ``number_points`` or fewer, the default 12 — and refuses more, since how a
+    region is widened to eight points is not documented.
+
+    INFERRED: the default type is REGULARIZED (the page's examples pass it); the grid is as Idw's; coincident points
+    are refused."""
+    kind = str(spline_type or "REGULARIZED").upper()
+    if kind not in ("REGULARIZED", "TENSION"):
+        _refuse("Spline", "spline_type", spline_type)
+    w = float(weight if weight is not None else 0.1)
+    if w <= 0:
+        raise ValueError("Spline: the weight must be positive.")
+    xs, ys, zs = _points(in_point_features, z_field, "Spline")
+    if len({(x, y) for x, y in zip(xs, ys)}) != len(xs):
+        _refuse("Spline", "in_point_features", in_point_features, "coincident points make the system singular")
+    if len(xs) > int(number_points or 12):
+        _refuse("Spline", "number_points", number_points, f"{len(xs)} points make more than one region, and how a region "
+                "is widened to eight points is not documented")
+    grid = _point_grid(in_point_features, cell_size, xs, ys, "Spline")
+    n = len(xs)
+    trend = [lambda x, y: np.ones_like(np.asarray(x, dtype=np.float64))]
+    if kind == "REGULARIZED":
+        trend += [lambda x, y: np.asarray(x, dtype=np.float64), lambda x, y: np.asarray(y, dtype=np.float64)]
+    m = len(trend)
+    x0, y0 = xs.mean(), ys.mean()
+    u, v = xs - x0, ys - y0
+    system = np.zeros((n + m, n + m))
+    system[:n, :n] = _spline_basis(kind, np.hypot(u[:, None] - u, v[:, None] - v), w)
+    for k, f in enumerate(trend):
+        system[:n, n + k] = system[n + k, :n] = f(u, v)
+    right = np.concatenate([zs, np.zeros(m)])
+    solution = np.linalg.solve(system, right)
+    cx, cy = grid.centres()
+    gx, gy = np.meshgrid(cx - x0, cy - y0)
+    surface = (_spline_basis(kind, np.hypot(gx[..., None] - u, gy[..., None] - v), w) * solution[:n]).sum(axis=-1)
+    for k, f in enumerate(trend):
+        surface = surface + solution[n + k] * f(gx, gy)
+    return Raster._of(surface.astype(np.float32), np.zeros(surface.shape, bool), grid)
+
+
+_REFUSED.pop("Spline", None)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)

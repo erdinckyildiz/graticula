@@ -223,6 +223,12 @@ def Visibility(in_raster, in_observer_features, out_raster, out_agl_raster=None,
                                 horizontal_end_angle, vertical_upper_angle, vertical_lower_angle), out_raster)
 
 
+@_equivalent("the regularized spline and the spline with tension", "Mitas and Mitasova 1988; Franke 1982")
+def Spline(in_point_features, z_field, out_raster, cell_size=None, spline_type="REGULARIZED", weight=0.1, number_points=12):
+    """EQUIVALENT: arcpy.sa.Spline (Mitas and Mitasova's splines), saved; see its docstring."""
+    return _saved(sa.Spline(in_point_features, z_field, cell_size, spline_type, weight, number_points), out_raster)
+
+
 # ---- refused, by name, with the reason
 
 _GROUP_2 = "needs a data model this server does not hold yet (ADR-224 group 2)"
@@ -287,7 +293,7 @@ _REFUSED.update({
 })
 
 
-for _built in ("Kriging", "NaturalNeighbor", "Viewshed", "Visibility"):
+for _built in ("Kriging", "NaturalNeighbor", "Viewshed", "Visibility", "Spline"):
     _REFUSED.pop(_built, None)
 
 
