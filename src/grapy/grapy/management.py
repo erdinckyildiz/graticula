@@ -571,26 +571,12 @@ def MinimumBoundingGeometry(in_features, out_feature_class, geometry_type="RECTA
 # ---- layers and table views ------------------------------------------------------------------------------------------
 #
 # arcpy's layer is a name over a dataset, with a definition query and a selection, that lives as long as the session.
-# INFERRED: grapy's is the same, held in this process (``_LAYERS``). Arcpy documents that a tool given a layer works on
-# its selected features, or on all it shows when none is selected. The tools of this module honour that; a tool that
-# does not know layers (``analysis``, ``conversion`` and the cursors today) is handed a name that is no GeoPackage path
-# and fails, rather than silently reading every feature. A layer's name may therefore not contain ``.gpkg``.
+# The registry is ``_layers``, which ``_gpkg.table_of`` and the ``da`` cursors read, so every module's tools honour a
+# layer's query and selection — not only this module's.
 
-
-class _Layer:
-    def __init__(self, name, source, where, kind):
-        self.name, self.source, self.where, self.kind = name, source, where, kind
-        self.selection: set = set()
-
-    def __str__(self):
-        return self.name
-
-
-_LAYERS: dict = {}
-
-
-def _text(value):
-    return os.fspath(value) if isinstance(value, os.PathLike) else str(value)
+from ._layers import LAYERS as _LAYERS  # noqa: E402
+from ._layers import Layer as _Layer  # noqa: E402
+from ._layers import text as _text  # noqa: E402
 
 
 def _given(value):

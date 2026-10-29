@@ -113,6 +113,8 @@ class SearchCursor(_Cursor):
     def __init__(self, in_table, field_names, where_clause=None, spatial_reference=None, explode_to_points=False,
                  sql_clause=(None, None), datum_transformation=None):
         super().__init__(in_table, field_names)
+        from . import _layers
+        where_clause = _layers.combined(_layers.find(in_table), self._oid, where_clause)
         prefix, postfix = sql_clause or (None, None)
         sql = f'select {"distinct " if prefix and "DISTINCT" in prefix.upper() else ""}{self._select()} from "{self._table}"'
         if where_clause:
@@ -170,6 +172,8 @@ class UpdateCursor(SearchCursor):
     def __init__(self, in_table, field_names, where_clause=None, spatial_reference=None, explode_to_points=False,
                  sql_clause=(None, None), datum_transformation=None):
         _Cursor.__init__(self, in_table, field_names)
+        from . import _layers
+        where_clause = _layers.combined(_layers.find(in_table), self._oid, where_clause)
         sql = f'select "{self._oid}", {self._select()} from "{self._table}"'
         if where_clause:
             sql += f" where {where_clause}"

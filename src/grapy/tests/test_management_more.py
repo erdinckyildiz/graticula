@@ -96,10 +96,19 @@ class ManagementMore(unittest.TestCase):
         self.assertEqual(inverted[1], "1")
         self.assertEqual(self.rows(arcpy.management.CopyFeatures("parcels", self.out("inv"))[0], ["name"]), [("p2",)])
 
-    def test_a_layer_is_refused_by_tools_that_do_not_know_layers_and_removed_by_delete(self):
-        arcpy.management.MakeFeatureLayer(self.parcels, "lyr")
-        with self.assertRaises(ValueError):
-            arcpy.analysis.Select("lyr", self.out("sel"))
+    def test_every_module_reads_a_layers_query_and_selection_and_delete_removes_only_the_layer(self):
+        # Query value > 1 shows p1 and p2; selecting kind = 'b' within it leaves p2 alone.
+        arcpy.management.MakeFeatureLayer(self.parcels, "lyr", "value > 1")
+        selected = arcpy.analysis.Select("lyr", self.out("sel")).getOutput(0)
+        with arcpy.da.SearchCursor(selected, ["name"]) as rows:
+            self.assertEqual([r[0] for r in rows], ["p1", "p2"])
+        arcpy.management.SelectLayerByAttribute("lyr", "NEW_SELECTION", "kind = 'b'")
+        buffered = arcpy.analysis.Buffer("lyr", self.out("buf"), "5 Meters").getOutput(0)
+        with arcpy.da.SearchCursor(buffered, ["name"]) as rows:
+            self.assertEqual([r[0] for r in rows], ["p2"])
+        with arcpy.da.SearchCursor("lyr", ["name"], "value < 10") as rows:
+            self.assertEqual([r[0] for r in rows], ["p2"])
+        self.assertEqual(arcpy.Describe("lyr").shapeType, "Polygon")
         with self.assertRaises(arcpy.ExecuteError):
             arcpy.management.MakeFeatureLayer(self.parcels, "bad.gpkg")
         arcpy.management.Delete("lyr")
