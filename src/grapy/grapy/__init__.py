@@ -34,8 +34,37 @@ def _field_domains(connection, table):
     return {column.lower(): name for column, name in rows}
 
 
+def _field_titles(connection, table):
+    """{field name (lower case): alias} from the schema extension's ``gpkg_data_columns.title``, where AlterField keeps
+    an alias."""
+    try:
+        rows = connection.execute("select column_name, title from gpkg_data_columns where table_name = ? "
+                                  "and title is not null", (table,)).fetchall()
+    except Exception:  # No schema extension: no aliases.
+        return {}
+    return {column.lower(): title for column, title in rows}
+
+
+def _joined_fields(path, connection, table, oid, geometry):
+    """The fields of a joined layer as its cursors name them, ``<table>.<field>`` for its own table and each join
+    table, or None for anything else."""
+    from . import _layers
+    layer = _layers.find(path)
+    if layer is None or not layer.joins:
+        return None
+    joined = _layers.joined(layer, connection, table, oid, geometry)
+    for schema in joined.attached:
+        connection.execute(f"detach database {schema}")
+    fields = [Field(f"{table}.{oid}", "OID", False)]
+    for name, _, kind, _ in joined.fields:
+        fields.append(Field(name, kind))
+    fields.append(Field(f"{table}.{geometry}", "Geometry"))
+    return fields
+
+
 class _Described:
-    """What Describe answers for a feature class: its fields, shape type, reference, extent and names."""
+    """What Describe answers for a feature class: its fields, shape type, reference, extent and names. A joined layer's
+    fields are named ``<table>.<field>``, as its cursors read them; a field's alias is its schema extension title."""
 
     def __init__(self, path):
         connection, table = _gpkg.table_of(path)
@@ -49,6 +78,8 @@ class _Described:
             if shapes:
                 bounds = union_all(shapes).bounds
             domains = _field_domains(connection, table)
+            titles = _field_titles(connection, table)
+            joined = _joined_fields(path, connection, table, oid, geometry)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -61,9 +92,20 @@ class _Described:
         self.OIDFieldName = oid
         self.hasOID = True
         self.spatialReference = SpatialReference(srid) if srid > 0 else None
-        self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable) for c in columns], Field(geometry, "Geometry")]
+        self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, aliasName=titles.get(c.name.lower()))
+                                                    for c in columns], Field(geometry, "Geometry")]
         for field in self.fields:
             field.domain = domains.get(field.name.lower(), "")
+        if joined is not None:
+            own = f"{table}.".lower()
+            for field in joined:
+                bare = field.name.split(".", 1)[1].lower() if field.name.lower().startswith(own) else None
+                field.domain = domains.get(bare, "") if bare else ""
+                if bare and titles.get(bare):
+                    field.aliasName = titles[bare]
+            self.fields = joined
+            self.OIDFieldName = f"{table}.{oid}"
+            self.shapeFieldName = f"{table}.{geometry}"
         self.extent = Extent(*bounds, self.spatialReference) if bounds else None
         self.featureType = "Simple"
         self.hasZ = False

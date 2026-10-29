@@ -21,7 +21,12 @@ def ExportFeatures(in_features, out_features, where_clause=None, use_field_alias
                    field_mapping=None, sort_field=None):
     """The features a where clause chooses — all of them when none is given — copied, in the order of ``sort_field``
     (``[[field, ASCENDING|DESCENDING]]``) when one is named."""
-    from .management import _pairs
+    from .management import _copy_joined, _joined_layer, _pairs
+    if _joined_layer(in_features) is not None:
+        if where_clause or sort_field or field_mapping:
+            raise NotBuiltError("arcpy.conversion.ExportFeatures of a joined layer with a where clause, sort or field "
+                                "mapping is not built in grapy.")
+        return _copy_joined(in_features, _out(out_features), True)
     connection, table = _gpkg.table_of(in_features)
     columns, shape, srid, _ = _gpkg.describe(connection, table)
     connection.close()
@@ -936,11 +941,166 @@ def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverl
     return Result(target, target)
 
 
+# ---- GTFS (https://gtfs.org/documentation/schedule/reference/) -----------------------------------------------------------
+#
+# GTFS coordinates are WGS 1984, as the specification says. INFERRED, the pages naming no fields: each column of the
+# file becomes a field of the same name, as the pages' note on shortened shapefile names implies; columns the
+# specification types as latitude, longitude, float or non-negative float are doubles, its enums and integers short
+# or long integers, the rest text.
+
+_GTFS_DOUBLES = {"stop_lat", "stop_lon", "shape_pt_lat", "shape_pt_lon", "shape_dist_traveled"}
+_GTFS_INTEGERS = {"location_type": "SmallInteger", "wheelchair_boarding": "SmallInteger", "route_type": "SmallInteger",
+                  "route_sort_order": "Integer", "continuous_pickup": "SmallInteger", "continuous_drop_off": "SmallInteger",
+                  "shape_pt_sequence": "Integer"}
+
+
+def _gtfs_rows(path):
+    import csv
+    with open(path, encoding="utf-8-sig", newline="") as read:
+        reader = csv.DictReader(read)
+        return reader.fieldnames or [], [dict(r) for r in reader]
+
+
+def _gtfs_value(column, text):
+    if text is None or str(text).strip() == "":
+        return None
+    if column in _GTFS_DOUBLES:
+        return float(text)
+    if column in _GTFS_INTEGERS:
+        return int(float(text))
+    return text
+
+
+def _gtfs_column(column):
+    return _gpkg.Column(column, "Double" if column in _GTFS_DOUBLES else _GTFS_INTEGERS.get(column, "String"))
+
+
+def _gtfs_sibling(path, name):
+    other = os.path.join(os.path.dirname(os.path.abspath(str(path))), name)
+    return other if os.path.exists(other) else None
+
+
+def GTFSStopsToFeatures(in_gtfs_stops_file, out_feature_class):
+    """A point for each stop of a GTFS ``stops.txt``, in WGS 1984, with its columns as fields; a stop of location type
+    3 or 4 with no coordinates is left out, as documented. With ``stop_times.txt``, ``trips.txt`` and ``routes.txt``
+    beside it, ``route_info`` holds the JSON ``{"route_id": […], "route_type": […]}`` of the routes serving the stop,
+    as documented. INFERRED: the fields as the module note says; route lists sorted, route types as text as in the
+    page's example, the JSON written without spaces; a stop of another type with no coordinates keeps an empty point."""
+    import json
+    from shapely.geometry import Point as ShapelyPoint
+    columns, rows = _gtfs_rows(str(in_gtfs_stops_file))
+    serving: dict = {}
+    times, trips, routes = (_gtfs_sibling(in_gtfs_stops_file, n) for n in ("stop_times.txt", "trips.txt", "routes.txt"))
+    if times and trips and routes:
+        route_type = {r["route_id"]: r.get("route_type") for r in _gtfs_rows(routes)[1]}
+        trip_route = {t["trip_id"]: t["route_id"] for t in _gtfs_rows(trips)[1]}
+        for stop_time in _gtfs_rows(times)[1]:
+            route = trip_route.get(stop_time.get("trip_id"))
+            if route is not None:
+                serving.setdefault(stop_time.get("stop_id"), set()).add(route)
+    fields = [_gtfs_column(c) for c in columns] + ([_gpkg.Column("route_info", "String")] if serving or (times and trips and routes) else [])
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Point", 4326, fields)
+    with da.InsertCursor(out, [*[f.name for f in fields], "SHAPE@"]) as written:
+        for row in rows:
+            lat, lon = _gtfs_value("stop_lat", row.get("stop_lat")), _gtfs_value("stop_lon", row.get("stop_lon"))
+            if (lat is None or lon is None) and str(row.get("location_type", "")).strip() in ("3", "4"):
+                continue
+            values = [_gtfs_value(c, row.get(c)) for c in columns]
+            if len(fields) > len(columns):
+                ids = sorted(serving.get(row.get("stop_id"), ()))
+                kinds = sorted({str(route_type.get(i)) for i in ids if route_type.get(i) is not None})
+                values.append(json.dumps({"route_id": ids, "route_type": kinds}, separators=(",", ":")))
+            written.insertRow((*values, ShapelyPoint(lon, lat) if lat is not None and lon is not None else ShapelyPoint()))
+    return Result(out)
+
+
+def GTFSShapesToFeatures(in_gtfs_shapes_file, out_feature_class):
+    """A line for each ``shape_id`` of a GTFS ``shapes.txt``, its points joined by straight lines in
+    ``shape_pt_sequence`` order, as documented and as the specification orders them, in WGS 1984. With ``trips.txt``
+    and ``routes.txt`` beside it, each line carries its route's ``routes.txt`` columns — one line per shape and route
+    when a shape serves several, as documented. INFERRED: the fields are ``shape_id`` and then the route's columns;
+    lines in order of first appearance, routes by ``route_id``."""
+    from shapely.geometry import LineString
+    _, rows = _gtfs_rows(str(in_gtfs_shapes_file))
+    points: dict = {}
+    for row in rows:
+        points.setdefault(row["shape_id"], []).append((int(float(row["shape_pt_sequence"])), float(row["shape_pt_lon"]),
+                                                       float(row["shape_pt_lat"])))
+    trips, routes = _gtfs_sibling(in_gtfs_shapes_file, "trips.txt"), _gtfs_sibling(in_gtfs_shapes_file, "routes.txt")
+    route_columns, by_shape, route_rows = [], {}, {}
+    if trips and routes:
+        route_columns, listed = _gtfs_rows(routes)
+        route_rows = {r["route_id"]: r for r in listed}
+        for trip in _gtfs_rows(trips)[1]:
+            if trip.get("shape_id"):
+                by_shape.setdefault(trip["shape_id"], set()).add(trip["route_id"])
+    fields = [_gpkg.Column("shape_id", "String")] + [_gtfs_column(c) for c in route_columns]
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polyline", 4326, fields)
+    with da.InsertCursor(out, [*[f.name for f in fields], "SHAPE@"]) as written:
+        for shape_id, members in points.items():
+            line = LineString([(x, y) for _, x, y in sorted(members)])
+            if not route_columns:
+                written.insertRow((shape_id, line))
+                continue
+            for route in sorted(by_shape.get(shape_id, [None])):
+                row = route_rows.get(route, {}) if route is not None else {}
+                written.insertRow((shape_id, *[_gtfs_value(c, row.get(c)) for c in route_columns], line))
+    return Result(out)
+
+
+# ---- refused by name ----------------------------------------------------------------------------------------------------
+#
+# Every arcpy.conversion name grapy does not build is refused with its own reason (ADR-224).
+
+_REASONS = {
+    "needs a data model this server does not hold yet (ADR-224 group 2): network datasets": (
+        "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
+    "needs Z values or 3D data — LAS, point clouds, multipatches, meshes, BIM — which grapy's 2D shapes do not hold": (
+        "ConvertLas", "LasDatasetToRaster", "PointCloudToRaster", "MeshToLAS", "MultipatchToCollada", "MultipatchToRaster",
+        "BIMFileToGeodatabase", "ExtractBIMFileFloorplan"),
+    "reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented": (
+        "AddCADFields", "CADToGeodatabase", "ExportCAD"),
+    "reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's "
+    "workspace is a GeoPackage": ("ConvertPersonalGeodatabase", "MobileGdbToFileGdb"),
+    "needs a Parquet writer (pyarrow), which grapy's build of these tools does not carry": ("ExportToParquet",),
+    "uses Esri's undocumented text and document parsing to find locations": (
+        "ExtractLocationsDocument", "ExtractLocationsText"),
+    "follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line "
+    "takes — so any answer would be a guess under arcpy's name": (
+        "ExtractScannedLines", "ExtractScannedPolygons", "RasterToPolyline", "PolylineToRaster"),
+    "truncates field names to dBASE's ten characters by a rule the page does not give": (
+        "FeatureClassToShapefile", "TableToDBASE"),
+    "needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold": (
+        "FeaturesToGraphics", "GraphicsToFeatures", "MapToKML"),
+    "writes placemarks, pop-ups and styles whose content the page does not document": ("LayerToKML",),
+    "needs a PDF renderer, which grapy does not carry": ("PDFToTIFF",),
+    "writes a raster into a geodatabase or a format other than GeoTIFF; grapy's rasters are GeoTIFF files "
+    "(ADR-224 §5.5)": ("RasterToGeodatabase", "RasterToOtherFormat"),
+    "needs SAS, a commercial runtime grapy does not carry": ("SASToTable", "TableToSAS"),
+    "reaches a WFS service, and a fenced tool has no network (ADR-223 §5.3)": ("WFSToFeatureClass",),
+    "writes GTFS columns the page does not name, in an order it does not give": ("FeaturesToGTFSStops", "FeaturesToGTFSShapes"),
+    "needs a network dataset for its default modes 3, 5 and 11, a data model this server does not hold yet (ADR-224 "
+    "group 2), and does not document how it names the shapes it draws as straight lines": ("GenerateShapesFeaturesFromGTFS",),
+    "writes a GeoPackage tile pyramid whose tile matrix set, tile size, image format and zoom levels the page does not "
+    "define": ("AddRasterToGeoPackage",),
+    "lays the profiles of a USGS DEM, which start at different rows, on an output grid whose extent and filling the page "
+    "does not define": ("DEMToRaster",),
+    "uses a KML parser of its own whose output fields and feature class names the page does not define; KMLToLayer "
+    "reads KML": ("KMLToGeodatabase",),
+}
+
+_REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
+    reason = _REFUSED.get(name)
+    message = f"arcpy.conversion.{name} {reason}." if reason else f"arcpy.conversion.{name} is not built in grapy yet."
 
     def missing(*_, **__):
-        raise NotBuiltError(f"arcpy.conversion.{name} is not built in grapy yet.")
+        raise NotBuiltError(message)
 
     return missing

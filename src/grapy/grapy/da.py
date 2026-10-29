@@ -93,14 +93,43 @@ class _Cursor:
         self._described, _, self._srid, self._geometry = _gpkg.describe(self._connection, self._table)
         self._oid = _gpkg.oid_column(self._connection, self._table)
         self._reference = SpatialReference(self._srid) if self._srid > 0 else None
-        self.fields = tuple(_columns(field_names, self._described, self._oid))
+        # A layer with joins (management.AddJoin) is read through them: its fields are qualified, <table>.<field>, for
+        # the layer's own table and each join table alike, and an unqualified name is not one of them.
+        from . import _layers
+        layer = _layers.find(in_table)
+        self._joined = None
+        if layer is not None and layer.joins:
+            if self._shared:
+                raise NotBuiltError("arcpy.da: a cursor on a joined layer inside an edit session is not built in grapy.")
+            self._joined = _layers.joined(layer, self._connection, self._table, self._oid, self._geometry)
+            self._described = [_gpkg.Column(name, kind) for name, _, kind, _ in self._joined.fields]
+            try:
+                self.fields = tuple(_columns(field_names, self._described, None))
+            except RuntimeError as error:
+                raise RuntimeError(f"{error}: on a joined layer a field is named <table>.<field>, such as "
+                                   f"{self._joined.names[0] if self._joined.names else 'table.field'}.") from None
+        else:
+            self.fields = tuple(_columns(field_names, self._described, self._oid))
 
     def _select(self):
         out = []
         for f in self.fields:
             upper = f.upper()
-            out.append(f'"{self._oid}"' if upper == "OID@" else f'"{self._geometry}"' if upper.startswith("SHAPE@") else f'"{f}"')
+            if self._joined is not None:
+                out.append(self._joined.oid_sql if upper == "OID@" else self._joined.geometry_sql
+                           if upper.startswith("SHAPE@") else self._joined.sql(f))
+            else:
+                out.append(f'"{self._oid}"' if upper == "OID@" else f'"{self._geometry}"' if upper.startswith("SHAPE@") else f'"{f}"')
         return ", ".join(out)
+
+    def _from(self):
+        return self._joined.from_sql if self._joined is not None else f'"{self._table}"'
+
+    def _where(self, in_table, where_clause):
+        from . import _layers
+        if self._joined is not None:
+            return _layers.combined(_layers.find(in_table), self._joined.oid_sql, where_clause, quoted=True)
+        return _layers.combined(_layers.find(in_table), self._oid, where_clause)
 
     def _value(self, field, raw):
         return _shape_token(field, _gpkg.decode(raw), self._reference) if field.upper().startswith("SHAPE@") else raw
@@ -114,6 +143,10 @@ class _Cursor:
 
     def _close(self):
         if self._connection is not None:
+            if getattr(self, "_joined", None) is not None:
+                self._connection.commit()
+                for schema in self._joined.attached:
+                    self._connection.execute(f"detach database {schema}")
             if not self._shared:
                 self._connection.commit()
                 self._connection.close()
@@ -134,10 +167,10 @@ class SearchCursor(_Cursor):
         if explode_to_points:
             raise NotBuiltError("arcpy.da.SearchCursor: explode_to_points=True is not built in grapy.")
         super().__init__(in_table, field_names)
-        from . import _layers
-        where_clause = _layers.combined(_layers.find(in_table), self._oid, where_clause)
+        where_clause = self._where(in_table, where_clause)
+        self._where_sql = where_clause
         prefix, postfix = sql_clause or (None, None)
-        sql = f'select {"distinct " if prefix and "DISTINCT" in prefix.upper() else ""}{self._select()} from "{self._table}"'
+        sql = f'select {"distinct " if prefix and "DISTINCT" in prefix.upper() else ""}{self._select()} from {self._from()}'
         if where_clause:
             sql += f" where {where_clause}"
         if postfix:
@@ -161,13 +194,16 @@ class SearchCursor(_Cursor):
         return self.__next__()
 
     def reset(self):
-        self._rows = self._connection.execute(f'select {self._select()} from "{self._table}"')
+        where = getattr(self, "_where_sql", None)
+        self._rows = self._connection.execute(f'select {self._select()} from {self._from()}' + (f" where {where}" if where else ""))
 
 
 class InsertCursor(_Cursor):
     """Writes rows: ``with InsertCursor(fc, ["name", "SHAPE@"]) as rows: rows.insertRow(("a", geometry))``"""
 
     def insertRow(self, row):
+        if self._joined is not None:
+            raise NotBuiltError("arcpy.da.InsertCursor on a joined layer is not built in grapy; insert into its table.")
         if len(row) != len(self.fields):
             raise RuntimeError(f"insertRow takes {len(self.fields)} values, one per field; {len(row)} were given.")
         names, values = [], []
@@ -193,9 +229,9 @@ class UpdateCursor(SearchCursor):
     def __init__(self, in_table, field_names, where_clause=None, spatial_reference=None, explode_to_points=False,
                  sql_clause=(None, None), datum_transformation=None):
         _Cursor.__init__(self, in_table, field_names)
-        from . import _layers
-        where_clause = _layers.combined(_layers.find(in_table), self._oid, where_clause)
-        sql = f'select "{self._oid}", {self._select()} from "{self._table}"'
+        where_clause = self._where(in_table, where_clause)
+        own_oid = self._joined.oid_sql if self._joined is not None else f'"{self._oid}"'
+        sql = f'select {own_oid}, {self._select()} from {self._from()}'
         if where_clause:
             sql += f" where {where_clause}"
         self._rows = self._connection.execute(sql).fetchall()
@@ -212,16 +248,24 @@ class UpdateCursor(SearchCursor):
     def updateRow(self, row):
         oid = self._rows[self._at][0]
         names, values = [], []
-        for field, value in zip(self.fields, row):
+        for i, (field, value) in enumerate(zip(self.fields, row)):
             upper = field.upper()
             if upper == "OID@":
                 continue
             if upper.startswith("SHAPE@"):
                 names.append(self._geometry)
                 values.append(_gpkg.encode(_shape_from(value), self._srid))
+            elif self._joined is not None and self._joined.column(field) is None:
+                # A join table's field: read as it was, it is passed over; changed, it is refused — the join is the
+                # layer's, and its table is not written through it.
+                if value != self._rows[self._at][1 + i]:
+                    raise NotBuiltError(f"arcpy.da.UpdateCursor: '{field}' belongs to a joined table and is not written "
+                                        "through the join in grapy.")
             else:
-                names.append(field)
+                names.append(self._joined.column(field) if self._joined is not None else field)
                 values.append(value)
+        if not names:
+            return
         assignments = ", ".join(f'"{n}" = ?' for n in names)
         self._connection.execute(f'update "{self._table}" set {assignments} where "{self._oid}" = ?', [*values, oid])
 

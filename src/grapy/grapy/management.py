@@ -73,7 +73,12 @@ def AddField(in_table, field_name, field_type, field_precision=None, field_scale
 
 
 def GetCount(in_rows):
-    """The number of rows — of a layer or table view, its selected rows, or all it shows when nothing is selected."""
+    """The number of rows — of a layer or table view, its selected rows, or all it shows when nothing is selected; of a
+    layer joined with ``KEEP_COMMON``, only the rows that found a match."""
+    if _joined_layer(in_rows) is not None:
+        from . import da
+        with da.SearchCursor(_text(in_rows), ["OID@"]) as rows:
+            return Result(str(sum(1 for _ in rows)))
     path, where = _source(in_rows)
     connection, table = _gpkg.table_of(path)
     try:
@@ -84,8 +89,11 @@ def GetCount(in_rows):
 
 
 def CopyFeatures(in_features, out_feature_class, *_, **__):
-    """The features copied to a new feature class — of a layer, its selected features."""
+    """The features copied to a new feature class — of a layer, its selected features; of a joined layer, its own
+    fields and the join tables' (see ``_joined_columns``)."""
     from . import da
+    if _joined_layer(in_features) is not None:
+        return _copy_joined(in_features, _path(out_feature_class), True)
     in_features, where = _source(in_features)
     connection, table = _gpkg.table_of(in_features)
     columns, shape, srid, _ = _gpkg.describe(connection, table)
@@ -99,10 +107,24 @@ def CopyFeatures(in_features, out_feature_class, *_, **__):
 
 
 def Delete(in_data, data_type=None):
-    """A feature class, a GeoPackage, or a layer or table view (which removes only the layer, as arcpy's does)."""
+    """A feature class, a GeoPackage, a raster or other file, a folder, or a layer or table view (which removes only the
+    layer, as arcpy's does). INFERRED: a raster's GDAL side files (``.aux.xml``, ``.ovr``) and world file go with it."""
     if str(in_data) in _LAYERS:
         del _LAYERS[str(in_data)]
         return Result(str(in_data))
+    if ".gpkg" not in _text(in_data).lower():
+        import shutil
+        path = _text(in_data)
+        if os.path.isdir(path):
+            shutil.rmtree(path)
+        elif os.path.exists(path):
+            os.remove(path)
+            stem, extension = os.path.splitext(path)
+            side = [path + ".aux.xml", path + ".ovr"] + ([f"{stem}.{extension[1]}{extension[-1]}w"] if len(extension) > 2 else [])
+            for extra in side:
+                if os.path.exists(extra):
+                    os.remove(extra)
+        return Result(path)
     file, table = _gpkg.split(in_data)
     if table is None:
         if os.path.exists(file):
@@ -137,6 +159,8 @@ def _python_only(tool, expression_type):
 
 def _calculate(in_table, field, expression, code_block, where_clause, field_type="TEXT", scope=None):
     from . import da
+    if _joined_layer(in_table) is not None:
+        return _calculate_joined(in_table, field, expression, code_block, where_clause, field_type, scope)
     path, where = _source(in_table)
     if where_clause:
         where = f"({where}) and ({where_clause})" if where else where_clause
@@ -504,17 +528,6 @@ def DeleteField(in_table, drop_field, method="DELETE_FIELDS"):
         connection.commit()
     finally:
         connection.close()
-    return Result(in_table)
-
-
-def AlterField(in_table, field, new_field_name=None, new_field_alias=None, *_, **__):
-    if new_field_name and new_field_name != field:
-        connection, table = _gpkg.table_of(in_table)
-        try:
-            connection.execute(f'alter table "{table}" rename column "{field}" to "{new_field_name}"')
-            connection.commit()
-        finally:
-            connection.close()
     return Result(in_table)
 
 
@@ -928,10 +941,14 @@ def _oid_of(path):
 
 def _source(value):
     """The dataset and the where clause a value names: a path as it is, or a layer's source with its definition query
-    and selection."""
+    and selection. A joined layer is refused: a tool reading its dataset this way would leave the join's fields and
+    its KEEP_COMMON out without a word."""
     layer = _LAYERS.get(_text(value))
     if layer is None:
         return _text(value), None
+    if layer.joins:
+        raise NotBuiltError(f"This tool on the joined layer '{layer.name}' is not built in grapy; copy the layer first "
+                            "(CopyFeatures or CopyRows keep the joined fields), or remove the join.")
     clauses = [f"({layer.where})"] if layer.where else []
     if layer.selection:
         clauses.append(f'"{_oid_of(layer.source)}" in ({", ".join(str(int(i)) for i in sorted(layer.selection))})')
@@ -943,7 +960,7 @@ def _plain(tool, value):
     layer = _LAYERS.get(_text(value))
     if layer is None:
         return _text(value)
-    if layer.where or layer.selection:
+    if layer.where or layer.selection or layer.joins:
         raise NotBuiltError(f"arcpy.management.{tool} on a layer with a selection or definition query is not built in "
                             "grapy; pass the dataset or copy the selection first.")
     return layer.source
@@ -957,8 +974,9 @@ def _make_layer(tool, in_features, out_layer, where_clause, field_info, kind):
     if ".gpkg" in name.lower():
         raise ExecuteError(f"ERROR 000725: a layer's name may not contain '.gpkg' in grapy: {name}.")
     parent = _LAYERS.get(_text(in_features))
+    joins = []
     if parent is not None:
-        source, where, selection = parent.source, parent.where, set(parent.selection)
+        source, where, selection, joins = parent.source, parent.where, set(parent.selection), list(parent.joins)
     else:
         source, where, selection = _text(in_features), None, set()
         _schema(source)
@@ -966,6 +984,7 @@ def _make_layer(tool, in_features, out_layer, where_clause, field_info, kind):
         where = f"({where}) and ({where_clause})" if where else str(where_clause)
     layer = _Layer(name, source, where, kind)
     layer.selection = selection
+    layer.joins = joins
     _LAYERS[name] = layer
     return Result(name)
 
@@ -1000,11 +1019,17 @@ def _as_layer(value):
 
 def _eligible(layer, where_clause=None):
     """The OIDs a layer shows (its definition query), within ``where_clause`` when one is given."""
+    from . import _layers
     clauses = [f"({c})" for c in (layer.where, where_clause) if _given(c)]
     connection, table = _gpkg.table_of(layer.source)
     try:
         oid = _gpkg.oid_column(connection, table)
-        sql = f'select "{oid}" from "{table}"' + (" where " + " and ".join(clauses) if clauses else "")
+        if layer.joins:
+            joined = _layers.joined(layer, connection, table, oid, _gpkg.describe(connection, table)[3])
+            sql = f"select {joined.oid_sql} from {joined.from_sql}"
+        else:
+            sql = f'select "{oid}" from "{table}"'
+        sql += " where " + " and ".join(clauses) if clauses else ""
         return {r[0] for r in connection.execute(sql)}
     finally:
         connection.close()
@@ -1180,10 +1205,155 @@ def _table_out(tool, out_table):
     return _path(out_table)
 
 
+# ---- joins --------------------------------------------------------------------------------------------------------------
+
+def _joined_layer(value):
+    layer = _LAYERS.get(_text(value))
+    return layer if layer is not None and layer.joins else None
+
+
+def _joined_fields(layer):
+    """The qualified fields a joined layer shows, (name, type, is the layer's own), read as a cursor reads them."""
+    from . import _layers
+    connection, table = _gpkg.table_of(layer.source)
+    try:
+        _, _, _, geometry = _gpkg.describe(connection, table)
+        joined = _layers.joined(layer, connection, table, _gpkg.oid_column(connection, table), geometry)
+        for schema in joined.attached:
+            connection.execute(f"detach database {schema}")
+        return [(name, kind, column is not None) for name, _, kind, column in joined.fields]
+    finally:
+        connection.close()
+
+
+def _joined_columns(layer):
+    """The output fields of a joined layer copied to a new table, as the Maintain Fully Qualified Field Names environment
+    says: ``env.qualifiedFieldNames`` True (the default) keeps the table's name with each field, False drops it.
+    INFERRED: a qualified name is written ``table_field``, a dot being no character of a geodatabase field name; an
+    unqualified name already taken — by another field or by the output's own object ID and shape — gets ``_1``, ``_2`` …; the join tables' object IDs are copied as fields."""
+    from ._runtime import env
+    qualified = str(getattr(env, "qualifiedFieldNames", True)).upper() not in ("FALSE", "UNQUALIFIED", "0")
+    out, taken = [], {_gpkg.OID.lower(), _gpkg.GEOMETRY.lower()}
+    for name, kind, _ in _joined_fields(layer):
+        new = name.replace(".", "_") if qualified else name.split(".", 1)[1]
+        base, i = new, 0
+        while new.lower() in taken:
+            i += 1
+            new = f"{base}_{i}"
+        taken.add(new.lower())
+        out.append((name, _gpkg.Column(new, kind)))
+    return out
+
+
+def _copy_joined(value, out, with_shapes):
+    from . import da
+    layer = _joined_layer(value)
+    pairs = _joined_columns(layer)
+    _, kind, srid, _ = _schema(layer.source)
+    columns = [c for _, c in pairs]
+    _gpkg.create(out, kind if with_shapes else "Geometry", srid if with_shapes else 0, columns)
+    with da.SearchCursor(layer.name, [n for n, _ in pairs] + ["SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for row in rows:
+            written.insertRow((*row[:-1], row[-1] if with_shapes else None))
+    return Result(out)
+
+
+def _calculate_joined(in_table, field, expression, code_block, where_clause, field_type, scope):
+    """CalculateField on a joined layer: fields and ``!table.field!`` references are qualified; only the layer's own
+    table's fields can be calculated, as only they are written through the cursor."""
+    from . import da
+    layer = _joined_layer(in_table)
+    fields = _joined_fields(layer)
+    names = [n for n, _, _ in fields]
+    own = {n.lower(): n for n, _, mine in fields if mine}
+    if field.lower() not in own:
+        if "." not in field or field.split(".", 1)[0].lower() != _stem_of(layer.source).lower():
+            raise NotBuiltError(f"arcpy.management.CalculateField: '{field}' is not a field of the layer's own table; a "
+                                "joined table's fields are not written through the join in grapy.")
+        AddField(layer.source, field.split(".", 1)[1], field_type or "TEXT")
+        names = [n for n, _, _ in _joined_fields(layer)]
+        own = {n.lower(): n for n in names if n.lower() == field.lower()}
+    field = own[field.lower()]
+    if scope is None:
+        scope = {}
+        if code_block:
+            exec(code_block, scope)  # noqa: S102 — the tool's own code, in the tool's own fenced process (ADR-223 §5.3)
+    compiled = expression
+    for name in sorted(names, key=len, reverse=True):
+        compiled = compiled.replace(f"!{name}!", f"__row[{names.index(name)}]")
+    with da.UpdateCursor(layer.name, names, where_clause) as rows:
+        for row in rows:
+            scope["__row"] = row
+            row[names.index(field)] = eval(compiled, scope)  # noqa: S307 — as above
+            rows.updateRow(row)
+
+
+def AddJoin(in_layer_or_view, in_field, join_table, join_field, join_type="KEEP_ALL", index_join_fields="NO_INDEX_JOIN_FIELDS",
+            rebuild_index="NO_REBUILD_INDEX", join_operation=None):
+    """A join of a table to a layer on matching field values: the layer then shows its own fields as ``<table>.<field>``
+    and the join table's as ``<join table>.<field>``, as documented; ``KEEP_ALL`` keeps every row, ``KEEP_COMMON`` only
+    those with a match. A dataset path is given a new layer, as documented. The join is one to first — each row meets
+    the first match, text matched without regard to case, as the page says of one-to-first joins. ``INDEX_JOIN_FIELDS``
+    indexes both fields. INFERRED: with no ``join_operation`` the join is one to first, the page listing GeoPackage
+    among neither the workspaces that support one to many; the first match is the one of lowest object ID; the layer's
+    own table is named by its dataset's table name. ``JOIN_ONE_TO_MANY``, a join table that is itself a filtered or
+    joined layer, and a join table of the same name as the layer's are not built."""
+    from ._runtime import ExecuteError
+    if str(join_operation or "JOIN_ONE_TO_FIRST").upper() not in ("JOIN_ONE_TO_FIRST", "#"):
+        raise NotBuiltError(f"arcpy.management.AddJoin: join_operation '{join_operation}' is not built in grapy; "
+                            "JOIN_ONE_TO_FIRST is.")
+    layer = _as_layer(in_layer_or_view)
+    join_path = _plain("AddJoin", join_table)
+    connection, their_table = _gpkg.table_of(join_path)
+    try:
+        theirs = {c.name.lower(): c.name for c in _gpkg.describe(connection, their_table)[0]}
+    finally:
+        connection.close()
+    mine = {c.name.lower(): c.name for c in _schema(layer.source)[0]}
+    own_table = _stem_of(layer.source)
+    if str(in_field).lower() not in mine:
+        raise ExecuteError(f"ERROR 000728: the field '{in_field}' does not exist in {own_table}.")
+    if str(join_field).lower() not in theirs:
+        raise ExecuteError(f"ERROR 000728: the field '{join_field}' does not exist in {their_table}.")
+    if their_table.lower() == own_table.lower() or any(j.name.lower() == their_table.lower() for j in layer.joins):
+        raise NotBuiltError(f"arcpy.management.AddJoin: a second table named '{their_table}' in one join is not built in grapy.")
+    from ._layers import Join
+    if str(index_join_fields or "").upper() == "INDEX_JOIN_FIELDS":
+        import sqlite3
+        for table_path, table_name, column in ((join_path, their_table, theirs[str(join_field).lower()]),
+                                               (layer.source, own_table, mine[str(in_field).lower()])):
+            try:
+                AddIndex(table_path, column, f"{table_name}_{column}_join")
+            except sqlite3.OperationalError:
+                pass                                  # the index is there already
+    layer.joins.append(Join(join_path, their_table, mine[str(in_field).lower()], theirs[str(join_field).lower()],
+                            str(join_type or "KEEP_ALL").upper() == "KEEP_COMMON"))
+    return Result(layer.name)
+
+
+def RemoveJoin(in_layer_or_view, join_name=None):
+    """The join named — by its join table's name, as documented — removed from a layer; with no name, every join."""
+    from ._runtime import ExecuteError
+    layer = _LAYERS.get(_text(in_layer_or_view))
+    if layer is None:
+        raise ExecuteError(f"ERROR 000732: '{in_layer_or_view}' is not a layer or table view.")
+    if not _given(join_name):
+        layer.joins = []
+    else:
+        kept = [j for j in layer.joins if j.name.lower() != str(join_name).lower()]
+        if len(kept) == len(layer.joins):
+            raise ExecuteError(f"ERROR 000800: the layer has no join named '{join_name}'.")
+        layer.joins = kept
+    return Result(layer.name)
+
+
 def CopyRows(in_rows, out_table, config_keyword=None):
     """The rows of a table, feature class or view — a view's selected rows — copied to a new table, shapes left behind
     as documented."""
     from . import da
+    if _joined_layer(in_rows) is not None:
+        return _copy_joined(in_rows, _table_out("CopyRows", out_table), False)
     path, where = _source(in_rows)
     columns = _schema(path)[0]
     out = _table_out("CopyRows", out_table)
@@ -3777,44 +3947,508 @@ def BuildPyramids(in_raster_dataset, pyramid_level=-1, SKIP_FIRST="NONE", resamp
     return Result(_text(in_raster_dataset))
 
 
-# ---- refused by name ----------------------------------------------------------------------------------------------------
+# ---- fields, domains and files ------------------------------------------------------------------------------------------
 
-_GROUP_2 = {
-    # geodatabase versioning and archiving
-    "AlterVersion", "ChangeVersion", "CreateVersion", "CreateVersionedView", "DeleteVersion", "DiagnoseVersionMetadata",
-    "DiagnoseVersionTables", "PruneBranchHistory", "ReconcileVersion", "ReconcileVersions", "RegisterAsVersioned",
-    "RepairVersionMetadata", "RepairVersionTables", "UnregisterAsVersioned", "UpdateGeodatabaseConnectionPropertiesToBranch",
-    "EnableArchiving", "DisableArchiving", "TrimArchiveHistory", "Compress",
-    # replicas
-    "CreateReplica", "CreateReplicaFromServer", "SynchronizeChanges", "UnregisterReplica", "CompareReplicaSchema",
-    "ExportReplicaSchema", "ImportReplicaSchema", "EnableReplicaTracking", "DisableReplicaTracking",
-    "ExportAcknowledgementMessage", "ExportDataChangeMessage", "ImportMessage", "ReExportUnacknowledgedMessages",
-    # topology
-    "CreateTopology", "AddFeatureClassToTopology", "RemoveFeatureClassFromTopology", "AddRuleToTopology",
-    "RemoveRuleFromTopology", "ValidateTopology", "ExportTopologyErrors", "SetClusterTolerance",
-    # attribute rules
-    "AddAttributeRule", "AlterAttributeRule", "DeleteAttributeRule", "DisableAttributeRules", "EnableAttributeRules",
-    "EvaluateRules", "ExportAttributeRules", "ImportAttributeRules", "ReorderAttributeRule",
-    "CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
-    "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule",
-    # enterprise geodatabase administration
-    "CreateEnterpriseGeodatabase", "EnableEnterpriseGeodatabase", "UpdateEnterpriseGeodatabaseLicense",
-    "CreateDatabaseUser", "CreateRole", "ChangePrivileges", "CreateSpatialType", "ConfigureGeodatabaseLogFileTables",
-    "ExportGeodatabaseConfigurationKeywords", "ImportGeodatabaseConfigurationKeywords", "DeleteSchemaGeodatabase",
-    "MigrateStorage", "RegisterWithGeodatabase", "CreateDatabaseSequence", "DeleteDatabaseSequence", "UpgradeGDB",
-    "AnalyzeDatasets", "RebuildIndexes", "UpdatePortalDatasetOwner",
-    # parcel fabrics (COGO is the parcel fabric's editing model)
-    "EnableCOGO", "DisableCOGO",
+def _set_alias(path, field, alias):
+    """A field's alias, kept as the GeoPackage schema extension's ``title`` of the column (None clears it). INFERRED:
+    ``title`` is the extension's human-readable name of a column, which is what an alias is."""
+    connection, table = _gpkg.table_of(path)
+    try:
+        _domain_tables(connection)
+        connection.execute("insert into gpkg_data_columns (table_name, column_name, name, title) values (?, ?, ?, ?) "
+                           "on conflict (table_name, column_name) do update set title = excluded.title",
+                           (table, field, field, alias))
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _rename_field(path, field, new_name):
+    connection, table = _gpkg.table_of(path)
+    try:
+        connection.execute(f'alter table "{table}" rename column "{field}" to "{new_name}"')
+        if connection.execute("select 1 from sqlite_master where name = 'gpkg_data_columns'").fetchone():
+            connection.execute("update gpkg_data_columns set column_name = ?, name = ? where table_name = ? and column_name = ?",
+                               (new_name, new_name, table, field))
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def AlterField(in_table, field, new_field_name=None, new_field_alias=None, field_type=None, field_length=None,
+               field_is_nullable=None, clear_field_alias=None):
+    """A field renamed, and its alias set or cleared (kept as the schema extension's column title, see ``_set_alias``).
+    Changing a field's type, length or nullability is not built."""
+    for name, value in (("field_type", field_type), ("field_length", field_length), ("field_is_nullable", field_is_nullable)):
+        if _given(value):
+            raise NotBuiltError(f"arcpy.management.AlterField: {name} is not built in grapy; a GeoPackage column's type "
+                                "cannot change without rebuilding its table.")
+    path = _plain("AlterField", in_table)
+    own = {c.name.lower(): c.name for c in _schema(path)[0]}
+    current = own.get(str(field).lower())
+    if current is None:
+        from ._runtime import ExecuteError
+        raise ExecuteError(f"ERROR 000728: the field '{field}' does not exist.")
+    if _given(new_field_name) and new_field_name != current:
+        _rename_field(path, current, str(new_field_name))
+        current = str(new_field_name)
+    if str(clear_field_alias or "").upper() in ("TRUE", "CLEAR_ALIAS"):
+        _set_alias(path, current, None)
+    elif _given(new_field_alias):
+        _set_alias(path, current, str(new_field_alias))
+    return Result(_text(in_table))
+
+
+def AlterFields(in_table, field_description=None):
+    """Several fields altered at once, each ``[field, new name, new alias, new type, new length, nullable, clear
+    alias]`` with ``#`` for what stays, as AlterField alters one."""
+    for entry in _pairs(field_description) if field_description else []:
+        entry = list(entry) + ["#"] * (7 - len(entry))
+        AlterField(in_table, entry[0], entry[1] if _given(entry[1]) else None, entry[2] if _given(entry[2]) else None,
+                   entry[3] if _given(entry[3]) else None, entry[4] if _given(entry[4]) else None,
+                   entry[5] if _given(entry[5]) else None, entry[6] if _given(entry[6]) else None)
+    return Result(_text(in_table))
+
+
+def AlterDomain(in_workspace, domain_name, new_domain_name=None, new_domain_description=None, split_policy=None,
+                merge_policy=None, new_domain_owner=None):
+    """A domain renamed, described anew, or given new split and merge policies — the range-only policies refused on a
+    coded value domain, as documented. A domain owner is not built: a GeoPackage has no database users."""
+    from ._runtime import ExecuteError
+    if _given(new_domain_owner):
+        raise NotBuiltError("arcpy.management.AlterDomain: new_domain_owner is not built in grapy; a GeoPackage has no users.")
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        _, kind = _domain(connection, str(domain_name))
+        split, merge = (str(split_policy).upper() if _given(split_policy) else None,
+                        str(merge_policy).upper() if _given(merge_policy) else None)
+        if kind == "CODED" and (split not in (None, "DEFAULT", "DUPLICATE") or merge not in (None, "DEFAULT")):
+            raise ExecuteError("ERROR 000800: a coded value domain takes only the DEFAULT or DUPLICATE split policy and "
+                               "the DEFAULT merge policy.")
+        name = str(domain_name)
+        if _given(new_domain_description):
+            connection.execute("update grapy_domains set description = ? where name = ?", (str(new_domain_description), name))
+            connection.execute("update gpkg_data_column_constraints set description = ? where constraint_name = ? and "
+                               "constraint_type = 'range'", (str(new_domain_description), name))
+        if split:
+            connection.execute("update grapy_domains set split_policy = ? where name = ?", (split, name))
+        if merge:
+            connection.execute("update grapy_domains set merge_policy = ? where name = ?", (merge, name))
+        if _given(new_domain_name) and str(new_domain_name) != name:
+            if connection.execute("select 1 from grapy_domains where name = ?", (str(new_domain_name),)).fetchone():
+                raise ExecuteError(f"ERROR 000800: the domain '{new_domain_name}' already exists.")
+            for statement in ("update grapy_domains set name = ? where name = ?",
+                              "update gpkg_data_column_constraints set constraint_name = ? where constraint_name = ?",
+                              "update gpkg_data_columns set constraint_name = ? where constraint_name = ?"):
+                connection.execute(statement, (str(new_domain_name), name))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def FileCompare(in_base_file, in_test_file, file_type="ASCII", continue_compare="NO_CONTINUE_COMPARE", out_compare_file=None):
+    """Whether two files are the same, byte for byte (``BINARY``) or character for character (``ASCII``); the outputs
+    are the base file and ``'true'`` or ``'false'``, as documented. The ASCII comparison's masking symbols (``#``,
+    ``??``, ``?!``, ``???``) are not built — the page does not define what each masks — so a base file holding one is
+    refused, as is the compare file, whose columns are not documented."""
+    if _given(out_compare_file):
+        raise NotBuiltError("arcpy.management.FileCompare: out_compare_file is not built in grapy; its columns are not documented.")
+    with open(_text(in_base_file), "rb") as read:
+        base = read.read()
+    with open(_text(in_test_file), "rb") as read:
+        test = read.read()
+    if str(file_type or "ASCII").upper() == "ASCII" and (b"#" in base or b"??" in base or b"?!" in base):
+        raise NotBuiltError("arcpy.management.FileCompare: the base file holds a masking symbol, whose meaning the page "
+                            "does not define; not built in grapy.")
+    return Result(_text(in_base_file), "true" if base == test else "false")
+
+
+# ---- rasters ------------------------------------------------------------------------------------------------------------
+
+def GetCellValue(in_raster, location_point, band_index=None):
+    """The value of the cell at ``"x y"``, as text. INFERRED: a NoData cell answers ``NoData``; a point outside the
+    raster is an error; a whole value is written without a decimal point. Bands other than the first are not built."""
+    from ._runtime import ExecuteError
+    if _given(band_index) and str(band_index).strip() not in ("1", "Band_1"):
+        raise NotBuiltError("arcpy.management.GetCellValue: bands other than the first are not built in grapy.")
+    raster = _raster_in(in_raster, "GetCellValue")
+    x, y = _xy(location_point)
+    cell = raster._grid.cell_of(x, y)
+    if cell is None:
+        raise ExecuteError(f"ERROR 001143: the point {x} {y} is outside the raster.")
+    if raster._mask[cell]:
+        return Result("NoData")
+    value = raster._array[cell].item()
+    return Result(str(int(value)) if float(value).is_integer() else repr(float(value)))
+
+
+def ExportRasterWorldFile(in_raster_dataset):
+    """A world file beside the raster: its six lines are the cell width, the two rotation terms, the negative cell
+    height and the x and y of the centre of the upper-left cell, as Esri's "World files for raster datasets" page
+    describes them; the file's extension is the raster's first and last letters followed by ``w`` (``.tif`` →
+    ``.tfw``), as that page says."""
+    raster = _raster_in(in_raster_dataset, "ExportRasterWorldFile")
+    g = raster._grid
+    stem, extension = os.path.splitext(raster.catalogPath)
+    world = stem + "." + extension[1] + extension[-1] + "w"
+    lines = [g.width, 0.0, 0.0, -g.height, g.left + g.width / 2, g.top - g.height / 2]
+    with open(world, "w", encoding="ascii", newline="\n") as written:
+        written.write("\n".join(repr(float(v)) for v in lines) + "\n")
+    return Result(world)
+
+
+def BatchProject(Input_Feature_Class_or_Dataset, Output_Workspace, Output_Coordinate_System=None, Template_dataset=None,
+                 Transformation=None):
+    """Each feature class projected into a workspace under its own name, ``_1``, ``_2`` … added when the name is taken,
+    as documented; the coordinate system is the one given, a template's, or ``env.outputCoordinateSystem``. Both a
+    system and a template (the page does not say which wins) and a transformation are not built."""
+    from ._runtime import ExecuteError, env
+    if _given(Transformation):
+        raise NotBuiltError("arcpy.management.BatchProject: Transformation is not built in grapy.")
+    if _given(Output_Coordinate_System) and _given(Template_dataset):
+        raise NotBuiltError("arcpy.management.BatchProject with both a coordinate system and a template is not built in "
+                            "grapy; the page does not say which wins.")
+    if _given(Output_Coordinate_System):
+        target = Output_Coordinate_System
+    elif _given(Template_dataset):
+        target = _schema(_source(Template_dataset)[0])[2]
+    elif env.outputCoordinateSystem is not None:
+        target = env.outputCoordinateSystem
+    else:
+        raise ExecuteError("ERROR 000735: BatchProject needs a coordinate system or a template.")
+    workspace = _text(Output_Workspace)
+    from . import Exists
+    for each in _list(Input_Feature_Class_or_Dataset):
+        stem = _stem_of(_source(each)[0])
+        name, i = stem, 0
+        while True:
+            out = f"{workspace}/{name}" if workspace.lower().endswith(".gpkg") else os.path.join(workspace, name + ".gpkg")
+            if not Exists(out):
+                break
+            i += 1
+            name = f"{stem}_{i}"
+        Project(each, out, target)
+    return Result(workspace)
+
+
+def BatchCalculateStatistics(Input_Raster_Datasets, Number_of_columns_to_skip=1, Number_of_rows_to_skip=1,
+                             Ignore_values=None, Skip_Existing="OVERWRITE"):
+    """CalculateStatistics on each raster."""
+    for each in _list(Input_Raster_Datasets):
+        CalculateStatistics(each, Number_of_columns_to_skip, Number_of_rows_to_skip, Ignore_values, Skip_Existing)
+    return Result("true")
+
+
+def BatchBuildPyramids(Input_Raster_Datasets, Pyramid_levels=-1, Skip_first_level="NONE", Pyramid_resampling_technique="NEAREST",
+                       Pyramid_compression_type="DEFAULT", Compression_quality=75, Skip_Existing="OVERWRITE"):
+    """BuildPyramids on each raster; the output is ``true``, as the page's Boolean."""
+    for each in _list(Input_Raster_Datasets):
+        BuildPyramids(each, Pyramid_levels, Skip_first_level, Pyramid_resampling_technique, Pyramid_compression_type,
+                      Compression_quality, Skip_Existing)
+    return Result("true")
+
+
+def BuildPyramidsandStatistics(in_workspace, include_subdirectories="INCLUDE_SUBDIRECTORIES", build_pyramids="BUILD_PYRAMIDS",
+                               calculate_statistics="CALCULATE_STATISTICS", BUILD_ON_SOURCE="NONE", block_field=None,
+                               estimate_statistics="NONE", x_skip_factor=1, y_skip_factor=1, ignore_values=None,
+                               pyramid_level=-1, SKIP_FIRST="NONE", resample_technique="NEAREST", compression_type="DEFAULT",
+                               compression_quality=75, skip_existing="OVERWRITE", where_clause=None, sips_mode=None):
+    """Pyramids and statistics for every GeoTIFF in a folder, and its subfolders unless ``NONE``. The parameters for
+    mosaic datasets (``BUILD_ON_SOURCE``, ``block_field``, ``estimate_statistics``, ``where_clause``) are refused when
+    set, grapy holding no mosaic datasets."""
+    for name, value in (("BUILD_ON_SOURCE", BUILD_ON_SOURCE), ("estimate_statistics", estimate_statistics),
+                        ("block_field", block_field), ("where_clause", where_clause), ("sips_mode", sips_mode)):
+        if _given(value) and str(value).upper() != "NONE":
+            raise NotBuiltError(f"arcpy.management.BuildPyramidsandStatistics: {name} is for mosaic datasets, which grapy "
+                                "does not hold.")
+    folder = _text(in_workspace)
+    deep = str(include_subdirectories or "INCLUDE_SUBDIRECTORIES").upper() != "NONE"
+    found = []
+    for root, folders, files in os.walk(folder):
+        found.extend(os.path.join(root, f) for f in sorted(files) if f.lower().endswith((".tif", ".tiff")))
+        if not deep:
+            break
+    for each in found:
+        if str(build_pyramids or "BUILD_PYRAMIDS").upper() == "BUILD_PYRAMIDS":
+            BuildPyramids(each, pyramid_level, SKIP_FIRST, resample_technique, compression_type, compression_quality,
+                          skip_existing)
+        if str(calculate_statistics or "CALCULATE_STATISTICS").upper() == "CALCULATE_STATISTICS":
+            CalculateStatistics(each, x_skip_factor, y_skip_factor, ignore_values, skip_existing)
+    return Result(folder)
+
+
+def AlterCodedValueDescription(in_workspace, domain_name, code, new_description):
+    """A coded value's description changed; a range domain is refused, as documented."""
+    from ._runtime import ExecuteError
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        field_type, kind = _domain(connection, str(domain_name))
+        if kind != "CODED":
+            raise ExecuteError(f"ERROR 000800: '{domain_name}' is a range domain.")
+        text = _code_text(_code_value(_code_text(code), field_type))
+        changed = connection.execute("update gpkg_data_column_constraints set description = ? where constraint_name = ? and "
+                                     "constraint_type = 'enum' and value = ?", (new_description, str(domain_name), text)).rowcount
+        if not changed:
+            raise ExecuteError(f"ERROR 000800: the code '{code}' is not in '{domain_name}'.")
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def DeleteMultiple(in_data):
+    """Each item deleted, as Delete deletes one: ``[[data, {type}], …]`` or ``"a;b"``; the output is ``true``."""
+    kinds = ("FEATURECLASS", "FEATUREDATASET", "MOSAICDATASET", "PARCELFABRIC", "RELATIONSHIPCLASS", "TOPOLOGY")
+    for entry in _list(in_data):
+        if isinstance(entry, (list, tuple)):
+            Delete(entry[0], entry[1] if len(entry) > 1 else None)
+            continue
+        head, _, tail = str(entry).rpartition(" ")
+        Delete(*(head, tail) if head and tail.upper() in kinds else (str(entry), None))
+    return Result("true")
+
+
+_BATCH_TYPES = {"BIGINTEGER": "BIGINTEGER", "DATE": "DATE", "DOUBLE": "DOUBLE", "GUID": "GUID", "INTEGER": "LONG",
+                "LONG": "LONG", "FLOAT": "FLOAT", "SINGLE": "FLOAT", "SHORT": "SHORT", "SMALLINTEGER": "SHORT",
+                "TEXT": "TEXT", "STRING": "TEXT"}
+
+
+def _definition_rows(table):
+    """The rows of a field definition table — a CSV file or a table grapy reads — as dictionaries by column name."""
+    import csv
+    path = _text(table)
+    if path.lower().endswith((".csv", ".txt")):
+        with open(path, encoding="utf-8-sig", newline="") as read:
+            return [dict(row) for row in csv.DictReader(read)]
+    from . import da
+    names = [c.name for c in _schema(_source(path)[0])[0]]
+    with da.SearchCursor(path, names) as rows:
+        return [dict(zip(names, r)) for r in rows]
+
+
+def BatchUpdateFields(in_table, out_table, field_definition_table, script_file=None, output_field_name=None,
+                      source_field_name=None, output_field_type=None, output_field_decimals_or_length=None,
+                      output_field_alias=None, output_field_script=None):
+    """A new table whose fields are the definition table's rows, in their order: each copied from its source field or
+    calculated by its Python script (``!field!`` for a field, a function of ``script_file`` callable), of its type and
+    alias, as documented; a later field may use an earlier calculated one, as documented. The columns default to
+    ``Target field``, ``Source field``, ``Type``, ``Decimals/Length``, ``Alias`` and ``Script``. INFERRED: a feature
+    class keeps its shapes; a copied value is converted to the field's type; a calculated field's value overrides an
+    input field of the same name for the fields after it; decimals and lengths change nothing in a GeoPackage, whose
+    numbers and text have neither. ``Blob``, ``DateOnly``, ``TimeOnly``, ``TimestampOffset``, ``GlobalID`` and
+    ``Raster`` types and a joined input are not built."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(in_table)
+    columns, kind, srid, _ = _schema(path)
+    keys = {"name": output_field_name or "Target field", "source": source_field_name or "Source field",
+            "type": output_field_type or "Type", "alias": output_field_alias or "Alias", "script": output_field_script or "Script"}
+    definitions = []
+    for row in _definition_rows(field_definition_table):
+        lower = {str(k).lower(): v for k, v in row.items()}
+
+        def cell(key):
+            value = lower.get(keys[key].lower())
+            return None if value is None or str(value).strip() == "" else str(value).strip()
+
+        name, source, script = cell("name"), cell("source"), cell("script")
+        if name is None:
+            continue
+        if source is None and script is None:
+            raise ExecuteError(f"ERROR 000735: the field '{name}' needs a source field or a script.")
+        word = (cell("type") or "TEXT").upper()
+        if word not in _BATCH_TYPES:
+            raise NotBuiltError(f"arcpy.management.BatchUpdateFields: the field type '{word}' is not built in grapy.")
+        definitions.append((name, source, script, _BATCH_TYPES[word], cell("alias")))
+    scope: dict = {}
+    if _given(script_file):
+        with open(_text(script_file), encoding="utf-8") as read:
+            exec(read.read(), scope)  # noqa: S102 — the tool's own code, in the tool's own fenced process (ADR-223 §5.3)
+    out_columns = [_gpkg.Column(name, _FIELD_TYPES[kind_word]) for name, _, _, kind_word, _ in definitions]
+    with_shapes = kind != "Geometry"
+    out = _table_out("BatchUpdateFields", out_table) if not with_shapes else _path(out_table)
+    _gpkg.create(out, kind if with_shapes else "Geometry", srid if with_shapes else 0, out_columns)
+    names = [c.name for c in columns]
+    convert = {"SHORT": int, "LONG": int, "BIGINTEGER": int, "FLOAT": float, "DOUBLE": float, "TEXT": str}
+    compiled = []
+    for name, source, script, kind_word, _ in definitions:
+        if script is None:
+            compiled.append(None)
+            continue
+        import re
+        compiled.append(compile(re.sub(r"!([^!]+)!", lambda m: f"__row[{m.group(1).lower()!r}]", script), name, "eval"))
+    with da.SearchCursor(path, [*names, "SHAPE@"], where) as rows, \
+            da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
+        for row in rows:
+            values = {n.lower(): v for n, v in zip(names, row[:-1])}
+            record = []
+            for (name, source, _, kind_word, _), code in zip(definitions, compiled):
+                if code is None:
+                    if source.lower() not in values:
+                        raise ExecuteError(f"ERROR 000728: the source field '{source}' does not exist.")
+                    value = values[source.lower()]
+                else:
+                    scope["__row"] = values
+                    value = eval(code, scope)  # noqa: S307 — as above
+                if value is not None and kind_word in convert:
+                    value = convert[kind_word](value)
+                values[name.lower()] = value
+                record.append(value)
+            written.insertRow((*record, row[-1] if with_shapes else None))
+    for name, _, _, _, alias in definitions:
+        if alias:
+            _set_alias(out, name, alias)
+    return Result(out)
+
+
+# ---- refused by name ----------------------------------------------------------------------------------------------------
+#
+# Every arcpy.management name grapy does not build is refused here with its own reason (ADR-224): a data model this
+# server does not hold yet (group 2), an algorithm or output Esri does not document, Z values grapy's 2D shapes do not
+# carry, an ArcGIS Pro application document, a network a fenced tool does not reach, or a storage property a
+# GeoPackage does not have. Only a name in none of these answers the generic "not built yet".
+
+_GROUP_2_MODELS = {
+    "geodatabase versioning and archiving": (
+        "AlterVersion", "ChangeVersion", "CreateVersion", "CreateVersionedView", "DeleteVersion", "DiagnoseVersionMetadata",
+        "DiagnoseVersionTables", "PruneBranchHistory", "ReconcileVersion", "ReconcileVersions", "RegisterAsVersioned",
+        "RepairVersionMetadata", "RepairVersionTables", "UnregisterAsVersioned", "UpdateGeodatabaseConnectionPropertiesToBranch",
+        "EnableArchiving", "DisableArchiving", "TrimArchiveHistory", "Compress", "AddFieldConflictFilter",
+        "RemoveFieldConflictFilter"),
+    "geodatabase replicas": (
+        "CreateReplica", "CreateReplicaFromServer", "SynchronizeChanges", "UnregisterReplica", "CompareReplicaSchema",
+        "ExportReplicaSchema", "ImportReplicaSchema", "EnableReplicaTracking", "DisableReplicaTracking",
+        "ExportAcknowledgementMessage", "ExportDataChangeMessage", "ImportMessage", "ReExportUnacknowledgedMessages",
+        "ExtractDataFromGeodatabase"),
+    "geodatabase topology": (
+        "CreateTopology", "AddFeatureClassToTopology", "RemoveFeatureClassFromTopology", "AddRuleToTopology",
+        "RemoveRuleFromTopology", "ValidateTopology", "ExportTopologyErrors", "SetClusterTolerance"),
+    "attribute rules": (
+        "AddAttributeRule", "AlterAttributeRule", "DeleteAttributeRule", "DisableAttributeRules", "EnableAttributeRules",
+        "EvaluateRules", "ExportAttributeRules", "ImportAttributeRules", "ReorderAttributeRule",
+        "CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
+        "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule"),
+    "enterprise geodatabase administration": (
+        "CreateEnterpriseGeodatabase", "EnableEnterpriseGeodatabase", "UpdateEnterpriseGeodatabaseLicense",
+        "CreateDatabaseUser", "CreateRole", "ChangePrivileges", "CreateSpatialType", "ConfigureGeodatabaseLogFileTables",
+        "ExportGeodatabaseConfigurationKeywords", "ImportGeodatabaseConfigurationKeywords", "DeleteSchemaGeodatabase",
+        "MigrateStorage", "RegisterWithGeodatabase", "CreateDatabaseSequence", "DeleteDatabaseSequence", "UpgradeGDB",
+        "AnalyzeDatasets", "RebuildIndexes", "UpdatePortalDatasetOwner", "Analyze", "CreateDatabaseView",
+        "CreateUnRegisteredFeatureclass", "CreateUnRegisteredTable", "AddIncrementingIDField"),
+    "parcel fabrics": ("EnableCOGO", "DisableCOGO"),
+    "geodatabase subtypes": ("AddSubtype", "AlterSubtype", "RemoveSubtype", "SetDefaultSubtype", "SetSubtypeField"),
+    "geodatabase relationship classes": (
+        "CreateRelationshipClass", "TableToRelationshipClass", "MigrateRelationshipClass", "AddRuleToRelationshipClass",
+        "RemoveRuleFromRelationshipClass", "SetRelationshipClassSplitPolicy"),
+    "geodatabase attachments": (
+        "AddAttachments", "RemoveAttachments", "EnableAttachments", "DisableAttachments", "ExportAttachments",
+        "GenerateAttachmentMatchTable", "DowngradeAttachments", "UpgradeAttachments", "GeoTaggedPhotosToPoints",
+        "MatchPhotosToRowsByTime"),
+    "contingent values and field groups": (
+        "AddContingentValue", "RemoveContingentValue", "ExportContingentValues", "ImportContingentValues",
+        "GenerateContingentValues", "CreateFieldGroup", "AlterFieldGroup", "DeleteFieldGroup"),
+    "geodatabase editing behaviours (editor tracking, global IDs, feature binning, split models)": (
+        "EnableEditorTracking", "DisableEditorTracking", "EnableLastEditTime", "DisableLastEditTime", "AddGlobalIDs",
+        "EnableFeatureBinning", "DisableFeatureBinning", "ManageFeatureBinCache", "SetFeatureClassSplitModel"),
+    "mosaic datasets, catalog datasets and raster collections": (
+        "AddRastersToMosaicDataset", "AnalyzeMosaicDataset", "BuildBoundary", "BuildFootprints",
+        "BuildMosaicDatasetItemCache", "BuildOverviews", "BuildSeamlines", "CalculateCellSizeRanges",
+        "ColorBalanceMosaicDataset", "ComputeDirtyArea", "ComputeMosaicCandidates", "CreateMosaicDataset",
+        "CreateReferencedMosaicDataset", "DefineMosaicDatasetNoData", "DefineOverviews", "DeleteMosaicDataset",
+        "ExportMosaicDatasetGeometry", "ExportMosaicDatasetItems", "ExportMosaicDatasetPaths",
+        "ImportMosaicDatasetGeometry", "MergeMosaicDatasetItems", "RemoveRastersFromMosaicDataset",
+        "RepairMosaicDatasetPaths", "SetMosaicDatasetProperties", "SplitMosaicDatasetItems", "SynchronizeMosaicDataset",
+        "MosaicDatasetToMobileMosaicDataset", "AlterMosaicDatasetSchema", "CreateCatalogDataset",
+        "AddItemsToCatalogDataset", "AddPortalItemsToCatalogDataset", "MakeMosaicLayer", "CreateRasterType",
+        "GenerateRasterCollection", "ClearPixelCache"),
+    "trajectory datasets": ("CreateTrajectoryDataset", "AddDataToTrajectoryDataset", "RepairTrajectoryDatasetPaths",
+                            "MakeTrajectoryLayer"),
+    "annotation feature classes": ("AppendAnnotation",),
+    "ortho mapping and stereo workspaces": (
+        "AnalyzeControlPoints", "AppendControlPoints", "ApplyBlockAdjustment", "ComputeBlockAdjustment",
+        "ComputeCameraModel", "ComputeControlPoints", "ComputeDepthMap", "ComputeFiducials", "ComputeTiePoints",
+        "ExportFrameAndCameraParameters", "GenerateBlockAdjustmentReport", "GeneratePointCloud", "MatchControlPoints",
+        "RemoveDepthMap", "UpdateInteriorOrientation", "BuildStereoModel", "GenerateExcludeArea",
+        "CreateOrthoCorrectedRasterDataset"),
 }
+
+_REASONS = {
+    "needs Z values or 3D data — LAS datasets, TINs, multipatches, voxels, scenes — which grapy's 2D shapes do not "
+    "hold": (
+        "Add3DFormats", "Remove3DFormats", "AddFilesToLasDataset", "RemoveFilesFromLasDataset", "BuildLasDatasetPyramid",
+        "CreateLasDataset", "LasDatasetStatistics", "LasPointStatsAsRaster", "MakeLasDatasetLayer", "ProjectLAS",
+        "Adjust3DZ", "Export3DObjects", "Import3DObjects", "TINCompare", "MakeTinLayer", "CreateVoxelSceneLayerContent",
+        "GenerateLevelOfDetail", "MakeBuildingLayer", "MakeSceneLayer", "InterpolateFromPointCloud"),
+    "needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or "
+    "project — which a tool running on the server does not hold": (
+        "ApplySymbologyFromLayer", "MatchLayerSymbologyToAStyle", "SaveToLayerFile", "ExportLayouts", "ExportReportToPDF",
+        "ExportReportToExcel", "ConsolidateLayer", "ConsolidateLocator", "ConsolidateMap", "ConsolidateProject",
+        "ConsolidateToolbox", "PackageLayer", "PackageLocator", "PackageMap", "PackageProject", "PackageResult",
+        "ExtractPackage", "SharePackage", "CreateMapTilePackage", "CreateMobileMapPackage", "CreateMobileScenePackage",
+        "CreateVectorTilePackage", "CreateVectorTileIndex", "Create3DObjectSceneLayerPackage",
+        "CreateBuildingSceneLayerPackage", "CreateIntegratedMeshSceneLayerPackage", "CreatePointCloudSceneLayerPackage",
+        "CreatePointSceneLayerPackage", "CreateSceneLayerPackage", "UpgradeSceneLayer", "ValidateSceneLayerPackage",
+        "Package3DTiles", "GenerateTileCacheTilingScheme", "ManageTileCache", "ExportTileCache", "ImportTileCache",
+        "AnalyzeToolsForPro", "AnalyzeToolboxForVersion", "SaveToolboxToVersion", "SelectData", "EnableEditingTemplates",
+        "GenerateDefinitionQueryFromSelection", "RefreshExcel", "AddRelate", "RemoveRelate"),
+    "reaches a database server, portal or cloud store, and a fenced tool has no network (ADR-223 §5.3)": (
+        "CreateAIServiceConnectionFile", "CreateCloudStorageConnectionFile", "CreateDatabaseConnection",
+        "CreateDatabaseConnectionString", "CreateConnectionString", "DownloadRasters", "MakeImageServerLayer",
+        "MakeWCSLayer", "UploadFileToPortal", "TransferFiles", "MakeQueryLayer", "MakeQueryTable",
+        "MakeAggregationQueryLayer"),
+    "reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data "
+    "loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries)": (
+        "ExportXMLWorkspaceDocument", "ImportXMLWorkspaceDocument", "GenerateSchemaReport", "ConvertSchemaReport",
+        "CompareSchema", "CreateDataLoadingWorkspace", "LoadDataUsingWorkspace", "UpdateDataLoadingWorkspace",
+        "LoadDataToPreview", "GenerateMappingTable", "EditRasterFunction", "ConvertRasterFunctionTemplate",
+        "GenerateRasterFromRasterFunction", "GenerateTableFromRasterFunction", "CreateCustomGeoTransformation",
+        "CreateCustomVerticalTransformation", "CreateParquetCache", "ResampleLibrarySpectra", "CreateSpatialReference"),
+    "is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages": (
+        "CompressFileGeodatabaseData", "UncompressFileGeodatabaseData", "RecoverFileGDB", "GenerateFgdbLicense",
+        "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
+        "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
+        "CalculateDefaultClusterTolerance", "AddFullTextIndex", "AssignDefaultToField"),
+    "needs multiband, multidimensional, colormapped or attribute-table rasters; grapy's rasters are single-band grids "
+    "(ADR-224 §5.5)": (
+        "CompositeBands", "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
+        "BuildMultidimensionalTranspose", "AddColormap", "DeleteColormap", "BuildRasterAttributeTable",
+        "DeleteRasterAttributeTable", "SetRasterProperties", "ComputePansharpenWeights", "CreatePansharpenedRasterDataset"),
+    "resamples or transforms cells by a method or extent rule the page does not define exactly": (
+        "ProjectRaster", "Rescale", "Rotate", "Warp", "WarpFromFile", "RegisterRaster", "SplitRaster",
+        "WorkspaceToRasterDataset", "CreateRasterDataset"),
+    "follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's "
+    "name": (
+        "Dice", "Integrate", "SubdividePolygon", "GenerateRectanglesAlongLines", "ConvertCoordinateNotation",
+        "DetectFeatureChanges", "CreateSpatialSamplingLocations", "CreateSpatiallyBalancedPoints", "SubsetFeatures",
+        "TableToEllipse", "GeodeticDensify", "ValidateJoin", "RasterCompare", "CreateRandomRaster", "AddSpatialJoin",
+        "FieldStatisticsToTable", "AddGPSMetadataFields", "EncodeField", "ReclassifyField", "TransformField"),
+    "keeps a GeoPackage spatial index (the RTree extension), which grapy does not maintain and no grapy tool reads": (
+        "AddSpatialIndex", "RemoveSpatialIndex"),
+    "makes a layer over a table read live (an event layer) or over a raster; grapy's layers are over feature classes "
+    "and tables — XYTableToPoint makes the points": ("MakeXYEventLayer", "MakeRasterLayer"),
+    "converts between Windows time zone names, whose mapping to the IANA zones Python holds Esri does not publish": (
+        "ConvertTimeZone",),
+    "writes DTED, a military elevation format grapy does not write": ("RasterToDTED",),
+    "makes a mobile geodatabase (.geodatabase), Esri's own SQLite schema; CreateFileGDB and CreateSQLiteDatabase make "
+    "grapy's GeoPackage workspace": ("CreateMobileGDB",),
+}
+
+_REFUSED = {name: f"needs a data model this server does not hold yet (ADR-224 group 2): {model}"
+            for model, names in _GROUP_2_MODELS.items() for name in names}
+_REFUSED.update({name: reason for reason, names in _REASONS.items() for name in names})
+
+_REFUSED["StandardizeField"] = (
+    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/standardize-field.html "
+    "answered 404, and pro.arcgis.com's .../data-management/standardize-field.htm redirects to it (checked 2026-10-29), "
+    "so its formulas and field names are unknown")
 
 
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
-    if name in _GROUP_2:
-        message = (f"arcpy.management.{name} needs a data model this server does not hold yet (ADR-224 group 2).")
-    else:
-        message = f"arcpy.management.{name} is not built in grapy yet."
+    reason = _REFUSED.get(name)
+    message = f"arcpy.management.{name} {reason}." if reason else f"arcpy.management.{name} is not built in grapy yet."
 
     def missing(*_, **__):
         raise NotBuiltError(message)
