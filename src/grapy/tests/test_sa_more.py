@@ -217,7 +217,7 @@ class More(_Fixture):
             sa.Fill(grid([[1]]), 3)
 
     def test_tools_refused_by_name_say_why(self):
-        for name, words in (("KernelDensity", "images"), ("Combine", "attribute table"), ("Kriging", "not specified")):
+        for name, words in (("Combine", "attribute table"), ("Spline", "not specified")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a", "b")
             self.assertIn(words, str(raised.exception))
@@ -264,7 +264,7 @@ class RoundFour(_Fixture):
         self.assertIs(sa.Point, arcpy.Point)
         self.assertIs(sa.Extent, arcpy.Extent)
         for name, words in (("TfGaussian", "RescaleByFunction"), ("FuzzySmall", "images"), ("VfBinary", "path distance"),
-                            ("TopoLake", "TopoToRaster"), ("KernelDensity", "Predicted density formula")):
+                            ("TopoLake", "TopoToRaster")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a")
             self.assertIn(words, str(raised.exception))
@@ -285,6 +285,79 @@ class RoundFour(_Fixture):
             kernel.write("2 2\n1 1\n1 1\n")
         with self.assertRaises(arcpy.NotBuiltError):
             sa.FocalStatistics(values, sa.NbrIrregular(even), "SUM")
+
+
+
+class Equivalents(_Fixture):
+    """ADR-224 §5.6: each equivalent against a hand-worked answer of the method it names."""
+
+    def test_kernel_density_is_silvermans_quartic_kernel(self):
+        points = self.features("kd", "POINT", [(point(0, 0),), (point(20, 0),)])
+        # One row of 10-unit cells, centres (5,−5) and (15,−5). From (5,−5) the point (0,0) is √50 away: the kernel is
+        # 3/(π·10²)·(1 − 50/100)² = 0.75/(100π); (20,0) is √250 away, beyond the radius of 10.
+        density = cells(sa.KernelDensity(points, "NONE", 10, 10, "SQUARE_MAP_UNITS"))
+        self.assertAlmostEqual(density[0][0], 0.75 / (100 * math.pi))
+        self.assertAlmostEqual(density[0][1], 0.75 / (100 * math.pi))
+        counts = cells(sa.KernelDensity(points, "NONE", 10, 10, out_cell_values="EXPECTED_COUNTS"))
+        self.assertAlmostEqual(counts[0][0], 0.75 / math.pi)
+        # Silverman's rule: the mean centre is (10,0), SD = 10, the median distance 10, so the spread is
+        # min(10, 10·√(1/ln 2)) = 10 and the radius 0.9 · 10 · 2^(−0.2).
+        self.assertAlmostEqual(sa._silverman_radius(np.array([0.0, 20.0]), np.array([0.0, 0.0]), np.ones(2)),
+                               9 * 2 ** -0.2)
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.KernelDensity(points, "NONE", 10, 10, in_barriers=points)
+
+    def test_threshold_stretch_and_principal_components(self):
+        self.assertEqual(cells(sa.Threshold(grid([[0.0, 0.0, 10.0, 10.0]]))), [[0, 0, 1, 1]])
+        ramp = grid([[0.0, 5.0, 10.0]])
+        # 5 of 0…10 is 127.5, rounded to 128.
+        self.assertEqual(cells(sa.Stretch(ramp, "MinMax", 0, 10)), [[0, 128, 255]])
+        # Mean 5, standard deviation 3: one deviation either side runs from 2 to 8,.
+        self.assertEqual(cells(sa.Stretch(grid([[2.0, 8.0, 2.0, 8.0]]), "StdDev", num_stddev=1)), [[0, 255, 0, 255]])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.Stretch(ramp, "PercentClip")
+        b1 = grid([[0.0, 1.0, 2.0, 3.0]])
+        b2 = grid([[0.0, 2.0, 4.0, 6.0]])
+        # All the variance lies along (1, 2)/√5; the first cell is (−1.5, −3) from the means: −7.5/√5.
+        first = cells(sa.PrincipalComponents([b1, b2], 1))[0]
+        for got, want in zip(first, [-7.5, -2.5, 2.5, 7.5]):
+            self.assertAlmostEqual(got, want / math.sqrt(5))
+
+    def test_natural_neighbor_reproduces_a_plane(self):
+        # Sibson's interpolant is exact for linear data: on z = x it answers each centre's x.
+        points = self.features("nn", "POINT", [(0.0, point(0, 0)), (10.0, point(10, 0)), (0.0, point(0, 10)),
+                                               (10.0, point(10, 10))], [("z", "DOUBLE")])
+        got = cells(sa.NaturalNeighbor(points, "z", 5))
+        for row in got:
+            self.assertAlmostEqual(row[0], 2.5, places=4)
+            self.assertAlmostEqual(row[1], 7.5, places=4)
+
+    def test_kriging_solves_cressies_system(self):
+        # The spherical model at half its range: 1.5·0.5 − 0.5·0.125 = 0.6875; the exponential at its range 1 − e⁻³.
+        self.assertAlmostEqual(float(sa._semivariogram("SPHERICAL", 5.0, 10.0, 1.0, 0.0)), 0.6875)
+        self.assertAlmostEqual(float(sa._semivariogram("EXPONENTIAL", 10.0, 10.0, 1.0, 0.0)), 1 - math.exp(-3))
+        # Two points on a line under a linear model γ(h) = h/100: λ₁ = ½ − (γ₁₀ − γ₂₀)/(2γ₁₂) = 0.75 at x = 2.5.
+        xs, ys, zs = np.array([0.0, 10.0]), np.array([0.0, 0.0]), np.array([0.0, 10.0])
+        estimate, _ = sa._krige(xs, ys, zs, 2.5, 0.0, "LINEAR", 100.0, 1.0, 0.0, None)
+        self.assertAlmostEqual(estimate, 2.5)
+        # At the midpoint the weights are ½ each and μ = γ₁₀ − ½γ₁₂ = 0, so the variance is γ₁₀ = 0.05.
+        self.assertAlmostEqual(sa._krige(xs, ys, zs, 5.0, 0.0, "LINEAR", 100.0, 1.0, 0.0, None)[1], 0.05)
+        # Four points at the corners of a square, the single cell at its centre: equal weights, the mean.
+        points = self.features("kr", "POINT", [(1.0, point(5, 5)), (2.0, point(15, 5)), (3.0, point(5, 15)),
+                                               (4.0, point(15, 15))], [("z", "DOUBLE")])
+        model = sa.KrigingModelOrdinary("SPHERICAL", 10, 20, 1, 0)
+        self.assertAlmostEqual(cells(sa.Kriging(points, "z", model, 10))[0][0], 2.5, places=5)
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.Kriging(points, "z", sa.KrigingModelOrdinary("STABLE", 10, 20, 1, 0), 10)
+
+    def test_d_infinity_is_tarbotons(self):
+        east = grid([[100 - 10 * k for k in range(4)] for _ in range(4)])
+        self.assertEqual(cells(sa.FlowDirection(east, flow_direction_type="DINF"))[1][1], 0.0)
+        # Falling 10 per cell both east and north: s1 = s2 = 1 on the east–north-east facet, r = 45°.
+        north_east = grid([[100 - 10 * k + 10 * r for k in range(4)] for r in range(4)])
+        self.assertAlmostEqual(cells(sa.FlowDirection(north_east, flow_direction_type="DINF"))[1][1], 45.0, places=4)
+        flat = cells(sa.FlowDirection(grid([[5.0] * 4] * 4), flow_direction_type="DINF"))
+        self.assertEqual((flat[1][1], flat[0][1], flat[1][3]), (-1.0, 90.0, 0.0))
 
 
 if __name__ == "__main__":

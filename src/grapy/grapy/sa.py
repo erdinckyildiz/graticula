@@ -1652,15 +1652,18 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
     neighbour and pointed at it, as *How Flow Direction works* documents. An edge cell flows outward under ``FORCE``,
     and under ``NORMAL`` when its steepest drop inside the raster is not positive.
 
-    Refused rather than guessed: a cell whose steepest drop is shared by several neighbours, or is zero (a flat) — the
-    documentation resolves those with a lookup table (Greenlee 1987) it does not publish; a surface with NoData; MFD,
-    DINF and the geodesic method; and ``out_drop_raster``.
+    ``DINF`` is an EQUIVALENT: Tarboton's (1997) D-infinity, see ``_flow_direction_dinf``; it says so in its run.
+
+    Refused rather than guessed (D8): a cell whose steepest drop is shared by several neighbours, or is zero (a flat)
+    — the documentation resolves those with a lookup table (Greenlee 1987) it does not publish; a surface with NoData;
+    MFD and the geodesic method; and ``out_drop_raster``.
 
     INFERRED: outward from an edge is straight across it (64 on the top row, 4 bottom, 16 left, 1 right) and
     diagonal at a corner (32 top left, 128 top right, 8 bottom left, 2 bottom right); a diagonal step is
     √(width² + height²) long."""
     _refuse_environment("arcpy.sa.FlowDirection")
-    if str(flow_direction_type or "D8").upper() != "D8":
+    dinf = str(flow_direction_type or "D8").upper() == "DINF"
+    if str(flow_direction_type or "D8").upper() not in ("D8", "DINF"):
         _refuse("FlowDirection", "flow_direction_type", flow_direction_type)
     if str(method or "PLANAR").upper() != "PLANAR":
         _refuse("FlowDirection", "method", method)
@@ -1670,6 +1673,8 @@ def FlowDirection(in_surface_raster, force_flow="NORMAL", out_drop_raster=None, 
     if raster._mask.any():
         _refuse("FlowDirection", "in_surface_raster", in_surface_raster, "how NoData neighbours are treated is not documented")
     force = str(force_flow or "NORMAL").upper() == "FORCE"
+    if dinf:
+        return _flow_direction_dinf(raster, force)
     z = raster._array.astype(np.float64)
     rows, columns = z.shape
     g = raster._grid
@@ -3180,6 +3185,494 @@ _REFUSED.update({
 for _name in list(_NOT_YET):
     if _name in _REFUSED or _name == "NbrIrregular":
         _NOT_YET.pop(_name)
+
+
+# ---- round six (ADR-224 §5.6): equivalents — the standard method of the literature where Esri's documentation does
+# not define the answer. Each says so in its docstring, its run and its mark.
+
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+
+@_equivalent("the quartic (biweight) kernel density estimate with Silverman's rule-of-thumb bandwidth",
+             "Silverman 1986, Density Estimation for Statistics and Data Analysis, eq. 4.5 and §3.4.2")
+def KernelDensity(in_features, population_field, cell_size=None, search_radius=None, area_unit_scale_factor=None,
+                  out_cell_values="DENSITIES", method="PLANAR", in_barriers=None):
+    """EQUIVALENT: Silverman's (1986) quartic kernel estimate, eq. 4.5 — each point spreads its population over a disc
+    of ``search_radius`` as ``3/(π r²) · (1 − (d/r)²)²``, so the volume under each point's kernel is its population, as
+    Esri's page says; a cell's density is the sum over the points within the radius of its centre (NoData where there
+    is none), times ``area_unit_scale_factor``. ``EXPECTED_COUNTS`` multiplies the density by the cell's area.
+
+    The default radius is Silverman's rule of thumb in two dimensions, built from the quantities Esri's page names:
+    ``0.9 · min(SD, Dm · √(1/ln 2)) · n^(−0.2)``, where SD is the standard distance from the mean centre, Dm the median
+    distance to it, and n the number of points (or the sum of the population). Dm · √(1/ln 2) equals SD for points
+    normally distributed in the plane (the distance from the centre then follows a Rayleigh law, whose median is
+    σ√(2 ln 2) while SD is σ√2), which is how a median stands in for SD in Silverman's robust rule. With a population,
+    the centre, SD and median are weighted by it.
+
+    Refused: lines (Esri's line kernel is its own), barriers and the geodesic method.
+
+    INFERRED: the grid's top-left corner is the points' extent's; a point exactly at the radius contributes nothing.
+    """
+    _refuse_environment("arcpy.sa.KernelDensity")
+    if str(method or "PLANAR").upper() != "PLANAR":
+        _refuse("KernelDensity", "method", method, "the geodesic kernel is not built")
+    if _given(in_barriers):
+        _refuse("KernelDensity", "in_barriers", in_barriers, "barriers are not built")
+    from .analysis import _schema
+    if _schema(in_features)[1] != "Point":
+        _refuse("KernelDensity", "in_features", in_features, "only points are built; Esri's line kernel is its own")
+    kind = str(out_cell_values or "DENSITIES").upper()
+    if kind not in ("DENSITIES", "EXPECTED_COUNTS"):
+        _refuse("KernelDensity", "out_cell_values", out_cell_values)
+    grid, srid, _ = _density_grid(in_features, cell_size, "KernelDensity")
+    points = _population(in_features, population_field, "KernelDensity")
+    xs = np.array([p.x for p, _ in points])
+    ys = np.array([p.y for p, _ in points])
+    weights = np.array([w for _, w in points])
+    r = float(search_radius) if _given(search_radius) else _silverman_radius(xs, ys, weights)
+    cx, cy = grid.centres()
+    gx, gy = np.meshgrid(cx, cy)
+    d2 = (gx[..., None] - xs) ** 2 + (gy[..., None] - ys) ** 2
+    inside = d2 < r * r
+    kernel = np.where(inside, 3.0 / (math.pi * r * r) * (1 - d2 / (r * r)) ** 2, 0.0)
+    density = (kernel * weights).sum(axis=-1)
+    if kind == "EXPECTED_COUNTS":
+        density = density * grid.width * grid.height
+    else:
+        density = density * _area_unit(area_unit_scale_factor, srid, "KernelDensity")
+    empty = ~inside.any(axis=-1)
+    return Raster._of(np.where(empty, 0, density), empty, grid)
+
+
+def _silverman_radius(xs, ys, weights):
+    total = weights.sum()
+    if total <= 0:
+        raise ValueError("KernelDensity: the population sums to zero, so no default radius can be found.")
+    mx, my = (weights * xs).sum() / total, (weights * ys).sum() / total
+    d = np.hypot(xs - mx, ys - my)
+    sd = math.sqrt((weights * d * d).sum() / total)
+    order = np.argsort(d, kind="stable")
+    cumulative = np.cumsum(weights[order])
+    median = float(d[order][np.searchsorted(cumulative, total / 2.0)])
+    spread = min(sd, median * math.sqrt(1 / math.log(2)))
+    if spread <= 0:
+        raise ValueError("KernelDensity: the points have no spread, so no default radius can be found.")
+    return 0.9 * spread * total ** -0.2
+
+
+@_equivalent("Otsu's threshold on a 256-bin histogram", "Otsu 1979, IEEE Trans. Systems, Man and Cybernetics 9(1)")
+def Threshold(raster):
+    """EQUIVALENT: Otsu's (1979) method, which Esri's Binary Thresholding page names: the cells' values are counted in 256
+    equal bins over their range, and the threshold is the bin edge that maximises the between-class variance. Cells
+    above it are 1, the rest 0; NoData stays NoData.
+
+    INFERRED: of equal maxima, the lowest edge is taken; a constant raster is all 0."""
+    _refuse_environment("arcpy.sa.Threshold")
+    source = as_raster(raster, "Threshold")
+    values = source._values().astype(np.float64)
+    low, high = (values.min(), values.max()) if values.size else (0.0, 0.0)
+    if high <= low:
+        return Raster._of(np.zeros(source._array.shape, np.int32), source._mask.copy(), source._grid)
+    counts, edges = np.histogram(values, bins=256, range=(low, high))
+    centres = (edges[:-1] + edges[1:]) / 2
+    weight0 = np.cumsum(counts)
+    weight1 = weight0[-1] - weight0
+    sum0 = np.cumsum(counts * centres)
+    total = sum0[-1]
+    with np.errstate(all="ignore"):
+        mean0 = sum0 / weight0
+        mean1 = (total - sum0) / weight1
+        between = weight0 * weight1 * (mean0 - mean1) ** 2
+    between = np.where(np.isfinite(between), between, -1.0)
+    cut = edges[int(np.argmax(between)) + 1]
+    out = (source._array.astype(np.float64) > cut).astype(np.int32)
+    return Raster._of(np.where(source._mask, 0, out).astype(np.int32), source._mask.copy(), source._grid)
+
+
+@_equivalent("a linear contrast stretch to 0–255", "Richards and Jia, Remote Sensing Digital Image Analysis, 4th ed., §4.3")
+def Stretch(raster, stretch_type=0, min=None, max=None, num_stddev=None, statistics=None, dra=None, min_percent=None,
+            max_percent=None, gamma=None, compute_gamma=None, sigmoid_strength_level=None):
+    """EQUIVALENT: the linear contrast stretch (Richards and Jia, §4.3): a lower and an upper value are mapped to 0 and
+    255, values between them linearly, and values beyond them clipped. ``MinMax`` takes them from ``min`` and ``max``
+    (or the statistics); ``StdDev`` from the mean ∓ ``num_stddev`` standard deviations; ``PercentClip`` from the
+    ``min_percent`` and ``max_percent`` percentiles of the values. ``None`` (0, the default) leaves the raster as it
+    is, as documented.
+
+    Refused: Histogram and Sigmoid, ``dra``, ``gamma`` and ``compute_gamma``; a StdDev or PercentClip stretch without
+    its number, whose defaults the page does not give; rasters of several bands.
+
+    INFERRED: the output is 8-bit unsigned, rounded to the nearest integer; the statistics are those of the raster's
+    cells (population standard deviation) unless ``statistics`` gives ``[[min, max, mean, std]]``; percentiles are
+    numpy's linear ones, the lower percentile cutting ``min_percent`` from the bottom."""
+    _refuse_environment("arcpy.sa.Stretch")
+    kind = str(stretch_type).upper() if stretch_type not in (None, 0, "0", "") else "NONE"
+    source = as_raster(raster, "Stretch")
+    if kind == "NONE":
+        return source
+    for name, value in (("dra", dra), ("gamma", gamma), ("compute_gamma", compute_gamma)):
+        if value:
+            _refuse("Stretch", name, value)
+    values = source._values().astype(np.float64)
+    stats = statistics[0] if statistics else [values.min(), values.max(), values.mean(), values.std()]
+    if kind == "MINMAX":
+        low = float(min) if min is not None else float(stats[0])
+        high = float(max) if max is not None else float(stats[1])
+    elif kind == "STDDEV":
+        if num_stddev is None:
+            _refuse("Stretch", "num_stddev", "(empty)", "its default is not documented")
+        low, high = stats[2] - float(num_stddev) * stats[3], stats[2] + float(num_stddev) * stats[3]
+    elif kind == "PERCENTCLIP":
+        if min_percent is None or max_percent is None:
+            _refuse("Stretch", "min_percent/max_percent", "(empty)", "their defaults are not documented")
+        low, high = np.percentile(values, float(min_percent)), np.percentile(values, 100 - float(max_percent))
+    else:
+        _refuse("Stretch", "stretch_type", stretch_type, "only MinMax, StdDev and PercentClip are built")
+    if high <= low:
+        raise ValueError("Stretch: the upper value must be above the lower.")
+    a = source._array.astype(np.float64)
+    out = np.clip(np.floor((a - low) / (high - low) * 255 + 0.5), 0, 255)
+    return Raster._of(np.where(source._mask, 0, out).astype(np.uint8), source._mask.copy(), source._grid)
+
+
+@_equivalent("principal components of the band covariance matrix", "Jolliffe 2002, Principal Component Analysis, ch. 1")
+def PrincipalComponents(in_raster_bands, number_components=None, out_data_file=None):
+    """EQUIVALENT: principal components analysis of the bands' covariance matrix (Jolliffe 2002, ch. 1): each component
+    is an eigenvector, ordered by decreasing eigenvalue, and a cell's component value is the eigenvector's dot product
+    with the cell's band values less the band means. A cell with NoData in any band is NoData and left out of the
+    covariance. The sign of each eigenvector is fixed so that its largest-magnitude loading is positive.
+
+    Refused: ``out_data_file``, whose layout the page does not give.
+
+    INFERRED: the covariance divides by n − 1; the output is floating point; one component answers a Raster, several a
+    raster of several bands."""
+    _refuse_environment("arcpy.sa.PrincipalComponents")
+    if _given(out_data_file):
+        _refuse("PrincipalComponents", "out_data_file", out_data_file, "its layout is not documented")
+    inputs = in_raster_bands if isinstance(in_raster_bands, (list, tuple)) else [in_raster_bands]
+    bands = [_open_bands(r, "PrincipalComponents") for r in inputs]
+    grid = bands[0]._grid
+    arrays = [a for b in bands for a in b._arrays]
+    masks = [m for b in bands for m in b._masks]
+    for b in bands[1:]:
+        if not b._grid.same(grid):
+            _refuse("PrincipalComponents", "in_raster_bands", b, "bands on different grids need resampling")
+    if len(arrays) < 2:
+        raise ValueError("PrincipalComponents needs at least two bands.")
+    mask = np.logical_or.reduce(masks)
+    data = np.stack([a.astype(np.float64)[~mask] for a in arrays], axis=1)
+    means = data.mean(axis=0)
+    values, vectors = np.linalg.eigh(np.cov(data, rowvar=False))
+    order = np.argsort(values)[::-1]
+    vectors = vectors[:, order]
+    for k in range(vectors.shape[1]):
+        if vectors[np.argmax(np.abs(vectors[:, k])), k] < 0:
+            vectors[:, k] = -vectors[:, k]
+    n = int(number_components) if _given(number_components) else len(arrays)
+    full = np.stack([a.astype(np.float64) for a in arrays], axis=-1) - means
+    scores = full @ vectors[:, :n]
+    outputs = [np.where(mask, 0, scores[..., k]) for k in range(n)]
+    if n == 1:
+        return Raster._of(outputs[0], mask.copy(), grid)
+    return _Bands(outputs, [mask.copy() for _ in outputs], grid)
+
+
+@_equivalent("Sibson's natural neighbour interpolation", "Sibson 1981, in Interpreting Multivariate Data, pp. 21–36")
+def NaturalNeighbor(in_point_features, z_field, cell_size=None):
+    """EQUIVALENT: Sibson's (1981) natural neighbour interpolation: each cell centre is inserted into the points'
+    Voronoi diagram, and its value is the points' values weighted by the area its new Voronoi cell takes from each of
+    theirs. A cell whose centre is outside the points' convex hull is NoData, as Esri's page says; one on a point takes
+    the point's value.
+
+    INFERRED: a centre exactly on the hull's boundary is NoData (its Voronoi cell is unbounded); the grid is as Idw's;
+    points at one place are refused."""
+    import shapely
+    from shapely.geometry import MultiPoint, Point as _P, box
+    xs, ys, zs = _points(in_point_features, z_field, "NaturalNeighbor")
+    if len({(x, y) for x, y in zip(xs, ys)}) != len(xs):
+        _refuse("NaturalNeighbor", "in_point_features", in_point_features, "coincident points are not built")
+    grid = _point_grid(in_point_features, cell_size, xs, ys, "NaturalNeighbor")
+    sites = [(float(x), float(y)) for x, y in zip(xs, ys)]
+    hull = MultiPoint(sites).convex_hull
+    span = max(xs.max() - xs.min(), ys.max() - ys.min(), grid.width) * 10
+    frame = box(xs.min() - span, ys.min() - span, xs.max() + span, ys.max() + span)
+
+    def cells_of(points):
+        diagram = shapely.voronoi_polygons(MultiPoint(points), extend_to=frame)
+        found = {}
+        for cell in diagram.geoms:
+            for i, p in enumerate(points):
+                if i not in found and cell.contains(_P(p)):
+                    found[i] = cell.intersection(frame)
+                    break
+        return found
+
+    original = cells_of(sites)
+    cx, cy = grid.centres()
+    out = np.zeros((grid.rows, grid.columns))
+    empty = np.ones((grid.rows, grid.columns), bool)
+    lookup = {p: i for i, p in enumerate(sites)}
+    for r, y in enumerate(cy):
+        for c, x in enumerate(cx):
+            q = (float(x), float(y))
+            if q in lookup:
+                out[r, c], empty[r, c] = zs[lookup[q]], False
+                continue
+            if not hull.contains(_P(q)):
+                continue
+            new = cells_of(sites + [q])[len(sites)]
+            stolen = np.array([new.intersection(original[i]).area for i in range(len(sites))])
+            out[r, c] = (stolen * zs).sum() / stolen.sum()
+            empty[r, c] = False
+    return Raster._of(np.where(empty, 0, out).astype(np.float32), empty, grid)
+
+
+# ---- Kriging
+
+
+class KrigingModelOrdinary:
+    """arcpy.sa.KrigingModelOrdinary: the semivariogram model of ordinary kriging, by its documented parameters."""
+
+    def __init__(self, semivariogramType="SPHERICAL", lagSize=None, majorRange=None, partialSill=None, nugget=None):
+        self.semivariogramType, self.lagSize = semivariogramType, lagSize
+        self.majorRange, self.partialSill, self.nugget = majorRange, partialSill, nugget
+
+
+class KrigingModelUniversal(KrigingModelOrdinary):
+    """arcpy.sa.KrigingModelUniversal: LINEARDRIFT or QUADRATICDRIFT, and the same lag, range, sill and nugget."""
+
+    def __init__(self, semivariogramType="LINEARDRIFT", lagSize=None, majorRange=None, partialSill=None, nugget=None):
+        super().__init__(semivariogramType, lagSize, majorRange, partialSill, nugget)
+
+
+def _semivariogram(kind, h, a, c, c0):
+    """The semivariogram models of Johnston et al. (2001), Using ArcGIS Geostatistical Analyst, Appendix A: γ(0) = 0,
+    and for h > 0 the nugget c0 plus the partial sill c times the model's shape at range a."""
+    h = np.asarray(h, dtype=np.float64)
+    t = h / a
+    if kind == "SPHERICAL":
+        shape = np.where(t < 1, 1.5 * t - 0.5 * t ** 3, 1.0)
+    elif kind == "CIRCULAR":
+        tc = np.clip(t, 0, 1)
+        shape = np.where(t < 1, 1 - (2 / math.pi) * np.arccos(tc) + (2 / math.pi) * tc * np.sqrt(1 - tc * tc), 1.0)
+    elif kind == "EXPONENTIAL":
+        shape = 1 - np.exp(-3 * t)
+    elif kind == "GAUSSIAN":
+        shape = 1 - np.exp(-3 * t * t)
+    elif kind in ("LINEAR", "LINEARDRIFT", "QUADRATICDRIFT"):
+        shape = np.where(t < 1, t, 1.0)
+    else:
+        raise NotBuiltError(f"arcpy.sa.Kriging: semivariogramType '{kind}' is not built in grapy.")
+    return np.where(h > 0, c0 + c * shape, 0.0)
+
+
+def _fit_semivariogram(kind, xs, ys, zs, lag, fixed):
+    """The model's range, partial sill and nugget fitted to the empirical semivariogram by Cressie's (1985) weighted
+    least squares — minimising Σ N(h)·(γ̂(h)/γ(h) − 1)² over 12 lags of ``lag`` — any parameter given held fixed."""
+    from scipy.optimize import minimize
+    dx = xs[:, None] - xs
+    dy = ys[:, None] - ys
+    d = np.hypot(dx, dy)[np.triu_indices(len(xs), 1)]
+    g = (0.5 * (zs[:, None] - zs) ** 2)[np.triu_indices(len(xs), 1)]
+    lags, gammas, counts = [], [], []
+    for k in range(12):
+        hit = (d > k * lag) & (d <= (k + 1) * lag)
+        if hit.any():
+            lags.append(d[hit].mean())
+            gammas.append(g[hit].mean())
+            counts.append(hit.sum())
+    if len(lags) < 2:
+        raise ValueError("Kriging: fewer than two lags hold pairs of points; give a larger lagSize or the model's values.")
+    lags, gammas, counts = map(np.array, (lags, gammas, counts))
+    names = ["majorRange", "partialSill", "nugget"]
+    start = {"majorRange": lags.max() / 2, "partialSill": max(gammas.max(), 1e-12), "nugget": 0.0}
+    free = [n for n in names if fixed.get(n) is None]
+
+    def model(values):
+        p = {**start, **{k: v for k, v in fixed.items() if v is not None}, **dict(zip(free, values))}
+        return p
+
+    def cost(values):
+        p = model(values)
+        if p["majorRange"] <= 0 or p["partialSill"] < 0 or p["nugget"] < 0:
+            return 1e30
+        fitted = _semivariogram(kind, lags, p["majorRange"], p["partialSill"], p["nugget"])
+        if np.any(fitted <= 0):
+            return 1e30
+        return float((counts * (gammas / fitted - 1) ** 2).sum())
+
+    if free:
+        best = minimize(cost, [start[n] for n in free], method="Nelder-Mead",
+                        options={"xatol": 1e-10, "fatol": 1e-12, "maxiter": 20000})
+        return model(best.x)
+    return model([])
+
+
+def _krige(xs, ys, zs, qx, qy, kind, a, c, c0, drift):
+    """Ordinary (drift None) or universal kriging at one place from the points given: the kriging system of Cressie
+    (1993), Statistics for Spatial Data, §3.2 and §3.4, solved in semivariogram form. Answers the estimate and the
+    kriging variance."""
+    n = len(xs)
+    terms = {None: [], "LINEARDRIFT": [lambda x, y: x, lambda x, y: y],
+             "QUADRATICDRIFT": [lambda x, y: x, lambda x, y: y, lambda x, y: x * x, lambda x, y: x * y,
+                                lambda x, y: y * y]}[drift]
+    # Drift terms on coordinates relative to the place estimated, for conditioning; the system is unchanged.
+    rx, ry = xs - qx, ys - qy
+    m = 1 + len(terms)
+    big = np.zeros((n + m, n + m))
+    big[:n, :n] = _semivariogram(kind, np.hypot(rx[:, None] - rx, ry[:, None] - ry), a, c, c0)
+    big[:n, n] = big[n, :n] = 1.0
+    for k, f in enumerate(terms, 1):
+        big[:n, n + k] = big[n + k, :n] = f(rx, ry)
+    right = np.zeros(n + m)
+    right[:n] = _semivariogram(kind, np.hypot(rx, ry), a, c, c0)
+    right[n] = 1.0
+    for k, f in enumerate(terms, 1):
+        right[n + k] = f(0.0, 0.0)
+    solution = np.linalg.solve(big, right)
+    weights = solution[:n]
+    return float(weights @ zs), float(solution @ right)
+
+
+@_equivalent("ordinary and universal kriging with a semivariogram fitted by weighted least squares",
+             "Cressie 1985, Mathematical Geology 17(5); Cressie 1993, Statistics for Spatial Data, §3.2–3.4; models "
+             "of Johnston et al. 2001, Using ArcGIS Geostatistical Analyst, Appendix A")
+def Kriging(in_point_features, z_field, semiVariogram_props=None, cell_size=None, search_radius=None,
+            out_variance_prediction_raster=None):
+    """EQUIVALENT: kriging as Cressie (1993) gives it. Ordinary kriging (spherical, circular, exponential, Gaussian or
+    linear semivariogram) or universal kriging with linear or quadratic drift, at each cell centre from the points the
+    search radius finds — the nearest 12 by default (RadiusVariable), as documented. A range, partial sill or nugget
+    not given is fitted by Cressie's (1985) weighted least squares to the empirical semivariogram over 12 lags of
+    ``lagSize`` (by default the cell size, as documented); 12 lags is Geostatistical Analyst's published default
+    (Johnston et al. 2001). Universal kriging fits its semivariogram to the residuals of a least-squares drift.
+    ``out_variance_prediction_raster`` receives the kriging variance.
+
+    Refused: a model string or class other than these; coincident points (the system is then singular).
+
+    INFERRED: universal kriging's residual semivariogram is the linear model with a sill (the page names only the drift); a lag holds the pairs with (k−1)L < d ≤ kL and stands at their mean distance; the fit is Nelder–Mead from
+    a start of half the largest lag, the largest semivariance and no nugget; the grid is as Idw's."""
+    model = semiVariogram_props or KrigingModelOrdinary()
+    if isinstance(model, str):
+        parts = [p.strip() for p in model.replace(";", ",").split(",")]
+        kind = parts[0].upper()
+        values = [float(p) if p not in ("", "#") else None for p in parts[1:]] + [None] * 4
+        cls = KrigingModelUniversal if kind in ("LINEARDRIFT", "QUADRATICDRIFT") else KrigingModelOrdinary
+        model = cls(kind, *values[:4])
+    kind = str(model.semivariogramType).upper()
+    drift = kind if kind in ("LINEARDRIFT", "QUADRATICDRIFT") else None
+    if drift is None and kind not in ("SPHERICAL", "CIRCULAR", "EXPONENTIAL", "GAUSSIAN", "LINEAR"):
+        _refuse("Kriging", "semivariogramType", model.semivariogramType)
+    xs, ys, zs = _points(in_point_features, z_field, "Kriging")
+    if len({(x, y) for x, y in zip(xs, ys)}) != len(xs):
+        _refuse("Kriging", "in_point_features", in_point_features, "coincident points make the kriging system singular")
+    grid = _point_grid(in_point_features, cell_size, xs, ys, "Kriging")
+    lag = float(model.lagSize) if _given(model.lagSize) else grid.width
+    fixed = {"majorRange": model.majorRange, "partialSill": model.partialSill, "nugget": model.nugget}
+    residual = zs
+    if drift is not None:
+        x0, y0, s = xs.mean(), ys.mean(), max(np.ptp(xs), np.ptp(ys)) or 1.0
+        u, v = (xs - x0) / s, (ys - y0) / s
+        cols = [np.ones_like(u), u, v] + ([u * u, u * v, v * v] if drift == "QUADRATICDRIFT" else [])
+        design = np.column_stack(cols)
+        coefficients, *_ = np.linalg.lstsq(design, zs, rcond=None)
+        residual = zs - design @ coefficients
+    if all(v is not None for v in fixed.values()):
+        p = {k: float(v) for k, v in fixed.items()}
+    else:
+        p = _fit_semivariogram("LINEAR" if drift else kind, xs, ys, residual, lag,
+                               {k: (float(v) if v is not None else None) for k, v in fixed.items()})
+    shape = "LINEAR" if drift else kind
+    mode, first, second = _radius(search_radius)
+    cx, cy = grid.centres()
+    estimate = np.zeros((grid.rows, grid.columns))
+    variance = np.zeros((grid.rows, grid.columns))
+    empty = np.zeros((grid.rows, grid.columns), bool)
+    for r, y in enumerate(cy):
+        for c, x in enumerate(cx):
+            d = np.hypot(xs - x, ys - y)
+            order = np.argsort(d, kind="stable")
+            if mode == "VARIABLE":
+                limit = float(second) if _given(second) else math.hypot(grid.right - grid.left, grid.top - grid.bottom)
+                chosen = [i for i in order[:first] if d[i] <= limit]
+            else:
+                radius = float(first) if _given(first) else 5 * grid.width
+                chosen = [i for k, i in enumerate(order) if d[i] <= radius or k < second]
+            needed = 1 + (0 if drift is None else (2 if drift == "LINEARDRIFT" else 5))
+            if len(chosen) < needed:
+                empty[r, c] = True
+                continue
+            idx = np.array(chosen)
+            estimate[r, c], variance[r, c] = _krige(xs[idx], ys[idx], zs[idx], x, y, shape, p["majorRange"],
+                                                    p["partialSill"], p["nugget"], drift)
+    if _given(out_variance_prediction_raster):
+        Raster._of(np.where(empty, 0, variance).astype(np.float32), empty.copy(), grid).save(out_variance_prediction_raster)
+    return Raster._of(np.where(empty, 0, estimate).astype(np.float32), empty, grid)
+
+
+def _dinf_tool():
+  @_equivalent("D-infinity flow direction", "Tarboton 1997, Water Resources Research 33(2)")
+  def FlowDirection(raster, force):
+      """EQUIVALENT: Tarboton's (1997) D-infinity: the steepest downslope direction over the eight triangular facets of
+      each 3 × 3 window, as an angle in degrees counterclockwise from east (0–360), as Esri's page states the output.
+      A facet joins a cardinal neighbour e1 and the diagonal e2 beside it; s1 = (e0 − e1)/d, s2 = (e1 − e2)/d,
+      r = atan(s2/s1), held within 0 … 45° (on the bounds, the slope is that of the edge taken). A cell with no positive
+      slope is −1, the undefined value Esri's Flow Accumulation page gives for D-infinity.
+
+      INFERRED: an edge cell flows outward under FORCE, and under NORMAL when no facet inside the raster falls, at the
+      angle of the D8 outward direction (90 north, 0 east, …); of equal slopes the first facet counterclockwise from
+      in the order east–north-east, east–south-east, north–north-west, north–north-east, … wins."""
+      z = raster._array.astype(np.float64)
+      g = raster._grid
+      if not math.isclose(g.width, g.height):
+          _refuse("FlowDirection", "in_surface_raster", raster, "D-infinity is defined on square cells")
+      dcell = g.width
+      rows, columns = z.shape
+      # (cardinal offset, angle), then the diagonal on each side: +45° (counterclockwise) and −45°.
+      cardinals = [((0, 1), 0.0), ((-1, 0), 90.0), ((0, -1), 180.0), ((1, 0), 270.0)]
+      out = np.zeros(z.shape, np.float64)
+      outward = {(True, False, False, False): 90.0, (False, True, False, False): 270.0,
+                 (False, False, True, False): 180.0, (False, False, False, True): 0.0,
+                 (True, False, True, False): 135.0, (True, False, False, True): 45.0,
+                 (False, True, True, False): 225.0, (False, True, False, True): 315.0}
+      for r in range(rows):
+          for k in range(columns):
+              edge = (r == 0, r == rows - 1, k == 0, k == columns - 1)
+              if any(edge) and force:
+                  out[r, k] = outward[edge]
+                  continue
+              best, angle = 0.0, -1.0
+              for (dr, dk), base in cardinals:
+                  for side in (1, -1):
+                      # The diagonal beside the cardinal, counterclockwise (+) or clockwise (−).
+                      rot = math.radians(base + side * 45)
+                      ddr, ddk = -int(round(math.sin(rot) * math.sqrt(2))), int(round(math.cos(rot) * math.sqrt(2)))
+                      r1, k1, r2, k2 = r + dr, k + dk, r + ddr, k + ddk
+                      if not (0 <= r1 < rows and 0 <= k1 < columns and 0 <= r2 < rows and 0 <= k2 < columns):
+                          continue
+                      s1 = (z[r, k] - z[r1, k1]) / dcell
+                      s2 = (z[r1, k1] - z[r2, k2]) / dcell
+                      t = math.atan2(s2, s1)
+                      if t < 0:
+                          t, s = 0.0, s1
+                      elif t > math.pi / 4:
+                          t, s = math.pi / 4, (z[r, k] - z[r2, k2]) / (dcell * math.sqrt(2))
+                      else:
+                          s = math.hypot(s1, s2)
+                      if s > best:
+                          best, angle = s, (base + side * math.degrees(t)) % 360.0
+              if angle < 0 and any(edge):
+                  angle = outward[edge]
+              out[r, k] = angle
+      return Raster._of(out.astype(np.float32), np.zeros(z.shape, bool), g)
+
+  return FlowDirection
+
+
+_flow_direction_dinf = _dinf_tool()
+
+
+for _built in ("KernelDensity", "Threshold", "Stretch", "PrincipalComponents", "NaturalNeighbor", "Kriging",
+               "KrigingModelOrdinary", "KrigingModelUniversal"):
+    _REFUSED.pop(_built, None)
 
 
 def __getattr__(name):

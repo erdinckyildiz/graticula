@@ -141,7 +141,7 @@ class ImageAnalyst(unittest.TestCase):
 
     def test_refused_names_say_why(self):
         for name, words in (("DetectObjectsUsingDeepLearning", "group 3"), ("Anomaly", "group 2"),
-                            ("TrainSupportVectorMachineClassifier", "not specified"), ("Stretch", "formulas"),
+                            ("TrainSupportVectorMachineClassifier", "not specified"),
                             ("FloatDivide", "404")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(ia, name)("a")

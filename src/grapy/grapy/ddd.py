@@ -178,6 +178,27 @@ def AddSurfaceInformation(in_feature_class, in_surface, out_property, method="BI
 
 
 
+# ---- equivalents (ADR-224 §5.6): arcpy.sa's, saved
+
+
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+
+@_equivalent("ordinary and universal kriging with a semivariogram fitted by weighted least squares",
+             "Cressie 1985; Cressie 1993, §3.2–3.4; Johnston et al. 2001, Appendix A")
+def Kriging(in_point_features, z_field, out_surface_raster, semiVariogram_props=None, cell_size=None, search_radius=None,
+            out_variance_prediction_raster=None):
+    """EQUIVALENT: arcpy.sa.Kriging (Cressie's ordinary and universal kriging), saved; see its docstring."""
+    return _saved(sa.Kriging(in_point_features, z_field, semiVariogram_props, cell_size, search_radius,
+                             out_variance_prediction_raster), out_surface_raster)
+
+
+@_equivalent("Sibson's natural neighbour interpolation", "Sibson 1981")
+def NaturalNeighbor(in_point_features, z_field, out_raster, cell_size=None):
+    """EQUIVALENT: arcpy.sa.NaturalNeighbor (Sibson 1981), saved; see its docstring."""
+    return _saved(sa.NaturalNeighbor(in_point_features, z_field, cell_size), out_raster)
+
+
 # ---- refused, by name, with the reason
 
 _GROUP_2 = "needs a data model this server does not hold yet (ADR-224 group 2)"
@@ -240,6 +261,10 @@ _REFUSED.update({
     "SurfaceLength": "its reference page could not be read (404 on 2026-10-29)",
     "SurfaceSpot": "its reference page could not be read (404 on 2026-10-29)",
 })
+
+
+for _built in ("Kriging", "NaturalNeighbor"):
+    _REFUSED.pop(_built, None)
 
 
 def __getattr__(name):
