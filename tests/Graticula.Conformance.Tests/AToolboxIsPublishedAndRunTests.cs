@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -169,6 +170,65 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
             Assert.Equal(400, (int)refused.StatusCode);
             Assert.Contains(expected, said, StringComparison.Ordinal);
         }
+    }
+
+    /// <summary>
+    /// ADR-223 condition 4: publishing a toolbox takes <c>content:publishTools</c>, which no built-in role but the
+    /// administrator holds — so a publisher, who may publish a layer, is refused, and the refusal names the privilege.
+    /// </summary>
+    [Fact]
+    public async Task A_publisher_without_the_privilege_is_refused_publishing_a_toolbox_by_its_name()
+    {
+        string root = await RequireServerAsync();
+        const string member = "zz_tools_publisher";
+        const string password = "a-long-enough-test-password-223";
+
+        await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
+        (int made, string madeBody) = await AdminAsync(HttpMethod.Post, "/admin/members",
+            JsonSerializer.Serialize(new { name = member, role = "publisher", userType = "creator" }));
+        Assert.True(made is 200 or 201, $"making '{member}': {made} {madeBody}");
+
+        try
+        {
+            string issued = JsonDocument.Parse(madeBody).RootElement.GetProperty("password").GetString()!;
+            string once = await SignInAsync(root, member, issued);
+            (HttpStatusCode changed, string why) = await RequestAsync(HttpMethod.Post, $"{root}/rest/auth/password", once,
+                JsonSerializer.Serialize(new { currentPassword = issued, newPassword = password }));
+            Assert.True(changed is HttpStatusCode.OK or HttpStatusCode.NoContent, $"changing the password: {changed} {why}");
+            string token = await SignInAsync(root, member, password);
+
+            (HttpStatusCode listed, string answer) = await RequestAsync(HttpMethod.Get, $"{root}/content/toolboxes", token, null);
+            Assert.Equal(HttpStatusCode.OK, listed);
+            Assert.False(JsonDocument.Parse(answer).RootElement.GetProperty("mayPublish").GetBoolean(), answer);
+
+            using HttpClient http = Unverified();
+            using MultipartFormDataContent upload = new()
+            {
+                { new StringContent("zz_tools_refused"), "name" },
+                { new ByteArrayContent(Encoding.UTF8.GetBytes(Toolbox)), "file", "probe.pyt" },
+            };
+            using HttpRequestMessage publish = new(HttpMethod.Post, new Uri($"{root}/content/toolboxes")) { Content = upload };
+            publish.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage refused = await http.SendAsync(publish);
+            string said = await refused.Content.ReadAsStringAsync();
+
+            Assert.True((int)refused.StatusCode == 403, $"Publishing as a publisher answered {(int)refused.StatusCode}: {said}");
+            Assert.Contains("content:publishTools", said, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, "/content/toolboxes/zz_tools_refused");
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
+        }
+    }
+
+    private async Task<string> SignInAsync(string root, string name, string password)
+    {
+        using StringContent body = new(JsonSerializer.Serialize(new { name, password }), Encoding.UTF8, "application/json");
+        using HttpResponseMessage response = await Http.PostAsync(new Uri($"{root}/rest/auth/login"), body);
+        string said = await response.Content.ReadAsStringAsync();
+        Assert.True(response.IsSuccessStatusCode, $"signing in as '{name}': {(int)response.StatusCode} {said}");
+        return JsonDocument.Parse(said).RootElement.GetProperty("token").GetString()!;
     }
 
     private static async Task<JsonElement> RunAsync(
