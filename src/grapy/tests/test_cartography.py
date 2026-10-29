@@ -144,6 +144,34 @@ class Cartography(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "meet differently"):
             cartography.SimplifyPolygon(shared, self.out("shx"), "POINT_REMOVE", 2)
 
+    def polygons(self, name, rings):
+        path = os.path.join(self.directory, f"{name}.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, f"{name}.gpkg", "POLYGON", spatial_reference=3857)
+        with arcpy.da.InsertCursor(path, ["SHAPE@"]) as rows:
+            for ring in rings:
+                rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in ring]), 3857),))
+        return path
+
+    def test_aggregate_polygons_bridges_gaps_narrower_than_the_distance(self):
+        # Squares [0,10]² and [14,24]×[0,10] are 4 apart: at 5 they join (the bridge holds (12, 5)), at 3 they do not.
+        path = self.polygons("sq", [[(0, 0), (10, 0), (10, 10), (0, 10)], [(14, 0), (24, 0), (24, 10), (14, 10)]])
+        joined = cartography.AggregatePolygons(path, self.out("agg5"), 5, out_table=self.out("agg5_t"))
+        with arcpy.da.SearchCursor(joined[0], ["SHAPE@"]) as rows:
+            (shape,), = [tuple(r) for r in rows]
+        self.assertTrue(shape.contains(arcpy.PointGeometry(arcpy.Point(12, 5), 3857)))
+        self.assertGreater(shape.area, 200.0)
+        with arcpy.da.SearchCursor(joined[1], ["OUTPUT_FID", "INPUT_FID"]) as rows:
+            self.assertEqual(sorted(tuple(r) for r in rows), [(1, 1), (1, 2)])
+        apart = cartography.AggregatePolygons(path, self.out("agg3"), 3)
+        self.assertEqual(arcpy.management.GetCount(apart[0])[0], "2")
+        # No self-aggregation: a notch 2 wide in one polygon stays open at 5 — 100 − 2·6 = 88.
+        notch = self.polygons("notch", [[(0, 0), (10, 0), (10, 10), (6, 10), (6, 4), (4, 4), (4, 10), (0, 10)]])
+        kept = cartography.AggregatePolygons(notch, self.out("agg_n"), 5)
+        with arcpy.da.SearchCursor(kept[0], ["SHAPE@AREA"]) as rows:
+            self.assertAlmostEqual(next(rows)[0], 88.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "ORTHOGONAL"):
+            cartography.AggregatePolygons(path, self.out("o"), 5, 0, 0, "ORTHOGONAL")
+
 
 if __name__ == "__main__":
     unittest.main()

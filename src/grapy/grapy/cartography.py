@@ -368,6 +368,78 @@ def _area(value, srid):
     return number * _unit(_AREAL, parts[1], "cartography.SimplifyPolygon") / per ** 2
 
 
+@_equivalent("morphological closing by the half aggregation distance, less each polygon's own closing",
+             "Serra, Image Analysis and Mathematical Morphology, 1982")
+def AggregatePolygons(in_features, out_feature_class, aggregation_distance, minimum_area=0, minimum_hole_size=0,
+                      orthogonality_option="NON_ORTHOGONAL", barrier_features=None, out_table=None, aggregate_field=None):
+    """EQUIVALENT: polygons whose boundaries lie within ``aggregation_distance`` of each other are joined by the
+    morphological closing of their union (Serra 1982) — dilated by half the distance, eroded by it again — so a gap
+    narrower than the distance is bridged. "There will be no self-aggregation": what a polygon's own closing would fill
+    (a notch narrower than the distance) is taken out again. Each connected result is an output polygon; holes smaller
+    than minimum_hole_size are filled and polygons smaller than minimum_area dropped. out_table links each output to the
+    inputs it holds (OUTPUT_FID, INPUT_FID); with aggregate_field only features sharing a value aggregate, and the
+    value is written. INFERRED: the dilation is round (shapely's 16 segments a quarter circle).
+
+    Refused: ORTHOGONAL (orthogonal bridging is not in this equivalent) and barrier features.
+    """
+    import shapely
+    from shapely.geometry import MultiPolygon, Polygon
+    from .analysis import _distance
+    tool = "AggregatePolygons"
+    if str(orthogonality_option or "NON_ORTHOGONAL").upper() in ("ORTHOGONAL", "TRUE"):
+        _refuse(tool, "orthogonality_option", "ORTHOGONAL", "orthogonal bridging is not in this equivalent")
+    if _given(barrier_features):
+        _refuse(tool, "barrier_features", barrier_features, "barriers are not in this equivalent")
+    columns, kind, srid, _ = _schema(in_features)
+    if kind != "Polygon":
+        raise ValueError(f"arcpy.cartography.{tool} needs polygon features.")
+    half = _distance(aggregation_distance, srid) / 2
+    if half <= 0:
+        raise ValueError(f"arcpy.cartography.{tool}: the aggregation distance must be greater than zero.")
+    smallest = _area(minimum_area, srid) if _given(minimum_area) else 0.0
+    smallest_hole = _area(minimum_hole_size, srid) if _given(minimum_hole_size) else 0.0
+    field = None
+    if _given(aggregate_field):
+        field = {c.name.lower(): c for c in columns}[str(aggregate_field).lower()]
+    with da.SearchCursor(in_features, ["OID@", field.name if field else "OID@", "SHAPE@"]) as rows:
+        features = [(r[0], r[1] if field else None, r[2]._shape) for r in rows if r[2] is not None]
+    groups: dict = {}
+    for oid, value, shape in features:
+        groups.setdefault(value, []).append((oid, shape))
+    results = []
+    for value, members in sorted(groups.items(), key=lambda g: (g[0] is None, g[0])):
+        shapes = [s for _, s in members]
+        union = shapely.union_all(shapes)
+        closed = union.buffer(half).buffer(-half)
+        own = shapely.union_all([s.buffer(half).buffer(-half) for s in shapes])
+        bridges = closed.difference(own)
+        merged = shapely.union_all([union, bridges]).buffer(0)
+        for part in getattr(merged, "geoms", [merged]):
+            if part.is_empty or part.geom_type != "Polygon":
+                continue
+            holes = [h for h in part.interiors if Polygon(h).area >= smallest_hole]
+            part = Polygon(part.exterior, holes)
+            if part.area < smallest:
+                continue
+            inside = [oid for oid, s in members if s.intersects(part) and s.intersection(part).area > 0]
+            results.append((value, part, inside))
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polygon", srid, [field] if field else [])
+    links = []
+    with da.InsertCursor(out, [*([field.name] if field else []), "SHAPE@"]) as written:
+        for value, part, inside in results:
+            new = written.insertRow((*([value] if field else []), MultiPolygon([part])))
+            links += [(new, oid) for oid in inside]
+    table = ""
+    if _given(out_table):
+        table = _out(out_table)
+        _gpkg.create(table, "Geometry", 0, [_gpkg.Column("OUTPUT_FID", "Integer"), _gpkg.Column("INPUT_FID", "Integer")])
+        with da.InsertCursor(table, ["OUTPUT_FID", "INPUT_FID", "SHAPE@"]) as written:
+            for new, oid in links:
+                written.insertRow((new, oid, None))
+    return Result(out, table)
+
+
 _REFUSED = {
     "SmoothLine": "PAEK's kernel is described by its paper, not specified, and Bezier interpolation writes true curves a "
                   "GeoPackage cannot hold",
@@ -376,7 +448,6 @@ _REFUSED = {
     "SmoothSharedEdges": "PAEK's kernel is described by its paper, not specified",
     "SimplifySharedEdges": "it keeps shared edges by the topology procedure the documentation does not specify",
     "SimplifyBuilding": "its building-simplification procedure is described only in outline",
-    "AggregatePolygons": "how gaps are bridged and orthogonal shapes kept is described only in outline",
     "AggregatePoints": "the shape of the aggregation polygon is described only in outline",
     "CollapseDualLinesToCenterline": "how the centerline is derived is described only in outline",
     "DelineateBuiltUpAreas": "its grouping procedure is described only in outline",
