@@ -40,6 +40,18 @@ def _answer(module, name):
     return "built", None
 
 
+def _equivalents(module):
+    """The built names marked ``_runtime.equivalent`` (ADR-224 §5.6), with the method and source each names."""
+    import grapy
+    target = grapy if module == "arcpy" else importlib.import_module("grapy." + module.split(".", 1)[1])
+    found = {}
+    for name in dir(target):
+        marked = getattr(getattr(target, name, None), "__grapy_equivalent__", None)
+        if marked and not name.startswith("_"):
+            found[name] = marked
+    return found
+
+
 def survey():
     out = {}
     for module, built, of, missing in grapy_surface.surface():
@@ -50,7 +62,8 @@ def survey():
                 refused[name] = reason
             elif state == "unexamined":
                 unexamined.append(name)
-        out[module] = {"built": built, "of": of, "refused": refused, "unexamined": sorted(unexamined)}
+        out[module] = {"built": built, "of": of, "equivalents": _equivalents(module), "refused": refused,
+                       "unexamined": sorted(unexamined)}
     return out
 
 
@@ -65,4 +78,4 @@ if __name__ == "__main__":
     else:
         open(TARGET, "w", encoding="utf-8", newline="\n").write(text)
     for module, row in now.items():
-        print(f"  {module:<18} built {row['built']:>4}  refused {len(row['refused']):>4}  unexamined {len(row['unexamined']):>4}  of {row['of']}")
+        print(f"  {module:<18} built {row['built']:>4} (equivalent {len(row['equivalents']):>3})  refused {len(row['refused']):>4}  unexamined {len(row['unexamined']):>4}  of {row['of']}")

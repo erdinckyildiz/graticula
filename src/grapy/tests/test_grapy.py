@@ -74,6 +74,20 @@ class FeatureClassesAndCursors(unittest.TestCase):
         self.assertIn("MakeRouteEventLayer", str(said.exception))
         self.assertFalse(hasattr(arcpy, "SomethingNobodyBuilt"))
 
+    def test_an_equivalent_says_so_once_per_run_and_is_marked_for_the_counter(self):
+        from grapy import _runtime
+
+        @_runtime.equivalent("the quartic kernel", "Silverman 1986, §3.4")
+        def Probe(x):
+            return x * 2
+
+        before = arcpy.GetMessageCount()
+        self.assertEqual((Probe(2), Probe(3)), (4, 6))
+        said = [arcpy.GetMessage(i) for i in range(before, arcpy.GetMessageCount())]
+        self.assertEqual(len(said), 1)
+        self.assertIn("equivalent", said[0])
+        self.assertIn("Silverman 1986", Probe.__grapy_equivalent__)
+
     def test_a_module_on_esris_data_or_on_a_model_not_held_is_refused_with_its_reason(self):
         with self.assertRaises(NotImplementedError) as said:
             arcpy.ba.GenerateTradeAreaRings("stores", "rings")

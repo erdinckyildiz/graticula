@@ -1,6 +1,7 @@
 {
  "arcpy": {
   "built": 98,
+  "equivalents": {},
   "of": 183,
   "refused": {
    "AIO": "arcpy.AIO is not built in grapy — it reaches cloud storage, and a fenced user tool has no network (ADR-223 §5.4).",
@@ -93,6 +94,7 @@
  },
  "arcpy.analysis": {
   "built": 33,
+  "equivalents": {},
   "of": 40,
   "refused": {
    "Enrich": "arcpy.analysis.Enrich is not built in grapy: it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3).",
@@ -107,6 +109,7 @@
  },
  "arcpy.cartography": {
   "built": 1,
+  "equivalents": {},
   "of": 49,
   "refused": {
    "AggregatePoints": "arcpy.cartography.AggregatePoints is not built in grapy — the shape of the aggregation polygon is described only in outline.",
@@ -162,6 +165,7 @@
  },
  "arcpy.conversion": {
   "built": 24,
+  "equivalents": {},
   "of": 64,
   "refused": {
    "AddCADFields": "arcpy.conversion.AddCADFields reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented.",
@@ -209,6 +213,7 @@
  },
  "arcpy.da": {
   "built": 14,
+  "equivalents": {},
   "of": 29,
   "refused": {
    "ContingentFieldValue": "arcpy.da.ContingentFieldValue is not built in grapy — a GeoPackage holds no versions, replicas, subtypes, contingent values, relationship classes or database sequences (ADR-224 group 2).",
@@ -231,6 +236,7 @@
  },
  "arcpy.ddd": {
   "built": 18,
+  "equivalents": {},
   "of": 156,
   "refused": {
    "ASCII3DToFeatureClass": "arcpy.ddd.ASCII3DToFeatureClass is not built in grapy: it reads or writes z values on features, and grapy's feature classes are two-dimensional today.",
@@ -376,6 +382,7 @@
  },
  "arcpy.edit": {
   "built": 9,
+  "equivalents": {},
   "of": 19,
   "refused": {
    "AlignFeatures": "arcpy.edit.AlignFeatures is not built in grapy: its matching of candidates is documented only in words — no similarity measure, thresholds or tie-breaking — so any answer would be grapy's own under arcpy's name.",
@@ -393,6 +400,7 @@
  },
  "arcpy.ga": {
   "built": 7,
+  "equivalents": {},
   "of": 42,
   "refused": {
    "ArealInterpolationLayerToPolygons": "arcpy.ga.ArealInterpolationLayerToPolygons is not built in grapy — it reads or writes a geostatistical layer, a model object grapy does not have.",
@@ -435,6 +443,7 @@
  },
  "arcpy.ia": {
   "built": 129,
+  "equivalents": {},
   "of": 347,
   "refused": {
    "AggregateMultidimensionalRaster": "arcpy.ia.AggregateMultidimensionalRaster is not built in grapy: it needs a data model this server does not hold yet (ADR-224 group 2).",
@@ -660,6 +669,7 @@
  },
  "arcpy.management": {
   "built": 108,
+  "equivalents": {},
   "of": 447,
   "refused": {
    "Add3DFormats": "arcpy.management.Add3DFormats needs Z values or 3D data — LAS datasets, TINs, multipatches, voxels, scenes — which grapy's 2D shapes do not hold.",
@@ -1006,6 +1016,7 @@
  },
  "arcpy.sa": {
   "built": 156,
+  "equivalents": {},
   "of": 378,
   "refused": {
    "AdjustRasterToStream": "arcpy.sa.AdjustRasterToStream is not built in grapy: the interpolation, V-shaped channel geometry and cell selection are not specified.",
@@ -1235,6 +1246,7 @@
  },
  "arcpy.stats": {
   "built": 18,
+  "equivalents": {},
   "of": 65,
   "refused": {
    "AttributeUncertainty": "arcpy.stats.AttributeUncertainty is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
