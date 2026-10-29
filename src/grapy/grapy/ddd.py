@@ -227,6 +227,21 @@ _REFUSED.update({
 })
 
 
+_REFUSED.update({
+    "PolygonVolume": "its surfaces are LAS datasets, terrains and TINs, data models this server does not hold yet "
+                     "(ADR-224 group 2)",
+    "SunShadowFrequency": "its obstructions are multipatch features, a data model this server does not hold yet "
+                          "(ADR-224 group 2)",
+    "FenceDiagram": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
+    "EnforceRiverMonotonicity": _NO_Z, "GenerateClearanceSurface": _NO_Z,
+    "RegularizeBuildingFootprint": _UNSPECIFIED, "RegularizeAdjacentBuildingFootprint": _UNSPECIFIED,
+    "FeaturesFromCityEngineRules": "it runs CityEngine rule packages (.rpk), which need Esri's procedural engine "
+                                   "(ADR-224 group 3)",
+    "SurfaceLength": "its reference page could not be read (404 on 2026-10-29)",
+    "SurfaceSpot": "its reference page could not be read (404 on 2026-10-29)",
+})
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
