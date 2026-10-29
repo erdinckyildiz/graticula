@@ -207,24 +207,195 @@ def _statistic_type(kind, column):
     return "Double"
 
 
+class FieldMap:
+    """arcpy.FieldMap: one output field and the input fields its values come from, merged by ``mergeRule`` when a row's
+    table gives it several. INFERRED: ``First`` and ``Last`` take the first or last input field's value as it is, null
+    included; ``Join`` leaves nulls out; ``StDev`` is the population form, as Dissolve's ``STD``. Text positions other
+    than -1 are not built: the page does not say whether the end position is inclusive."""
+
+    _RULES = ("FIRST", "LAST", "JOIN", "MIN", "MAX", "MEAN", "MEDIAN", "SUM", "STDEV", "COUNT")
+
+    def __init__(self):
+        self._inputs: list = []
+        self.mergeRule = "First"
+        self.joinDelimiter = ""
+        self._output = None
+
+    @property
+    def inputFieldCount(self):
+        return len(self._inputs)
+
+    @property
+    def outputField(self):
+        import copy
+        return copy.copy(self._output)
+
+    @outputField.setter
+    def outputField(self, field):
+        import copy
+        self._output = copy.copy(field)
+
+    def addInputField(self, table_dataset, field_name, start_position=-1, end_position=-1):
+        from ._parameter import Field
+        table = _text(table_dataset)
+        column = {c.name.lower(): c for c in _schema(_source(table)[0])[0]}.get(str(field_name).lower())
+        if column is None:
+            raise ValueError(f"FieldMap.addInputField: '{table}' has no field '{field_name}'.")
+        self._inputs.append([table, column.name, int(start_position), int(end_position)])
+        if self._output is None:
+            self._output = Field(column.name, column.type, column.nullable)
+
+    def findInputFieldIndex(self, table_dataset, field_name):
+        for i, (table, field, _, _) in enumerate(self._inputs):
+            if _same_table(table, table_dataset) and field.lower() == str(field_name).lower():
+                return i
+        return -1
+
+    def getInputFieldName(self, index):
+        return self._inputs[index][1]
+
+    def getInputTableName(self, index):
+        return self._inputs[index][0]
+
+    def getStartTextPosition(self, index):
+        return self._inputs[index][2]
+
+    def getEndTextPosition(self, index):
+        return self._inputs[index][3]
+
+    def setStartTextPosition(self, index, start_position):
+        self._inputs[index][2] = int(start_position)
+
+    def setEndTextPosition(self, index, end_position):
+        self._inputs[index][3] = int(end_position)
+
+    def removeInputField(self, index):
+        del self._inputs[index]
+
+    def removeAll(self):
+        self._inputs, self._output = [], None
+
+    def _value(self, table, row):
+        """The output value for a row of ``table``, given as {lower-case field name: value}."""
+        rule = str(self.mergeRule or "First").upper()
+        if rule not in self._RULES:
+            raise NotBuiltError(f"FieldMap: mergeRule '{self.mergeRule}' is not built in grapy.")
+        values = []
+        for source, field, start, end in self._inputs:
+            if not _same_table(source, table):
+                continue
+            if start != -1 or end != -1:
+                raise NotBuiltError("FieldMap: text start and end positions are not built in grapy.")
+            values.append(row.get(field.lower()))
+        if not values:
+            return None
+        if rule == "FIRST":
+            return values[0]
+        if rule == "LAST":
+            return values[-1]
+        if rule == "JOIN":
+            present = [str(v) for v in values if v is not None]
+            return str(self.joinDelimiter or "").join(present) if present else None
+        return _statistic({"STDEV": "STD"}.get(rule, rule), values)
+
+
+class FieldMappings:
+    """arcpy.FieldMappings: the output fields of Merge, Append and the like, one FieldMap each. ``addTable`` adds a
+    FieldMap for each field of the table, or an input to the FieldMap already named so, as the page's discussion says
+    (one FieldMap per unique field name). INFERRED: names match without regard to case, and the object ID and shape
+    are not fields here. The string form (``exportToString``, ``loadFromString``) is not built: the page does not define
+    it."""
+
+    def __init__(self):
+        self.fieldMappings: list = []
+        self.fieldValidationWorkspace = None
+
+    @property
+    def fieldCount(self):
+        return len(self.fieldMappings)
+
+    @property
+    def fields(self):
+        return [m.outputField for m in self.fieldMappings]
+
+    def addTable(self, table_dataset):
+        table = _text(table_dataset)
+        for column in _schema(_source(table)[0])[0]:
+            index = self.findFieldMapIndex(column.name)
+            if index == -1:
+                field_map = FieldMap()
+                field_map.addInputField(table, column.name)
+                self.fieldMappings.append(field_map)
+            else:
+                self.fieldMappings[index].addInputField(table, column.name)
+
+    def addFieldMap(self, field_map):
+        self.fieldMappings.append(field_map)
+
+    def findFieldMapIndex(self, field_map_name):
+        for i, field_map in enumerate(self.fieldMappings):
+            if field_map._output is not None and field_map._output.name.lower() == str(field_map_name).lower():
+                return i
+        return -1
+
+    def getFieldMap(self, index):
+        return self.fieldMappings[index]
+
+    def removeFieldMap(self, index):
+        del self.fieldMappings[index]
+
+    def replaceFieldMap(self, index, value):
+        self.fieldMappings[index] = value
+
+    def removeAll(self):
+        self.fieldMappings = []
+
+    def exportToString(self):
+        raise NotBuiltError("FieldMappings.exportToString is not built in grapy; its string form is not documented.")
+
+    def loadFromString(self, string):
+        raise NotBuiltError("FieldMappings.loadFromString is not built in grapy; its string form is not documented.")
+
+
+def _same_table(a, b):
+    def norm(value):
+        text = _text(value)
+        return text if text in _LAYERS else os.path.normcase(os.path.abspath(text))
+    return norm(a) == norm(b)
+
+
+def _mappings(tool, value):
+    if isinstance(value, FieldMappings):
+        return value
+    if value is None or (isinstance(value, str) and value.strip() in ("", "#")):
+        return None
+    raise NotBuiltError(f"arcpy.management.{tool}: field mappings as a string are not built in grapy; pass a "
+                        "FieldMappings object.")
+
+
 def Merge(inputs, output, field_mappings=None, add_source="NO_SOURCE_INFO", *_, **__):
     """The features of every input in one feature class, in the first input's reference; a field missing from an input
-    is null in its rows."""
+    is null in its rows. With a FieldMappings object the output has its fields, each filled from its inputs by its
+    merge rule."""
     from . import da
     from ._reference import SpatialReference
+    mappings = _mappings("Merge", field_mappings)
     paths = _list(inputs)
-    schemas = [_schema(p) for p in paths]
+    schemas = [_schema(_source(p)[0]) for p in paths]
     kinds = {s[1] for s in schemas}
     if len(kinds) > 1:
         from ._runtime import ExecuteError
         raise ExecuteError(f"ERROR 000366: Merge needs inputs of one shape type; these are {', '.join(sorted(kinds))}.")
     srid = schemas[0][2]
-    columns, seen = [], set()
-    for described in schemas:
-        for column in described[0]:
-            if column.name.lower() not in seen:
-                seen.add(column.name.lower())
-                columns.append(column)
+    if mappings is not None:
+        columns = [_gpkg.Column(m._output.name, m._output.type) for m in mappings.fieldMappings]
+    else:
+        columns, seen = [], set()
+        for described in schemas:
+            for column in described[0]:
+                if column.name.lower() not in seen:
+                    seen.add(column.name.lower())
+                    columns.append(column)
     source = str(add_source).upper() in ("ADD_SOURCE_INFO", "TRUE")
     if source:
         columns.append(_gpkg.Column("MERGE_SRC", "String"))
@@ -234,15 +405,18 @@ def Merge(inputs, output, field_mappings=None, add_source="NO_SOURCE_INFO", *_, 
     names = [c.name for c in columns]
     with da.InsertCursor(out, [*names, "SHAPE@"]) as written:
         for path, (own, _, own_srid, _) in zip(paths, schemas):
-            have = {c.name.lower(): c.name for c in own}
-            fields = [have[n.lower()] for n in names if n.lower() in have]
-            with da.SearchCursor(path, [*fields, "SHAPE@"]) as rows:
+            fields = [c.name for c in own]
+            source_path, where = _source(path)
+            with da.SearchCursor(source_path, [*fields, "SHAPE@"], where) as rows:
                 for row in rows:
                     values = dict(zip((f.lower() for f in fields), row[:-1]))
                     shape = row[-1]
                     if shape is not None and target is not None and own_srid > 0 and own_srid != srid:
                         shape = shape.projectAs(target)
-                    record = [values.get(n.lower()) for n in names]
+                    if mappings is not None:
+                        record = [m._value(path, values) for m in mappings.fieldMappings] + ([None] if source else [])
+                    else:
+                        record = [values.get(n.lower()) for n in names]
                     if source:
                         record[-1] = str(path)
                     written.insertRow((*record, shape))
@@ -251,27 +425,43 @@ def Merge(inputs, output, field_mappings=None, add_source="NO_SOURCE_INFO", *_, 
 
 def Append(inputs, target, schema_type="TEST", field_mapping=None, subtype="", expression=None, *_, **__):
     """Each input's rows added to an existing feature class. ``TEST`` asks that every target field be in each input, as
-    arcpy's does; ``NO_TEST`` fills the fields they share and leaves the rest null."""
+    arcpy's does; ``NO_TEST`` fills the fields they share and leaves the rest null — or, with a FieldMappings object,
+    fills each target field its FieldMap names from that FieldMap's inputs. INFERRED: a target field no FieldMap names
+    is null; mappings with ``TEST`` are not built."""
     from . import da
     from ._reference import SpatialReference
     from ._runtime import ExecuteError
+    mappings = _mappings("Append", field_mapping)
+    if mappings is not None and str(schema_type).upper() != "NO_TEST":
+        raise NotBuiltError("arcpy.management.Append: a field mapping with schema_type TEST is not built in grapy.")
     columns, _, srid, _ = _schema(target)
     names = [c.name for c in columns]
     reference = SpatialReference(srid) if srid > 0 else None
     for path in _list(inputs):
-        own, _, own_srid, _ = _schema(path)
+        source_path, where = _source(path)
+        own, _, own_srid, _ = _schema(source_path)
         have = {c.name.lower(): c.name for c in own}
-        if str(schema_type).upper() == "TEST" and any(n.lower() not in have for n in names):
+        if mappings is None and str(schema_type).upper() == "TEST" and any(n.lower() not in have for n in names):
             missing = [n for n in names if n.lower() not in have]
             raise ExecuteError(f"ERROR 000466: {path} does not match the schema of the target; it has no {', '.join(missing)}.")
-        fields = [have[n.lower()] for n in names if n.lower() in have]
-        with da.SearchCursor(path, [*fields, "SHAPE@"], expression) as rows, da.InsertCursor(target, [*names, "SHAPE@"]) as written:
+        fields = [c.name for c in own] if mappings is not None else [have[n.lower()] for n in names if n.lower() in have]
+        if where and expression:
+            where = f"({where}) and ({expression})"
+        with da.SearchCursor(source_path, [*fields, "SHAPE@"], where or expression) as rows, \
+                da.InsertCursor(target, [*names, "SHAPE@"]) as written:
             for row in rows:
                 values = dict(zip((f.lower() for f in fields), row[:-1]))
                 shape = row[-1]
                 if shape is not None and reference is not None and own_srid > 0 and own_srid != srid:
                     shape = shape.projectAs(reference)
-                written.insertRow((*[values.get(n.lower()) for n in names], shape))
+                if mappings is not None:
+                    record = []
+                    for n in names:
+                        index = mappings.findFieldMapIndex(n)
+                        record.append(mappings.fieldMappings[index]._value(path, values) if index != -1 else None)
+                else:
+                    record = [values.get(n.lower()) for n in names]
+                written.insertRow((*record, shape))
     return Result(target)
 
 
@@ -533,38 +723,156 @@ def _unit_scale(unit, metres_per_unit):
     return metres_per_unit / _UNITS[str(unit).upper()]
 
 
+def _rectangle_by(shape, by_width):
+    """The enclosing rectangle of smallest area, or of smallest width (its shorter side), as a polygon and its two side
+    vectors. One side of either lies along an edge of the convex hull, so each hull edge's direction is tried. INFERRED:
+    of rectangles equally narrow, the smaller in area."""
+    import math
+    import shapely
+    hull = shape.convex_hull
+    if hull.geom_type != "Polygon":
+        ends = list(hull.coords) if hull.geom_type == "LineString" else []
+        side = (ends[-1][0] - ends[0][0], ends[-1][1] - ends[0][1]) if ends else (0.0, 0.0)
+        return shapely.minimum_rotated_rectangle(shape), side, (0.0, 0.0)
+    points = list(hull.exterior.coords)[:-1]
+    best = None
+    for (ax, ay), (bx, by) in zip(points, points[1:] + points[:1]):
+        length = math.hypot(bx - ax, by - ay)
+        if length == 0:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        along = [x * ux + y * uy for x, y in points]
+        across = [-x * uy + y * ux for x, y in points]
+        a0, a1, c0, c1 = min(along), max(along), min(across), max(across)
+        size_u, size_v = a1 - a0, c1 - c0
+        key = (min(size_u, size_v), size_u * size_v) if by_width else (size_u * size_v, min(size_u, size_v))
+        if best is None or key < best[0]:
+            corners = [(a * ux - c * uy, a * uy + c * ux) for a, c in ((a0, c0), (a1, c0), (a1, c1), (a0, c1))]
+            best = (key, corners, (size_u * ux, size_u * uy), (-size_v * uy, size_v * ux))
+    _, corners, side_u, side_v = best
+    return shapely.Polygon(corners), side_u, side_v
+
+
+def _orientation(vector):
+    """Degrees clockwise from north of a side. INFERRED: between 0 and 180, a side having two ends."""
+    import math
+    angle = math.degrees(math.atan2(vector[0], vector[1])) % 180.0
+    return 0.0 if math.isclose(angle, 180.0) else angle
+
+
 def MinimumBoundingGeometry(in_features, out_feature_class, geometry_type="RECTANGLE_BY_AREA", group_option="NONE",
                             group_field=None, mbg_fields_option="NO_MBG_FIELDS"):
-    """The envelope, convex hull, smallest rotated rectangle or smallest circle around each feature, around all of them
-    (``ALL``) or around each group of a ``LIST`` field's values."""
+    """The envelope, convex hull, rectangle of smallest area or of smallest width, or smallest circle around each
+    feature, around all of them (``ALL``) or around each group of a ``LIST`` field's values. ``MBG_FIELDS`` adds, as
+    documented, ``MBG_Width`` and ``MBG_Length`` (the shorter and longer side) and for rectangles ``MBG_Orientation`` (the
+    longer side, degrees clockwise from north), or ``MBG_Diameter`` for a circle. The convex hull's fields are not
+    built: the page does not say which of an antipodal pair is the first."""
+    import math
     import shapely
     from . import da
-    columns, _, srid, _ = _schema(in_features)
-    group = str(group_option).upper()
+    columns, _, srid, _ = _schema(_source(in_features)[0])
+    group = str(group_option or "NONE").upper()
     fields = [f for f in _list(group_field)] if group == "LIST" else []
     by_name = {c.name.lower(): c for c in columns}
-    kind = str(geometry_type).upper()
-    bound = {"ENVELOPE": lambda s: shapely.envelope(s), "CONVEX_HULL": lambda s: s.convex_hull,
-             "RECTANGLE_BY_AREA": lambda s: s.minimum_rotated_rectangle,
-             "RECTANGLE_BY_WIDTH": lambda s: s.minimum_rotated_rectangle,
-             "CIRCLE": lambda s: shapely.minimum_bounding_circle(s)}[kind]
+    kind = str(geometry_type or "RECTANGLE_BY_AREA").upper()
+    if kind not in ("ENVELOPE", "CONVEX_HULL", "RECTANGLE_BY_AREA", "RECTANGLE_BY_WIDTH", "CIRCLE"):
+        raise NotBuiltError(f"arcpy.management.MinimumBoundingGeometry: geometry_type '{kind}' is not built in grapy.")
+    with_fields = str(mbg_fields_option or "NO_MBG_FIELDS").upper() in ("MBG_FIELDS", "ADD_ATTRIBUTES")
+    if with_fields and kind == "CONVEX_HULL":
+        raise NotBuiltError("arcpy.management.MinimumBoundingGeometry: MBG_FIELDS of a convex hull is not built in grapy.")
+    extra = []
+    if with_fields:
+        extra = ["MBG_Diameter"] if kind == "CIRCLE" else (
+            ["MBG_Width", "MBG_Length"] + (["MBG_Orientation"] if kind.startswith("RECTANGLE") else []))
+
+    def bound(shape):
+        if kind == "ENVELOPE":
+            x0, y0, x1, y1 = shape.bounds
+            return shapely.envelope(shape), [min(x1 - x0, y1 - y0), max(x1 - x0, y1 - y0)]
+        if kind == "CONVEX_HULL":
+            return shape.convex_hull, []
+        if kind == "CIRCLE":
+            return shapely.minimum_bounding_circle(shape), [2 * shapely.minimum_bounding_radius(shape)]
+        rectangle, u, v = _rectangle_by(shape, kind == "RECTANGLE_BY_WIDTH")
+        lu, lv = math.hypot(*u), math.hypot(*v)
+        longer = u if lu >= lv else v
+        return rectangle, [min(lu, lv), max(lu, lv), _orientation(longer)]
+
     out = _path(out_feature_class)
-    out_columns = [by_name[f.lower()] for f in fields] if group != "NONE" else [*columns, _gpkg.Column("ORIG_FID", "Integer")]
+    lead = [by_name[f.lower()] for f in fields] if group != "NONE" else [*columns, _gpkg.Column("ORIG_FID", "Integer")]
+    out_columns = lead + [_gpkg.Column(n, "Double") for n in extra]
     _gpkg.create(out, "Polygon", srid, out_columns)
     names = [c.name for c in columns]
-    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
-        read = [r for r in rows if r[-1] is not None]
+    read = [r for r in _features(in_features) if r[2] is not None]
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         if group == "NONE":
-            for row in read:
-                written.insertRow((*row[1:-1], row[0], bound(row[-1]._shape)))
+            for oid, values, shape in read:
+                made, measures = bound(shape)
+                written.insertRow((*values, oid, *(measures if with_fields else []), made))
         else:
             groups: dict = {}
-            for row in read:
-                key = tuple(row[1 + names.index(by_name[f.lower()].name)] for f in fields)
-                groups.setdefault(key, []).append(row[-1]._shape)
+            for oid, values, shape in read:
+                key = tuple(values[names.index(by_name[f.lower()].name)] for f in fields)
+                groups.setdefault(key, []).append(shape)
             for key, shapes in groups.items():
-                written.insertRow((*key, bound(shapely.GeometryCollection(shapes))))
+                made, measures = bound(shapely.GeometryCollection(shapes))
+                written.insertRow((*key, *(measures if with_fields else []), made))
+    return Result(out)
+
+
+def CalculateEndTime(in_table, start_field, end_field, fields=None):
+    """Each row's end time set to the start time of the next row, the rows taken in order of the ID ``fields`` and then
+    the start time; the last row's end time is its own start, as documented. INFERRED: with ID fields, rows of one
+    entity look only to that entity's next row, and each entity's last row ends at its own start; rows starting at the
+    same time keep their object ID order; a null start time is left out."""
+    from . import da
+    path = _plain("CalculateEndTime", in_table)
+    columns = {c.name.lower(): c.name for c in _schema(path)[0]}
+    start, end = columns[str(start_field).lower()], columns[str(end_field).lower()]
+    ids = [columns[f.lower()] for f in _list(fields)]
+    with da.SearchCursor(path, ["OID@", *ids, start]) as rows:
+        read = [r for r in rows if r[-1] is not None]
+    read.sort(key=lambda r: (tuple((v is not None, v) for v in r[1:-1]), r[-1], r[0]))
+    ends = {}
+    for here, after in zip(read, read[1:] + [None]):
+        same = after is not None and tuple(after[1:-1]) == tuple(here[1:-1])
+        ends[here[0]] = after[-1] if same else here[-1]
+    with da.UpdateCursor(path, ["OID@", end]) as rows:
+        for row in rows:
+            if row[0] in ends:
+                rows.updateRow([row[0], ends[row[0]]])
+    return Result(_text(in_table))
+
+
+def TransposeFields(in_table, in_field, out_table, in_transposed_field_name, in_value_field_name, attribute_fields=None):
+    """Fields turned into rows: for each input row and each field of ``in_field`` (``"field name;…"`` — the name
+    written in the transposed field, the field's own when none is given), a row holding that name and the field's value
+    as text, with the ``attribute_fields`` kept; ``Shape`` among them makes a feature class, as documented. INFERRED:
+    rows go input row by input row, each in the order of ``in_field``; a null value stays null; a number is written as
+    Python writes it."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(in_table)
+    columns, kind, srid, geometry = _schema(path)
+    by_name = {c.name.lower(): c for c in columns}
+    pairs = [(by_name[p[0].lower()].name, p[1] if len(p) > 1 else by_name[p[0].lower()].name) for p in _pairs(in_field)]
+    kept, shape = [], False
+    for name in _list(attribute_fields):
+        if name.lower() in ("shape", geometry.lower()):
+            shape = True
+        else:
+            kept.append(by_name[name.lower()])
+    if str(in_value_field_name).lower() in by_name:
+        raise ExecuteError(f"ERROR 000728: the value field '{in_value_field_name}' is already a field of the input.")
+    out_columns = [*kept, _gpkg.Column(str(in_transposed_field_name), "String"), _gpkg.Column(str(in_value_field_name), "String")]
+    out = _table_out("TransposeFields", out_table)
+    _gpkg.create(out, kind if shape else "Geometry", srid if shape else 0, out_columns)
+    with da.SearchCursor(path, [*[c.name for c in kept], *[f for f, _ in pairs], "SHAPE@"], where) as rows, \
+            da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
+        for row in rows:
+            values = row[len(kept):-1]
+            for (_, label), value in zip(pairs, values):
+                written.insertRow((*row[:len(kept)], label, None if value is None else str(value), row[-1] if shape else None))
     return Result(out)
 
 
@@ -2141,6 +2449,725 @@ def RemoveIndex(in_table, index_name):
     finally:
         connection.close()
     return Result(str(in_table))
+
+
+# ---- attribute domains --------------------------------------------------------------------------------------------------
+#
+# A domain is kept in the GeoPackage's own schema extension (http://www.geopackage.org/spec/#extension_schema): a coded
+# value domain's codes are ``enum`` rows of ``gpkg_data_column_constraints``, each code in ``value`` and its description
+# in ``description``; a range domain is one ``range`` row with inclusive ``min`` and ``max``; a field takes a domain by
+# naming it in ``gpkg_data_columns.constraint_name``. INFERRED: what the extension has no column for — the domain's
+# own description, its field type, its kind before it has a value, and its split and merge policies — is kept in a
+# table of grapy's, ``grapy_domains``, so that any GeoPackage reader still sees the codes and ranges.
+
+_SCHEMA_EXTENSION = "http://www.geopackage.org/spec/#extension_schema"
+
+
+def _workspace_file(in_workspace):
+    file, _ = _gpkg.split(_text(in_workspace))
+    if not os.path.exists(file):
+        raise FileNotFoundError(f"'{file}' does not exist.")
+    return file
+
+
+def _domain_tables(connection):
+    connection.execute("""create table if not exists gpkg_data_column_constraints (constraint_name text not null,
+        constraint_type text not null, value text, min numeric, min_is_inclusive boolean, max numeric,
+        max_is_inclusive boolean, description text, constraint gdcc_ntv unique (constraint_name, constraint_type, value))""")
+    connection.execute("""create table if not exists gpkg_data_columns (table_name text not null, column_name text not null,
+        name text, title text, description text, mime_type text, constraint_name text,
+        constraint pk_gdc primary key (table_name, column_name))""")
+    connection.execute("""create table if not exists gpkg_extensions (table_name text, column_name text,
+        extension_name text not null, definition text not null, scope text not null,
+        constraint ge_tce unique (table_name, column_name, extension_name))""")
+    for table in ("gpkg_data_columns", "gpkg_data_column_constraints"):
+        connection.execute("insert into gpkg_extensions select ?, null, 'gpkg_schema', ?, 'read-write' where not exists "
+                           "(select 1 from gpkg_extensions where table_name = ? and extension_name = 'gpkg_schema')",
+                           (table, _SCHEMA_EXTENSION, table))
+    connection.execute("""create table if not exists grapy_domains (name text primary key, description text,
+        field_type text not null, domain_type text not null, split_policy text, merge_policy text)""")
+
+
+def _domain(connection, name):
+    """(field_type, domain_type) of a domain, or an ExecuteError naming it."""
+    from ._runtime import ExecuteError
+    _domain_tables(connection)
+    row = connection.execute("select field_type, domain_type from grapy_domains where name = ?", (name,)).fetchone()
+    if row is None:
+        raise ExecuteError(f"ERROR 000800: the domain '{name}' does not exist in this workspace.")
+    return row
+
+
+def _code_text(code):
+    """A code as the extension's ``value`` text holds it: a whole number without a decimal point."""
+    if isinstance(code, float) and code.is_integer():
+        return str(int(code))
+    return str(code)
+
+
+def _code_value(text, field_type):
+    if text is None:
+        return None
+    if field_type in ("SHORT", "LONG", "BIGINTEGER"):
+        return int(float(text))
+    if field_type in ("FLOAT", "DOUBLE"):
+        return float(text)
+    return text
+
+
+def CreateDomain(in_workspace, domain_name, domain_description=None, field_type="SHORT", domain_type="CODED",
+                 split_policy="DEFAULT", merge_policy="DEFAULT"):
+    """A new attribute domain, coded or range, of a field type. INFERRED: with no field type the domain is ``SHORT``,
+    as the tool's dialog starts. ``DATEONLY`` and ``TIMEONLY`` are not built; nor are the range-only policies on a
+    coded domain, which the page forbids."""
+    from ._runtime import ExecuteError
+    kind = str(field_type or "SHORT").upper()
+    if kind not in ("SHORT", "LONG", "BIGINTEGER", "FLOAT", "DOUBLE", "TEXT", "DATE"):
+        raise NotBuiltError(f"arcpy.management.CreateDomain: field_type '{kind}' is not built in grapy.")
+    domain = str(domain_type or "CODED").upper()
+    split, merge = str(split_policy or "DEFAULT").upper(), str(merge_policy or "DEFAULT").upper()
+    if domain == "CODED" and (split not in ("DEFAULT", "DUPLICATE") or merge != "DEFAULT"):
+        raise ExecuteError("ERROR 000800: a coded value domain takes only the DEFAULT or DUPLICATE split policy and the "
+                           "DEFAULT merge policy.")
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        _domain_tables(connection)
+        if connection.execute("select 1 from grapy_domains where name = ?", (str(domain_name),)).fetchone():
+            raise ExecuteError(f"ERROR 000800: the domain '{domain_name}' already exists.")
+        connection.execute("insert into grapy_domains values (?, ?, ?, ?, ?, ?)",
+                           (str(domain_name), domain_description or "", kind, domain, split, merge))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def AddCodedValueToDomain(in_workspace, domain_name, code, code_description):
+    """A code and its description added to a coded value domain; a code already there is an error."""
+    from ._runtime import ExecuteError
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        field_type, kind = _domain(connection, str(domain_name))
+        if kind != "CODED":
+            raise ExecuteError(f"ERROR 000800: '{domain_name}' is a range domain.")
+        text = _code_text(_code_value(_code_text(code), field_type))
+        if connection.execute("select 1 from gpkg_data_column_constraints where constraint_name = ? and "
+                              "constraint_type = 'enum' and value = ?", (str(domain_name), text)).fetchone():
+            raise ExecuteError(f"ERROR 000800: the code '{code}' is already in '{domain_name}'.")
+        connection.execute("insert into gpkg_data_column_constraints (constraint_name, constraint_type, value, description) "
+                           "values (?, 'enum', ?, ?)", (str(domain_name), text, code_description))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def DeleteCodedValueFromDomain(in_workspace, domain_name, code):
+    """The codes named removed from a coded value domain."""
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        field_type, _ = _domain(connection, str(domain_name))
+        for each in _list(code) if not isinstance(code, (int, float)) else [code]:
+            connection.execute("delete from gpkg_data_column_constraints where constraint_name = ? and "
+                               "constraint_type = 'enum' and value = ?",
+                               (str(domain_name), _code_text(_code_value(_code_text(each), field_type))))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def SetValueForRangeDomain(in_workspace, domain_name, min_value, max_value):
+    """A range domain's minimum and maximum set, both inclusive. INFERRED: inclusive, as an Esri range domain admits
+    its bounds."""
+    from ._runtime import ExecuteError
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        field_type, kind = _domain(connection, str(domain_name))
+        if kind != "RANGE":
+            raise ExecuteError(f"ERROR 000800: '{domain_name}' is a coded value domain.")
+        if field_type == "TEXT":
+            raise ExecuteError("ERROR 000800: a text domain cannot be a range.")
+        low, high = _code_value(str(min_value), field_type), _code_value(str(max_value), field_type)
+        if low > high:
+            raise ExecuteError("ERROR 000800: the minimum is greater than the maximum.")
+        connection.execute("delete from gpkg_data_column_constraints where constraint_name = ? and constraint_type = 'range'",
+                           (str(domain_name),))
+        description = connection.execute("select description from grapy_domains where name = ?", (str(domain_name),)).fetchone()[0]
+        connection.execute("insert into gpkg_data_column_constraints (constraint_name, constraint_type, value, min, "
+                           "min_is_inclusive, max, max_is_inclusive, description) values (?, 'range', null, ?, 1, ?, 1, ?)",
+                           (str(domain_name), low, high, description))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+_DOMAIN_FIELD = {"SHORT": "SmallInteger", "LONG": "Integer", "BIGINTEGER": "Integer", "FLOAT": "Single",
+                 "DOUBLE": "Double", "TEXT": "String", "DATE": "Date"}
+
+
+def AssignDomainToField(in_table, field_name, domain_name, subtype_code=None):
+    """A domain set on a field. INFERRED: the field's type must be the domain's, a long or big integer domain taking an
+    integer field. Subtypes are not built."""
+    from ._runtime import ExecuteError
+    if _given(subtype_code):
+        raise NotBuiltError("arcpy.management.AssignDomainToField: subtypes are not built in grapy.")
+    path = _plain("AssignDomainToField", in_table)
+    connection, table = _gpkg.table_of(path)
+    try:
+        field_type, _ = _domain(connection, str(domain_name))
+        columns = {c.name.lower(): c for c in _gpkg.describe(connection, table)[0]}
+        column = columns.get(str(field_name).lower())
+        if column is None:
+            raise ExecuteError(f"ERROR 000728: the field '{field_name}' does not exist.")
+        if _DOMAIN_FIELD[field_type] != column.type:
+            raise ExecuteError(f"ERROR 000800: the domain '{domain_name}' is {field_type}; the field '{column.name}' is "
+                               f"{column.type}.")
+        connection.execute("insert into gpkg_data_columns (table_name, column_name, name, constraint_name) values (?, ?, ?, ?) "
+                           "on conflict (table_name, column_name) do update set constraint_name = excluded.constraint_name",
+                           (table, column.name, column.name, str(domain_name)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def RemoveDomainFromField(in_table, field_name, subtype_code=None):
+    """The domain taken off the fields named."""
+    if _given(subtype_code):
+        raise NotBuiltError("arcpy.management.RemoveDomainFromField: subtypes are not built in grapy.")
+    path = _plain("RemoveDomainFromField", in_table)
+    connection, table = _gpkg.table_of(path)
+    try:
+        _domain_tables(connection)
+        for field in _list(field_name):
+            connection.execute("update gpkg_data_columns set constraint_name = null where table_name = ? and "
+                               "lower(column_name) = lower(?)", (table, field))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def DeleteDomain(in_workspace, domain_name):
+    """A domain deleted. INFERRED: a domain a field still uses cannot be, as a geodatabase refuses it."""
+    from ._runtime import ExecuteError
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        _domain(connection, str(domain_name))
+        used = connection.execute("select table_name, column_name from gpkg_data_columns where constraint_name = ?",
+                                  (str(domain_name),)).fetchone()
+        if used:
+            raise ExecuteError(f"ERROR 000800: the domain '{domain_name}' is used by {used[0]}.{used[1]}.")
+        connection.execute("delete from gpkg_data_column_constraints where constraint_name = ?", (str(domain_name),))
+        connection.execute("delete from grapy_domains where name = ?", (str(domain_name),))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def _coded_values(connection, name):
+    return [(r[0], r[1]) for r in connection.execute(
+        "select value, description from gpkg_data_column_constraints where constraint_name = ? and constraint_type = 'enum' "
+        "order by rowid", (name,))]
+
+
+def DomainToTable(in_workspace, domain_name, out_table, code_field, description_field, configuration_keyword=None):
+    """A coded value domain as a table of codes and descriptions, in the domain's order, the code field of the domain's
+    type. INFERRED: the description field is text; a range domain is not built."""
+    from . import da
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        field_type, kind = _domain(connection, str(domain_name))
+        if kind != "CODED":
+            raise NotBuiltError("arcpy.management.DomainToTable of a range domain is not built in grapy.")
+        values = _coded_values(connection, str(domain_name))
+    finally:
+        connection.close()
+    out = _table_out("DomainToTable", out_table)
+    _gpkg.create(out, "Geometry", 0, [_gpkg.Column(str(code_field), _DOMAIN_FIELD[field_type]),
+                                      _gpkg.Column(str(description_field), "String")])
+    with da.InsertCursor(out, [str(code_field), str(description_field), "SHAPE@"]) as written:
+        for code, description in values:
+            written.insertRow((_code_value(code, field_type), description, None))
+    return Result(out)
+
+
+def TableToDomain(in_table, code_field, description_field, in_workspace, domain_name, domain_description=None,
+                  update_option="APPEND"):
+    """A coded value domain made or updated from a table's codes and descriptions; ``REPLACE`` drops the codes it had.
+    INFERRED: a new domain takes the code field's type; an appended code already there takes the table's description."""
+    from . import da
+    path, where = _source(in_table)
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    code_column = columns[str(code_field).lower()]
+    with da.SearchCursor(path, [code_column.name, columns[str(description_field).lower()].name], where) as rows:
+        pairs = [(r[0], r[1]) for r in rows if r[0] is not None]
+    back = {v: k for k, v in _DOMAIN_FIELD.items() if k != "BIGINTEGER"}
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        _domain_tables(connection)
+        if not connection.execute("select 1 from grapy_domains where name = ?", (str(domain_name),)).fetchone():
+            connection.execute("insert into grapy_domains values (?, ?, ?, 'CODED', 'DEFAULT', 'DEFAULT')",
+                               (str(domain_name), domain_description or "", back.get(code_column.type, "TEXT")))
+        field_type, _ = _domain(connection, str(domain_name))
+        if str(update_option or "APPEND").upper() == "REPLACE":
+            connection.execute("delete from gpkg_data_column_constraints where constraint_name = ? and constraint_type = 'enum'",
+                               (str(domain_name),))
+        for code, description in pairs:
+            text = _code_text(_code_value(_code_text(code), field_type))
+            connection.execute("insert into gpkg_data_column_constraints (constraint_name, constraint_type, value, description) "
+                               "values (?, 'enum', ?, ?) on conflict (constraint_name, constraint_type, value) do update "
+                               "set description = excluded.description", (str(domain_name), text, description))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def SortCodedValueDomain(in_workspace, domain_name, sort_by, sort_order):
+    """A coded value domain's codes put in order of their code or description. INFERRED: codes compare as the domain's
+    type, text by code point."""
+    connection = _gpkg.connect(_workspace_file(in_workspace))
+    try:
+        field_type, _ = _domain(connection, str(domain_name))
+        values = _coded_values(connection, str(domain_name))
+        by_description = str(sort_by).upper() == "DESCRIPTION"
+        values.sort(key=lambda v: (v[1] or "") if by_description else _code_value(v[0], field_type),
+                    reverse=str(sort_order).upper() == "DESCENDING")
+        connection.execute("delete from gpkg_data_column_constraints where constraint_name = ? and constraint_type = 'enum'",
+                           (str(domain_name),))
+        connection.executemany("insert into gpkg_data_column_constraints (constraint_name, constraint_type, value, description) "
+                               "values (?, 'enum', ?, ?)", [(str(domain_name), v, d) for v, d in values])
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def AlterAliasName(table, alias):
+    """A table's or feature class's alias set. INFERRED: kept as the GeoPackage's ``identifier``, its human-readable
+    name for a table."""
+    path = _plain("AlterAliasName", table)
+    connection, name = _gpkg.table_of(path)
+    try:
+        connection.execute("update gpkg_contents set identifier = ? where table_name = ?", (str(alias), name))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(table))
+
+
+# ---- random points ------------------------------------------------------------------------------------------------------
+
+def _seed():
+    """The seed of ``env.randomGenerator`` — ``"<seed> <generator>"`` or a number — and 0 when it is not set.
+    INFERRED: grapy draws with NumPy's PCG64 from that seed, so a run repeats itself exactly; it cannot repeat arcpy's
+    own generator, whose sequence is not published."""
+    from ._runtime import env
+    value = getattr(env, "randomGenerator", None)
+    if value is None or str(value).strip() == "":
+        return 0
+    first = str(value).split()[0]
+    return int(float(first))
+
+
+def CreateRandomPoints(out_path, out_name, constraining_feature_class=None, constraining_extent=None,
+                       number_of_points_or_field=100, minimum_allowed_distance=None, create_multipoint_output="POINT",
+                       multipoint_size=10):
+    """Random points: the number asked (or each feature's field value) inside each constraining polygon, along each line,
+    as a random subset of each point feature's points, or inside an extent. ``CID`` holds the constraining feature's
+    object ID (0 for an extent). INFERRED: the ``CID`` field; the default of 100 points; points are uniform by area or
+    by length; draws are from ``env.randomGenerator``'s seed (see ``_seed``). A minimum allowed distance is not built:
+    the page reduces the count to *the maximum that can fit* without saying how that is found."""
+    import numpy
+    import shapely
+    from shapely.geometry import MultiPoint, Point as ShapelyPoint, box
+    from . import da
+    if _given(minimum_allowed_distance) and str(minimum_allowed_distance).split()[0] not in ("0", "0.0"):
+        raise NotBuiltError("arcpy.management.CreateRandomPoints: minimum_allowed_distance is not built in grapy.")
+    random = numpy.random.default_rng(_seed())
+    groups = []
+    if _given(constraining_feature_class):
+        columns = {c.name.lower(): c.name for c in _schema(_source(constraining_feature_class)[0])[0]}
+        names = list(columns.values())
+        srid = _schema(_source(constraining_feature_class)[0])[2]
+        for oid, values, shape in _features(constraining_feature_class):
+            if shape is None or shape.is_empty:
+                continue
+            count = number_of_points_or_field
+            if isinstance(count, str) and count.lower() in columns:
+                count = dict(zip((n.lower() for n in names), values))[count.lower()]
+            groups.append((oid, shape, max(0, int(round(float(count or 0))))))
+    else:
+        (x0, y0, x1, y1), srid = _extent_of(constraining_extent)
+        groups.append((0, box(x0, y0, x1, y1), max(0, int(round(float(number_of_points_or_field))))))
+    points = []
+    for oid, shape, count in groups:
+        kind = shape.geom_type
+        if kind in ("Point", "MultiPoint"):
+            parts = _parts(shape)
+            chosen = random.choice(len(parts), size=min(count, len(parts)), replace=False) if parts else []
+            points.extend((oid, parts[int(i)]) for i in chosen)
+        elif kind in ("LineString", "MultiLineString"):
+            lines = _parts(shape)
+            lengths = numpy.cumsum([l.length for l in lines])
+            for at in random.uniform(0, lengths[-1], count):
+                i = int(numpy.searchsorted(lengths, at, side="right"))
+                i = min(i, len(lines) - 1)
+                points.append((oid, lines[i].interpolate(at - (lengths[i - 1] if i else 0.0))))
+        else:
+            xmin, ymin, xmax, ymax = shape.bounds
+            from shapely.prepared import prep
+            prepared = prep(shape)
+            found = 0
+            while found < count:
+                xs = random.uniform(xmin, xmax, 2 * (count - found) + 8)
+                ys = random.uniform(ymin, ymax, len(xs))
+                for x, y in zip(xs, ys):
+                    point = ShapelyPoint(x, y)
+                    if prepared.contains(point):
+                        points.append((oid, point))
+                        found += 1
+                        if found == count:
+                            break
+    multi = str(create_multipoint_output or "POINT").upper() == "MULTIPOINT"
+    out = _path(_text(out_path), _text(out_name))
+    _gpkg.create(out, "Multipoint" if multi else "Point", srid, [_gpkg.Column("CID", "Integer")])
+    with da.InsertCursor(out, ["CID", "SHAPE@"]) as written:
+        if not multi:
+            for oid, point in points:
+                written.insertRow((oid, point))
+        else:
+            size = int(multipoint_size or 10)
+            by_group: dict = {}
+            for oid, point in points:
+                by_group.setdefault(oid, []).append(point)
+            for oid, members in by_group.items():
+                for i in range(0, len(members), size):
+                    written.insertRow((oid, MultiPoint(members[i:i + size])))
+    return Result(out)
+
+
+# ---- rasters ------------------------------------------------------------------------------------------------------------
+
+_PIXEL_TYPES = {"8_BIT_UNSIGNED": "uint8", "8_BIT_SIGNED": "int8", "16_BIT_UNSIGNED": "uint16", "16_BIT_SIGNED": "int16",
+                "32_BIT_UNSIGNED": "uint32", "32_BIT_SIGNED": "int32", "32_BIT_FLOAT": "float32", "64_BIT": "float64"}
+
+
+def _raster_in(value, tool):
+    from ._raster import as_raster
+    return as_raster(value if not isinstance(value, Result) else str(value), f"arcpy.management.{tool}")
+
+
+def _raster_path(out_raster, tool):
+    from ._runtime import env
+    path = _text(out_raster)
+    if not os.path.isabs(path):
+        path = os.path.join(env.workspace, path)
+    extension = os.path.splitext(path)[1].lower()
+    if not extension:
+        path += ".tif"
+    elif extension not in (".tif", ".tiff"):
+        raise NotBuiltError(f"arcpy.management.{tool}: writing a '{extension}' raster is not built in grapy; GeoTIFF is.")
+    return path
+
+
+def _write_raster(array, mask, grid, path, nodata=None):
+    """A single-band GeoTIFF; NoData written as ``nodata`` or the type's own NoData value. A valid cell holding that value
+    would read back as NoData, so it is refused."""
+    import numpy
+    import rasterio
+    from ._raster import _nodata_for
+    from ._runtime import ExecuteError
+    if nodata is None:
+        nodata = _nodata_for(array.dtype)
+    if numpy.any(array[~mask] == nodata):
+        raise ExecuteError(f"ERROR 999999: a valid cell holds {nodata}, the NoData value the output is written with.")
+    profile = {"driver": "GTiff", "height": grid.rows, "width": grid.columns, "count": 1, "dtype": array.dtype.name,
+               "transform": grid.transform(), "nodata": nodata}
+    if grid.srid:
+        profile["crs"] = f"EPSG:{grid.srid}"
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with rasterio.open(path, "w", **profile) as out:
+        out.write(numpy.where(mask, nodata, array).astype(array.dtype), 1)
+    return Result(path)
+
+
+def _cast(array, mask, pixel_type, tool):
+    """The cells as a pixel type, refused when a valid cell does not fit it: the page says such values are discarded
+    without saying as what."""
+    import numpy
+    name = _PIXEL_TYPES.get(str(pixel_type).upper())
+    if name is None:
+        raise NotBuiltError(f"arcpy.management.{tool}: pixel_type '{pixel_type}' is not built in grapy.")
+    kind = numpy.dtype(name)
+    values = array[~mask]
+    if numpy.issubdtype(kind, numpy.integer) and values.size:
+        info = numpy.iinfo(kind)
+        if numpy.issubdtype(values.dtype, numpy.floating) and not numpy.all(numpy.equal(numpy.mod(values, 1), 0)):
+            raise NotBuiltError(f"arcpy.management.{tool}: fractional values in an integer pixel type are not built in grapy.")
+        if values.min() < info.min or values.max() > info.max:
+            raise NotBuiltError(f"arcpy.management.{tool}: values outside {pixel_type}'s range are not built in grapy.")
+    return array.astype(kind)
+
+
+def _rectangle(rectangle, template):
+    if _given(rectangle):
+        parts = str(rectangle).replace(",", " ").split()
+        return tuple(float(p) for p in parts[:4])
+    if hasattr(template, "XMin"):
+        return template.XMin, template.YMin, template.XMax, template.YMax
+    try:
+        raster = _raster_in(template, "Clip")
+        extent = raster.extent
+        return extent.XMin, extent.YMin, extent.XMax, extent.YMax
+    except Exception:
+        return _extent_of(template)[0]
+
+
+def Clip(in_raster, rectangle, out_raster, in_template_dataset=None, nodata_value=None, clipping_geometry="NONE",
+         maintain_clipping_extent="NO_MAINTAIN_EXTENT"):
+    """A raster cut to a rectangle (``"xmin ymin xmax ymax"``) or a template's extent, keeping the input's cells as they
+    lie, as ``NO_MAINTAIN_EXTENT`` documents; ``ClippingGeometry`` also makes NoData every cell outside the template's
+    polygons. INFERRED: the cut takes every cell the rectangle reaches into; a cell is inside a polygon when its centre
+    is; ``nodata_value`` makes the cells holding it NoData and is the NoData value written. ``MAINTAIN_EXTENT``
+    resamples and is not built."""
+    import numpy
+    import shapely
+    from ._raster import _Grid
+    from ._runtime import ExecuteError
+    if str(maintain_clipping_extent or "NO_MAINTAIN_EXTENT").upper() == "MAINTAIN_EXTENT":
+        raise NotBuiltError("arcpy.management.Clip: MAINTAIN_EXTENT resamples, which is not built in grapy.")
+    raster = _raster_in(in_raster, "Clip")
+    g = raster._grid
+    x0, y0, x1, y1 = _rectangle(rectangle, in_template_dataset)
+    c0 = max(0, int(numpy.floor((x0 - g.left) / g.width + 1e-9)))
+    c1 = min(g.columns, int(numpy.ceil((x1 - g.left) / g.width - 1e-9)))
+    r0 = max(0, int(numpy.floor((g.top - y1) / g.height + 1e-9)))
+    r1 = min(g.rows, int(numpy.ceil((g.top - y0) / g.height - 1e-9)))
+    if c1 <= c0 or r1 <= r0:
+        raise ExecuteError("ERROR 001566: the clipping extent does not overlap the raster.")
+    array = raster._array[r0:r1, c0:c1].copy()
+    mask = raster._mask[r0:r1, c0:c1].copy()
+    grid = _Grid(g.left + c0 * g.width, g.top - r0 * g.height, g.width, g.height, r1 - r0, c1 - c0, g.srid)
+    nodata = None
+    if _given(nodata_value):
+        nodata = numpy.array(float(nodata_value)).astype(array.dtype).item()
+        mask |= array == nodata
+    if str(clipping_geometry or "NONE").upper() in ("CLIPPINGGEOMETRY", "CLIPPING_GEOMETRY"):
+        if not _given(in_template_dataset):
+            raise ExecuteError("ERROR 000735: ClippingGeometry needs a template feature class.")
+        shapes = [s for _, s in _shapes(in_template_dataset, g.srid)]
+        area = shapely.union_all(shapes)
+        xs, ys = grid.centres()
+        xx, yy = numpy.meshgrid(xs, ys)
+        inside = shapely.covers(area, shapely.points(xx, yy))
+        mask |= ~inside
+    return _write_raster(array, mask, grid, _raster_path(out_raster, "Clip"), nodata)
+
+
+def GetRasterProperties(in_raster, property_type=None, band_index=None):
+    """One property of a raster. INFERRED: ``STD`` is the population form, as arcpy's Raster.standardDeviation;
+    ``ANYNODATA`` and ``ALLNODATA`` answer 1 or 0; values are written as text, whole numbers without a decimal point.
+    The sensor and acquisition properties are not built."""
+    import numpy
+    raster = _raster_in(in_raster, "GetRasterProperties")
+    if band_index not in (None, "", "#", 1, "1", "Band_1"):
+        raise NotBuiltError("arcpy.management.GetRasterProperties: bands other than the first are not built in grapy.")
+    kind = str(property_type or "").upper()
+    g = raster._grid
+    values = raster._array[~raster._mask]
+    codes = {"uint8": 3, "int8": 4, "uint16": 5, "int16": 6, "uint32": 7, "int32": 8, "float32": 9, "float64": 10}
+    answers = {
+        "MINIMUM": lambda: values.min(), "MAXIMUM": lambda: values.max(), "MEAN": lambda: values.mean(),
+        "STD": lambda: values.std(), "UNIQUEVALUECOUNT": lambda: numpy.unique(values).size,
+        "TOP": lambda: g.top, "LEFT": lambda: g.left, "RIGHT": lambda: g.right, "BOTTOM": lambda: g.bottom,
+        "CELLSIZEX": lambda: g.width, "CELLSIZEY": lambda: g.height, "COLUMNCOUNT": lambda: g.columns,
+        "ROWCOUNT": lambda: g.rows, "BANDCOUNT": lambda: 1, "ANYNODATA": lambda: int(raster._mask.any()),
+        "ALLNODATA": lambda: int(raster._mask.all()),
+        "VALUETYPE": lambda: codes.get(raster._array.dtype.name, 10),
+    }
+    if kind not in answers:
+        raise NotBuiltError(f"arcpy.management.GetRasterProperties: property_type '{property_type}' is not built in grapy.")
+    if kind in ("MINIMUM", "MAXIMUM", "MEAN", "STD") and values.size == 0:
+        raise NotBuiltError(f"arcpy.management.GetRasterProperties: {kind} of a raster with no data is not built in grapy.")
+    value = answers[kind]()
+    value = value.item() if hasattr(value, "item") else value
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return Result(str(value))
+
+
+def CopyRaster(in_raster, out_rasterdataset, config_keyword=None, background_value=None, nodata_value=None,
+               onebit_to_eightbit="NONE", colormap_to_RGB="NONE", pixel_type=None, scale_pixel_value="NONE",
+               RGB_to_Colormap="NONE", format=None, transform=None, process_as_multidimensional="CURRENT_SLICE",
+               build_multidimensional_transpose="NO_TRANSPOSE"):
+    """A raster copied, its cells holding ``background_value`` or ``nodata_value`` made NoData, in ``pixel_type`` when
+    one is named. INFERRED: ``nodata_value`` is also the NoData value written. A value that does not fit the pixel type,
+    scaling, colormaps and formats other than TIFF are not built."""
+    import numpy
+    for name, value in (("onebit_to_eightbit", onebit_to_eightbit), ("colormap_to_RGB", colormap_to_RGB),
+                        ("scale_pixel_value", scale_pixel_value), ("RGB_to_Colormap", RGB_to_Colormap)):
+        if _given(value) and str(value).upper() != "NONE":
+            raise NotBuiltError(f"arcpy.management.CopyRaster: {name} '{value}' is not built in grapy.")
+    if _given(format) and str(format).upper() not in ("TIFF", "GTIFF"):
+        raise NotBuiltError(f"arcpy.management.CopyRaster: format '{format}' is not built in grapy; TIFF is.")
+    if _given(transform) and str(transform).upper() not in ("NONE", "FALSE"):
+        raise NotBuiltError("arcpy.management.CopyRaster: transform is not built in grapy.")
+    raster = _raster_in(in_raster, "CopyRaster")
+    array, mask = raster._array.copy(), raster._mask.copy()
+    nodata = None
+    for value in (background_value, nodata_value):
+        if _given(value):
+            mask |= array == numpy.array(float(value)).astype(array.dtype)
+    if _given(pixel_type):
+        array = _cast(array, mask, pixel_type, "CopyRaster")
+    if _given(nodata_value):
+        nodata = numpy.array(float(nodata_value)).astype(array.dtype).item()
+    return _write_raster(array, mask, raster._grid, _raster_path(out_rasterdataset, "CopyRaster"), nodata)
+
+
+def MosaicToNewRaster(input_rasters, output_location, raster_dataset_name_with_extension,
+                      coordinate_system_for_the_raster=None, pixel_type="8_BIT_UNSIGNED", cellsize=None,
+                      number_of_bands=1, mosaic_method="LAST", mosaic_colormap_mode="FIRST"):
+    """Rasters on one grid mosaicked into a new one over their combined extent; where they overlap ``mosaic_method``
+    decides. INFERRED: the extent is the union of the inputs'; NoData cells take no part, and a cell no input covers is
+    NoData; with no pixel type named the output is 8-bit unsigned, as the page warns. Inputs that do not share a cell
+    size, alignment and reference need resampling and are refused, as are ``BLEND``, several bands, a cell size or a
+    coordinate system other than the inputs', and a ``MEAN`` that is not whole in an integer pixel type."""
+    import numpy
+    from ._raster import _Grid
+    from ._runtime import ExecuteError
+    method = str(mosaic_method or "LAST").upper()
+    if method not in ("FIRST", "LAST", "MEAN", "MINIMUM", "MAXIMUM", "SUM"):
+        raise NotBuiltError(f"arcpy.management.MosaicToNewRaster: mosaic_method '{method}' is not built in grapy.")
+    if int(number_of_bands or 1) != 1:
+        raise NotBuiltError("arcpy.management.MosaicToNewRaster: several bands are not built in grapy.")
+    rasters = [_raster_in(r, "MosaicToNewRaster") for r in _list(input_rasters)]
+    first = rasters[0]._grid
+    for r in rasters[1:]:
+        g = r._grid
+        if g.srid != first.srid or not numpy.isclose(g.width, first.width) or not numpy.isclose(g.height, first.height):
+            raise NotBuiltError("arcpy.management.MosaicToNewRaster: inputs of different cell sizes or references need "
+                                "resampling, which is not built in grapy.")
+        for offset, size in ((g.left - first.left, first.width), (g.top - first.top, first.height)):
+            if not numpy.isclose(offset / size, round(offset / size)):
+                raise NotBuiltError("arcpy.management.MosaicToNewRaster: inputs whose cells do not line up need "
+                                    "resampling, which is not built in grapy.")
+    if _given(cellsize) and not numpy.isclose(float(cellsize), first.width):
+        raise NotBuiltError("arcpy.management.MosaicToNewRaster: a cell size other than the inputs' is not built in grapy.")
+    if _given(coordinate_system_for_the_raster):
+        code = _reference_code(coordinate_system_for_the_raster, first.srid)
+        if code != first.srid:
+            raise NotBuiltError("arcpy.management.MosaicToNewRaster: a coordinate system other than the inputs' is not "
+                                "built in grapy.")
+    left = min(r._grid.left for r in rasters)
+    top = max(r._grid.top for r in rasters)
+    right = max(r._grid.right for r in rasters)
+    bottom = min(r._grid.bottom for r in rasters)
+    columns = int(round((right - left) / first.width))
+    rows = int(round((top - bottom) / first.height))
+    grid = _Grid(left, top, first.width, first.height, rows, columns, first.srid)
+    stack = numpy.full((len(rasters), rows, columns), numpy.nan)
+    for i, r in enumerate(rasters):
+        row0 = int(round((top - r._grid.top) / first.height))
+        column0 = int(round((r._grid.left - left) / first.width))
+        window = stack[i, row0:row0 + r._grid.rows, column0:column0 + r._grid.columns]
+        window[:] = numpy.where(r._mask, numpy.nan, r._array.astype(float))
+    present = ~numpy.isnan(stack)
+    mask = ~present.any(axis=0)
+    with numpy.errstate(all="ignore"):
+        if method == "FIRST":
+            index = numpy.argmax(present, axis=0)
+            result = numpy.take_along_axis(stack, index[None], 0)[0]
+        elif method == "LAST":
+            index = len(rasters) - 1 - numpy.argmax(present[::-1], axis=0)
+            result = numpy.take_along_axis(stack, index[None], 0)[0]
+        else:
+            reduce = {"MEAN": numpy.nanmean, "MINIMUM": numpy.nanmin, "MAXIMUM": numpy.nanmax, "SUM": numpy.nansum}[method]
+            import warnings
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                result = reduce(stack, axis=0)
+    result = numpy.where(mask, 0, result)
+    array = _cast(result, mask, pixel_type or "8_BIT_UNSIGNED", "MosaicToNewRaster")
+    folder = _text(output_location)
+    if not os.path.isdir(folder):
+        raise ExecuteError(f"ERROR 000732: the folder {folder} does not exist.")
+    return _write_raster(array, mask, grid, _raster_path(os.path.join(folder, _text(raster_dataset_name_with_extension)),
+                                                         "MosaicToNewRaster"))
+
+
+def Resample(in_raster, out_raster, cell_size=None, resampling_type="NEAREST"):
+    """A raster on cells of a new size over the same extent, its lower-left corner where the input's is, as documented;
+    ``NEAREST`` gives each new cell the value of the input cell its centre falls in. An extent that is not a whole
+    number of new cells is refused (the page rounds without saying which way), as is a centre falling on the edge
+    between input cells. ``BILINEAR``, ``CUBIC`` and ``MAJORITY`` are not built."""
+    import numpy
+    from ._raster import _Grid
+    if str(resampling_type or "NEAREST").upper() != "NEAREST":
+        raise NotBuiltError(f"arcpy.management.Resample: resampling_type '{resampling_type}' is not built in grapy.")
+    raster = _raster_in(in_raster, "Resample")
+    g = raster._grid
+    if not _given(cell_size):
+        raise NotBuiltError("arcpy.management.Resample without a cell size is not built in grapy.")
+    if isinstance(cell_size, (int, float)):
+        cw = ch = float(cell_size)
+    else:
+        parts = str(cell_size).split()
+        try:
+            cw, ch = float(parts[0]), float(parts[-1])
+        except ValueError:
+            other = _raster_in(cell_size, "Resample")
+            cw = ch = other._grid.width
+    columns = (g.right - g.left) / cw
+    rows = (g.top - g.bottom) / ch
+    for n in (columns, rows):
+        if abs(n - round(n)) > 1e-9 * max(1.0, n):
+            raise NotBuiltError("arcpy.management.Resample: an extent that is not a whole number of new cells is not "
+                                "built in grapy.")
+    columns, rows = int(round(columns)), int(round(rows))
+    grid = _Grid(g.left, g.bottom + rows * ch, cw, ch, rows, columns, g.srid)
+    xs, ys = grid.centres()
+    fx = (xs - g.left) / g.width
+    fy = (g.top - ys) / g.height
+    for f in (fx, fy):
+        if numpy.any(numpy.isclose(f, numpy.round(f)) & (numpy.round(f) > 0) & (numpy.round(f) < max(g.columns, g.rows))):
+            raise NotBuiltError("arcpy.management.Resample: a new cell centre on the edge between input cells is not "
+                                "built in grapy; NEAREST does not say which cell it takes.")
+    cols = numpy.clip(numpy.floor(fx).astype(int), 0, g.columns - 1)
+    rws = numpy.clip(numpy.floor(fy).astype(int), 0, g.rows - 1)
+    array = raster._array[numpy.ix_(rws, cols)]
+    mask = raster._mask[numpy.ix_(rws, cols)]
+    return _write_raster(array, mask, grid, _raster_path(out_raster, "Resample"))
+
+
+def Flip(in_raster, out_raster):
+    """A raster turned upside down about its horizontal centre line; its extent stays."""
+    raster = _raster_in(in_raster, "Flip")
+    return _write_raster(raster._array[::-1].copy(), raster._mask[::-1].copy(), raster._grid, _raster_path(out_raster, "Flip"))
+
+
+def Mirror(in_raster, out_raster):
+    """A raster turned left to right about its vertical centre line; its extent stays."""
+    raster = _raster_in(in_raster, "Mirror")
+    return _write_raster(raster._array[:, ::-1].copy(), raster._mask[:, ::-1].copy(), raster._grid,
+                         _raster_path(out_raster, "Mirror"))
+
+
+def Shift(in_raster, out_raster, x_value, y_value, in_snap_raster=None):
+    """A raster moved by ``x_value`` and ``y_value`` in its own units, its cells as they are, as documented. A snap
+    raster is not built."""
+    from ._raster import _Grid
+    if _given(in_snap_raster):
+        raise NotBuiltError("arcpy.management.Shift: in_snap_raster is not built in grapy.")
+    raster = _raster_in(in_raster, "Shift")
+    g = raster._grid
+    grid = _Grid(g.left + float(x_value), g.top + float(y_value), g.width, g.height, g.rows, g.columns, g.srid)
+    return _write_raster(raster._array.copy(), raster._mask.copy(), grid, _raster_path(out_raster, "Shift"))
 
 
 # ---- refused by name ----------------------------------------------------------------------------------------------------
