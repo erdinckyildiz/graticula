@@ -28,16 +28,30 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
                        spatial_reference=None, *_, **__):
     """A new, empty feature class. Inside a feature dataset (``<file>.gpkg/<dataset>``, see CreateFeatureDataset) it
     takes the dataset's spatial reference when none is given, and one that differs is an error, as a feature dataset's
-    classes share one coordinate system."""
+    classes share one coordinate system. ``has_z`` and ``has_m`` — ENABLED, DISABLED or SAME_AS_TEMPLATE — set
+    whether its shapes carry z and m (the GeoPackage geometry column's flags)."""
     from ._reference import reference_of
     from ._runtime import ExecuteError
     shape = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon"}[geometry_type.upper()]
     reference = reference_of(spatial_reference)
     columns = []
+    template_z = template_m = False
     if template:
         connection, table = _gpkg.table_of(template)
         columns = _gpkg.describe(connection, table)[0]
+        template_z, template_m = _gpkg.dimensions(connection, table)
         connection.close()
+
+    def flag(value, own, name):
+        word = str(value or "DISABLED").upper()
+        if word == "SAME_AS_TEMPLATE":
+            return own
+        if word not in ("ENABLED", "DISABLED"):
+            from ._runtime import NotBuiltError
+            raise NotBuiltError(f"arcpy.management.CreateFeatureclass: {name} '{value}' is not built in grapy.")
+        return word == "ENABLED"
+
+    with_z, with_m = flag(has_z, template_z, "has_z"), flag(has_m, template_m, "has_m")
     path = _path(out_path, out_name)
     code = reference.factoryCode if reference else 0
     dataset = _feature_dataset_of(path)
@@ -46,7 +60,7 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
             code = dataset
         elif dataset and code != dataset:
             raise ExecuteError(f"ERROR 000622: the feature dataset's spatial reference is EPSG:{dataset}, not EPSG:{code}.")
-    _gpkg.create(path, shape, code, columns)
+    _gpkg.create(path, shape, code, columns, with_z, with_m)
     return Result(path)
 
 

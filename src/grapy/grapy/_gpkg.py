@@ -93,8 +93,10 @@ def oid_column(connection: sqlite3.Connection, table: str) -> str:
     return "rowid"
 
 
-def create(path: str, shape: str, srid: int, columns: list[Column]) -> None:
-    """A new, empty feature class — the file made if it is not there, the table replaced if it is."""
+def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool = False, has_m: bool = False) -> None:
+    """A new, empty feature class — the file made if it is not there, the table replaced if it is. ``has_z`` and
+    ``has_m`` set the geometry column's z and m flags to 1, *mandatory*, as the GeoPackage specification (§2.1.5)
+    defines them; a 2D class keeps 0, *prohibited*."""
     file, table = split(path)
     table = table or os.path.splitext(os.path.basename(file))[0]
     os.makedirs(os.path.dirname(os.path.abspath(file)), exist_ok=True)
@@ -110,8 +112,8 @@ def create(path: str, shape: str, srid: int, columns: list[Column]) -> None:
             "insert into gpkg_contents (table_name, data_type, identifier, srs_id) values (?, 'features', ?, ?)",
             (table, table, srid))
         connection.execute(
-            "insert into gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m) values (?, ?, ?, ?, 0, 0)",
-            (table, GEOMETRY, _STORED.get(shape, "GEOMETRY"), srid))
+            "insert into gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m) values (?, ?, ?, ?, ?, ?)",
+            (table, GEOMETRY, _STORED.get(shape, "GEOMETRY"), srid, 1 if has_z else 0, 1 if has_m else 0))
         connection.commit()
     finally:
         connection.close()
@@ -152,12 +154,80 @@ def _definition(srid: int) -> str:
         return "undefined"
 
 
-def encode(geometry, srid: int) -> bytes | None:
-    """A shapely geometry as a GeoPackage blob: magic, version, flags (little-endian, no envelope), srs, then WKB."""
+def dimensions(connection: sqlite3.Connection, table: str) -> tuple[bool, bool]:
+    """Whether a feature table's geometries carry z and m: its gpkg_geometry_columns flags, 1 (mandatory) or 2
+    (optional) counting as carrying them."""
+    row = connection.execute("select z, m from gpkg_geometry_columns where table_name = ?", (table,)).fetchone()
+    return (bool(row[0]), bool(row[1])) if row else (False, False)
+
+
+def encode(geometry, srid: int, has_z: bool | None = None, has_m: bool | None = None) -> bytes | None:
+    """A shapely geometry as a GeoPackage blob: magic, version, flags (little-endian, no envelope), srs, then WKB in
+    ISO form, whose type codes carry Z (1000s), M (2000s) and ZM (3000s) as GeoPackage §2.1.3 requires. Given a
+    class's ``has_z``/``has_m``, the geometry is first made to have exactly those: a missing z becomes 0 and a missing m
+    NaN, and one the class does not carry is dropped."""
     if geometry is None:
         return None
+    if has_z is not None or has_m is not None:
+        geometry = conform(geometry, bool(has_z), bool(has_m))
     flags = 0b00000001 | (0b00010000 if geometry.is_empty else 0)
-    return b"GP" + bytes([0, flags]) + struct.pack("<i", srid) + shapely.to_wkb(geometry, byte_order=1)
+    return b"GP" + bytes([0, flags]) + struct.pack("<i", srid) + shapely.to_wkb(geometry, byte_order=1, flavor="iso")
+
+
+# ---- z and m: shapely carries both (GEOS 3.12+), but its transform and coordinate setters drop m, so geometries are
+# rebuilt through WKT, where every dimension survives.
+
+
+def _number(value) -> str:
+    value = float(value)
+    return "NaN" if value != value else repr(value)
+
+
+def rebuild(geometry, has_z: bool, has_m: bool, change=None, change_z=None):
+    """The geometry with exactly the dimensions asked — a missing z 0, a missing m NaN — and ``change`` applied to its
+    x and y columns (an (n, 2) array in, one out) and ``change_z`` to its z column, m kept."""
+    import numpy as np
+    if geometry is None or geometry.is_empty:
+        return geometry
+    own_z, own_m = bool(shapely.has_z(geometry)), bool(shapely.has_m(geometry))
+    tag = ("ZM" if has_m else "Z") if has_z else ("M" if has_m else "")
+
+    def coordinates(part):
+        raw = shapely.get_coordinates(part, include_z=own_z, include_m=own_m)
+        xy = raw[:, :2]
+        if change is not None:
+            xy = np.asarray(change(xy.copy()), dtype=np.float64)
+        columns = [xy]
+        if has_z:
+            z = raw[:, 2:3] if own_z else np.zeros((len(raw), 1))
+            columns.append(np.asarray(change_z(z), dtype=np.float64) if change_z is not None else z)
+        if has_m:
+            columns.append(raw[:, -1:] if own_m else np.full((len(raw), 1), np.nan))
+        rows = np.hstack(columns)
+        return ", ".join(" ".join(_number(v) for v in row) for row in rows)
+
+    def body(part):
+        kind = part.geom_type
+        if kind in ("Point", "LineString", "LinearRing"):
+            return f"({coordinates(part)})"
+        if kind == "Polygon":
+            return "(" + ", ".join(f"({coordinates(r)})" for r in [part.exterior, *part.interiors]) + ")"
+        return "(" + ", ".join(body(g) for g in part.geoms) + ")"
+
+    kind = geometry.geom_type.upper()
+    if kind == "GEOMETRYCOLLECTION":
+        inner = ", ".join(shapely.to_wkt(rebuild(g, has_z, has_m, change, change_z)) for g in geometry.geoms)
+        return shapely.from_wkt(f"GEOMETRYCOLLECTION {tag} ({inner})".replace("  ", " "))
+    return shapely.from_wkt(f"{kind} {tag} {body(geometry)}".replace("  ", " "))
+
+
+def conform(geometry, has_z: bool, has_m: bool):
+    """The geometry with exactly a class's dimensions; untouched when it already has them."""
+    if geometry is None or geometry.is_empty:
+        return geometry
+    if bool(shapely.has_z(geometry)) == has_z and bool(shapely.has_m(geometry)) == has_m:
+        return geometry
+    return rebuild(geometry, has_z, has_m)
 
 
 def decode(blob: bytes | None):

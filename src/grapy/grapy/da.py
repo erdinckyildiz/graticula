@@ -1,8 +1,13 @@
 """arcpy.da's cursors, by their documented names and tokens — ADR-223 §5.2.
 
 The tokens a field list may hold: ``OID@``, ``SHAPE@`` (a geometry object), ``SHAPE@XY`` (the centroid's x and y),
-``SHAPE@X``, ``SHAPE@Y``, ``SHAPE@WKT``, ``SHAPE@WKB``, ``SHAPE@JSON``, ``SHAPE@AREA``, ``SHAPE@LENGTH``, and ``*``
-for every field and the shape.
+``SHAPE@X``, ``SHAPE@Y``, ``SHAPE@Z``, ``SHAPE@M``, ``SHAPE@XYZ``, ``SHAPE@WKT``, ``SHAPE@WKB``, ``SHAPE@JSON``,
+``SHAPE@AREA``, ``SHAPE@LENGTH``, and ``*`` for every field and the shape.
+
+Z and M: a class whose geometry column carries z or m (gpkg_geometry_columns' flags) is read with them, and a shape
+written to it is made to have exactly them — a missing z 0, a missing m NaN, and one the class does not carry dropped
+(see ``_gpkg.encode``). ``SHAPE@Z``, ``SHAPE@M`` and ``SHAPE@XYZ`` read a point's own values; on other shapes they are
+refused, since the documentation does not say which vertex's value they would be.
 """
 from __future__ import annotations
 
@@ -40,6 +45,16 @@ def _shape_token(token, shape, reference):
         return (shape if shape.geom_type == "Point" else shape.centroid).x
     if token == "SHAPE@Y":
         return (shape if shape.geom_type == "Point" else shape.centroid).y
+    if token in ("SHAPE@Z", "SHAPE@M", "SHAPE@XYZ"):
+        if shape.geom_type != "Point":
+            raise NotBuiltError(f"arcpy.da: '{token}' on a {shape.geom_type} is not built in grapy — the documentation "
+                                "gives a feature's value, not which vertex's.")
+        z = float(shapely.get_z(shape)) if shapely.has_z(shape) else None
+        if token == "SHAPE@Z":
+            return z
+        if token == "SHAPE@M":
+            return float(shapely.get_m(shape)) if shapely.has_m(shape) else None
+        return (shape.x, shape.y, z)
     if token == "SHAPE@WKT":
         return shapely.to_wkt(shape)
     if token == "SHAPE@WKB":
@@ -60,8 +75,11 @@ def _shape_from(value):
     if isinstance(value, Geometry):
         return value._shape
     if isinstance(value, Point):
-        return ShapelyPoint(value.X, value.Y)
-    if isinstance(value, (tuple, list)) and len(value) == 2 and all(isinstance(v, (int, float)) for v in value):
+        if value.Z is None and value.M is None:
+            return ShapelyPoint(value.X, value.Y)
+        from ._geometry import _from_points
+        return _from_points("POINT", [[value]], value.Z is not None, value.M is not None)
+    if isinstance(value, (tuple, list)) and len(value) in (2, 3) and all(isinstance(v, (int, float)) for v in value):
         return ShapelyPoint(*value)
     if isinstance(value, str):
         return shapely.from_wkt(value)
@@ -93,6 +111,7 @@ class _Cursor:
                 self._connection.close()
                 self._connection, self._shared = shared, True
         self._described, _, self._srid, self._geometry = _gpkg.describe(self._connection, self._table)
+        self._has_z, self._has_m = _gpkg.dimensions(self._connection, self._table)
         self._oid = _gpkg.oid_column(self._connection, self._table)
         self._reference = SpatialReference(self._srid) if self._srid > 0 else None
         # A layer with joins (management.AddJoin) is read through them: its fields are qualified, <table>.<field>, for
@@ -151,7 +170,7 @@ class _Cursor:
             if upper == "OID@":
                 continue
             if upper.startswith("SHAPE@"):
-                out[self._geometry] = _gpkg.encode(_shape_from(value), self._srid)
+                out[self._geometry] = _gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m)
             else:
                 out[field] = value
         return out
@@ -268,7 +287,7 @@ class InsertCursor(_Cursor):
                 continue
             if upper.startswith("SHAPE@"):
                 names.append(self._geometry)
-                values.append(_gpkg.encode(_shape_from(value), self._srid))
+                values.append(_gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m))
             else:
                 names.append(field)
                 values.append(value)
@@ -316,7 +335,7 @@ class UpdateCursor(SearchCursor):
                 continue
             if upper.startswith("SHAPE@"):
                 names.append(self._geometry)
-                values.append(_gpkg.encode(_shape_from(value), self._srid))
+                values.append(_gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m))
             elif self._joined is not None and self._joined.column(field) is None:
                 # A join table's field: read as it was, it is passed over; changed, it is refused — the join is the
                 # layer's, and its table is not written through it.
@@ -445,7 +464,7 @@ def _array(tool, in_table, field_names, where_clause, skip_nulls, null_value, sp
         upper = name.upper()
         if upper in ("SHAPE@", "SHAPE@Z", "SHAPE@M", "SHAPE@XYZ"):
             raise NotBuiltError(f"arcpy.da.{tool}: '{name}' is not built in grapy — a geometry object does not go in an "
-                                "array, and grapy's shapes hold no z or m values.")
+                                "array, and z and m in arrays are not built yet.")
     reading = [n if n.upper() != "SHAPE@TRUECENTROID" else "SHAPE@XY" for n in names]
     if "OID@" not in [n.upper() for n in reading]:
         reading.append("OID@")

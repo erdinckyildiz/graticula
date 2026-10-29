@@ -40,18 +40,20 @@ def geojson_to_gpkg(source: str, target: str) -> None:
     columns = [_gpkg.Column(n, _type_of([(f.get("properties") or {}).get(n) for f in features])) for n in names]
     kinds = {_KINDS.get((f.get("geometry") or {}).get("type")) for f in features} - {None}
     kind = kinds.pop() if len(kinds) == 1 else "Geometry"
-    _gpkg.create(target, kind, 4326, columns)
+    geometries = [shape(f["geometry"]) if f.get("geometry") else None for f in features]
+    # RFC 7946 positions may carry an elevation: a layer whose geometries have it becomes a Z class (GeoJSON has no m).
+    has_z = any(g is not None and not g.is_empty and shapely.has_z(g) for g in geometries)
+    _gpkg.create(target, kind, 4326, columns, has_z)
     connection, table = _gpkg.table_of(target)
     try:
         quoted = ", ".join(['"geom"', *[f'"{c.name}"' for c in columns]])
         marks = ", ".join("?" for _ in range(len(columns) + 1))
-        for feature in features:
-            geometry = shape(feature["geometry"]) if feature.get("geometry") else None
+        for feature, geometry in zip(features, geometries):
             if geometry is not None and kind in ("Polyline", "Polygon") and not geometry.geom_type.startswith("Multi"):
                 geometry = {"Polyline": shapely.MultiLineString, "Polygon": shapely.MultiPolygon}[kind]([geometry])
             values = [(feature.get("properties") or {}).get(c.name) for c in columns]
             values = [json.dumps(v) if isinstance(v, (dict, list)) else v for v in values]
-            connection.execute(f'insert into "{table}" ({quoted}) values ({marks})', [_gpkg.encode(geometry, 4326), *values])
+            connection.execute(f'insert into "{table}" ({quoted}) values ({marks})', [_gpkg.encode(geometry, 4326, has_z, False), *values])
         connection.commit()
     finally:
         connection.close()
@@ -77,7 +79,8 @@ def _outgoing(names):
 
 
 def gpkg_to_geojson(source: str, target: str) -> int:
-    """A feature class as GeoJSON in WGS 84; answers how many features were written."""
+    """A feature class as GeoJSON in WGS 84; answers how many features were written. Z travels as the positions'
+    elevation (RFC 7946 §3.1.1); m has no place in GeoJSON and is left out."""
     from . import da
     from ._reference import SpatialReference
 
@@ -94,7 +97,8 @@ def gpkg_to_geojson(source: str, target: str) -> int:
             if geometry is not None and srid > 0 and srid != 4326:
                 geometry = geometry.projectAs(wgs84)
             features.append({"type": "Feature", "properties": dict(zip(outgoing, row[:-1])),
-                             "geometry": mapping(geometry._shape) if geometry is not None else None})
+                             "geometry": mapping(_gpkg.conform(geometry._shape, geometry.hasZ, False))
+                             if geometry is not None else None})
     with open(target, "w", encoding="utf-8") as out:
         json.dump({"type": "FeatureCollection", "features": features}, out, default=str)
     return len(features)
