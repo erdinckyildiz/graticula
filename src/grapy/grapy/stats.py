@@ -2106,6 +2106,341 @@ def DensityBasedClustering(in_features, output_features, cluster_method, min_fea
     return Result(out)
 
 
+def _locational_outliers(d):
+    """Which features are locational outliers. EQUIVALENT: the page names them without a rule; grapy takes Tukey's fence
+    on the nearest-neighbour distance, Q3 + 1.5·IQR, quartiles by Hyndman and Fan's definition 7."""
+    import numpy as np
+    nearest = _nearest(d)
+    q1, q3 = np.quantile(nearest, [0.25, 0.75], method="linear")
+    return nearest > q3 + 1.5 * (q3 - q1)
+
+
+def _optimized_prepare(tool, Input_Features, Analysis_Field, method, bounding, aggregation_polygons, Cell_Size,
+                       Distance_Band, said):
+    """The weighted features (the input with its field, or incidents counted into cells or polygons) and the scale of
+    analysis, by the steps "How Optimized Hot Spot Analysis works" documents."""
+    import os
+    import numpy as np
+    scratch = os.path.join(env_scratch(), f"{tool.lower()}_weighted.gpkg")
+    if _given(Analysis_Field):
+        path, field = Input_Features, Analysis_Field
+    else:
+        method = _keyword(method or "COUNT_INCIDENTS_WITHIN_HEXAGON_POLYGONS")
+        features, _, kind, srid = _features(tool, Input_Features)
+        if kind not in ("Point", "Multipoint"):
+            raise ValueError(f"arcpy.stats.{tool}: incidents to aggregate are points; give an Analysis_Field for polygons.")
+        xy = np.array([(f[2], f[3]) for f in features])
+        field = "Join_Count"
+        if method == "COUNT_INCIDENTS_WITHIN_AGGREGATION_POLYGONS":
+            if not _given(aggregation_polygons):
+                raise ValueError(f"arcpy.stats.{tool}: this method needs Polygons_For_Aggregating_Incidents_Into_Counts.")
+            from shapely import points as to_points
+            polygons, _, pkind, psrid = _features(tool, aggregation_polygons)
+            located = to_points(xy)
+            _gpkg.create(scratch, "Polygon", psrid, [_gpkg.Column(field, "Integer")])
+            with da.InsertCursor(scratch, [field, "SHAPE@"]) as rows:
+                for p in polygons:
+                    rows.insertRow((int(sum(p[4].covers(q) for q in located)), p[4]))
+        elif method in ("COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS", "COUNT_INCIDENTS_WITHIN_HEXAGON_POLYGONS"):
+            unique = np.unique(xy, axis=0)
+            d = _distances(unique)
+            keep = ~_locational_outliers(d)
+            nearest = _nearest(d)[keep]
+            x0, y0 = xy.min(axis=0)
+            x1, y1 = xy.max(axis=0)
+            extent = max(x1 - x0, y1 - y0)
+            if _given(Cell_Size):
+                cell = _threshold(Cell_Size, srid)
+            else:
+                import shapely
+                hull = shapely.MultiPoint([tuple(p) for p in xy]).convex_hull.area
+                random_nn = 0.5 / math.sqrt(len(xy) / hull) if hull > 0 else math.inf
+                cell = extent / 100 if 2 * random_nn < extent / 100 else 2 * max(float(nearest.mean()),
+                                                                                    float(np.median(nearest)))
+            said(f"Cell size: {cell}")
+            if method == "COUNT_INCIDENTS_WITHIN_HEXAGON_POLYGONS":
+                if _given(bounding):
+                    _refuse(tool, "Bounding_Polygons_Defining_Where_Incidents_Are_Possible", bounding, "keeping empty "
+                            "hexagons inside bounding polygons is not built in this equivalent")
+                from .graticula import HexagonBins
+                HexagonBins(Input_Features, scratch, cell, field)
+            else:
+                from shapely.geometry import box
+                columns = int(math.floor((x1 - x0) / cell)) + 1
+                rows_ = int(math.floor((y1 - y0) / cell)) + 1
+                counts = np.zeros((rows_, columns), dtype=int)
+                for x, y in xy:
+                    counts[int((y - y0) // cell), int((x - x0) // cell)] += 1
+                area = None
+                if _given(bounding):
+                    import shapely
+                    area = shapely.union_all([f[4] for f in _features(tool, bounding)[0]])
+                _gpkg.create(scratch, "Polygon", srid, [_gpkg.Column(field, "Integer")])
+                with da.InsertCursor(scratch, [field, "SHAPE@"]) as written:
+                    for r in range(rows_):
+                        for c in range(columns):
+                            square = box(x0 + c * cell, y0 + r * cell, x0 + (c + 1) * cell, y0 + (r + 1) * cell)
+                            inside = area.contains(square.centroid) if area is not None else counts[r, c] > 0
+                            if inside:
+                                written.insertRow((int(counts[r, c]), square))
+        else:
+            _refuse(tool, "Incident_Data_Aggregation_Method", method, "the Integrate tool's snapping that it runs is "
+                    "not documented")
+        path = scratch
+    features, _, _, srid = _features(tool, path, [field])
+    if len(features) < 30:
+        raise ValueError(f"arcpy.stats.{tool}: {len(features)} weighted features; the tool needs at least 30.")
+    values = _values(tool, features, field)
+    if values.min() == values.max():
+        raise ValueError(f"arcpy.stats.{tool}: every weighted feature has the same value.")
+    if _given(Distance_Band):
+        return path, field, _threshold(Distance_Band, srid)
+    xy = np.array([(f[2], f[3]) for f in features])
+    d = _distances(xy)
+    keep = ~_locational_outliers(d)
+    nearest = _nearest(d)
+    begin = float(nearest[keep].max())
+    step = float(nearest[keep].mean())
+    distance = None
+    if not ((d <= begin + 9 * step).sum(axis=1) - 1 >= 500).any():
+        zs = []
+        for k in range(10):
+            band = begin + k * step
+            try:
+                zs.append(_moran(values, _standardized(_weights(tool, features, srid, "FIXED_DISTANCE_BAND",
+                                                                "EUCLIDEAN_DISTANCE", band, None), "ROW"))[3])
+            except ValueError:
+                zs.append(None)
+        peaks = [k for k in range(1, 9) if None not in zs[k - 1:k + 2] and zs[k] > zs[k - 1] and zs[k] > zs[k + 1]]
+        if peaks:
+            distance = begin + peaks[0] * step
+            said(f"Scale of analysis: the first peak of Incremental Spatial Autocorrelation, {distance}.")
+        neighbours = None
+    else:
+        neighbours = 30
+    if distance is None:
+        n = len(features)
+        k = neighbours or min(30, max(3, int(round(0.05 * n))))
+        average = float(np.sort(d, axis=1)[:, min(k, n - 1)].mean())
+        centre = xy.mean(axis=0)
+        standard = math.sqrt(float(((xy - centre) ** 2).sum(axis=1).mean()))
+        distance = standard if neighbours is None and average > standard else average
+        said(f"Scale of analysis: the average distance to {k} neighbours, or one standard distance: {distance}.")
+    return path, field, distance
+
+
+def env_scratch():
+    from ._runtime import env
+    return env.scratchWorkspace
+
+
+@_equivalent("Optimized Hot Spot Analysis's documented steps over grapy's Gi*, Benjamini–Hochberg FDR and Tukey's fence "
+             "for locational outliers", "the tool's How it works page; Getis and Ord 1992; Benjamini and Hochberg 1995; "
+             "Tukey 1977")
+def OptimizedHotSpotAnalysis(Input_Features, Output_Features, Analysis_Field=None, Incident_Data_Aggregation_Method=None,
+                             Bounding_Polygons_Defining_Where_Incidents_Are_Possible=None,
+                             Polygons_For_Aggregating_Incidents_Into_Counts=None, Density_Surface=None, Cell_Size=None,
+                             Distance_Band=None):
+    """EQUIVALENT: the page's steps — aggregate incidents (fishnet, hexagon or given polygons; the cell size twice the
+    larger of the average and median nearest-neighbour distances, or a hundredth of the extent when the data are dense
+    against N random points in their convex hull), find the scale of analysis (the first peak of Incremental Spatial
+    Autocorrelation; with none, the average distance to K = 5 percent of N neighbours, 3 to 30, capped at one standard
+    distance; 30 neighbours when a feature would have 500), then Gi* (HotSpots, fixed band) with the FDR correction —
+    here Benjamini–Hochberg. What the page leaves open, and grapy chose: locational outliers by Tukey's fence on the
+    nearest-neighbour distance; Incremental Spatial Autocorrelation's ten bands from the largest nearest-neighbour
+    distance in steps of the average one; the convex hull as the minimum bounding polygon; hexagons as
+    graticula.HexagonBins draws them, the cell size their height; incident counts in ``Join_Count``.
+
+    Refused: SNAP_NEARBY_INCIDENTS_TO_CREATE_WEIGHTED_POINTS (it runs the Integrate tool, whose snapping is not
+    documented) and bounding polygons with hexagons. Density_Surface is disabled in arcpy too.
+    """
+    from ._runtime import AddMessage
+    path, field, distance = _optimized_prepare("OptimizedHotSpotAnalysis", Input_Features, Analysis_Field,
+                                               Incident_Data_Aggregation_Method,
+                                               Bounding_Polygons_Defining_Where_Incidents_Are_Possible,
+                                               Polygons_For_Aggregating_Incidents_Into_Counts, Cell_Size, Distance_Band,
+                                               AddMessage)
+    return HotSpots(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE", distance, None,
+                    None, "APPLY_FDR")
+
+
+@_equivalent("Optimized Outlier Analysis's documented steps over grapy's Local Moran's I with seeded permutations, "
+             "Benjamini–Hochberg FDR and Tukey's fence for locational outliers",
+             "the tool's How it works page; Anselin 1995; Benjamini and Hochberg 1995; Tukey 1977")
+def OptimizedOutlierAnalysis(Input_Features, Output_Features, Analysis_Field=None, Incident_Data_Aggregation_Method=None,
+                             Bounding_Polygons_Defining_Where_Incidents_Are_Possible=None,
+                             Polygons_For_Aggregating_Incidents_Into_Counts=None, Performance_Adjustment="BALANCED_499",
+                             Cell_Size=None, Distance_Band=None):
+    """EQUIVALENT: OptimizedHotSpotAnalysis's preparation, then Local Moran's I (ClustersOutliers, fixed band, row
+    standardized) with 199, 499 or 999 conditional permutations as Performance_Adjustment says — seeded from
+    env.randomGenerator, so Pro's draws differ — and the FDR correction (Benjamini–Hochberg). "For features with no
+    neighbors at this distance, the Distance Band is extended to include their nearest neighbor": INFERRED, as one band
+    for all, the larger of the scale and the largest nearest-neighbour distance. Refusals as OptimizedHotSpotAnalysis's.
+    """
+    from ._runtime import AddMessage
+    permutations = {"QUICK_199": 199, "BALANCED_499": 499, "ROBUST_999": 999}.get(
+        _keyword(Performance_Adjustment or "BALANCED_499"))
+    if permutations is None:
+        raise ValueError("arcpy.stats.OptimizedOutlierAnalysis: Performance_Adjustment is QUICK_199, BALANCED_499 or "
+                         "ROBUST_999.")
+    path, field, distance = _optimized_prepare("OptimizedOutlierAnalysis", Input_Features, Analysis_Field,
+                                               Incident_Data_Aggregation_Method,
+                                               Bounding_Polygons_Defining_Where_Incidents_Are_Possible,
+                                               Polygons_For_Aggregating_Incidents_Into_Counts, Cell_Size, Distance_Band,
+                                               AddMessage)
+    features, _, _, _ = _features("OptimizedOutlierAnalysis", path, [field])
+    distance = max(distance, float(_nearest(_distances([(f[2], f[3]) for f in features])).max()))
+    return ClustersOutliers(path, field, Output_Features, "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "ROW", distance,
+                            None, "APPLY_FDR", permutations)
+
+
+def _univariate_fit(column, target, weights):
+    """Each feature's local coefficient of one variable alone on ``target`` with kernel ``weights``, and the trace of
+    that smoother: β_i = Σ_k w_ik x_k r_k / Σ_k w_ik x_k²."""
+    import numpy as np
+    denominator = weights @ (column * column)
+    if (denominator == 0).any():
+        raise ValueError("arcpy.stats.MGWR: a local regression is empty at this bandwidth — too few neighbours.")
+    beta = (weights @ (column * target)) / denominator
+    trace = float((np.diag(weights) * column * column / denominator).sum())
+    return beta, trace
+
+
+def _univariate_aicc(column, target, d, bandwidth, kernel, adaptive):
+    n = len(target)
+    beta, trace = _univariate_fit(column, target, _gwr_weights(d, bandwidth, kernel, adaptive))
+    residual = target - beta * column
+    rss = float(residual @ residual)
+    if n - 2 - trace <= 0 or rss <= 0:
+        return math.inf if n - 2 - trace <= 0 else -math.inf
+    return n * math.log(rss / n) + n * math.log(2 * math.pi) + n * (n + trace) / (n - 2 - trace)
+
+
+@_equivalent("multiscale geographically weighted regression by back-fitting, a bandwidth per variable chosen on AICc",
+             "Fotheringham, Yang and Kang 2017; Oshan, Li, Kang, Wolf and Fotheringham 2019 (mgwr)")
+def MGWR(in_features, dependent_variable, model_type, explanatory_variables, output_features, neighborhood_type,
+         neighborhood_selection_method, minimum_number_of_neighbors=None, maximum_number_of_neighbors=None,
+         distance_unit=None, minimum_search_distance=None, maximum_search_distance=None,
+         number_of_neighbors_increment=None, search_distance_increment=None, number_of_increments=None,
+         number_of_neighbors=None, distance_band=None, number_of_neighbors_golden=None, number_of_neighbors_manual=None,
+         number_of_neighbors_defined=None, distance_golden=None, distance_manual=None, distance_defined=None,
+         prediction_locations=None, explanatory_variables_to_match=None, output_predicted_features=None,
+         robust_prediction=None, local_weighting_scheme="BISQUARE", output_table=None, coefficient_raster_workspace=None,
+         scale="SCALE_DATA", number_of_neighbors_gradient=None, distance_gradient=None):
+    """EQUIVALENT: MGWR by back-fitting (Fotheringham, Yang and Kang 2017): y = Σ_j f_j, f_j = β_j(u)·x_j; starting
+    from ordinary least squares, each term is refitted in turn as a GWR of its partial residual y − Σ_{l≠j} f_l on x_j
+    alone, with its own bandwidth chosen on that fit's AICc (golden-section search, manual intervals, or given), until
+    the score of change √(Σ(Δf)²/n / Σ(Σ_j f_j)²) falls below 10⁻⁵ (Oshan et al. 2019) or 200 rounds pass. The
+    intercept is a variable with its own bandwidth. With SCALE_DATA (the default) every variable is standardized
+    (population standard deviation) before fitting, as MGWR needs to compare bandwidths, and the coefficients are
+    written back in the data's units.
+
+    Writes the dependent and explanatory variables, INTERCEPT, C_<variable>, PREDICTED and RESIDUAL; output_table lists
+    VARIABLE and BANDWIDTH (INFERRED names). Standard errors and the model's AICc need MGWR's per-term hat matrices,
+    which this equivalent does not compute, and are not written. Kernels and neighbourhoods are GWR's.
+
+    Refused: GRADIENT_SEARCH (its optimiser is not specified), CONTINUOUS only, per-variable golden or manual ranges,
+    distance_unit, prediction locations and coefficient rasters.
+    """
+    import numpy as np
+    tool = "MGWR"
+    if _keyword(model_type or "CONTINUOUS") != "CONTINUOUS":
+        raise ValueError(f"arcpy.stats.{tool}: only CONTINUOUS is supported, as documented.")
+    for name, value in (("number_of_neighbors_golden", number_of_neighbors_golden),
+                        ("number_of_neighbors_manual", number_of_neighbors_manual),
+                        ("distance_golden", distance_golden), ("distance_manual", distance_manual),
+                        ("number_of_neighbors_gradient", number_of_neighbors_gradient),
+                        ("distance_gradient", distance_gradient), ("distance_unit", distance_unit),
+                        ("prediction_locations", prediction_locations),
+                        ("output_predicted_features", output_predicted_features),
+                        ("coefficient_raster_workspace", coefficient_raster_workspace)):
+        if _given(value):
+            _refuse(tool, name, value, "it is not part of this equivalent")
+    method = _keyword(neighborhood_selection_method)
+    if method == "GRADIENT_SEARCH":
+        _refuse(tool, "neighborhood_selection_method", method, "the gradient-based optimiser is not specified")
+    kernel = _keyword(local_weighting_scheme or "BISQUARE")
+    adaptive = _keyword(neighborhood_type) == "NUMBER_OF_NEIGHBORS"
+    explanatory = [e for e in _list(explanatory_variables) if _given(e)]
+    kept, y, x, xy, columns, kind, srid = _regression_data(tool, in_features, dependent_variable, explanatory)
+    n, k = x.shape
+    d = _distances(xy)
+    scaled = _keyword(scale or "SCALE_DATA") not in ("NO_SCALE_DATA", "FALSE")
+    y_mean, y_sd = (float(y.mean()), float(y.std())) if scaled else (0.0, 1.0)
+    x_mean = np.concatenate([[0.0], x[:, 1:].mean(axis=0)]) if scaled else np.zeros(k)
+    x_sd = np.concatenate([[1.0], x[:, 1:].std(axis=0)]) if scaled else np.ones(k)
+    ys = (y - y_mean) / y_sd
+    xs = (x - x_mean) / x_sd
+    names = ["Intercept", *explanatory]
+    defined = {}
+    for row in _list(number_of_neighbors_defined if adaptive else distance_defined):
+        pair = row if isinstance(row, (list, tuple)) else str(row).split()
+        defined[str(pair[0]).lower()] = int(pair[1]) if adaptive else _threshold(pair[1], srid)
+
+    def choose(j, target):
+        if method == "USER_DEFINED":
+            given = defined.get(names[j].lower(), number_of_neighbors if adaptive else distance_band)
+            if not _given(given):
+                raise ValueError(f"arcpy.stats.{tool}: USER_DEFINED needs a bandwidth for {names[j]}.")
+            return int(given) if adaptive else (given if isinstance(given, float) else _threshold(given, srid))
+        score = (lambda b: _univariate_aicc(xs[:, j], target, d, b, kernel, adaptive))
+        if method == "MANUAL_INTERVALS":
+            start = minimum_number_of_neighbors if adaptive else minimum_search_distance
+            step = number_of_neighbors_increment if adaptive else search_distance_increment
+            first = int(start) if adaptive else _threshold(start, srid)
+            delta = int(step) if adaptive else _threshold(step, srid)
+            return min((first + i * delta for i in range(int(number_of_increments))), key=lambda b: (score(b), b))
+        if method != "GOLDEN_SEARCH":
+            raise ValueError(f"arcpy.stats.{tool}: neighborhood_selection_method is GOLDEN_SEARCH, MANUAL_INTERVALS or "
+                             "USER_DEFINED.")
+        sorted_d = np.sort(d, axis=1)
+        if adaptive:
+            low = int(minimum_number_of_neighbors) if _given(minimum_number_of_neighbors) else max(int(math.ceil(0.05 * n)), 3)
+            high = int(maximum_number_of_neighbors) if _given(maximum_number_of_neighbors) else max(low, n // 2)
+        else:
+            low = _threshold(minimum_search_distance, srid) if _given(minimum_search_distance) else \
+                float(sorted_d[:, max(int(math.ceil(0.05 * n)) - 1, 1)].max())
+            high = _threshold(maximum_search_distance, srid) if _given(maximum_search_distance) else \
+                float(sorted_d[:, max(n // 2 - 1, 1)].max())
+        return _golden(score, low, high, adaptive)
+
+    beta_global = np.linalg.lstsq(xs, ys, rcond=None)[0]
+    betas = np.tile(beta_global, (n, 1))
+    terms = betas * xs
+    bandwidths = [None] * k
+    for _ in range(200):
+        before = terms.copy()
+        for j in range(k):
+            partial = ys - terms.sum(axis=1) + terms[:, j]
+            bandwidths[j] = choose(j, partial)
+            beta_j, _ = _univariate_fit(xs[:, j], partial, _gwr_weights(d, bandwidths[j], kernel, adaptive))
+            betas[:, j] = beta_j
+            terms[:, j] = beta_j * xs[:, j]
+        change = math.sqrt(float(((terms - before) ** 2).sum()) / n / float((terms.sum(axis=1) ** 2).sum()))
+        if change < 1e-5:
+            break
+    unscaled = betas * y_sd / x_sd
+    unscaled[:, 0] = y_mean + y_sd * betas[:, 0] - (unscaled[:, 1:] * x_mean[1:]).sum(axis=1)
+    fitted = (unscaled * x).sum(axis=1)
+    from ._runtime import AddMessage
+    for name, bandwidth in zip(names, bandwidths):
+        AddMessage(f"Bandwidth of {name}: {bandwidth}")
+    by_name = {c.name.lower(): c for c in columns}
+    keep = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory]]
+    labels = ["INTERCEPT", *[f"C_{e}" for e in explanatory], "PREDICTED", "RESIDUAL"]
+    out = _out(output_features)
+    _gpkg.create(out, kind, srid, [*keep, *[_gpkg.Column(name, "Double") for name in labels]])
+    with da.InsertCursor(out, [*[c.name for c in keep], *labels, "SHAPE@"]) as written:
+        for i, f in enumerate(kept):
+            written.insertRow((*[f[1][c.name.lower()] for c in keep], *[float(v) for v in unscaled[i]],
+                               float(fitted[i]), float(y[i] - fitted[i]), f[4]))
+    table = ""
+    if _given(output_table):
+        table = _write_table(output_table, [_gpkg.Column("VARIABLE", "String"), _gpkg.Column("BANDWIDTH", "Double")],
+                             [(name, float(b)) for name, b in zip(names, bandwidths)])
+    return Result(out, table)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -2146,9 +2481,6 @@ def CollectEvents(Input_Incident_Features, Output_Weighted_Point_Feature_Class):
 
 
 _REFUSED = {
-    "OptimizedHotSpotAnalysis": "it aggregates incidents and chooses its scale by procedures the documentation "
-                                "describes only in outline",
-    "OptimizedOutlierAnalysis": "it chooses its scale and permutes values at random",
     "GenerateSpatialWeightsMatrix": "its output, an .swm file, has no published layout",
     "GenerateNetworkSpatialWeights": "it needs a network dataset and writes an .swm file",
     "GenerateNetworkSWM": "it needs a network dataset and writes an .swm file",
@@ -2170,7 +2502,7 @@ _REFUSED.update({name: _SWM for name in (
 _REFUSED.update({name: _SSM for name in (
     "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
 _REFUSED.update({name: _FIT for name in (
-    "GeographicallyWeightedRegression", "MGWR", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "GeographicallyWeightedRegression", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
     "EstimateTimeToEvent")})
 _REFUSED.update({
     "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",

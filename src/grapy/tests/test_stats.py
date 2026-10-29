@@ -26,6 +26,7 @@ class Stats(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         arcpy.env.workspace = self.directory
+        arcpy.env.scratchWorkspace = self.directory
         arcpy.env.outputCoordinateSystem = None
 
     def make(self, name, shape, fields, rows, srid=3857):
@@ -627,6 +628,46 @@ class Stats(unittest.TestCase):
         self.assertEqual([r[0] for r in self.rows(out, ["CLUSTER_ID"])], [1, 1, 1, 2, 2, 2, -1])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "HDBSCAN"):
             stats.DensityBasedClustering(path, self.out("h"), "HDBSCAN", 3)
+
+    def test_optimized_hot_spot_analysis_follows_its_documented_steps(self):
+        # A 12 × 12 lattice of incidents 1 apart, plus five more on (0, 0). Unique points: every nearest neighbour is 1
+        # away, so no locational outlier and ANN = MNN = 1. Not dense: N random points in the 11 × 11 hull lie
+        # 0.5/√(144/121) ≈ 0.458 apart, and twice that is not under 11/100. So the cell is 2·max(1, 1) = 2: a 6 × 6
+        # fishnet from (0, 0), four incidents a cell, nine in the first.
+        xys = [(x, y) for y in range(12) for x in range(12)] + [(0, 0)] * 5
+        path = self.points("incidents", xys)
+        before = arcpy.GetMessageCount()
+        out = stats.OptimizedHotSpotAnalysis(path, self.out("ohsa"), None, "COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS")
+        said = [arcpy.GetMessage(i) for i in range(before, arcpy.GetMessageCount())]
+        self.assertIn("Cell size: 2.0", said)
+        counts = sorted(r[0] for r in self.rows(out[0], ["Join_Count"]))
+        self.assertEqual(counts, [4] * 35 + [9])
+        # With a distance band given, the analysis is HotSpots with the FDR correction on the same weighted features.
+        weighted = os.path.join(arcpy.env.scratchWorkspace, "optimizedhotspotanalysis_weighted.gpkg")
+        given = stats.OptimizedHotSpotAnalysis(path, self.out("ohsa2"), None, "COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS",
+                                               Distance_Band=4)
+        direct = stats.HotSpots(weighted, "Join_Count", self.out("direct"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
+                                "NONE", 4, None, None, "APPLY_FDR")
+        self.assertEqual(self.rows(given[0], ["GiZScore", "Gi_Bin"]), self.rows(direct[0], ["GiZScore", "Gi_Bin"]))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "SNAP_NEARBY"):
+            stats.OptimizedHotSpotAnalysis(path, self.out("snap"), None, "SNAP_NEARBY_INCIDENTS_TO_CREATE_WEIGHTED_POINTS")
+        outliers = stats.OptimizedOutlierAnalysis(path, self.out("ooa"), None, "COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS",
+                                                  None, None, "QUICK_199", None, 4)
+        self.assertEqual(len(self.rows(outliers[0], ["LMiPValue"])), 36)
+
+    def test_mgwr_back_fitting(self):
+        # With a band far wider than the data, every bisquare weight is 1 to within 10⁻¹⁶, each term's local fit is the
+        # global one, and back-fitting converges to ordinary least squares: on x = 0..4, y = 1, 3, 4, 8, 9 that is
+        # β0 = .8, β1 = 2.1 (worked in test_ordinary_least_squares_by_the_textbook), at every feature.
+        path = self.points("mgwr", [(10 * i, 0) for i in range(5)], [[1.0, 3.0, 4.0, 8.0, 9.0], [0.0, 1, 2, 3, 4]],
+                           more=[("x", "DOUBLE")])
+        out = stats.MGWR(path, "v", "CONTINUOUS", "x", self.out("mgwr_out"), "DISTANCE_BAND", "USER_DEFINED",
+                         distance_band=1e9).getOutput(0)
+        for intercept, slope in self.rows(out, ["INTERCEPT", "C_x"]):
+            self.assertAlmostEqual(intercept, 0.8, places=6)
+            self.assertAlmostEqual(slope, 2.1, places=6)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "GRADIENT_SEARCH"):
+            stats.MGWR(path, "v", "CONTINUOUS", "x", self.out("m2"), "DISTANCE_BAND", "GRADIENT_SEARCH")
 
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):

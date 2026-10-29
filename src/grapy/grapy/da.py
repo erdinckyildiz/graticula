@@ -869,7 +869,6 @@ _REFUSED = {name: _NO_MODEL for name in (
     "ListReplicas", "Replica", "SyncReplica", "ListSubtypes", "ContingentFieldValue",
     "ContingentValue", "ListContingentValues", "DatabaseSequence", "ListDatabaseSequences",
     "SearchRelatedRecords")}
-_REFUSED["ListFieldConflictFilters"] = "field conflict filters are not yet honoured by grapy's branch versions (ADR-227)"
 _REFUSED["TableToArrowTable"] = "pyarrow is not among the wheels a user tool runs with today"
 _REFUSED["CreateParquetCache"] = "pyarrow is not among the wheels a user tool runs with today"
 
@@ -993,3 +992,13 @@ class SearchRelatedRecords:
 
     def __exit__(self, *_):
         return False
+
+
+def ListFieldConflictFilters(table):
+    """The fields of a versioned class with field conflict filters (management.AddFieldConflictFilter), ADR-227."""
+    from . import _versions
+    connection, name = _gpkg.table_of(table)
+    try:
+        return _versions.filters(connection, name)
+    finally:
+        connection.close()

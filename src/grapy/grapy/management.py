@@ -5188,8 +5188,10 @@ def _reconcile_one(connection, version_name, definition, resolution, abort, post
     """Reconcile one branch version with DEFAULT, then post it when asked. Conflicts, as the ReconcileVersions page
     defines them: BY_OBJECT, a row changed (updated or deleted) in both DEFAULT — since the version's base moment — and
     the version; BY_ATTRIBUTE, the same column of the same row changed in both, a delete conflicting with any change.
-    FAVOR_EDIT_VERSION keeps the version's value, FAVOR_TARGET_VERSION takes DEFAULT's. INFERRED: a column both sides set
-    to the same value is not a conflict; with BY_ATTRIBUTE, changes to different columns of one row are merged."""
+    FAVOR_EDIT_VERSION keeps the version's value, FAVOR_TARGET_VERSION takes DEFAULT's. A field with a conflict filter
+    (AddFieldConflictFilter) never conflicts by attribute, as documented. INFERRED: a column both sides set to the
+    same value is not a conflict; with BY_ATTRIBUTE, changes to different columns of one row are merged; a filtered
+    field changed on both sides keeps the version's value."""
     from . import _versions
     from ._runtime import ExecuteError
     name, branch, base = _versions.version(connection, version_name)
@@ -5198,6 +5200,7 @@ def _reconcile_one(connection, version_name, definition, resolution, abort, post
     plans, conflicts = [], 0
     for table in _versions.registered(connection, "branch"):
         _, oid, _ = _versions.columns(connection, table)
+        filtered = set(_versions.filters(connection, table))
         edits = _branch_latest(connection, table, branch)
         if not edits:
             continue
@@ -5225,6 +5228,8 @@ def _reconcile_one(connection, version_name, definition, resolution, abort, post
                     continue
                 if mine.get(column) == was.get(column):
                     merged[column] = value
+                elif mine.get(column) != value and column in filtered:
+                    continue   # a field conflict filter: not a conflict, and the version's value stands (INFERRED)
                 elif mine.get(column) != value:
                     clashed = True
                     conflicts += 1
@@ -5449,4 +5454,43 @@ _REFUSED.update({name: "keeps field conflict filters, which grapy's branch versi
 for _built in ("AlterVersion", "ChangeVersion", "CreateVersion", "DeleteVersion", "PruneBranchHistory", "ReconcileVersion",
                "ReconcileVersions", "RegisterAsVersioned", "UnregisterAsVersioned", "EnableArchiving", "DisableArchiving",
                "TrimArchiveHistory"):
+    _REFUSED.pop(_built, None)
+
+
+def _filter_fields(tool, table, fields, on):
+    """Field conflict filters set or removed (ADR-227): on a branch versioned class, not on its id or geometry."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    path = _plain(tool, table)
+    connection, name = _gpkg.table_of(path)
+    try:
+        if _versions.kind(connection, name) != "branch":
+            raise ExecuteError(f"ERROR 000800: '{name}' is not registered as versioned.")
+        names, _, _ = _versions.columns(connection, name)
+        by_lower = {n.lower(): n for n in names}
+        chosen = []
+        for field in _list(fields):
+            if str(field).lower() not in by_lower:
+                raise ExecuteError(f"ERROR 000800: '{field}' is not a field conflict filters apply to — not the object "
+                                   "id, the shape, nor a field the table lacks.")
+            chosen.append(by_lower[str(field).lower()])
+        _versions.set_filters(connection, name, chosen, on)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(table))
+
+
+def AddFieldConflictFilter(table, fields):
+    """Field conflict filters on fields of a branch versioned class: a reconcile by attribute does not flag a change
+    to them on both sides as a conflict, as documented. INFERRED: the class must be registered as versioned."""
+    return _filter_fields("AddFieldConflictFilter", table, fields, True)
+
+
+def RemoveFieldConflictFilter(table, fields):
+    """The field conflict filters on those fields removed."""
+    return _filter_fields("RemoveFieldConflictFilter", table, fields, False)
+
+
+for _built in ("AddFieldConflictFilter", "RemoveFieldConflictFilter"):
     _REFUSED.pop(_built, None)

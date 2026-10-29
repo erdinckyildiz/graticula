@@ -188,3 +188,23 @@ def registered(connection, wanted=None):
     rows = connection.execute(f"select table_name from {REGISTERED} where kind = ?" if wanted else
                               f"select table_name from {REGISTERED}", (wanted,) if wanted else ()).fetchall()
     return [r[0] for r in rows]
+
+
+FILTERS = "grapy_conflict_filters"
+
+
+def filters(connection, table):
+    """The fields of a class whose changes on both sides do not conflict when reconciling by attribute."""
+    if connection.execute(f"select 1 from sqlite_master where name = '{FILTERS}'").fetchone() is None:
+        return []
+    return [r[0] for r in connection.execute(f"select field from {FILTERS} where table_name = ? order by rowid", (table,))]
+
+
+def set_filters(connection, table, fields, on):
+    connection.execute(f"create table if not exists {FILTERS} (table_name text not null, field text not null, "
+                       f"primary key (table_name, field))")
+    for field in fields:
+        if on:
+            connection.execute(f"insert or ignore into {FILTERS} values (?, ?)", (table, field))
+        else:
+            connection.execute(f"delete from {FILTERS} where table_name = ? and field = ?", (table, field))

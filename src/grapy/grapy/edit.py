@@ -541,14 +541,63 @@ def TransformFeatures(in_features, in_link_features, method="AFFINE", out_link_t
     return Result(in_features, table or "", rmse)
 
 
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+
+@_equivalent("piecewise-linear rubber-sheeting on a Delaunay triangulation of the links' sources",
+             "Saalfeld 1985, A fast rubber-sheeting transformation using simplicial coordinates, The American Cartographer 12(2)")
+def RubbersheetFeatures(in_features, in_link_features, in_identity_links=None, method="LINEAR"):
+    """EQUIVALENT: LINEAR rubber-sheeting as Saalfeld (1985) defines it. The links' starts — and the identity links'
+    points, which stay where they are — are triangulated (Delaunay); within each triangle a vertex moves by the affine
+    map that carries the triangle's corners onto the links' ends, so its new place is the barycentric mean of those
+    ends. INFERRED: a vertex outside the triangulation does not move — the page builds "temporary TINs" and does not
+    say what lies outside them. NATURAL_NEIGHBOR is refused (not in this equivalent).
+    """
+    from scipy.spatial import Delaunay
+    tool = "RubbersheetFeatures"
+    if str(method or "LINEAR").upper() != "LINEAR":
+        _refuse(tool, "method", method, "natural neighbour rubber-sheeting is not in this equivalent")
+    _, _, srid, _ = _schema(in_features)
+    links = _links(in_link_features, srid)
+    source = [tuple(s[:2]) for _, s, _ in links]
+    target = [tuple(t[:2]) for _, _, t in links]
+    if in_identity_links not in (None, "", "#"):
+        with da.SearchCursor(in_identity_links, ["SHAPE@XY"]) as rows:
+            for (xy,) in rows:
+                source.append(tuple(xy))
+                target.append(tuple(xy))
+    if len(source) < 3:
+        raise ExecuteError("ERROR 001011: rubber-sheeting needs at least three links or identity points.")
+    source_array = numpy.array(source, dtype=float)
+    target_array = numpy.array(target, dtype=float)
+    triangulation = Delaunay(source_array)
+
+    def move(points):
+        found = triangulation.find_simplex(points)
+        out = points.copy()
+        for i, simplex in enumerate(found):
+            if simplex < 0:
+                continue
+            corners = triangulation.simplices[simplex]
+            transform = triangulation.transform[simplex]
+            b = transform[:2] @ (points[i] - transform[2])
+            weights = numpy.array([b[0], b[1], 1 - b.sum()])
+            out[i] = weights @ target_array[corners]
+        return out
+
+    with da.UpdateCursor(in_features, ["SHAPE@"]) as rows:
+        for row in rows:
+            if row[0] is not None:
+                rows.updateRow([shapely.transform(row[0]._shape, move)])
+    return Result(in_features)
+
+
 _REFUSED = {
     "AlignFeatures": "its matching of candidates is documented only in words — no similarity measure, thresholds or "
                      "tie-breaking — so any answer would be grapy's own under arcpy's name",
     "EdgematchFeatures": "it moves features along edgematch links whose generation is documented only in words",
     "GenerateEdgematchLinks": "its matching of features across an edge is documented only in words",
     "GenerateRubbersheetLinks": "its matching of source and target features is documented only in words",
-    "RubbersheetFeatures": "its natural-neighbour and linear adjustments are named but not specified, and the links it "
-                           "takes come from GenerateRubbersheetLinks, which is not built",
     "TransferAttributes": "its line matching is documented only in words",
     "SplitLineByMatch": "its line matching is documented only in words",
     "SimplifyByStraightLinesAndCircularArcs": "it writes true circular arcs, which a GeoPackage feature class here does "
