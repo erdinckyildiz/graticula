@@ -56,8 +56,7 @@ ReconcileVersions and PostVersion references). Conflict detection by object and 
 
 ## 5. Decision
 
-1. RegisterAsVersioned (branch) adds the documented columns and keeps every edit as a new row. EnableArchiving
-   uses the same columns, without branches.
+1. ~~RegisterAsVersioned (branch) adds the documented columns and keeps every edit as a new row.~~ **Amended 2026-10-30, when it was built:** the class keeps DEFAULT's current state, and its history lives beside it in `<table>__history` with the branch model's documented columns (`gdb_objectid`, `gdb_from_date`, `gdb_branch_id`, `gdb_is_delete`, `gdb_deleted_by`). Triggers append a row for every insert, update and delete, whoever writes it. Edits on a named version go to the history table under its branch. **Why:** with history in the table, every reader that is not a grapy cursor, grapy's own SQL counts included, would see duplicates, which is §3's counterargument. Beside the table, they see exactly DEFAULT. EnableArchiving uses the same history table, without branches.
 2. CreateVersion, AlterVersion, DeleteVersion, `da.ListVersions` and `da.Version`. Cursors and `da.Editor` take a
    version. Historical moments are read with `env` or a cursor's documented `datum` and moment arguments.
 3. ReconcileVersions with the documented conflict definitions (by object, by attribute) and resolutions (favour
@@ -91,6 +90,6 @@ None recorded.
 ## 11. Conditions
 
 1. **RegisterAsVersioned, CreateVersion, edits on a version, ReconcileVersions and PostVersion** work end to end,
-   tested on a hand-worked conflict.
-2. **EnableArchiving and historical reads** answer a past moment's rows.
-3. **Every remaining versioning and archiving name** is built or refused with its reason.
+   tested on a hand-worked conflict. **DISCHARGED 2026-10-30** by `test_versions.py`. A and B are edited on both sides: BY_OBJECT favouring the edit version gives (a, 10) and (bb, 2); BY_ATTRIBUTE favouring the target merges to (a, 20) and (bb, 30); ABORT_CONFLICTS changes nothing. Inserts and deletes post, and pruning removes exactly the superseded rows.
+2. **EnableArchiving and historical reads** answer a past moment's rows. **DISCHARGED 2026-10-30**: after an update and a delete, ChangeVersion HISTORICAL at a time between them returns both original rows. TrimArchiveHistory keeps the current ones.
+3. **Every remaining versioning and archiving name** is built or refused with its reason. **PARTLY DISCHARGED 2026-10-30**: traditional versioning and enterprise administration are refused (§5.4). Field conflict filters are refused until reconcile honours them. The top-level `arcpy.ListVersions` is not yet built.
