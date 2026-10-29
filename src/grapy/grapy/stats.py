@@ -2294,6 +2294,153 @@ def OptimizedOutlierAnalysis(Input_Features, Output_Features, Analysis_Field=Non
                             None, "APPLY_FDR", permutations)
 
 
+def _univariate_fit(column, target, weights):
+    """Each feature's local coefficient of one variable alone on ``target`` with kernel ``weights``, and the trace of
+    that smoother: β_i = Σ_k w_ik x_k r_k / Σ_k w_ik x_k²."""
+    import numpy as np
+    denominator = weights @ (column * column)
+    if (denominator == 0).any():
+        raise ValueError("arcpy.stats.MGWR: a local regression is empty at this bandwidth — too few neighbours.")
+    beta = (weights @ (column * target)) / denominator
+    trace = float((np.diag(weights) * column * column / denominator).sum())
+    return beta, trace
+
+
+def _univariate_aicc(column, target, d, bandwidth, kernel, adaptive):
+    n = len(target)
+    beta, trace = _univariate_fit(column, target, _gwr_weights(d, bandwidth, kernel, adaptive))
+    residual = target - beta * column
+    rss = float(residual @ residual)
+    if n - 2 - trace <= 0 or rss <= 0:
+        return math.inf if n - 2 - trace <= 0 else -math.inf
+    return n * math.log(rss / n) + n * math.log(2 * math.pi) + n * (n + trace) / (n - 2 - trace)
+
+
+@_equivalent("multiscale geographically weighted regression by back-fitting, a bandwidth per variable chosen on AICc",
+             "Fotheringham, Yang and Kang 2017; Oshan, Li, Kang, Wolf and Fotheringham 2019 (mgwr)")
+def MGWR(in_features, dependent_variable, model_type, explanatory_variables, output_features, neighborhood_type,
+         neighborhood_selection_method, minimum_number_of_neighbors=None, maximum_number_of_neighbors=None,
+         distance_unit=None, minimum_search_distance=None, maximum_search_distance=None,
+         number_of_neighbors_increment=None, search_distance_increment=None, number_of_increments=None,
+         number_of_neighbors=None, distance_band=None, number_of_neighbors_golden=None, number_of_neighbors_manual=None,
+         number_of_neighbors_defined=None, distance_golden=None, distance_manual=None, distance_defined=None,
+         prediction_locations=None, explanatory_variables_to_match=None, output_predicted_features=None,
+         robust_prediction=None, local_weighting_scheme="BISQUARE", output_table=None, coefficient_raster_workspace=None,
+         scale="SCALE_DATA", number_of_neighbors_gradient=None, distance_gradient=None):
+    """EQUIVALENT: MGWR by back-fitting (Fotheringham, Yang and Kang 2017): y = Σ_j f_j, f_j = β_j(u)·x_j; starting
+    from ordinary least squares, each term is refitted in turn as a GWR of its partial residual y − Σ_{l≠j} f_l on x_j
+    alone, with its own bandwidth chosen on that fit's AICc (golden-section search, manual intervals, or given), until
+    the score of change √(Σ(Δf)²/n / Σ(Σ_j f_j)²) falls below 10⁻⁵ (Oshan et al. 2019) or 200 rounds pass. The
+    intercept is a variable with its own bandwidth. With SCALE_DATA (the default) every variable is standardized
+    (population standard deviation) before fitting, as MGWR needs to compare bandwidths, and the coefficients are
+    written back in the data's units.
+
+    Writes the dependent and explanatory variables, INTERCEPT, C_<variable>, PREDICTED and RESIDUAL; output_table lists
+    VARIABLE and BANDWIDTH (INFERRED names). Standard errors and the model's AICc need MGWR's per-term hat matrices,
+    which this equivalent does not compute, and are not written. Kernels and neighbourhoods are GWR's.
+
+    Refused: GRADIENT_SEARCH (its optimiser is not specified), CONTINUOUS only, per-variable golden or manual ranges,
+    distance_unit, prediction locations and coefficient rasters.
+    """
+    import numpy as np
+    tool = "MGWR"
+    if _keyword(model_type or "CONTINUOUS") != "CONTINUOUS":
+        raise ValueError(f"arcpy.stats.{tool}: only CONTINUOUS is supported, as documented.")
+    for name, value in (("number_of_neighbors_golden", number_of_neighbors_golden),
+                        ("number_of_neighbors_manual", number_of_neighbors_manual),
+                        ("distance_golden", distance_golden), ("distance_manual", distance_manual),
+                        ("number_of_neighbors_gradient", number_of_neighbors_gradient),
+                        ("distance_gradient", distance_gradient), ("distance_unit", distance_unit),
+                        ("prediction_locations", prediction_locations),
+                        ("output_predicted_features", output_predicted_features),
+                        ("coefficient_raster_workspace", coefficient_raster_workspace)):
+        if _given(value):
+            _refuse(tool, name, value, "it is not part of this equivalent")
+    method = _keyword(neighborhood_selection_method)
+    if method == "GRADIENT_SEARCH":
+        _refuse(tool, "neighborhood_selection_method", method, "the gradient-based optimiser is not specified")
+    kernel = _keyword(local_weighting_scheme or "BISQUARE")
+    adaptive = _keyword(neighborhood_type) == "NUMBER_OF_NEIGHBORS"
+    explanatory = [e for e in _list(explanatory_variables) if _given(e)]
+    kept, y, x, xy, columns, kind, srid = _regression_data(tool, in_features, dependent_variable, explanatory)
+    n, k = x.shape
+    d = _distances(xy)
+    scaled = _keyword(scale or "SCALE_DATA") not in ("NO_SCALE_DATA", "FALSE")
+    y_mean, y_sd = (float(y.mean()), float(y.std())) if scaled else (0.0, 1.0)
+    x_mean = np.concatenate([[0.0], x[:, 1:].mean(axis=0)]) if scaled else np.zeros(k)
+    x_sd = np.concatenate([[1.0], x[:, 1:].std(axis=0)]) if scaled else np.ones(k)
+    ys = (y - y_mean) / y_sd
+    xs = (x - x_mean) / x_sd
+    names = ["Intercept", *explanatory]
+    defined = {}
+    for row in _list(number_of_neighbors_defined if adaptive else distance_defined):
+        pair = row if isinstance(row, (list, tuple)) else str(row).split()
+        defined[str(pair[0]).lower()] = int(pair[1]) if adaptive else _threshold(pair[1], srid)
+
+    def choose(j, target):
+        if method == "USER_DEFINED":
+            given = defined.get(names[j].lower(), number_of_neighbors if adaptive else distance_band)
+            if not _given(given):
+                raise ValueError(f"arcpy.stats.{tool}: USER_DEFINED needs a bandwidth for {names[j]}.")
+            return int(given) if adaptive else (given if isinstance(given, float) else _threshold(given, srid))
+        score = (lambda b: _univariate_aicc(xs[:, j], target, d, b, kernel, adaptive))
+        if method == "MANUAL_INTERVALS":
+            start = minimum_number_of_neighbors if adaptive else minimum_search_distance
+            step = number_of_neighbors_increment if adaptive else search_distance_increment
+            first = int(start) if adaptive else _threshold(start, srid)
+            delta = int(step) if adaptive else _threshold(step, srid)
+            return min((first + i * delta for i in range(int(number_of_increments))), key=lambda b: (score(b), b))
+        if method != "GOLDEN_SEARCH":
+            raise ValueError(f"arcpy.stats.{tool}: neighborhood_selection_method is GOLDEN_SEARCH, MANUAL_INTERVALS or "
+                             "USER_DEFINED.")
+        sorted_d = np.sort(d, axis=1)
+        if adaptive:
+            low = int(minimum_number_of_neighbors) if _given(minimum_number_of_neighbors) else max(int(math.ceil(0.05 * n)), 3)
+            high = int(maximum_number_of_neighbors) if _given(maximum_number_of_neighbors) else max(low, n // 2)
+        else:
+            low = _threshold(minimum_search_distance, srid) if _given(minimum_search_distance) else \
+                float(sorted_d[:, max(int(math.ceil(0.05 * n)) - 1, 1)].max())
+            high = _threshold(maximum_search_distance, srid) if _given(maximum_search_distance) else \
+                float(sorted_d[:, max(n // 2 - 1, 1)].max())
+        return _golden(score, low, high, adaptive)
+
+    beta_global = np.linalg.lstsq(xs, ys, rcond=None)[0]
+    betas = np.tile(beta_global, (n, 1))
+    terms = betas * xs
+    bandwidths = [None] * k
+    for _ in range(200):
+        before = terms.copy()
+        for j in range(k):
+            partial = ys - terms.sum(axis=1) + terms[:, j]
+            bandwidths[j] = choose(j, partial)
+            beta_j, _ = _univariate_fit(xs[:, j], partial, _gwr_weights(d, bandwidths[j], kernel, adaptive))
+            betas[:, j] = beta_j
+            terms[:, j] = beta_j * xs[:, j]
+        change = math.sqrt(float(((terms - before) ** 2).sum()) / n / float((terms.sum(axis=1) ** 2).sum()))
+        if change < 1e-5:
+            break
+    unscaled = betas * y_sd / x_sd
+    unscaled[:, 0] = y_mean + y_sd * betas[:, 0] - (unscaled[:, 1:] * x_mean[1:]).sum(axis=1)
+    fitted = (unscaled * x).sum(axis=1)
+    from ._runtime import AddMessage
+    for name, bandwidth in zip(names, bandwidths):
+        AddMessage(f"Bandwidth of {name}: {bandwidth}")
+    by_name = {c.name.lower(): c for c in columns}
+    keep = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory]]
+    labels = ["INTERCEPT", *[f"C_{e}" for e in explanatory], "PREDICTED", "RESIDUAL"]
+    out = _out(output_features)
+    _gpkg.create(out, kind, srid, [*keep, *[_gpkg.Column(name, "Double") for name in labels]])
+    with da.InsertCursor(out, [*[c.name for c in keep], *labels, "SHAPE@"]) as written:
+        for i, f in enumerate(kept):
+            written.insertRow((*[f[1][c.name.lower()] for c in keep], *[float(v) for v in unscaled[i]],
+                               float(fitted[i]), float(y[i] - fitted[i]), f[4]))
+    table = ""
+    if _given(output_table):
+        table = _write_table(output_table, [_gpkg.Column("VARIABLE", "String"), _gpkg.Column("BANDWIDTH", "Double")],
+                             [(name, float(b)) for name, b in zip(names, bandwidths)])
+    return Result(out, table)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -2355,7 +2502,7 @@ _REFUSED.update({name: _SWM for name in (
 _REFUSED.update({name: _SSM for name in (
     "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
 _REFUSED.update({name: _FIT for name in (
-    "GeographicallyWeightedRegression", "MGWR", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "GeographicallyWeightedRegression", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
     "EstimateTimeToEvent")})
 _REFUSED.update({
     "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",
