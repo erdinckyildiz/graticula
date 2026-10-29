@@ -128,6 +128,17 @@ class ImageAnalyst(unittest.TestCase):
         self.assertEqual(cells(ia.Remap(values, [0, 2, 2, 5], [10, 20], [0, 2], False, 0), nodata=99), [[99, 20], [0, 0]])
         self.assertEqual(cells(ia.SquareRoot(grid([[4.0, -1.0]]))), [[2.0, ND]])
 
+    def test_gvitm_and_subset_bands(self):
+        seven = ia.CompositeBand([grid([[float(k)]]) for k in range(1, 8)])
+        expected = -0.2848 * 1 - 0.2435 * 2 - 0.5436 * 3 + 0.7243 * 4 + 0.084 * 5 - 1.18 * 7
+        self.assertAlmostEqual(self.first(ia.GVITM(seven)), expected, places=5)
+        subset = ia.SubsetBands(self.bands, bands="4 1-2")
+        # Kept in the input's order: bands 1, 2 and 4.
+        self.assertEqual(subset.bandCount, 3)
+        self.assertAlmostEqual(cells(subset._band(3))[0][0], 0.5, places=6)
+        with self.assertRaises(arcpy.NotBuiltError):
+            ia.SubsetBands(self.bands, "BY_WAVELENGTHS", "500")
+
     def test_refused_names_say_why(self):
         for name, words in (("DetectObjectsUsingDeepLearning", "group 3"), ("Anomaly", "group 2"),
                             ("TrainSupportVectorMachineClassifier", "not specified"), ("Stretch", "formulas"),

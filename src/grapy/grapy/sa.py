@@ -15,7 +15,7 @@ import re
 
 import numpy as np
 
-from ._raster import Raster, _combine, _Grid, _refuse_environment, as_raster
+from ._raster import Raster, _Bands, _combine, _Grid, _open_bands, _refuse_environment, as_raster
 from ._raster import NumPyArrayToRaster, RasterToNumPyArray  # noqa: F401 — arcpy.sa answers these too
 from ._runtime import NotBuiltError
 
@@ -2367,6 +2367,306 @@ def AddSurfaceInformation(in_feature_class, in_surface, out_property, method="BI
     return Result(in_feature_class)
 
 
+# ---- image tools that arcpy.sa and arcpy.ia share (ADR-224); arcpy.ia re-exports them
+
+# ---- band indexes: the formulas of each function's page, which are those of the Band Arithmetic raster function
+
+
+def _band_values(raster, ids, tool):
+    """The bands asked for, one-based, as floating point with NoData as NaN, and their grid."""
+    bands = _open_bands(raster, tool)
+    out = []
+    for number in ids:
+        if number is None:
+            _refuse(tool, "band id", "(empty)", "its default is not documented; pass it")
+        band = bands._band(int(number))
+        out.append(np.where(band._mask, np.nan, band._array.astype(np.float64)))
+    return out, bands._grid
+
+
+def _index_raster(values, grid):
+    """An index's answer: floating point, NoData where any band used was NoData or the formula has no value (a zero
+    denominator). INFERRED: 32-bit floating point, as arcpy's float rasters are; the pages give no pixel type."""
+    with np.errstate(all="ignore"):
+        values = np.asarray(values, dtype=np.float64)
+    mask = ~np.isfinite(values)
+    return Raster._of(np.where(mask, 0, values).astype(np.float32), mask, grid)
+
+
+def _index(name, band_names, defaults, formula, doc, constants=()):
+    """An index function: ``name(raster, <band ids…>, <constants…>)`` with the documented defaults."""
+    parameters = [*band_names, *[c for c, _ in constants]]
+
+    def tool(raster, *args, **kwargs):
+        given = dict(zip(parameters, args))
+        given.update(kwargs)
+        unknown = set(given) - set(parameters)
+        if unknown:
+            raise TypeError(f"{name}() got an unexpected argument {sorted(unknown)[0]!r}")
+        ids = [given.get(b, defaults.get(b)) for b in band_names]
+        values, grid = _band_values(raster, ids, name)
+        numbers = [float(given.get(c, d)) for c, d in constants]
+        with np.errstate(all="ignore"):
+            return _index_raster(formula(*values, *numbers), grid)
+
+    tool.__name__ = tool.__qualname__ = name
+    shown = [f"{b}={defaults.get(b)}" for b in band_names] + [f"{c}={d}" for c, d in constants]
+    tool.__doc__ = f"arcpy.ia.{name}(raster, {', '.join(shown)}): {doc} Band ids are one-based."
+    return tool
+
+
+NDVI = _index("NDVI", ["nir_band_id", "red_band_id"], {"nir_band_id": 4, "red_band_id": 3},
+              lambda nir, red: (nir - red) / (nir + red), "(NIR − Red) / (NIR + Red), from −1 to 1.")
+SAVI = _index("SAVI", ["nir_band_id", "red_band_id"], {"nir_band_id": 7, "red_band_id": 6},
+              lambda nir, red, l: (nir - red) / (nir + red + l) * (1 + l),
+              "((NIR − Red) / (NIR + Red + L)) × (1 + L). The defaults are the page's: bands 7 and 6, L 0.33.",
+              [("l", 0.33)])
+EVI = _index("EVI", ["nir_band_id", "red_band_id", "blue_band_id"], {"nir_band_id": 5, "red_band_id": 4, "blue_band_id": 2},
+             lambda nir, red, blue: 2.5 * (nir - red) / (nir + 6 * red - 7.5 * blue + 1),
+             "2.5 × (NIR − Red) / (NIR + 6 × Red − 7.5 × Blue + 1).")
+MSAVI = _index("MSAVI", ["nir_band_id", "red_band_id"], {"nir_band_id": 4, "red_band_id": 3},
+               lambda nir, red: 0.5 * (2 * (nir + 1) - np.sqrt((2 * nir + 1) ** 2 - 8 * (nir - red))),
+               "MSAVI2 = ½ (2(NIR + 1) − √((2 NIR + 1)² − 8(NIR − Red))).")
+NDWI = _index("NDWI", ["nir_band_id", "green_band_id"], {"nir_band_id": 5, "green_band_id": 3},
+              lambda nir, green: (green - nir) / (green + nir), "(Green − NIR) / (Green + NIR).")
+NBR = _index("NBR", ["swir_band_id", "nir_band_id"], {"swir_band_id": 7, "nir_band_id": 5},
+             lambda swir, nir: (nir - swir) / (nir + swir), "(NIR − SWIR) / (NIR + SWIR).")
+BAI = _index("BAI", ["red_band_id", "nir_band_id"], {"red_band_id": 3, "nir_band_id": 4},
+             lambda red, nir: 1 / ((0.1 - red) ** 2 + (0.06 - nir) ** 2), "1 / ((0.1 − Red)² + (0.06 − NIR)²).")
+CIg = _index("CIg", ["nir_band_id", "green_band_id"], {"nir_band_id": 7, "green_band_id": 3},
+             lambda nir, green: nir / green - 1, "(NIR / Green) − 1.")
+CIre = _index("CIre", ["nir_band_id", "redEdge_band_id"], {"nir_band_id": 7, "redEdge_band_id": 6},
+              lambda nir, edge: nir / edge - 1, "(NIR / RedEdge) − 1.")
+ClayMinerals = _index("ClayMinerals", ["swir1_band_id", "swir2_band_id"], {"swir1_band_id": 6, "swir2_band_id": 7},
+                      lambda a, b: a / b, "SWIR1 / SWIR2.")
+FerrousMinerals = _index("FerrousMinerals", ["swir_band_id", "nir_band_id"], {"swir_band_id": 6},
+                         lambda swir, nir: swir / nir,
+                         "SWIR / NIR. The page gives no default for nir_band_id, so it must be passed.")
+GEMI = _index("GEMI", ["nir_band_id", "red_band_id"], {"nir_band_id": 4, "red_band_id": 3},
+              lambda nir, red: (lambda eta: eta * (1 - 0.25 * eta) - (red - 0.125) / (1 - red))(
+                  (2 * (nir ** 2 - red ** 2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5)),
+              "η(1 − 0.25η) − (Red − 0.125)/(1 − Red), η = (2(NIR² − Red²) + 1.5 NIR + 0.5 Red)/(NIR + Red + 0.5).")
+IronOxide = _index("IronOxide", ["red_band_id", "blue_band_id"], {"red_band_id": 4, "blue_band_id": 2},
+                   lambda red, blue: red / blue, "Red / Blue.")
+NDBI = _index("NDBI", ["swir_band_id", "nir_band_id"], {"swir_band_id": 6, "nir_band_id": 5},
+              lambda swir, nir: (swir - nir) / (swir + nir), "(SWIR − NIR) / (SWIR + NIR).")
+NDMI = _index("NDMI", ["nir_band_id", "swir1_band_id"], {"nir_band_id": 5, "swir1_band_id": 6},
+              lambda nir, swir: (nir - swir) / (nir + swir), "(NIR − SWIR1) / (NIR + SWIR1).")
+NDSI = _index("NDSI", ["green_band_id", "swir_band_id"], {"green_band_id": 4, "swir_band_id": 6},
+              lambda green, swir: (green - swir) / (green + swir), "(Green − SWIR) / (Green + SWIR).")
+NDVIre = _index("NDVIre", ["nir_band_id", "redEdge_band_id"], {"nir_band_id": 7, "redEdge_band_id": 6},
+                lambda nir, edge: (nir - edge) / (nir + edge), "(NIR − RedEdge) / (NIR + RedEdge).")
+PVI = _index("PVI", ["nir_band_id", "red_band_id"], {"nir_band_id": 4, "red_band_id": 3},
+             lambda nir, red, a, b: (nir - a * red - b) / np.sqrt(1 + a * a), "(NIR − a·Red − b) / √(1 + a²).",
+             [("a", 0.3), ("b", 0.5)])
+RTVICore = _index("RTVICore", ["nir_band_id", "redEdge_band_id", "green_band_id"],
+                  {"nir_band_id": 7, "redEdge_band_id": 6, "green_band_id": 3},
+                  lambda nir, edge, green: 100 * (nir - edge) - 10 * (nir - green), "100(NIR − RedEdge) − 10(NIR − Green).")
+SR = _index("SR", ["nir_band_id", "red_band_id"], {"nir_band_id": 5, "red_band_id": 4}, lambda nir, red: nir / red,
+            "NIR / Red.")
+SRre = _index("SRre", ["nir_band_id", "redEdge_band_id"], {"nir_band_id": 7, "redEdge_band_id": 6},
+              lambda nir, edge: nir / edge, "NIR / RedEdge.")
+TSAVI = _index("TSAVI", ["nir_band_id", "red_band_id"], {"nir_band_id": 4, "red_band_id": 3},
+               lambda nir, red, s, a, x: s * (nir - s * red - a) / (a * nir + red - a * s + x * (1 + s * s)),
+               "s(NIR − s·Red − a) / (a·NIR + Red − a·s + X(1 + s²)).", [("s", 0.33), ("a", 0.5), ("X", 1.5)])
+VARI = _index("VARI", ["red_band_id", "green_band_id", "blue_band_id"], {"red_band_id": 3, "green_band_id": 2, "blue_band_id": 1},
+              lambda red, green, blue: (green - red) / (green + red - blue), "(Green − Red) / (Green + Red − Blue).")
+
+
+# BandArithmetic's method codes and, for each, the formula over the bands named in band_ids and the constants that
+# follow them in the same string, as the Band Arithmetic raster function documents.
+_METHODS = {
+    1: ("NDVI", 2, lambda nir, red: (nir - red) / (nir + red)),
+    2: ("SAVI", 3, lambda nir, red, l: (nir - red) / (nir + red + l) * (1 + l)),
+    3: ("TSAVI", 5, lambda nir, red, s, a, x: s * (nir - s * red - a) / (a * nir + red - a * s + x * (1 + s * s))),
+    4: ("MSAVI", 2, lambda nir, red: 0.5 * (2 * (nir + 1) - np.sqrt((2 * nir + 1) ** 2 - 8 * (nir - red)))),
+    5: ("GEMI", 2, lambda nir, red: (lambda eta: eta * (1 - 0.25 * eta) - (red - 0.125) / (1 - red))(
+        (2 * (nir ** 2 - red ** 2) + 1.5 * nir + 0.5 * red) / (nir + red + 0.5))),
+    6: ("PVI", 4, lambda nir, red, a, b: (nir - a * red - b) / np.sqrt(1 + a * a)),
+    7: ("GVITM", 6, lambda b1, b2, b3, b4, b5, b7: -0.2848 * b1 - 0.2435 * b2 - 0.5436 * b3 + 0.7243 * b4 + 0.0840 * b5
+        - 1.1800 * b7),
+    9: ("VARI", 3, lambda red, green, blue: (green - red) / (green + red - blue)),
+    10: ("GNDVI", 2, lambda nir, green: (nir - green) / (nir + green)),
+    11: ("SR", 2, lambda nir, red: nir / red),
+    12: ("NDVIre", 2, lambda nir, edge: (nir - edge) / (nir + edge)),
+    13: ("SRre", 2, lambda nir, edge: nir / edge),
+    15: ("RTVICore", 3, lambda nir, edge, green: 100 * (nir - edge) - 10 * (nir - green)),
+    16: ("CIre", 2, lambda nir, edge: nir / edge - 1),
+    17: ("CIg", 2, lambda nir, green: nir / green - 1),
+    19: ("EVI", 3, lambda nir, red, blue: 2.5 * (nir - red) / (nir + 6 * red - 7.5 * blue + 1)),
+    20: ("Iron oxide", 2, lambda red, blue: red / blue),
+    21: ("Ferrous minerals", 2, lambda swir, nir: swir / nir),
+    22: ("Clay minerals", 2, lambda a, b: a / b),
+    23: ("WNDWI", 4, lambda green, nir, swir, alpha: (green - alpha * nir - (1 - alpha) * swir)
+         / (green + alpha * nir + (1 - alpha) * swir)),
+}
+# How many of each method's values are band ids; the rest are constants written in the same string.
+_BANDS_IN = {2: 2, 3: 2, 6: 2, 23: 3}
+
+
+def BandArithmetic(raster, band_ids, method=1):
+    """One of the Band Arithmetic raster function's indexes by its method code, over the bands ``band_ids`` names —
+    ``"5 4"`` — in the order the method documents, constants following the bands (``"4 3 0.5"`` for SAVI).
+
+    Refused: 0, a user-defined expression, whose syntax the page shows only by one example; 8, Sultan's formula, which
+    answers three bands; 14, MTVI2, whose formula the page's text renders garbled; 18, NDWI, whose band order the page
+    gives as NIR then Green while the formula reads Green first.
+
+    INFERRED: GVITM's six ids are Bands 1, 2, 3, 4, 5 and 7 of the formula, in that order; WNDWI's α defaults to 0.5,
+    as the page says, when only three ids are given."""
+    code = int(method)
+    if code not in _METHODS:
+        reasons = {0: "a user-defined expression's syntax is shown only by one example",
+                   8: "Sultan's formula answers three bands", 14: "the page's text renders the formula garbled",
+                   18: "the page's band order and formula disagree"}
+        _refuse("BandArithmetic", "method", method, reasons.get(code, "it is not one of the documented codes"))
+    name, count, formula = _METHODS[code]
+    parts = [p for p in str(band_ids).replace(",", " ").split() if p]
+    if code == 23 and len(parts) == 3:
+        parts.append("0.5")
+    if len(parts) != count:
+        raise ValueError(f"BandArithmetic {name} takes {count} values in band_ids; {len(parts)} were given.")
+    bands_in = _BANDS_IN.get(code, count)
+    values, grid = _band_values(raster, [int(float(p)) for p in parts[:bands_in]], "BandArithmetic")
+    with np.errstate(all="ignore"):
+        return _index_raster(formula(*values, *[float(p) for p in parts[bands_in:]]), grid)
+
+
+# ---- bands
+
+
+def CompositeBand(raster):
+    """The rasters' bands, in order, as one raster of several bands; every input must lie on one grid (cells of the same
+    size, lined up and covering the same extent), since resampling is not built."""
+    inputs = raster if isinstance(raster, (list, tuple)) else [raster]
+    bands = [_open_bands(r, "CompositeBand") for r in inputs]
+    grid = bands[0]._grid
+    for b in bands[1:]:
+        if not b._grid.same(grid):
+            _refuse("CompositeBand", "raster", b, "rasters on different grids need resampling")
+    return _Bands([a for b in bands for a in b._arrays], [m for b in bands for m in b._masks], grid)
+
+
+def ExtractBand(raster, band_ids=None, band_names=None, band_wavelengths=None, missing_band_action=None,
+                wavelength_match_tolerance=None):
+    """The bands ``band_ids`` names, in that order: one band answers a Raster, several a raster of several bands.
+
+    Refused: ``band_names`` and ``band_wavelengths``, which need band metadata grapy's rasters do not carry; a band id
+    the raster does not have, since BestMatch's choice of a substitute is not specified.
+
+    INFERRED: band ids are one-based, as every other arcpy.ia band id is; the page's example passes [1, 2]."""
+    if _given(band_names):
+        _refuse("ExtractBand", "band_names", band_names, "band names are metadata grapy's rasters do not carry")
+    if _given(band_wavelengths):
+        _refuse("ExtractBand", "band_wavelengths", band_wavelengths, "wavelengths are metadata grapy's rasters do not carry")
+    bands = _open_bands(raster, "ExtractBand")
+    ids = band_ids if isinstance(band_ids, (list, tuple)) else [band_ids]
+    if not ids or ids == [None]:
+        raise ValueError("ExtractBand needs band_ids.")
+    for i in ids:
+        if not 1 <= int(i) <= bands.bandCount:
+            _refuse("ExtractBand", "band_ids", i, f"the raster has {bands.bandCount} bands, and BestMatch's substitute is "
+                    "not specified")
+    if len(ids) == 1:
+        return bands._band(int(ids[0]))
+    return _Bands([bands._arrays[int(i) - 1] for i in ids], [bands._masks[int(i) - 1] for i in ids], bands._grid)
+
+
+# ---- local statistics across rasters, answered by arcpy.sa.CellStatistics
+
+
+def _same_grid_or_intersection(rasters, extent_type, cellsize_type, tool):
+    """The extent and cell size choices: the same answer whatever they are when every input lies on one grid; otherwise
+    only IntersectionOf over cells of one size, which is how grapy aligns rasters."""
+    opened = [as_raster(r, tool) if isinstance(r, str) else r for r in rasters]
+    grids = [r._grid for r in opened if isinstance(r, Raster)]
+    if all(grids[0].same(g) for g in grids[1:]):
+        return opened
+    if str(extent_type or "FirstOf") != "IntersectionOf":
+        _refuse(tool, "extent_type", extent_type, "rasters on different grids are built only for IntersectionOf")
+    widths = {round(g.width, 9) for g in grids}
+    if len(widths) != 1:
+        _refuse(tool, "cellsize_type", cellsize_type, "rasters of different cell sizes need resampling")
+    return opened
+
+
+def _local(name, statistic, doc):
+    def tool(rasters, extent_type="FirstOf", cellsize_type="FirstOf", ignore_nodata=False, process_as_multiband=False):
+        if process_as_multiband:
+            _refuse(name, "process_as_multiband", process_as_multiband)
+        opened = _same_grid_or_intersection(list(rasters), extent_type, cellsize_type, name)
+        return CellStatistics(opened, statistic, "DATA" if ignore_nodata else "NODATA")
+    tool.__name__ = tool.__qualname__ = name
+    tool.__doc__ = (f"arcpy.ia.{name}: {doc}, cell by cell — arcpy.sa.CellStatistics' {statistic}. NoData anywhere makes "
+                    "the cell NoData unless ``ignore_nodata`` is True.")
+    return tool
+
+
+Max = _local("Max", "MAXIMUM", "the largest value across the rasters")
+Min = _local("Min", "MINIMUM", "the smallest value across the rasters")
+Mean = _local("Mean", "MEAN", "the mean across the rasters")
+Median = _local("Median", "MEDIAN", "the median across the rasters")
+Sum = _local("Sum", "SUM", "the sum across the rasters")
+Range = _local("Range", "RANGE", "the largest less the smallest value across the rasters")
+StdDev = _local("StdDev", "STD", "the standard deviation across the rasters")
+Majority = _local("Majority", "MAJORITY", "the most frequent value across the rasters")
+Minority = _local("Minority", "MINORITY", "the least frequent value across the rasters")
+Variety = _local("Variety", "VARIETY", "the number of distinct values across the rasters")
+
+
+def Arithmetic(raster1, raster2, operation_type="Plus", extent_type="FirstOf", cellsize_type="FirstOf"):
+    """Two rasters (or a raster and a number) combined cell by cell: Plus, Minus, Multiply, Divide or Power — arcpy.sa's
+    Plus, Minus, Times, Divide and Power.
+
+    Refused: Mode, whose answer for two different values is not specified.
+
+    INFERRED: NoData in either input is NoData, arcpy's general rule; Divide divides two integers as arcpy.sa.Divide
+    documents (an integer division)."""
+    operations = {"PLUS": Plus, "MINUS": Minus, "MULTIPLY": Times, "DIVIDE": Divide, "POWER": Power}
+    kind = str(operation_type or "Plus").upper()
+    if kind not in operations:
+        _refuse("Arithmetic", "operation_type", operation_type, "the answer of Mode for two different values is not specified")
+    rasters = [r for r in (raster1, raster2) if isinstance(r, (Raster, str))]
+    _same_grid_or_intersection(rasters, extent_type, cellsize_type, "Arithmetic")
+    return operations[kind](raster1, raster2)
+
+
+def Remap(raster, input_ranges=None, output_values=None, no_data_ranges=None, allow_unmatched=True, replacement_value=None):
+    """Values remapped by ranges, each from (inclusive) to (exclusive): ``input_ranges`` ``[from, to, from, to, …]`` with
+    one output value each; values in ``no_data_ranges`` become NoData; unmatched values keep their value, or — with
+    ``allow_unmatched`` False — become ``replacement_value``, or NoData when there is none.
+
+    INFERRED: a value in a NoData range is NoData even if an input range also holds it; of overlapping input ranges the
+    first listed wins; the output is integer when the input and every output and replacement value are integers."""
+    from ._raster import as_raster
+    source = as_raster(raster, "Remap")
+    ranges = list(input_ranges or [])
+    outputs = list(output_values or [])
+    if len(ranges) % 2 or len(ranges) // 2 != len(outputs):
+        raise ValueError("Remap: input_ranges are pairs, one output value for each pair.")
+    a = source._array.astype(np.float64)
+    out = np.full(a.shape, np.nan)
+    done = np.zeros(a.shape, bool)
+    for (low, high), value in zip(zip(ranges[0::2], ranges[1::2]), outputs):
+        hit = (a >= float(low)) & (a < float(high)) & ~done
+        out[hit] = float(value)
+        done |= hit
+    nodata = source._mask.copy()
+    empty = list(no_data_ranges or [])
+    for low, high in zip(empty[0::2], empty[1::2]):
+        nodata |= (a >= float(low)) & (a < float(high))
+    if allow_unmatched:
+        out = np.where(done, out, a)
+    elif _given(replacement_value):
+        out = np.where(done, out, float(replacement_value))
+    else:
+        nodata |= ~done
+    values = [*outputs, *([replacement_value] if _given(replacement_value) else [])]
+    integer = source.isInteger and all(float(v).is_integer() for v in values)
+    out = np.where(nodata, 0, out)
+    return Raster._of(out.astype(np.int32) if integer else out, nodata, source._grid)
+
+
 SquareRoot = _unary("SquareRoot", lambda a: np.where(np.asarray(a) >= 0, np.sqrt(np.abs(a)), np.nan))
 SquareRoot.__doc__ = "arcpy.sa.SquareRoot: floating point; a value below 0 is NoData, as the tool's page documents."
 
@@ -2393,12 +2693,504 @@ _REFUSED.update({
 })
 
 
+# ---- the image tools' refusals, shared with arcpy.ia
+
+_IA_GROUP_3 = "it needs a pretrained model or a deep learning framework, which a user tool on this server does not have " \
+           "(ADR-224 group 3)"
+_IA_GROUP_2 = "it needs a data model this server does not hold yet (ADR-224 group 2)"
+_IA_UNSPECIFIED = "its algorithm is named or described but not specified closely enough to reproduce"
+_IMAGE_REFUSED = {name: _IA_GROUP_3 for name in (
+    "ClassifyObjectsUsingDeepLearning", "ClassifyPixelsUsingDeepLearning", "ComputeAccuracyForObjectDetection",
+    "ComputeAccuracyForPixelClassification", "DeepLearningModelToEcd", "DetectChangeUsingDeepLearning",
+    "DetectObjectsUsingDeepLearning", "DetectObjectsUsingText", "ExportTrainingDataForDeepLearning",
+    "ExtractFeaturesUsingAIModels", "NonMaximumSuppression", "TrainDeepLearningModel", "TrainUsingAutoDL",
+    "TranslatePixelsUsingDeepLearning",
+)}
+_IMAGE_REFUSED.update({name: _IA_GROUP_2 for name in (
+    "AggregateMultidimensionalRaster", "AnalyzeChangesUsingCCDC", "AnalyzeChangesUsingLandTrendr", "Anomaly",
+    "DimensionalMovingStatistics", "FindArgumentStatistics", "ArgStatistics", "GenerateMultidimensionalAnomaly",
+    "GenerateTrend", "GenerateTrendRaster", "InterpolateRasterByDimension", "MultidimensionalPrincipalComponents",
+    "MultidimensionalRasterCorrelation", "PredictUsingTrend", "PredictUsingTrendRaster", "RasterToXarray",
+    "XarrayToRaster", "TrendToRGB", "ComputeChange", "ComputeChangeRaster", "DetectChangeUsingChangeAnalysis",
+    "DetectChangeUsingChangeAnalysisRaster", "InterpolateFromSpatiotemporalPoints",
+    "ApplyCoregistration", "ApplyGeometricTerrainCorrection", "ApplyOrbitCorrection", "ApplyRadiometricCalibration",
+    "ApplyRadiometricTerrainFlattening", "ApplyComplexDataFilter", "ComputeCoherence", "ComputeSARIndices",
+    "ConvertSARUnits", "Deburst", "Despeckle", "DetectBrightOceanObjects", "DetectDarkOceanAreas", "DownloadOrbitFile",
+    "ExtractOceanWinds", "GenerateInterferogram", "GenerateMaskedSARRaster", "GenerateMultitemporalCoherence",
+    "GenerateRadiometricTerrainCorrectedData", "Multilook", "RadarCalibration", "RemoveThermalNoise",
+    "S1RadiometricCalibration", "S1ThermalNoiseRemoval", "UnwrapPhase",
+    "ConvertVideoMetadata", "ExtractVideoFramesToImages", "GenerateVideoMetadataStationary", "VideoMetadataToFeatureClass",
+    "VideoMultiplexer", "RasterCollection",
+)})
+_IMAGE_REFUSED.update({name: _IA_UNSPECIFIED for name in (
+    "TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+    "TrainRandomTreesClassifier", "TrainRandomTreesRegressionModel", "TrainSupportVectorMachineClassifier",
+    "ClassifyRaster", "Classify", "MLClassify", "PredictUsingRegressionModel", "SegmentMeanShift", "SegMeanShift",
+    "Threshold", "Pansharpen", "TasseledCap", "RegionGrow",
+)})
+_IMAGE_REFUSED.update({
+    "MTVI2": "the formula on its page is rendered garbled in the text, and grapy does not guess where the root falls",
+    "Stretch": "its pages describe MinMax, StdDev and PercentClip without giving their formulas",
+    "Convolution": "the page maps only two of its 22 kernel codes to kernels, and edge handling is not documented",
+    "Percentile": "which interpolation AUTO_DETECT's NEAREST and LINEAR use between two values is not specified",
+    "Sultan": "it answers three bands from an ordering of five band ids the page does not spell out",
+    "GNDVI": "its arcpy.ia page could not be read (404 on 2026-10-29), so its parameter names and defaults are unknown",
+    "MNDWI": "its arcpy.ia page could not be read (404 on 2026-10-29), so its parameter names and defaults are unknown",
+    "FloatDivide": "its reference page could not be read (404 on 2026-10-29)",
+    "FloorDivide": "its reference page could not be read (404 on 2026-10-29)",
+    "InList": "its reference page could not be read (404 on 2026-10-29)",
+})
+_REFUSED.update({k: v for k, v in _IMAGE_REFUSED.items() if k not in _REFUSED})
+
+
+# ---- round four (ADR-224): the remaining names classified, and the few found cleanly documented built
+
+from ._geometry import Point as _GeometryPoint  # noqa: E402
+from ._reference import Extent as _ReferenceExtent  # noqa: E402
+
+Raster = Raster  # noqa: PLW0127 — arcpy.sa.Raster is arcpy.Raster
+Point = _GeometryPoint  # arcpy.sa.Point is arcpy.Point
+Extent = _ReferenceExtent  # arcpy.sa.Extent is arcpy.Extent
+
+
+def Corridor(in_distance_raster1, in_distance_raster2):
+    """The sum of two accumulative cost rasters, as the tool's summary states; floating point.
+
+    INFERRED: NoData in either input is NoData, arcpy's general rule; the page is silent."""
+    _refuse_environment("arcpy.sa.Corridor")
+    a, b = as_raster(in_distance_raster1, "Corridor"), as_raster(in_distance_raster2, "Corridor")
+    return _combine([a, b], lambda x, y: np.asarray(x, dtype=np.float64) + y, keep_integer=False, tool="Corridor")
+
+
+def FuzzyOverlay(in_rasters, overlay_type=None, gamma=0.9):
+    """Fuzzy memberships combined cell by cell: ``AND`` takes the minimum, ``OR`` the maximum, as documented.
+
+    Refused: ``PRODUCT``, ``SUM`` and ``GAMMA``, which the page describes only in words (*a decrease function*, *an
+    increase function*); and an omitted ``overlay_type``, whose default the page does not state.
+
+    INFERRED: NoData in any input is NoData."""
+    _refuse_environment("arcpy.sa.FuzzyOverlay")
+    kind = str(overlay_type).upper() if _given(overlay_type) else None
+    if kind not in ("AND", "OR"):
+        _refuse("FuzzyOverlay", "overlay_type", overlay_type or "(empty)",
+                "only AND and OR are given exactly; the default is not documented")
+    arrays, mask, grid = _many(list(in_rasters), "FuzzyOverlay")
+    stack = np.stack([a.astype(np.float64) for a in arrays])
+    value = stack.min(axis=0) if kind == "AND" else stack.max(axis=0)
+    return Raster._of(np.where(mask, 0, value), mask, grid)
+
+
+def TransposeBits(raster, input_bit_positions=(12, 13), output_bit_positions=(0, 1), constant_fill_value=0,
+                  fill_raster=None):
+    """Bits moved: output bit ``output_bit_positions[k]`` takes input bit ``input_bit_positions[k]``; every other output
+    bit comes from ``constant_fill_value``, or from ``fill_raster`` when one is given.
+
+    INFERRED: bits are numbered from 0, the least significant; ``fill_raster`` takes precedence over the constant when
+    both are given (the page does not say); the output is a 32-bit integer; a floating-point input is refused."""
+    _refuse_environment("arcpy.sa.TransposeBits")
+    source = as_raster(raster, "TransposeBits")
+    if not source.isInteger:
+        _refuse("TransposeBits", "raster", raster, "the bits of a floating-point raster are not defined")
+    ins, outs = [int(i) for i in input_bit_positions], [int(o) for o in output_bit_positions]
+    if len(ins) != len(outs):
+        raise ValueError("TransposeBits: input_bit_positions and output_bit_positions pair up one to one.")
+    a = source._array.astype(np.int64)
+    mask = source._mask.copy()
+    if _given(fill_raster):
+        fill = as_raster(fill_raster, "TransposeBits")
+        if not fill._grid.same(source._grid):
+            _refuse("TransposeBits", "fill_raster", fill_raster, "a fill raster on another grid needs resampling")
+        base = fill._array.astype(np.int64)
+        mask |= fill._mask
+    else:
+        base = np.full(a.shape, int(constant_fill_value or 0), np.int64)
+    cleared = 0
+    for o in outs:
+        cleared |= 1 << o
+    out = base & ~cleared
+    for i, o in zip(ins, outs):
+        out |= ((a >> i) & 1) << o
+    return Raster._of(_wrap32(out).astype(np.int32), mask, source._grid)
+
+
+_POINT_STATS = ("MEAN", "MAJORITY", "MAXIMUM", "MEDIAN", "MINIMUM", "MINORITY", "RANGE", "STD", "SUM", "VARIETY")
+
+
+def _statistic_of(values, kind):
+    """A statistic of a list of values as Point Statistics documents them: majority ties go to the lower value, the
+    median of an even count is the lower of the two middle values. INFERRED: minority ties also go to the lower value;
+    STD is the population standard deviation."""
+    v = np.sort(np.asarray(values, dtype=np.float64))
+    if kind == "MEAN":
+        return v.mean()
+    if kind in ("MAJORITY", "MINORITY"):
+        uniques, counts = np.unique(v, return_counts=True)
+        target = counts.max() if kind == "MAJORITY" else counts.min()
+        return uniques[counts == target].min()
+    if kind == "MAXIMUM":
+        return v.max()
+    if kind == "MEDIAN":
+        return v[(len(v) - 1) // 2]
+    if kind == "MINIMUM":
+        return v.min()
+    if kind == "RANGE":
+        return v.max() - v.min()
+    if kind == "STD":
+        return v.std()
+    if kind == "SUM":
+        return v.sum()
+    return float(len(np.unique(v)))
+
+
+def PointStatistics(in_point_features, field, cell_size=None, neighborhood=None, statistics_type="MEAN"):
+    """For each cell, a statistic of the field over the points within a neighbourhood of the cell's centre — by default
+    a 3 × 3-cell rectangle; NoData where none falls within.
+
+    INFERRED: a point exactly on the neighbourhood's edge is within; the grid's top-left corner is the points' extent's;
+    see ``_statistic_of`` for ties and STD."""
+    _refuse_environment("arcpy.sa.PointStatistics")
+    kind = str(statistics_type or "MEAN").upper()
+    if kind not in _POINT_STATS:
+        _refuse("PointStatistics", "statistics_type", statistics_type)
+    grid, _, _ = _density_grid(in_point_features, cell_size, "PointStatistics")
+    points = [(s, w) for s, w in _population(in_point_features, field, "PointStatistics")]
+    xs = np.array([p.x for p, _ in points])
+    ys = np.array([p.y for p, _ in points])
+    values = np.array([w for _, w in points])
+    neighborhood = neighborhood if neighborhood is not None else NbrRectangle(3, 3, "CELL")
+    in_cells = str(getattr(neighborhood, "units", "CELL")).upper() == "CELL"
+    cx, cy = grid.centres()
+    out = np.zeros((grid.rows, grid.columns))
+    empty = np.ones((grid.rows, grid.columns), bool)
+    for i, y in enumerate(cy):
+        for j, x in enumerate(cx):
+            dx, dy = xs - x, ys - y
+            if isinstance(neighborhood, NbrRectangle):
+                w = float(neighborhood.width) * (grid.width if in_cells else 1.0)
+                h = float(neighborhood.height) * (grid.height if in_cells else 1.0)
+                within = (np.abs(dx) <= w / 2) & (np.abs(dy) <= h / 2)
+            elif isinstance(neighborhood, NbrCircle):
+                r = float(neighborhood.radius) * (grid.width if in_cells else 1.0)
+                within = dx * dx + dy * dy <= r * r
+            else:
+                _refuse("PointStatistics", "neighborhood", type(neighborhood).__name__,
+                        "only NbrRectangle and NbrCircle are built")
+            if within.any():
+                out[i, j] = _statistic_of(values[within], kind)
+                empty[i, j] = False
+    return Raster._of(np.where(empty, 0, out), empty, grid)
+
+
+def LineStatistics(in_polyline_features, field, cell_size=None, search_radius=None, statistics_type="MEAN"):
+    """For each cell, a statistic of the field over the lines within a circle round the cell's centre — five cells by
+    default. ``MEAN`` weights each line by its length inside the circle; ``LENGTH`` is that length; ``MAXIMUM``,
+    ``MINIMUM``, ``RANGE`` and ``VARIETY`` take every line with any length inside it. NoData where none does.
+
+    Refused: ``MAJORITY``, ``MEDIAN`` and ``MINORITY``, whose length weighting the page does not define.
+
+    INFERRED: a line that only touches the circle has no length inside it and does not count."""
+    _refuse_environment("arcpy.sa.LineStatistics")
+    kind = str(statistics_type or "MEAN").upper()
+    if kind not in ("MEAN", "LENGTH", "MAXIMUM", "MINIMUM", "RANGE", "VARIETY"):
+        _refuse("LineStatistics", "statistics_type", statistics_type, "its length weighting is not defined")
+    import shapely
+    from shapely.strtree import STRtree
+    grid, _, _ = _density_grid(in_polyline_features, cell_size, "LineStatistics")
+    lines = _population(in_polyline_features, field, "LineStatistics")
+    r = float(search_radius) if _given(search_radius) else 5 * grid.width
+    tree = STRtree([s for s, _ in lines])
+    cx, cy = grid.centres()
+    out = np.zeros((grid.rows, grid.columns))
+    empty = np.ones((grid.rows, grid.columns), bool)
+    for i, y in enumerate(cy):
+        for j, x in enumerate(cx):
+            found = []
+            for k in tree.query(shapely.box(x - r, y - r, x + r, y + r)):
+                shape, value = lines[int(k)]
+                length = _length_in_circle(shape, x, y, r)
+                if length > 0:
+                    found.append((length, value))
+            if not found:
+                continue
+            empty[i, j] = False
+            lengths = np.array([f[0] for f in found])
+            values = np.array([f[1] for f in found])
+            out[i, j] = {"MEAN": lambda: (lengths * values).sum() / lengths.sum(), "LENGTH": lambda: lengths.sum(),
+                         "MAXIMUM": lambda: values.max(), "MINIMUM": lambda: values.min(),
+                         "RANGE": lambda: values.max() - values.min(),
+                         "VARIETY": lambda: float(len(np.unique(values)))}[kind]()
+    return Raster._of(np.where(empty, 0, out), empty, grid)
+
+
+# ---- every remaining name, refused with its specific reason (checked 2026-10-29 against Esri's pages)
+
+_RESCALE = ("it is a transformation function of RescaleByFunction, which is refused: the formulas are published, "
+            "but which values the rescaling's minimum and maximum are taken over, and how shape parameters are fitted "
+            "when not given, are not specified")
+_FUZZY = ("the Fuzzy Membership pages give the membership functions only as images (checked: the tool page and "
+          "FuzzyGaussian's class page)")
+_PATH = ("it is a factor or tool of path distance; How the path distance tools work names the surface distance and the "
+         "horizontal and vertical factors without defining them")
+_TOPO = "it is an input class of TopoToRaster, which is refused (its algorithm is not specified)"
+_TRACE = ("it traces paths over backlink or back-direction rasters; Cost Path's page does not map the codes to "
+          "neighbours, define path numbering or settle ties")
+_404 = "its reference page could not be read (404 on 2026-10-29)"
+_SEGMENT = "it works on the segmented rasters of SegmentMeanShift, which is refused (its algorithm is not specified)"
+_REFUSED.update({name: _RESCALE for name in (
+    "RescaleByFunction", "TfExponential", "TfGaussian", "TfLarge", "TfLinear", "TfLogarithm", "TfLogisticDecay",
+    "TfLogisticGrowth", "TfMSLarge", "TfMSSmall", "TfNear", "TfPower", "TfSmall", "TfSymmetricLinear")})
+_REFUSED.update({name: _FUZZY for name in (
+    "FuzzyMembership", "FuzzyGaussian", "FuzzyLarge", "FuzzyLinear", "FuzzyMSLarge", "FuzzyMSSmall", "FuzzyNear",
+    "FuzzySmall")})
+_REFUSED.update({name: _PATH for name in (
+    "PathDistance", "PathAllocation", "PathBackLink", "DistanceAccumulation", "DistanceAllocation", "HfBinary",
+    "HfForward", "HfInverseLinear", "HfLinear", "HfTable", "VfBidirHikingTime", "VfBinary", "VfCos", "VfCosSec",
+    "VfHikingTime", "VfInverseLinear", "VfLinear", "VfSec", "VfSecCos", "VfSymInverseLinear", "VfSymLinear", "VfTable")})
+_REFUSED.update({name: _TOPO for name in (
+    "TopoBoundary", "TopoCliff", "TopoCoast", "TopoContour", "TopoExclusion", "TopoLake", "TopoPointElevation",
+    "TopoSink", "TopoStream")})
+_REFUSED.update({name: _TRACE for name in ("CostPath", "CostPathAsPolyline", "OptimalPathAsRaster", "OptimalPathAsLine")})
+_REFUSED.update({name: _SEGMENT for name in ("ComputeSegmentAttributes", "RemoveRasterSegmentTilingArtifacts")})
+_REFUSED.update({name: _404 for name in ("HeatIndex", "WindChill", "UnitConversion", "Resample", "Speckle")})
+_REFUSED.update({
+    "KernelDensity": "its page gives the density formula and the default search radius only as images — alt text "
+                     "'Predicted density formula' and 'Formula for calculating the default search radius for kernel "
+                     "density', with no LaTeX or MathML — and its text scales the result by the number of points, which "
+                     "cannot be reconciled with a population inside the kernel without the formula itself",
+    "CalculateKernelDensityRatio": "it divides two kernel densities, and KernelDensity is refused (formula published "
+                                   "only as an image)",
+    "SpaceTimeKernelDensity": "it extends kernel density, whose formula Esri publishes only as an image",
+    "KrigingModelOrdinary": "it is a model class of Kriging, which is refused (its algorithm is not specified)",
+    "KrigingModelUniversal": "it is a model class of Kriging, which is refused (its algorithm is not specified)",
+    "WeightedOverlay": "its page shows the rounding to integer only by one example (2.25 to 2) and does not explain the "
+                       "evaluation scale's three values",
+    "WOTable": "it holds WeightedOverlay's criteria, and WeightedOverlay is refused (rounding shown only by example)",
+    "PrincipalComponents": "the page does not say whether the covariance or correlation matrix is used, how components "
+                           "are scaled, or how eigenvector signs are chosen",
+    "Filter": "the page does not give the LOW and HIGH kernels' coefficients or edge handling",
+    "ZonalHistogram": "the page does not name the output table's fields",
+    "ZonalGeometryAsTable": "the page does not name its fields beyond ORIENTATION or define PERIMETER and THICKNESS",
+    "TopographicPositionIndex": "the page does not say whether the centre cell is in the mean, nor how edges and NoData "
+                                "are treated",
+    "SurfaceAreaRatio": "the page does not give the 3D surface area computation; it defers to another topic",
+    "StreamToFeature": "the page does not name the output fields, number the nodes, or say how lines are traced",
+    "FocalFlow": "the page does not say which neighbour maps to which bit, and its two threshold statements disagree",
+    "RasterToWeightedPoints": "its default point placement is stated two ways that conflict, and distance_from_cell_center "
+                              "has no default",
+    "CombinatorialAnd": "the page does not say how the unique combination values are numbered, nor how NoData is treated",
+    "CombinatorialOr": "Combinatorial And's page, its sibling, does not say how combination values are numbered",
+    "CombinatorialXOr": "Combinatorial And's page, its sibling, does not say how combination values are numbered",
+    "ComputeConfusionMatrix": "the output table's fields are shown only by example, and the IoU it mentions is not in it",
+    "CreateRandomRaster": "its generator (ACM algorithm 599) is named but not specified, and the page says even a fixed "
+                          "seed does not reproduce a raster",
+    "CutFill": _NO_RAT + " — the VOLUME and AREA of each region",
+})
+
+
+GVITM = _index("GVITM", ["band1_id", "band2_id", "band3_id", "band4_id", "band5_id", "band7_id"],
+               {"band1_id": 1, "band2_id": 2, "band3_id": 3, "band4_id": 4, "band5_id": 5, "band7_id": 7},
+               lambda b1, b2, b3, b4, b5, b7: -0.2848 * b1 - 0.2435 * b2 - 0.5436 * b3 + 0.7243 * b4 + 0.084 * b5 - 1.18 * b7,
+               "Landsat TM's green vegetation index: −0.2848 B1 − 0.2435 B2 − 0.5436 B3 + 0.7243 B4 + 0.084 B5 − 1.18 B7.")
+
+
+def SubsetBands(raster, method="BY_IDS", bands=None, missing_band_action="BestMatch", exclude_bad_bands=False):
+    """The bands named by their one-based ids — ``"1 3"``, or ranges such as ``"2-4 6"`` — kept in the input's band
+    order, as the page says the output keeps it.
+
+    Refused: ``BY_NAMES`` and ``BY_WAVELENGTHS`` and ``exclude_bad_bands`` (band metadata grapy's rasters do not carry);
+    an id the raster does not have (BestMatch's substitute is chosen by wavelength, which is not held); and an empty
+    ``bands``, whose meaning the page does not give.
+
+    INFERRED: a range includes both its ends."""
+    if str(method or "BY_IDS").upper() != "BY_IDS":
+        _refuse("SubsetBands", "method", method, "band names and wavelengths are metadata grapy's rasters do not carry")
+    if exclude_bad_bands:
+        _refuse("SubsetBands", "exclude_bad_bands", exclude_bad_bands, "bad-band flags are metadata grapy's rasters do not carry")
+    if not _given(bands):
+        _refuse("SubsetBands", "bands", "(empty)", "the page does not say what an empty selection answers")
+    source = _open_bands(raster, "SubsetBands")
+    wanted = set()
+    for part in str(bands).split():
+        low, _, high = part.partition("-")
+        wanted.update(range(int(low), int(high or low) + 1))
+    for number in wanted:
+        if not 1 <= number <= source.bandCount:
+            _refuse("SubsetBands", "bands", number, f"the raster has {source.bandCount} bands, and BestMatch needs wavelengths")
+    chosen = sorted(wanted)
+    if len(chosen) == 1:
+        return source._band(chosen[0])
+    return _Bands([source._arrays[i - 1] for i in chosen], [source._masks[i - 1] for i in chosen], source._grid)
+
+
+_REFUSED.update({
+    "EucBackDirection": "the page says each value points to the next cell on the path back to the source and does not "
+                        "say whether that is one of the eight neighbours or the bearing to the source",
+    "Statistics": "its page states the defaults of stat_type and fill_no_data_only two ways that disagree, and is silent "
+                  "on edges",
+    "Clip": "the page does not say whether cells are kept by their centres or what happens outside the area of interest",
+    "Grayscale": "the page does not give the formula or say how the weights are normalised",
+    "Mask": "the page does not say whether included_ranges include their ends or how they combine with no_data_values",
+})
+
+
+_REFUSED.update({
+    "FlowDistance": "the page names the vertical and horizontal distances and the MFD statistics without giving their "
+                    "formulas",
+    "LocateDepressions": "the page does not give its fill or thresholds and does not name the depression id field",
+    "DeriveContinuousFlow": "the page does not say how flats and spurious sinks are routed, nor give MFD's partition "
+                            "function",
+    "StorageCapacity": "the page does not say how area and volume are computed (planar or surface area) nor give the "
+                       "default increment",
+    "TopHatTransform": "the page does not name the morphological operation, its structuring element or edge handling",
+    "GeomorphonLandforms": "the page does not give the ternary pattern computation or the mapping of its 498 patterns "
+                           "to landforms",
+})
+
+# Names examined and not refused, but not built in this round, each with why.
+_NOT_YET = {name: "the solar radiation model is published as text (How solar radiation is calculated), but its "
+                  "per-direction horizon sampling was not built in this round" for name in (
+    "AreaSolarRadiation", "PointsSolarRadiation", "RasterSolarRadiation", "FeatureSolarRadiation",
+    "SolarRadiationGraphics", "TimeMultipleDays", "TimeSpecialDays", "TimeWholeYear", "TimeWithinDay")}
+_NOT_YET.update({name: "FocalStatistics builds rectangle, circle and annulus neighbourhoods; this one was not built in "
+                       "this round" for name in ("NbrIrregular", "NbrWedge", "NbrWeight")})
+
+
+# ---- round five (ADR-224): the last names read and classified
+
+
+def Buffered(raster):
+    """The raster itself: Buffered only keeps a raster's pixel block in memory so an expression that reads it several
+    times is faster, and changes no value, so on grapy's in-memory rasters it answers the same raster."""
+    return as_raster(raster, "Buffered")
+
+
+class NbrIrregular:
+    """arcpy.sa.NbrIrregular: a neighbourhood read from a kernel file — a first line of width and height, then rows of
+    values in the neighbourhood's layout, where 0 excludes a cell and any other value includes it.
+
+    Refused: a kernel of even width or height, since the page does not say which cell is the centre."""
+
+    def __init__(self, inKernelFile):
+        self.inKernelFile = inKernelFile
+
+    def _footprint(self, grid):
+        with open(self.inKernelFile, encoding="utf-8") as kernel:
+            numbers = kernel.read().split()
+        width, height = int(float(numbers[0])), int(float(numbers[1]))
+        values = [float(v) for v in numbers[2:2 + width * height]]
+        if len(values) != width * height:
+            raise ValueError(f"NbrIrregular: the kernel file holds {len(values)} values, not {width} x {height}.")
+        if width % 2 == 0 or height % 2 == 0:
+            _refuse("NbrIrregular", "inKernelFile", self.inKernelFile, "the centre of an even-sized kernel is not documented")
+        return np.array(values).reshape(height, width) != 0
+
+
+_DISPLAY = "it makes a display rendering, and its page does not define the output values (it defers to a raster function topic)"
+_UNSPEC = "its page describes the algorithm in words and defers the method to another topic or a citation"
+_NOT_FOUND = "its reference page could not be read (404 on 2026-10-29)"
+_SIGNATURE_FILE = ("it reads or writes the ASCII signature (.gsg) file, whose layout is not documented (checked on Iso "
+                   "Cluster's page)")
+_CLASSIFIER_FILE = "it reads a classifier definition (.ecd) from the train classifier tools, which are refused"
+_SPECTRAL = "it reads or writes spectral libraries (.esl, .sli) whose layout the page does not give"
+_SOLAR = ("How solar radiation is calculated gives the direct and diffuse formulas as text, but the horizon "
+          "(hemispherical viewshed) algorithm, the sun-position equations and the sky map's zenith divisions are "
+          "described in words or cited (Rich et al. 1994; Fu and Rich 2000)")
+_REFUSED.update({name: _DISPLAY for name in (
+    "Colormap", "Render", "ShadedRelief", "AspectSlope", "ContrastBrightness", "ColorspaceConversion")})
+_REFUSED.update({name: _NOT_FOUND for name in (
+    "ColormapToRGB", "VectorField", "VectorFieldRenderer", "RasterInfo", "ZonalRemap", "SpectralConversion",
+    "ApplyEnvironment", "PixelBlock", "PixelBlockCollection", "Mensuration", "LinearUnmixing", "LabelBadBands",
+    "ExportRasterFunctionTemplate", "ElevationVoidFill")})
+_REFUSED.update({name: _SIGNATURE_FILE for name in ("CreateSignatures", "EditSignatures", "Dendrogram", "ClassProbability")})
+_REFUSED.update({name: _SPECTRAL for name in ("ExtractSpectraFromImage", "ResampleLibrarySpectra")})
+_REFUSED.update({name: _SOLAR for name in (
+    "AreaSolarRadiation", "PointsSolarRadiation", "RasterSolarRadiation", "FeatureSolarRadiation",
+    "SolarRadiationGraphics", "TimeMultipleDays", "TimeSpecialDays", "TimeWholeYear", "TimeWithinDay")})
+_REFUSED.update({
+    "NbrWedge": "the page does not say where the wedge's apex is, whether its boundary angles are inclusive, or how a "
+                "start angle above the end angle wraps",
+    "NbrWeight": "the page does not say how Focal Statistics combines the weighted values (weighted sum or mean)",
+    "RasterCellIterator": "the page does not give the iteration order, edge behaviour or integer NoData, and new output "
+                          "rasters come from RasterInfo, whose page could not be read (404)",
+    "Apply": "it runs Pro's raster function engine by function name or raster function template (.rft.xml)",
+    "Foreach": "it applies a raster function to every slice of a multidimensional raster (ADR-224 group 2)",
+    "Subset": "it subsets multidimensional rasters by variable and dimension (ADR-224 group 2)",
+    "SummarizeCategoricalRaster": "it summarises multidimensional categorical rasters (ADR-224 group 2)",
+    "Complex": "grapy's rasters hold no complex pixel types, and the page defers the magnitude formula",
+    "Geometric": "it orthorectifies with a sensor model and RPCs, a data model this server does not hold (ADR-224 group 2)",
+    "DetectControlPoints": "it works on a mosaic dataset, a data model this server does not hold (ADR-224 group 2)",
+    "TransformImageShapes": "it needs image orientations from a mosaic dataset and the deep learning tools' image-space "
+                            "shapes (ADR-224 groups 2 and 3)",
+    "ApparentReflectance": "it needs sensor metadata and the page defers its formula to a raster function topic",
+    "StatisticsHistogram": "it attaches statistics and histogram metadata, which grapy's rasters do not carry",
+    "Merge": "the page does not give the output extent and cell size rules or how NoData enters MEAN and SUM",
+    "Reproject": "no resampling method is specified",
+    "Gradient": "the forward differences are given, but not what the last row, column or slice gets",
+    "GeometricMedian": "the page names stopping rules but not the algorithm, and states two defaults for cellsize_type",
+    "RegionPixelCount": "the page does not say what each pixel gets, how maximum_region_size applies or how NoData is treated",
+    "CreateBinaryMask": "the page does not define the flood fill, the expansion metric or the region connectivity",
+    "CalculateCutFillVolume": "the page does not give the volume integration or how SURFACE's base is interpolated",
+    "OptimalInterpolation": _UNSPEC,
+    "ExtractWater": "it classifies radar backscatter by a method the page does not name (ADR-224 group 2 for SAR)",
+    "DetectImageAnomalies": "RXD and UTD are given, but not how the mean and covariance are estimated nor the scaling "
+                            "to 0-1, and KMEANS is not defined",
+    "ClassifyRasterUsingSpectra": "its methods (SAM, SID, SIDSAM, NS3) are described without formulas",
+    "DetectTargetUsingSpectra": "its methods (SAM, SID, ACE, CEM, MF and others) are described without formulas",
+    "ReduceSpectralBands": "MNF's noise covariance estimate and the decomposition are not specified",
+    "LinearSpectralUnmixing": "the page does not name the solver or how its constraints are enforced",
+    "InspectTrainingSamples": _CLASSIFIER_FILE,
+    "GenerateTrainingSamplesFromSeedPoints": "the page does not give the region grow's connectivity or order",
+    "IsoCluster": "its isodata algorithm (initial means, splits, merges) and signature file layout are not specified",
+    "IsoClusterUnsupervisedClassification": "it runs Iso Cluster, whose isodata algorithm is not specified",
+    "CreateAccuracyAssessmentPoints": "its random sampling has no documented seed and its output fields are not named",
+    "UpdateAccuracyAssessmentPoints": "it updates Create Accuracy Assessment Points' output, whose fields are not named",
+    "CreateNormalRaster": "it is seeded from the system clock with no documented seed or generator",
+    "BandCollectionStats": "the page does not say whether covariance divides by n or n - 1",
+    "RasterizeFeatures": "the page does not say whether a cell is assigned by its centre or by any feature it touches",
+    "ValuePercentileContours": "the percentile definition and the output fields are not documented",
+    "VolumePercentileContours": "the output polygons' fields are not documented",
+    "ZonalCharacterization": "its output field types and computation details are deferred to How zonal statistics "
+                             "tools work",
+    "GenerateWeightedVoronoi": "the influence formulas are given but the output fields are not named",
+    "MultiscaleSurfaceDeviation": "the page does not say whether the deviation is signed, whether the centre is in the "
+                                  "mean, how scales follow from nonlinearity, or how edges are handled",
+    "MultiscaleSurfaceDifference": "the page does not say whether the difference is signed, whether the centre is in "
+                                   "the mean, how distances become cells, or how edges are handled",
+    "MultiscaleSurfacePercentile": "the percentile definition, scale sequence, ties and edges are not specified",
+    "DarcyFlow": "the page gives no Darcy velocity, head gradient or volume balance formula",
+    "DarcyVelocity": "the page gives no formulas; it defers to How Darcy Flow and Darcy Velocity work",
+    "ParticleTrack": "the page names no integration scheme and no velocity interpolation between cell centres",
+    "PorousPuff": "the page gives the puff only by reference; its one equation is an image",
+    "FeaturePreservingSmoothing": "the page does not say how the new value or the surface normals are computed",
+    "GenerateBreachLines": "its cost and path search are only cited (Lindsay and Dhun 2015)",
+    "GeodesicFlowDirection": "it needs the Greenlee lookup table and geodesic distance, neither published",
+    "ValidateFlowDirection": "the page does not say how LoopID values are numbered",
+    "AdjustRasterToStream": "the interpolation, V-shaped channel geometry and cell selection are not specified",
+    "AdjustStreamToRaster": "the page describes the adjusted path but not how cells are selected or flow assigned",
+    "DeriveStreamAsRaster": "its least-steep-uphill routing is not formally defined (neighbours, ties)",
+    "DeriveStreamAsLine": "its routing is not formally defined and the output fields are not named",
+    "LocateRegions": "its region growth, seed placement and selection are described in words only",
+    "LeastCostCorridor": "the back-direction connection step and NoData are not specified",
+    "CostConnectivity": "the spanning tree's construction, neighbours and PATHCOST are not specified",
+    "OptimalRegionConnections": "the cost distance, spanning tree and entry points are not specified",
+    "OptimalCorridorConnections": "the corridor construction and the shortest-path algorithm are not specified",
+    "MulticriteriaOverlay": "its weighted overlay rescaling, quantifier-guided OWA and TOPSIS closeness are not given",
+    "CreateColorComposite": "its channel expressions' NoData, division by zero and output type are not documented",
+})
+for _name in list(_NOT_YET):
+    if _name in _REFUSED or _name == "NbrIrregular":
+        _NOT_YET.pop(_name)
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
     why = _REFUSED.get(name)
+    later = _NOT_YET.get(name)
 
     def missing(*_, **__):
-        raise NotBuiltError(f"arcpy.sa.{name} is not built in grapy" + (f": {why}." if why else " yet."))
+        if why:
+            raise NotBuiltError(f"arcpy.sa.{name} is not built in grapy: {why}.")
+        raise NotBuiltError(f"arcpy.sa.{name} is not built in grapy yet" + (f": {later}." if later else "."))
 
     return missing
