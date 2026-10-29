@@ -392,6 +392,52 @@ class Stats(unittest.TestCase):
         self.assertEqual((collected[1], float(collected[2])), ("ICOUNT", 3.0))
         self.assertEqual(self.rows(collected[0], ["ICOUNT", "SHAPE@XY"]), [(3, (0.0, 0.0)), (1, (5.0, 5.0))])
 
+    def test_neighborhood_summary_statistics_by_the_documented_formulas(self):
+        # Points at 0, 10, 20, 30, 40 holding 1, 2, 3, 4, 10; two nearest neighbours, the focal feature included.
+        # Feature 0: {1, 2, 3}: mean 2, s = sqrt(2/3), Σ(x − x̄)³ = 0 → skewness 0. Quantiles with weights 1/3:
+        # p = .5 falls inside (1/3, 2/3) → 2; p = .25 inside (0, 1/3) → 1; p = .75 inside (2/3, 1) → 3. IQR 2, QI 0.
+        # Its distances (focal left out): 10 and 20 → mean 15, s 5; p = .5 is exactly 1/2 → (10 + 20)/2 = 15.
+        # Feature 4: {3, 4, 10}: mean 17/3, deviations −8/3, −5/3, 13/3; Σ(x − x̄)³/3 = 1560/81, s² = 258/27;
+        # skewness cbrt(1560/81)/sqrt(258/27). Median 4, Q1 3, Q3 10, IQR 7, QI = (8 − 13)/7 = −5/7.
+        path = self.points("nss", [(10 * i, 0) for i in range(5)], [[1.0, 2.0, 3.0, 4.0, 10.0]])
+        out = stats.NeighborhoodSummaryStatistics(path, self.out("nss_out"), "v", "ALL", "INCLUDE_FOCAL", "IGNORE_NULLS",
+                                                  "NUMBER_OF_NEIGHBORS", None, 2).getOutput(0)
+        fields = ["v", "MEAN_v", "MED_v", "STD_v", "IQR_v", "SKEW_v", "QIMB_v", "NUM_NBRS_v",
+                  "MEAN_DIST", "MED_DIST", "STD_DIST", "NUM_NBRS_DIST"]
+        got = self.rows(out, fields)
+        expected0 = (1.0, 2.0, 2.0, math.sqrt(2 / 3), 2.0, 0.0, 0.0, 3, 15.0, 15.0, 5.0, 2)
+        for value, want in zip(got[0], expected0):
+            self.assertAlmostEqual(value, want)
+        skew = (1560 / 81) ** (1 / 3) / math.sqrt(258 / 27)
+        expected4 = (10.0, 17 / 3, 4.0, math.sqrt(258 / 27), 7.0, skew, -5 / 7, 3)
+        for value, want in zip(got[4], expected4):
+            self.assertAlmostEqual(value, want)
+        # Gaussian, band 10 (the bandwidth defaults to it): feature 4 has itself (weight 1) and the point at 30
+        # (weight exp(−½)). Mean = (10 + 4e^−½)/(1 + e^−½). Normalised, 4 weighs e^−½/(1 + e^−½) ≈ 0.378 < 0.5, so the
+        # median is 10.
+        gauss = stats.NeighborhoodSummaryStatistics(path, self.out("nss_g"), "v", "ALL", "INCLUDE_FOCAL",
+                                                    "IGNORE_NULLS", "DISTANCE_BAND", 10, None, None,
+                                                    "GAUSSIAN").getOutput(0)
+        mean, median = self.rows(gauss, ["MEAN_v", "MED_v"])[4]
+        e = math.exp(-0.5)
+        self.assertAlmostEqual(mean, (10 + 4 * e) / (1 + e))
+        self.assertEqual(median, 10.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "kernel_bandwidth"):
+            stats.NeighborhoodSummaryStatistics(path, self.out("nss_b"), "v", "ALL", "INCLUDE_FOCAL", "IGNORE_NULLS",
+                                                "NUMBER_OF_NEIGHBORS", None, 2, None, "BISQUARE")
+
+    def test_neighborhood_summary_statistics_on_a_delaunay_triangulation(self):
+        # A(0,0), B(10,0), C(5,8), D(5,−3). The circle through A, B, C has centre (5, 39/16) and r² = 25 + (39/16)²
+        # ≈ 30.94; D is (−3 − 39/16)² ≈ 29.57 from its centre's height, inside it, so ABC is not a Delaunay triangle and
+        # the diagonal is CD: A's neighbours are C and D, not B. Values 1, 2, 4, 8: A's mean, focal excluded, is 6.
+        path = self.points("tri", [(0, 0), (10, 0), (5, 8), (5, -3)], [[1.0, 2.0, 4.0, 8.0]])
+        out = stats.NeighborhoodSummaryStatistics(path, self.out("tri_out"), "v", "MEAN", "EXCLUDE_FOCAL").getOutput(0)
+        self.assertEqual(self.rows(out, ["MEAN_v", "NUM_NBRS_v"])[0], (6.0, 2))
+        # The corners of a square lie on one circle: either diagonal is a Delaunay triangulation.
+        square = self.points("sq", [(0, 0), (10, 0), (0, 10), (10, 10)], [[1.0, 2.0, 3.0, 4.0]])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "not unique"):
+            stats.NeighborhoodSummaryStatistics(square, self.out("sq_out"), "v")
+
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):
             stats.GenerateSpatialWeightsMatrix("x")

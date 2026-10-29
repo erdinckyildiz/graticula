@@ -857,6 +857,192 @@ def MultiDistanceSpatialClustering(Input_Feature_Class, Output_Table, Number_of_
     return Result(out)
 
 
+def _delaunay_neighbours(tool, xy):
+    """Each point's Delaunay neighbours, "sharing edges … in their Delaunay triangulation" — refused where that
+    triangulation is not unique (four points or more on one circle), since which diagonal is drawn is then a choice."""
+    import numpy as np
+    from scipy.spatial import Delaunay
+    points = np.asarray(xy, dtype=float)
+    if len({tuple(p) for p in points}) != len(points):
+        _refuse(tool, "neighborhood_type", "DELAUNAY_TRIANGULATION", "coincident points have no Delaunay triangulation")
+    try:
+        triangulation = Delaunay(points)
+    except Exception:  # Collinear points: scipy's Qhull raises its own error type.
+        _refuse(tool, "neighborhood_type", "DELAUNAY_TRIANGULATION", "the points are collinear and have no triangulation")
+    scale = float(np.ptp(points, axis=0).max()) or 1.0
+    for t, simplex in enumerate(triangulation.simplices):
+        for k, other in enumerate(triangulation.neighbors[t]):
+            if other < 0:
+                continue
+            opposite = [v for v in triangulation.simplices[other] if v not in simplex][0]
+            a, b, c = points[simplex]
+            d = points[opposite]
+            rows = [[p[0] - d[0], p[1] - d[1], (p[0] - d[0]) ** 2 + (p[1] - d[1]) ** 2] for p in (a, b, c)]
+            if abs(np.linalg.det(np.array(rows))) <= 1e-9 * scale ** 4:
+                _refuse(tool, "neighborhood_type", "DELAUNAY_TRIANGULATION", "four or more points lie on one circle, so "
+                        "the triangulation is not unique")
+    neighbours = [set() for _ in points]
+    for simplex in triangulation.simplices:
+        for i in simplex:
+            neighbours[i].update(int(j) for j in simplex if j != i)
+    return [sorted(n) for n in neighbours]
+
+
+def _quantile(values, weights, p):
+    """The documented weighted p-quantile of values sorted ascending, weights summing to one: the mean of x_i and
+    x_{i+1} when the weights through i sum to p exactly, otherwise the x_{i+1} whose cumulative weight passes p."""
+    total = 0.0
+    for i in range(len(values)):
+        before = total
+        total += weights[i]
+        if i < len(values) - 1 and math.isclose(total, p, rel_tol=1e-12, abs_tol=1e-15):
+            return (values[i] + values[i + 1]) / 2
+        if before < p < total or (i == len(values) - 1):
+            return values[i]
+    return values[-1]
+
+
+def _local_statistics(values, weights):
+    """Mean, median, standard deviation, interquartile range, skewness and quantile imbalance, by the formulas of
+    "How Neighborhood Summary Statistics works"."""
+    order = sorted(range(len(values)), key=lambda i: values[i])
+    x = [float(values[i]) for i in order]
+    total = sum(weights)
+    w = [weights[i] / total for i in order]
+    mean = sum(wi * xi for wi, xi in zip(w, x))
+    std = math.sqrt(sum(wi * (xi - mean) ** 2 for wi, xi in zip(w, x)))
+    third = sum(wi * (xi - mean) ** 3 for wi, xi in zip(w, x))
+    skew = math.copysign(abs(third) ** (1 / 3), third) / std if std > 0 else None
+    median, q1, q3 = (_quantile(x, w, p) for p in (0.5, 0.25, 0.75))
+    iqr = q3 - q1
+    imbalance = (2 * median - (q1 + q3)) / iqr if iqr != 0 else None
+    return {"MEAN": mean, "MEDIAN": median, "STD_DEV": std, "IQR": iqr, "SKEWNESS": skew, "QUANTILE_IMBALANCE": imbalance}
+
+
+_NSS = {"MEAN": "MEAN", "MEDIAN": "MED", "STD_DEV": "STD", "IQR": "IQR", "SKEWNESS": "SKEW", "QUANTILE_IMBALANCE": "QIMB"}
+
+
+def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=None, local_summary_statistic="ALL",
+                                  include_focal_feature="INCLUDE_FOCAL", ignore_nulls="IGNORE_NULLS",
+                                  neighborhood_type=None, distance_band=None, number_of_neighbors=8,
+                                  weights_matrix_file=None, local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None):
+    """Local summary statistics of each feature's neighbourhood, by the formulas of "How Neighborhood Summary Statistics
+    works": the weighted mean, standard deviation ``sqrt(Σw(x − x̄)²)``, skewness ``cbrt(Σw(x − x̄)³)/s``, and the
+    weighted p-quantile's median, interquartile range and quantile imbalance ``(2 Med − (Q1 + Q3))/IQR``, weights
+    normalised to sum to one (1/n unweighted). Kernels: bisquare ``(1 − (d/b)²)²`` and Gaussian ``exp(−½(d/b)²)``.
+
+    Neighbourhoods: DISTANCE_BAND (default band: the shortest that gives every feature one other neighbour; at most
+    the 1,000 nearest), NUMBER_OF_NEIGHBORS (8 by default, the focal feature not counted), CONTIGUITY_EDGES_ONLY,
+    CONTIGUITY_EDGES_CORNERS (the default for polygons), DELAUNAY_TRIANGULATION (the default for points). The focal
+    feature is included unless EXCLUDE_FOCAL; nulls are left out unless INCLUDE_NULLS, when any null makes every
+    statistic of that field null. Statistics of the distances to the neighbours, the focal feature left out and
+    unweighted, are written too.
+
+    Refused: GET_SPATIAL_WEIGHTS_FROM_FILE; a kernel without kernel_bandwidth outside a distance band (it is then
+    estimated by Kernel Density's rule, not built here); a bisquare kernel reaching a neighbour beyond its bandwidth
+    (the formula as written turns positive again there); a Delaunay triangulation that is not unique.
+
+    INFERRED: the field names — MEAN_, MED_, STD_, IQR_, SKEW_ and QIMB_ before the analysis field's name, NUM_NBRS_
+    before it for the count used, and the same with DIST for the distances — which the documentation does not give.
+    INFERRED: the output carries the analysis fields and these, not the input's other fields. INFERRED: a feature
+    exactly at the band's distance is inside it; neighbours tied at the k-th distance are taken by object id; a skewness
+    with s = 0 and an imbalance with IQR = 0 are null.
+    """
+    import numpy as np
+    tool = "NeighborhoodSummaryStatistics"
+    fields = [f for f in _list(analysis_fields) if _given(f)]
+    features, columns, kind, srid = _features(tool, in_features, fields)
+    n = len(features)
+    if n < 2:
+        raise ValueError(f"arcpy.stats.{tool} needs two features or more.")
+    by_name = {c.name.lower(): c for c in columns}
+    kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else (
+        "CONTIGUITY_EDGES_CORNERS" if kind == "Polygon" else "DELAUNAY_TRIANGULATION")
+    statistic = _keyword(local_summary_statistic) if _given(local_summary_statistic) else "ALL"
+    wanted = list(_NSS) if statistic == "ALL" else [statistic]
+    if any(s not in _NSS for s in wanted):
+        raise ValueError(f"arcpy.stats.{tool}: local_summary_statistic '{local_summary_statistic}' is not one of ALL, "
+                         f"{', '.join(_NSS)}.")
+    focal = _keyword(include_focal_feature) not in ("EXCLUDE_FOCAL", "FALSE")
+    skip_nulls = _keyword(ignore_nulls) not in ("INCLUDE_NULLS", "FALSE")
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
+    xy = [(f[2], f[3]) for f in features]
+    d = _distances(xy)
+    oids = [f[0] for f in features]
+    band = None
+    if kind_of == "DISTANCE_BAND":
+        band = _threshold(distance_band, srid) if _given(distance_band) else float(_nearest(d).max())
+        neighbours = []
+        for i in range(n):
+            near = sorted((j for j in range(n) if j != i and d[i, j] <= band), key=lambda j: (d[i, j], oids[j]))
+            neighbours.append(near[:1000])
+    elif kind_of == "NUMBER_OF_NEIGHBORS":
+        k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+        if not 1 <= k < n:
+            raise ValueError(f"arcpy.stats.{tool}: number_of_neighbors must be between 1 and {n - 1}.")
+        neighbours = [sorted((j for j in range(n) if j != i), key=lambda j: (d[i, j], oids[j]))[:k] for i in range(n)]
+    elif kind_of.startswith("CONTIGUITY"):
+        w = _weights(tool, features, srid, kind_of, "EUCLIDEAN_DISTANCE", None, None)
+        neighbours = [[int(j) for j in np.nonzero(w[i])[0]] for i in range(n)]
+    elif kind_of == "DELAUNAY_TRIANGULATION":
+        if kind != "Point":
+            raise ValueError(f"arcpy.stats.{tool}: DELAUNAY_TRIANGULATION is for point features.")
+        neighbours = _delaunay_neighbours(tool, xy)
+    elif kind_of == "GET_SPATIAL_WEIGHTS_FROM_FILE":
+        _refuse(tool, "neighborhood_type", kind_of, "a spatial weights matrix file's .swm layout is not published")
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: neighborhood_type '{neighborhood_type}' is not one the tool takes.")
+    bandwidth = None
+    if scheme != "UNWEIGHTED":
+        if scheme not in ("BISQUARE", "GAUSSIAN"):
+            raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme '{local_weighting_scheme}' is not one of "
+                             "UNWEIGHTED, BISQUARE, GAUSSIAN.")
+        if kind_of not in ("DISTANCE_BAND", "NUMBER_OF_NEIGHBORS"):
+            raise ValueError(f"arcpy.stats.{tool}: a kernel weights only DISTANCE_BAND and NUMBER_OF_NEIGHBORS.")
+        if _given(kernel_bandwidth):
+            bandwidth = _threshold(kernel_bandwidth, srid)
+        elif kind_of == "DISTANCE_BAND":
+            bandwidth = band
+        else:
+            _refuse(tool, "kernel_bandwidth", "(empty)", "it is then estimated by Kernel Density's rule, which is not built")
+        if scheme == "BISQUARE" and any(d[i, j] > bandwidth for i in range(n) for j in neighbours[i]):
+            _refuse(tool, "kernel_bandwidth", kernel_bandwidth, "a neighbour lies beyond it, where the bisquare formula as "
+                    "written turns positive again")
+
+    def kernel(distance):
+        if scheme == "UNWEIGHTED":
+            return 1.0
+        ratio = (distance / bandwidth) ** 2
+        return (1 - ratio) ** 2 if scheme == "BISQUARE" else math.exp(-0.5 * ratio)
+
+    out_columns = []
+    for field in fields:
+        name = by_name[field.lower()].name
+        out_columns += [by_name[field.lower()], *[_gpkg.Column(f"{_NSS[s]}_{name}", "Double") for s in wanted],
+                        _gpkg.Column(f"NUM_NBRS_{name}", "Integer")]
+    out_columns += [*[_gpkg.Column(f"{_NSS[s]}_DIST", "Double") for s in wanted], _gpkg.Column("NUM_NBRS_DIST", "Integer")]
+    out = _out(output_features)
+    _gpkg.create(out, kind, srid, out_columns)
+    with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as rows:
+        for i, f in enumerate(features):
+            members = ([i] if focal else []) + list(neighbours[i])
+            row = []
+            for field in fields:
+                key = field.lower()
+                pairs = [(features[j][1][key], kernel(d[i, j])) for j in members]
+                present = [(v, w) for v, w in pairs if v is not None]
+                if (not skip_nulls and len(present) != len(pairs)) or not present:
+                    stats = {s: None for s in wanted}
+                else:
+                    stats = _local_statistics([v for v, _ in present], [w for _, w in present])
+                row += [f[1][key], *[stats[s] for s in wanted], len(present)]
+            distances = [float(d[i, j]) for j in neighbours[i]]
+            stats = _local_statistics(distances, [1.0] * len(distances)) if distances else {s: None for s in wanted}
+            row += [*[stats[s] for s in wanted], len(distances)]
+            rows.insertRow((*row, f[4]))
+    return Result(out)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
