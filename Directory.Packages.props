@@ -100,7 +100,9 @@
     <!-- MySqlConnector, for registered MySQL databases (ADR-208). MIT, fully managed. Chosen over Oracle's own
          MySql.Data, which is GPLv2 with a FOSS exception (DEPENDENCY-LICENSES.md). Referenced only from
          Graticula.Providers.MySql. -->
-    <PackageVersion Include="MySqlConnector" Version="2.4.0" />
+    <!-- 2.6.1 since 2026-10-29: GHSA-473q-m89c-ghf8, published the evening before — below it, a connection that
+         names no SslMode sent the password in clear before the certificate was checked, and the provider names none. -->
+    <PackageVersion Include="MySqlConnector" Version="2.6.1" />
     <!-- Microsoft.Data.SqlClient, for registered SQL Server databases (ADR-210). MIT. Encrypts by default; the
          provider trusts the server certificate rather than verifying it (ADR-210 §6). -->
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />

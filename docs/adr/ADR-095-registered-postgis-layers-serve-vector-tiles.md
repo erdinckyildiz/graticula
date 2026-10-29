@@ -209,7 +209,9 @@ draw it from tiles; the cache follows ADR-010's rules for registered data rather
 - A cold tile is a query against somebody else's database; an unindexed table scans per cold tile.
 - **Not done, and named**: a MotherDuck table also changes behind this server with no version to key on
   and reads back `best-effort`, but keeps the server default lifetime — its default was not part of the
-  owner's decision ([D-279](../architecture-debt.md)). A wide registered table whose identity column is
+  owner's decision ([D-279](../architecture-debt.md)). ***Done 2026-10-29:*** the default follows the coherence —
+  whatever reads back `best-effort` is kept five minutes unless the layer says otherwise — so MotherDuck has a
+  registered table's default (INFERRED, under the owner's direction to close the debts). A wide registered table whose identity column is
   past the first twelve taggable columns carries no identity in its tiles — true of hosted layers too, and
   not changed here because it would move hosted tile bytes. Stale-while-error ([D-278](../architecture-debt.md))
   matters more now that a registered source's outage is felt on tiles.

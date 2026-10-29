@@ -795,4 +795,22 @@ public sealed class DataSourceLifecycleConformanceTests : ArcGisClient
         return string.Empty;
     }
 
+    /// <summary>
+    /// D-313: a certificate check is SQL Server's, and asked of another engine it is refused by name rather than
+    /// ignored — a caller believing a check was made that was not is the failure the field exists to end.
+    /// </summary>
+    [Fact]
+    public async Task A_certificate_check_asked_of_an_engine_that_makes_none_is_refused()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        (HttpStatusCode status, string body) = await RequestAsync(
+            HttpMethod.Post, $"{root}/admin/datasources/test", token!,
+            "{\"host\":\"localhost\",\"username\":\"reader\",\"database\":\"gis\",\"verifyCertificate\":true}");
+
+        Assert.Equal(HttpStatusCode.BadRequest, status);
+        Assert.Contains("verifyCertificate", body, StringComparison.Ordinal);
+    }
 }

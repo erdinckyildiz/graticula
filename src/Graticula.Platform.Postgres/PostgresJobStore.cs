@@ -439,6 +439,7 @@ public sealed class PostgresJobStore : IJobStore
         JobKind.TileSeed => "tile.seed",
         JobKind.TileExport => "tile.export",
         JobKind.FeatureExport => "feature.export",
+        JobKind.Analysis => "analysis.run",
 
         // enum-default-is-deliberate: refused rather than defaulted. A kind this build does not know
         // has no check-constraint value, so guessing one would write a row the schema rejects — and
@@ -487,6 +488,7 @@ public sealed class PostgresJobStore : IJobStore
         "tile.seed" => JobKind.TileSeed,
         "tile.export" => JobKind.TileExport,
         "feature.export" => JobKind.FeatureExport,
+        "analysis.run" => JobKind.Analysis,
 
         _ => throw new InvalidOperationException(
             $"'{stored}' is not a job kind this build knows. The schema's check constraint should "

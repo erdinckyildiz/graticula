@@ -106,7 +106,8 @@ public static class SqlLocators
     /// <param name="Database">The database — an Oracle service, a MySQL database.</param>
     /// <param name="User">The user.</param>
     /// <param name="HasPassword">Whether a password is stored.</param>
-    public sealed record Fields(string Kind, string Host, int? Port, string Database, string User, bool HasPassword);
+    /// <param name="VerifyCertificate">Whether the server's certificate is verified — SQL Server's only (D-313).</param>
+    public sealed record Fields(string Kind, string Host, int? Port, string Database, string User, bool HasPassword, bool VerifyCertificate = false);
 
     /// <summary>Whether a stored locator names a registered SQL database other than PostgreSQL.</summary>
     /// <param name="stored">The unsealed locator.</param>
@@ -165,7 +166,7 @@ public static class SqlLocators
         if (SqlServerLocator.Is(stored))
         {
             SqlServerSource sql = SqlServerLocator.Of(stored);
-            return new Fields(DataSourceKinds.SqlServer, sql.Host, sql.Port, sql.Database, sql.User, !string.IsNullOrEmpty(sql.Password));
+            return new Fields(DataSourceKinds.SqlServer, sql.Host, sql.Port, sql.Database, sql.User, !string.IsNullOrEmpty(sql.Password), sql.VerifyCertificate);
         }
 
         OracleSource oracle = OracleLocator.Of(stored);

@@ -292,6 +292,35 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// D-313: a SQL Server registration may ask for the server's certificate to be verified, and only a SQL Server one.
+    /// </summary>
+    [Fact]
+    public async Task A_SQL_Server_registration_may_ask_for_its_certificate_to_be_verified()
+    {
+        await OpenSourcesAsync();
+        await ClickAsync("#sAdd");
+        await WaitForAsync(Shown("#dcPort"), "The connection dialog did not open, or it has no port field.");
+
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#dcVerify")),
+            "A PostGIS registration offers a certificate check the server makes only for SQL Server.");
+
+        await ClickAsync("input[name=\"dcKind\"][value=\"sqlserver\"]");
+        await WaitForAsync(Shown("#dcVerify"), "SQL Server offers no way to have its certificate verified.");
+        Assert.True(await Browser.EvaluateAsync<bool>("dbconnBody().verifyCertificate === undefined"),
+            "An unticked box is sent, so a request reads differently from one written before the box existed.");
+        Assert.True(await Browser.EvaluateAsync<bool>(Shown("#dcVerifyHint")), "Nothing says what ticking the box changes.");
+
+        await ClickAsync("#dcVerify");
+        Assert.True(await Browser.EvaluateAsync<bool>("dbconnBody().verifyCertificate === true"),
+            "Ticked, the box is not sent.");
+
+        await ClickAsync("input[name=\"dcKind\"][value=\"mysql\"]");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#dcVerify")), "MySQL offers SQL Server's certificate check.");
+        Assert.True(await Browser.EvaluateAsync<bool>("dbconnBody().verifyCertificate === undefined"),
+            "A MySQL body carries the hidden SQL Server box, which the server refuses.");
+    }
+
+    /// <summary>
     /// A port somebody typed survives a change of engine, even when it is another engine's default.
     /// </summary>
     /// <remarks>

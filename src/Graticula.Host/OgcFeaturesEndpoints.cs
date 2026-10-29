@@ -389,6 +389,23 @@ internal static partial class OgcFeaturesEndpoints
             return;
         }
 
+        // <b>The layer's lifetime and, where there is a cheap one, its validator — as FeatureServer's query has had since
+        // ADR-069</b> (D-266). Every refusal has had its turn, and the HTML page stays uncached as FeatureServer's does.
+        // Without `f`, the page or the GeoJSON is chosen by `Accept`, so a kept answer says it varies by it: a browser
+        // holding the GeoJSON must not show it for a navigation to the same address.
+        if (string.IsNullOrWhiteSpace(context.Request.Query["f"]))
+        {
+            context.Response.Headers.Append(Microsoft.Net.Http.Headers.HeaderNames.Vary, "Accept");
+        }
+
+        if (!WantsHtml(context)
+            && await QueryResponseCaching
+                .ApplyAsync(context, layer, source, settings.TileCacheLifetime, cancellation, described.Writable)
+                .ConfigureAwait(false))
+        {
+            return;
+        }
+
         long matched = empty
             ? 0
             : await source.CountAsync(features!, cancellation).ConfigureAwait(false);

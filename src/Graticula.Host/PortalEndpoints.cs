@@ -331,6 +331,13 @@ internal static partial class PortalEndpoints
             }
         }
 
+        // ADR-222 §5.8b (INFERRED): an analysis writes a hosted layer, so whoever may publish one may run one — and Map
+        // Viewer looks for this word before it offers its Analysis pane.
+        if (current.Authorization.Allows(Privilege.ContentPublishFeatures))
+        {
+            held.Add("premium:user:spatialanalysis");
+        }
+
         if (current.Authorization.Allows(Privilege.FeaturesEdit))
         {
             held.Add("features:user:edit");
@@ -344,10 +351,15 @@ internal static partial class PortalEndpoints
         return [.. held];
     }
 
-    /// <summary>Maps a route that answers HEAD as well as GET.</summary>
+    /// <summary>Maps a resource route: GET, HEAD, and POST, which ArcGIS's REST resources all take.</summary>
+    /// <remarks>
+    /// <b>POST since 2026-10-29</b> (ADR-222 condition 6): the ArcGIS API for Python reads an item by
+    /// <c>POST content/items/&lt;id&gt;</c> — <c>gis.content.get</c>, and every analysis result it opens — and was answered
+    /// 405 here. A token in the form is read as one in the query is (<c>Authentication</c>); nothing here writes.
+    /// </remarks>
     private static RouteHandlerBuilder Discoverable(
         WebApplication app, string pattern, Delegate handler) =>
-        app.MapMethods(pattern, ["GET", "HEAD"], handler);
+        app.MapMethods(pattern, ["GET", "HEAD", "POST"], handler);
 
     /// <summary>
     /// Where the portal is, for a client given only a host.
@@ -735,8 +747,9 @@ internal static partial class PortalEndpoints
             // the same basemap either way, so the two never disagree.
             defaultVectorBasemap = defaultBasemap,
 
+            // ADR-222: the analysis tools, at the address every client that runs analysis reads from here.
             helperServices = elsewhere is { Length: > 0 }
-                ? (object)new { geometry = new { url = elsewhere } }
+                ? (object)new { geometry = new { url = elsewhere }, analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" } }
                 : geometryOffered
                 ? new
                 {
@@ -744,8 +757,9 @@ internal static partial class PortalEndpoints
                     {
                         url = $"{Origin(context)}/rest/services/Utilities/Geometry/GeometryServer",
                     },
+                    analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" },
                 }
-                : new { },
+                : new { analysis = new { url = $"{Origin(context)}{AnalysisEndpoints.ServicePath}" } },
         });
     }
 

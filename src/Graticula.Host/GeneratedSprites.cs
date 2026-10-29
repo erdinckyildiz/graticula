@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using Graticula.Cartography;
 using Graticula.Platform.Catalog;
 using Graticula.Platform.Postgres;
+using Microsoft.Extensions.Logging;
 
 namespace Graticula.Host;
 
@@ -39,8 +40,11 @@ namespace Graticula.Host;
 /// sheet's bytes as they were stored, or the empty sheet.
 /// </para>
 /// </remarks>
-internal static class GeneratedSprites
+internal static partial class GeneratedSprites
 {
+    [LoggerMessage(EventId = 2362, Level = LogLevel.Warning, Message = "Service {Service}'s sprite@{Ratio}x sheet would pass {Limit} pixels, so {Count} picture marker(s) are left out of it and draw nothing: {Names}. Fewer distinct pictures, or smaller ones, bring them back (D-287).")]
+    private static partial void IconsLeftOut(ILogger log, string service, int ratio, int limit, int count, string names);
+
     /// <summary>How many composed pictures the process keeps before it forgets them all.</summary>
     /// <remarks>
     /// <b>Thirty-two.</b> A composed sheet is tens of kilobytes for a handful of icons and at most a few
@@ -71,6 +75,7 @@ internal static class GeneratedSprites
     /// <param name="store">Where the uploaded sheet is, or null when there is no store to ask.</param>
     /// <param name="canvases">What composes the picture.</param>
     /// <param name="cancellation">The caller's.</param>
+    /// <param name="log">Where a sheet that cannot hold every icon says so, or null.</param>
     /// <returns>The file's bytes.</returns>
     internal static async Task<byte[]> FileAsync(
         PublishedService service,
@@ -78,7 +83,8 @@ internal static class GeneratedSprites
         bool image,
         PostgresLayerCatalog? store,
         IMapCanvasFactory canvases,
-        CancellationToken cancellation)
+        CancellationToken cancellation,
+        ILogger? log = null)
     {
         Graticula.Platform.Admin.StoredSprite? uploaded = store is null
             ? null
@@ -93,12 +99,15 @@ internal static class GeneratedSprites
                 : Encoding.UTF8.GetBytes(uploaded?.Index ?? "{}");
         }
 
-        SpritePacking packing = SpriteLayout.Pack(pictures);
         int top = uploaded?.Height ?? 0;
+
+        // D-287: laid out to stay within a sheet a GPU is sure to hold; the index and the picture ask the same question.
+        SpriteFit fit = SpriteLayout.Fit(pictures, ratio, top);
+        SpritePacking packing = fit.Packing;
 
         if (!image)
         {
-            return Encoding.UTF8.GetBytes(SpriteLayout.Index(packing, ratio, top, uploaded?.Index));
+            return Encoding.UTF8.GetBytes(SpriteLayout.Index(packing, fit.Drawn, top, uploaded?.Index));
         }
 
         string key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join(
@@ -115,7 +124,16 @@ internal static class GeneratedSprites
             return kept;
         }
 
-        byte[] composed = Compose(packing, ratio, uploaded, canvases);
+        if (fit.LeftOut.Count > 0)
+        {
+            // Once per composed sheet, so once per process for an unchanged service.
+            if (log is not null)
+            {
+                IconsLeftOut(log, service.Name, ratio, SpriteLayout.SheetLimit, fit.LeftOut.Count, string.Join(", ", fit.LeftOut.Take(10)));
+            }
+        }
+
+        byte[] composed = Compose(packing, fit.Drawn, uploaded, canvases);
 
         if (Composed.Count >= MostKept)
         {

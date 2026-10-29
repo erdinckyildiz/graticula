@@ -59,7 +59,8 @@ const stewarded = layer => !!layer && (layer.hosted || STEWARDED_KINDS.has(layer
 function toast(message, ok = false) {
   const t = $("toast");
   t.textContent = message;
-  t.className = "on " + (ok ? "good" : "bad");
+  // `"info"` for news that is neither, such as work still going on (design review, ADR-222).
+  t.className = "on " + (ok === "info" ? "" : ok ? "good" : "bad");
   clearTimeout(t._timer);
   t._timer = setTimeout(() => (t.className = ""), 7000);
 }
@@ -753,7 +754,10 @@ async function showGroup(name, tab) {
   if (groupTab === "overview") drawGroupOverview(one);
   if (groupTab === "content") drawGroupContent(one);
   if (groupTab === "members") drawGroupMembers(one);
-  if (groupTab === "settings") drawGroupSettings(one);
+  // <b>Not over a form holding what the reader changed and has not saved.</b> The page can be drawn twice for one
+  // arrival — the route and a refresh racing — and the second draw put the stored choice back under a reader who had
+  // already chosen another (a public group's warning vanished on CI, 2026-10-29). Saving clears the mark first.
+  if (groupTab === "settings" && !(groupSettingsEdited === one.name && $("gsSave"))) drawGroupSettings(one);
   if (groupTab === "add") await drawGroupAdd(one);
 
   paintPreviews();
@@ -1005,7 +1009,11 @@ function drawGroupMembers(one) {
  * <b>Membership first, deletion last</b> — the opposite of the reference's order, and this console's
  * own rule about destructive controls.
  */
+/** The group whose settings form holds changes not yet saved, so a redraw does not take them away. */
+let groupSettingsEdited = null;
+
 function drawGroupSettings(one) {
+  groupSettingsEdited = null;
   // <b>*By request* is rendered disabled rather than omitted, and the harder reason is not
   // honesty.</b> The column stores three values and only the write path refuses the third, so a group
   // can already *hold* `request`. Render two options and such a group reads as *by invitation* on
@@ -1155,6 +1163,7 @@ function drawGroupSettings(one) {
 
   const check = () => {
     const dirty = reading() !== was;
+    groupSettingsEdited = dirty ? one.name : null;
     $("gsSave").disabled = !dirty;
     $("gsDiscard").disabled = !dirty;
     $("gsDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
@@ -1421,6 +1430,7 @@ async function saveGroupSettings(patch, what) {
     const moved = "visibility" in patch && patch.visibility !== groupNow.visibility;
 
     toast(moved && answer?.note ? `${what} ${answer.note}` : what, true);
+    groupSettingsEdited = null;
     await refreshGroup();
   } catch (e) { toast(e.message); }
 }
@@ -7882,6 +7892,8 @@ async function drawServiceDetails(qualified, knownKind) {
         ? `<button type="button" id="updateDataOpen">Update data</button>` : ""}
       ${manages && !knownKind && !item?.isView && serviceLayers.some(l => layerNamed(l.name || "").hosted)
         ? `<button type="button" id="createViewOpen">Create view</button>` : ""}
+      ${!knownKind && may("content:publishFeatures") && serviceLayers.some(l => layerNamed(l.name || "").hosted)
+        ? `<button type="button" id="analyzeOpen">Analyze…</button>` : ""}
       ${serviceOpenKind === "ImageServer" && manages
         // ADR-147: more images for an uploaded image service — it becomes, or grows, a mosaic. Shown once the server
         // says the image was uploaded here, with the Download button.
@@ -9167,8 +9179,9 @@ async function loadItemExtras(item) {
   drawFavorite(item);
 }
 
-/** The open item an item-page control acts on: the web map's when it says `map`, the service's otherwise. */
+/** The open item an item-page control acts on: the web map's when it says `map`, the document's for `doc`, the service's otherwise. */
 function itemOf(which) {
+  if (which === "doc") return docOpen;
   if (which !== "map") return serviceItem;
   if (!mapOpen) return null;
   // The map's own record, with the names the service page's functions read.
@@ -9179,6 +9192,16 @@ function itemOf(which) {
 
 /** Draws the open item's description again where it is shown, unless it is being edited. */
 function redrawItemAbout(which) {
+  if (which === "doc") {
+    // Not while it is being edited: the boxes hold what the reader typed.
+    if (!docOpen || $("docEditTitle")) return;
+    const had = document.activeElement?.closest?.("#docAbout") ? document.activeElement.id : "";
+    const said = $("docAboutSays")?.textContent || "";
+    drawDocAbout();
+    if (said && $("docAboutSays")) $("docAboutSays").textContent = said;
+    if (had) $(had)?.focus();
+    return;
+  }
   if (which === "map") {
     if ($("mapEditTitle")) return;
     // <b>What the reader was on, and what the panel had just said, survive the redraw</b> — a design review measured
@@ -9222,7 +9245,7 @@ async function toggleFavorite(button) {
 }
 
 document.addEventListener("click", event => {
-  const button = event.target.closest?.("#itemFavorite, #mapFavorite");
+  const button = event.target.closest?.("#itemFavorite, #mapFavorite, #docFavorite");
   if (button) toggleFavorite(button);
 });
 
@@ -24842,6 +24865,9 @@ function dbconnBody() {
     } else if (body.host.includes("\\") && !$("dcPort").value.trim()) {
       delete body.port;
     }
+
+    // Sent only when ticked, so a request reads as it did before the box existed (D-313).
+    if ($("dcVerify").checked) body.verifyCertificate = true;
   }
 
   // A PostGIS body names no kind, as it never has; the others say which they are.
@@ -25019,9 +25045,10 @@ function dbconnServerKind(kind) {
   instanceHint.hidden = kind !== "sqlserver";
   instanceHint.innerHTML = kind === "sqlserver"
     ? "A named instance goes here as <code>server\\SQLEXPRESS</code>; leave the port empty and the instance's own "
-      + "port is found. A fixed port can go here too, as <code>server,1433</code>. The connection is encrypted; the "
-      + "server's certificate is accepted without being checked."
+      + "port is found. A fixed port can go here too, as <code>server,1433</code>."
     : "";
+  $("dcVerifyRow").hidden = kind !== "sqlserver";
+  $("dcVerifyHint").hidden = kind !== "sqlserver";
 
   if (kind === "sqlserver") {
     $("dcHost").setAttribute("aria-describedby", "dcInstanceHint");
@@ -25519,6 +25546,14 @@ async function openDbConnection(source) {
           <input id="dcPort" type="number" min="1" max="65535" value="5432"></label>
       </div>
       <p class="hint" id="dcInstanceHint" hidden></p>
+      <div class="row" id="dcVerifyRow" hidden>
+        <label class="field check"><input type="checkbox" id="dcVerify" aria-describedby="dcVerifyHint">
+          Verify the server's certificate</label>
+      </div>
+      <p class="hint" id="dcVerifyHint" hidden>Ticked: Graticula connects only if the SQL Server's certificate comes from
+        an authority the Graticula machine trusts and carries the host name typed in Instance. Unticked: the connection is
+        still encrypted, but nothing checks it reaches the right server. Leave it unticked for LocalDB, Express, or a
+        self-signed certificate.</p>
       <div class="row">
         <label class="field" style="flex:1 1 45%">User name
           <input id="dcUser" spellcheck="false" autocomplete="off" required></label>
@@ -25703,6 +25738,7 @@ async function openDbConnection(source) {
     $("dcDatabase").value = said.database || "";
     $("dcUser").value = said.username || "";
     if (dbconnKind() === "sqlserver" && !said.port) $("dcPort").value = "";
+    $("dcVerify").checked = said.verifyCertificate === true;
     dbconnInstance();
     $("dcPassword").focus();
   } catch (e) {
@@ -30899,7 +30935,7 @@ async function handleClick(event) {
   }
 
   if (t.dataset?.copy) {
-    try { await navigator.clipboard.writeText(t.dataset.copy); toast("The address is on the clipboard.", true); copiedHere(t); }
+    try { await navigator.clipboard.writeText(t.dataset.copy); toast(t.dataset.copied || "The address is on the clipboard.", true); copiedHere(t); }
     catch { toast("This browser would not let the page write to the clipboard. The address is beside the button."); }
     return;
   }
@@ -33729,6 +33765,413 @@ function logEmpty() {
   return `Nothing in this window matches. Widen <b>Since</b>, or clear the filters.`;
 }
 
+// ---------------------------------------------------------------- analysis (ADR-222 condition 7)
+
+/** Where the Spatial Analysis Service is — what portals/self names as helperServices.analysis. */
+const ANALYSIS = "/rest/services/System/SpatialAnalysisTools/GPServer";
+
+/**
+ * The tools, in Map Viewer's order — summarize, find locations, proximity, manage data (design review) — what each says it does, the
+ * kind of layer it starts from, and the kind its second layer must be.
+ */
+const ANALYSIS_TOOLS = [
+  { task: "AggregatePoints", label: "Aggregate points", short: "counts", result: "aggregatedLayer", from: "points",
+    second: "polygons", secondLabel: "Polygons to count in", says: "How many of these points fall in each polygon of another layer." },
+  { task: "FindCentroids", label: "Find centroids", short: "centroids", result: "outputLayer", notFrom: "points",
+    says: "A point at the centre of each feature, or on it." },
+  { task: "CreateBuffers", label: "Create buffers", short: "buffers", result: "bufferLayer",
+    says: "Areas within a distance of each feature, measured on the ground." },
+  { task: "DissolveBoundaries", label: "Dissolve boundaries", short: "dissolved", result: "dissolvedLayer", from: "polygons",
+    says: "Polygons that share a value, or that touch, merged into one." },
+  { task: "MergeLayers", label: "Merge layers", short: "merged", result: "mergedLayer", second: "same",
+    secondLabel: "Merge with", says: "This layer's features and another's of the same kind, in one layer." },
+  { task: "OverlayLayers", label: "Overlay layers", short: "overlay", result: "outputLayer", second: "any",
+    secondLabel: "Overlay layer", says: "Where this layer meets another, both together, or this one less the other." },
+];
+
+/** What the server's parameter names are called on this screen, for a refusal it words in them. */
+const ANALYSIS_LABELS = {
+  inputLayer: "this layer", pointLayer: "this layer", polygonLayer: "Polygons to count in", overlayLayer: "Overlay layer",
+  mergeLayer: "Merge with", distances: "Distances", outputName: "Result layer name", dissolveFields: "the fields chosen",
+};
+
+/** The run in progress: its job and tool, its result's name, and whether the dialog still listens. */
+let analyzeRun = null;
+
+/** The layer the dialog analyses: its address, name, geometry and fields, as its own document says. */
+let analyzeLayer = null;
+
+/** The other hosted layers this reader may use as a second input, each with the kind of geometry it holds. */
+let analyzeOthers = [];
+
+const analyzeKind = geometryType => /Point/.test(geometryType || "") ? "points"
+  : /Polyline/.test(geometryType || "") ? "lines" : "polygons";
+
+/** Opens the dialog on the open service's first hosted layer. */
+async function openAnalyze() {
+  const item = serviceItem;
+  const hosted = serviceLayers.filter(one => !(one.type || "").toLowerCase().includes("group") && layerNamed(one.name || "").hosted);
+  if (!item || hosted.length === 0) return;
+
+  const qualified = serviceOpen.qualified;
+  const path = `/rest/services/${qualified.split("/").map(encodeURIComponent).join("/")}/FeatureServer/${hosted[0].id}`;
+  analyzeRun = null;
+  $("analyzeBody").innerHTML = `<p class="hint">Reading the layer…</p>`;
+  $("analyzeFoot").innerHTML = "";
+  $("analyzeDialog").showModal();
+  $("analyzeTitle").focus();
+
+  try {
+    const [doc, found] = await Promise.all([
+      api(`${path}?f=json`),
+      api(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] })),
+    ]);
+    analyzeLayer = { url: location.origin + path, name: item.bare, kind: analyzeKind(doc.geometryType),
+      fields: (doc.fields || []).filter(f => !/OID|GlobalID|Geometry/.test(f.type || "")) };
+
+    // Each candidate's own geometry, so a list offers only what its tool can use (design review: the default
+    // polygon layer for Aggregate points was a point layer, and every run of it failed).
+    const candidates = (found.results || []).filter(r => r.url && !r.url.endsWith(`/${qualified}/FeatureServer`));
+    analyzeOthers = (await Promise.all(candidates.map(async r => {
+      const layer = await api(`${new URL(r.url).pathname}/0?f=json`).catch(() => null);
+      return layer?.geometryType ? { url: `${r.url}/0`, title: r.title || r.name, kind: analyzeKind(layer.geometryType) } : null;
+    }))).filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
+  } catch (e) {
+    $("analyzeBody").innerHTML = `<p class="bad">${h(e.message || e)}</p>`;
+    return;
+  }
+
+  const tools = ANALYSIS_TOOLS.filter(t => (!t.from || t.from === analyzeLayer.kind) && t.notFrom !== analyzeLayer.kind);
+
+  $("analyzeBody").innerHTML = `
+    <p class="hint">Runs on <b>${h(item.bare)}</b> and writes a new hosted layer of yours, private until you share it.</p>
+    <fieldset class="offered"><legend>Tool</legend>
+      ${tools.map((t, i) => `<label class="check"><input type="radio" name="azTool" value="${t.task}"${i === 0 ? " checked" : ""}>
+        <span><b>${h(t.label)}</b><span class="hint">${h(t.says)}</span></span></label>`).join("")}
+    </fieldset>
+    <div class="stacked"><label for="azName">Result layer name</label>
+      <input type="text" id="azName" maxlength="40" autocomplete="off" spellcheck="false" aria-describedby="azNameHint">
+      <span class="hint" id="azNameHint">Letters, digits, _ and -, up to 40. A name already in use is refused.</span></div>
+    <div id="azOptions"></div>`;
+  drawAnalyzeFoot(false);
+  drawAnalyzeOptions();
+  document.querySelector('input[name="azTool"]:checked')?.focus();
+}
+
+/** The footer: Cancel and Run, or, while a job runs, Stop and Close — closing lets it finish and says so. */
+function drawAnalyzeFoot(running) {
+  const said = $("analyzeSays")?.innerHTML || "";
+  $("analyzeFoot").innerHTML = `<p class="hint fill" id="analyzeSays" role="status" aria-live="polite">${said}</p>
+    ${running
+      ? `<button type="button" class="ghost" id="analyzeClosing">Close</button>
+         <button type="button" id="analyzeStop">Stop</button>`
+      : `<button type="button" class="ghost" id="analyzeCancel">Cancel</button>
+         <button type="button" class="primary" id="analyzeGo">Run</button>`}`;
+}
+
+/** The second layers a tool may use: the kind it needs, never the layer itself. */
+function analyzeCandidates(tool) {
+  const overlay = document.querySelector('input[name="azOverlay"]:checked')?.value;
+  return analyzeOthers.filter(o =>
+    tool.second === "polygons" ? o.kind === "polygons"
+    : tool.second === "same" ? o.kind === analyzeLayer.kind
+    : overlay === "Erase" || overlay === "Union" ? o.kind === "polygons"
+    : true);
+}
+
+/** The second layer's list, said plainly when nothing fits. */
+function drawAnalyzeSecond(tool) {
+  const box = $("azSecond");
+  if (!box) return;
+  const fits = analyzeCandidates(tool);
+  const what = tool.second === "polygons" ? "polygon layer" : tool.second === "same" ? `layer of ${analyzeLayer.kind}`
+    : "layer of polygons";
+  box.innerHTML = fits.length
+    ? `<label for="azOther">${h(tool.secondLabel)}</label>
+       <select id="azOther">${fits.map(o => `<option value="${h(o.url)}">${h(o.title)}</option>`).join("")}</select>`
+    : `<span class="label">${h(tool.secondLabel)}</span><p class="hint" id="azNoSecond">You have no other ${what} to use here.</p>`;
+}
+
+/** The chosen tool's own questions, and a name for its result that says what it is. */
+function drawAnalyzeOptions() {
+  const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
+  if (!tool || !analyzeLayer) return;
+
+  const fieldBoxes = analyzeLayer.fields.map(f => `<label class="check"><input type="checkbox" data-az-field="${h(f.name)}">
+    <span>${h(f.alias || f.name)}</span></label>`).join("");
+  const polygons = analyzeLayer.kind === "polygons";
+
+  $("azOptions").innerHTML = {
+    CreateBuffers: `
+      <div class="stacked"><label for="azDistances">Distances</label>
+        <input type="text" id="azDistances" value="100" inputmode="decimal" aria-describedby="azDistancesHint">
+        <span class="hint" id="azDistancesHint">One or more, separated by commas: 100, 250, 500.</span></div>
+      <div class="stacked"><label for="azUnits">Units</label>
+        <select id="azUnits">${["Meters", "Kilometers", "Feet", "Miles", "NauticalMiles", "Yards"]
+          .map(u => `<option value="${u}">${u === "NauticalMiles" ? "Nautical miles" : u}</option>`).join("")}</select></div>
+      <label class="check"><input type="checkbox" id="azDissolve"> <span>One area per distance, for all features together</span></label>
+      <label class="check"><input type="checkbox" id="azRings"> <span>Rings: each distance leaves out the smaller ones</span></label>`,
+    DissolveBoundaries: `
+      <fieldset class="offered"><legend>Merge polygons that share</legend>
+        ${fieldBoxes || `<p class="hint">This layer has no fields to dissolve by.</p>`}
+        <p class="hint">Choose none to merge every polygon that touches or overlaps another.</p></fieldset>
+      <label class="check"><input type="checkbox" id="azMulti" checked> <span>Keep each group as one feature, even in separate parts</span></label>`,
+    OverlayLayers: `
+      <fieldset class="offered"><legend>Keep</legend>
+        <label class="check"><input type="radio" name="azOverlay" value="Intersect" checked> <span>Where the two meet</span></label>
+        ${polygons ? `<label class="check"><input type="radio" name="azOverlay" value="Union"> <span>Both, split where they meet</span></label>` : ""}
+        <label class="check"><input type="radio" name="azOverlay" value="Erase"> <span>This layer, less the other's area</span></label>
+      </fieldset>
+      <div class="stacked" id="azSecond"></div>`,
+    MergeLayers: `
+      <div class="stacked" id="azSecond"></div>
+      <p class="hint">Fields of the same name become one; the others are kept apart.</p>`,
+    FindCentroids: `
+      <label class="check"><input type="checkbox" id="azInside"> <span>On each feature, where its centre would fall outside it</span></label>`,
+    AggregatePoints: `
+      <div class="stacked" id="azSecond"></div>
+      <label class="check"><input type="checkbox" id="azKeep" checked> <span>Keep polygons with no points, counted 0</span></label>`,
+  }[tool.task];
+  drawAnalyzeSecond(tool);
+
+  const name = $("azName");
+  if (name && (!name.value || name.dataset.made === name.value)) {
+    name.value = analyzeNameFor(`${analyzeLayer.name}_${tool.short}`);
+    name.dataset.made = name.value;
+  }
+}
+
+/** A layer name the server takes: letters, digits, _ and -, starting with a letter or digit, up to 40. */
+function analyzeNameFor(text) {
+  return (String(text).replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^[^A-Za-z0-9]+/, "") || "result").slice(0, 40);
+}
+
+/** The distances typed, or null when one is not a number above zero. */
+function analyzeDistances() {
+  const parts = ($("azDistances")?.value || "").split(/[,;\s]+/).filter(Boolean);
+  const numbers = parts.map(Number);
+  return parts.length && numbers.every(n => Number.isFinite(n) && n > 0) ? numbers : null;
+}
+
+/** What the chosen tool is sent, by the parameter names the service documents. */
+function analyzeForm(tool, name) {
+  const form = new FormData();
+  form.set("f", "json");
+  form.set("outputName", JSON.stringify({ serviceProperties: { name } }));
+  const input = JSON.stringify({ url: analyzeLayer.url });
+  const other = $("azOther")?.value ? JSON.stringify({ url: $("azOther").value }) : null;
+
+  switch (tool.task) {
+    case "CreateBuffers":
+      form.set("inputLayer", input);
+      form.set("distances", JSON.stringify(analyzeDistances()));
+      form.set("units", $("azUnits").value);
+      form.set("dissolveType", $("azDissolve").checked ? "Dissolve" : "None");
+      form.set("ringType", $("azRings").checked ? "Rings" : "Disks");
+      break;
+    case "DissolveBoundaries":
+      form.set("inputLayer", input);
+      form.set("dissolveFields", JSON.stringify([...document.querySelectorAll("[data-az-field]:checked")].map(b => b.dataset.azField)));
+      form.set("multiPartFeatures", String($("azMulti").checked));
+      break;
+    case "OverlayLayers":
+      form.set("inputLayer", input);
+      form.set("overlayLayer", other);
+      form.set("overlayType", document.querySelector('input[name="azOverlay"]:checked').value);
+      break;
+    case "MergeLayers":
+      form.set("inputLayer", input);
+      form.set("mergeLayer", other);
+      break;
+    case "FindCentroids":
+      form.set("inputLayer", input);
+      form.set("pointLocation", String($("azInside").checked));
+      break;
+    default:
+      form.set("pointLayer", input);
+      form.set("polygonLayer", other);
+      form.set("keepBoundariesWithNoPoints", String($("azKeep").checked));
+  }
+
+  return form;
+}
+
+/** A refusal in the screen's words: the server words it in its parameter names. */
+function analyzeSaid(message) {
+  return lowerFirst(Object.entries(ANALYSIS_LABELS).reduce(
+    (said, [parameter, label]) => said.replace(new RegExp(`\\b${parameter}\\b`, "g"), label), String(message || "")));
+}
+
+/** Says a refusal in the footer and under the field it is about, keeping the reader there. */
+function analyzeRefuse(text, field) {
+  $("analyzeSays").textContent = text;
+  if (!field) return;
+
+  const error = document.createElement("span");
+  error.className = "fielderror";
+  error.id = `${field.id}Error`;
+  error.textContent = text.replace(/^Not run: /, "");
+  error.textContent = error.textContent.charAt(0).toUpperCase() + error.textContent.slice(1);
+  field.closest(".stacked")?.append(error);
+  field.setAttribute("aria-invalid", "true");
+  field.setAttribute("aria-describedby", `${field.getAttribute("aria-describedby") || ""} ${error.id}`.trim());
+  field.focus();
+}
+
+/** Takes back what the last refusal marked, before the next try. */
+function analyzeClearRefusals() {
+  for (const error of document.querySelectorAll("#analyzeDialog .fielderror")) error.remove();
+  for (const one of document.querySelectorAll("#analyzeDialog [aria-invalid]")) {
+    one.removeAttribute("aria-invalid");
+    one.setAttribute("aria-describedby", (one.getAttribute("aria-describedby") || "").split(" ").filter(d => !d.endsWith("Error")).join(" "));
+  }
+}
+
+/** Submits, then follows the job until it ends, saying where it is; the result is a link to the new layer. */
+async function runAnalysis() {
+  const go = $("analyzeGo");
+  if (!go || go.getAttribute("aria-disabled") === "true") return;
+
+  const tool = ANALYSIS_TOOLS.find(t => t.task === document.querySelector('input[name="azTool"]:checked')?.value);
+  const nameBox = $("azName");
+  const name = (nameBox.value || "").trim();
+  analyzeClearRefusals();
+
+  if (tool.task === "CreateBuffers" && !analyzeDistances()) {
+    analyzeRefuse("Not run: enter distances as numbers above zero, such as 100, 250.", $("azDistances"));
+    return;
+  }
+
+  if (tool.second && !$("azOther")?.value) {
+    analyzeRefuse(`Not run: ${$("azNoSecond")?.textContent || "there is no second layer to use."}`, null);
+    return;
+  }
+
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(name)) {
+    analyzeRefuse("Not run: the result's name takes letters, digits, _ and -, starting with a letter or digit.", nameBox);
+    return;
+  }
+
+  // Not `disabled`: a disabled button drops the focus it holds (design review); it says it is busy instead.
+  go.setAttribute("aria-disabled", "true");
+  $("analyzeSays").textContent = "Starting…";
+
+  let job;
+  try {
+    job = await api(`${ANALYSIS}/${tool.task}/submitJob`, { method: "POST", body: analyzeForm(tool, name) });
+  } catch (e) {
+    const message = String(e.message || e);
+    go.removeAttribute("aria-disabled");
+    analyzeRefuse(`Not run: ${analyzeSaid(message)}`, /already exists|cannot name/.test(message) ? nameBox : null);
+    return;
+  }
+
+  if (!job?.jobId) {
+    go.removeAttribute("aria-disabled");
+    analyzeRefuse("Not run: the server did not start the job.", null);
+    return;
+  }
+
+  const run = { job: job.jobId, tool, name };
+  analyzeRun = run;
+  $("analyzeSays").textContent = `Running ${tool.label.toLowerCase()}…`;
+  $("analyzeBody").inert = true;
+  drawAnalyzeFoot(true);
+  $("analyzeStop").focus();
+
+  for (;;) {
+    await new Promise(done => setTimeout(done, 1500));
+
+    let status;
+    try {
+      status = await api(`${ANALYSIS}/${tool.task}/jobs/${encodeURIComponent(run.job)}?f=json`);
+    } catch {
+      continue;
+    }
+
+    const ended = ["esriJobSucceeded", "esriJobFailed", "esriJobCancelled"].includes(status.jobStatus);
+    if (!ended) continue;
+
+    let line;
+    let id = null;
+    if (status.jobStatus === "esriJobSucceeded") {
+      const result = await api(`${ANALYSIS}/${tool.task}/jobs/${encodeURIComponent(run.job)}/results/${tool.result}?f=json`).catch(() => null);
+      id = result?.value?.itemId || null;
+    } else {
+      const last = [...(status.messages || [])].reverse().find(m => m.type === "esriJobMessageTypeError");
+      line = status.jobStatus === "esriJobCancelled" ? `${run.name} was stopped; nothing was made.`
+        : `${run.name} failed: ${analyzeSaid(last?.description || "the server did not say why.")}`;
+    }
+
+    // Closed while it ran: the page says how it ended, since the dialog cannot.
+    if (analyzeRun !== run) {
+      toast(id ? `${run.name} is ready, in Content.` : line, Boolean(id));
+      return;
+    }
+
+    analyzeRun = null;
+    $("analyzeBody").inert = false;
+    drawAnalyzeFoot(false);
+
+    if (id) {
+      $("analyzeSays").innerHTML = `Done: <a href="#/item/${h(id)}" id="analyzeResult">open ${h(run.name)}</a>.`;
+      // The next run needs a name of its own; this one is taken now.
+      nameBox.value = analyzeNameFor(`${run.name.replace(/_\d+$/, "")}_${(Number(/_(\d+)$/.exec(run.name)?.[1]) || 1) + 1}`);
+      nameBox.dataset.made = nameBox.value;
+      $("analyzeResult").focus();
+    } else {
+      $("analyzeSays").textContent = line;
+      $("analyzeGo").focus();
+    }
+    return;
+  }
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target;
+  if (t.id === "analyzeOpen") { t.closest("details")?.removeAttribute("open"); await openAnalyze(); return; }
+  if (t.id === "analyzeGo") { await runAnalysis(); return; }
+
+  if (t.id === "analyzeStop" && analyzeRun) {
+    const run = analyzeRun;
+    t.setAttribute("aria-disabled", "true");
+    $("analyzeSays").textContent = "Stopping…";
+    await api(`${ANALYSIS}/${run.tool.task}/jobs/${encodeURIComponent(run.job)}/cancel`, { method: "POST" }).catch(() => null);
+    return;
+  }
+
+  if (t.id === "analyzeCancel" || t.id === "analyzeClosing" || t.closest?.("#analyzeClose")) {
+    $("analyzeDialog").close();
+    return;
+  }
+
+  if (t.closest?.("#analyzeResult")) $("analyzeDialog").close();
+});
+
+document.addEventListener("change", event => {
+  if (event.target.name === "azTool") {
+    drawAnalyzeOptions();
+    return;
+  }
+  // Erase and Union take a polygon layer to overlay with; the list follows the choice.
+  if (event.target.name === "azOverlay") {
+    drawAnalyzeSecond(ANALYSIS_TOOLS.find(t => t.task === "OverlayLayers"));
+  }
+});
+
+// Closed while a job runs — by Close, the ✕ or Escape — the job goes on and the page says so; its end is a toast.
+$("analyzeDialog")?.addEventListener("close", () => {
+  if (analyzeRun) {
+    toast(`${analyzeRun.name} is still running; it will appear in Content when it is done.`, "info");
+    analyzeRun = { ...analyzeRun, closed: true };
+  }
+  $("analyzeBody").inert = false;
+  // Analyze… is inside the More menu, closed by now; its summary is what is there to come back to (design review).
+  const opener = [$("analyzeOpen"), $("itemActions")?.querySelector(".itemmore summary")]
+    .find(one => one && one.getClientRects().length > 0);
+  opener?.focus();
+});
+
 // ---------------------------------------------------------------- documents (ADR-188 condition 4)
 
 /** The portal item types a document is listed as (`DocumentKind.ArcGisType`). */
@@ -33852,7 +34295,13 @@ async function showDocumentItem(id) {
   $("docCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(doc.title)}</b>`;
   $("docTitle").innerHTML = nameWithBreaks(doc.title);
   $("docSub").textContent = [kind, fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""].filter(Boolean).join(" · ");
-  $("docThumb").innerHTML = docTile(doc, "mapitemthumb");
+  // D-321: a picture is its own thumbnail, as Portal shows one; a file of another kind keeps its kind's tile. Read with the
+  // session's credential through the preview queue, and only below a size a thumbnail is worth fetching whole.
+  $("docThumb").innerHTML = DOC_KINDS[doc.kind] === "Picture" && doc.size <= DOC_PICTURE_THUMB_BYTES
+    ? `<img class="thumb mapitemthumb" data-thumb="/content/documents/${encodeURIComponent(doc.id)}/data"
+         alt="">`
+    : docTile(doc, "mapitemthumb");
+  paintPreviews();
 
   const more = [
     doc.mine ? `<button type="button" data-move-document="${h(doc.id)}" data-move-folder="${h(doc.contentFolder || "")}"
@@ -33865,6 +34314,7 @@ async function showDocumentItem(id) {
   $("docActions").innerHTML = `
     <button type="button" class="primary" id="docDownload">Download</button>
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
+    <button type="button" id="docFavorite" data-of="doc" hidden></button>
     ${doc.manages ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
     ${more ? `<details class="menu itemmore">
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
@@ -33878,6 +34328,7 @@ async function showDocumentItem(id) {
   drawDocAbout();
   drawDocSettings();
   drawDocTabs();
+  loadDocExtras(doc);
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
   if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
   if (docSayNext) {
@@ -33887,6 +34338,26 @@ async function showDocumentItem(id) {
   }
 }
 
+/** The largest picture shown as its own thumbnail; past it the page would fetch megabytes to draw a box. */
+const DOC_PICTURE_THUMB_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A document's terms of use and the reader's favourite (D-321), from its portal item and the reader's list, as a web
+ * map's are. Drawn when they arrive; the page is already up without them.
+ */
+async function loadDocExtras(doc) {
+  const [item] = await Promise.all([
+    api(`/sharing/rest/content/items/${encodeURIComponent(doc.id)}?f=json`).catch(() => null),
+    loadFavorites(),
+  ]);
+  if (docOpen !== doc) return;
+  doc.itemId = doc.id;
+  doc.licenseInfo = item?.licenseInfo || "";
+  doc.favorite = favoriteIds.has(bareId(doc.id));
+  redrawItemAbout("doc");
+  drawFavorite(doc, $("docFavorite"));
+}
+
 function drawDocSide() {
   const doc = docOpen;
   const folder = doc.mine && doc.contentFolder ? myFolders.find(f => f.id === doc.contentFolder)?.title : "";
@@ -33894,6 +34365,10 @@ function drawDocSide() {
     <h4>Item information</h4>
     <dl class="facts2">
       <dt>Type</dt><dd>${h(DOC_KINDS[doc.kind] || doc.type || "Document")}</dd>
+      <dt>Item ID</dt><dd><code class="itemid" title="Select to copy">${h(bareId(doc.id).slice(0, 16))}<wbr>${
+        h(bareId(doc.id).slice(16))}</code>
+        <button type="button" class="tiny" data-copy="${h(bareId(doc.id))}" data-copied="The item ID is on the clipboard."
+          aria-label="Copy the item ID">Copy</button></dd>
       <dt>File</dt><dd class="docfile">${h(doc.fileName || "—")}</dd>
       <dt>Size</dt><dd>${h(fileSize(doc.size))}</dd>
       <dt>Owner</dt><dd>${h(doc.owner || "—")}</dd>
@@ -33921,6 +34396,9 @@ function drawDocAbout(editing = false) {
         <input type="text" id="docEditTags" value="${h((doc.tags || []).join(", "))}"></div>
       <div class="stacked"><label for="docEditDescription">Description</label>
         <textarea id="docEditDescription" rows="6" maxlength="64000">${h(doc.description || "")}</textarea></div>
+      <div class="stacked"><label for="docEditTerms">Terms of use</label>
+        <textarea id="docEditTerms" rows="4" maxlength="64000" aria-describedby="docEditTermsHint">${h(doc.licenseInfo || "")}</textarea>
+        <span class="hint" id="docEditTermsHint">The licence and any limits on using the file, shown to everyone who opens it and to ArcGIS clients.</span></div>
       <div class="row"><button type="button" class="primary" id="docEditSave">Save</button>
         <button type="button" class="ghost" id="docEditCancel">Cancel</button></div>
       <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
@@ -33935,7 +34413,8 @@ function drawDocAbout(editing = false) {
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet. What the file is, where it came from and how current it is.</p>`}
-    ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags and description</button>` : ""}
+    ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
+    ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
 }
 
@@ -34097,6 +34576,12 @@ document.addEventListener("click", async event => {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: $("docEditDescription").value.trim() || null }) })],
     ];
+    // Only when changed: terms are the item's (ADR-202), written by their own route, as a web map's are.
+    const terms = $("docEditTerms").value.trim();
+    if (terms !== (docOpen.licenseInfo || "")) {
+      steps.push(["terms of use", () => api(`/content/items/${encodeURIComponent(docOpen.id)}/license`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ licenseInfo: terms || null }) })]);
+    }
     const kept = [];
     for (const [what, write] of steps) {
       try {

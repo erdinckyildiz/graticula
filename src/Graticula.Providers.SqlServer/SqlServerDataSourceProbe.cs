@@ -86,6 +86,15 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
         {
             return Refused(ProbeOutcome.InsufficientPrivilege, "The database refused: " + e.Message);
         }
+        catch (Exception e) when (e is not OperationCanceledException && CertificateRefused(e))
+        {
+            // D-313. On Linux the driver's own sentence is "an internal exception was caught"; the reason is inside it.
+            return Refused(
+                ProbeOutcome.CannotConnect,
+                "The server's certificate was not accepted: it is not issued by an authority this server trusts, or it "
+                + "does not name the instance as typed. Install its authority on this server, type the name the "
+                + "certificate carries, or untick Verify the server's certificate to accept it unchecked.");
+        }
         catch (SqlException e)
         {
             SqlServerSource source = SqlServerLocator.Of(connectionString);
@@ -416,4 +425,22 @@ public sealed class SqlServerDataSourceProbe : IDataSourceProbe
     };
 
     private static ProbeResult Refused(ProbeOutcome outcome, string message) => new(outcome, message, null, null, []);
+
+    /// <summary>
+    /// Whether a connection failed on the server's certificate: a TLS authentication failure anywhere inside it, or the
+    /// driver's own Windows sentence about the certificate's chain.
+    /// </summary>
+    internal static bool CertificateRefused(Exception e)
+    {
+        for (Exception? inner = e; inner is not null; inner = inner.InnerException)
+        {
+            if (inner is System.Security.Authentication.AuthenticationException
+                || inner.Message.Contains("certificate", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

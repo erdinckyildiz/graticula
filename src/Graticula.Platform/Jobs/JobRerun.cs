@@ -138,6 +138,12 @@ public static class JobKinds
         // more try and then fails it.
         JobKind.FeatureExport => JobRerun.Harmless,
 
+        // <b>Makes a service of its own under the name the caller gave — ADR-222 §5.6.</b> A second run builds its result
+        // table afresh under the job's own name, then publishes under the same service name, which the catalogue already
+        // holds if the first run got that far: the publish is refused and the job fails with that sentence, so a lost
+        // lease can never leave two results.
+        JobKind.Analysis => JobRerun.RefusedByTheStore,
+
         _ => throw new ArgumentOutOfRangeException(
             nameof(kind),
             kind,

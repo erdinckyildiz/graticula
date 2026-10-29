@@ -13,12 +13,18 @@ namespace Graticula.Platform.Admin;
 /// <param name="Database">The database whose tables are offered.</param>
 /// <param name="User">Who to connect as, by SQL Server authentication.</param>
 /// <param name="Password">The password; never shown.</param>
+/// <param name="VerifyCertificate">
+/// Whether the server's certificate must be issued by an authority this machine trusts and name the host — D-313. False,
+/// the default and every locator written before the field existed, encrypts and accepts any certificate, which is what
+/// LocalDB, Express and most internal servers need.
+/// </param>
 public sealed record SqlServerSource(
     [property: JsonPropertyName("host")] string Host,
     [property: JsonPropertyName("port")] int? Port,
     [property: JsonPropertyName("database")] string Database,
     [property: JsonPropertyName("user")] string User,
-    [property: JsonPropertyName("password")] string? Password)
+    [property: JsonPropertyName("password")] string? Password,
+    [property: JsonPropertyName("verifyCertificate")] bool VerifyCertificate = false)
 {
     /// <summary>The port a SQL Server answers on when nobody says otherwise.</summary>
     public const int DefaultPort = 1433;

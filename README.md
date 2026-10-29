@@ -140,17 +140,20 @@ that works.
   organisation's signed-in members and by nobody anonymous — with its own privilege, held by administrators; ArcGIS
   clients see it as the organisation, and Studio's search finds it from another organisation
   ([ADR-220](docs/adr/ADR-220-an-item-may-be-shared-with-every-organisation.md)).
-- **A second factor and API keys are new; API keys have no screen yet.** A member with a password here turns on
+- **A second factor and API keys are new.** A member with a password here turns on
   a code from an authenticator app in the console or at `/rest/auth/second-factor`, and every sign-in page asks for
   it; a token request cannot carry one and says so ([ADR-201](docs/adr/ADR-201-a-member-may-have-a-second-factor.md)).
   Scripts sign in as a service account with an API key, sent as an ArcGIS token, which reaches the ArcGIS
   faces and never administers or owns anything
   ([ADR-200](docs/adr/ADR-200-service-accounts-sign-in-with-api-keys.md)); service accounts and their keys are
-  made through the administration API until the redesigned console shows them. **A group may be public again**, found by
+  made in Studio › Organization › Security, a key shown once. **A group may be public again**, found by
   anybody in the portal's group search ([ADR-199](docs/adr/ADR-199-a-group-may-be-public.md)).
-- **Terms of use, content categories and favourites are new, and have no screen yet.** An item states its
-  licence and sits in the organisation's categories, both in the portal's item document and `categorySchema`;
-  a member keeps favourites ([ADR-202](docs/adr/ADR-202-an-item-has-terms-categories-and-favorites.md)).
+- **Terms of use, content categories and favourites are new.** An item states its licence and sits in the
+  organisation's categories, both in the portal's item document and `categorySchema`, and both are set on the item's
+  page in Studio; the categories themselves are kept under Organization; a member keeps favourites, listed in
+  Content ([ADR-202](docs/adr/ADR-202-an-item-has-terms-categories-and-favorites.md)). **A document — a PDF, Word or
+  PowerPoint file, or a picture — is an item of its own**, uploaded from New item and downloaded, shared, replaced
+  and deleted from its page ([ADR-188](docs/adr/ADR-188-a-document-is-an-item.md)).
   **A deleted service, image service, web map or document waits in the recycle bin for 14 days**, its hosted data with it, and
   comes back with its id ([ADR-203](docs/adr/ADR-203-a-deleted-item-waits-in-the-recycle-bin.md)); an image
   service waits with the image uploaded for it.
@@ -159,13 +162,15 @@ that works.
   ([ADR-082](docs/adr/ADR-082-offline-sync-is-not-in-v1.md)). Vector tiles can be exported as a
   package for them ([ADR-098](docs/adr/ADR-098-vector-tiles-can-be-exported-as-a-package.md)), which
   has not yet been tried in either.
-- **No geoprocessing and no geocoding.** No GPServer, no web tools, no Python toolboxes.
+- **Analysis is built in and six tools deep; no geocoding.** The portal names a Spatial Analysis Service, as ArcGIS Enterprise's does, whose `CreateBuffers`, `DissolveBoundaries`, `OverlayLayers`, `MergeLayers`, `AggregatePoints` and `FindCentroids` run as jobs over hosted layers and write a new hosted layer ([ADR-222](docs/adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md)). Studio runs them from a hosted layer's page (*More › Analyze…*); the rest of that toolset, a result returned without being saved, and running them from a map are not built yet. No web tools and no Python toolboxes yet: they are decided for ([Q-192](docs/open-questions.md)) and not designed, and until the sandbox that runs them is, nothing a user uploads is run.
 - **No *New ArcGIS Server* connection.** That handshake is SOAP; it is not built and not
   planned. A portal connection reaches the same content.
 - **Backup is the server's own command, restore needs it stopped.** `graticula backup` and
   `graticula restore` take the database, the imagery and the certificate, and refuse a
   backup of another key or a newer schema; the secret key is never in a backup
-  ([ADR-193](docs/adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md)).
+  ([ADR-193](docs/adr/ADR-193-backup-and-restore-are-the-server-s-own-commands.md)). System › Backups takes,
+  downloads and deletes one from the console, and keeps the newest few on a daily schedule; restoring is the
+  command's alone.
 - **Publishing from Pro is hosted feature layers only.** *Share As Web Layer* with *Copy all
   data → Feature* and *Overwrite Web Layer* work; map image, tile and vector tile layers and
   *Reference registered data* do not. Pop-ups set in Pro are not carried

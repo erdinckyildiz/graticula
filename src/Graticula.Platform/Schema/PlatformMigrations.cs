@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(109);
+    public static SchemaVersion ComponentSchemaVersion => new(110);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -144,7 +144,54 @@ public static class PlatformMigrations
         TwoOrganisationsPartnerV107,
         SharedWithEveryOrganisationV108,
         AnOrganisationDescribesItselfV109,
+        AnAnalysisIsAJobV110,
     ]);
+
+    /// <summary>
+    /// An analysis run is a job — ADR-222: a task of the Spatial Analysis Service, its parameters as sent, and what it
+    /// answered, so <c>jobs/&lt;jobId&gt;</c> and its results can be read by any node after the node that ran it is gone.
+    /// </summary>
+    /// <remarks>
+    /// <b>Expand</b>: a job kind nothing older claims, and a table nothing older reads. Behind the tenant floor from its
+    /// first day, as every job table has been since ADR-204.
+    /// </remarks>
+    private static Migration AnAnalysisIsAJobV110 => Migration.Expand(
+        new SchemaVersion(110),
+        "An analysis run is a job, with its task, parameters, results and messages (ADR-222).",
+
+        "alter table job drop constraint if exists job_kind_known",
+
+        """
+        alter table job add constraint job_kind_known
+          check (kind in ('geodatabase.inspect', 'geodatabase.import', 'tile.seed', 'tile.export', 'feature.export',
+                          'analysis.run'))
+        """,
+
+        """
+        create table if not exists analysis_job (
+            job_id      uuid        not null primary key references job (id) on delete cascade,
+            tenant_id   uuid        not null default coalesce(graticula_tenant(), '10000000-0000-0000-0000-000000000001'),
+            task        text        not null,
+            parameters  jsonb       not null,
+            results     jsonb       null,
+            messages    jsonb       not null default '[]'::jsonb,
+            cancel_asked boolean    not null default false
+        )
+        """,
+
+        "create index if not exists analysis_job_tenant on analysis_job (tenant_id)",
+
+        "alter table analysis_job enable row level security",
+
+        "alter table analysis_job force row level security",
+
+        "drop policy if exists tenant_floor on analysis_job",
+
+        """
+        create policy tenant_floor on analysis_job
+            using (graticula_tenant() is null or tenant_id = graticula_tenant())
+            with check (graticula_tenant() is null or tenant_id = graticula_tenant())
+        """);
 
     /// <summary>
     /// An organisation describes itself — ADR-221 condition 3: its own administrator gives it a name and a description,
