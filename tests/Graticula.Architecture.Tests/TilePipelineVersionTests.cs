@@ -76,6 +76,8 @@ public sealed class TilePipelineVersionTests
     /// its own question.
     /// </remarks>
     private const string RecordedHash =
+        // <b>Moved again 2026-10-29 for D-267, and the version deliberately did not move.</b> A built part is counted
+        // after it is made and a dense one noted on its layer; the bytes are read, never changed.
         // <b>Moved 2026-10-29 for D-287, and the version deliberately did not move.</b> `SpriteLayout.Fit` keeps a
         // generated sprite sheet within 4,096 pixels; a sheet that fitted is laid out as before, and no tile byte moves —
         // the sheet is a picture beside the tiles, not in them.
@@ -232,7 +234,7 @@ public sealed class TilePipelineVersionTests
         // became nullable for tables, and the tile source and the style read them through `RequireGeometryColumn()` and
         // `RequireGeometryType()`, which answer the same names for every layer a tile draws; a table is never in a tile.
         // And `Tileable` answers false for a table, which only ever took a table out of tile lists it was never in.
-        "ffc0256bbdf50814c601e63bd2bbd1a132162268d382826a408060c6b9ced9b9";
+        "bcd32662f2dc777edc873005bd19039d8cca2c95e6f5f574d31eeabf3f2310fe";
 
     /// <summary>The generation that hash belongs to.</summary>
     private const int RecordedVersion = 4;

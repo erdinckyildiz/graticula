@@ -139,6 +139,10 @@ public sealed class EveryLongLivedCacheIsBoundedTests
             "explicit ceiling of 256 layer-and-reference pairs; stops recording rather "
             + "than evicting, because eviction would let the same notice be logged twice "
             + "(Q-141)",
+        ["DenseTileNotices._noted"] =
+            "one per layer drawn into a tile denser than its range is measured for, so the catalogue bounds it; an "
+            + "explicit ceiling of 4,096 stops recording rather than evicting, and Forget removes a layer whose range "
+            + "was set or kept (D-267)",
         ["UnindexedLayerNotices._seen"] =
             "one per layer tiled from a table with no spatial index, so the catalogue bounds it; an explicit "
             + "ceiling of 1,024 stops recording rather than evicting, for the same reason as DatumShiftNotices "

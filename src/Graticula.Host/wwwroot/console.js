@@ -7701,6 +7701,15 @@ function drawServiceLayers(layers, qualified) {
       // Inside the item, on the layer's data (ADR-102 step 9); Studio has no layer page left.
       const at = `#/service/${qualified.split("/").map(encodeURIComponent).join("/")}?tab=data&layer=${layer.id ?? 0}`;
 
+      // D-267: a layer drawn into a tile denser than its range is measured for says so here too, where an owner looks
+      // first, and the link opens the Style panel whose Visible range holds the suggestion (design review 2026-10-29).
+      const serviceName = qualified.split("/").pop();
+      const dense = group ? null : (known || []).find(k => k.name === layer.name
+        && String(k.service || "").toLowerCase() === serviceName.toLowerCase())?.denseTile;
+      const advice = dense && !dense.kept
+        ? `<div class="rowmeta rangeflag"><a href="#/service/${qualified.split("/").map(encodeURIComponent).join("/")}?tab=visualization&layer=${layer.id ?? 0}&panel=style&focus=range">Its visible range may need measuring again</a></div>`
+        : "";
+
       return `<tr>
         <td class="lid">${group ? "" : num(layer.id ?? 0)}</td>
         <td class="lsw">${group
@@ -7709,7 +7718,7 @@ function drawServiceLayers(layers, qualified) {
         <td class="name${nested ? " nested" : ""}">${group
             ? h(layer.name || "")
             : `<a href="${at}">${h(layer.shown || layer.name || "")}</a>`}
-          <div class="rowmeta">${h(said)}</div></td>
+          <div class="rowmeta">${h(said)}</div>${advice}</td>
 
         <!--
           <b>Each of the three opens with *this* layer, and it took a revision to say so.</b>
@@ -9642,8 +9651,19 @@ function drawVisStyle() {
     drawSymStrip(name, placeOf(name), [`<a href="#/content">Content</a>`,
       `<a href="#/service/${path}">${h(serviceOpen.name)}</a>`]);
 
-    section("the symbology", () => loadSymbology(name), "symState");
+    const drawn = section("the symbology", () => loadSymbology(name), "symState");
     lockForReader(name, { ...layerNamed(name), manages: may, owner: serviceItem?.owner }, host);
+
+    // D-267: Overview's "visible range may need measuring again" lands on the suggestion itself, once the style has
+    // drawn — not at the top of a rail whose range section is a thousand pixels down (design review 2026-10-29).
+    if (hashQuery.get("focus") === "range") {
+      Promise.resolve(drawn).then(() => {
+        const box = $("rangeAdvice");
+        if (!box) return;
+        box.scrollIntoView({ block: "center" });
+        box.querySelector("[data-range-suggest]")?.focus();
+      });
+    }
   }
 
   const strip = host.querySelector(".symstrip");
@@ -11003,17 +11023,64 @@ function layerRangeMarkup(l, name) {
         asking for it. This is what keeps a map zoomed out over a dense layer — every building
         in a city — from making the server draw all of it. Publishing sets the zoomed-out limit
         from the data: the first scale at which no tile holds more than 10,000 features.</p>
-      <p class="hint"><b>${h(rangeText(l.minScale, l.maxScale))}</b></p>
+      <p class="hint"><b id="rangeSaved">${h(rangeText(l.minScale, l.maxScale))}</b></p>
+      ${rangeAdviceMarkup(l, name)}
       <p class="hint" id="rangeSays" role="status" aria-live="polite"></p>
       <div class="row" style="margin-top:10px">
         <button data-range="${h(name)}">Set</button>
-        <button data-range-suggest="${h(name)}" class="ghost">Measure from the data</button>
+        <button data-range-suggest="${h(name)}" class="ghost" id="rangeMeasure"${l.denseTile && !l.denseTile.kept ? " hidden" : ""}>Measure from the data</button>
         <span style="flex:1"></span>
         <button data-range="${h(name)}" data-clear="1" class="ghost"
           title="Clears both limits and saves at once">No limit</button>
       </div>
 
 `;
+}
+
+/**
+ * D-267, owner decision 2026-10-29: when the server drew this layer into a tile denser than its range is measured for,
+ * it suggests measuring again — and never changes the range itself. Keeping it as it is answers the suggestion, which
+ * then comes back only for a tile twice as dense.
+ */
+function rangeAdviceMarkup(l, name) {
+  const d = l.denseTile;
+  if (!d || d.kept) return "";
+  const when = new Date(d.noted);
+  const day = Number.isNaN(when.getTime()) ? "" : ` on ${when.toLocaleDateString(undefined, { dateStyle: "medium" })}`;
+  // A level's scale on the Web Mercator grid at 96 dpi, as the range fields are written — ADR-070.
+  const scale = Math.round(591657527.591555 / 2 ** Number(d.level)).toLocaleString("en-US");
+  const count = Number(d.features).toLocaleString("en-US");
+  const lead = l.minScale > 0
+    ? `<b>This layer may have outgrown its range.</b> A map${h(day)} drew ${count} of its features into one tile at
+          level ${Number(d.level)} (about 1:${scale}), which is still inside the range.`
+    : `<b>This layer has no zoomed-out limit.</b> A map${h(day)} drew ${count} of its features into one tile at
+          level ${Number(d.level)} (about 1:${scale}).`;
+  return `
+      <div class="rangeadvice" id="rangeAdvice">
+        <p>${lead} More than 10,000 features in one tile make zoomed-out maps of it slow. Measuring fills in a
+          range from the data; nothing changes until you press Set.</p>
+        <div class="row">
+          <button type="button" class="primary tiny" data-range-suggest="${h(name)}">Measure from the data</button>
+          <button type="button" class="ghost tiny" data-range-keep="${h(name)}">Keep the range as it is</button>
+        </div>
+      </div>`;
+}
+
+/**
+ * After the range was set or kept: the listing is read again for the rest of the console, and this section is
+ * updated where it stands. <b>Not <code>loadLayers()</code></b>, which redraws the Server editor's layer page — from
+ * Studio's Style rail it threw the whole item view away and left a blank page with focus on the body (design review
+ * 2026-10-29, found on Keep and then true of Set and No limit since the rail moved into Studio).
+ */
+async function rangeChanged(name, minScale, maxScale) {
+  try {
+    known = (await api("/admin/layers")).layers;
+  } catch { /* the listing is read again on the next visit */ }
+  const saved = $("rangeSaved");
+  if (saved && minScale != null) saved.textContent = rangeText(minScale, maxScale);
+  if (minScale != null) $("rangeAdvice")?.remove();
+  // The row's Measure stood aside while the box held one.
+  if (!$("rangeAdvice") && $("rangeMeasure")) $("rangeMeasure").hidden = false;
 }
 
 function layerHistoryMarkup(l, name) {
@@ -29474,14 +29541,31 @@ async function handleClick(event) {
         body: JSON.stringify({ minScale, maxScale }),
       });
       toast(r.note, true);
+      if ($("rangeSays")) $("rangeSays").textContent = r.note || "";
+      if (d.clear) { if ($("minScale")) $("minScale").value = ""; if ($("maxScale")) $("maxScale").value = ""; }
+      await rangeChanged(d.range, r.minScale, r.maxScale);
+      t.focus();
     } catch (e) { toast(e.message); }
-    await loadLayers();
+    return;
+  }
+
+  if (d.rangeKeep) {
+    // D-267: the answer "no" to the suggestion. The box goes, and focus moves to the range's own controls.
+    try {
+      const r = await api(`/admin/layers/${encodeURIComponent(d.rangeKeep)}/visible-range/keep`, { method: "POST" });
+      $("rangeAdvice")?.remove();
+      const says = $("rangeSays");
+      if (says) says.textContent = r.note;
+      $("minScale")?.focus();
+      await rangeChanged(d.rangeKeep, null, null);
+    } catch (e) { toast(e.message); }
     return;
   }
 
   if (d.rangeSuggest) {
     // Measures and fills the box; nothing is stored until Set, so the number can be looked at first.
     const says = $("rangeSays");
+    let toField = null;
     t.disabled = true;
     if (says) says.textContent = "Counting features tile by tile — this can take up to half a minute on a large layer…";
     try {
@@ -29489,12 +29573,14 @@ async function handleClick(event) {
         { method: "POST" });
       if (r.minScale != null && $("minScale")) $("minScale").value = r.minScale > 0 ? Math.round(r.minScale) : "";
       if (says) says.textContent = r.minScale == null ? r.note : `Measured, not saved: ${r.note} Press Set to keep it.`;
+      // From the suggestion box, the next step is reading the filled field and pressing Set: focus goes there.
+      if (r.minScale != null && t.closest("#rangeAdvice")) toField = $("minScale");
     } catch (e) {
       if (says) says.textContent = e.message;
     } finally {
       // Disabling the pressed button threw focus to the page; it goes back where the keyboard left it.
       t.disabled = false;
-      t.focus();
+      (toField || t).focus();
     }
     return;
   }

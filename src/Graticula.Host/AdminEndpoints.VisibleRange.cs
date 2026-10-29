@@ -12,6 +12,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Postgres;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -38,6 +39,7 @@ internal static partial class AdminEndpoints
         app.MapPut("/admin/layers/{name}/visible-range", SetVisibleRangeAsync);
         app.MapPut("/admin/layers/{name}/title", SetLayerTitleAsync);
         app.MapPost("/admin/layers/{name}/visible-range/suggestion", SuggestVisibleRangeAsync);
+        app.MapPost("/admin/layers/{name}/visible-range/keep", KeepVisibleRangeAsync);
     }
 
     /// <summary>Stores the scales a layer draws at.</summary>
@@ -84,6 +86,9 @@ internal static partial class AdminEndpoints
 
         contexts.Forget(layer);
 
+        // The statement cleared the layer's dense-tile note; this node forgets it too, so the next one is noted (D-267).
+        context.RequestServices.GetService<DenseTileNotices>()?.Forget(layer.Id);
+
         await AuditAsync(
             context, audit, "layer.visibleRange", name, Detail(new { minScale = min, maxScale = max }),
             succeeded: true, cancellation).ConfigureAwait(false);
@@ -94,6 +99,51 @@ internal static partial class AdminEndpoints
             minScale = min,
             maxScale = max,
             note = Describe(new VisibleScaleRange(min, max)),
+        }).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Keeps a layer's range as it is after a dense tile was noted — D-267.</summary>
+    /// <remarks>
+    /// <b>The administrator's answer to the suggestion, when the answer is no</b> — a layer meant to draw at every
+    /// scale, say. The note stays, marked kept, and is offered again only for a tile twice as dense, so a decision is
+    /// not asked for again on every redraw. Who may set the range may keep it.
+    /// </remarks>
+    private static async Task KeepVisibleRangeAsync(
+        HttpContext context,
+        string name,
+        PostgresLayerCatalog layers,
+        IAdminCatalog catalog,
+        IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.ContentPublishFeatures).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await ManagedLayerAsync(context, layers, name, "keep the visible range of", cancellation).ConfigureAwait(false) is not { } layer)
+        {
+            return;
+        }
+
+        bool kept = await catalog.KeepVisibleRangeAsync(layer.Id, cancellation).ConfigureAwait(false);
+
+        if (kept)
+        {
+            context.RequestServices.GetService<DenseTileNotices>()?.Forget(layer.Id);
+
+            await AuditAsync(
+                context, audit, "layer.visibleRange.kept", name, Detail(new { }), succeeded: true, cancellation)
+                .ConfigureAwait(false);
+        }
+
+        await Results.Json(new
+        {
+            name,
+            kept,
+            note = kept
+                ? "The range stays as it is. It is suggested again only if a tile twice as dense is drawn."
+                : "There was no suggestion to answer: no tile of this layer was drawn denser than its range is measured for.",
         }).ExecuteAsync(context).ConfigureAwait(false);
     }
 

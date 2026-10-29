@@ -52,7 +52,7 @@ GetMap, which would draw the first 2,000 features of a map and look complete. §
   (§6, condition 2).
 - **The default is an estimate.** The search follows the densest tiles it finds; a dense area under a
   parent that was not among the densest can be missed, giving a limit one level too far out.
-- **A range fixed at publish drifts.** A table that grows tenfold keeps the limit it was given.
+- **A range fixed at publish drifts.** A table that grows tenfold keeps the limit it was given. *(Answered 2026-10-29 by [D-267](../architecture-debt.md), owner decision: the range still never moves by itself, but a tile built over the measure is noted on the layer and the range is suggested again beside it.)*
 
 ## 4. Evidence
 
@@ -156,7 +156,7 @@ ADR-066 (tile source), ADR-052 (derived style), ADR-031 (cost ceilings), ADR-033
 ## 9. Revisit triggers
 
 - **A layer must be seen whole from far out** — thinning or aggregation per level (Alternative B).
-- **A layer's data grows past its measured range** — re-measure on a schedule, or at refresh.
+- **A layer's data grows past its measured range** — re-measure on a schedule, or at refresh. *(Taken 2026-10-29 the other way — not on a schedule: the dense tile itself is the signal, and the answer is a suggestion, never a change; D-267.)*
 
 ## 10. Dissent
 

@@ -190,6 +190,7 @@ public readonly record struct PublishedLayerAddress(
 /// (<see cref="TileSources.CoherenceOf"/>, ADR-010 §6b).
 /// </param>
 /// <param name="Title">What the OGC faces call it, or null for its name (ADR-179).</param>
+/// <param name="DenseTile">The densest tile it was drawn into past its range's measure, or null — D-267.</param>
 public readonly record struct AdminLayer(
     Guid Id,
     string Name,
@@ -210,12 +211,30 @@ public readonly record struct AdminLayer(
     double? MaxScale = null,
     bool Tileable = false,
     string Kind = DataSourceKinds.PostGis,
-    string? Title = null)
+    string? Title = null,
+    DenseTile? DenseTile = null)
 {
     /// <summary>Its address in the services directory, without the host.</summary>
     public string Address =>
         $"/rest/services/{(Folder is null ? "" : Folder + "/")}{Service}/FeatureServer/{LayerIndex}";
 }
+
+/// <summary>
+/// A tile this server drew a layer into with more features than a visible range is measured for — D-267.
+/// </summary>
+/// <remarks>
+/// <b>A suggestion, never a change.</b> Owner decision 2026-10-29: when a layer's data grows past its range, the
+/// server says so beside the range and offers the measurement; it does not tighten the range, because an
+/// administrator may have chosen to draw it at every scale. <paramref name="Kept"/> is that administrator saying
+/// so, and only a tile twice as dense says it again.
+/// </remarks>
+/// <param name="Level">The tile's level.</param>
+/// <param name="X">Its column.</param>
+/// <param name="Y">Its row.</param>
+/// <param name="Features">How many of the layer's features it held.</param>
+/// <param name="Noted">When it was drawn.</param>
+/// <param name="Kept">Whether an administrator kept the range as it is after reading it.</param>
+public sealed record DenseTile(int Level, int X, int Y, int Features, DateTimeOffset Noted, bool Kept = false);
 
 /// <summary>
 /// A folder in the services directory, and what is in it.
@@ -788,6 +807,22 @@ public interface IAdminCatalog
     /// <returns>Whether the layer was found.</returns>
     Task<bool> SetVisibleRangeAsync(
         Guid id, double minScale, double maxScale, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Notes a tile drawn denser than a visible range is measured for — D-267. Stored only when the layer has no
+    /// note, a sparser one, or one an administrator kept that this tile at least doubles; setting the range clears it.
+    /// </summary>
+    /// <param name="id">The layer.</param>
+    /// <param name="tile">What was drawn.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the note was stored.</returns>
+    Task<bool> NoteDenseTileAsync(Guid id, DenseTile tile, CancellationToken cancellationToken);
+
+    /// <summary>Records that an administrator read the note and kept the range as it is — D-267.</summary>
+    /// <param name="id">The layer.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the layer had a note to keep.</returns>
+    Task<bool> KeepVisibleRangeAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
     /// Replaces a layer's per-column overrides — ADR-063.

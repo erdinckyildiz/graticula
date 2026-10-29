@@ -468,6 +468,7 @@ public static class Program
         // read back by `/admin/health`.
         builder.Services.AddSingleton<DatumShiftNotices>();
         builder.Services.AddSingleton<UnindexedLayerNotices>();
+        builder.Services.AddSingleton<DenseTileNotices>();
 
         // ADR-010 §5.1a: how many answers each service has had stale, for its cache read-back.
         builder.Services.AddSingleton<StaleTileNotices>();

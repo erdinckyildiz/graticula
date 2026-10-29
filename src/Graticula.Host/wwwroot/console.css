@@ -4719,6 +4719,14 @@ h4.spaced { margin-top: 24px; }
 .sharewarn { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 6px;
   padding: 8px 10px; margin: 8px 0; }
 .sharewarn > span[aria-hidden] { font-weight: 700; }
+/* D-267: the server suggests measuring a layer's range again. Amber, as the share warning: nothing failed, but a
+   map of this layer is slower than it needs to be, and the administrator is the one who can say whether it should. */
+.rangeadvice { color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: 6px;
+  padding: 8px 10px; margin: 8px 0; font-size: var(--t-small); line-height: 1.45; }
+.rangeadvice p { margin: 0 0 6px; }
+.rangeadvice .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.rowmeta.rangeflag a { color: var(--warn); text-decoration: underline; }
+.rangeadvice button.tiny.ghost { border-color: currentColor; color: inherit; background: none; }
 /* At phone width the picture gives its room to the name, which a bulk delete must be read by. */
 @media (max-width: 480px) {
   #contentRows td.thumbcell { display: none; }

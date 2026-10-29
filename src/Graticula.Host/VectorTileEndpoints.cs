@@ -16,6 +16,7 @@ using Graticula.Tiles;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace Graticula.Host;
@@ -1376,6 +1377,14 @@ internal static class VectorTileEndpoints
             if (part.Came == PartCame.Stale)
             {
                 refusedFor ??= refused;
+            }
+
+            // D-267: a part built denser than a range is measured for is noted on its layer, which suggests the range
+            // again. Built only — a cached part was looked at when it was built.
+            if (part.Came == PartCame.Built && context.RequestServices.GetService<DenseTileNotices>() is { } dense)
+            {
+                await dense.LookAsync(layer.Id, layer.Definition.Name, address, part.Bytes, cancellation)
+                    .ConfigureAwait(false);
             }
 
             parts.Add((layer, part));
