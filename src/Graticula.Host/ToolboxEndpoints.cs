@@ -406,7 +406,20 @@ internal static partial class ToolboxEndpoints
 
             sent[parameterName] = value;
 
-            if (dataType == "GPFeatureRecordSetLayer")
+            if (dataType == "GPRasterDataLayer")
+            {
+                (PublishedCoverage? coverage, string? refused) = await InputCoverageAsync(context, parameterName, value, current, cancellation)
+                    .ConfigureAwait(false);
+
+                if (coverage is null)
+                {
+                    await AnalysisEndpoints.RefuseAsync(context, 400, refused!).ConfigureAwait(false);
+                    return;
+                }
+
+                inputs[parameterName] = new JsonObject { ["coverage"] = coverage.ServiceName, ["folder"] = coverage.Folder };
+            }
+            else if (dataType == "GPFeatureRecordSetLayer")
             {
                 (PublishedLayer? layer, string? filter, string? why, JsonObject? collection, _) =
                     await AnalysisEndpoints.InputLayerAsync(parameterName, value, current, layers, cancellation).ConfigureAwait(false);
@@ -561,6 +574,8 @@ internal static partial class ToolboxEndpoints
     {
         "GPFeatureLayer" or "GPFeatureRecordSetLayer" or "DEFeatureClass" or "GPLayer" or "Feature Layer" or "Feature Class"
             or "DEShapefile" => "GPFeatureRecordSetLayer",
+        "GPRasterLayer" or "GPRasterDataLayer" or "DERasterDataset" or "Raster Layer" or "Raster Dataset"
+            or "GPRasterLayerOrDataset" => "GPRasterDataLayer",
         "GPLong" or "Long" => "GPLong",
         "GPDouble" or "Double" => "GPDouble",
         "GPBoolean" or "Boolean" => "GPBoolean",
@@ -568,6 +583,59 @@ internal static partial class ToolboxEndpoints
         "GPLinearUnit" or "Linear Unit" => "GPLinearUnit",
         _ => "GPString",
     };
+
+    /// <summary>
+    /// The image service a raster parameter names — <c>{"url": ".../ImageServer"}</c> or the bare url, as a web tool's
+    /// GPRasterDataLayer is sent — when the caller may read it; else why not (ADR-224 condition 2).
+    /// </summary>
+    private static async Task<(PublishedCoverage? Coverage, string? Why)> InputCoverageAsync(
+        HttpContext context, string parameter, string sent, RequestPrincipal current, CancellationToken cancellation)
+    {
+        string url = sent.Trim();
+
+        try
+        {
+            if (JsonNode.Parse(sent) is JsonObject named && named["url"] is JsonValue address)
+            {
+                url = address.GetValue<string>();
+            }
+        }
+        catch (JsonException)
+        {
+            // A bare url.
+        }
+
+        int at = url.IndexOf("/rest/services/", StringComparison.OrdinalIgnoreCase);
+        string[] path = at < 0 ? [] : url[(at + "/rest/services/".Length)..].Split('?')[0].Trim('/').Split('/');
+
+        if (path.Length is < 2 or > 3 || !string.Equals(path[^1], "ImageServer", StringComparison.Ordinal))
+        {
+            return (null, $"{parameter} is {{\"url\": \"<an image service of this server, ending in /ImageServer>\"}}.");
+        }
+
+        string? folder = path.Length == 3 ? path[0] : null;
+
+        if (context.RequestServices.GetService(typeof(ICoverageCatalog)) is not ICoverageCatalog coverages
+            || await coverages.FindAsync(folder, path[^2], cancellation).ConfigureAwait(false) is not { } coverage
+            || !LayerAccess.Evaluate(coverage.Sharing, coverage.Owner, current.Principal, current.Authorization, coverage.SharedWith).IsAllowed())
+        {
+            return (null, $"There is no image service at '{url}' that you may read.");
+        }
+
+        if (coverage.Images is { Count: > 1 })
+        {
+            return (null, $"'{url}' is a mosaic of {coverage.Images.Count} images; a tool takes a single image for now.");
+        }
+
+        long cells = (long)coverage.Info.Width * coverage.Info.Height;
+
+        if (cells > ToolRunner.RasterCellLimit)
+        {
+            return (null, $"'{url}' has {cells:N0} cells, more than the {ToolRunner.RasterCellLimit:N0} a tool is given.");
+        }
+
+        return (coverage, null);
+    }
 
     /// <summary>A tool's output, which the runner reports as text, as the type its parameter declares — a GPLong a number.</summary>
     internal static JsonValue? ValueOf(string? text, string dataType) => text is null ? null : Literal(text, dataType);

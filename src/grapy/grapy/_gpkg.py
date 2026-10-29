@@ -54,7 +54,12 @@ def connect(file: str) -> sqlite3.Connection:
 
 
 def table_of(path: str) -> tuple[sqlite3.Connection, str]:
-    """An open connection and the feature table a path names; the only one when it names none."""
+    """An open connection and the feature table a path names; the only one when it names none. A layer's name answers
+    its dataset's table (its query and selection are the cursors' to apply)."""
+    from . import _layers
+    layer = _layers.find(path)
+    if layer is not None:
+        path = layer.source
     file, table = split(path)
     if not os.path.exists(file):
         raise FileNotFoundError(f"'{file}' does not exist.")

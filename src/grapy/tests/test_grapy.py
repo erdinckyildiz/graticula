@@ -74,6 +74,15 @@ class FeatureClassesAndCursors(unittest.TestCase):
         self.assertIn("MakeRouteEventLayer", str(said.exception))
         self.assertFalse(hasattr(arcpy, "SomethingNobodyBuilt"))
 
+    def test_a_module_on_esris_data_or_on_a_model_not_held_is_refused_with_its_reason(self):
+        with self.assertRaises(NotImplementedError) as said:
+            arcpy.ba.GenerateTradeAreaRings("stores", "rings")
+        self.assertIn("ADR-224 group 3", str(said.exception))
+        self.assertIn("arcpy.ba.GenerateTradeAreaRings", str(said.exception))
+        with self.assertRaises(NotImplementedError) as said:
+            arcpy.un.TraceNetwork("network")
+        self.assertIn("ADR-224 group 2", str(said.exception))
+
     def test_hexagon_bins_count_every_feature(self):
         points = os.path.join(self.directory, "pts.gpkg")
         arcpy.management.CreateFeatureclass(self.directory, "pts.gpkg", "POINT", spatial_reference=3857)

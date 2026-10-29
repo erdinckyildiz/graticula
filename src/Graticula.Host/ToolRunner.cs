@@ -48,6 +48,8 @@ internal sealed partial class ToolRunner : BackgroundService
     private const int Speaks = 1;
 
     private readonly IJobStore _jobs;
+    private readonly ICoverageCatalog? _coverages;
+    private readonly Graticula.Coverages.ICoverageReaderFactory? _readers;
     private readonly IAnalysisStore _runs;
     private readonly JobSignal _signal;
     private readonly IToolboxStore _toolboxes;
@@ -73,8 +75,12 @@ internal sealed partial class ToolRunner : BackgroundService
         ToolSettings settings,
         HostSettings host,
         TimeProvider clock,
-        ILogger<ToolRunner> log)
+        ILogger<ToolRunner> log,
+        ICoverageCatalog? coverages = null,
+        Graticula.Coverages.ICoverageReaderFactory? readers = null)
     {
+        _coverages = coverages;
+        _readers = readers;
         _jobs = jobs;
         _runs = runs;
         _signal = signal;
@@ -168,6 +174,13 @@ internal sealed partial class ToolRunner : BackgroundService
 
             foreach ((string name, JsonNode? sent) in plan["inputs"]!.AsObject())
             {
+                if (sent!["coverage"] is JsonValue coverageName)
+                {
+                    inputs[name] = await WriteRasterAsync(
+                        name, sent["folder"]?.GetValue<string>(), coverageName.GetValue<string>(), directory, stop.Token).ConfigureAwait(false);
+                    continue;
+                }
+
                 PublishedLayer layer = await _layers.FindByIdAsync(Guid.Parse(sent!["layer"]!.GetValue<string>()), stop.Token).ConfigureAwait(false)
                     ?? throw new InvalidOperationException($"The layer given as {name} was removed after the run was submitted.");
                 (_, LayerDescription described) = await _contexts.GetAsync(layer, stop.Token).ConfigureAwait(false);
@@ -298,6 +311,72 @@ internal sealed partial class ToolRunner : BackgroundService
     }
 
     /// <summary>A feature class the tool answered, as a hosted layer of the caller's, and its result parameter.</summary>
+    /// <summary>The most cells a raster input may have — 25 million, 200 MB as doubles (ADR-224 condition 2).</summary>
+    internal const long RasterCellLimit = 25_000_000;
+
+    /// <summary>
+    /// An image service's first band, read whole at full resolution and written as <c>inputs/&lt;name&gt;.f64</c> —
+    /// little-endian doubles, row by row from the north — beside a header the runner turns into a GeoTIFF
+    /// (ADR-224 condition 2, the raster twin of a layer's GeoJSON).
+    /// </summary>
+    private async Task<string> WriteRasterAsync(string name, string? folder, string service, string directory, CancellationToken cancellation)
+    {
+        if (_coverages is null || _readers is null
+            || await _coverages.FindAsync(folder, service, cancellation).ConfigureAwait(false) is not { } coverage)
+        {
+            throw new InvalidOperationException($"The image service given as {name} was removed after the run was submitted.");
+        }
+
+        Graticula.Coverages.CoverageInfo info = coverage.Info;
+        using Graticula.Coverages.ICoverageReader reader = await _readers.OpenAsync(coverage.Path, cancellation).ConfigureAwait(false);
+        string raw = Path.Combine("inputs", name + ".f64");
+
+        await using (FileStream file = File.Create(Path.Combine(directory, raw)))
+        {
+            // A strip of rows at a time, so a large image is never held whole twice.
+            int strip = Math.Max(1, 4_000_000 / Math.Max(1, info.Width));
+            byte[] buffer = [];
+
+            for (int top = 0; top < info.Height; top += strip)
+            {
+                int rows = Math.Min(strip, info.Height - top);
+                Graticula.Coverages.CoverageWindow window = await reader.ReadAsync(0, 0, top, info.Width, rows, cancellation).ConfigureAwait(false);
+                int count = info.Width * rows;
+
+                if (buffer.Length != count * 8)
+                {
+                    buffer = new byte[count * 8];
+                }
+
+                for (int i = 0; i < count; i++)
+                {
+                    BitConverter.TryWriteBytes(buffer.AsSpan(i * 8, 8), window.Samples[i * window.Bands]);
+                }
+
+                await file.WriteAsync(buffer.AsMemory(0, count * 8), cancellation).ConfigureAwait(false);
+            }
+        }
+
+        string header = Path.Combine("inputs", name + ".raster.json");
+        Graticula.Coverages.BandInfo band = info.Bands[0];
+        await File.WriteAllTextAsync(Path.Combine(directory, header), new JsonObject
+        {
+            ["data"] = raw.Replace('\\', '/'),
+            ["width"] = info.Width,
+            ["height"] = info.Height,
+            ["left"] = info.Extent.MinX,
+            ["top"] = info.Extent.MaxY,
+            ["cellWidth"] = (info.Extent.MaxX - info.Extent.MinX) / info.Width,
+            ["cellHeight"] = (info.Extent.MaxY - info.Extent.MinY) / info.Height,
+            ["srid"] = info.Srid,
+            ["nodata"] = band.NoData,
+            ["kind"] = band.Kind.ToString(),
+            ["bands"] = info.Bands.Count,
+        }.ToJsonString(), cancellation).ConfigureAwait(false);
+
+        return header.Replace('\\', '/');
+    }
+
     private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, string geojson, CancellationToken cancellation)
     {
         using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(geojson, cancellation).ConfigureAwait(false));

@@ -98,3 +98,31 @@ def gpkg_to_geojson(source: str, target: str) -> int:
     with open(target, "w", encoding="utf-8") as out:
         json.dump({"type": "FeatureCollection", "features": features}, out, default=str)
     return len(features)
+
+
+_KINDS_OF_SAMPLES = {"Unsigned8": "uint8", "Signed16": "int16", "Unsigned16": "uint16", "Signed32": "int32",
+                     "Real32": "float32", "Real64": "float64"}
+
+
+def raster_from_raw(header_path: str, target: str) -> None:
+    """An image service's band the server wrote as raw doubles beside a header, as the GeoTIFF a tool opens
+    (ADR-224 condition 2). Cells holding the band's NoData value stay NoData."""
+    import numpy as np
+    import os
+    import rasterio
+    from rasterio.transform import from_origin
+
+    with open(header_path, encoding="utf-8") as read:
+        header = json.load(read)
+    raw = np.fromfile(os.path.join(os.path.dirname(os.path.dirname(header_path)), header["data"]), dtype="<f8")
+    array = raw.reshape(header["height"], header["width"])
+    kind = _KINDS_OF_SAMPLES.get(header.get("kind"), "float64")
+    nodata = header.get("nodata")
+    profile = {"driver": "GTiff", "height": header["height"], "width": header["width"], "count": 1, "dtype": kind,
+               "transform": from_origin(header["left"], header["top"], header["cellWidth"], header["cellHeight"])}
+    if header.get("srid"):
+        profile["crs"] = f"EPSG:{header['srid']}"
+    if nodata is not None:
+        profile["nodata"] = nodata
+    with rasterio.open(target, "w", **profile) as out:
+        out.write(array.astype(kind), 1)

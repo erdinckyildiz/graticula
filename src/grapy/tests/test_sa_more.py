@@ -1,0 +1,225 @@
+"""The second batch of grapy.sa, against answers worked out by hand — ADR-224.
+
+Rasters are written north to south with 10-unit cells on EPSG:3857, the top-left corner at (0, rows·10), so the cell
+in row r and column k has its centre at (5 + 10k, rows·10 − 5 − 10r).
+"""
+import math
+import os
+import sys
+import tempfile
+import unittest
+
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+import grapy as arcpy  # noqa: E402
+from grapy import sa  # noqa: E402
+
+ND = -1
+
+
+def grid(values, cell=10.0, nodata=None):
+    array = np.array(values)
+    arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)
+    return arcpy.NumPyArrayToRaster(array, arcpy.Point(0.0, 0.0), cell, cell, nodata)
+
+
+def cells(raster, nodata=ND, places=None):
+    got = arcpy.RasterToNumPyArray(raster, nodata_to_value=nodata).tolist()
+    return [[round(v, places) for v in row] for row in got] if places is not None else got
+
+
+def point(x, y):
+    return arcpy.PointGeometry(arcpy.Point(x, y), 3857)
+
+
+# A surface falling 10 per cell to the east and 3 per cell to the south: every interior cell's steepest descent is
+# east (drop 1 against 0.919 south-east), so the flow runs east along each row and down the eastern column.
+DEM = [[100 - 10 * k - 3 * r for k in range(4)] for r in range(4)]
+
+
+class More(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        arcpy.env.extent = None
+
+    def tearDown(self):
+        arcpy.env.outputCoordinateSystem = None
+
+    def features(self, name, shape, rows, fields=()):
+        path = os.path.join(self.directory, f"{name}.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, f"{name}.gpkg", shape, spatial_reference=3857)
+        for field, kind in fields:
+            arcpy.management.AddField(path, field, kind)
+        with arcpy.da.InsertCursor(path, [f for f, _ in fields] + ["SHAPE@"]) as written:
+            for row in rows:
+                written.insertRow(row)
+        return path
+
+    # ---- mathematics
+
+    def test_hyperbolic_bitwise_and_over(self):
+        self.assertEqual(cells(sa.ACosH(grid([[1.0, 0.5]]))), [[0.0, ND]])
+        self.assertEqual(cells(sa.ATanH(grid([[0.0, 1.0]]))), [[0.0, ND]])
+        self.assertEqual(cells(sa.ASinH(grid([[0.0]]))), [[0.0]])
+        twelve = grid([[12, 12.9]])
+        self.assertEqual(cells(sa.BitwiseAnd(twelve, 10)), [[8, 8]])
+        self.assertEqual(cells(sa.BitwiseOr(twelve, 10)), [[14, 14]])
+        self.assertEqual(cells(sa.BitwiseXOr(twelve, 10)), [[6, 6]])
+        self.assertEqual(cells(sa.BitwiseNot(grid([[0, 5]]))), [[-1, -6]])
+        # The bit shifted past the left is dropped and the sign bit is part of the value: 3 << 31 keeps only bit 31.
+        self.assertEqual(cells(sa.BitwiseLeftShift(grid([[1, 3, 1]]), grid([[31, 31, -1]])), nodata=99),
+                         [[-2147483648, -2147483648, 99]])
+        self.assertEqual(cells(sa.BitwiseRightShift(grid([[-8, 8]]), 1)), [[-4, 4]])
+        self.assertEqual(cells(sa.Over(grid([[0, 5]]), grid([[7, 8]]))), [[7, 5]])
+
+    # ---- local
+
+    def test_frequencies_popularity_rank_and_weighted_sum(self):
+        value = grid([[1, 2]])
+        others = [grid([[1, 1]]), grid([[2, 1]]), grid([[3, 3]])]
+        self.assertEqual(cells(sa.EqualToFrequency(value, others)), [[1, 0]])
+        self.assertEqual(cells(sa.GreaterThanFrequency(value, others)), [[2, 1]])
+        self.assertEqual(cells(sa.LessThanFrequency(value, others)), [[0, 2]])
+        # Cell 1 holds 1, 1, 2; cell 2 holds 1, 2, 3 — every value once, a tie at every level.
+        votes = [grid([[1, 1]]), grid([[1, 2]]), grid([[2, 3]])]
+        self.assertEqual(cells(sa.Popularity(grid([[1, 1]]), votes)), [[1, ND]])
+        self.assertEqual(cells(sa.Popularity(grid([[2, 2]]), votes)), [[2, ND]])
+        self.assertEqual(cells(sa.Popularity(grid([[4, 0]]), votes)), [[ND, ND]])
+        ranked = [grid([[17]]), grid([[8]]), grid([[11]])]
+        self.assertEqual(cells(sa.Rank(grid([[3]]), ranked)), [[17]])
+        self.assertEqual(cells(sa.Rank(grid([[1]]), ranked)), [[8]])
+        self.assertEqual(cells(sa.Rank(grid([[4]]), ranked)), [[ND]])
+        summed = sa.WeightedSum(sa.WSTable([[grid([[2.2]]), "VALUE", 0.75], [grid([[3]]), "VALUE", 0.25]]))
+        self.assertAlmostEqual(cells(summed)[0][0], 2.4)
+
+    # ---- extraction
+
+    def test_extract_by_circle_polygon_and_points(self):
+        nine = grid([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        # Centres x 5, 15, 25 and y 25, 15, 5; the circle of 10 round (15,15) takes the middle cell and its four
+        # orthogonal neighbours, exactly 10 away.
+        self.assertEqual(cells(sa.ExtractByCircle(nine, arcpy.Point(15, 15), 10)), [[ND, 2, ND], [4, 5, 6], [ND, 8, ND]])
+        self.assertEqual(cells(sa.ExtractByCircle(nine, arcpy.Point(15, 15), 10, "OUTSIDE")), [[1, ND, 3], [ND, ND, ND], [7, ND, 9]])
+        square = [arcpy.Point(0, 0), arcpy.Point(0, 20), arcpy.Point(20, 20), arcpy.Point(20, 0), arcpy.Point(0, 0)]
+        self.assertEqual(cells(sa.ExtractByPolygon(nine, square)), [[ND, ND, ND], [4, 5, ND], [7, 8, ND]])
+        self.assertEqual(cells(sa.ExtractByPoints(nine, [arcpy.Point(12, 3)])), [[ND, ND, ND], [ND, ND, ND], [ND, 8, ND]])
+
+    # ---- generalization
+
+    def test_aggregate_counts_blocks_from_the_bottom_left(self):
+        nine = grid([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        # EXPAND adds a NoData row on top and a column on the right: blocks {1,2} {3} / {4,5,7,8} {6,9}.
+        summed = sa.Aggregate(nine, 2)
+        self.assertEqual(cells(summed), [[3, 3], [24, 15]])
+        self.assertEqual((summed.extent.XMin, summed.extent.YMin, summed.extent.YMax, summed.meanCellWidth), (0.0, 0.0, 40.0, 20.0))
+        self.assertEqual(cells(sa.Aggregate(nine, 2, "SUM", "TRUNCATE")), [[24]])
+        self.assertEqual(cells(sa.Aggregate(nine, 2, "MEAN", "EXPAND", "NODATA")), [[ND, ND], [6.0, ND]])
+
+    def test_region_group_numbers_regions_in_scan_order(self):
+        values = grid([[1, 1, 2], [3, 1, 2], [3, 3, 1]])
+        self.assertEqual(cells(sa.RegionGroup(values, "FOUR", "WITHIN", "NO_LINK")), [[1, 1, 2], [3, 1, 2], [3, 3, 4]])
+        self.assertEqual(cells(sa.RegionGroup(values, "EIGHT", "WITHIN", "NO_LINK")), [[1, 1, 2], [3, 1, 2], [3, 3, 1]])
+        self.assertEqual(cells(sa.RegionGroup(values, "FOUR", "WITHIN", "NO_LINK", 3)), [[1, 1, 2], [0, 1, 2], [0, 0, 3]])
+        self.assertEqual(cells(sa.RegionGroup(values, "FOUR", "CROSS", "NO_LINK")), [[1, 1, 1], [1, 1, 1], [1, 1, 1]])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.RegionGroup(values)
+
+    # ---- density
+
+    def test_point_and_line_density(self):
+        points = self.features("p", "POINT", [(point(0, 0),), (point(20, 0),), (point(0, 20),), (point(20, 20),)])
+        # A 2 × 2 grid of 10-unit cells; each centre is 7.07 from one point and 15.8 or more from the rest.
+        density = sa.PointDensity(points, "NONE", 10, sa.NbrCircle(10, "MAP"), "SQUARE_MAP_UNITS")
+        for row in cells(density):
+            for value in row:
+                self.assertAlmostEqual(value, 1 / (100 * math.pi))
+        per_km = cells(sa.PointDensity(points, "NONE", 10, sa.NbrCircle(10, "MAP")))
+        self.assertAlmostEqual(per_km[0][0], 1e6 / (100 * math.pi), places=3)
+        lines = self.features("l", "POLYLINE", [(arcpy.Polyline(arcpy.Array([arcpy.Point(0, 0), arcpy.Point(20, 0)]), 3857),)])
+        # One row of two cells, centres (5,−5) and (15,−5). The circle of 10 round (5,−5) meets y = 0 for
+        # x = 5 ± √75, of which 0 … 5 + √75 is on the line.
+        line_density = cells(sa.LineDensity(lines, "NONE", 10, 10, "SQUARE_MAP_UNITS"))
+        self.assertAlmostEqual(line_density[0][0], (5 + math.sqrt(75)) / (100 * math.pi))
+        # In kilometres per square kilometre: metres per square metre times 1000.
+        self.assertAlmostEqual(cells(sa.LineDensity(lines, "NONE", 10, 10))[0][1], 1000 * (5 + math.sqrt(75)) / (100 * math.pi), places=4)
+
+    # ---- distance
+
+    def test_euclidean_direction_and_allocation(self):
+        source = grid([[-9, -9, -9], [-9, 1, -9], [-9, -9, -9]], nodata=-9)
+        self.assertEqual(cells(sa.EucDirection(source)), [[315.0, 360.0, 45.0], [270.0, 0.0, 90.0], [225.0, 180.0, 135.0]])
+        two = grid([[1, -9, -9], [-9, -9, -9], [-9, -9, 2]], nodata=-9)
+        allocated = cells(sa.EucAllocation(two))
+        self.assertEqual((allocated[0][1], allocated[1][0], allocated[2][1], allocated[1][2]), (1, 1, 2, 2))
+        self.assertEqual(cells(sa.EucAllocation(two, 10))[0], [1, 1, ND])
+
+    def test_cost_distance_back_link_and_allocation(self):
+        cost = grid([[1, 1, 1], [1, 5, 1], [1, 1, 1]])
+        source = grid([[1, -9, -9], [-9, -9, -9], [-9, -9, -9]], nodata=-9)
+        distance = cells(sa.CostDistance(source, cost), places=4)
+        # Round the costly middle: 10 east, a diagonal 1.414214 · 10 to (1,2), 10 south.
+        self.assertEqual(distance[0][:3], [0.0, 10.0, 20.0])
+        self.assertEqual(distance[2][2], round(34.14214, 4))
+        back = cells(sa.CostBackLink(source, cost))
+        self.assertEqual((back[0][0], back[0][1], back[1][0]), (0, 5, 7))
+        self.assertEqual(cells(sa.CostDistance(source, cost, 15))[0], [0.0, 10.0, ND])
+        holed = grid([[1, -9, 1], [1, 1, 1], [1, 1, 1]], nodata=-9)
+        self.assertEqual(cells(sa.CostDistance(source, holed))[0][1], ND)
+        two = grid([[1, -9, -9], [-9, -9, -9], [-9, -9, 2]], nodata=-9)
+        allocated = cells(sa.CostAllocation(two, grid([[1] * 3] * 3)))
+        self.assertEqual((allocated[0][1], allocated[2][1]), (1, 2))
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.CostDistance(source, cost, source_start_cost=5)
+
+    # ---- hydrology
+
+    def test_flow_direction_normal_and_forced(self):
+        surface = grid(DEM)
+        # East everywhere; the eastern column has no lower cell to the east and falls south; the south-east corner
+        # has no lower neighbour at all and flows out of the raster, diagonally.
+        self.assertEqual(cells(sa.FlowDirection(surface)), [[1, 1, 1, 4], [1, 1, 1, 4], [1, 1, 1, 4], [1, 1, 1, 2]])
+        self.assertEqual(cells(sa.FlowDirection(surface, "FORCE")),
+                         [[32, 64, 64, 128], [16, 1, 1, 1], [16, 1, 1, 1], [8, 4, 4, 2]])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.FlowDirection(grid([[5] * 4] * 4))
+
+    def test_accumulation_basin_watershed_length_and_streams(self):
+        direction = sa.FlowDirection(grid(DEM))
+        accumulation = sa.FlowAccumulation(direction)
+        # Each row gathers 0, 1, 2 to the east; the eastern column gathers its row and everything above it.
+        self.assertEqual(cells(accumulation), [[0, 1, 2, 3], [0, 1, 2, 7], [0, 1, 2, 11], [0, 1, 2, 15]])
+        self.assertEqual(cells(sa.Basin(direction)), [[1] * 4] * 4)
+        pour = grid([[-9, -9, -9, -9], [-9, -9, -9, 7], [-9, -9, -9, -9], [-9, -9, -9, -9]], nodata=-9)
+        self.assertEqual(cells(sa.Watershed(direction, pour)), [[7] * 4, [7] * 4, [ND] * 4, [ND] * 4])
+        self.assertEqual(cells(sa.FlowLength(direction)), [[60, 50, 40, 30], [50, 40, 30, 20], [40, 30, 20, 10], [30, 20, 10, 0]])
+        self.assertEqual(cells(sa.FlowLength(direction, "UPSTREAM"))[3][3], 60.0)
+        streams = sa.SetNull(accumulation < 2, 1)
+        self.assertEqual(cells(sa.StreamOrder(streams, direction)),
+                         [[ND, ND, 1, 1], [ND, ND, 1, 2], [ND, ND, 1, 2], [ND, ND, 1, 2]])
+        self.assertEqual(cells(sa.StreamOrder(streams, direction, "SHREVE")),
+                         [[ND, ND, 1, 1], [ND, ND, 1, 2], [ND, ND, 1, 3], [ND, ND, 1, 4]])
+        self.assertEqual(cells(sa.StreamLink(streams, direction)),
+                         [[ND, ND, 1, 1], [ND, ND, 2, 3], [ND, ND, 4, 5], [ND, ND, 6, 7]])
+        point_raster = grid([[-9, -9, -9, -9], [-9, 9, -9, -9], [-9, -9, -9, -9], [-9, -9, -9, -9]], nodata=-9)
+        # Within 10 of (1,1) the most accumulated cell is (1,2), with 2.
+        self.assertEqual(cells(sa.SnapPourPoint(point_raster, accumulation, 10))[1], [ND, ND, 9, ND])
+
+    def test_sink_and_fill(self):
+        self.assertEqual(cells(sa.Sink(grid([[1, 0], [3, 4]]))), [[ND, 1], [1, ND]])
+        self.assertEqual(cells(sa.Fill(grid([[5, 5, 5], [5, 1, 5], [5, 5, 5]]))), [[5, 5, 5], [5, 5, 5], [5, 5, 5]])
+        self.assertEqual(cells(sa.Fill(grid([[5, 5, 5], [5, 1, 2], [5, 5, 5]])))[1], [5, 2, 2])
+        with self.assertRaises(arcpy.NotBuiltError):
+            sa.Fill(grid([[1]]), 3)
+
+    def test_tools_refused_by_name_say_why(self):
+        for name, words in (("KernelDensity", "images"), ("Combine", "attribute table"), ("Kriging", "not specified")):
+            with self.assertRaises(arcpy.NotBuiltError) as raised:
+                getattr(sa, name)("a", "b")
+            self.assertIn(words, str(raised.exception))
+
+
+if __name__ == "__main__":
+    unittest.main()

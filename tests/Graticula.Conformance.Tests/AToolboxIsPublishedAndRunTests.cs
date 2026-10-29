@@ -222,6 +222,114 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
     }
 
+    private const string RasterToolbox = """
+        import grapy as arcpy
+
+        class Toolbox:
+            def __init__(self):
+                self.label = "Raster probe"
+                self.tools = [Cells]
+
+        class Cells:
+            def __init__(self):
+                self.label = "Cells"
+
+            def getParameterInfo(self):
+                return [arcpy.Parameter(name="in_raster", datatype="GPRasterLayer"),
+                        arcpy.Parameter(name="cells", datatype="GPString", direction="Output", parameterType="Derived")]
+
+            def execute(self, parameters, messages):
+                raster = arcpy.Raster(parameters[0].valueAsText)
+                a = arcpy.RasterToNumPyArray(raster, nodata_to_value=-1)
+                parameters[1].value = f"{raster.width} {raster.height} {a[29, 37]} {a[130, 130]} {a[191, 255]} {a[0, 0]}"
+        """;
+
+    /// <summary>
+    /// ADR-224 condition 2: an image service reaches a tool as a raster file and <c>arcpy.Raster</c> reads it. The corpus
+    /// image's samples are recorded in <c>truth.json</c> beside it — 96 at (37, 29), 141 at (130, 130), 137 at
+    /// (255, 191), and NoData (0) at the corner, which the tool writes as -1.
+    /// </summary>
+    [Fact]
+    public async Task An_image_service_reaches_a_tool_as_a_raster_it_reads_cell_for_cell()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string image = $"zz_toolimg_{Guid.NewGuid():N}"[..20];
+        string toolbox = "zz_rtools_" + Guid.NewGuid().ToString("N")[..8];
+        using HttpClient http = Unverified();
+        string corpus = System.IO.Path.Combine(RepositoryRoot(), "tests", "Graticula.Raster.Tiff.Tests", "corpus", "gray-byte-nodata.tif");
+
+        using (MultipartFormDataContent form = new())
+        {
+            form.Add(new ByteArrayContent(await System.IO.File.ReadAllBytesAsync(corpus)), "file", "gray.tif");
+            form.Add(new StringContent(image), "name");
+            using HttpRequestMessage upload = new(HttpMethod.Post, new Uri($"{root}/admin/coverages/upload")) { Content = form };
+            upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage made = await http.SendAsync(upload);
+            Assert.True(made.IsSuccessStatusCode, $"uploading: {(int)made.StatusCode} {await made.Content.ReadAsStringAsync()}");
+        }
+
+        try
+        {
+            using MultipartFormDataContent publishForm = new()
+            {
+                { new StringContent(toolbox), "name" },
+                { new ByteArrayContent(Encoding.UTF8.GetBytes(RasterToolbox)), "file", "raster.pyt" },
+            };
+            using HttpRequestMessage publish = new(HttpMethod.Post, new Uri($"{root}/content/toolboxes")) { Content = publishForm };
+            publish.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage published = await http.SendAsync(publish);
+            Assert.True((int)published.StatusCode == 201, $"Publishing answered {(int)published.StatusCode}: {await published.Content.ReadAsStringAsync()}");
+
+            string gp = $"{root}/rest/services/Tools/{toolbox}/GPServer";
+            JsonElement task = await GetAsync(http, token, $"{gp}/Cells?f=json");
+            Assert.Equal("GPRasterDataLayer", task.GetProperty("parameters")[0].GetProperty("dataType").GetString());
+
+            JsonElement cells = await RunAsync(http, token, gp, "Cells", "cells", new()
+            {
+                ["in_raster"] = Json(new { url = $"{root}/rest/services/hosted/{image}/ImageServer" }),
+            });
+            Assert.Equal("256 192 96 141 137 -1", cells.GetProperty("value").GetString());
+
+            // A raster parameter takes an image service, not a feature layer.
+            using HttpRequestMessage wrong = new(HttpMethod.Post, new Uri($"{gp}/Cells/submitJob"))
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["f"] = "json",
+                    ["in_raster"] = Json(new { url = $"{root}/rest/services/hosted/ci_observations/FeatureServer/0" }),
+                }),
+            };
+            wrong.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage refused = await http.SendAsync(wrong);
+            Assert.Equal(400, (int)refused.StatusCode);
+            Assert.Contains("/ImageServer", await refused.Content.ReadAsStringAsync(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            (int status, string body) = await AdminAsync(HttpMethod.Delete, $"/admin/coverages/{image}?folder=hosted");
+
+            if (status == 200 && JsonDocument.Parse(body).RootElement.TryGetProperty("recycled", out JsonElement entry) && entry.ValueKind == JsonValueKind.String)
+            {
+                await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{entry.GetString()}");
+            }
+        }
+    }
+
+    private static string RepositoryRoot()
+    {
+        System.IO.DirectoryInfo? at = new(AppContext.BaseDirectory);
+
+        while (at is not null && !System.IO.File.Exists(System.IO.Path.Combine(at.FullName, "CLAUDE.md")))
+        {
+            at = at.Parent;
+        }
+
+        Assert.NotNull(at);
+        return at!.FullName;
+    }
+
     private async Task<string> SignInAsync(string root, string name, string password)
     {
         using StringContent body = new(JsonSerializer.Serialize(new { name, password }), Encoding.UTF8, "application/json");

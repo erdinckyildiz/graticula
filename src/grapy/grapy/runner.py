@@ -122,6 +122,12 @@ def main(directory: str) -> int:
         # Layers the server wrote as GeoJSON become the GeoPackage feature classes a tool reads (ADR-223 §5.5).
         from grapy import _io
         for name, written in run.get("inputs", {}).items():
+            if written.endswith(".raster.json"):
+                # An image service's band, written raw by the server, becomes the GeoTIFF a tool opens (ADR-224).
+                tif = written[: -len(".raster.json")] + ".tif"
+                _io.raster_from_raw(os.path.join(directory, written), os.path.join(directory, tif))
+                sent[name] = tif
+                continue
             feature_class = os.path.splitext(written)[0] + ".gpkg"
             _io.geojson_to_gpkg(os.path.join(directory, written), os.path.join(directory, feature_class))
             sent[name] = feature_class
