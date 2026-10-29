@@ -610,11 +610,17 @@ jobs:
       #
       # This changes no behaviour and belongs to the diagnosis rather than to the server.
       # It costs a few thousand lines in an artefact that is already forty thousand.
+      # ADR-223: users' toolboxes run on this interpreter, with the wheels grapy needs, fenced by the runner's kernel —
+      # the same fence the image's runs put up, measured here by AToolboxIsPublishedAndRunTests.
+      - name: the interpreter users' tools run on
+        run: python -m pip install --quiet shapely pyproj numpy
+
       - name: start the server
         run: |
           Graticula__PlatformStore='Host=127.0.0.1;Port=5432;Database=gis;Username=graticula_ci;Password=ci-serving-role;SearchPath=gisserver' \
           Graticula__SecretKey="$(head -c 32 /dev/urandom | base64 -w0)" \
           Graticula__Port=8443 \
+          Graticula__Tools__Python="$(command -v python)" \
             nohup env "Logging__LogLevel__Microsoft.AspNetCore.Server.Kestrel=Debug" \
               src/Graticula.Host/bin/Release/net9.0/Graticula.Host \
               > server.log 2>&1 &

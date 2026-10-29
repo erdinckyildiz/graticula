@@ -881,13 +881,14 @@ public sealed class PostgresMemberDirectory : IMemberDirectory
 
         // <b>And their documents, as their maps</b> (ADR-188): the item is `on delete set null` on its owner, so without
         // this a removed member's files would survive owned by nobody — and one filed in a folder would stop the removal,
-        // since the member's folders cascade while an item in one restricts.
+        // since the member's folders cascade while an item in one restricts. <b>And their toolboxes</b> (ADR-223), for the
+        // same reason, and one more: a toolbox owned by nobody is code nobody answers for.
         await using (NpgsqlCommand documents = connection.CreateCommand())
         {
             documents.Transaction = transaction;
             documents.CommandText = """
                 delete from item
-                 where kind = 'document'
+                 where kind in ('document', 'toolbox')
                    and owner_principal_id in (select id from principal where id = graticula_principal_named(@name))
                 """;
             documents.Parameters.AddWithValue("name", name);

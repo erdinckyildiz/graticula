@@ -26,7 +26,8 @@ public sealed class PostgresAnalysisStore : IAnalysisStore
     }
 
     /// <inheritdoc/>
-    public async Task<AnalysisRun> CreateAsync(Guid owner, string task, string parameters, CancellationToken cancellationToken)
+    public async Task<AnalysisRun> CreateAsync(
+        Guid owner, string task, string parameters, CancellationToken cancellationToken, JobKind kind = JobKind.Analysis)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(task);
         ArgumentException.ThrowIfNullOrWhiteSpace(parameters);
@@ -45,7 +46,8 @@ public sealed class PostgresAnalysisStore : IAnalysisStore
                          transaction))
         {
             job.Parameters.AddWithValue("id", id);
-            job.Parameters.AddWithValue("kind", PostgresJobStore.Wire(JobKind.Analysis));
+            // An analysis or a user tool's run (ADR-223): one table for both, the kind keeping their runners apart.
+            job.Parameters.AddWithValue("kind", PostgresJobStore.Wire(kind));
             job.Parameters.AddWithValue("owner", owner);
             job.Parameters.AddWithValue("subject", task);
             await job.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);

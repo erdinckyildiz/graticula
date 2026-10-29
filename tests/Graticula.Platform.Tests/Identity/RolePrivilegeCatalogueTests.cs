@@ -330,6 +330,9 @@ public sealed class RolePrivilegeCatalogueTests
                 "admin:manageAllContent", "admin:manageMembers", "admin:manageRoles",
                 "admin:manageSecurity", "admin:manageServer", "admin:viewAllContent",
                 "content:create", "content:publishFeatures", "content:publishTiles",
+                // ADR-223, owner decision 2026-10-29: publishing a toolbox is publishing code this server runs, and the
+                // administrator alone of the built-in roles holds it until an administrator gives it to another.
+                "content:publishTools",
                 "content:registerDataStore", "features:edit", "features:fullEdit",
                 // ADR-220: the administrator alone of the built-in roles shares with every organisation.
                 "sharing:shareToAllOrganizations", "sharing:shareToOrganization", "sharing:shareToPublic",

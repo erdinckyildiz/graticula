@@ -222,6 +222,13 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble AS runtime
 # own package is 16. A deployment on a newer PostgreSQL points Graticula__PostgresTools at matching tools.
 RUN apt-get update  && apt-get install --yes --no-install-recommends curl libldap2 postgresql-client-16  && rm -rf /var/lib/apt/lists/*
 
+# ADR-223 §5.6: users' Python toolboxes run on this interpreter and this wheel set, fixed when the image is built —
+# nothing is installed at runtime. grapy itself is copied beside the server by the build (src/grapy/grapy).
+RUN apt-get update && apt-get install --yes --no-install-recommends python3 python3-venv && rm -rf /var/lib/apt/lists/* \
+ && python3 -m venv /opt/grapy \
+ && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas \
+ && /opt/grapy/bin/python -c "import shapely, pyproj, geopandas"
+
 # Non-root, and the uid is fixed rather than assigned. A volume written by uid
 # 64198 on one host and read by a differently-numbered user on the next is the
 # most common way persisted state becomes unreadable after a redeploy — which
@@ -291,6 +298,7 @@ ENV Graticula__StatePath=/var/lib/graticula \
     Graticula__Listen=0.0.0.0 \
     Graticula__GeoParquetRoot=/data/geoparquet \
     Graticula__DuckDbExtensions=/app/duckdb-extensions \
+    Graticula__Tools__Python=/opt/grapy/bin/python \
     DOTNET_gcServer=1
 
 EXPOSE 8443

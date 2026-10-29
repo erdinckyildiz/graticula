@@ -1368,7 +1368,7 @@ internal static partial class AnalysisEndpoints
     }
 
     /// <summary>The input layer a request names, if it is this server's, hosted, and readable by the caller.</summary>
-    private static async Task<(PublishedLayer? Layer, string? Filter, string? Why, JsonObject? Collection, LayerDescription? Described)> InputLayerAsync(
+    internal static async Task<(PublishedLayer? Layer, string? Filter, string? Why, JsonObject? Collection, LayerDescription? Described)> InputLayerAsync(
         string parameter, string? sent, RequestPrincipal current, PostgresLayerCatalog layers, CancellationToken cancellation)
     {
         if (string.IsNullOrWhiteSpace(sent))
@@ -1646,6 +1646,12 @@ internal static partial class AnalysisEndpoints
             return;
         }
 
+        await JobAnswerAsync(context, run).ConfigureAwait(false);
+    }
+
+    /// <summary>A job's resource, as the documented shape answers it — for this service's runs and a toolbox's (ADR-223).</summary>
+    internal static async Task JobAnswerAsync(HttpContext context, AnalysisRun run)
+    {
         JsonObject answer = new()
         {
             ["jobId"] = JobIdOf(run.Job.Id),
@@ -1682,6 +1688,12 @@ internal static partial class AnalysisEndpoints
             return;
         }
 
+        await ResultAnswerAsync(context, run, param).ConfigureAwait(false);
+    }
+
+    /// <summary>One result parameter of a run — for this service's runs and a toolbox's (ADR-223).</summary>
+    internal static async Task ResultAnswerAsync(HttpContext context, AnalysisRun run, string param)
+    {
         if (run.Results is null || JsonNode.Parse(run.Results)?[param] is not JsonObject result)
         {
             await RefuseAsync(context, 400, $"The job has no result '{param}'{(run.Job.Status == JobStatus.Done ? string.Empty : " yet: it has not succeeded")}.").ConfigureAwait(false);
@@ -1689,7 +1701,8 @@ internal static partial class AnalysisEndpoints
         }
 
         // The layer's address is stored as a path, and given back on the origin the caller reached this server by.
-        if (result["value"]?["url"] is JsonValue path && path.GetValue<string>().StartsWith('/'))
+        // A value that is not an object — a tool's number or text (ADR-223) — has no address to rewrite.
+        if (result["value"] is JsonObject held && held["url"] is JsonValue path && path.GetValue<string>().StartsWith('/'))
         {
             result["value"]!["url"] = TileFaces.Origin(context) + path.GetValue<string>();
         }
@@ -1721,6 +1734,12 @@ internal static partial class AnalysisEndpoints
             return;
         }
 
+        await CancelRunAsync(context, run, runs, jobs, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks a run to stop — for this service's runs and a toolbox's (ADR-223).</summary>
+    internal static async Task CancelRunAsync(HttpContext context, AnalysisRun run, IAnalysisStore runs, IJobStore jobs, CancellationToken cancellation)
+    {
         if (run.Job.Status is not (JobStatus.Queued or JobStatus.Running))
         {
             await RefuseAsync(context, 400, $"The job has ended ({StatusOf(run)}); there is nothing to cancel.").ConfigureAwait(false);
@@ -1739,13 +1758,21 @@ internal static partial class AnalysisEndpoints
     }
 
     /// <summary>The caller's run named by a job id, or a refusal written — another member's is no job (ADR-037).</summary>
-    private static async Task<AnalysisRun?> RunOfAsync(HttpContext context, string task, string jobId, IAnalysisStore runs, CancellationToken cancellation)
+    private static Task<AnalysisRun?> RunOfAsync(HttpContext context, string task, string jobId, IAnalysisStore runs, CancellationToken cancellation) =>
+        OwnRunAsync(context, jobId, TaskNamed(task)?.Name, runs, cancellation);
+
+    /// <summary>
+    /// The caller's run of a task, or an administrator's view of anybody's — refused as no such job otherwise, as every
+    /// job route here answers (ADR-037). A toolbox's runs are found the same way, by their own task string (ADR-223).
+    /// </summary>
+    internal static async Task<AnalysisRun?> OwnRunAsync(
+        HttpContext context, string jobId, string? task, IAnalysisStore runs, CancellationToken cancellation)
     {
         RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
 
         if (TryJob(jobId, out Guid id)
             && await runs.FindAsync(id, cancellation).ConfigureAwait(false) is { } run
-            && string.Equals(run.Task, TaskNamed(task)?.Name, StringComparison.Ordinal)
+            && string.Equals(run.Task, task, StringComparison.Ordinal)
             && !current.Principal.IsAnonymous
             && (run.Job.Owner == current.Principal.Id || LayerAccess.MayManage(null, current.Principal, current.Authorization)))
         {
@@ -1775,7 +1802,7 @@ internal static partial class AnalysisEndpoints
 
     // ------------------------------------------------------------------ reading a request, writing an answer
 
-    private static async Task<Func<string, string?>> ParametersOfAsync(HttpContext context, CancellationToken cancellation)
+    internal static async Task<Func<string, string?>> ParametersOfAsync(HttpContext context, CancellationToken cancellation)
     {
         IFormCollection? form = context.Request.HasFormContentType
             ? await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false)
@@ -1797,14 +1824,14 @@ internal static partial class AnalysisEndpoints
     private static string? Asked(HttpContext context, string name) =>
         context.Request.Query.TryGetValue(name, out StringValues value) ? value.ToString() : null;
 
-    private static async Task WriteAsync(HttpContext context, object answer)
+    internal static async Task WriteAsync(HttpContext context, object answer)
     {
         bool pretty = string.Equals(Asked(context, "f"), "pjson", StringComparison.OrdinalIgnoreCase);
         await Results.Json(answer, pretty ? Pretty : Compact).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     /// <summary>A refusal in the GP error shape: <c>{"error": {"code", "message", "details"}}</c>.</summary>
-    private static async Task RefuseAsync(HttpContext context, int code, string message)
+    internal static async Task RefuseAsync(HttpContext context, int code, string message)
     {
         // An ArcGIS client reads the code from the body; the HTTP status says the same where HTTP has the number.
         int status = code is 499 ? 401 : code;

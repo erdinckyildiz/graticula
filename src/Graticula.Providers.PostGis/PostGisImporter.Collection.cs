@@ -147,6 +147,52 @@ public sealed partial class PostGisImporter
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Writes a hosted layer's features to a file as GeoJSON in WGS 84, streamed row by row — what a user tool's run is
+    /// handed for a layer input (ADR-223 §5.5).
+    /// </summary>
+    /// <param name="input">The layer, its filter and extent.</param>
+    /// <param name="path">The file to write.</param>
+    /// <param name="limit">The most features written; one more is read so the caller can tell the limit was passed.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>How many features were read, up to the limit and one.</returns>
+    public async Task<int> WriteGeoJsonAsync(AnalysisInput input, string path, int limit, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        RefuseOutsideHosted(input.Layer.SchemaName, input.Layer.TableName, "read");
+
+        string geometry = LayerDefinition.Quote(input.Layer.RequireGeometryColumn());
+        string sql =
+            // Not the shape, and not the row's id: a tool's output carries its fields, and an id among them would collide
+            // with the one its import gives every row.
+            $"select json_build_object('type', 'Feature', 'properties', to_jsonb(s) - {Literal(input.Layer.RequireGeometryColumn())} "
+            + $"- {Literal(input.Layer.IntegerIdentityColumn ?? input.Layer.IdentityColumn)}, "
+            + $"'geometry', ST_AsGeoJSON(ST_Transform(s.{geometry}, 4326))::json)::text "
+            + $"from (select * from {Qualified(input.Layer.TableName)}{Filter(input, geometry)}) s limit @limit";
+
+        await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using NpgsqlCommand command = new(sql, connection) { CommandTimeout = 0 };
+        command.Parameters.AddWithValue("limit", limit + 1);
+        Bind(command, input);
+
+        await using System.IO.StreamWriter writer = new(path, append: false, new System.Text.UTF8Encoding(false));
+        await writer.WriteAsync("{\"type\":\"FeatureCollection\",\"features\":[").ConfigureAwait(false);
+        int count = 0;
+
+        await using (NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                await writer.WriteAsync(count++ == 0 ? reader.GetString(0) : "," + reader.GetString(0)).ConfigureAwait(false);
+            }
+        }
+
+        await writer.WriteAsync("]}").ConfigureAwait(false);
+        return count;
+    }
+
+    private static string Literal(string text) => "'" + text.Replace("'", "''", StringComparison.Ordinal) + "'";
+
     /// <summary>The largest value of a column an analysis wrote, or null when the table holds none.</summary>
     /// <param name="table">The run's table.</param>
     /// <param name="column">The column, one the run named itself.</param>

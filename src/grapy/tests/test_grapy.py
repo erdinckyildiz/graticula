@@ -167,6 +167,40 @@ class Toolboxes(unittest.TestCase):
         self.assertEqual([t["name"] for t in result["tools"]], ["Count", "Hostile"])
         self.assertEqual(result["tools"][0]["parameters"][1]["direction"], "Output")
 
+    def test_a_layer_crosses_in_as_geojson_and_out_again(self):
+        toolbox = textwrap.dedent('''
+            import grapy as arcpy
+
+            class Toolbox:
+                def __init__(self):
+                    self.tools = [Halo]
+
+            class Halo:
+                def getParameterInfo(self):
+                    return [arcpy.Parameter(name="in_features", datatype="GPFeatureRecordSetLayer"),
+                            arcpy.Parameter(name="out_features", datatype="GPFeatureRecordSetLayer", direction="Output")]
+
+                def execute(self, parameters, messages):
+                    projected = arcpy.management.Project(parameters[0].valueAsText, "p.gpkg", 3857).getOutput(0)
+                    parameters[1].value = arcpy.analysis.Buffer(projected, "halo.gpkg", "100 Meters").getOutput(0)
+        ''')
+        with open(os.path.join(self.directory, "halo.pyt"), "w") as out:
+            out.write(toolbox)
+        os.makedirs(os.path.join(self.directory, "inputs"))
+        with open(os.path.join(self.directory, "inputs", "in_features.geojson"), "w") as out:
+            json.dump({"type": "FeatureCollection", "features": [
+                {"type": "Feature", "properties": {"name": "a", "n": 1}, "geometry": {"type": "Point", "coordinates": [28.9, 41.0]}},
+                {"type": "Feature", "properties": {"name": "b", "n": 2}, "geometry": {"type": "Point", "coordinates": [29.0, 41.1]}}]}, out)
+        result = _run(self.directory, {"mode": "run", "toolbox": "halo.pyt", "tool": "Halo",
+                                       "inputs": {"in_features": "inputs/in_features.geojson"}}, unfenced=sys.platform != "linux")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["layers"]["out_features"]["count"], 2)
+        with open(os.path.join(self.directory, result["layers"]["out_features"]["geojson"])) as read:
+            back = json.load(read)
+        self.assertEqual(back["features"][0]["geometry"]["type"], "Polygon")
+        self.assertEqual(sorted(f["properties"]["name"] for f in back["features"]), ["a", "b"])
+        self.assertLess(abs(back["features"][0]["geometry"]["coordinates"][0][0][0] - 28.9), 0.01)
+
     def test_a_tool_runs_and_answers_its_output(self):
         result = _run(self.directory, {"mode": "run", "toolbox": "probe.pyt", "tool": "Count",
                                        "parameters": {"in_features": "in.gpkg"}}, unfenced=sys.platform != "linux")

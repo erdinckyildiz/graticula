@@ -117,7 +117,14 @@ def main(directory: str) -> int:
             raise LookupError(f"The toolbox has no tool '{run['tool']}'.")
         tool = cls()
         parameters = tool.getParameterInfo() or []
-        sent = run.get("parameters", {})
+        sent = dict(run.get("parameters", {}))
+
+        # Layers the server wrote as GeoJSON become the GeoPackage feature classes a tool reads (ADR-223 §5.5).
+        from grapy import _io
+        for name, written in run.get("inputs", {}).items():
+            feature_class = os.path.splitext(written)[0] + ".gpkg"
+            _io.geojson_to_gpkg(os.path.join(directory, written), os.path.join(directory, feature_class))
+            sent[name] = feature_class
         for parameter in parameters:
             if parameter.direction == "Input" and parameter.name in sent:
                 parameter.value = sent[parameter.name]
@@ -135,8 +142,17 @@ def main(directory: str) -> int:
 
         tool.execute(parameters, _Messages(_runtime))
         outputs = {p.name: p.valueAsText for p in parameters if p.direction == "Output"}
+
+        # A feature class output goes back as GeoJSON in WGS 84, which the server imports as a hosted layer.
+        layers = {}
+        os.makedirs(os.path.join(directory, "outputs"), exist_ok=True)
+        for name, value in outputs.items():
+            if value and ".gpkg" in value.lower():
+                written = os.path.join("outputs", f"{name}.geojson")
+                layers[name] = {"geojson": written, "count": _io.gpkg_to_geojson(os.path.join(directory, value),
+                                                                                 os.path.join(directory, written))}
         failed = any(m["type"] == "esriJobMessageTypeError" for m in _runtime.MESSAGES)
-        _write(directory, {"ok": not failed, "fence": fenced, "messages": _runtime.MESSAGES, "outputs": outputs,
+        _write(directory, {"ok": not failed, "fence": fenced, "messages": _runtime.MESSAGES, "outputs": outputs, "layers": layers,
                            "datatypes": {p.name: p.describe()["datatype"] for p in parameters if p.direction == "Output"}})
         return 0 if not failed else 1
     except BaseException as failure:  # The tool's own failure, said whole — the process ends here anyway.
