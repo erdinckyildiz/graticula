@@ -378,3 +378,47 @@ def cluster(classes, tolerance):
                 return numpy.array([target.get((index, oid, tuple(p)), tuple(p)) for p in xy.tolist()])
             moved[(index, oid)] = shapely.transform(shape, move)
     return moved
+
+
+# ---- Describe ----------------------------------------------------------------------------------------------------------
+
+class Described:
+    """What Describe answers for a topology: the documented Topology properties and the Dataset group's names.
+    INFERRED: ``maximumGeneratedErrorCount`` is -1, grapy setting no cap on validation's errors; ``ZClusterTolerance``
+    is 0, grapy's shapes being 2D; ``featureClassNames`` are the classes' names within their feature dataset."""
+
+    def __init__(self, path, file, dataset, name, tolerance, classes, srid):
+        from ._reference import SpatialReference
+        self.catalogPath = str(path)
+        self.name = self.baseName = name
+        self.path = f"{file}/{dataset}"
+        self.dataType = self.datasetType = "Topology"
+        self.clusterTolerance = float(tolerance)
+        self.featureClassNames = [c.rsplit("/", 1)[1] for c in classes]
+        self.maximumGeneratedErrorCount = -1.0
+        self.ZClusterTolerance = 0.0
+        self.spatialReference = SpatialReference(srid) if srid > 0 else None
+
+
+def describe(path):
+    """A Described for a topology path, or None when the path names none."""
+    try:
+        file, dataset, name = locate(path)
+    except ValueError:
+        return None
+    if not os.path.exists(file):
+        return None
+    connection = _gpkg.connect(file)
+    try:
+        if not connection.execute("select 1 from sqlite_master where name = 'grapy_topology'").fetchone():
+            return None
+        row = connection.execute("select dataset, cluster_tolerance from grapy_topology where name = ?", (name,)).fetchone()
+        if row is None or row[0] != dataset:
+            return None
+        classes = [r[0] for r in connection.execute("select class_name from grapy_topology_class where topology = ? "
+                                                    "order by class_id", (name,))]
+        srid = connection.execute("select srs_id from grapy_feature_datasets where name = ?", (dataset,)).fetchone() \
+            if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone() else None
+    finally:
+        connection.close()
+    return Described(path, file, dataset, name, row[1], classes, int(srid[0]) if srid else 0)

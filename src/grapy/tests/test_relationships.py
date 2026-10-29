@@ -42,6 +42,15 @@ class Relationships(unittest.TestCase):
         with arcpy.da.SearchCursor(path, fields) as read:
             return [tuple(r) for r in read]
 
+    def test_describe_answers_the_relationship_class_properties(self):
+        described = arcpy.Describe(self.composite())
+        self.assertEqual((described.dataType, described.cardinality, described.isComposite, described.isAttributed,
+                          described.originClassNames, described.destinationClassNames, described.forwardPathLabel,
+                          described.backwardPathLabel, described.notification),
+                         ("RelationshipClass", "OneToMany", True, False, ["poles"], ["transformers"], "Holds",
+                          "Is mounted on", "None"))
+        self.assertEqual(described.originClassKeys, [("pole_id", "OriginPrimary"), ("pole", "OriginForeign")])
+
     def test_search_related_records_both_ways(self):
         rc = self.composite()
         with arcpy.da.SearchRelatedRecords(rc, [1], "pole_id", ["OID@", "kva"]) as related:

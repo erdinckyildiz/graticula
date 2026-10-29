@@ -132,3 +132,59 @@ def cascade(connection, table, oids):
             mapping = f'{rc["name"]}_rte'
             column = "base_id" if rc["origin"] == table else "related_id"
             connection.execute(f'delete from "{mapping}" where {column} in ({marks})', oids)
+
+
+# ---- Describe ----------------------------------------------------------------------------------------------------------
+
+class Described:
+    """What Describe answers for a relationship class. INFERRED throughout — the *Relationship class properties* page
+    answered 404 when checked (2026-10-30) — from arcpy's published property names: ``cardinality`` is ``OneToOne``,
+    ``OneToMany`` or ``ManyToMany``; ``notification`` ``None``, ``Forward``, ``Backward`` or ``Both``; the class keys are
+    (field, role) pairs, roles ``OriginPrimary``, ``OriginForeign``, ``DestinationPrimary``, ``DestinationForeign``."""
+
+    def __init__(self, path, file, rc, rules):
+        self.catalogPath = str(path)
+        self.name = self.baseName = rc["name"]
+        self.path = file
+        self.dataType = self.datasetType = "RelationshipClass"
+        self.cardinality = {"ONE_TO_ONE": "OneToOne", "ONE_TO_MANY": "OneToMany", "MANY_TO_MANY": "ManyToMany"}[rc["cardinality"]]
+        self.originClassNames = [rc["origin"].rsplit("/", 1)[-1]]
+        self.destinationClassNames = [rc["destination"].rsplit("/", 1)[-1]]
+        self.forwardPathLabel = rc["forward_label"] or ""
+        self.backwardPathLabel = rc["backward_label"] or ""
+        self.isComposite = rc["relationship_type"] == "COMPOSITE"
+        self.isAttributed = bool(rc["attributed"])
+        self.isReflexive = rc["origin"] == rc["destination"]
+        self.isAttachmentRelationship = False
+        self.keyType = "Single"
+        self.classKey = "Undefined"
+        self.notification = {"NONE": "None", "FORWARD": "Forward", "BACKWARD": "Backward", "BOTH": "Both"}.get(
+            rc["message_direction"], "None")
+        self.originClassKeys = [(rc["origin_primary_key"], "OriginPrimary"), (rc["origin_foreign_key"], "OriginForeign")]
+        self.destinationClassKeys = [(rc["destination_primary_key"], "DestinationPrimary"),
+                                     (rc["destination_foreign_key"], "DestinationForeign")] if rc["relationship_table"] else []
+        self.relationshipRules = rules
+
+
+def describe(path):
+    """A Described for a relationship class path, or None when the path names none."""
+    import os
+    try:
+        file, name = _gpkg.split(str(path))
+    except ValueError:
+        return None
+    if not name or not os.path.exists(file):
+        return None
+    connection = _gpkg.connect(file)
+    try:
+        found = classes(connection, name=name)
+        if not found:
+            return None
+        rules = [dict(zip(("originMinimumCardinality", "originMaximumCardinality", "destinationMinimumCardinality",
+                           "destinationMaximumCardinality"), r)) for r in connection.execute(
+            "select origin_minimum, origin_maximum, destination_minimum, destination_maximum from grapy_relationship_rule "
+            "where relationship_class = ?", (name,))] if connection.execute(
+            "select 1 from sqlite_master where name = 'grapy_relationship_rule'").fetchone() else []
+    finally:
+        connection.close()
+    return Described(path, file, found[0], rules)
