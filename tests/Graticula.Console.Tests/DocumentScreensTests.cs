@@ -20,15 +20,19 @@ public sealed class DocumentScreensTests : ConsoleTest
 {
     private static readonly byte[] Pdf = Encoding.ASCII.GetBytes("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
 
-    private async Task<string> FileDocumentAsync(string title)
+    /// <summary>A 1×1 PNG, real enough for the server to read its first bytes as a picture.</summary>
+    private static readonly byte[] Png = Convert.FromBase64String(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==");
+
+    private async Task<string> FileDocumentAsync(string title, byte[]? bytes = null, string fileName = "zz-plan.pdf", string type = "application/pdf")
     {
         (string token, _) = await SignInAsync();
         using HttpRequestMessage request = new(HttpMethod.Post, new Uri($"{Root}/content/documents"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using MultipartFormDataContent form = new();
-        ByteArrayContent file = new(Pdf);
-        file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
-        form.Add(file, "file", "zz-plan.pdf");
+        ByteArrayContent file = new(bytes ?? Pdf);
+        file.Headers.ContentType = new MediaTypeHeaderValue(type);
+        form.Add(file, "file", fileName);
         form.Add(new StringContent(title), "title");
         form.Add(new StringContent("A plan, filed by a test."), "snippet");
         request.Content = form;
@@ -90,7 +94,25 @@ public sealed class DocumentScreensTests : ConsoleTest
             await WaitForAsync("(document.getElementById('docSays')?.textContent || '').includes('zz-plan.pdf')",
                 "Download said nothing on the page.");
 
-            // Editing refuses an empty title by name and keeps the reader in the field.
+            // D-321: the item id as ArcGIS clients name it, a favourite, and terms of use written to the item.
+            string bare = Guid.Parse(id).ToString("N");
+            Assert.Contains(bare, (await Browser.EvaluateAsync<string>("document.getElementById('docSide').textContent") ?? string.Empty)
+                .Replace("​", string.Empty, StringComparison.Ordinal), StringComparison.Ordinal);
+            await WaitForAsync(Shown("#docFavorite"), "The document's page offers no Add favorite.");
+            await ClickAsync("#docFavorite");
+            await WaitForAsync($"window.__writes.some(w => w.startsWith('PUT /content/items/{id}/favorite'))",
+                "Add favorite did not mark the document.");
+
+            await ClickAsync("#docEditOpen");
+            await WaitForAsync(Shown("#docEditTerms"), "Editing a document offers no terms of use.");
+            await Browser.EvaluateAsync<bool>("(document.getElementById('docEditTerms').value = 'CC BY 4.0', true)");
+            await ClickAsync("#docEditSave");
+            await WaitForAsync($"window.__writes.some(w => w.startsWith('PUT /content/items/{id}/license'))",
+                "Terms of use were not written to the document's item.");
+            await WaitForAsync(Shown("#docEditOpen"), "The page did not come back from editing.");
+
+            // Editing refuses an empty title by name and keeps the reader in the field — counted from here, past the save above.
+            await Browser.EvaluateAsync<bool>("(window.__writes.length = 0, true)");
             await ClickAsync("#docEditOpen");
             await Browser.EvaluateAsync<bool>("(document.getElementById('docEditTitle').value = '', true)");
             await ClickAsync("#docEditSave");
@@ -121,6 +143,31 @@ public sealed class DocumentScreensTests : ConsoleTest
             await WaitForAsync($"window.__writes.some(w => w.startsWith('DELETE /content/documents/{id}'))",
                 "Delete did not delete the document.");
 
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await RemoveAsync(id);
+        }
+    }
+
+    /// <summary>D-321: a picture is its own thumbnail on its page, fetched with the reader's credential.</summary>
+    [Fact]
+    public async Task A_picture_document_shows_itself_as_its_thumbnail()
+    {
+        string title = $"zz_pic_{Guid.NewGuid():N}"[..20];
+        string id = await FileDocumentAsync(title, Png, "zz-dot.png", "image/png");
+
+        try
+        {
+            (string token, _) = await SignInAsync();
+            await OpenAsync($"/studio/#/item/{id}", token);
+            await WaitForAsync($"(document.getElementById('docTitle')?.textContent || '').includes('{title}')",
+                "The picture's page did not open.");
+            await WaitForAsync("(document.querySelector('#docThumb img')?.getAttribute('src') || '').startsWith('blob:')",
+                "The picture is not shown as its own thumbnail.");
+            await WaitForAsync("document.querySelector('#docThumb img')?.naturalWidth === 1",
+                "The thumbnail is not the picture that was filed.");
             NothingWentWrong(await PageErrorsAsync());
         }
         finally

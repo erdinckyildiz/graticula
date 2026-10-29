@@ -753,7 +753,10 @@ async function showGroup(name, tab) {
   if (groupTab === "overview") drawGroupOverview(one);
   if (groupTab === "content") drawGroupContent(one);
   if (groupTab === "members") drawGroupMembers(one);
-  if (groupTab === "settings") drawGroupSettings(one);
+  // <b>Not over a form holding what the reader changed and has not saved.</b> The page can be drawn twice for one
+  // arrival — the route and a refresh racing — and the second draw put the stored choice back under a reader who had
+  // already chosen another (a public group's warning vanished on CI, 2026-10-29). Saving clears the mark first.
+  if (groupTab === "settings" && !(groupSettingsEdited === one.name && $("gsSave"))) drawGroupSettings(one);
   if (groupTab === "add") await drawGroupAdd(one);
 
   paintPreviews();
@@ -1005,7 +1008,11 @@ function drawGroupMembers(one) {
  * <b>Membership first, deletion last</b> — the opposite of the reference's order, and this console's
  * own rule about destructive controls.
  */
+/** The group whose settings form holds changes not yet saved, so a redraw does not take them away. */
+let groupSettingsEdited = null;
+
 function drawGroupSettings(one) {
+  groupSettingsEdited = null;
   // <b>*By request* is rendered disabled rather than omitted, and the harder reason is not
   // honesty.</b> The column stores three values and only the write path refuses the third, so a group
   // can already *hold* `request`. Render two options and such a group reads as *by invitation* on
@@ -1155,6 +1162,7 @@ function drawGroupSettings(one) {
 
   const check = () => {
     const dirty = reading() !== was;
+    groupSettingsEdited = dirty ? one.name : null;
     $("gsSave").disabled = !dirty;
     $("gsDiscard").disabled = !dirty;
     $("gsDirty").textContent = dirty ? "Unsaved changes" : "No unsaved changes";
@@ -1421,6 +1429,7 @@ async function saveGroupSettings(patch, what) {
     const moved = "visibility" in patch && patch.visibility !== groupNow.visibility;
 
     toast(moved && answer?.note ? `${what} ${answer.note}` : what, true);
+    groupSettingsEdited = null;
     await refreshGroup();
   } catch (e) { toast(e.message); }
 }
@@ -9167,8 +9176,9 @@ async function loadItemExtras(item) {
   drawFavorite(item);
 }
 
-/** The open item an item-page control acts on: the web map's when it says `map`, the service's otherwise. */
+/** The open item an item-page control acts on: the web map's when it says `map`, the document's for `doc`, the service's otherwise. */
 function itemOf(which) {
+  if (which === "doc") return docOpen;
   if (which !== "map") return serviceItem;
   if (!mapOpen) return null;
   // The map's own record, with the names the service page's functions read.
@@ -9179,6 +9189,16 @@ function itemOf(which) {
 
 /** Draws the open item's description again where it is shown, unless it is being edited. */
 function redrawItemAbout(which) {
+  if (which === "doc") {
+    // Not while it is being edited: the boxes hold what the reader typed.
+    if (!docOpen || $("docEditTitle")) return;
+    const had = document.activeElement?.closest?.("#docAbout") ? document.activeElement.id : "";
+    const said = $("docAboutSays")?.textContent || "";
+    drawDocAbout();
+    if (said && $("docAboutSays")) $("docAboutSays").textContent = said;
+    if (had) $(had)?.focus();
+    return;
+  }
   if (which === "map") {
     if ($("mapEditTitle")) return;
     // <b>What the reader was on, and what the panel had just said, survive the redraw</b> — a design review measured
@@ -9222,7 +9242,7 @@ async function toggleFavorite(button) {
 }
 
 document.addEventListener("click", event => {
-  const button = event.target.closest?.("#itemFavorite, #mapFavorite");
+  const button = event.target.closest?.("#itemFavorite, #mapFavorite, #docFavorite");
   if (button) toggleFavorite(button);
 });
 
@@ -25527,9 +25547,10 @@ async function openDbConnection(source) {
         <label class="field check"><input type="checkbox" id="dcVerify" aria-describedby="dcVerifyHint">
           Verify the server's certificate</label>
       </div>
-      <p class="hint" id="dcVerifyHint" hidden>Ticked, the certificate has to come from an authority this server trusts
-        and name the instance as typed, or the connection is refused. Leave it unticked for LocalDB, Express and servers
-        with a self-signed certificate: the connection is still encrypted, but who answered is not checked.</p>
+      <p class="hint" id="dcVerifyHint" hidden>Ticked: Graticula connects only if the SQL Server's certificate comes from
+        an authority the Graticula machine trusts and carries the host name typed in Instance. Unticked: the connection is
+        still encrypted, but nothing checks it reaches the right server. Leave it unticked for LocalDB, Express, or a
+        self-signed certificate.</p>
       <div class="row">
         <label class="field" style="flex:1 1 45%">User name
           <input id="dcUser" spellcheck="false" autocomplete="off" required></label>
@@ -30911,7 +30932,7 @@ async function handleClick(event) {
   }
 
   if (t.dataset?.copy) {
-    try { await navigator.clipboard.writeText(t.dataset.copy); toast("The address is on the clipboard.", true); copiedHere(t); }
+    try { await navigator.clipboard.writeText(t.dataset.copy); toast(t.dataset.copied || "The address is on the clipboard.", true); copiedHere(t); }
     catch { toast("This browser would not let the page write to the clipboard. The address is beside the button."); }
     return;
   }
@@ -33864,7 +33885,13 @@ async function showDocumentItem(id) {
   $("docCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(doc.title)}</b>`;
   $("docTitle").innerHTML = nameWithBreaks(doc.title);
   $("docSub").textContent = [kind, fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""].filter(Boolean).join(" · ");
-  $("docThumb").innerHTML = docTile(doc, "mapitemthumb");
+  // D-321: a picture is its own thumbnail, as Portal shows one; a file of another kind keeps its kind's tile. Read with the
+  // session's credential through the preview queue, and only below a size a thumbnail is worth fetching whole.
+  $("docThumb").innerHTML = DOC_KINDS[doc.kind] === "Picture" && doc.size <= DOC_PICTURE_THUMB_BYTES
+    ? `<img class="thumb mapitemthumb" data-thumb="/content/documents/${encodeURIComponent(doc.id)}/data"
+         alt="">`
+    : docTile(doc, "mapitemthumb");
+  paintPreviews();
 
   const more = [
     doc.mine ? `<button type="button" data-move-document="${h(doc.id)}" data-move-folder="${h(doc.contentFolder || "")}"
@@ -33877,6 +33904,7 @@ async function showDocumentItem(id) {
   $("docActions").innerHTML = `
     <button type="button" class="primary" id="docDownload">Download</button>
     ${doc.manages ? `<button type="button" id="docShareOpen">Share</button>` : ""}
+    <button type="button" id="docFavorite" data-of="doc" hidden></button>
     ${doc.manages ? `<button type="button" id="docReplace" aria-describedby="docReplaceSays">Replace file</button>` : ""}
     ${more ? `<details class="menu itemmore">
       <summary aria-label="More actions for this document" title="More actions">More <span aria-hidden="true">▾</span></summary>
@@ -33890,6 +33918,7 @@ async function showDocumentItem(id) {
   drawDocAbout();
   drawDocSettings();
   drawDocTabs();
+  loadDocExtras(doc);
   // Arriving on Settings — the row's *Delete…* — puts the reader on what they came for, not on the page.
   if (!again && docTab === "settings") ($("docDelete")?.disabled ? $("docProtect") : $("docDelete"))?.focus();
   if (docSayNext) {
@@ -33899,6 +33928,26 @@ async function showDocumentItem(id) {
   }
 }
 
+/** The largest picture shown as its own thumbnail; past it the page would fetch megabytes to draw a box. */
+const DOC_PICTURE_THUMB_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A document's terms of use and the reader's favourite (D-321), from its portal item and the reader's list, as a web
+ * map's are. Drawn when they arrive; the page is already up without them.
+ */
+async function loadDocExtras(doc) {
+  const [item] = await Promise.all([
+    api(`/sharing/rest/content/items/${encodeURIComponent(doc.id)}?f=json`).catch(() => null),
+    loadFavorites(),
+  ]);
+  if (docOpen !== doc) return;
+  doc.itemId = doc.id;
+  doc.licenseInfo = item?.licenseInfo || "";
+  doc.favorite = favoriteIds.has(bareId(doc.id));
+  redrawItemAbout("doc");
+  drawFavorite(doc, $("docFavorite"));
+}
+
 function drawDocSide() {
   const doc = docOpen;
   const folder = doc.mine && doc.contentFolder ? myFolders.find(f => f.id === doc.contentFolder)?.title : "";
@@ -33906,6 +33955,10 @@ function drawDocSide() {
     <h4>Item information</h4>
     <dl class="facts2">
       <dt>Type</dt><dd>${h(DOC_KINDS[doc.kind] || doc.type || "Document")}</dd>
+      <dt>Item ID</dt><dd><code class="itemid" title="Select to copy">${h(bareId(doc.id).slice(0, 16))}<wbr>${
+        h(bareId(doc.id).slice(16))}</code>
+        <button type="button" class="tiny" data-copy="${h(bareId(doc.id))}" data-copied="The item ID is on the clipboard."
+          aria-label="Copy the item ID">Copy</button></dd>
       <dt>File</dt><dd class="docfile">${h(doc.fileName || "—")}</dd>
       <dt>Size</dt><dd>${h(fileSize(doc.size))}</dd>
       <dt>Owner</dt><dd>${h(doc.owner || "—")}</dd>
@@ -33933,6 +33986,9 @@ function drawDocAbout(editing = false) {
         <input type="text" id="docEditTags" value="${h((doc.tags || []).join(", "))}"></div>
       <div class="stacked"><label for="docEditDescription">Description</label>
         <textarea id="docEditDescription" rows="6" maxlength="64000">${h(doc.description || "")}</textarea></div>
+      <div class="stacked"><label for="docEditTerms">Terms of use</label>
+        <textarea id="docEditTerms" rows="4" maxlength="64000" aria-describedby="docEditTermsHint">${h(doc.licenseInfo || "")}</textarea>
+        <span class="hint" id="docEditTermsHint">The licence and any limits on using the file, shown to everyone who opens it and to ArcGIS clients.</span></div>
       <div class="row"><button type="button" class="primary" id="docEditSave">Save</button>
         <button type="button" class="ghost" id="docEditCancel">Cancel</button></div>
       <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
@@ -33947,7 +34003,8 @@ function drawDocAbout(editing = false) {
     <h4>Description</h4>
     ${doc.description ? `<div class="mapdescription">${h(doc.description).replace(/\n/g, "<br>")}</div>`
       : `<p class="hint">No description yet. What the file is, where it came from and how current it is.</p>`}
-    ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags and description</button>` : ""}
+    ${doc.licenseInfo ? `<details class="itemterms"><summary>Terms of use</summary><p>${h(doc.licenseInfo)}</p></details>` : ""}
+    ${doc.manages ? `<button type="button" class="tiny ghost" id="docEditOpen">Edit title, summary, tags, description and terms</button>` : ""}
     <p class="hint" id="docAboutSays" role="status" aria-live="polite"></p>`;
 }
 
@@ -34109,6 +34166,12 @@ document.addEventListener("click", async event => {
         method: "PUT", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ description: $("docEditDescription").value.trim() || null }) })],
     ];
+    // Only when changed: terms are the item's (ADR-202), written by their own route, as a web map's are.
+    const terms = $("docEditTerms").value.trim();
+    if (terms !== (docOpen.licenseInfo || "")) {
+      steps.push(["terms of use", () => api(`/content/items/${encodeURIComponent(docOpen.id)}/license`, {
+        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ licenseInfo: terms || null }) })]);
+    }
     const kept = [];
     for (const [what, write] of steps) {
       try {

@@ -4564,6 +4564,11 @@ details.removelayer .row { display: flex; flex-wrap: wrap; gap: 6px; margin: var
   grid-area: actions; max-width: 440px; margin-left: var(--gap-5); display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gap-2);
 }
 #mapActions > button, #docActions > button { padding: 6px 12px; }
+/* D-321 review: a document's five controls wrapped More alone onto a second row at 1280 under the map's 440. */
+#docPagehead > #docActions { max-width: 600px; }
+/* Add and Remove favorite differ by 24px; the row no longer shifts under the pointer when it is pressed. */
+#itemFavorite, #mapFavorite, #docFavorite { min-width: 8.25rem; }
+#dcVerifyHint { margin-top: var(--gap-1); padding-left: 26px; }
 #mapPagehead > #mapTabs, #docPagehead > #docTabs { grid-area: tabs; justify-self: start; align-self: end; }
 @media (max-width: 900px) {
   #mapPagehead, #docPagehead { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "thumb text" "actions actions" "tabs tabs"; }
@@ -6037,7 +6042,7 @@ header #globalSearch[hidden] { display: none; }
 #searchRows .svcmeta .pill.p-stopped { color: var(--warn); }
 @media (max-width: 480px) { #searchRows td.thumbcell { display: none; } }
 @media (max-width: 760px) { #globalSearch input { width: 150px; max-width: 40vw; } }
-#svcFacts code.itemid { font-size: 12px; user-select: all; overflow-wrap: normal; } /* 32 unbroken characters set a narrow column's width: 386 in a 375 window on CI (2026-10-18) */
+#svcFacts code.itemid, #docSide code.itemid { font-size: 12px; user-select: all; overflow-wrap: normal; } /* 32 unbroken characters set a narrow column's width: 386 in a 375 window on CI (2026-10-18) */
 
 /* ------------------------------------------------------------- two-step sign-in (ADR-201)
    <b>One look for the three places it is set up</b> — the sign-in card, My profile, and the requirement on
@@ -6310,7 +6315,7 @@ ol.sfsteps > li > b { margin-left: -30px; }
 
 /* D-305: an item's terms of use, folded under its description, as written; and its favourite button. */
 .itemterms { margin: var(--gap-2) 0; }
-.itemterms summary { cursor: pointer; font-weight: 600; }
+.itemterms summary { cursor: pointer; font-weight: 600; font-size: 14px; } /* the size of the h4s beside it (D-321 review) */
 .itemterms p { white-space: pre-line; overflow-wrap: anywhere; margin: var(--gap-2) 0 0; }
 
 /* ------------------------------------------------- SYSTEM · backups (ADR-193 condition 4) */
