@@ -351,10 +351,15 @@ internal static partial class PortalEndpoints
         return [.. held];
     }
 
-    /// <summary>Maps a route that answers HEAD as well as GET.</summary>
+    /// <summary>Maps a resource route: GET, HEAD, and POST, which ArcGIS's REST resources all take.</summary>
+    /// <remarks>
+    /// <b>POST since 2026-10-29</b> (ADR-222 condition 6): the ArcGIS API for Python reads an item by
+    /// <c>POST content/items/&lt;id&gt;</c> — <c>gis.content.get</c>, and every analysis result it opens — and was answered
+    /// 405 here. A token in the form is read as one in the query is (<c>Authentication</c>); nothing here writes.
+    /// </remarks>
     private static RouteHandlerBuilder Discoverable(
         WebApplication app, string pattern, Delegate handler) =>
-        app.MapMethods(pattern, ["GET", "HEAD"], handler);
+        app.MapMethods(pattern, ["GET", "HEAD", "POST"], handler);
 
     /// <summary>
     /// Where the portal is, for a client given only a host.

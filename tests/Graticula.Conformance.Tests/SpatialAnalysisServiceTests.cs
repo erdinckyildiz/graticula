@@ -64,6 +64,28 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
         Assert.Contains(parameters, p => p.GetProperty("name").GetString() == "bufferLayer"
             && p.GetProperty("direction").GetString() == "esriGPParameterDirectionOutput");
 
+        // Every documented parameter is listed, built or not: the ArcGIS API for Python builds its functions from this list
+        // and refused overlay_layers and aggregate_points while snapToInput and the bin parameters were missing from it.
+        foreach ((string name, string[] expected) in new[]
+        {
+            ("OverlayLayers", new[] { "inputLayer", "overlayLayer", "overlayType", "outputType", "snapToInput", "tolerance", "outputName", "context" }),
+            ("AggregatePoints", new[] { "pointLayer", "polygonLayer", "keepBoundariesWithNoPoints", "summaryFields", "groupByField",
+                "minorityMajority", "percentPoints", "binType", "binSize", "binSizeUnit", "outputName", "context" }),
+        })
+        {
+            (_, JsonElement described) = await SendAsync(http, token, HttpMethod.Get, $"{root}{Service}/{name}?f=json");
+            string[] listed = [.. described.GetProperty("parameters").EnumerateArray().Select(p => p.GetProperty("name").GetString()!)];
+            Assert.All(expected, e => Assert.Contains(e, listed));
+        }
+
+        // A portal item is read by POST as by GET, as the ArcGIS API for Python reads every item it opens.
+        (_, JsonElement search) = await SendAsync(http, token, HttpMethod.Get, $"{root}/sharing/rest/search?q=*&num=1&f=json");
+        string item = search.GetProperty("results")[0].GetProperty("id").GetString()!;
+        (int posted, JsonElement read) = await SendAsync(http, token, HttpMethod.Post, $"{root}/sharing/rest/content/items/{item}",
+            new Dictionary<string, string> { ["f"] = "json" });
+        Assert.Equal(200, posted);
+        Assert.Equal(item, read.GetProperty("id").GetString());
+
         (_, JsonElement portal) = await SendAsync(http, token, HttpMethod.Get, $"{root}/sharing/rest/portals/self?f=json");
         Assert.EndsWith(Service, portal.GetProperty("helperServices").GetProperty("analysis").GetProperty("url").GetString(), StringComparison.Ordinal);
         Assert.Contains("premium:user:spatialanalysis",

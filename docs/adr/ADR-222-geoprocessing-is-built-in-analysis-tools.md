@@ -137,7 +137,17 @@ not reopen.
    they are not.
 5. **Map Viewer's *Analysis* pane runs `CreateBuffers` against this server**, measured in the browser; what it reads
    before showing the pane is recorded.
-6. **The ArcGIS API for Python's `create_buffers` runs against this server**, measured.
+6. **The ArcGIS API for Python's `create_buffers` runs against this server**, measured. **DISCHARGED 2026-10-29**, and
+   wider than asked: `tools/sdk-probe/python-analysis.py` signs in with a name and password, lets the API find the
+   service through `helperServices.analysis`, and runs `create_buffers`, `dissolve_boundaries`, `overlay_layers`,
+   `merge_layers` and `aggregate_points` with the API's own defaults — five hosted layers, counted (8, 1, 6, 20 and 12
+   features on the fixture, API 2.4.3). **It found two faults first, both fixed the same hour.** The API reads every
+   item by `POST content/items/<id>`, which this server answered 405 — a gap older than analysis, since
+   `gis.content.get` takes the same path — so every portal resource now takes POST as ArcGIS's do. And it builds each
+   function from the task resource's parameter list, so `overlay_layers` and `aggregate_points` were refused in Python
+   before a request was sent while `snapToInput`, `tolerance` and the bin parameters were missing from it; every
+   documented parameter is listed now, and a value asking for what is not built is refused by name.
+   `SpatialAnalysisServiceTests` holds both.
 7. **Studio offers the tools** on a layer's page and in the map, designed with the ux-designer agent.
 
 ## 6. Consequences

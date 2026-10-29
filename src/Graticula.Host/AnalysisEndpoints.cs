@@ -153,6 +153,8 @@ internal static partial class AnalysisEndpoints
                 new("overlayLayer", "GPFeatureRecordSetLayer", "Overlay Layer", "The features they are overlaid with: {\"url\": \"<layer url>\"}.", false, true),
                 new("overlayType", "GPString", "Overlay Type", "Intersect, Union (polygons with polygons) or Erase.", false, false, "Intersect", ["Intersect", "Union", "Erase"]),
                 new("outputType", "GPString", "Output Type", "Input only, for now: an intersection keeps the lower dimension of the two.", false, false, "Input", ["Input"]),
+                new("snapToInput", "GPBoolean", "Snap To Input", "False only, for now: no vertex is moved.", false, false, false),
+                new("tolerance", "GPDouble", "Tolerance", "Not used while snapping is not built.", false, false),
                 OutputName,
                 ContextParameter,
                 new("outputLayer", "GPString", "Output Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
@@ -181,6 +183,12 @@ internal static partial class AnalysisEndpoints
                 new("polygonLayer", "GPFeatureRecordSetLayer", "Polygon Layer", "The polygons they are counted in. Bins are not built yet.", false, true),
                 new("keepBoundariesWithNoPoints", "GPBoolean", "Keep Boundaries With No Points", "False leaves out a polygon with no point in it.", false, false, true),
                 new("summaryFields", "GPMultiValue:GPString", "Summary Fields", "\"<field> <Sum|Mean|Min|Max|Stddev>\" over the points in each polygon.", false, false),
+                new("groupByField", "GPString", "Group By Field", "Not built yet.", false, false),
+                new("minorityMajority", "GPBoolean", "Minority Majority", "Not built yet: it goes with groupByField.", false, false, false),
+                new("percentPoints", "GPBoolean", "Percent Points", "Not built yet: it goes with groupByField.", false, false, false),
+                new("binType", "GPString", "Bin Type", "Not built yet: give a polygon layer.", false, false, null, ["Square", "Hexagon"]),
+                new("binSize", "GPDouble", "Bin Size", "Not built yet.", false, false),
+                new("binSizeUnit", "GPString", "Bin Size Unit", "Not built yet.", false, false, null, [.. Units.Keys]),
                 OutputName,
                 ContextParameter,
                 new("aggregatedLayer", "GPString", "Aggregated Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
@@ -584,6 +592,12 @@ internal static partial class AnalysisEndpoints
             return $"outputType {type} is not built here yet; an intersection keeps the lower dimension of the two layers (Input).";
         }
 
+        // Sent by every client that reads the task, as false; true asks for snapping, which is not built.
+        if (string.Equals(asked("snapToInput")?.Trim(), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return "snapToInput is not built here yet; overlay without snapping.";
+        }
+
         AnalysisShape first = ShapeOf(layer.GeometryType);
         AnalysisShape other = ShapeOf(overlay.GeometryType);
 
@@ -708,9 +722,10 @@ internal static partial class AnalysisEndpoints
             return "polygonLayer holds no polygons.";
         }
 
-        if (asked("binType") is { Length: > 0 } || asked("groupByField") is { Length: > 0 })
+        // A polygon layer is what is counted into, so bin settings beside it say nothing; a group-by field is not built.
+        if (asked("groupByField") is { Length: > 0 } group && !string.IsNullOrWhiteSpace(group) && group.Trim() != "\"\"")
         {
-            return "Bins and a group-by field are not built here yet; aggregate into a polygon layer.";
+            return "A group-by field is not built here yet; aggregate without one.";
         }
 
         Dictionary<string, FieldDescription> fields = pointsDescribed.Fields.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
