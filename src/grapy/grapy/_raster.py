@@ -405,3 +405,112 @@ def RasterToNumPyArray(in_raster, lower_left_corner=None, ncols=None, nrows=None
     # A fill the cell type cannot hold (-1 in an unsigned raster, 0.5 in an integer one) widens the array to one that can.
     kind = np.result_type(array.dtype, np.min_scalar_type(fill))
     return np.where(raster._mask, np.asarray(fill).astype(kind), array.astype(kind))
+
+
+# ---- several bands (ADR-224, arcpy.ia). A Raster stays single-band, as before; a raster of several bands is this
+# separate holder, which only the band tools take, so no single-band tool can read the wrong band by accident.
+
+
+class _Bands:
+    """A raster of several bands on one grid: what CompositeBand answers and the band tools read. Opening a GeoTIFF
+    of several bands with ``Raster`` is still refused; the band tools open it as this."""
+
+    def __init__(self, arrays, masks, grid):
+        self._arrays, self._masks, self._grid = list(arrays), list(masks), grid
+        self.catalogPath, self.isTemporary = None, True
+
+    @property
+    def bandCount(self):
+        return len(self._arrays)
+
+    @property
+    def width(self):
+        return self._grid.columns
+
+    @property
+    def height(self):
+        return self._grid.rows
+
+    @property
+    def meanCellWidth(self):
+        return self._grid.width
+
+    @property
+    def meanCellHeight(self):
+        return self._grid.height
+
+    @property
+    def spatialReference(self):
+        return SpatialReference(self._grid.srid) if self._grid.srid else None
+
+    @property
+    def extent(self):
+        from ._reference import Extent
+        g = self._grid
+        return Extent(g.left, g.bottom, g.right, g.top, self.spatialReference)
+
+    def _band(self, number):
+        """Band ``number`` (one-based) as a single-band Raster."""
+        if not 1 <= int(number) <= len(self._arrays):
+            raise ValueError(f"The raster has {len(self._arrays)} bands; there is no band {number}.")
+        return Raster._of(self._arrays[int(number) - 1], self._masks[int(number) - 1], self._grid)
+
+    def save(self, name=None):
+        """Writes the bands as one GeoTIFF; NoData cells of each band are written with the type's NoData value."""
+        import rasterio
+        if name is None:
+            raise ValueError("A temporary raster needs a name to be saved under.")
+        path = os.fspath(name)
+        if not os.path.isabs(path):
+            path = os.path.join(env.workspace, path)
+        if not os.path.splitext(path)[1]:
+            path += ".tif"
+        dtype = np.result_type(*[a.dtype for a in self._arrays])
+        if dtype == np.bool_ or dtype == np.int64:
+            dtype = np.dtype(np.int32)
+        nodata = _nodata_for(dtype)
+        g = self._grid
+        profile = {"driver": "GTiff", "height": g.rows, "width": g.columns, "count": len(self._arrays),
+                   "dtype": dtype.name, "transform": g.transform(), "nodata": nodata}
+        if g.srid:
+            profile["crs"] = f"EPSG:{g.srid}"
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with rasterio.open(path, "w", **profile) as out:
+            for i, (a, m) in enumerate(zip(self._arrays, self._masks), 1):
+                out.write(np.where(m, nodata, a).astype(dtype), i)
+        self.catalogPath, self.isTemporary = path, False
+        return path
+
+    def __repr__(self):
+        return self.catalogPath or "<temporary multiband Raster>"
+
+
+def _open_bands(value, tool="arcpy.ia"):
+    """Any raster as bands: a Raster is one band, a _Bands is itself, and a GeoTIFF path is read whole."""
+    if isinstance(value, _Bands):
+        return value
+    if isinstance(value, Raster):
+        return _Bands([value._array], [value._mask], value._grid)
+    if not isinstance(value, (str, os.PathLike)):
+        raise TypeError(f"{tool}: expected a raster, got {type(value).__name__}.")
+    import rasterio
+    path = os.fspath(value)
+    if not os.path.isabs(path) and not os.path.exists(path):
+        path = os.path.join(env.workspace, path)
+    with rasterio.open(path) as source:
+        if source.transform.b != 0 or source.transform.d != 0 or source.transform.e >= 0:
+            raise NotBuiltError(f"{tool}: '{path}' is rotated or south-up; only north-up grids are built in grapy yet.")
+        arrays, masks = [], []
+        for i in range(1, source.count + 1):
+            band = source.read(i)
+            mask = np.zeros(band.shape, bool) if source.nodata is None else (
+                np.isnan(band) if np.issubdtype(band.dtype, np.floating) and np.isnan(source.nodata) else band == source.nodata)
+            if np.issubdtype(band.dtype, np.floating):
+                mask |= np.isnan(band)
+            arrays.append(band)
+            masks.append(mask)
+        t = source.transform
+        grid = _Grid(t.c, t.f, t.a, -t.e, source.height, source.width, source.crs.to_epsg() if source.crs else 0)
+    bands = _Bands(arrays, masks, grid)
+    bands.catalogPath, bands.isTemporary = path, False
+    return bands

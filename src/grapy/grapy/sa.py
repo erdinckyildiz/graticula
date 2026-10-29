@@ -2367,6 +2367,10 @@ def AddSurfaceInformation(in_feature_class, in_surface, out_property, method="BI
     return Result(in_feature_class)
 
 
+SquareRoot = _unary("SquareRoot", lambda a: np.where(np.asarray(a) >= 0, np.sqrt(np.abs(a)), np.nan))
+SquareRoot.__doc__ = "arcpy.sa.SquareRoot: floating point; a value below 0 is NoData, as the tool's page documents."
+
+
 # ---- refused by name, with the reason
 
 _UNSPECIFIED = "its algorithm is described in the documentation but not specified closely enough to reproduce"
