@@ -319,7 +319,7 @@ public sealed partial class PostGisImporter
     /// <summary>The empty table, its identity and typed geometry, the rows, the index — in one transaction.</summary>
     private async Task<ImportResult> WriteAnalysisAsync(
         string table, string shape, string insert, int srid, Action<NpgsqlCommand> bind, CancellationToken cancellationToken,
-        AnalysisShape geometry = AnalysisShape.Polygons)
+        AnalysisShape geometry = AnalysisShape.Polygons, bool single = false)
     {
         await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await EnsureHostedSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -331,7 +331,7 @@ public sealed partial class PostGisImporter
         await ExecuteAsync(
             connection, transaction,
             $"alter table {Qualified(table)} add column objectid integer generated always as identity primary key, "
-            + $"add column geom geometry({GeometryTypeOf(geometry)}, {srid.ToString(CultureInfo.InvariantCulture)})",
+            + $"add column geom geometry({(single ? "Point" : GeometryTypeOf(geometry))}, {srid.ToString(CultureInfo.InvariantCulture)})",
             cancellationToken).ConfigureAwait(false);
 
         int rows;

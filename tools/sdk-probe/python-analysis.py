@@ -2,7 +2,7 @@
 
 Signs in with the user name and password (Q-170), lets the API find the analysis service through portals/self's
 helperServices.analysis as it does on ArcGIS Enterprise, runs create_buffers, dissolve_boundaries, overlay_layers,
-merge_layers and aggregate_points with their own defaults, counts each result layer, and removes what it made —
+merge_layers, aggregate_points and find_centroids with their own defaults, counts each result layer, and removes what it made —
 each service with its table, through the recycle bin. Needs `pip install arcgis setuptools` (measured with 2.4.3 on
 Python 3.12, which needs setuptools for distutils) and three hosted layers:
 
@@ -21,6 +21,7 @@ warnings.filterwarnings("ignore")
 
 from arcgis.gis import GIS
 from arcgis.features import FeatureLayer
+from arcgis.features.find_locations import find_centroids
 from arcgis.features.manage_data import dissolve_boundaries, merge_layers, overlay_layers
 from arcgis.features.summarize_data import aggregate_points
 from arcgis.features.use_proximity import create_buffers
@@ -52,6 +53,7 @@ run("dissolve_boundaries", lambda: dissolve_boundaries(others, multi_part_featur
 run("overlay_layers", lambda: overlay_layers(polygons, others, overlay_type="Intersect", output_name=f"zz_pyo_{stamp}", gis=gis))
 run("merge_layers", lambda: merge_layers(polygons, others, output_name=f"zz_pym_{stamp}", gis=gis))
 run("aggregate_points", lambda: aggregate_points(dots, others, output_name=f"zz_pya_{stamp}", gis=gis))
+run("find_centroids", lambda: find_centroids(polygons, point_location=True, output_name=f"zz_pyc_{stamp}", gis=gis))
 
 context = ssl._create_unverified_context()
 token = json.loads(urllib.request.urlopen(urllib.request.Request(

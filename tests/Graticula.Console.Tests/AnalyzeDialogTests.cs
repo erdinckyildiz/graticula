@@ -35,6 +35,8 @@ public sealed class AnalyzeDialogTests : ConsoleTest
             "A polygon layer is offered Aggregate points, which counts points.");
 
         // Each tool asks its own questions, and the result's name follows the tool until somebody types one.
+        await ClickAsync("input[name=azTool][value=CreateBuffers]");
+        await WaitForAsync(Shown("#azDistances"), "Create buffers asks no distances.");
         Assert.True(await Browser.EvaluateAsync<bool>(Shown("#azDistances")), "Create buffers asks no distances.");
         string bufferName = await Browser.EvaluateAsync<string>("document.getElementById('azName').value") ?? string.Empty;
         Assert.EndsWith("_buffers", bufferName, StringComparison.Ordinal);

@@ -109,6 +109,7 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
         string stamp = Guid.NewGuid().ToString("N")[..8];
         string buffers = $"zz_buf_{stamp}";
         string dissolved = $"zz_dis_{stamp}";
+        string centroids = $"zz_cen_{stamp}";
         using HttpClient http = Unverified();
 
         try
@@ -141,6 +142,18 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
             Assert.Contains("analysisarea", fields);
             Assert.Equal("esriGeometryPolygon", layer.GetProperty("geometryType").GetString());
 
+            // A point on each building, each kept with its building's fields, stored as a point as ArcGIS's centroids are.
+            string centres = await RunAsync(http, root, token, "FindCentroids", "outputLayer", new Dictionary<string, string>
+            {
+                ["inputLayer"] = Json(new { url = inputUrl }),
+                ["pointLocation"] = "true",
+                ["outputName"] = Json(new { serviceProperties = new { name = centroids } }),
+            });
+            (_, JsonElement placed) = await SendAsync(http, token, HttpMethod.Get, $"{centres}/query?where=1%3D1&returnCountOnly=true&f=json");
+            Assert.Equal(features, placed.GetProperty("count").GetInt32());
+            (_, JsonElement centreLayer) = await SendAsync(http, token, HttpMethod.Get, $"{centres}?f=json");
+            Assert.Equal("esriGeometryPoint", centreLayer.GetProperty("geometryType").GetString());
+
             // Dissolved by distance, multipart: one feature per distance, each counting its buffers.
             string dissolvedUrl = await RunAsync(http, root, token, "DissolveBoundaries", "dissolvedLayer", new Dictionary<string, string>
             {
@@ -161,7 +174,7 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
         finally
         {
             // The service with its table, into the recycle bin and out of it, so nothing of this test is left.
-            foreach (string name in new[] { dissolved, buffers })
+            foreach (string name in new[] { dissolved, buffers, centroids })
             {
                 (int status, string body) = await AdminAsync(
                     HttpMethod.Delete, $"/admin/featureservices/{Uri.EscapeDataString(name)}?folder=hosted&drop=true");

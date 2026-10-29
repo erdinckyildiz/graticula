@@ -132,7 +132,7 @@ not reopen.
    point's own buffer counts at least that point. `OverlayLayers` takes `Intersect`, `Union` (polygons only) and `Erase`,
    `outputType` `Input` only; `MergeLayers` takes `Remove`, `Rename` and `Match` and refuses text matched into a number,
    as ArcGIS does; `AggregatePoints` takes a polygon layer and `keepBoundariesWithNoPoints`, and refuses bins and a
-   group-by field by name. **Open:** `SummarizeWithin`, `JoinFeatures`, `FindCentroids`, bins.
+   group-by field by name. `FindCentroids` the same night: a point per line or polygon, on it with `pointLocation`, stored as a point as ArcGIS's are, its feature's fields kept. **Open:** `SummarizeWithin`, `JoinFeatures`, bins.
 4. **Inputs beyond this server's hosted layers** — a feature collection, a registered PostGIS table — or the reason
    they are not.
 5. **Map Viewer's *Analysis* pane runs `CreateBuffers` against this server**, measured in the browser; what it reads

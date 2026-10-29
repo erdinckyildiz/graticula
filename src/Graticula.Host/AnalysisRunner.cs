@@ -184,6 +184,7 @@ internal sealed partial class AnalysisRunner : BackgroundService
                 // The polygons are what the result is made of, so theirs is the reference and the context's outSR applies to them.
                 "AggregatePoints" => await _importer.AggregateAsync(
                     input, second! with { OutputSrid = input.OutputSrid }, AggregateOf(plan), table, stop.Token).ConfigureAwait(false),
+                "FindCentroids" => await _importer.CentroidsAsync(input, plan["inside"]!.GetValue<bool>(), table, stop.Token).ConfigureAwait(false),
                 _ => throw new InvalidOperationException($"'{run.Task}' is not a task this server runs."),
             };
 
@@ -204,6 +205,7 @@ internal sealed partial class AnalysisRunner : BackgroundService
                     made.StoredSrid,
                     (AnalysisShape)plan["shape"]!.GetValue<int>() switch
                     {
+                        AnalysisShape.Points when plan["single"]?.GetValue<bool>() == true => GeometryKind.Point,
                         AnalysisShape.Points => GeometryKind.MultiPoint,
                         AnalysisShape.Lines => GeometryKind.MultiLineString,
                         _ => GeometryKind.MultiPolygon,

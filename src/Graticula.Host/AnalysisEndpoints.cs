@@ -195,6 +195,17 @@ internal static partial class AnalysisEndpoints
             ],
             Primary: "pointLayer",
             Second: "polygonLayer"),
+        new(
+            "FindCentroids", "Find Centroids",
+            "A point at the centre of each line or polygon, or on it.",
+            "outputLayer",
+            [
+                new("inputLayer", "GPFeatureRecordSetLayer", "Input Layer", "Lines or polygons: {\"url\": \"<layer url>\"}.", false, true),
+                new("pointLocation", "GPBoolean", "Point Location", "True puts each point on its feature, where a centre may fall outside it.", false, false, false),
+                OutputName,
+                ContextParameter,
+                new("outputLayer", "GPString", "Output Layer", "The new hosted layer: {\"url\": …, \"itemId\": …}.", true, false),
+            ]),
     ];
 
     private static TaskInfo? TaskNamed(string name) =>
@@ -405,6 +416,7 @@ internal static partial class AnalysisEndpoints
             "OverlayLayers" => PlanOverlay(asked, layer, described, second!, secondDescribed!, plan),
             "MergeLayers" => PlanMerge(asked, layer, described, second!, secondDescribed!, plan),
             "AggregatePoints" => PlanAggregate(asked, layer, described, second!, secondDescribed!, plan),
+            "FindCentroids" => PlanCentroids(asked, layer, plan),
             _ => $"'{info.Name}' is listed and not built.",
         };
 
@@ -759,6 +771,21 @@ internal static partial class AnalysisEndpoints
         plan["summaries"] = summaries;
         plan["keepEmpty"] = keep is null || !string.Equals(keep.Trim(), "false", StringComparison.OrdinalIgnoreCase);
         plan["shape"] = (int)AnalysisShape.Polygons;
+        return null;
+    }
+
+    private static string? PlanCentroids(Func<string, string?> asked, PublishedLayer layer, JsonObject plan)
+    {
+        if (ShapeOf(layer.GeometryType) == AnalysisShape.Points)
+        {
+            return "Find Centroids takes lines or polygons; a point is its own centre.";
+        }
+
+        plan["inside"] = string.Equals(asked("pointLocation")?.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        plan["shape"] = (int)AnalysisShape.Points;
+
+        // One point each, stored as a point, as ArcGIS's centroids are — not the multipoint an overlay of points makes.
+        plan["single"] = true;
         return null;
     }
 

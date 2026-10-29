@@ -260,6 +260,48 @@ public sealed partial class PostGisImporter
         }, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// <c>FindCentroids</c>: a point per feature, its centre — or, with <paramref name="inside"/>, a point sure to lie on
+    /// it, which a crescent's or a ring's centre is not — keeping the feature's columns.
+    /// </summary>
+    /// <param name="input">The layer, lines or polygons.</param>
+    /// <param name="inside">Whether the point must lie on the feature (<c>pointLocation</c>).</param>
+    /// <param name="table">The table to write.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The table, its row count and its reference.</returns>
+    public async Task<ImportResult> CentroidsAsync(AnalysisInput input, bool inside, string table, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        RefuseOutsideHosted(input.Layer.SchemaName, input.Layer.TableName, "analyse");
+        RefuseOutsideHosted(HostedSchema, table, "make");
+
+        string g = LayerDefinition.Quote(input.Layer.RequireGeometryColumn());
+        int output = input.OutputSrid ?? input.Layer.Srid;
+        string[] carried = [.. input.Columns.Select(LayerDefinition.Quote)];
+        string point = inside ? $"ST_PointOnSurface(s.{g})" : $"ST_Centroid(s.{g})";
+
+        string insert =
+            $"insert into {Qualified(table)} ({string.Concat(carried.Select(c => c + ", "))}geom) "
+            + $"select {string.Concat(carried.Select(c => "s." + c + ", "))}{ToSrid(point, input.Layer.Srid, output)} "
+            + $"from (select * from {Qualified(input.Layer.TableName)}{Filter(input, g)}) s where s.{g} is not null and not ST_IsEmpty(s.{g})";
+
+        string shape = carried.Length == 0
+            ? $"create table {Qualified(table)} (\"_\" boolean)"
+            : $"create table {Qualified(table)} as select {string.Join(", ", carried.Select(c => "s." + c))} "
+              + $"from {Qualified(input.Layer.TableName)} s where false";
+
+        ImportResult made = await WriteAnalysisAsync(table, shape, insert, output, command => Bind(command, input), cancellationToken, AnalysisShape.Points, single: true)
+            .ConfigureAwait(false);
+
+        if (carried.Length == 0)
+        {
+            await using var connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
+            await ExecuteAsync(connection, null, $"alter table {Qualified(table)} drop column \"_\"", cancellationToken).ConfigureAwait(false);
+        }
+
+        return made;
+    }
+
     private static string ToSrid(string geometry, int from, int to) =>
         from == to ? geometry : $"ST_Transform({geometry}, {to.ToString(CultureInfo.InvariantCulture)})";
 }

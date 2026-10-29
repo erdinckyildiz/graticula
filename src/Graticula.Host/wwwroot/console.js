@@ -33771,12 +33771,14 @@ function logEmpty() {
 const ANALYSIS = "/rest/services/System/SpatialAnalysisTools/GPServer";
 
 /**
- * The tools, in Map Viewer's order — summarize, proximity, manage data (design review) — what each says it does, the
+ * The tools, in Map Viewer's order — summarize, find locations, proximity, manage data (design review) — what each says it does, the
  * kind of layer it starts from, and the kind its second layer must be.
  */
 const ANALYSIS_TOOLS = [
   { task: "AggregatePoints", label: "Aggregate points", short: "counts", result: "aggregatedLayer", from: "points",
     second: "polygons", secondLabel: "Polygons to count in", says: "How many of these points fall in each polygon of another layer." },
+  { task: "FindCentroids", label: "Find centroids", short: "centroids", result: "outputLayer", notFrom: "points",
+    says: "A point at the centre of each feature, or on it." },
   { task: "CreateBuffers", label: "Create buffers", short: "buffers", result: "bufferLayer",
     says: "Areas within a distance of each feature, measured on the ground." },
   { task: "DissolveBoundaries", label: "Dissolve boundaries", short: "dissolved", result: "dissolvedLayer", from: "polygons",
@@ -33839,7 +33841,7 @@ async function openAnalyze() {
     return;
   }
 
-  const tools = ANALYSIS_TOOLS.filter(t => !t.from || t.from === analyzeLayer.kind);
+  const tools = ANALYSIS_TOOLS.filter(t => (!t.from || t.from === analyzeLayer.kind) && t.notFrom !== analyzeLayer.kind);
 
   $("analyzeBody").innerHTML = `
     <p class="hint">Runs on <b>${h(item.bare)}</b> and writes a new hosted layer of yours, private until you share it.</p>
@@ -33924,6 +33926,8 @@ function drawAnalyzeOptions() {
     MergeLayers: `
       <div class="stacked" id="azSecond"></div>
       <p class="hint">Fields of the same name become one; the others are kept apart.</p>`,
+    FindCentroids: `
+      <label class="check"><input type="checkbox" id="azInside"> <span>On each feature, where its centre would fall outside it</span></label>`,
     AggregatePoints: `
       <div class="stacked" id="azSecond"></div>
       <label class="check"><input type="checkbox" id="azKeep" checked> <span>Keep polygons with no points, counted 0</span></label>`,
@@ -33978,6 +33982,10 @@ function analyzeForm(tool, name) {
     case "MergeLayers":
       form.set("inputLayer", input);
       form.set("mergeLayer", other);
+      break;
+    case "FindCentroids":
+      form.set("inputLayer", input);
+      form.set("pointLocation", String($("azInside").checked));
       break;
     default:
       form.set("pointLayer", input);
