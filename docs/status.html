@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>32c73827</code> · 2026-10-29 23:36</p>
+<p class="stamp">Generated from commit <code>b8f2e7ad</code> · 2026-10-29 23:42</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">222</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
@@ -569,8 +569,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">1 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">9 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">18 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:31.5%"></div></div><div class="bar-n">119 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:35.2%"></div></div><div class="bar-n">122 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:41.3%"></div></div><div class="bar-n">156 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:37.2%"></div></div><div class="bar-n">129 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">18 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">7 / 42</div></div>
 </div>
@@ -580,18 +580,22 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.cartography</td><td class="num">1</td><td class="num">48</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.conversion</td><td class="num">22</td><td class="num">0</td><td class="num">42</td></tr>
 <tr><td class="id">arcpy.da</td><td class="num">13</td><td class="num">15</td><td class="num">1</td></tr>
-<tr><td class="id">arcpy.ddd</td><td class="num">18</td><td class="num">128</td><td class="num">10</td></tr>
+<tr><td class="id">arcpy.ddd</td><td class="num">18</td><td class="num">138</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">9</td><td class="num">10</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">7</td><td class="num">35</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">122</td><td class="num">94</td><td class="num">131</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">129</td><td class="num">218</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">94</td><td class="num">75</td><td class="num">278</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">119</td><td class="num">28</td><td class="num">230</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">156</td><td class="num">222</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">18</td><td class="num">47</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>b8f2e7ad</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
+<li><code>c0436e5e</code><time>2026-10-29</time><span>grapy: every remaining sa and ia name read and classified; Buffered and NbrIrregular built (ADR-224)</span></li>
+<li><code>f3bbb41b</code><time>2026-10-29</time><span>Every name in grapy&#x27;s top level, stats, cartography and edit is built or refused with its reason (merging grapy-b)</span></li>
 <li><code>32c73827</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>e2733d8a</code><time>2026-10-29</time><span>grapy: SimilaritySearch, SpatialAssociationBetweenZones and SpatialOutlierDetection; nothing left unexamined (ADR-224)</span></li>
+<li><code>2c1c2835</code><time>2026-10-29</time><span>grapy: sa, ia and ddd&#x27;s remaining names classified; ia&#x27;s image tools move into sa; Corridor, PointStatistics, LineStatistics, TransposeBits, FuzzyOverlay, GVITM, SubsetBands (ADR-224)</span></li>
 <li><code>e0bf6499</code><time>2026-10-29</time><span>grapy: every remaining top-level, stats, cartography and edit name built or refused with its reason (ADR-224)</span></li>
 <li><code>507a1cdf</code><time>2026-10-29</time><span>The status page splits what grapy has not built into refused and unexamined (ADR-224 condition 4)</span></li>
 <li><code>541bb2d5</code><time>2026-10-29</time><span>grapy&#x27;s top level, da, ia&#x27;s own tools and more management (merging the agents&#x27; third rounds; D-323)</span></li>
@@ -600,10 +604,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>a8d5660c</code><time>2026-10-29</time><span>grapy: arcpy&#x27;s own top level and more of arcpy.da (ADR-224)</span></li>
 <li><code>5010d23b</code><time>2026-10-29</time><span>grapy: feature datasets, pivots, time fields, comparisons, polygon parts, transects, mosaic, statistics, pyramids and KML (ADR-224)</span></li>
 <li><code>26473c66</code><time>2026-10-29</time><span>grapy.ia: band indexes, BandArithmetic, CompositeBand/ExtractBand, local statistics, Arithmetic, Remap; rasters of several bands (ADR-224)</span></li>
-<li><code>cb165e9a</code><time>2026-10-29</time><span>grapy gains ga, more sa, management and conversion, and the owner keeps SOAP out of scope (merging the agents&#x27; second rounds; ADR-222 condition 5 deferred)</span></li>
-<li><code>fe32caa5</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>69aa1b62</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>d08faf25</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
