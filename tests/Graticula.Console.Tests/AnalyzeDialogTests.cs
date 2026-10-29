@@ -29,23 +29,23 @@ public sealed class AnalyzeDialogTests : ConsoleTest
         await WaitForAsync(Shown("#azName"), "Analyze did not open its dialog.");
 
         // A polygon layer: dissolve is offered, counting points is not.
-        Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('input[name=azTool][value=DissolveBoundaries]')"),
+        Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#azTool option[value=DissolveBoundaries]')"),
             "A polygon layer is not offered Dissolve boundaries.");
-        Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('input[name=azTool][value=AggregatePoints]')"),
+        Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#azTool option[value=AggregatePoints]')"),
             "A polygon layer is offered Aggregate points, which counts points.");
 
         // Each tool asks its own questions, and the result's name follows the tool until somebody types one.
-        await ClickAsync("input[name=azTool][value=CreateBuffers]");
+        await Browser.EvaluateAsync<bool>("(() => { const s = document.getElementById(\'azTool\'); s.value = \'CreateBuffers\'; s.dispatchEvent(new Event(\'change\', { bubbles: true })); return true; })()");
         await WaitForAsync(Shown("#azDistances"), "Create buffers asks no distances.");
         Assert.True(await Browser.EvaluateAsync<bool>(Shown("#azDistances")), "Create buffers asks no distances.");
         string bufferName = await Browser.EvaluateAsync<string>("document.getElementById('azName').value") ?? string.Empty;
         Assert.EndsWith("_buffers", bufferName, StringComparison.Ordinal);
-        await ClickAsync("input[name=azTool][value=OverlayLayers]");
+        await Browser.EvaluateAsync<bool>("(() => { const s = document.getElementById(\'azTool\'); s.value = \'OverlayLayers\'; s.dispatchEvent(new Event(\'change\', { bubbles: true })); return true; })()");
         await WaitForAsync("document.querySelectorAll('input[name=azOverlay]').length === 3", "Overlay offers no choice of what to keep.");
         Assert.EndsWith("_overlay", await Browser.EvaluateAsync<string>("document.getElementById('azName').value"), StringComparison.Ordinal);
 
         // A name the server would refuse is said here, on the field.
-        await ClickAsync("input[name=azTool][value=CreateBuffers]");
+        await Browser.EvaluateAsync<bool>("(() => { const s = document.getElementById(\'azTool\'); s.value = \'CreateBuffers\'; s.dispatchEvent(new Event(\'change\', { bubbles: true })); return true; })()");
         await WaitForAsync(Shown("#azDistances"), "Create buffers did not come back.");
         await Browser.EvaluateAsync<bool>("(document.getElementById('azName').value = 'not a name!', true)");
         await ClickAsync("#analyzeGo");
@@ -90,9 +90,9 @@ public sealed class AnalyzeDialogTests : ConsoleTest
         await WaitForAsync("!!document.getElementById('analyzeOpen')", "A point layer's page offers no Analyze.");
         await Browser.EvaluateAsync<bool>("(() => { document.querySelector('#itemActions .itemmore').open = true; return true; })()");
         await ClickAsync("#analyzeOpen");
-        await WaitForAsync("!!document.querySelector('input[name=azTool][value=AggregatePoints]:checked')",
+        await WaitForAsync("!!document.querySelector('#azTool option[value=AggregatePoints]:checked')",
             "A point layer does not open on Aggregate points, Map Viewer's first tool.");
-        Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('input[name=azTool][value=DissolveBoundaries]')"),
+        Assert.False(await Browser.EvaluateAsync<bool>("!!document.querySelector('#azTool option[value=DissolveBoundaries]')"),
             "A point layer is offered Dissolve boundaries, which takes polygons.");
         Assert.Equal("azTool", await Browser.EvaluateAsync<string>("document.activeElement?.name || ''"));
 
@@ -106,6 +106,55 @@ public sealed class AnalyzeDialogTests : ConsoleTest
                 $"fetch('{url}?f=json', {{ headers: {{ Authorization: 'Bearer ' + token }} }}).then(r => r.json()).then(d => d.geometryType)") ?? string.Empty;
             Assert.Equal("esriGeometryPolygon", kind);
         }
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
+    /// <summary>
+    /// ADR-222 condition 3: points counted in hexagon bins send the bin parameters and no polygon layer; a join within a
+    /// distance asks the distance and sends it with its unit.
+    /// </summary>
+    [Fact]
+    public async Task Points_count_into_bins_and_a_join_within_a_distance_sends_its_distance()
+    {
+        string points = (Environment.GetEnvironmentVariable("GRATICULA_TEST_TEMPORAL") ?? "hosted/ci_observations").Trim('/');
+        (string token, _) = await SignInAsync();
+        await OpenAsync($"/studio/#/service/{points}", token);
+
+        await WaitForAsync("!!document.getElementById('analyzeOpen')", "A point layer's page offers no Analyze.");
+        await Browser.EvaluateAsync<bool>("(() => { document.querySelector('#itemActions .itemmore').open = true; return true; })()");
+        await ClickAsync("#analyzeOpen");
+        await WaitForAsync("!!document.querySelector('#azTool option[value=AggregatePoints]:checked')", "Analyze did not open.");
+
+        // Hexagon bins: the polygon list goes, the bin size comes, and a polygon with no point is not a question any more.
+        await ClickAsync("input[name=azWhere][value=Hexagon]");
+        await WaitForAsync(Shown("#azBinSize"), "Choosing hexagon bins showed no bin size.");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#azOther")), "Bins left the polygon list on the screen.");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#azKeep")), "Bins still ask whether to keep empty polygons.");
+
+        await Browser.EvaluateAsync<bool>("(document.getElementById('azName').value = 'zz_console_hex', true)");
+        await ClickAsync("#analyzeGo");
+        await WaitForAsync(
+            "window.__writes.some(w => w.startsWith('POST /rest/services/System/SpatialAnalysisTools/GPServer/AggregatePoints/submitJob "
+            + "[binSize,binSizeUnit,binType,f,keepBoundariesWithNoPoints,outputName,pointLayer]'))",
+            "Aggregate points in bins was not sent with the bin parameters alone.");
+        await WaitForAsync("(document.getElementById('analyzeSays')?.textContent || '').includes('did not start')", "The trapped run was not said.");
+
+        // Join features within a distance.
+        await Browser.EvaluateAsync<bool>("(() => { const s = document.getElementById(\'azTool\'); s.value = \'JoinFeatures\'; s.dispatchEvent(new Event(\'change\', { bubbles: true })); return true; })()");
+        await WaitForAsync("!!document.getElementById('azRelation')", "Join features asks no relationship.");
+        Assert.False(await Browser.EvaluateAsync<bool>(Shown("#azJoinDistance")), "A distance is asked before Within a distance is chosen.");
+        await Browser.EvaluateAsync<bool>(
+            "(() => { const s = document.getElementById('azRelation'); s.value = 'WithinDistance'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+        await WaitForAsync(Shown("#azJoinDistance"), "Within a distance asks no distance.");
+        await WaitForAsync("document.querySelectorAll('#azOther option').length > 0", "There is no layer to join with.");
+
+        await Browser.EvaluateAsync<bool>("(document.getElementById('azName').value = 'zz_console_join', true)");
+        await ClickAsync("#analyzeGo");
+        await WaitForAsync(
+            "window.__writes.some(w => w.startsWith('POST /rest/services/System/SpatialAnalysisTools/GPServer/JoinFeatures/submitJob "
+            + "[f,joinLayer,joinOperation,joinType,outputName,spatialRelationship,spatialRelationshipDistance,spatialRelationshipDistanceUnits,targetLayer]'))",
+            "Join features within a distance was not sent with its distance and unit.");
 
         NothingWentWrong(await PageErrorsAsync());
     }

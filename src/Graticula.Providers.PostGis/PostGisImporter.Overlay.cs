@@ -25,7 +25,20 @@ public enum AnalysisShape
 /// <param name="Operation"><c>Intersect</c>, <c>Union</c> or <c>Erase</c>.</param>
 /// <param name="Output">What the result holds — the lower of the two inputs' for an intersect, the input's for an erase.</param>
 /// <param name="OverlayColumns">The overlay layer's columns the result keeps, each with the name it is kept under.</param>
-public sealed record OverlayPlan(string Operation, AnalysisShape Output, IReadOnlyList<(string Source, string Output)> OverlayColumns);
+public sealed record OverlayPlan(string Operation, AnalysisShape Output, IReadOnlyList<(string Source, string Output)> OverlayColumns)
+{
+    /// <summary>
+    /// Whether an intersection is of the layers' linework — a polygon's boundary, a line itself — for <c>outputType</c>
+    /// <c>Line</c> or <c>Point</c>, rather than of their areas.
+    /// </summary>
+    public bool Linework { get; init; }
+
+    /// <summary>How near vertices snap to each other, in the input layer's units; 0 for no snapping.</summary>
+    public double Tolerance { get; init; }
+
+    /// <summary>Whether only the overlay's vertices move, to the input's — <c>snapToInput</c>.</summary>
+    public bool SnapToInput { get; init; }
+}
 
 /// <summary>What <c>MergeLayers</c> was asked — ADR-222 condition 3.</summary>
 /// <param name="InputColumns">The input layer's columns, each with the column it is written to.</param>
@@ -38,10 +51,6 @@ public sealed record MergePlan(
     IReadOnlyList<(string Source, string Output)> MergeOnly,
     AnalysisShape Output);
 
-/// <summary>What <c>AggregatePoints</c> was asked, with a polygon layer — ADR-222 condition 3.</summary>
-/// <param name="Summaries">Each summary of the points as a column, a statistic and the name it is kept under.</param>
-/// <param name="KeepEmpty">Whether a polygon with no point in it is kept, with a count of zero.</param>
-public sealed record AggregatePlan(IReadOnlyList<(string Column, string Statistic, string Output)> Summaries, bool KeepEmpty);
 
 /// <summary>The two-layer tools — ADR-222 condition 3: overlay, merge and aggregate, as SQL over the datastore.</summary>
 /// <remarks>
@@ -82,22 +91,46 @@ public sealed partial class PostGisImporter
         string fromA = $"select * from {Qualified(input.Layer.TableName)}{Filter(input, a)}";
         string fromB = $"select *, ST_Transform({b}, {srid}) as {SecondGeometry} from {Qualified(overlay.Layer.TableName)}{Filter(overlay, b, "v")}";
 
+        // Snapping, before anything is cut: the overlay's vertices to the input's within the tolerance, and, unless
+        // snapToInput, the input's to the overlay's as well — each against only the features within reach.
+        string ag = a;
+
+        if (plan.Tolerance > 0)
+        {
+            fromB =
+                $"select *, coalesce(ST_Snap(ST_Transform({b}, {srid}), (select ST_Collect(x.{a}) from {Qualified(input.Layer.TableName)} x "
+                + $"where x.{a} && ST_Expand(ST_Transform(o.{b}, {srid}), @tolerance)), @tolerance), ST_Transform({b}, {srid})) as {SecondGeometry} "
+                + $"from {Qualified(overlay.Layer.TableName)} o{Filter(overlay, b, "v")}";
+
+            if (!plan.SnapToInput)
+            {
+                ag = "__a2";
+                fromA =
+                    $"select *, coalesce(ST_Snap({a}, (select ST_Collect(ST_Transform(x.{b}, {srid})) from {Qualified(overlay.Layer.TableName)} x "
+                    + $"where ST_Transform(x.{b}, {srid}) && ST_Expand(i.{a}, @tolerance)), @tolerance), {a}) as {ag} "
+                    + $"from {Qualified(input.Layer.TableName)} i{Filter(input, a)}";
+            }
+        }
+
+        // outputType Line or Point: what the layers' linework has in common — a polygon by its boundary.
+        string Lines(string g) => plan.Linework ? $"(case when ST_Dimension({g}) = 2 then ST_Boundary({g}) else {g} end)" : g;
+
         string aSelect(string alias) => string.Concat(aColumns.Select(c => $"{alias}.{c}, "));
         string bSelect(string alias) => string.Concat(bColumns.Select((c, i) => $"{alias}.{c} as {bOutputs[i]}, "));
         string aNulls = string.Concat(aColumns.Select(c => $"null as {c}, "));
         string bNulls = string.Concat(bOutputs.Select(c => $"null as {c}, "));
 
         string intersect =
-            $"select {aSelect("a")}{bSelect("b")}ST_Intersection(a.{a}, b.{SecondGeometry}) as {AnalysisGeometry} "
-            + $"from fa a join fb b on ST_Intersects(a.{a}, b.{SecondGeometry})";
+            $"select {aSelect("a")}{bSelect("b")}ST_Intersection({Lines("a." + ag)}, {Lines("b." + SecondGeometry)}) as {AnalysisGeometry} "
+            + $"from fa a join fb b on ST_Intersects(a.{ag}, b.{SecondGeometry})";
 
         string inputLeft =
-            $"select {aSelect("a")}{bNulls}coalesce(ST_Difference(a.{a}, u.g), a.{a}) as {AnalysisGeometry} from fa a "
-            + $"left join lateral (select ST_Union(b.{SecondGeometry}) as g from fb b where ST_Intersects(a.{a}, b.{SecondGeometry})) u on true";
+            $"select {aSelect("a")}{bNulls}coalesce(ST_Difference(a.{ag}, u.g), a.{ag}) as {AnalysisGeometry} from fa a "
+            + $"left join lateral (select ST_Union(b.{SecondGeometry}) as g from fb b where ST_Intersects(a.{ag}, b.{SecondGeometry})) u on true";
 
         string overlayLeft =
             $"select {aNulls}{bSelect("b")}coalesce(ST_Difference(b.{SecondGeometry}, u.g), b.{SecondGeometry}) as {AnalysisGeometry} from fb b "
-            + $"left join lateral (select ST_Union(a.{a}) as g from fa a where ST_Intersects(a.{a}, b.{SecondGeometry})) u on true";
+            + $"left join lateral (select ST_Union(a.{ag}) as g from fa a where ST_Intersects(a.{ag}, b.{SecondGeometry})) u on true";
 
         string pieces = plan.Operation switch
         {
@@ -130,6 +163,11 @@ public sealed partial class PostGisImporter
         {
             Bind(command, input);
             Bind(command, overlay, "v");
+
+            if (plan.Tolerance > 0)
+            {
+                command.Parameters.AddWithValue("tolerance", plan.Tolerance);
+            }
         }, cancellationToken, plan.Output).ConfigureAwait(false);
 
         if (outputs.Length == 0)
@@ -203,61 +241,6 @@ public sealed partial class PostGisImporter
         }
 
         return made;
-    }
-
-    /// <summary><c>AggregatePoints</c> with a polygon layer: each polygon, how many points fall in it, and their summaries.</summary>
-    /// <param name="points">The point layer.</param>
-    /// <param name="polygons">The polygon layer, whose columns the result keeps.</param>
-    /// <param name="plan">What is summarised.</param>
-    /// <param name="table">The table to write.</param>
-    /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>The table, its row count and its reference.</returns>
-    public async Task<ImportResult> AggregateAsync(
-        AnalysisInput points, AnalysisInput polygons, AggregatePlan plan, string table, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(points);
-        ArgumentNullException.ThrowIfNull(polygons);
-        ArgumentNullException.ThrowIfNull(plan);
-        RefuseOutsideHosted(points.Layer.SchemaName, points.Layer.TableName, "analyse");
-        RefuseOutsideHosted(polygons.Layer.SchemaName, polygons.Layer.TableName, "analyse");
-        RefuseOutsideHosted(HostedSchema, table, "make");
-
-        string pg = LayerDefinition.Quote(polygons.Layer.RequireGeometryColumn());
-        string qg = LayerDefinition.Quote(points.Layer.RequireGeometryColumn());
-        string id = LayerDefinition.Quote(polygons.Layer.IntegerIdentityColumn ?? polygons.Layer.IdentityColumn);
-        string srid = polygons.Layer.Srid.ToString(CultureInfo.InvariantCulture);
-        int output = polygons.OutputSrid ?? polygons.Layer.Srid;
-
-        string[] carried = [.. polygons.Columns.Select(LayerDefinition.Quote)];
-        string[] summaries = [.. plan.Summaries.Select(s => $"{s.Statistic}(q.{LayerDefinition.Quote(s.Column)}) as {LayerDefinition.Quote(s.Output)}")];
-        string[] outputs = [.. carried, "point_count", .. plan.Summaries.Select(s => LayerDefinition.Quote(s.Output))];
-
-        string counted =
-            $"select p.{id} as {AnalysisOrigin}, count(*)::integer as n{string.Concat(summaries.Select(s => ", " + s))} "
-            + $"from p join q on ST_Intersects(p.{pg}, q.{SecondGeometry}) group by p.{id}";
-
-        string insert =
-            $"insert into {Qualified(table)} ({string.Concat(outputs.Select(c => c + ", "))}geom) "
-            + $"with p as (select * from {Qualified(polygons.Layer.TableName)}{Filter(polygons, pg)}), "
-            + $"q as (select *, ST_Transform({qg}, {srid}) as {SecondGeometry} from {Qualified(points.Layer.TableName)}{Filter(points, qg, "v")}) "
-            + $"select {string.Concat(carried.Select(c => "p." + c + ", "))}coalesce(s.n, 0)"
-            + string.Concat(plan.Summaries.Select(s => ", s." + LayerDefinition.Quote(s.Output)))
-            + $", ST_Multi(ST_CollectionExtract({ToSrid("p." + pg, polygons.Layer.Srid, output)}, 3)) "
-            + $"from p {(plan.KeepEmpty ? "left " : string.Empty)}join ({counted}) s on s.{AnalysisOrigin} = p.{id} "
-            + $"where p.{pg} is not null";
-
-        string shape =
-            $"create table {Qualified(table)} as select {string.Concat(carried.Select(c => "p." + c + ", "))}0::integer as point_count"
-            + string.Concat(plan.Summaries.Select(s => $", {s.Statistic}(q.{LayerDefinition.Quote(s.Column)}) as {LayerDefinition.Quote(s.Output)}"))
-            + $" from {Qualified(polygons.Layer.TableName)} p cross join {Qualified(points.Layer.TableName)} q where false"
-            + (carried.Length == 0 ? string.Empty : " group by " + string.Join(", ", carried.Select(c => "p." + c)))
-            + " limit 0";
-
-        return await WriteAnalysisAsync(table, shape, insert, output, command =>
-        {
-            Bind(command, polygons);
-            Bind(command, points, "v");
-        }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

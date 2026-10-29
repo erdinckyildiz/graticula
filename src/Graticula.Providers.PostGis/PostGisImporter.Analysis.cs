@@ -40,7 +40,14 @@ public sealed record BufferPlan(
     double MetresPerUnit,
     bool Dissolve,
     bool Rings,
-    double SquareMetresPerAreaUnit);
+    double SquareMetresPerAreaUnit)
+{
+    /// <summary><c>Full</c>, <c>Left</c> or <c>Right</c> of a line by its direction, or <c>Outside</c> a polygon.</summary>
+    public string Side { get; init; } = "Full";
+
+    /// <summary>Whether a line's ends are cut straight across rather than rounded.</summary>
+    public bool FlatEnds { get; init; }
+}
 
 /// <summary>What <c>DissolveBoundaries</c> was asked — ADR-222 §5.3.</summary>
 /// <param name="GroupBy">The columns whose equal values are merged; empty merges every polygon that touches or overlaps.</param>
@@ -91,8 +98,16 @@ public sealed partial class PostGisImporter
     {
         RefuseOutsideHosted(HostedSchema, table, "drop");
         await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
-        await ExecuteAsync(connection, null, $"drop table if exists {Qualified(table)}", cancellationToken).ConfigureAwait(false);
+
+        // And its group table, which a grouped summary writes beside it.
+        await ExecuteAsync(connection, null, $"drop table if exists {Qualified(table)}, {Qualified(GroupTableFor(table))}", cancellationToken)
+            .ConfigureAwait(false);
     }
+
+    /// <summary>The table a grouped summary writes its groups to, beside the run's own.</summary>
+    /// <param name="table">The run's table.</param>
+    /// <returns>The group table's name in the hosted schema.</returns>
+    public static string GroupTableFor(string table) => table + "_groups";
 
     /// <summary><c>CreateBuffers</c>: a buffer of every feature at every distance, or rings, or one feature per distance.</summary>
     /// <param name="input">The layer and what it keeps.</param>
@@ -126,7 +141,7 @@ public sealed partial class PostGisImporter
         string disks =
             $"select {string.Concat(carried.Select(c => "s." + LayerDefinition.Quote(c) + ", "))}"
             + $"{distance} as {AnalysisDistance}, s.{origin}::integer as {AnalysisOrigin}, "
-            + $"ST_Buffer(ST_Transform(s.{geometry}, 4326)::geography, {distance} * @metres)::geometry as {AnalysisGeometry} "
+            + $"{Shaped($"ST_Buffer(ST_Transform(s.{geometry}, 4326)::geography, {distance} * @metres{(Style(plan) is null ? string.Empty : ", @style")})::geometry", $"ST_Transform(s.{geometry}, 4326)", plan)} as {AnalysisGeometry} "
             + $"from (select * from {Qualified(layer.TableName)}{Filter(input, geometry)}) s "
             + (byField ? string.Empty : $"cross join unnest(@distances) as d({AnalysisDistance}) ")
             + $"where s.{geometry} is not null and {distance} > 0";
@@ -178,6 +193,11 @@ public sealed partial class PostGisImporter
         return await WriteAnalysisAsync(table, shape, insert, srid, command =>
         {
             command.Parameters.AddWithValue("metres", plan.MetresPerUnit);
+
+            if (Style(plan) is { } style)
+            {
+                command.Parameters.AddWithValue("style", style);
+            }
             command.Parameters.AddWithValue("areaunit", plan.SquareMetresPerAreaUnit);
 
             if (!byField)
@@ -188,6 +208,20 @@ public sealed partial class PostGisImporter
             Bind(command, input);
         }, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>PostGIS's buffer style for a side and an end, or null for both sides with round ends.</summary>
+    private static string? Style(BufferPlan plan) =>
+        (plan.Side, plan.FlatEnds) switch
+        {
+            ("Left", var flat) => "side=left" + (flat ? " endcap=flat" : string.Empty),
+            ("Right", var flat) => "side=right" + (flat ? " endcap=flat" : string.Empty),
+            (_, true) => "endcap=flat",
+            _ => null,
+        };
+
+    /// <summary>A buffer less the polygon it was drawn around, for <c>Outside</c>; the buffer itself otherwise.</summary>
+    private static string Shaped(string buffer, string original, BufferPlan plan) =>
+        plan.Side == "Outside" ? $"ST_Difference({buffer}, {original})" : buffer;
 
     /// <summary><c>DissolveBoundaries</c>: polygons merged by equal values, or every touching polygon when none are named.</summary>
     /// <param name="input">The layer, a polygon layer.</param>
@@ -319,7 +353,7 @@ public sealed partial class PostGisImporter
     /// <summary>The empty table, its identity and typed geometry, the rows, the index — in one transaction.</summary>
     private async Task<ImportResult> WriteAnalysisAsync(
         string table, string shape, string insert, int srid, Action<NpgsqlCommand> bind, CancellationToken cancellationToken,
-        AnalysisShape geometry = AnalysisShape.Polygons, bool single = false)
+        AnalysisShape geometry = AnalysisShape.Polygons, bool single = false, string? then = null)
     {
         await using NpgsqlConnection connection = await OpenAsync(cancellationToken).ConfigureAwait(false);
         await EnsureHostedSchemaAsync(connection, cancellationToken).ConfigureAwait(false);
@@ -340,6 +374,14 @@ public sealed partial class PostGisImporter
         {
             bind(command);
             rows = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        // A second write in the same transaction — a grouped summary's group table — not counted in the rows.
+        if (then is not null)
+        {
+            await using NpgsqlCommand after = new(then, connection, transaction) { CommandTimeout = 0 };
+            bind(after);
+            await after.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         await ExecuteAsync(connection, transaction, $"create index on {Qualified(table)} using gist (geom)", cancellationToken)

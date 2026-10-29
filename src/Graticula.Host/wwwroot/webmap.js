@@ -3237,9 +3237,87 @@ function wmDrawSearchState() {
   }
 }
 
+// ----------------------------------------------------------------------------- analysis (ADR-222 condition 7)
+
+/**
+ * The feature layers of this map the Spatial Analysis Service can read: this server's hosted layers, drawn and readable.
+ * A registered or another server's layer is left out, because the service refuses it by name (ADR-222 condition 4).
+ */
+function wmAnalysable() {
+  return wmLayers().filter(layer => {
+    const run = wmRuntime.get(layer);
+    if (wmKind(layer) !== "feature" || !run || run.status !== "ok" || !layer.url) return false;
+    try {
+      const url = new URL(layer.url, location.href);
+      return url.origin === location.origin && /\/rest\/services\/hosted\/[^/]+\/FeatureServer\/\d+$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** The panel: which of the map's layers to analyse, and the tools on it — or why there is nothing to analyse. */
+function wmDrawAnalysis() {
+  const pick = wm$("azLayer");
+  const none = wm$("azNone");
+  const layers = wmAnalysable();
+
+  if (!wmToken || layers.length === 0) {
+    wm$("azPick").hidden = true;
+    wm$("analyzeBody").innerHTML = "";
+    wm$("analyzeFoot").innerHTML = "";
+    none.hidden = false;
+    none.textContent = !wmToken
+      ? "Sign in to analyze: a result is a hosted layer of your own."
+      : "This map has no hosted layer of this server to analyze. Add one from Layers.";
+    return;
+  }
+
+  none.hidden = true;
+  wm$("azPick").hidden = false;
+  const was = pick.value;
+  pick.innerHTML = layers.map(layer => `<option value="${wmEscape(layer.url)}">${wmEscape(layer.title || "Untitled layer")}</option>`).join("");
+  if (layers.some(layer => layer.url === was)) pick.value = was;
+  if (pick.value !== was || !wm$("azName")) wmOpenAnalysis();
+}
+
+/** Opens the shared tools on the layer chosen; a result is added to this map. */
+function wmOpenAnalysis() {
+  const layer = wmAnalysable().find(one => one.url === wm$("azLayer").value);
+  if (!layer) return;
+
+  GraticulaAnalysis.open({ url: new URL(layer.url, location.href).href, name: layer.title || "layer" }, {
+    fetch: wmFetch,
+    notify: (text, tone) => wmSay(text, tone === false),
+    body: wm$("analyzeBody"),
+    foot: wm$("analyzeFoot"),
+    lead: name => `Runs on <b>${name}</b>. The result is a new hosted layer of yours, private until you share it, and is added to this map.`,
+    close: () => wmShowTab("layers", true),
+    succeeded: async (run, value, open) => {
+      let added = 0;
+      try {
+        added = await wmAddService(`hosted/${run.name}`, "FeatureServer");
+        if (added) wmMarkDirty();
+      } catch (e) {
+        if (!open) wmSay(`${run.name} is ready, in Content; it could not be added to the map: ${e.message}`, true);
+        return { html: `Done: ${wmEscape(run.name)} is in Content; it could not be added to the map: ${wmEscape(e.message)}` };
+      }
+      if (!open) {
+        wmSay(`${run.name} is ready and was added to the map.`);
+        return {};
+      }
+      // Focus on the link, not on Run, where Enter would start a second run (design review).
+      return { html: `Done: ${wmEscape(run.name)} was added to the map. <a href="/studio/#/item/${wmEscape(value.itemId)}" id="analyzeResult">Open it in Content</a>.`,
+        focus: "analyzeResult" };
+    },
+  });
+}
+
+wm$("azLayer")?.addEventListener("change", wmOpenAnalysis);
+
 // ----------------------------------------------------------------------------- tabs
 
-const WM_TABS = ["layers", "search", "measure", "bookmarks", "print", "map"];
+const WM_TABS = ["layers", "search", "measure", "analysis", "bookmarks", "print", "map"];
 
 /** The tool whose panel is shown, or would be when the phone's sheet opens. */
 let wmTabShown = "layers";
@@ -3259,6 +3337,7 @@ function wmShowTab(name, focus = false) {
   if (name !== "measure") wmStopMeasuring();
   if (name === "map") wmDrawMapForm();
   if (name === "search") wmDrawSearchState();
+  if (name === "analysis") wmDrawAnalysis();
   if (name === "print" && !wm$("printTitle").value) wm$("printTitle").value = wmState.meta.title || "";
 }
 

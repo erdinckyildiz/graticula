@@ -118,11 +118,18 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
             int features = counted.GetProperty("count").GetInt32();
             Assert.True(features > 0, "The queryable layer is empty, so there is nothing to buffer.");
 
-            // Refused before it is queued: a result needs a name.
+            // Refused before it is queued: a name no layer may have. (No name at all is a result returned unsaved since
+            // ADR-222 condition 4 — SpatialAnalysisSummariesTests.)
             (int unnamed, JsonElement why) = await SendAsync(http, token, HttpMethod.Post, $"{root}{Service}/CreateBuffers/submitJob",
-                new Dictionary<string, string> { ["inputLayer"] = Json(new { url = inputUrl }), ["distances"] = "[100]", ["f"] = "json" });
+                new Dictionary<string, string>
+                {
+                    ["inputLayer"] = Json(new { url = inputUrl }),
+                    ["distances"] = "[100]",
+                    ["outputName"] = Json(new { serviceProperties = new { name = "not a name!" } }),
+                    ["f"] = "json",
+                });
             Assert.Equal(400, unnamed);
-            Assert.Contains("outputName", why.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
+            Assert.Contains("cannot name a layer", why.GetProperty("error").GetProperty("message").GetString(), StringComparison.Ordinal);
 
             string bufferUrl = await RunAsync(http, root, token, "CreateBuffers", "bufferLayer", new Dictionary<string, string>
             {
@@ -304,6 +311,15 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
     private static async Task<string> RunAsync(
         HttpClient http, string root, string token, string task, string result, Dictionary<string, string> form)
     {
+        JsonElement value = await ResultAsync(http, root, token, task, result, form);
+        Assert.Matches("^[0-9a-f]{32}$", value.GetProperty("value").GetProperty("itemId").GetString()!);
+        return value.GetProperty("value").GetProperty("url").GetString()!;
+    }
+
+    /// <summary>Submits a job, waits for it, and answers its result parameter as the server wrote it.</summary>
+    private static async Task<JsonElement> ResultAsync(
+        HttpClient http, string root, string token, string task, string result, Dictionary<string, string> form)
+    {
         form["f"] = "json";
         (int submitted, JsonElement job) = await SendAsync(http, token, HttpMethod.Post, $"{root}{Service}/{task}/submitJob", form);
         Assert.True(submitted == 200 && job.TryGetProperty("jobId", out _), $"{task} was not submitted: {submitted} {job}");
@@ -330,13 +346,12 @@ public sealed class SpatialAnalysisServiceTests : ArcGisClient
 
         (_, JsonElement value) = await SendAsync(http, token, HttpMethod.Get, $"{root}{Service}/{task}/jobs/{id}/results/{result}?f=json");
         Assert.Equal("GPString", value.GetProperty("dataType").GetString());
-        Assert.Matches("^[0-9a-f]{32}$", value.GetProperty("value").GetProperty("itemId").GetString()!);
 
         // A job that has ended is not cancelled.
         (int cancel, _) = await SendAsync(http, token, HttpMethod.Post, $"{root}{Service}/{task}/jobs/{id}/cancel", new Dictionary<string, string> { ["f"] = "json" });
         Assert.Equal(400, cancel);
 
-        return value.GetProperty("value").GetProperty("url").GetString()!;
+        return value;
     }
 
     private static string Json(object value) => JsonSerializer.Serialize(value);

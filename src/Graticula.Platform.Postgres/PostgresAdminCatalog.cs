@@ -615,11 +615,16 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
             insert into layer
               (id, data_source_id, name, schema_name, table_name, geometry_column,
                identity_column, object_id_column, srid, geometry_type,
-               service_id, layer_index, parent_layer_index, cache_seconds)
+               service_id, layer_index, parent_layer_index, cache_seconds,
+               symbology, symbology_updated_at)
             select
                @id, @source, @name, @schema, @table, @geometry,
                @identity, @objectid, @srid, @type,
-               slot.id, slot.layer_index, @parent, @cache
+               slot.id, slot.layer_index, @parent, @cache,
+               -- <b>The drawing it was given, which this statement dropped until 2026-10-29</b>: LayerPublication
+               -- carried a Symbology that only the composing publish read, so an analysis's drawn result arrived
+               -- in one flat colour. Stamped only when there is one, as the composing publish stamps it.
+               @symbology::text, case when @symbology::text is null then null else now() end
             from slot
             -- <b>The folder comes back with the index</b>, because the caller may have asked
             -- for one it did not get: a datastore publish naming 'turkiye' lands in 'hosted',
@@ -656,6 +661,7 @@ public sealed class PostgresAdminCatalog : IAdminCatalog
         });
         command.Parameters.AddWithValue("owner", owner);
         command.Parameters.AddWithValue("sharing", Wire(publication.Sharing));
+        command.Parameters.Add(new NpgsqlParameter("symbology", NpgsqlDbType.Text) { Value = (object?)publication.Symbology ?? DBNull.Value });
         command.Parameters.Add(new NpgsqlParameter("objectid", NpgsqlDbType.Text)
         {
             Value = (object?)publication.ObjectIdColumn ?? DBNull.Value,
