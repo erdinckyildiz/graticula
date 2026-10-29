@@ -805,6 +805,24 @@ jobs:
       - name: the README's four commands
         run: sh tools/quickstart-rehearsal.sh 8543
 
+  grapy:
+    name: grapy
+    runs-on: ubuntu-latest
+
+    # <b>ADR-223 condition 1: the fence is measured holding on the runner's own kernel.</b> grapy's tests run a hostile
+    # toolbox that opens a socket, reads outside its run, reads /proc/1/environ, allocates past its limit and starts a
+    # process; each must be refused. Linux only, as the fence is; a kernel without Landlock fails the job by name.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: grapy and its fence
+        run: |
+          python -m pip install --quiet shapely pyproj numpy
+          python -c "import ctypes; v = ctypes.CDLL(None).syscall(444, None, 0, 1); print('Landlock ABI', v); assert v >= 1, 'no Landlock on this kernel'"
+          python -W error::DeprecationWarning -m unittest discover -s src/grapy/tests -v
+
   registers:
     name: registers
     runs-on: ubuntu-latest

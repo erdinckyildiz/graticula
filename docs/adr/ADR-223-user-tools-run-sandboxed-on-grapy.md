@@ -104,7 +104,9 @@ is Esri's. Rejected for the name, not the shape: grapy keeps `arcpy`'s documente
    job's, cancel stops the process.
 9. **INFERRED, for confirmation in Q-194:** (a) no `arcpy`-named module — `import grapy as arcpy`; (b) user tools
    refused on Windows unless an operator opts into an unsafe development setting; (c) default limits — 2 GB of memory,
-   10 minutes of CPU, 30 minutes of wall clock, 1 GB written, 64 processes; (d) `content:publishTools` held by the
+   10 minutes of CPU, 30 minutes of wall clock, 1 GB written, and a ceiling of 1,024 tasks — *not* 64 as first written:
+   Linux counts RLIMIT_NPROC per OS user, the server's own threads included, so it is a ceiling against a fork bomb
+   rather than a count of the tool's processes (found writing the fence, 2026-10-29); (d) `content:publishTools` held by the
    administrator role only by default; (e) GeoPackage as the exchange file.
 
 ## Conditions
