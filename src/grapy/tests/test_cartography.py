@@ -111,8 +111,38 @@ class Cartography(unittest.TestCase):
             cartography.SimplifyLine(path, self.out("b"), "POINT_REMOVE", 2, in_barriers=[path])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "SmoothLine.*PAEK"):
             cartography.SmoothLine(path, self.out("s"), "PAEK", 10)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "SimplifyPolygon"):
-            cartography.SimplifyPolygon(path, self.out("p"), "POINT_REMOVE", 10)
+
+    def test_simplify_polygon_opens_each_ring_at_its_first_vertex(self):
+        # Ring from (0,0): (10,0), (20,1), (30,0), (30,30), (0,30). Closed, its trend "line" is the point (0,0): (30,30)
+        # is farthest (42.4) and kept. (0,0)–(30,30): (30,0) is 21.2 away, kept; (0,0)–(30,0): (10,0) is 0 and (20,1)
+        # is 1 away, under 2, both dropped. (30,30)–(0,0): (0,30) is 21.2 away, kept. The square 0..30 remains.
+        # A 1×1 square far away, under minimum_area 2, is removed and leaves its centroid in _Pnt.
+        path = os.path.join(self.directory, "pg.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "pg.gpkg", "POLYGON", spatial_reference=3857)
+        ring = [(0, 0), (10, 0), (20, 1), (30, 0), (30, 30), (0, 30)]
+        tiny = [(100, 100), (101, 100), (101, 101), (100, 101)]
+        with arcpy.da.InsertCursor(path, ["SHAPE@"]) as rows:
+            for shape in (ring, tiny):
+                rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in shape]), 3857),))
+        result = cartography.SimplifyPolygon(path, self.out("sp"), "POINT_REMOVE", 2, 2)
+        with arcpy.da.SearchCursor(result[0], ["InPoly_FID", "SHAPE@"]) as rows:
+            (oid, shape), = [tuple(r) for r in rows]
+        self.assertEqual(oid, 1)
+        self.assertEqual(shape.area, 900.0)
+        self.assertEqual(shape.pointCount, 5)
+        with arcpy.da.SearchCursor(result[1], ["InPoly_FID", "SHAPE@XY"]) as rows:
+            self.assertEqual([tuple(r) for r in rows], [(2, (100.5, 100.5))])
+        self.assertIn("Douglas", cartography.SimplifyPolygon.__grapy_equivalent__)
+        # Two squares sharing an edge: simplified apart, their outlines would no longer coincide — refused.
+        shared = os.path.join(self.directory, "sh.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "sh.gpkg", "POLYGON", spatial_reference=3857)
+        with arcpy.da.InsertCursor(shared, ["SHAPE@"]) as rows:
+            rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in
+                                                       [(0, 0), (10, 0), (10, 5), (10.5, 6), (10, 7), (10, 10), (0, 10)]]), 3857),))
+            rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in
+                                                       [(10, 0), (20, 0), (20, 10), (10, 10), (10, 7), (10.5, 6), (10, 5)]]), 3857),))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "meet differently"):
+            cartography.SimplifyPolygon(shared, self.out("shx"), "POINT_REMOVE", 2)
 
 
 if __name__ == "__main__":

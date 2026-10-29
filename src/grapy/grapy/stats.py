@@ -5,14 +5,16 @@ feature's location is its centroid, as the tools document: a point is itself; a 
 "the weighted mean center of all feature parts", weighted by length or area, which is the shape's centroid.
 
 What the documentation does not settle is refused or chosen and said: a refusal names the tool, the parameter and the
-value (NotBuiltError), and a choice is written ``INFERRED:`` in the tool's docstring. Refused everywhere:
+value (NotBuiltError), and a choice is written ``INFERRED:`` in the tool's docstring.
+Refused everywhere, unless said to be built as an equivalent (ADR-224 §5.6):
 
 - a geographic reference — the tools measure it in chordal metres on an oblate spheroid, which grapy does not;
 - ``GET_SPATIAL_WEIGHTS_FROM_FILE`` (an .swm file's binary layout is not published) and ``ZONE_OF_INDIFFERENCE``
   (the documentation says only that weights "diminish with distance" past the band, not how);
-- ``APPLY_FDR`` (the correction "for multiple testing and spatial dependence" is not given as a formula);
+- ``APPLY_FDR`` is built as an equivalent, Benjamini–Hochberg (the correction "for multiple testing and spatial
+  dependence" is not given as a formula);
 - ``GENERATE_REPORT`` (the report's content is not documented);
-- permutation p-values (``Number_of_Permutations`` above 0), which are random by definition.
+- permutation p-values (``Number_of_Permutations`` above 0) are built as an equivalent with a stated seed.
 
 p-values are two-sided, from the standard normal distribution — ``erfc(|z| / sqrt 2)`` — as Esri's "What is a
 z-score? What is a p-value?" describes them. INFERRED: a derived scalar output is returned as text, as arcpy's
@@ -222,10 +224,46 @@ def _no_report(tool, report):
         _refuse(tool, "Generate_Report", report, "the report's content is not documented")
 
 
-def _no_fdr(tool, fdr):
-    if _keyword(fdr) in ("APPLY_FDR", "TRUE"):
-        _refuse(tool, "Apply_False_Discovery_Rate__FDR__Correction", fdr, "the correction for multiple testing and "
-                "spatial dependence is not documented as a formula")
+def _wants_fdr(fdr):
+    return _keyword(fdr) in ("APPLY_FDR", "TRUE")
+
+
+def _seed():
+    from .management import _seed as seed
+    return seed()
+
+
+def _bh_significant(p_values, alpha):
+    """Which p-values the Benjamini–Hochberg procedure rejects at false discovery rate ``alpha`` (Benjamini and
+    Hochberg 1995): with the m p-values sorted, the largest k with p_(k) ≤ kα/m, and every p up to p_(k)."""
+    present = sorted(p for p in p_values if p is not None)
+    m = len(present)
+    cut = None
+    for k, value in enumerate(present, start=1):
+        if value <= k * alpha / m:
+            cut = value
+    return [p is not None and cut is not None and p <= cut for p in p_values]
+
+
+def _fdr_equivalent():
+    from ._runtime import equivalent
+
+    @equivalent("the Benjamini–Hochberg false discovery rate", "Benjamini and Hochberg 1995")
+    def FalseDiscoveryRate():
+        """EQUIVALENT: Esri's correction "for multiple testing and spatial dependence" is not given as a formula;
+        grapy applies Benjamini and Hochberg's (1995) at each confidence level, which does not adjust for spatial
+        dependence."""
+    return FalseDiscoveryRate
+
+
+_FDR = None
+
+
+def _say_fdr():
+    global _FDR
+    if _FDR is None:
+        _FDR = _fdr_equivalent()
+    _FDR()
 
 
 def _values(tool, features, field):
@@ -283,6 +321,8 @@ def _moran(x, w):
     b = d * ((n * n - n) * s1 - 2 * n * s2 + 6 * s0 * s0)
     c = (n - 1) * (n - 2) * (n - 3) * s0 * s0
     variance = (a - b) / c - expected * expected
+    if variance <= 1e-15:
+        raise ValueError("Moran's I has no variance here: every feature is the neighbour of every other.")
     return i, expected, variance, (i - expected) / math.sqrt(variance)
 
 
@@ -389,7 +429,7 @@ def HotSpots(Input_Feature_Class, Input_Field, Output_Feature_Class,
     INFERRED: the output carries no NNeighbors field, which the documentation does not name.
     """
     import numpy as np
-    _no_fdr("HotSpots", Apply_False_Discovery_Rate__FDR__Correction)
+    fdr = _wants_fdr(Apply_False_Discovery_Rate__FDR__Correction)
     fields = [Input_Field] + ([Self_Potential_Field] if _given(Self_Potential_Field) else [])
     features, columns, kind, srid = _features("HotSpots", Input_Feature_Class, fields)
     n = len(features)
@@ -408,9 +448,16 @@ def HotSpots(Input_Feature_Class, Input_Field, Output_Feature_Class,
     spread = np.sqrt((n * (w * w).sum(axis=1) - sums ** 2) / (n - 1))
     z = (w @ x - mean * sums) / (s * spread)
     p = [_p(v) for v in z]
+    if fdr:
+        _say_fdr()
+        levels = {alpha: _bh_significant(p, alpha) for alpha in (0.10, 0.05, 0.01)}
+        bins = [int(math.copysign(3 if levels[0.01][i] else 2 if levels[0.05][i] else 1, float(z[i])))
+                if levels[0.10][i] else 0 for i in range(n)]
+    else:
+        bins = [_bin(float(v), q) for v, q in zip(z, p)]
     out = _local_output(Input_Feature_Class, Output_Feature_Class, features, columns, kind, srid, Input_Field,
                         [("GiZScore", "Double", [float(v) for v in z]), ("GiPValue", "Double", p),
-                         ("Gi_Bin", "Integer", [_bin(float(v), q) for v, q in zip(z, p)])])
+                         ("Gi_Bin", "Integer", bins)])
     return Result(out, "GiZScore", "GiPValue", "SOURCE_ID")
 
 
@@ -424,8 +471,10 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
     ``V[I_i] = E[I_i²] − E[I_i]²`` and, from its additional mathematics, ``E[I_i²] = A − B`` with
     ``A = (n − b2i) Σ_{j≠i} w_ij² / (n−1)``, ``B = (2 b2i − n) Σ_{k≠i} Σ_{h≠i} w_ik w_ih / ((n−1)(n−2))``.
 
-    Only ``Number_of_Permutations=0`` is built — "the result is a traditional p-value instead of a pseudo p-value";
-    the default 499 permutes values at random and is refused, so a script must pass 0.
+    With ``Number_of_Permutations=0`` the p-value is the traditional one, as documented. With more, LMiPValue is a
+    conditional-permutation pseudo p-value — an EQUIVALENT (see ``_pseudo_p``), seeded from env.randomGenerator, so its
+    numbers differ from Pro's draws. APPLY_FDR is the Benjamini–Hochberg rate at 0.05 — an EQUIVALENT (see
+    ``_bh_significant``), which does not adjust for spatial dependence as Esri's correction is said to.
 
     Writes SOURCE_ID, the input field, LMiIndex, LMiZScore, LMiPValue and COType. COType is HH, LL, HL or LH for a
     feature significant at p < 0.05, NN for a feature with no neighbours, and empty otherwise. Outputs, in order: the
@@ -436,10 +485,10 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
     INFERRED: the first letter of COType is the sign of x_i − X̄ and the second the opposite of it when I_i < 0.
     """
     import numpy as np
-    _no_fdr("ClustersOutliers", Apply_False_Discovery_Rate__FDR__Correction)
-    if _given(Number_of_Permutations) and int(Number_of_Permutations) != 0:
-        _refuse("ClustersOutliers", "Number_of_Permutations", Number_of_Permutations, "permutation pseudo p-values are "
-                "random; pass 0 for the traditional p-value")
+    fdr = _wants_fdr(Apply_False_Discovery_Rate__FDR__Correction)
+    permutations = int(Number_of_Permutations) if _given(Number_of_Permutations) else 0
+    if permutations < 0:
+        raise ValueError("arcpy.stats.ClustersOutliers: Number_of_Permutations is 0 or more.")
     features, columns, kind, srid = _features("ClustersOutliers", Input_Feature_Class, [Input_Field])
     n = len(features)
     if n < 3:
@@ -468,19 +517,60 @@ def ClustersOutliers(Input_Feature_Class, Input_Field, Output_Feature_Class,
             types.append("NN")
             continue
         z = (ii - expected) / math.sqrt(variance)
-        p = _p(z)
-        high = dev[i] > 0
-        kind_ = ""
-        if p < 0.05:
-            kind_ = ("HH" if high else "LL") if ii > 0 else ("HL" if high else "LH")
         index.append(ii)
         zs.append(z)
-        ps.append(p)
-        types.append(kind_)
+        ps.append(_p(z))
+        types.append("")
+    if permutations:
+        ps = _pseudo_p(dev, w, s2, index, ps, permutations)
+    significant = _bh_significant(ps, 0.05) if fdr else [p is not None and p < 0.05 for p in ps]
+    if fdr:
+        _say_fdr()
+    for i in range(n):
+        if types[i] != "NN" and significant[i]:
+            high = dev[i] > 0
+            types[i] = ("HH" if high else "LL") if index[i] > 0 else ("HL" if high else "LH")
     out = _local_output(Input_Feature_Class, Output_Feature_Class, features, columns, kind, srid, Input_Field,
                         [("LMiIndex", "Double", index), ("LMiZScore", "Double", zs), ("LMiPValue", "Double", ps),
                          ("COType", "String", types)])
     return Result(out, "LMiIndex", "LMiZScore", "LMiPValue", "COType", "SOURCE_ID")
+
+
+def _pseudo_p_equivalent():
+    from ._runtime import equivalent
+
+    @equivalent("conditional permutation pseudo p-values with a stated seed", "Anselin 1995, §4")
+    def ConditionalPermutation(dev, w, s2, index, analytical, permutations):
+        """EQUIVALENT: Anselin's (1995) conditional permutation. For each feature its own value is held and the
+        others' are permuted ``permutations`` times; the pseudo p-value is (M + 1)/(R + 1), M the permutations whose
+        I_i is at least as extreme, on the side of the permutations' mean the observed value lies. The draws are
+        NumPy's PCG64 from env.randomGenerator's seed (0 when unset): a run repeats itself, and Pro's draws differ."""
+        import numpy as np
+        random = np.random.default_rng(_seed())
+        n = len(dev)
+        out = list(analytical)
+        for i in range(n):
+            if analytical[i] is None:
+                continue
+            others = np.delete(dev, i)
+            row = np.delete(w[i], i)
+            draws = np.array([dev[i] / s2 * float(row @ random.permutation(others)) for _ in range(permutations)])
+            larger = int((draws >= index[i]).sum())
+            if permutations - larger < larger:
+                larger = permutations - larger
+            out[i] = (larger + 1) / (permutations + 1)
+        return out
+    return ConditionalPermutation
+
+
+_PSEUDO = None
+
+
+def _pseudo_p(dev, w, s2, index, analytical, permutations):
+    global _PSEUDO
+    if _PSEUDO is None:
+        _PSEUDO = _pseudo_p_equivalent()
+    return _PSEUDO(dev, w, s2, index, analytical, permutations)
 
 
 # ---- Measuring Geographic Distributions ---------------------------------------------------------------------------
@@ -1251,6 +1341,61 @@ def SpatialAssociationBetweenZones(input_feature_or_raster, categorical_zone_fie
     return Result("", "", "", "", v, overlay_in_input, input_in_overlay)
 
 
+def _tukey_equivalent():
+    from ._runtime import equivalent
+
+    @equivalent("Tukey's box-plot fences on the k-th neighbour distance, quartiles by Hyndman and Fan's definition 7",
+                "Tukey, Exploratory Data Analysis, 1977; Hyndman and Fan 1996")
+    def GlobalSpatialOutliers(in_features, output_features, n_neighbors, output_raster, sensitivity, keep_type):
+        """EQUIVALENT: each point's distance to its k-th nearest neighbour (k = n_neighbors, 1 by default, as
+        documented); a point is an outlier when that distance is above Q3 + c·IQR — c is 1 for HIGH, 1.5 for MEDIUM,
+        2 for LOW, as the page gives — with Q1 and Q3 by linear interpolation between order statistics (Hyndman and
+        Fan 1996, definition 7), which the page does not give. Writes the input's fields, NEIGHBOR_DIST and
+        IS_OUTLIER (INFERRED names)."""
+        import numpy as np
+        tool = "SpatialOutlierDetection"
+        if _given(output_raster):
+            _refuse(tool, "output_raster", output_raster, "the grid of the prediction surface is not specified")
+        factor = {"HIGH": 1.0, "MEDIUM": 1.5, "LOW": 2.0}.get(_keyword(sensitivity or "MEDIUM"))
+        if factor is None:
+            raise ValueError(f"arcpy.stats.{tool}: sensitivity is LOW, MEDIUM or HIGH.")
+        features, columns, kind, srid = _features(tool, in_features)
+        n = len(features)
+        k = int(n_neighbors) if _given(n_neighbors) else 1
+        if not 1 <= k < n:
+            raise ValueError(f"arcpy.stats.{tool}: n_neighbors is between 1 and {n - 1}.")
+        d = _distances([(f[2], f[3]) for f in features])
+        np.fill_diagonal(d, np.inf)
+        distance = np.sort(d, axis=1)[:, k - 1]
+        q1, q3 = np.quantile(distance, [0.25, 0.75], method="linear")
+        outlier = distance > q3 + factor * (q3 - q1)
+        keep_all = _keyword(keep_type) not in ("KEEP_OUTLIER", "FALSE")
+        out = _out(output_features)
+        names = [c.name for c in columns]
+        _gpkg.create(out, kind, srid, [*columns, _gpkg.Column("NEIGHBOR_DIST", "Double"),
+                                       _gpkg.Column("IS_OUTLIER", "Integer")])
+        by_oid = {f[0]: i for i, f in enumerate(features)}
+        with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
+                da.InsertCursor(out, [*names, "NEIGHBOR_DIST", "IS_OUTLIER", "SHAPE@"]) as written:
+            for row in rows:
+                i = by_oid.get(row[0])
+                if i is None or (not keep_all and not outlier[i]):
+                    continue
+                written.insertRow((*row[1:-1], float(distance[i]), int(outlier[i]), row[-1]))
+        return Result(out)
+    return GlobalSpatialOutliers
+
+
+_TUKEY = None
+
+
+def _tukey_global(*args):
+    global _TUKEY
+    if _TUKEY is None:
+        _TUKEY = _tukey_equivalent()
+    return _TUKEY(*args)
+
+
 def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, percent_outlier=None, output_raster=None,
                             outlier_type="GLOBAL", sensitivity="MEDIUM", keep_type="KEEP_ALL"):
     """Local spatial outliers by the local outlier factor, from "How Spatial Outlier Detection works" (Breunig et al.
@@ -1260,8 +1405,9 @@ def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, perc
     every point whose LOF is at least the m-th highest, so ties at the threshold are all outliers, as the page's own
     example shows ([0, 1, 2, 3, 4, 5, 9, 9, 9, 9] at 10 percent gives the threshold 9).
 
-    Refused: GLOBAL, the default (its box-plot threshold is Q3 plus 1, 1.5 or 2 interquartile ranges, and the page does
-    not say how the quartiles are computed); an omitted n_neighbors or percent_outlier (they are then estimated by a
+    GLOBAL, the default, is an EQUIVALENT (see ``_tukey_global``): the page's box-plot rule, Q3 plus 1, 1.5 or 2
+    interquartile ranges, with the quartiles of Hyndman and Fan's definition 7, since the page does not give them.
+    Refused: an omitted n_neighbors or percent_outlier (they are then estimated by a
     t-statistic search over a domain the page does not give); a percent_outlier that does not make m a whole number of
     points (the page does not say how m is rounded); output_raster (the cells' grid is not specified).
     INFERRED: the output keeps the input's fields and adds LOF (Double) and IS_OUTLIER (1 or 0) — the page names the
@@ -1271,8 +1417,7 @@ def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, perc
     import numpy as np
     tool = "SpatialOutlierDetection"
     if _keyword(outlier_type) == "GLOBAL":
-        _refuse(tool, "outlier_type", "GLOBAL", "its box-plot threshold rests on quartiles whose computation the page "
-                "does not give; pass LOCAL")
+        return _tukey_global(in_features, output_features, n_neighbors, output_raster, sensitivity, keep_type)
     if _keyword(outlier_type) != "LOCAL":
         raise ValueError(f"arcpy.stats.{tool}: outlier_type '{outlier_type}' is GLOBAL or LOCAL.")
     if _given(output_raster):
@@ -1326,6 +1471,641 @@ def SpatialOutlierDetection(in_features, output_features, n_neighbors=None, perc
     return Result(out)
 
 
+# ---- Regression: equivalents (ADR-224 §5.6) -----------------------------------------------------------------------
+
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+
+def _regression_data(tool, in_features, dependent, explanatory, extra=()):
+    """The features with every variable present, as (oids, y, X with a leading column of ones, xy, rows), as the tools
+    document: "features that contain missing values … will be excluded"."""
+    import numpy as np
+    names = [dependent, *explanatory, *[e for e in extra if _given(e)]]
+    features, columns, kind, srid = _features(tool, in_features, names)
+    kept = [f for f in features if all(f[1][n.lower()] is not None for n in names)]
+    if len(kept) <= len(explanatory) + 2:
+        raise ValueError(f"arcpy.stats.{tool}: too few features with every variable present.")
+    y = np.array([float(f[1][dependent.lower()]) for f in kept])
+    x = np.column_stack([np.ones(len(kept)), *[[float(f[1][e.lower()]) for f in kept] for e in explanatory]])
+    xy = np.array([(f[2], f[3]) for f in kept])
+    return kept, y, x, xy, columns, kind, srid
+
+
+def _ols_fit(x, y):
+    """β, fitted values, residuals and (X'X)⁻¹ of least squares."""
+    import numpy as np
+    inverse = np.linalg.inv(x.T @ x)
+    beta = inverse @ x.T @ y
+    fitted = x @ beta
+    return beta, fitted, y - fitted, inverse
+
+
+def _write_table(out_table, columns, rows):
+    out = _out(out_table)
+    _gpkg.create(out, "Geometry", 0, columns)
+    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for row in rows:
+            written.insertRow((*row, None))
+    return out
+
+
+@_equivalent("ordinary least squares with classical, White (HC0), Koenker–Bassett and Jarque–Bera diagnostics",
+             "Greene, Econometric Analysis, 7th ed., ch. 4–5 and 9; White 1980; Koenker 1981; Jarque and Bera 1980")
+def OrdinaryLeastSquares(Input_Feature_Class, Unique_ID_Field, Output_Feature_Class, Dependent_Variable,
+                         Explanatory_Variables, Coefficient_Output_Table=None, Diagnostic_Output_Table=None,
+                         Output_Report_File=None):
+    """EQUIVALENT: ordinary least squares (Greene, Econometric Analysis, ch. 4–5) — Esri's "How OLS regression works"
+    page could not be read, so its exact diagnostics are not reproduced. β = (X'X)⁻¹X'y with an intercept; σ² = RSS/(n−k);
+    standard errors √(σ² diag (X'X)⁻¹) and two-sided t probabilities with n−k degrees of freedom; White's
+    heteroskedasticity-consistent (HC0) standard errors (White 1980); R², adjusted R²; the joint F statistic and the
+    robust joint Wald statistic of the slopes; Koenker's studentized Breusch–Pagan statistic n·R² of e² on X (Koenker
+    1981); Jarque–Bera n/6·(S² + (K−3)²/4) of the residuals (1980); AIC = n ln(2π RSS/n) + n + 2(k+1) and
+    AICc = n ln(2π RSS/n) + n(n+k)/(n−2−k), the Gaussian likelihood's (Hurvich and Tsai 1989).
+
+    The output feature class carries the unique ID, the dependent and explanatory variables, Estimated, Residual and
+    StdResid (the residual over σ). The coefficient table has Variable, Coef, StdError, t_Stat, Prob, Robust_SE,
+    Robust_t and Robust_Pr; the diagnostic table Diag_Name, Diag_Value. Output_Report_File (a PDF) is refused.
+    """
+    import numpy as np
+    from scipy import stats as distributions
+    tool = "OrdinaryLeastSquares"
+    if _given(Output_Report_File):
+        _refuse(tool, "Output_Report_File", Output_Report_File, "the PDF report's content is not documented")
+    explanatory = [e for e in _list(Explanatory_Variables) if _given(e)]
+    kept, y, x, _, columns, kind, srid = _regression_data(tool, Input_Feature_Class, Dependent_Variable, explanatory,
+                                                          [Unique_ID_Field])
+    n, k = x.shape
+    beta, fitted, residual, inverse = _ols_fit(x, y)
+    rss = float(residual @ residual)
+    tss = float(((y - y.mean()) ** 2).sum())
+    sigma2 = rss / (n - k)
+    se = np.sqrt(sigma2 * np.diag(inverse))
+    t = beta / se
+    p = 2 * distributions.t.sf(np.abs(t), n - k)
+    robust_cov = inverse @ (x.T * residual ** 2) @ x @ inverse
+    robust_se = np.sqrt(np.diag(robust_cov))
+    robust_t = beta / robust_se
+    robust_p = 2 * distributions.t.sf(np.abs(robust_t), n - k)
+    r2 = 1 - rss / tss
+    adjusted = 1 - (1 - r2) * (n - 1) / (n - k)
+    f_stat = ((tss - rss) / (k - 1)) / (rss / (n - k))
+    slopes = beta[1:]
+    wald = float(slopes @ np.linalg.inv(robust_cov[1:, 1:]) @ slopes)
+    squared = residual ** 2
+    _, aux_fit, aux_residual, _ = _ols_fit(x, squared)
+    aux_r2 = 1 - float(aux_residual @ aux_residual) / float(((squared - squared.mean()) ** 2).sum())
+    koenker = n * aux_r2
+    m2, m3, m4 = (float((residual ** power).mean()) for power in (2, 3, 4))
+    skew, kurtosis = m3 / m2 ** 1.5, m4 / m2 ** 2
+    jarque_bera = n / 6 * (skew ** 2 + (kurtosis - 3) ** 2 / 4)
+    log_term = n * math.log(2 * math.pi * rss / n)
+    aic = log_term + n + 2 * (k + 1)
+    aicc = log_term + n * (n + k) / (n - 2 - k)
+    from ._runtime import AddMessage
+    by_name = {c.name.lower(): c for c in columns}
+    keep = [by_name[Unique_ID_Field.lower()], by_name[Dependent_Variable.lower()], *[by_name[e.lower()] for e in explanatory]]
+    out = _out(Output_Feature_Class)
+    added = [_gpkg.Column("Estimated", "Double"), _gpkg.Column("Residual", "Double"), _gpkg.Column("StdResid", "Double")]
+    _gpkg.create(out, kind, srid, [*keep, *added])
+    with da.InsertCursor(out, [*[c.name for c in keep], *[c.name for c in added], "SHAPE@"]) as written:
+        for i, f in enumerate(kept):
+            written.insertRow((*[f[1][c.name.lower()] for c in keep], float(fitted[i]), float(residual[i]),
+                               float(residual[i] / math.sqrt(sigma2)), f[4]))
+    names = ["Intercept", *explanatory]
+    coefficient = ""
+    if _given(Coefficient_Output_Table):
+        coefficient = _write_table(Coefficient_Output_Table, [
+            _gpkg.Column("Variable", "String"), *[_gpkg.Column(c, "Double") for c in
+                                                  ("Coef", "StdError", "t_Stat", "Prob", "Robust_SE", "Robust_t", "Robust_Pr")]],
+            [(names[j], *[float(v[j]) for v in (beta, se, t, p, robust_se, robust_t, robust_p)]) for j in range(k)])
+    diagnostics = [("AIC", aic), ("AICc", aicc), ("R2", r2), ("AdjR2", adjusted), ("F-Stat", f_stat),
+                   ("F-Prob", float(distributions.f.sf(f_stat, k - 1, n - k))), ("Wald", wald),
+                   ("Wald-Prob", float(distributions.chi2.sf(wald, k - 1))), ("K(BP)", koenker),
+                   ("K(BP)-Prob", float(distributions.chi2.sf(koenker, k - 1))), ("JB", jarque_bera),
+                   ("JB-Prob", float(distributions.chi2.sf(jarque_bera, 2))), ("Sigma2", sigma2)]
+    for name, value in diagnostics:
+        AddMessage(f"{name}: {value}")
+    diagnostic = ""
+    if _given(Diagnostic_Output_Table):
+        diagnostic = _write_table(Diagnostic_Output_Table, [_gpkg.Column("Diag_Name", "String"),
+                                                            _gpkg.Column("Diag_Value", "Double")], diagnostics)
+    return Result(out, coefficient, diagnostic, "")
+
+
+def _glm(x, y, family, weights=None, iterations=100):
+    """A generalized linear model by iteratively reweighted least squares (McCullagh and Nelder 1989, §2.5):
+    Gaussian identity, binomial logit, Poisson log. Answers β, the fitted means and (X'WX)⁻¹ at convergence."""
+    import numpy as np
+    prior = np.ones(len(y)) if weights is None else weights
+    if family == "gaussian":
+        w = prior
+        inverse = np.linalg.inv((x.T * w) @ x)
+        beta = inverse @ (x.T * w) @ y
+        return beta, x @ beta, inverse
+    mu = (y + 0.5) / 2 if family == "binomial" else y + 0.5
+    eta = np.log(mu / (1 - mu)) if family == "binomial" else np.log(mu)
+    beta = np.zeros(x.shape[1])
+    for _ in range(iterations):
+        if family == "binomial":
+            mu = 1 / (1 + np.exp(-eta))
+            variance = mu * (1 - mu)
+            z = eta + (y - mu) / variance
+        else:
+            mu = np.exp(eta)
+            variance = mu
+            z = eta + (y - mu) / mu
+        w = prior * variance
+        inverse = np.linalg.inv((x.T * w) @ x)
+        new = inverse @ (x.T * w) @ z
+        eta = x @ new
+        if np.max(np.abs(new - beta)) < 1e-12 * (1 + np.max(np.abs(new))):
+            beta = new
+            break
+        beta = new
+    mu = 1 / (1 + np.exp(-eta)) if family == "binomial" else np.exp(eta)
+    return beta, mu, inverse
+
+
+def _deviance(y, mu, family):
+    import numpy as np
+    if family == "gaussian":
+        return float(((y - mu) ** 2).sum())
+    if family == "binomial":
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(y > 0, y * np.log(y / mu), 0) + np.where(y < 1, (1 - y) * np.log((1 - y) / (1 - mu)), 0)
+        return float(2 * terms.sum())
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = np.where(y > 0, y * np.log(y / mu), 0) - (y - mu)
+    return float(2 * terms.sum())
+
+
+_FAMILIES = {"CONTINUOUS": "gaussian", "BINARY": "binomial", "COUNT": "poisson"}
+
+
+@_equivalent("a generalized linear model fitted by iteratively reweighted least squares — Gaussian identity, binomial "
+             "logit, Poisson log", "McCullagh and Nelder, Generalized Linear Models, 2nd ed., 1989")
+def GeneralizedLinearRegression(in_features, dependent_variable, model_type, output_features, explanatory_variables,
+                                distance_features=None, prediction_locations=None, explanatory_variables_to_match=None,
+                                explanatory_distance_matching=None, output_predicted_features=None,
+                                output_trained_model=None):
+    """EQUIVALENT: a generalized linear model by iteratively reweighted least squares (McCullagh and Nelder 1989) —
+    CONTINUOUS Gaussian with the identity link (ordinary least squares), BINARY binomial with the logit link, COUNT
+    Poisson with the log link. Fit to convergence of β (relative change below 10⁻¹²).
+
+    The output carries the dependent and explanatory variables, PREDICTED (the fitted mean) and RESIDUAL (observed
+    minus fitted); the coefficients, their standard errors √diag((X'WX)⁻¹ φ) — φ = RSS/(n−k) for Gaussian, 1 otherwise —
+    and the deviance are written as messages. INFERRED: those field names, which the page does not give.
+
+    Refused: distance_features, prediction locations and their matching, and output_trained_model (an .ssm file).
+    """
+    import numpy as np
+    tool = "GeneralizedLinearRegression"
+    for name, value in (("distance_features", distance_features), ("prediction_locations", prediction_locations),
+                        ("output_predicted_features", output_predicted_features),
+                        ("output_trained_model", output_trained_model)):
+        if _given(value):
+            _refuse(tool, name, value, "it is not part of this equivalent" if name != "output_trained_model" else
+                    "a spatial statistics model (.ssm) file's layout is not published")
+    family = _FAMILIES.get(_keyword(model_type))
+    if family is None:
+        raise ValueError(f"arcpy.stats.{tool}: model_type is CONTINUOUS, BINARY or COUNT.")
+    explanatory = [e for e in _list(explanatory_variables) if _given(e)]
+    kept, y, x, _, columns, kind, srid = _regression_data(tool, in_features, dependent_variable, explanatory)
+    if family == "binomial" and not set(np.unique(y)) <= {0.0, 1.0}:
+        raise ValueError(f"arcpy.stats.{tool}: a BINARY dependent variable holds only 0 and 1.")
+    if family == "poisson" and ((y < 0).any() or (y != np.round(y)).any()):
+        raise ValueError(f"arcpy.stats.{tool}: a COUNT dependent variable holds whole numbers of 0 or more.")
+    beta, mu, inverse = _glm(x, y, family)
+    n, k = x.shape
+    dispersion = float(((y - mu) ** 2).sum()) / (n - k) if family == "gaussian" else 1.0
+    se = np.sqrt(np.diag(inverse) * dispersion)
+    from ._runtime import AddMessage
+    for name, b, s in zip(["Intercept", *explanatory], beta, se):
+        AddMessage(f"{name}: coefficient {b}, standard error {s}")
+    AddMessage(f"Deviance: {_deviance(y, mu, family)}")
+    by_name = {c.name.lower(): c for c in columns}
+    keep = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory]]
+    out = _out(output_features)
+    added = [_gpkg.Column("PREDICTED", "Double"), _gpkg.Column("RESIDUAL", "Double")]
+    _gpkg.create(out, kind, srid, [*keep, *added])
+    with da.InsertCursor(out, [*[c.name for c in keep], *[c.name for c in added], "SHAPE@"]) as written:
+        for i, f in enumerate(kept):
+            written.insertRow((*[f[1][c.name.lower()] for c in keep], float(mu[i]), float(y[i] - mu[i]), f[4]))
+    return Result(out, *[float(b) for b in beta])
+
+
+def _gwr_weights(d, bandwidth, kernel, adaptive):
+    """Kernel weights of each row's distances: Gaussian exp(−½(d/b)²), bisquare (1−(d/b)²)² inside b and 0 outside
+    (Fotheringham, Brunsdon and Charlton 2002, eq. 2.8–2.9); adaptive, b is each row's distance to its k-th nearest
+    feature, the focal feature counted."""
+    import numpy as np
+    if adaptive:
+        b = np.sort(d, axis=1)[:, int(bandwidth) - 1][:, None]
+    else:
+        b = float(bandwidth)
+    ratio = d / b
+    if kernel == "GAUSSIAN":
+        return np.exp(-0.5 * ratio ** 2)
+    return np.where(ratio < 1, (1 - ratio ** 2) ** 2, 0.0)
+
+
+def _gwr_fit(x, y, d, bandwidth, kernel, adaptive):
+    """Every local fit: β_i = (X'W_iX)⁻¹X'W_iy, the hat matrix's row i, and C_i = (X'W_iX)⁻¹X'W_i."""
+    import numpy as np
+    n, k = x.shape
+    w = _gwr_weights(d, bandwidth, kernel, adaptive)
+    betas, hat, spread, conditions, local_r2 = np.zeros((n, k)), np.zeros(n), np.zeros((n, k)), np.zeros(n), np.zeros(n)
+    rows = []
+    for i in range(n):
+        xw = x.T * w[i]
+        matrix = xw @ x
+        try:
+            inverse = np.linalg.inv(matrix)
+        except np.linalg.LinAlgError:
+            raise ValueError("arcpy.stats.GWR: a local regression is singular at this bandwidth — too few neighbours.")
+        c = inverse @ xw
+        betas[i] = c @ y
+        rows.append(x[i] @ c)
+        hat[i] = rows[-1][i]
+        spread[i] = np.sqrt(np.diag(c @ c.T))
+        scaled = x * np.sqrt(w[i])[:, None]
+        conditions[i] = np.linalg.cond(scaled[:, 1:] if k > 1 else scaled)
+        fitted_local = x @ betas[i]
+        mean = float((w[i] * y).sum() / w[i].sum())
+        total = float((w[i] * (y - mean) ** 2).sum())
+        local_r2[i] = 1 - float((w[i] * (y - fitted_local) ** 2).sum()) / total if total > 0 else 0.0
+    s = np.array(rows)
+    return betas, s, spread, conditions, local_r2
+
+
+def _gwr_aicc(x, y, d, bandwidth, kernel, adaptive):
+    """AICc = n ln(σ̂²) + n ln 2π + n(n + tr S)/(n − 2 − tr S), σ̂² = RSS/n (Fotheringham et al. 2002, eq. 2.33)."""
+    import numpy as np
+    betas, s, *_ = _gwr_fit(x, y, d, bandwidth, kernel, adaptive)
+    n = len(y)
+    residual = y - (x * betas).sum(axis=1)
+    trace = float(np.trace(s))
+    if n - 2 - trace <= 0:
+        return math.inf
+    rss = float(residual @ residual)
+    return n * math.log(rss / n) + n * math.log(2 * math.pi) + n * (n + trace) / (n - 2 - trace)
+
+
+def _golden(f, low, high, integer):
+    """The minimum of f on [low, high] by golden-section search (Kiefer 1953), to a whole number of neighbours or to
+    10⁻⁵ of the interval."""
+    ratio = (math.sqrt(5) - 1) / 2
+    a, b = float(low), float(high)
+    cache = {}
+
+    def value(t):
+        t = round(t) if integer else t
+        if t not in cache:
+            cache[t] = f(t)
+        return cache[t]
+
+    c, e = b - ratio * (b - a), a + ratio * (b - a)
+    while (b - a) > (1 if integer else 1e-5 * (high - low)):
+        if value(c) <= value(e):
+            b, e = e, c
+            c = b - ratio * (b - a)
+        else:
+            a, c = c, e
+            e = a + ratio * (b - a)
+    return min(cache, key=lambda t: (cache[t], t))
+
+
+@_equivalent("geographically weighted regression with a Gaussian or bisquare kernel and an AICc bandwidth chosen by "
+             "golden-section search", "Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002")
+def GWR(in_features, dependent_variable, model_type, explanatory_variables, output_features, neighborhood_type,
+        neighborhood_selection_method, minimum_number_of_neighbors=None, maximum_number_of_neighbors=None,
+        minimum_search_distance=None, maximum_search_distance=None, number_of_neighbors_increment=None,
+        search_distance_increment=None, number_of_increments=None, number_of_neighbors=None, distance_band=None,
+        prediction_locations=None, explanatory_variables_to_match=None, output_predicted_features=None,
+        robust_prediction="ROBUST", local_weighting_scheme="BISQUARE", coefficient_raster_workspace=None,
+        scale="SCALE_DATA"):
+    """EQUIVALENT: geographically weighted regression (Fotheringham, Brunsdon and Charlton 2002): at each feature,
+    β_i = (X'W_iX)⁻¹X'W_iy with Gaussian or bisquare kernel weights; the bandwidth a distance (DISTANCE_BAND) or a
+    number of neighbours (NUMBER_OF_NEIGHBORS, the focal feature counted); chosen by GOLDEN_SEARCH or MANUAL_INTERVALS
+    as the one of least AICc (eq. 2.33), or given (USER_DEFINED). The golden search's range is the page's: from the
+    distance (or count) at which every feature has 5 percent of the features as neighbours to that at which every
+    feature has half, narrowed by the minimum and maximum given.
+
+    The output carries the dependent and explanatory variables, INTERCEPT, SE_INTERCEPT, C_<variable> and SE_<variable>
+    (√diag(C_iC_i')·σ, C_i = (X'W_iX)⁻¹X'W_i), PREDICTED, RESIDUAL, STDRESID (e_i/(σ√(1−S_ii))), INFLUENCE (S_ii),
+    COOKSD (STDRESID²·S_ii/(tr S·(1−S_ii))) — null where S_ii is 1 — LOCALR2 (weighted) and COND (the condition number of the weighted
+    explanatory columns). σ² = RSS/(n − tr S). The bandwidth, tr S, AICc, R² and σ² are written as messages.
+    INFERRED: those field names and these formulas for the ones the page names without formulas.
+
+    Refused: BINARY and COUNT (local GLMs are not built in this equivalent), prediction locations, coefficient rasters.
+    INFERRED: SCALE_DATA does not change the fit, the predictions or the bandwidth chosen; its scaled coefficients are
+    not written.
+    """
+    import numpy as np
+    tool = "GWR"
+    if _keyword(model_type) != "CONTINUOUS":
+        _refuse(tool, "model_type", model_type, "local generalized linear models are not built in this equivalent")
+    for name, value in (("prediction_locations", prediction_locations), ("output_predicted_features",
+                                                                         output_predicted_features),
+                        ("coefficient_raster_workspace", coefficient_raster_workspace)):
+        if _given(value):
+            _refuse(tool, name, value, "it is not part of this equivalent")
+    kernel = _keyword(local_weighting_scheme or "BISQUARE")
+    if kernel not in ("BISQUARE", "GAUSSIAN"):
+        raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme is BISQUARE or GAUSSIAN.")
+    adaptive = _keyword(neighborhood_type) == "NUMBER_OF_NEIGHBORS"
+    if not adaptive and _keyword(neighborhood_type) != "DISTANCE_BAND":
+        raise ValueError(f"arcpy.stats.{tool}: neighborhood_type is NUMBER_OF_NEIGHBORS or DISTANCE_BAND.")
+    explanatory = [e for e in _list(explanatory_variables) if _given(e)]
+    kept, y, x, xy, columns, kind, srid = _regression_data(tool, in_features, dependent_variable, explanatory)
+    n = len(y)
+    d = _distances(xy)
+    method = _keyword(neighborhood_selection_method)
+    aicc = (lambda b: _gwr_aicc(x, y, d, b, kernel, adaptive))
+    if method == "USER_DEFINED":
+        given = number_of_neighbors if adaptive else distance_band
+        if not _given(given):
+            raise ValueError(f"arcpy.stats.{tool}: USER_DEFINED needs "
+                             f"{'number_of_neighbors' if adaptive else 'distance_band'}.")
+        bandwidth = int(given) if adaptive else _threshold(given, srid)
+    elif method == "MANUAL_INTERVALS":
+        start = minimum_number_of_neighbors if adaptive else minimum_search_distance
+        step = number_of_neighbors_increment if adaptive else search_distance_increment
+        if not (_given(start) and _given(step) and _given(number_of_increments)):
+            raise ValueError(f"arcpy.stats.{tool}: MANUAL_INTERVALS needs a minimum, an increment and a number of "
+                             "increments.")
+        first = int(start) if adaptive else _threshold(start, srid)
+        delta = int(step) if adaptive else _threshold(step, srid)
+        candidates = [first + i * delta for i in range(int(number_of_increments))]
+        bandwidth = min(candidates, key=lambda b: (aicc(b), b))
+    elif method == "GOLDEN_SEARCH":
+        sorted_d = np.sort(d, axis=1)
+        if adaptive:
+            low = max(int(math.ceil(0.05 * n)), x.shape[1] + 1)
+            high = max(low, n // 2)
+            if _given(minimum_number_of_neighbors):
+                low = int(minimum_number_of_neighbors)
+            if _given(maximum_number_of_neighbors):
+                high = int(maximum_number_of_neighbors)
+        else:
+            low = float(sorted_d[:, max(int(math.ceil(0.05 * n)) - 1, 1)].max())
+            high = float(sorted_d[:, max(n // 2 - 1, 1)].max())
+            if _given(minimum_search_distance):
+                low = _threshold(minimum_search_distance, srid)
+            if _given(maximum_search_distance):
+                high = _threshold(maximum_search_distance, srid)
+        bandwidth = _golden(aicc, low, high, adaptive)
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: neighborhood_selection_method is GOLDEN_SEARCH, MANUAL_INTERVALS or "
+                         "USER_DEFINED.")
+    betas, s, spread, conditions, local_r2 = _gwr_fit(x, y, d, bandwidth, kernel, adaptive)
+    fitted = (x * betas).sum(axis=1)
+    residual = y - fitted
+    trace = float(np.trace(s))
+    rss = float(residual @ residual)
+    sigma2 = rss / (n - trace)
+    influence = np.diag(s)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        std_residual = residual / np.sqrt(sigma2 * (1 - influence))
+        cooks = std_residual ** 2 * influence / (trace * (1 - influence))
+    finite = (lambda v: float(v) if np.isfinite(v) else None)
+    se = spread * math.sqrt(sigma2)
+    from ._runtime import AddMessage
+    AddMessage(f"Bandwidth: {bandwidth}")
+    AddMessage(f"Effective number of parameters (tr S): {trace}")
+    AddMessage(f"AICc: {aicc(bandwidth)}")
+    AddMessage(f"R2: {1 - rss / float(((y - y.mean()) ** 2).sum())}")
+    AddMessage(f"Sigma-squared: {sigma2}")
+    by_name = {c.name.lower(): c for c in columns}
+    keep = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory]]
+    labels = ["INTERCEPT", "SE_INTERCEPT"] + [name for e in explanatory for name in (f"C_{e}", f"SE_{e}")]
+    labels += ["PREDICTED", "RESIDUAL", "STDRESID", "INFLUENCE", "COOKSD", "LOCALR2", "COND"]
+    out = _out(output_features)
+    _gpkg.create(out, kind, srid, [*keep, *[_gpkg.Column(name, "Double") for name in labels]])
+    with da.InsertCursor(out, [*[c.name for c in keep], *labels, "SHAPE@"]) as written:
+        for i, f in enumerate(kept):
+            pairs = [float(v) for j in range(x.shape[1]) for v in (betas[i, j], se[i, j])]
+            written.insertRow((*[f[1][c.name.lower()] for c in keep], *pairs, float(fitted[i]), float(residual[i]),
+                               finite(std_residual[i]), float(influence[i]), finite(cooks[i]), float(local_r2[i]),
+                               finite(conditions[i]), f[4]))
+    return Result(out)
+
+
+@_equivalent("Global Moran's I over a series of fixed distance bands, its peaks read as distances",
+             "the Spatial Autocorrelation page's formulas; the outputs as the tool page's own sample reads them")
+def IncrementalSpatialAutocorrelation(Input_Features, Input_Field, Number_of_Distance_Bands, Beginning_Distance=None,
+                                      Distance_Increment=None, Distance_Method="EUCLIDEAN",
+                                      Row_Standardization="ROW_STANDARDIZATION", Output_Table=None,
+                                      Output_Report_File=None):
+    """EQUIVALENT: Global Moran's I (this module's SpatialAutocorrelation, fixed distance band) at Beginning_Distance and
+    each increment after it. The page lists the derived outputs First_Peak and Max_Peak as z-scores, but its own
+    sample reads ``getOutput(2)`` as the distance to use next: grapy answers as the sample reads — the outputs, in
+    order, are the output table, the report (empty), the first peak's distance and the highest peak's distance (empty
+    when there is no peak). A peak is a band whose z-score is higher than the bands either side of it. The table has
+    Distance, MoransI, ExpectedI, Variance, ZScore and PValue (INFERRED names).
+
+    The beginning distance defaults, as documented, to the largest nearest-neighbour distance. Refused: an omitted
+    Distance_Increment (its default rests on a "maximum threshold distance" the page does not define) and the report.
+    """
+    import numpy as np
+    tool = "IncrementalSpatialAutocorrelation"
+    if _given(Output_Report_File):
+        _refuse(tool, "Output_Report_File", Output_Report_File, "the report's content is not documented")
+    if not _given(Distance_Increment):
+        _refuse(tool, "Distance_Increment", "(empty)", "its default rests on a maximum threshold distance the page "
+                "does not define")
+    features, _, _, srid = _features(tool, Input_Features, [Input_Field])
+    if len(features) < 4:
+        raise ValueError(f"arcpy.stats.{tool} needs four features or more.")
+    x = _values(tool, features, Input_Field)
+    method = "MANHATTAN_DISTANCE" if _keyword(Distance_Method).startswith("MANHATTAN") else "EUCLIDEAN_DISTANCE"
+    d = _distances([(f[2], f[3]) for f in features], method)
+    begin = _threshold(Beginning_Distance, srid) if _given(Beginning_Distance) else float(_nearest(d).max())
+    step = _threshold(Distance_Increment, srid)
+    standardize = "ROW" if _keyword(Row_Standardization) in ("ROW_STANDARDIZATION", "ROW", "TRUE") else "NONE"
+    rows = []
+    for k in range(int(Number_of_Distance_Bands)):
+        distance = begin + k * step
+        w = _standardized(_weights(tool, features, srid, "FIXED_DISTANCE_BAND", method, distance, None), standardize)
+        try:
+            i, expected, variance, z = _moran(x, w)
+            rows.append((distance, i, expected, variance, z, _p(z)))
+        except ValueError:  # Every feature the neighbour of every other: the variance is zero and z undefined.
+            rows.append((distance, None, None, None, None, None))
+    zs = [r[4] for r in rows]
+    peaks = [k for k in range(1, len(rows) - 1) if None not in zs[k - 1:k + 2] and zs[k] > zs[k - 1] and zs[k] > zs[k + 1]]
+    first = rows[peaks[0]][0] if peaks else ""
+    highest = rows[max(peaks, key=lambda k: rows[k][4])][0] if peaks else ""
+    table = ""
+    if _given(Output_Table):
+        table = _write_table(Output_Table, [_gpkg.Column(name, "Double") for name in
+                                            ("Distance", "MoransI", "ExpectedI", "Variance", "ZScore", "PValue")], rows)
+    return Result(table, "", first, highest)
+
+
+@_equivalent("k-means by Lloyd's algorithm with k-means++ seeding, the number of clusters by the Calinski–Harabasz "
+             "pseudo F", "Lloyd 1982; Arthur and Vassilvitskii 2007; Calinski and Harabasz 1974")
+def MultivariateClustering(in_features, output_features, analysis_fields, clustering_method="K_MEANS",
+                           initialization_method="OPTIMIZED_SEED_LOCATIONS", initialization_field=None,
+                           number_of_clusters=None, output_table=None, scale="SCALE_DATA"):
+    """EQUIVALENT: k-means (Lloyd 1982): each feature joins its nearest centre in the analysis fields' space (the
+    lower-numbered centre on a tie), each centre moves to its members' mean, until no feature changes cluster.
+    Seeds: OPTIMIZED_SEED_LOCATIONS is k-means++ (Arthur and Vassilvitskii 2007); RANDOM_SEED_LOCATIONS draws k
+    distinct features; USER_DEFINED_SEED_LOCATIONS takes the features whose initialization_field is not zero, as many
+    clusters as seeds. Draws are NumPy's PCG64 from env.randomGenerator's seed, 0 when unset: a run repeats itself,
+    and Pro's draws differ. With SCALE_DATA each field is divided by its (population) standard deviation.
+    With no number_of_clusters, 2 to 30 (at most n − 1) are tried and the largest pseudo F, (SSB/(k−1))/(SSW/(n−k))
+    (Calinski and Harabasz 1974), wins; output_table then lists NUM_CLUSTERS and PSEUDO_F (INFERRED names).
+
+    Writes the analysis fields and CLUSTER_ID, the clusters numbered in the order of their lowest object id
+    (INFERRED). Refused: K_MEDOIDS (not in this equivalent).
+    """
+    import numpy as np
+    tool = "MultivariateClustering"
+    if _keyword(clustering_method or "K_MEANS") != "K_MEANS":
+        _refuse(tool, "clustering_method", clustering_method, "k-medoids is not in this equivalent")
+    fields = [f for f in _list(analysis_fields) if _given(f)]
+    extra = [initialization_field] if _given(initialization_field) else []
+    features, columns, kind, srid = _features(tool, in_features, fields + extra)
+    features = [f for f in features if all(f[1][k.lower()] is not None for k in fields)]
+    data = np.array([[float(f[1][k.lower()]) for k in fields] for f in features])
+    if _keyword(scale or "SCALE_DATA") not in ("NO_SCALE_DATA", "FALSE"):
+        sd = data.std(axis=0)
+        sd[sd == 0] = 1.0
+        data = (data - data.mean(axis=0)) / sd
+    n = len(data)
+    random = np.random.default_rng(_seed())
+    start = _keyword(initialization_method or "OPTIMIZED_SEED_LOCATIONS")
+
+    def seeds(k):
+        if start == "USER_DEFINED_SEED_LOCATIONS":
+            chosen = [i for i, f in enumerate(features) if f[1][initialization_field.lower()] not in (None, 0)]
+            return data[chosen]
+        if start == "RANDOM_SEED_LOCATIONS":
+            return data[random.choice(n, k, replace=False)]
+        centres = [data[random.integers(n)]]
+        while len(centres) < k:
+            gap = np.min([((data - c) ** 2).sum(axis=1) for c in centres], axis=0)
+            centres.append(data[random.choice(n, p=gap / gap.sum())] if gap.sum() > 0 else data[random.integers(n)])
+        return np.array(centres)
+
+    def lloyd(centres):
+        labels = None
+        for _ in range(1000):
+            new = np.argmin(((data[:, None, :] - centres[None, :, :]) ** 2).sum(axis=2), axis=1)
+            if labels is not None and (new == labels).all():
+                break
+            labels = new
+            centres = np.array([data[labels == c].mean(axis=0) if (labels == c).any() else centres[c]
+                                for c in range(len(centres))])
+        return labels
+
+    def pseudo_f(labels, k):
+        mean = data.mean(axis=0)
+        within = sum(((data[labels == c] - data[labels == c].mean(axis=0)) ** 2).sum() for c in set(labels.tolist()))
+        between = ((data - mean) ** 2).sum() - within
+        return (between / (k - 1)) / (within / (n - k)) if within > 0 else math.inf
+
+    if start == "USER_DEFINED_SEED_LOCATIONS":
+        if not extra:
+            raise ValueError(f"arcpy.stats.{tool}: USER_DEFINED_SEED_LOCATIONS needs initialization_field.")
+        labels = lloyd(seeds(None))
+        table_rows = []
+    elif _given(number_of_clusters):
+        labels = lloyd(seeds(int(number_of_clusters)))
+        table_rows = []
+    else:
+        table_rows, best = [], None
+        for k in range(2, min(30, n - 1) + 1):
+            candidate = lloyd(seeds(k))
+            value = pseudo_f(candidate, k)
+            table_rows.append((k, value))
+            if best is None or value > best[0]:
+                best = (value, candidate)
+        labels = best[1]
+    order = {}
+    for i in sorted(range(n), key=lambda i: features[i][0]):
+        order.setdefault(int(labels[i]), len(order) + 1)
+    by_name = {c.name.lower(): c for c in columns}
+    keep = [by_name[f.lower()] for f in fields]
+    out = _out(output_features)
+    _gpkg.create(out, kind, srid, [*keep, _gpkg.Column("CLUSTER_ID", "Integer")])
+    with da.InsertCursor(out, [*[c.name for c in keep], "CLUSTER_ID", "SHAPE@"]) as written:
+        for i, f in enumerate(features):
+            written.insertRow((*[f[1][c.name.lower()] for c in keep], order[int(labels[i])], f[4]))
+    table = ""
+    if _given(output_table) and table_rows:
+        table = _write_table(output_table, [_gpkg.Column("NUM_CLUSTERS", "Integer"), _gpkg.Column("PSEUDO_F", "Double")],
+                             table_rows)
+    return Result(out, table)
+
+
+@_equivalent("DBSCAN", "Ester, Kriegel, Sander and Xu 1996")
+def DensityBasedClustering(in_features, output_features, cluster_method, min_features_cluster, search_distance=None,
+                           cluster_sensitivity=None, time_field=None, search_time_interval=None):
+    """EQUIVALENT: DBSCAN (Ester et al. 1996) as the page describes it: a point with min_features_cluster points
+    within search_distance, itself included, is a core point; a cluster is the core points reachable from one another
+    and the points within reach of them; the rest are noise. Points are visited in object id order, and a border point
+    joins the first cluster to reach it, as in the paper. With no search_distance, the page's default: the highest core
+    distance after the top 1 percent are set aside — INFERRED: the floor(n/100) largest. Writes the input's fields and
+    CLUSTER_ID, −1 for noise (INFERRED), clusters numbered in the order they are found.
+
+    Refused: HDBSCAN and OPTICS (not in this equivalent) and a time field (space-time clusters are not built).
+    """
+    import numpy as np
+    tool = "DensityBasedClustering"
+    method = _keyword(cluster_method)
+    if method != "DBSCAN":
+        _refuse(tool, "cluster_method", cluster_method, "only DBSCAN is in this equivalent")
+    if _given(time_field):
+        _refuse(tool, "time_field", time_field, "space-time clustering is not built")
+    features, columns, kind, srid = _features(tool, in_features)
+    n = len(features)
+    k = int(min_features_cluster)
+    if not 2 <= k <= n:
+        raise ValueError(f"arcpy.stats.{tool}: min_features_cluster is between 2 and {n}.")
+    d = _distances([(f[2], f[3]) for f in features])
+    if _given(search_distance):
+        eps = _threshold(search_distance, srid)
+    else:
+        core = np.sort(d, axis=1)[:, k - 1]
+        drop = n // 100
+        eps = float(np.sort(core)[: n - drop].max())
+    order = sorted(range(n), key=lambda i: features[i][0])
+    neighbours = [np.nonzero(d[i] <= eps)[0] for i in range(n)]
+    labels = [None] * n
+    cluster = 0
+    for i in order:
+        if labels[i] is not None:
+            continue
+        if len(neighbours[i]) < k:
+            labels[i] = -1
+            continue
+        cluster += 1
+        labels[i] = cluster
+        queue = [int(j) for j in sorted(neighbours[i], key=lambda j: features[j][0])]
+        while queue:
+            j = queue.pop(0)
+            if labels[j] == -1:
+                labels[j] = cluster
+            if labels[j] is not None:
+                continue
+            labels[j] = cluster
+            if len(neighbours[j]) >= k:
+                queue.extend(int(m) for m in sorted(neighbours[j], key=lambda m: features[m][0]))
+    names = [c.name for c in columns]
+    out = _out(output_features)
+    _gpkg.create(out, kind, srid, [*columns, _gpkg.Column("CLUSTER_ID", "Integer")])
+    by_oid = {f[0]: i for i, f in enumerate(features)}
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*names, "CLUSTER_ID", "SHAPE@"]) as written:
+        for row in rows:
+            i = by_oid.get(row[0])
+            if i is not None:
+                written.insertRow((*row[1:-1], labels[i], row[-1]))
+    return Result(out)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -1373,7 +2153,6 @@ _REFUSED = {
     "GenerateNetworkSpatialWeights": "it needs a network dataset and writes an .swm file",
     "GenerateNetworkSWM": "it needs a network dataset and writes an .swm file",
     "Forest": "random forests are random by definition",
-    "DensityBasedClustering": "HDBSCAN and OPTICS are not in the libraries grapy runs on",
 }
 _RANDOM = "its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call " \
           "would not give arcpy's answer"
@@ -1382,7 +2161,7 @@ _SSM = "it reads or writes a spatial statistics model (.ssm) file, whose layout 
 _FIT = "its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not " \
        "specified closely enough to reproduce"
 _REFUSED.update({name: _RANDOM for name in (
-    "AttributeUncertainty", "BivariateSpatialAssociation", "MultivariateClustering",
+    "AttributeUncertainty", "BivariateSpatialAssociation",
     "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData", "PresenceOnlyPrediction",
     "ColocationAnalysis", "LocalBivariateRelationships", "BuildBalancedZones")})
 _REFUSED.update({name: _SWM for name in (
@@ -1391,14 +2170,11 @@ _REFUSED.update({name: _SWM for name in (
 _REFUSED.update({name: _SSM for name in (
     "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
 _REFUSED.update({name: _FIT for name in (
-    "GWR", "GeographicallyWeightedRegression", "MGWR", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
-    "OrdinaryLeastSquares", "GeneralizedLinearRegression", "EstimateTimeToEvent")})
+    "GeographicallyWeightedRegression", "MGWR", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "EstimateTimeToEvent")})
 _REFUSED.update({
     "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",
     "ConvertSSPopup": "it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts",
-    "IncrementalSpatialAutocorrelation": "its documented outputs contradict its own sample (z-scores against a "
-                                         "distance read with getOutput(2)), and the default increment rests on an "
-                                         "undefined maximum threshold",
     "TimeSeriesSmoothing": "its output field names are not documented, nor how a month or year window is counted",
     "ExportXYv": "its header names and number formatting are not documented closely enough to write the same file",
     "CalculateCompositeIndex": "its output field names are not documented",
