@@ -98,6 +98,18 @@ class Versions(unittest.TestCase):
             self.assertIn("4 archive rows pruned", read.read())
         self.assertEqual(self.rows(self.gpkg), [(1, "a", 20), (2, "bb", 30)])
 
+    def test_a_field_conflict_filter_lets_both_sides_change_it(self):
+        # With a filter on "value", A.value changed on both sides is no conflict by attribute: the version's 10 stands.
+        # B merges as before. Favouring the target changes nothing for A, as there is no conflict to resolve.
+        self.diverge()
+        arcpy.management.AddFieldConflictFilter(self.gpkg, ["value"])
+        self.assertEqual(arcpy.da.ListFieldConflictFilters(self.gpkg), ["value"])
+        arcpy.management.ReconcileVersions(self.gpkg, "ALL_VERSIONS", "DEFAULT", ["edit"], None, "ABORT_CONFLICTS",
+                                           "BY_ATTRIBUTE", "FAVOR_TARGET_VERSION", "POST")
+        self.assertEqual(self.rows(self.gpkg), [(1, "a", 10), (2, "bb", 30)])
+        arcpy.management.RemoveFieldConflictFilter(self.gpkg, "value")
+        self.assertEqual(arcpy.da.ListFieldConflictFilters(self.gpkg), [])
+
     def test_abort_on_conflicts_changes_nothing(self):
         self.diverge()
         with self.assertRaises(arcpy.ExecuteError):
