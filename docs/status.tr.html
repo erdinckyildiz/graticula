@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>25b25041</code> · 2026-10-30 00:48</p>
+<p class="stamp">Şu commit’ten üretildi: <code>838dedd8</code> · 2026-10-30 00:59</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">225</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
@@ -576,8 +576,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:4.1%"></div></div><div class="bar-n">2 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">9 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:36.9%"></div></div><div class="bar-n">24 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">179 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:40.9%"></div></div><div class="bar-n">142 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:51.9%"></div></div><div class="bar-n">196 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:44.7%"></div></div><div class="bar-n">155 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:14.7%"></div></div><div class="bar-n">23 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">7 / 42</div></div>
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 62</div></div>
@@ -593,16 +593,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.ddd</td><td class="num">23</td><td class="num">5</td><td class="num">133</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">9</td><td class="num">0</td><td class="num">10</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">7</td><td class="num">0</td><td class="num">35</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">142</td><td class="num">4</td><td class="num">205</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">155</td><td class="num">4</td><td class="num">192</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">120</td><td class="num">1</td><td class="num">327</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.na</td><td class="num">0</td><td class="num">0</td><td class="num">62</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nax</td><td class="num">0</td><td class="num">0</td><td class="num">95</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">0</td><td class="num">0</td><td class="num">74</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">179</td><td class="num">16</td><td class="num">199</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">196</td><td class="num">20</td><td class="num">182</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">24</td><td class="num">6</td><td class="num">41</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>838dedd8</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
+<li><code>46bac211</code><time>2026-10-30</time><span>grapy: the refusals that stay after the equivalents, each saying why no standard method fits (ADR-224 §5.6)</span></li>
+<li><code>c0613cc1</code><time>2026-10-30</time><span>grapy: MajorityFilter as an equivalent - the documented replacement rule, with contiguity as ring connectedness (ADR-224 §5.6)</span></li>
+<li><code>f57eb3cb</code><time>2026-10-30</time><span>grapy: DarcyFlow and DarcyVelocity as equivalents (ADR-224 §5.6)</span></li>
+<li><code>9e649957</code><time>2026-10-30</time><span>grapy: RescaleByFunction and the 13 Tf classes as an equivalent (ADR-224 §5.6)</span></li>
+<li><code>8e6e7475</code><time>2026-10-30</time><span>grapy: FlowDirection resolves flats by Garbrecht and Martz 1997, as Barnes et al. 2014 make it exact (ADR-224 §5.6)</span></li>
+<li><code>a991757a</code><time>2026-10-30</time><span>The counter covers arcpy&#x27;s network modules as ADR-226 begins building them</span></li>
 <li><code>25b25041</code><time>2026-10-30</time><span>Equivalents where the documentation is silent, and topology and relationship classes in the GeoPackage (merging grapy-a, -b, -c; ADR-224 §5.6, ADR-225)</span></li>
 <li><code>2bff3502</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>f42a8cab</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
@@ -610,13 +617,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>a9f120e0</code><time>2026-10-30</time><span>grapy: Spline (sa and ddd) as an equivalent - Mitas and Mitasova&#x27;s regularized spline and the documented tension spline (ADR-224 §5.6)</span></li>
 <li><code>4776b58e</code><time>2026-10-30</time><span>grapy: FuzzyMembership and its seven classes, and Curvature&#x27;s profile and plan outputs, as equivalents (ADR-224 §5.6)</span></li>
 <li><code>8f3ab428</code><time>2026-10-30</time><span>grapy: cartography.SimplifyPolygon as a marked equivalent (ADR-224 §5.6)</span></li>
-<li><code>0c0afea1</code><time>2026-10-30</time><span>grapy: more stats equivalents — permutations, FDR, Tukey fences, ISA, k-means, DBSCAN (ADR-224 §5.6)</span></li>
-<li><code>3e08a60b</code><time>2026-10-30</time><span>grapy holds topology and relationship classes in the GeoPackage (ADR-225 conditions 1, 2 and 3)</span></li>
-<li><code>30b7b460</code><time>2026-10-30</time><span>grapy: equivalents for Viewshed, Visibility, Expand, Shrink, Nibble, Filter and Merge (ADR-224 §5.6)</span></li>
-<li><code>aca5360c</code><time>2026-10-30</time><span>grapy: the first equivalents - KernelDensity, Kriging, NaturalNeighbor, D-infinity, Threshold, Stretch, PrincipalComponents (ADR-224 §5.6)</span></li>
-<li><code>abe29a3c</code><time>2026-10-30</time><span>grapy: OLS, GLR and GWR as marked equivalents (ADR-224 §5.6)</span></li>
-<li><code>f0ef18a7</code><time>2026-10-30</time><span>Undocumented tools are built as marked equivalents, and group 2 begins with three data models (ADR-224 §5.6–5.7, ADR-225, ADR-226, ADR-227; Q-195)</span></li>
-<li><code>dd7b0f22</code><time>2026-10-29</time><span>Every one of arcpy&#x27;s 1,819 group-one names is built or refused with its reason (ADR-224 condition 4, partly)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
