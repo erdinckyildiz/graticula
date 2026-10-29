@@ -9,7 +9,8 @@ arcpy's documented rules:
   their cells line up: the same cell size and origins a whole number of cells apart. Grids that do not line up need
   resampling, which is not built, and are refused by name.
 - **Integer stays integer** where arcpy's operator keeps it (+, -, *, //, %, comparisons and Boolean operators), and
-  ``/`` is floating point — INFERRED from ArcGIS Pro's documented Divide behaviour for integer inputs.
+  so does ``/`` of two integers: Esri's Divide page says *"If both inputs are integers, an integer division is
+  performed … if 3 is divided by 2, the output is 1."* INFERRED: it truncates toward zero, so −3 / 2 is −1.
 """
 from __future__ import annotations
 
@@ -203,6 +204,12 @@ class Raster:
         array = self._array
         if array.dtype == np.bool_:
             array = array.astype(np.uint8)
+        if array.dtype == np.int64:
+            # A GeoTIFF's NoData is a double, which cannot hold int64's own minimum exactly; values that fit are written
+            # as 32-bit integers, and the rest as doubles.
+            values = array[~self._mask]
+            fits = values.size == 0 or (values.min() > np.iinfo(np.int32).min and values.max() <= np.iinfo(np.int32).max)
+            array = array.astype(np.int32 if fits else np.float64)
         nodata = _nodata_for(array.dtype)
         written = np.where(self._mask, nodata, array).astype(array.dtype)
         g = self._grid
@@ -343,10 +350,13 @@ def _combine(values, operation, keep_integer=True, tool="arcpy.sa"):
 
 def _divide(a, b):
     def operation(x, y):
-        y = np.asarray(y, dtype=float)
+        x, y = np.asarray(x), np.asarray(y)
         zero = y == 0
-        return np.divide(np.asarray(x, dtype=float), np.where(zero, 1.0, y)), zero
-    return _combine([a, b], operation, keep_integer=False)
+        quotient = np.divide(x.astype(float), np.where(zero, 1.0, y.astype(float)))
+        if np.issubdtype(x.dtype, np.integer) and np.issubdtype(y.dtype, np.integer):
+            return np.trunc(quotient).astype(np.int64), zero
+        return quotient, zero
+    return _combine([a, b], operation)
 
 
 def _floor_divide(x, y):

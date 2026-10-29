@@ -41,7 +41,14 @@ Log10 = _unary("Log10", lambda a: np.where(np.asarray(a) > 0, np.log10(np.where(
 Sqrt = _unary("Sqrt", lambda a: np.where(np.asarray(a) >= 0, np.sqrt(np.abs(a)), np.nan))
 Square = _unary("Square", lambda a: np.square(a), keep_integer=True)
 Negate = _unary("Negate", np.negative, keep_integer=True)
-Int = _unary("Int", lambda a: np.trunc(a).astype(np.int64), keep_integer=True)
+def _int(a):
+    """Truncated toward zero; a value outside the 32-bit range is NoData, as Int's page documents."""
+    truncated = np.trunc(np.asarray(a, dtype=float))
+    outside = (truncated < np.iinfo(np.int32).min) | (truncated > np.iinfo(np.int32).max) | ~np.isfinite(truncated)
+    return np.where(outside, 0, truncated).astype(np.int32), outside
+
+
+Int = _unary("Int", _int, keep_integer=True)
 Float = _unary("Float", lambda a: np.asarray(a, dtype=np.float64))
 RoundUp = _unary("RoundUp", np.ceil)
 RoundDown = _unary("RoundDown", np.floor)
@@ -81,7 +88,13 @@ def _zero_is_nodata(function):
 Plus = _binary("Plus", np.add)
 Minus = _binary("Minus", np.subtract)
 Times = _binary("Times", np.multiply)
-Divide = _binary("Divide", _zero_is_nodata(lambda x, y: np.asarray(x, float) / y), keep_integer=False)
+def Divide(in_raster_or_constant1, in_raster_or_constant2):
+    """arcpy.sa.Divide: integer division when both inputs are integers, as the tool's page documents; NoData where the
+    divisor is zero."""
+    from ._raster import _divide
+    _refuse_environment("arcpy.sa.Divide")
+    values = [as_raster(v, "Divide") if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
+    return _divide(*values)
 Mod = _binary("Mod", _zero_is_nodata(np.fmod))
 Power = _binary("Power", lambda x, y: np.power(np.asarray(x, float), y), keep_integer=False)
 ATan2 = _binary("ATan2", lambda y, x: np.arctan2(y, x), keep_integer=False)
@@ -529,7 +542,7 @@ def Reclassify(in_raster, reclass_field, remap, missing_values="DATA"):
         done |= hit
     keep = str(missing_values).upper() == "DATA"
     out = np.where(~done & keep, a, out)
-    mask = set_nodata | (~done & (raster._mask | ~keep))
+    mask = set_nodata | (~done & (raster._mask | (not keep)))
     integer = all(str(r[-1]).upper() == "NODATA" or float(r[-1]).is_integer() for r in remap.remapTable) and (raster.isInteger or not keep)
     out = np.where(mask, 0, out)
     return Raster._of(out.astype(np.int32) if integer else out, mask, raster._grid)
@@ -545,6 +558,9 @@ def _parse_remap(text):
 def Slice(in_raster, number_zones, slice_type="EQUAL_INTERVAL", base_output_zone=1, nodata_to_value=None,
           class_interval_size=None):
     """Zones of equal width (``EQUAL_INTERVAL``) or equal count (``EQUAL_AREA``) over the input's range."""
+    for name, value in (("nodata_to_value", nodata_to_value), ("class_interval_size", class_interval_size)):
+        if value not in (None, "", "#"):
+            raise NotBuiltError(f"Slice: {name} is not built in grapy yet.")
     raster = as_raster(in_raster, "Slice")
     values = raster._values().astype(np.float64)
     n = int(number_zones)

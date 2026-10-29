@@ -52,12 +52,19 @@ class MapAlgebra(unittest.TestCase):
         self.assertEqual(cells((a > 1) & (b < 30)), [[0, 1], [0, -1]])
         self.assertEqual(cells(~(a > 1)), [[1, 0], [0, -1]])
 
-    def test_division_is_floating_and_a_zero_divisor_is_nodata(self):
+    def test_division_of_integers_is_integer_and_a_zero_divisor_is_nodata(self):
+        # Divide's page: "If both inputs are integers, an integer division is performed … 3 divided by 2 is 1."
         a = grid([[1, 3], [4, 8]])
         b = grid([[2, 0], [4, 3]])
         divided = a / b
-        self.assertFalse(divided.isInteger)
-        self.assertEqual(cells(divided), [[0.5, -1], [1.0, 8 / 3]])
+        self.assertTrue(divided.isInteger)
+        self.assertEqual(cells(divided), [[0, -1], [1, 2]])
+        self.assertEqual(cells(sa.Divide(grid([[-3, 3]]), 2)), [[-1, 1]])
+        floating = sa.Float(a) / b
+        self.assertFalse(floating.isInteger)
+        self.assertEqual(cells(floating), [[0.5, -1], [1.0, 8 / 3]])
+        # Int truncates toward zero, and a value past the 32-bit range is NoData.
+        self.assertEqual(cells(sa.Int(grid([[2.7, -2.7, 3e10]]))), [[2, -2, -1]])
         self.assertEqual(cells(a // b), [[0, -1], [1, 2]])
         self.assertEqual(cells(sa.Mod(a, b)), [[1, -1], [0, 2]])
 

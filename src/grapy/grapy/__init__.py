@@ -129,7 +129,7 @@ def ValidateFieldName(name, workspace=None):
     return cleaned if cleaned and not cleaned[0].isdigit() else f"_{cleaned}"
 
 
-from . import analysis, conversion, da, edit, graticula, ia, management, sa  # noqa: E402 — they import the names above
+from . import analysis, cartography, conversion, da, ddd, edit, graticula, ia, management, sa, stats  # noqa: E402 — they import the names above
 
 
 # ADR-224 §5.1: modules that answer from an Esri data model this server does not hold (group 2), and modules that

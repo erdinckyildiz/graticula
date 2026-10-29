@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>29c5d7e1</code> · 2026-10-29 15:35</p>
+<p class="stamp">Generated from commit <code>42f3a5a8</code> · 2026-10-29 15:45</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">222</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
@@ -562,32 +562,32 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <p class="sub">Names grapy builds, of the public names arcpy 3.7 has in each module. Counted by tools/grapy_surface.py from grapy’s source; a name grapy refuses is not counted.</p><div class="bars">
 <div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">41 / 183</div></div>
 <div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:13.8%"></div></div><div class="bar-n">4 / 29</div></div>
-<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:5.1%"></div></div><div class="bar-n">23 / 447</div></div>
+<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:13.6%"></div></div><div class="bar-n">61 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:82.5%"></div></div><div class="bar-n">33 / 40</div></div>
 <div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:17.2%"></div></div><div class="bar-n">11 / 64</div></div>
-<div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 49</div></div>
+<div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">1 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">9 / 19</div></div>
-<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 65</div></div>
+<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:21.5%"></div></div><div class="bar-n">14 / 65</div></div>
 <div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:18.5%"></div></div><div class="bar-n">70 / 378</div></div>
 <div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:17.6%"></div></div><div class="bar-n">61 / 347</div></div>
-<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 156</div></div>
+<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">18 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 42</div></div>
 </div></section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>42f3a5a8</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
+<li><code>b1ea448b</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>9eb58fe5</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>4518d450</code><time>2026-10-29</time><span>The fence is measured on the shipped image, and Pro&#x27;s analysis toolbox is measured to need SOAP (ADR-223 condition 1, ADR-222 condition 5)</span></li>
+<li><code>6af1997f</code><time>2026-10-29</time><span>grapy.ddd: 3D Analyst&#x27;s raster tools - the sa computations saved, Idw, Trend, Contour, ContourList, Curvature, ReclassByTable, AddSurfaceInformation (ADR-224)</span></li>
+<li><code>f148c90a</code><time>2026-10-29</time><span>grapy: arcpy.stats takes a keyword as its label too (&quot;Fixed Distance Band&quot;), as Esri&#x27;s samples pass it</span></li>
 <li><code>29c5d7e1</code><time>2026-10-29</time><span>Modules on Esri&#x27;s data, or on a data model this server does not hold, are refused with their reason (ADR-224 condition 3)</span></li>
+<li><code>1db3805d</code><time>2026-10-29</time><span>grapy: arcpy.cartography.SimplifyLine and arcpy.stats.MultiDistanceSpatialClustering (ADR-224)</span></li>
+<li><code>ca269f88</code><time>2026-10-29</time><span>grapy.management: layers and selections, tables, line and polygon building, grids, cleaning and workspaces (ADR-224)</span></li>
 <li><code>4b0ac65a</code><time>2026-10-29</time><span>arcpy.edit is importable as grapy.edit (merging grapy-a)</span></li>
 <li><code>432e4a9d</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>23391c75</code><time>2026-10-29</time><span>An image service reaches a user tool as a raster it reads (ADR-224 conditions 1 and 2)</span></li>
+<li><code>a4f582b1</code><time>2026-10-29</time><span>grapy: arcpy.stats, thirteen Spatial Statistics tools against hand-worked answers (ADR-224)</span></li>
 <li><code>3dada685</code><time>2026-10-29</time><span>grapy.analysis: fourteen more tools - proximity, neighbours, Thiessen, overlap counts, Update, Split, GraphicBuffer, TabulateIntersection, ApportionPolygon, pairwise weights (ADR-224)</span></li>
-<li><code>26db719e</code><time>2026-10-29</time><span>grapy converts between rasters and features (ADR-224)</span></li>
-<li><code>168bd2cf</code><time>2026-10-29</time><span>grapy.edit: Densify, Generalize, FlipLine, ErasePoint, TrimLine, ExtendLine, Snap, TransformFeatures, CalculateTransformationErrors (ADR-224)</span></li>
-<li><code>b85fa917</code><time>2026-10-29</time><span>grapy reads and computes rasters: arcpy.Raster, map algebra and 70 Spatial Analyst tools (ADR-224)</span></li>
-<li><code>26a715f5</code><time>2026-10-29</time><span>grapy aims at arcpy&#x27;s whole buildable surface, and the counter covers it (ADR-224, condition 1)</span></li>
-<li><code>1eca9049</code><time>2026-10-29</time><span>User toolboxes run fenced on grapy, analysis is complete, and a dense layer&#x27;s visible range is suggested (ADR-223, ADR-222, D-267; migrations 111 and 112)</span></li>
-<li><code>d23f7222</code><time>2026-10-29</time><span>Analysis is built in: six tools as ArcGIS&#x27;s Spatial Analysis Service, run from Studio and from the ArcGIS API for Python; MySqlConnector 2.6.1; debts closed (ADR-222 c1, c2, c6, c3 and c7 partly; D-313, D-279, D-270, D-287, D-266 and D-321 partly; Q-192)</span></li>
-<li><code>ce52afbc</code><time>2026-10-29</time><span>Studio keeps documents, System gets Backups, and screens for service accounts, answer lifetimes, terms, categories, favourites and the recycle bin (ADR-188 c4, ADR-193 c4, ADR-200 c3, ADR-202 c1, ADR-203 c2, ADR-211 c1, ADR-214 c1; D-303, D-305, D-308, D-318, D-319, D-320; Q-187, Q-190)</span></li>
-<li><code>657e6978</code><time>2026-10-28</time><span>An organisation&#x27;s administrator reaches no system act, an outsider reads nothing on any face, and a group can be made public from its Settings (ADR-204 conditions 4, 5; ADR-219 condition 2; ADR-199 condition 2; D-302, D-307)</span></li>
-<li><code>d66bc3f9</code><time>2026-10-27</time><span>Console tests open System&#x27;s pages at System&#x27;s addresses, not through the forward from Server (ADR-221)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
