@@ -567,7 +567,7 @@ _REFUSED_NAMES.update({name: _NO_APPLICATION for name in ("ListPrinterNames", "P
                                                           "SetParameterSymbology")})
 
 
-from . import analysis, cartography, conversion, da, ddd, edit, ga, graticula, ia, management, sa, stats  # noqa: E402 — they import the names above
+from . import analysis, cartography, conversion, da, ddd, edit, ga, graticula, ia, management, na, nax, sa, stats  # noqa: E402 — they import the names above
 from .management import AlterAliasName, FieldMap, FieldMappings  # noqa: E402,F401 — arcpy's own names
 
 
@@ -922,7 +922,7 @@ _DATA_MODEL = "needs a data model this server does not hold yet (ADR-224 group 2
 _ESRI_SERVICE = "answers from Esri's own data or cloud services, which grapy cannot reproduce (ADR-224 group 3)"
 _REFUSED_MODULES = {
     "un": f"the utility network {_DATA_MODEL}", "parcel": f"the parcel fabric {_DATA_MODEL}",
-    "na": f"network datasets {_DATA_MODEL}", "nax": f"network datasets {_DATA_MODEL}", "nd": f"network datasets {_DATA_MODEL}",
+    "nd": f"network diagrams, the schematic views of a utility or trace network, {_DATA_MODEL}",
     "topographic": f"the topographic production model {_DATA_MODEL}", "locref": f"linear referencing networks {_DATA_MODEL}",
     "ba": f"Business Analyst {_ESRI_SERVICE}: its demographics are Esri's data",
     "agolservices": f"ArcGIS Online's analysis services {_ESRI_SERVICE}",

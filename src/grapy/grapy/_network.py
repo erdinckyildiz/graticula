@@ -583,12 +583,14 @@ def solve_route(graph, stops, accumulate, line_shape):
     impedance = graph.impedance
     for members in groups.values():
         members.sort(key=lambda s: (s.get("Sequence") is None, s.get("Sequence") or 0, s["oid"]))
+        costs = [a for a, (usage, _) in graph.attributes.items() if usage == "Cost"]
         for n, stop in enumerate(members, start=1):
-            results[stop["key"]] = {"Sequence": n, "Status": _status(stop), f"Cumul_{impedance}": None}
+            results[stop["key"]] = {"Sequence": n, "Status": _status(stop), f"Cumul_{impedance}": None, "_cumul": {}}
         if any(s["located"] is None for s in members) or len(members) < 2:
             continue
         all_arcs, cumulative, reached = [], 0.0, True
         results[members[0]["key"]][f"Cumul_{impedance}"] = 0.0
+        results[members[0]["key"]]["_cumul"] = {a: 0.0 for a in costs}
         for a, b in zip(members, members[1:]):
             _, predecessors = solver.run(a["key"])
             arcs = solver.path(predecessors, a["key"], b["key"])
@@ -599,6 +601,7 @@ def solve_route(graph, stops, accumulate, line_shape):
             cumulative += solver.total(arcs, impedance)
             results[b["key"]][f"Cumul_{impedance}"] = cumulative
             all_arcs.extend(arcs)
+            results[b["key"]]["_cumul"] = {a: solver.total(all_arcs, a) for a in costs}
         if not reached:
             continue
         row = {"Name": members[0].get("RouteName") or f"{members[0]['name']} - {members[-1]['name']}",
@@ -607,6 +610,7 @@ def solve_route(graph, stops, accumulate, line_shape):
         for attribute in accumulate:
             row[f"Total_{attribute}"] = solver.total(all_arcs, attribute)
         row["SHAPE"] = _line(solver, all_arcs, [m["point"] for m in members], line_shape)
+        row["_totals"] = {a: solver.total(all_arcs, a) for a in costs}
         routes.append(row)
     return routes, results
 
@@ -644,6 +648,7 @@ def solve_closest_facility(graph, facilities, incidents, direction, cutoff, coun
             for attribute in accumulate:
                 row[f"Total_{attribute}"] = solver.total(arcs, attribute)
             row["SHAPE"] = _line(solver, arcs, ends, line_shape)
+            row["_totals"] = {a: solver.total(arcs, a) for a, (usage, _) in graph.attributes.items() if usage == "Cost"}
             routes.append(row)
     return routes
 
@@ -664,10 +669,10 @@ def solve_od_cost_matrix(graph, origins, destinations, cutoff, count, accumulate
         for rank, (cost, _, destination) in enumerate(found[:int(wanted)] if wanted else found, start=1):
             row = {"Name": f"{origin['name']} - {destination['name']}", "OriginID": origin["oid"],
                    "DestinationID": destination["oid"], "DestinationRank": rank, f"Total_{impedance}": cost}
-            if accumulate:
-                arcs = solver.path(predecessors, origin["key"], destination["key"])
-                for attribute in accumulate:
-                    row[f"Total_{attribute}"] = solver.total(arcs, attribute)
+            arcs = solver.path(predecessors, origin["key"], destination["key"])
+            for attribute in accumulate:
+                row[f"Total_{attribute}"] = solver.total(arcs, attribute)
+            row["_totals"] = {a: solver.total(arcs, a) for a, (usage, _) in graph.attributes.items() if usage == "Cost"}
             row["SHAPE"] = None if str(line_shape or "STRAIGHT_LINES").upper() == "NO_LINES" else \
                 LineString([(origin["point"].x, origin["point"].y), (destination["point"].x, destination["point"].y)])
             lines.append(row)

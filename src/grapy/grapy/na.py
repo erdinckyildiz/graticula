@@ -529,7 +529,8 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
         if layer.solver == "Route":
             routes, results = _network.solve_route(graph, inputs["Stops"], s["accumulate"], s["line_shape"])
             _write(layer.classes["Routes"], routes)
-            _update(layer.classes["Stops"], {k[1]: v for k, v in results.items()})
+            _update(layer.classes["Stops"], {k[1]: {f: x for f, x in v.items() if not f.startswith("_")}
+                                             for k, v in results.items()})
             succeeded = bool(routes)
         elif layer.solver == "Closest Facility":
             routes = _network.solve_closest_facility(graph, inputs["Facilities"], inputs["Incidents"], s["direction"],

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import grapy as arcpy  # noqa: E402 — the way a toolbox imports it
 import grapy.na as na  # noqa: E402
+import grapy.nax as nax  # noqa: E402
 from grapy import _network  # noqa: E402
 
 DE = 2 * math.sqrt(50)
@@ -148,6 +149,61 @@ class Network(unittest.TestCase):
         polygons = self.rows(na.GetNASublayer(sa, "Polygons"), ["Name", "FromBreak", "ToBreak"])
         self.assertEqual(polygons, [("call : 0.0 - 5.0", 0.0, 5.0), ("call : 5.0 - 12.0", 5.0, 12.0)])
 
+    # ---- solving with the nax objects
+
+    def test_nax_route_and_its_documented_totals(self):
+        na.BuildNetwork(self.network)
+        route = nax.Route(self.network)
+        route.load(nax.RouteInputDataType.Stops, self.points)
+        result = route.solve()
+        self.assertTrue(result.solveSucceeded)
+        # 22 metres of Length, a distance attribute: Total_Kilometers and Total_Miles, as the Route output page names them.
+        (km, miles, name), = result.searchCursor(nax.RouteOutputDataType.Routes, ["Total_Kilometers", "Total_Miles", "Name"])
+        self.assertAlmostEqual(km, 0.022)
+        self.assertAlmostEqual(miles, 22 / 1609.344)
+        self.assertEqual(name, "start - end")
+        stops = list(result.searchCursor(nax.RouteOutputDataType.Stops, ["Name", "Sequence", "Cumul_Kilometers"]))
+        self.assertEqual([s[:2] for s in stops], [("start", 1), ("end", 2)])
+        self.assertAlmostEqual(stops[1][2], 0.022)
+        out = os.path.join(self.directory, "route_out.gpkg")
+        result.export(nax.RouteOutputDataType.Routes, out)
+        self.assertEqual(self.rows(out, ["SHAPE@LENGTH"]), [(22.0,)])
+        self.assertTrue(hasattr(nax.Route, "__grapy_equivalent__"))
+        self.assertIn("nax.Route.solve is an equivalent", arcpy.GetMessages())
+
+    def test_nax_closest_facility_od_and_service_area(self):
+        na.BuildNetwork(self.network)
+        closest = nax.ClosestFacility(self.network)
+        with closest.insertCursor(nax.ClosestFacilityInputDataType.Facilities, ["Name", "SHAPE@XY"]) as cursor:
+            cursor.insertRow(["near", (10, 9)])
+            cursor.insertRow(["far", (0, 0.5)])
+        with closest.insertCursor(nax.ClosestFacilityInputDataType.Incidents, ["Name", "SHAPE@XY"]) as cursor:
+            cursor.insertRow(["call", (14, 0)])
+        closest.defaultTargetFacilityCount = 2
+        rows = list(closest.solve().searchCursor(nax.ClosestFacilityOutputDataType.Routes,
+                                                 ["Name", "FacilityRank", "Total_Kilometers"]))
+        self.assertEqual([(r[0], r[1]) for r in rows], [("call - near", 1), ("call - far", 2)])
+        self.assertAlmostEqual(rows[1][2], 0.014)
+        od = nax.OriginDestinationCostMatrix(self.network)
+        with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Origins, ["SHAPE@XY"]) as cursor:
+            cursor.insertRow([(14, 0)])
+        with od.insertCursor(nax.OriginDestinationCostMatrixInputDataType.Destinations, ["SHAPE@XY"]) as cursor:
+            cursor.insertRow([(10, 9)])
+        lines = list(od.solve().searchCursor(nax.OriginDestinationCostMatrixOutputDataType.Lines,
+                                             ["OriginOID", "DestinationOID", "DestinationRank", "Total_Kilometers"]))
+        self.assertEqual(lines[0][:3], (1, 1, 1))
+        self.assertAlmostEqual(lines[0][3], 0.013)
+        area = nax.ServiceArea(self.network)
+        area.defaultImpedanceCutoffs = [12]
+        area.polygonBufferDistance = 1
+        with area.insertCursor(nax.ServiceAreaInputDataType.Facilities, ["Name", "SHAPE@XY"]) as cursor:
+            cursor.insertRow(["call", (14, 0)])
+        result = area.solve()
+        self.assertEqual(list(result.searchCursor(nax.ServiceAreaOutputDataType.Polygons, ["Name", "ToBreak"])),
+                         [("call : 0.0 - 12.0", 12.0)])
+        with self.assertRaises(arcpy.NotBuiltError):
+            result.searchCursor(nax.ServiceAreaOutputDataType.Lines, ["FacilityID"])     # polygons were asked for
+
     def test_refused_by_name(self):
         na.BuildNetwork(self.network)
         with self.assertRaises(arcpy.NotBuiltError):
@@ -160,6 +216,16 @@ class Network(unittest.TestCase):
         self.assertIn("NP-hard", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError):
             _network.add_attribute(self.network, "Script", "Cost", "Meters", [("roads", "BOTH", "SCRIPT", "x")])
+        route = nax.Route(self.network)
+        route.findBestSequence = True
+        with self.assertRaises(arcpy.NotBuiltError):
+            route.solve()
+        with self.assertRaises(arcpy.NotBuiltError) as raised:
+            nax.LocationAllocation(self.network)
+        self.assertIn("NP-hard", str(raised.exception))
+        with self.assertRaises(arcpy.NotBuiltError) as raised:
+            arcpy.nd.CreateDiagramTemplate
+        self.assertIn("network diagrams", str(raised.exception))
 
 
 if __name__ == "__main__":
