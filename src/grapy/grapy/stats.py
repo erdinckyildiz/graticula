@@ -772,6 +772,86 @@ def DirectionalMean(Input_Feature_Class, Output_Feature_Class, Orientation_Only=
     return Result(out)
 
 
+def MultiDistanceSpatialClustering(Input_Feature_Class, Output_Table, Number_of_Distance_Bands=10,
+                                   Compute_Confidence_Envelope="0_PERMUTATIONS_-_NO_CONFIDENCE_ENVELOPE",
+                                   Display_Results_Graphically="NO_DISPLAY", Weight_Field=None, Beginning_Distance=None,
+                                   Distance_Increment=None, Boundary_Correction_Method="NONE",
+                                   Study_Area_Method="MINIMUM_ENCLOSING_RECTANGLE", Study_Area_Feature_Class=None):
+    """Ripley's K as L(d), from "How Multi-Distance Spatial Cluster Analysis (Ripley's K-function) works":
+    ``L(d) = sqrt(A ΣΣ_{j≠i} k_ij / (π n (n−1)))``, k_ij 1 for a pair within d and 0 otherwise, A the study area — the
+    minimum enclosing rectangle, or the one polygon of the study area feature class. Writes a table of ExpectedK (the
+    distance), ObservedK and DiffK (ObservedK − ExpectedK), one row per distance band.
+
+    Distances: with no Distance_Increment, the maximum distance is 25 percent of the enclosing rectangle's longer side;
+    the increment is (maximum − Beginning_Distance)/bands, or maximum/bands with the beginning equal to it.
+
+    Refused: confidence envelopes (they are random permutations), a Weight_Field (the weighted k is not given as a
+    formula), and every boundary correction but NONE (each is described, not specified). A study area that leaves
+    input points outside is refused too: whether those points count in n is not documented.
+    INFERRED: a pair exactly d apart counts — the usage notes say "less than or equal to d", the "How … works" page
+    "less than d". INFERRED: the minimum enclosing rectangle is the rotated rectangle of least area, and its longer
+    side is the "maximum extent length". INFERRED: Number_of_Distance_Bands defaults to 10, as the page says.
+    """
+    import numpy as np
+    import shapely
+    tool = "MultiDistanceSpatialClustering"
+    if not str(Compute_Confidence_Envelope).upper().startswith("0_PERMUTATIONS"):
+        _refuse(tool, "Compute_Confidence_Envelope", Compute_Confidence_Envelope, "a confidence envelope is built from "
+                "random permutations")
+    if _given(Weight_Field):
+        _refuse(tool, "Weight_Field", Weight_Field, "the weighted K function is not given as a formula")
+    if str(Boundary_Correction_Method).upper() != "NONE":
+        _refuse(tool, "Boundary_Correction_Method", Boundary_Correction_Method, "the edge corrections are described, not "
+                "specified")
+    features, _, _, srid = _features(tool, Input_Feature_Class)
+    n = len(features)
+    if n < 2:
+        raise ValueError(f"arcpy.stats.{tool} needs two features or more.")
+    points = shapely.MultiPoint([(f[2], f[3]) for f in features])
+    rectangle = shapely.minimum_rotated_rectangle(points)
+    if str(Study_Area_Method).upper() == "USER_PROVIDED_STUDY_AREA_FEATURE_CLASS":
+        if not _given(Study_Area_Feature_Class):
+            raise ValueError(f"arcpy.stats.{tool}: a user-provided study area needs Study_Area_Feature_Class.")
+        with da.SearchCursor(Study_Area_Feature_Class, ["SHAPE@"]) as rows:
+            areas = [r[0]._shape for r in rows if r[0] is not None]
+        if len(areas) != 1:
+            raise ValueError(f"arcpy.stats.{tool}: the study area feature class must hold exactly one polygon.")
+        if not areas[0].covers(points):
+            _refuse(tool, "Study_Area_Feature_Class", Study_Area_Feature_Class, "input points lie outside the study "
+                    "area, and whether they count in n is not documented")
+        area = areas[0].area
+    else:
+        area = rectangle.area
+    if area <= 0:
+        raise ValueError(f"arcpy.stats.{tool}: the study area has no area.")
+    bands = int(Number_of_Distance_Bands)
+    if _given(Distance_Increment):
+        increment = float(Distance_Increment)
+        beginning = float(Beginning_Distance) if _given(Beginning_Distance) else increment
+    else:
+        corners = list(rectangle.exterior.coords)
+        sides = [math.dist(corners[0], corners[1]), math.dist(corners[1], corners[2])]
+        longest = 0.25 * max(sides)
+        if _given(Beginning_Distance):
+            beginning = float(Beginning_Distance)
+            increment = (longest - beginning) / bands
+        else:
+            increment = longest / bands
+            beginning = increment
+    d = _distances([(f[2], f[3]) for f in features])
+    off = ~np.eye(n, dtype=bool)
+    out = _out(Output_Table)
+    columns = [_gpkg.Column("ExpectedK", "Double"), _gpkg.Column("ObservedK", "Double"), _gpkg.Column("DiffK", "Double")]
+    _gpkg.create(out, "Geometry", 0, columns)
+    with da.InsertCursor(out, ["ExpectedK", "ObservedK", "DiffK", "SHAPE@"]) as rows:
+        for k in range(bands):
+            distance = beginning + k * increment
+            pairs = int(((d <= distance) & off).sum())
+            observed = math.sqrt(area * pairs / (math.pi * n * (n - 1)))
+            rows.insertRow((distance, observed, observed - distance, None))
+    return Result(out)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):

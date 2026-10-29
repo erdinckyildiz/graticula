@@ -349,6 +349,32 @@ class Stats(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "Orientation_Only"):
             stats.DirectionalMean(path, self.out("ldm2"), "ORIENTATION_ONLY")
 
+    def test_ripleys_k_as_l_of_d(self):
+        # Corners of a 10 square: the minimum enclosing rectangle is the square, A = 100, n = 4.
+        # d = 10: each corner has its two sides' neighbours, ΣΣk = 8; L = sqrt(100·8 / (π·4·3)) = sqrt(800/(12π)).
+        # d = 15: the diagonals (14.14) count too, ΣΣk = 12; L = sqrt(1200/(12π)) = sqrt(100/π).
+        square = self.points("sq", [(0, 0), (10, 0), (0, 10), (10, 10)])
+        table = stats.MultiDistanceSpatialClustering(square, self.out("k"), 2, Beginning_Distance=10,
+                                                     Distance_Increment=5).getOutput(0)
+        got = self.rows(table, ["ExpectedK", "ObservedK", "DiffK"])
+        for (expected, observed, diff), (want_d, want_l) in zip(got, [(10, math.sqrt(800 / (12 * math.pi))),
+                                                                      (15, math.sqrt(100 / math.pi))]):
+            self.assertEqual(expected, want_d)
+            self.assertAlmostEqual(observed, want_l)
+            self.assertAlmostEqual(diff, want_l - want_d)
+        # Defaults: the maximum distance is 25 percent of the rectangle's longer side, 2.5; ten bands of 0.25 from 0.25.
+        # No pair is that close, so every ObservedK is 0.
+        default = stats.MultiDistanceSpatialClustering(square, self.out("k2"), 10).getOutput(0)
+        got = self.rows(default, ["ExpectedK", "ObservedK"])
+        for (expected, observed), k in zip(got, range(1, 11)):
+            self.assertAlmostEqual(expected, 0.25 * k)
+            self.assertEqual(observed, 0.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "Compute_Confidence_Envelope"):
+            stats.MultiDistanceSpatialClustering(square, self.out("k3"), 10, "99_PERMUTATIONS")
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "Boundary_Correction_Method"):
+            stats.MultiDistanceSpatialClustering(square, self.out("k4"), 10,
+                                                 Boundary_Correction_Method="RIPLEY_EDGE_CORRECTION_FORMULA")
+
     # ---- Utilities
 
     def test_distance_band_from_neighbor_count_and_collect_events(self):
