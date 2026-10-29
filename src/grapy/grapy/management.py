@@ -4945,3 +4945,508 @@ def __getattr__(name):
         raise NotBuiltError(message)
 
     return missing
+
+
+# ---- branch versions and archives (ADR-227) ------------------------------------------------------------------------------
+#
+# Held in the GeoPackage the tool works on: see grapy._versions. A registered class keeps DEFAULT's current state in its
+# own table and its history beside it; named versions are branches off DEFAULT. Traditional versioning (delta tables,
+# compress, edits to base), replicas and enterprise administration stay refused above.
+
+def _versioned_tables(tool, in_dataset):
+    """(file, [tables]) of a feature class, table or feature dataset (every class in it)."""
+    path = _plain(tool, in_dataset) if _layers_find(in_dataset) is not None else _text(in_dataset)
+    file, table = _gpkg.split(path)
+    if not os.path.exists(file):
+        raise FileNotFoundError(f"'{file}' does not exist.")
+    connection = _gpkg.connect(file)
+    try:
+        names = [r[0] for r in connection.execute("select table_name from gpkg_contents")]
+        datasets = []
+        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+            datasets = [r[0] for r in connection.execute("select name from grapy_feature_datasets")]
+    finally:
+        connection.close()
+    if table is None:
+        if len(names) != 1:
+            raise ValueError(f"arcpy.management.{tool}: '{file}' holds {len(names)} tables; name one.")
+        return file, names
+    if table in datasets:
+        return file, [n for n in names if n.startswith(table + "/")]
+    if table not in names:
+        raise ValueError(f"arcpy.management.{tool}: '{path}' does not exist.")
+    return file, [table]
+
+
+def _layers_find(value):
+    from . import _layers
+    return _layers.find(value)
+
+
+def _version_workspace(value):
+    file, _ = _gpkg.split(_text(value))
+    if not os.path.exists(file):
+        raise FileNotFoundError(f"'{file}' does not exist.")
+    return file
+
+
+def RegisterAsVersioned(in_dataset, edit_to_base=None):
+    """The dataset registered as branch versioned (ADR-227): its history begins, and named versions can edit it. A
+    feature dataset registers every class in it, as documented; an archive-enabled class is refused, as documented —
+    disable archiving first. ``EDITS_TO_BASE`` is traditional versioning's and is refused."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    if str(edit_to_base or "NO_EDITS_TO_BASE").upper() in ("EDITS_TO_BASE", "TRUE"):
+        raise NotBuiltError("arcpy.management.RegisterAsVersioned: EDITS_TO_BASE is traditional versioning's, which is "
+                            "not built in grapy (ADR-227 §5.4).")
+    file, tables = _versioned_tables("RegisterAsVersioned", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        for table in tables:
+            kind = _versions.kind(connection, table)
+            if kind == "archive":
+                raise ExecuteError(f"ERROR 000800: '{table}' is archive enabled; archive-enabled datasets cannot be "
+                                   "registered as versioned.")
+            if kind is None:
+                _versions.register(connection, table, "branch")
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def UnregisterAsVersioned(in_dataset, keep_edit="KEEP_EDIT", compress_default=None):
+    """The dataset no longer versioned: its history dropped; DEFAULT's state stays in the table. With KEEP_EDIT (the
+    default) the tool fails while a named version holds edits of it, as documented; NO_KEEP_EDIT discards them.
+    ``compress_default`` is traditional versioning's and changes nothing here."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file, tables = _versioned_tables("UnregisterAsVersioned", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        for table in tables:
+            if _versions.kind(connection, table) != "branch":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not registered as versioned.")
+            pending = connection.execute(f'select count(*) from "{_versions.history(table)}" where gdb_branch_id <> 0'
+                                         ).fetchone()[0]
+            if pending and str(keep_edit or "KEEP_EDIT").upper() in ("KEEP_EDIT", "TRUE"):
+                raise ExecuteError(f"ERROR 000800: named versions hold {pending} edits of '{table}'; post them, or pass "
+                                   "NO_KEEP_EDIT to discard them.")
+            _versions.unregister(connection, table)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def EnableArchiving(in_dataset):
+    """Archiving on a non-versioned class (ADR-227): every later insert, update and delete is kept with the moment
+    it was made, and a layer set to a historical moment (ChangeVersion) reads the class as it was then. A branch
+    versioned class is archived already, as documented."""
+    from . import _versions
+    file, tables = _versioned_tables("EnableArchiving", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        for table in tables:
+            if _versions.kind(connection, table) is None:
+                _versions.register(connection, table, "archive")
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def DisableArchiving(in_dataset, preserve_history="PRESERVE"):
+    """Archiving off. With PRESERVE (the default) the history is kept as a table named after the class with ``_h``
+    appended, as documented for non-versioned data; DELETE drops it. A branch versioned class is refused: its
+    archive is its versioning (unregister it instead)."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file, tables = _versioned_tables("DisableArchiving", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        for table in tables:
+            kind = _versions.kind(connection, table)
+            if kind != "archive":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not archive enabled" +
+                                   (" — it is branch versioned." if kind == "branch" else "."))
+            keep = str(preserve_history or "PRESERVE").upper() in ("PRESERVE", "TRUE")
+            _versions.unregister(connection, table, f"{table}_h" if keep else None)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+_ACCESS = {"PRIVATE": "Private", "PUBLIC": "Public", "PROTECTED": "Protected"}
+
+
+def CreateVersion(in_workspace, parent_version, version_name, access_permission="PRIVATE", version_description=None):
+    """A branch version off DEFAULT, seeing DEFAULT as it is now. A branch version's parent is always DEFAULT, so any
+    other parent is refused. INFERRED: the name is kept as given — a fenced user tool has no database user to prefix
+    it with — and the access is recorded but not enforced, since a tool runs as one user."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file = _version_workspace(in_workspace)
+    access = _ACCESS.get(str(access_permission or "PRIVATE").upper())
+    if access is None:
+        raise ValueError("arcpy.management.CreateVersion: access_permission is PRIVATE, PUBLIC or PROTECTED.")
+    if version_description and len(str(version_description)) > 64:
+        raise ExecuteError("ERROR 000800: the description cannot exceed 64 characters.")
+    connection = _gpkg.connect(file)
+    try:
+        parent = _versions.version(connection, parent_version)
+        if parent[1] != 0:
+            raise NotBuiltError("arcpy.management.CreateVersion: a branch version's parent is DEFAULT; a version of a "
+                                "version is traditional versioning's, not built in grapy.")
+        name = str(version_name)
+        if connection.execute(f"select 1 from {_versions.VERSIONS} where name = ?", (name,)).fetchone():
+            raise ExecuteError(f"ERROR 000800: the version '{name}' already exists.")
+        branch = (connection.execute(f"select max(branch_id) from {_versions.VERSIONS}").fetchone()[0] or 0) + 1
+        now = _versions.now_text()
+        connection.execute(f"insert into {_versions.VERSIONS} values (?, ?, ?, ?, ?, '', ?, ?, ?)",
+                           (name, branch, _versions.DEFAULT, version_description or "", access, now, now,
+                            _versions.current_moment(connection)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def AlterVersion(in_workspace, in_version, name=None, description=None, access=None, target_owner=None):
+    """A version renamed, described, its access or owner changed. DEFAULT cannot be renamed."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file = _version_workspace(in_workspace)
+    connection = _gpkg.connect(file)
+    try:
+        current, branch, _ = _versions.version(connection, in_version)
+        if _given(name):
+            if branch == 0:
+                raise ExecuteError("ERROR 000800: DEFAULT cannot be renamed.")
+            connection.execute(f"update {_versions.VERSIONS} set name = ? where branch_id = ?", (str(name), branch))
+        if _given(description):
+            connection.execute(f"update {_versions.VERSIONS} set description = ? where branch_id = ?",
+                               (str(description), branch))
+        if _given(access):
+            value = _ACCESS.get(str(access).upper())
+            if value is None:
+                raise ValueError("arcpy.management.AlterVersion: access is PRIVATE, PUBLIC or PROTECTED.")
+            connection.execute(f"update {_versions.VERSIONS} set access = ? where branch_id = ?", (value, branch))
+        if _given(target_owner):
+            connection.execute(f"update {_versions.VERSIONS} set owner = ? where branch_id = ?", (str(target_owner), branch))
+        connection.execute(f"update {_versions.VERSIONS} set modified = ? where branch_id = ?", (_versions.now_text(), branch))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def DeleteVersion(in_workspace, version_name):
+    """A named version deleted, with its unposted edits. DEFAULT cannot be deleted."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file = _version_workspace(in_workspace)
+    connection = _gpkg.connect(file)
+    try:
+        _, branch, _ = _versions.version(connection, version_name)
+        if branch == 0:
+            raise ExecuteError("ERROR 000800: DEFAULT cannot be deleted.")
+        for table in _versions.registered(connection, "branch"):
+            connection.execute(f'delete from "{_versions.history(table)}" where gdb_branch_id = ?', (branch,))
+        connection.execute(f"delete from {_versions.VERSIONS} where branch_id = ?", (branch,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def _rows_of_state(connection, table, branch, base, until=None):
+    """{object id: {column: value}} of a class as a version sees it (or DEFAULT at a moment)."""
+    from . import _versions
+    _, oid, _ = _versions.columns(connection, table)
+    cursor = connection.execute(f"select * from {_versions.state_sql(connection, table, branch, base, until)}")
+    names = [d[0] for d in cursor.description]
+    return {row[names.index(oid)]: {n: v for n, v in zip(names, row) if n != oid} for row in cursor.fetchall()}
+
+
+def _branch_latest(connection, table, branch):
+    """{object id: ({column: value}, deleted)} — each object's latest row on the branch."""
+    from . import _versions
+    names, _, geometry = _versions.columns(connection, table)
+    listed = [geometry, *names]
+    cursor = connection.execute(
+        f'select gdb_objectid, gdb_is_delete, {", ".join(chr(34) + n + chr(34) for n in listed)} from '
+        f'(select *, row_number() over (partition by gdb_objectid order by gdb_from_date desc, gdb_archive_oid desc) '
+        f'as rank from "{_versions.history(table)}" where gdb_branch_id = ?) where rank = 1', (branch,))
+    return {r[0]: (dict(zip(listed, r[2:])), bool(r[1])) for r in cursor.fetchall()}
+
+
+def _reconcile_one(connection, version_name, definition, resolution, abort, post, delete, said):
+    """Reconcile one branch version with DEFAULT, then post it when asked. Conflicts, as the ReconcileVersions page
+    defines them: BY_OBJECT, a row changed (updated or deleted) in both DEFAULT — since the version's base moment — and
+    the version; BY_ATTRIBUTE, the same column of the same row changed in both, a delete conflicting with any change.
+    FAVOR_EDIT_VERSION keeps the version's value, FAVOR_TARGET_VERSION takes DEFAULT's. INFERRED: a column both sides set
+    to the same value is not a conflict; with BY_ATTRIBUTE, changes to different columns of one row are merged."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    name, branch, base = _versions.version(connection, version_name)
+    if branch == 0:
+        raise ExecuteError("ERROR 000800: DEFAULT is the target; it is not reconciled with itself.")
+    plans, conflicts = [], 0
+    for table in _versions.registered(connection, "branch"):
+        _, oid, _ = _versions.columns(connection, table)
+        edits = _branch_latest(connection, table, branch)
+        if not edits:
+            continue
+        original = _rows_of_state(connection, table, 0, 0, base)
+        target = _rows_of_state(connection, table, 0, 0, None)
+        changed_in_target = {r[0] for r in connection.execute(
+            f'select distinct gdb_objectid from "{_versions.history(table)}" where gdb_branch_id = 0 and gdb_from_date > ?',
+            (base,))}
+        for object_id, (row, deleted) in edits.items():
+            if object_id not in changed_in_target or object_id not in original:
+                continue
+            was, now = original[object_id], target.get(object_id)
+            mine = None if deleted else row
+            if definition == "BY_OBJECT" or mine is None or now is None:
+                if mine == now:
+                    continue
+                conflicts += 1
+                said(f"Conflict on {table} {object_id} (by object).")
+                if resolution == "FAVOR_TARGET_VERSION":
+                    plans.append((table, object_id, now))
+                continue
+            merged, clashed = dict(mine), False
+            for column, value in now.items():
+                if value == was.get(column):
+                    continue
+                if mine.get(column) == was.get(column):
+                    merged[column] = value
+                elif mine.get(column) != value:
+                    clashed = True
+                    conflicts += 1
+                    said(f"Conflict on {table} {object_id}, {column} (by attribute).")
+                    if resolution == "FAVOR_TARGET_VERSION":
+                        merged[column] = value
+            if merged != mine:
+                plans.append((table, object_id, merged))
+            elif clashed:
+                continue
+    if conflicts and abort:
+        raise ExecuteError(f"ERROR 001156: {conflicts} conflicts were found reconciling '{name}', and the reconcile "
+                           "aborts on conflicts.")
+    for table, object_id, values in plans:
+        _versions.write(connection, table, branch, object_id, values or {}, deleted=values is None)
+    connection.execute(f"update {_versions.VERSIONS} set base_moment = ? where branch_id = ?",
+                       (_versions.current_moment(connection), branch))
+    said(f"Reconciled '{name}' with DEFAULT: {conflicts} conflicts.")
+    if post:
+        for table in _versions.registered(connection, "branch"):
+            names, oid, geometry = _versions.columns(connection, table)
+            listed = [geometry, *names]
+            for object_id, (row, deleted) in _branch_latest(connection, table, branch).items():
+                exists = connection.execute(f'select 1 from "{table}" where "{oid}" = ?', (object_id,)).fetchone()
+                if deleted:
+                    if exists:
+                        connection.execute(f'delete from "{table}" where "{oid}" = ?', (object_id,))
+                elif exists:
+                    connection.execute(f'update "{table}" set {", ".join(chr(34) + n + chr(34) + " = ?" for n in listed)} '
+                                       f'where "{oid}" = ?', [row.get(n) for n in listed] + [object_id])
+                else:
+                    connection.execute(f'insert into "{table}" ("{oid}", {", ".join(chr(34) + n + chr(34) for n in listed)})'
+                                       f' values (?, {", ".join("?" for _ in listed)})', [object_id] + [row.get(n) for n in listed])
+            connection.execute(f'delete from "{_versions.history(table)}" where gdb_branch_id = ?', (branch,))
+        connection.execute(f"update {_versions.VERSIONS} set base_moment = ?, modified = ? where branch_id = ?",
+                           (_versions.current_moment(connection), _versions.now_text(), branch))
+        said(f"Posted '{name}' to DEFAULT.")
+        if delete:
+            connection.execute(f"delete from {_versions.VERSIONS} where branch_id = ?", (branch,))
+            said(f"Deleted '{name}'.")
+    return conflicts
+
+
+def ReconcileVersions(input_database, reconcile_mode="ALL_VERSIONS", target_version=None, edit_versions=None,
+                      acquire_locks=None, abort_if_conflicts="NO_ABORT", conflict_definition="BY_OBJECT",
+                      conflict_resolution="FAVOR_EDIT_VERSION", with_post="NO_POST", with_delete="KEEP_VERSION",
+                      out_log=None, proceed_if_conflicts_not_reviewed=None, reconcile_checkout_versions=None):
+    """Branch versions reconciled with DEFAULT — "if the input is a branch workspace, the only valid option for this
+    parameter is to reconcile with the default version" — and posted to it with POST, then deleted with
+    DELETE_VERSION. With no edit versions named, every named version is reconciled. The branch defaults hold: locks are
+    not acquired, and conflicts favour the edit version. See ``_reconcile_one`` for the conflict definitions.
+
+    Refused: BLOCKING_VERSIONS (traditional versioning's compress order). INFERRED: the log file holds the messages,
+    one per line; conflicts are reported in messages, not kept for review.
+    """
+    from . import _versions
+    from ._runtime import AddMessage
+    if str(reconcile_mode or "ALL_VERSIONS").upper() != "ALL_VERSIONS":
+        raise NotBuiltError("arcpy.management.ReconcileVersions: BLOCKING_VERSIONS is traditional versioning's, not built "
+                            "in grapy.")
+    if _given(target_version) and str(target_version).split(".")[-1].upper() != _versions.DEFAULT:
+        raise NotBuiltError("arcpy.management.ReconcileVersions: a branch version is reconciled with DEFAULT only.")
+    definition = str(conflict_definition or "BY_OBJECT").upper()
+    resolution = str(conflict_resolution or "FAVOR_EDIT_VERSION").upper()
+    if definition not in ("BY_OBJECT", "BY_ATTRIBUTE") or resolution not in ("FAVOR_EDIT_VERSION", "FAVOR_TARGET_VERSION"):
+        raise ValueError("arcpy.management.ReconcileVersions: conflict_definition is BY_OBJECT or BY_ATTRIBUTE, "
+                         "conflict_resolution FAVOR_EDIT_VERSION or FAVOR_TARGET_VERSION.")
+    file = _version_workspace(input_database)
+    lines = []
+
+    def said(text):
+        lines.append(text)
+        AddMessage(text)
+
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        names = [v for v in _list(edit_versions) if _given(v)] or [
+            r[0] for r in connection.execute(f"select name from {_versions.VERSIONS} where branch_id <> 0 order by branch_id")]
+        for name in names:
+            _reconcile_one(connection, name, definition, resolution,
+                           str(abort_if_conflicts or "NO_ABORT").upper() in ("ABORT_CONFLICTS", "TRUE"),
+                           str(with_post or "NO_POST").upper() in ("POST", "TRUE"),
+                           str(with_delete or "KEEP_VERSION").upper() in ("DELETE_VERSION", "TRUE"), said)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    if _given(out_log):
+        with open(_text(out_log), "w", encoding="utf-8") as written:
+            written.write("\n".join(lines) + "\n")
+    return Result(_text(input_database))
+
+
+def ReconcileVersion(in_workspace, version_name, target_name, conflict_definition="BY_OBJECT",
+                     conflict_resolution="FAVOR_TARGET_VERSION", aquired_locks=None, abort_if_conflicts="NO_ABORT",
+                     post="NO_POST"):
+    """One version reconciled with its target, DEFAULT, and posted with POST — ReconcileVersions for one version, with
+    this tool's own default resolution, FAVOR_TARGET_VERSION."""
+    return ReconcileVersions(in_workspace, "ALL_VERSIONS", target_name, [version_name], aquired_locks,
+                             abort_if_conflicts, conflict_definition, conflict_resolution, post)
+
+
+def ChangeVersion(in_features, version_type, version_name=None, date=None, include_participating=None):
+    """A layer switched to a version (TRANSACTIONAL) or to a historical moment (HISTORICAL, at ``date`` in UTC): the da
+    cursors on the layer, and every tool given it, then read that version or moment. INFERRED: this tool's page could
+    not be read (it answered 404 on 2026-10-30), so its parameters are taken from its arcpy signature; a named
+    historical marker is refused, as grapy keeps no markers; ``include_participating`` changes nothing, as grapy's
+    classes have no controller datasets."""
+    from . import _versions
+    layer = _layers_find(in_features)
+    if layer is None:
+        raise ValueError("arcpy.management.ChangeVersion takes a layer or table view (MakeFeatureLayer, MakeTableView).")
+    file, table = _gpkg.split(layer.source)
+    connection = _gpkg.connect(file)
+    try:
+        kind = str(version_type).upper()
+        if kind == "TRANSACTIONAL":
+            name = _versions.version(connection, version_name or _versions.DEFAULT)[0]
+            layer.version, layer.moment = (None if name == _versions.DEFAULT else name), None
+        elif kind == "HISTORICAL":
+            if not _given(date):
+                raise NotBuiltError("arcpy.management.ChangeVersion: a historical marker is not built in grapy; give a "
+                                    "date.")
+            import datetime
+            when = date if isinstance(date, datetime.datetime) else datetime.datetime.fromisoformat(str(date))
+            layer.version, layer.moment = None, _versions.moment_at(connection, when)
+        else:
+            raise ValueError("arcpy.management.ChangeVersion: version_type is TRANSACTIONAL or HISTORICAL.")
+    finally:
+        connection.close()
+    return Result(layer.name)
+
+
+def TrimArchiveHistory(in_table, trim_mode="DELETE", trim_before_date=None):
+    """Archive records older than ``trim_before_date`` (UTC) deleted — all of them with no date: the rows that are no
+    longer current, as an archive record is. The class must be archive enabled and not versioned, as documented.
+    INFERRED: a record is older than the date when it stopped being current (a later row of its object was made)
+    before that date."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    if str(trim_mode or "DELETE").upper() != "DELETE":
+        raise ValueError("arcpy.management.TrimArchiveHistory: DELETE is the only trim mode.")
+    file, tables = _versioned_tables("TrimArchiveHistory", in_table)
+    connection = _gpkg.connect(file)
+    try:
+        for table in tables:
+            if _versions.kind(connection, table) != "archive":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not an archive-enabled, non-versioned class.")
+            if _given(trim_before_date):
+                import datetime
+                when = trim_before_date if isinstance(trim_before_date, datetime.datetime) else \
+                    datetime.datetime.fromisoformat(str(trim_before_date))
+                cutoff = _versions.moment_at(connection, when)
+            else:
+                cutoff = 2 ** 62
+            history = _versions.history(table)
+            connection.execute(f'delete from "{history}" where gdb_archive_oid in (select h.gdb_archive_oid from '
+                               f'"{history}" h where exists (select 1 from "{history}" later where later.gdb_objectid = '
+                               f'h.gdb_objectid and (later.gdb_from_date > h.gdb_from_date or (later.gdb_from_date = '
+                               f'h.gdb_from_date and later.gdb_archive_oid > h.gdb_archive_oid)) and later.gdb_from_date <= ?))',
+                               (cutoff,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def PruneBranchHistory(in_dataset, out_log, report_only="REPORT_ONLY", system_tables_only="ALL", prune_before_date=None):
+    """DEFAULT's history of a branch versioned class pruned: the rows no longer current at the oldest moment a version
+    still refers to (its base moment), or at ``prune_before_date`` (UTC) when that is earlier — as documented, "as
+    much of the archive history as possible based on referenced moments". REPORT_ONLY (the default) writes the count to
+    the log and prunes nothing. INFERRED: a version's base moment is the moment it refers to; SYSTEM_ONLY finds nothing,
+    as grapy keeps no extension datasets' internal tables."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file, tables = _versioned_tables("PruneBranchHistory", in_dataset)
+    report = str(report_only or "REPORT_ONLY").upper() in ("REPORT_ONLY", "TRUE")
+    system = str(system_tables_only or "ALL").upper() == "SYSTEM_ONLY"
+    lines = []
+    connection = _gpkg.connect(file)
+    try:
+        referenced = connection.execute(f"select min(base_moment) from {_versions.VERSIONS} where branch_id <> 0"
+                                        ).fetchone()[0]
+        cutoff = int(referenced) if referenced is not None else _versions.current_moment(connection)
+        if _given(prune_before_date):
+            import datetime
+            when = prune_before_date if isinstance(prune_before_date, datetime.datetime) else \
+                datetime.datetime.fromisoformat(str(prune_before_date))
+            cutoff = min(cutoff, _versions.moment_at(connection, when))
+        for table in tables:
+            if _versions.kind(connection, table) != "branch":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not registered as branch versioned.")
+            if system:
+                lines.append(f"{table}: no internal tables")
+                continue
+            history = _versions.history(table)
+            superseded = (f'select h.gdb_archive_oid from "{history}" h where h.gdb_branch_id = 0 and exists (select 1 '
+                          f'from "{history}" later where later.gdb_branch_id = 0 and later.gdb_objectid = h.gdb_objectid '
+                          f'and (later.gdb_from_date > h.gdb_from_date or (later.gdb_from_date = h.gdb_from_date and '
+                          f'later.gdb_archive_oid > h.gdb_archive_oid)) and later.gdb_from_date <= {cutoff})')
+            count = connection.execute(f"select count(*) from ({superseded})").fetchone()[0]
+            lines.append(f"{table}: {count} archive rows {'eligible' if report else 'pruned'} before moment {cutoff}")
+            if not report:
+                connection.execute(f'delete from "{history}" where gdb_archive_oid in ({superseded})')
+        connection.commit()
+    finally:
+        connection.close()
+    with open(_text(out_log), "w", encoding="utf-8") as written:
+        written.write("\n".join(lines) + "\n")
+    return Result(_text(in_dataset))
+
+
+_REFUSED.update({name: "is traditional versioning's or enterprise geodatabase administration, which grapy's branch "
+                       "versions do not have (ADR-227 §5.4)" for name in (
+    "Compress", "CreateVersionedView", "DiagnoseVersionMetadata", "DiagnoseVersionTables", "RepairVersionMetadata",
+    "RepairVersionTables", "UpdateGeodatabaseConnectionPropertiesToBranch")})
+_REFUSED.update({name: "keeps field conflict filters, which grapy's branch versions do not yet honour in "
+                       "ReconcileVersions (ADR-227)" for name in ("AddFieldConflictFilter", "RemoveFieldConflictFilter")})
+for _built in ("AlterVersion", "ChangeVersion", "CreateVersion", "DeleteVersion", "PruneBranchHistory", "ReconcileVersion",
+               "ReconcileVersions", "RegisterAsVersioned", "UnregisterAsVersioned", "EnableArchiving", "DisableArchiving",
+               "TrimArchiveHistory"):
+    _REFUSED.pop(_built, None)
