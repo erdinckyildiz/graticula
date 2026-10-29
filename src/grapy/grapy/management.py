@@ -723,38 +723,156 @@ def _unit_scale(unit, metres_per_unit):
     return metres_per_unit / _UNITS[str(unit).upper()]
 
 
+def _rectangle_by(shape, by_width):
+    """The enclosing rectangle of smallest area, or of smallest width (its shorter side), as a polygon and its two side
+    vectors. One side of either lies along an edge of the convex hull, so each hull edge's direction is tried. INFERRED:
+    of rectangles equally narrow, the smaller in area."""
+    import math
+    import shapely
+    hull = shape.convex_hull
+    if hull.geom_type != "Polygon":
+        ends = list(hull.coords) if hull.geom_type == "LineString" else []
+        side = (ends[-1][0] - ends[0][0], ends[-1][1] - ends[0][1]) if ends else (0.0, 0.0)
+        return shapely.minimum_rotated_rectangle(shape), side, (0.0, 0.0)
+    points = list(hull.exterior.coords)[:-1]
+    best = None
+    for (ax, ay), (bx, by) in zip(points, points[1:] + points[:1]):
+        length = math.hypot(bx - ax, by - ay)
+        if length == 0:
+            continue
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        along = [x * ux + y * uy for x, y in points]
+        across = [-x * uy + y * ux for x, y in points]
+        a0, a1, c0, c1 = min(along), max(along), min(across), max(across)
+        size_u, size_v = a1 - a0, c1 - c0
+        key = (min(size_u, size_v), size_u * size_v) if by_width else (size_u * size_v, min(size_u, size_v))
+        if best is None or key < best[0]:
+            corners = [(a * ux - c * uy, a * uy + c * ux) for a, c in ((a0, c0), (a1, c0), (a1, c1), (a0, c1))]
+            best = (key, corners, (size_u * ux, size_u * uy), (-size_v * uy, size_v * ux))
+    _, corners, side_u, side_v = best
+    return shapely.Polygon(corners), side_u, side_v
+
+
+def _orientation(vector):
+    """Degrees clockwise from north of a side. INFERRED: between 0 and 180, a side having two ends."""
+    import math
+    angle = math.degrees(math.atan2(vector[0], vector[1])) % 180.0
+    return 0.0 if math.isclose(angle, 180.0) else angle
+
+
 def MinimumBoundingGeometry(in_features, out_feature_class, geometry_type="RECTANGLE_BY_AREA", group_option="NONE",
                             group_field=None, mbg_fields_option="NO_MBG_FIELDS"):
-    """The envelope, convex hull, smallest rotated rectangle or smallest circle around each feature, around all of them
-    (``ALL``) or around each group of a ``LIST`` field's values."""
+    """The envelope, convex hull, rectangle of smallest area or of smallest width, or smallest circle around each
+    feature, around all of them (``ALL``) or around each group of a ``LIST`` field's values. ``MBG_FIELDS`` adds, as
+    documented, ``MBG_Width`` and ``MBG_Length`` (the shorter and longer side) and for rectangles ``MBG_Orientation`` (the
+    longer side, degrees clockwise from north), or ``MBG_Diameter`` for a circle. The convex hull's fields are not
+    built: the page does not say which of an antipodal pair is the first."""
+    import math
     import shapely
     from . import da
-    columns, _, srid, _ = _schema(in_features)
-    group = str(group_option).upper()
+    columns, _, srid, _ = _schema(_source(in_features)[0])
+    group = str(group_option or "NONE").upper()
     fields = [f for f in _list(group_field)] if group == "LIST" else []
     by_name = {c.name.lower(): c for c in columns}
-    kind = str(geometry_type).upper()
-    bound = {"ENVELOPE": lambda s: shapely.envelope(s), "CONVEX_HULL": lambda s: s.convex_hull,
-             "RECTANGLE_BY_AREA": lambda s: s.minimum_rotated_rectangle,
-             "RECTANGLE_BY_WIDTH": lambda s: s.minimum_rotated_rectangle,
-             "CIRCLE": lambda s: shapely.minimum_bounding_circle(s)}[kind]
+    kind = str(geometry_type or "RECTANGLE_BY_AREA").upper()
+    if kind not in ("ENVELOPE", "CONVEX_HULL", "RECTANGLE_BY_AREA", "RECTANGLE_BY_WIDTH", "CIRCLE"):
+        raise NotBuiltError(f"arcpy.management.MinimumBoundingGeometry: geometry_type '{kind}' is not built in grapy.")
+    with_fields = str(mbg_fields_option or "NO_MBG_FIELDS").upper() in ("MBG_FIELDS", "ADD_ATTRIBUTES")
+    if with_fields and kind == "CONVEX_HULL":
+        raise NotBuiltError("arcpy.management.MinimumBoundingGeometry: MBG_FIELDS of a convex hull is not built in grapy.")
+    extra = []
+    if with_fields:
+        extra = ["MBG_Diameter"] if kind == "CIRCLE" else (
+            ["MBG_Width", "MBG_Length"] + (["MBG_Orientation"] if kind.startswith("RECTANGLE") else []))
+
+    def bound(shape):
+        if kind == "ENVELOPE":
+            x0, y0, x1, y1 = shape.bounds
+            return shapely.envelope(shape), [min(x1 - x0, y1 - y0), max(x1 - x0, y1 - y0)]
+        if kind == "CONVEX_HULL":
+            return shape.convex_hull, []
+        if kind == "CIRCLE":
+            return shapely.minimum_bounding_circle(shape), [2 * shapely.minimum_bounding_radius(shape)]
+        rectangle, u, v = _rectangle_by(shape, kind == "RECTANGLE_BY_WIDTH")
+        lu, lv = math.hypot(*u), math.hypot(*v)
+        longer = u if lu >= lv else v
+        return rectangle, [min(lu, lv), max(lu, lv), _orientation(longer)]
+
     out = _path(out_feature_class)
-    out_columns = [by_name[f.lower()] for f in fields] if group != "NONE" else [*columns, _gpkg.Column("ORIG_FID", "Integer")]
+    lead = [by_name[f.lower()] for f in fields] if group != "NONE" else [*columns, _gpkg.Column("ORIG_FID", "Integer")]
+    out_columns = lead + [_gpkg.Column(n, "Double") for n in extra]
     _gpkg.create(out, "Polygon", srid, out_columns)
     names = [c.name for c in columns]
-    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
-        read = [r for r in rows if r[-1] is not None]
+    read = [r for r in _features(in_features) if r[2] is not None]
     with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
         if group == "NONE":
-            for row in read:
-                written.insertRow((*row[1:-1], row[0], bound(row[-1]._shape)))
+            for oid, values, shape in read:
+                made, measures = bound(shape)
+                written.insertRow((*values, oid, *(measures if with_fields else []), made))
         else:
             groups: dict = {}
-            for row in read:
-                key = tuple(row[1 + names.index(by_name[f.lower()].name)] for f in fields)
-                groups.setdefault(key, []).append(row[-1]._shape)
+            for oid, values, shape in read:
+                key = tuple(values[names.index(by_name[f.lower()].name)] for f in fields)
+                groups.setdefault(key, []).append(shape)
             for key, shapes in groups.items():
-                written.insertRow((*key, bound(shapely.GeometryCollection(shapes))))
+                made, measures = bound(shapely.GeometryCollection(shapes))
+                written.insertRow((*key, *(measures if with_fields else []), made))
+    return Result(out)
+
+
+def CalculateEndTime(in_table, start_field, end_field, fields=None):
+    """Each row's end time set to the start time of the next row, the rows taken in order of the ID ``fields`` and then
+    the start time; the last row's end time is its own start, as documented. INFERRED: with ID fields, rows of one
+    entity look only to that entity's next row, and each entity's last row ends at its own start; rows starting at the
+    same time keep their object ID order; a null start time is left out."""
+    from . import da
+    path = _plain("CalculateEndTime", in_table)
+    columns = {c.name.lower(): c.name for c in _schema(path)[0]}
+    start, end = columns[str(start_field).lower()], columns[str(end_field).lower()]
+    ids = [columns[f.lower()] for f in _list(fields)]
+    with da.SearchCursor(path, ["OID@", *ids, start]) as rows:
+        read = [r for r in rows if r[-1] is not None]
+    read.sort(key=lambda r: (tuple((v is not None, v) for v in r[1:-1]), r[-1], r[0]))
+    ends = {}
+    for here, after in zip(read, read[1:] + [None]):
+        same = after is not None and tuple(after[1:-1]) == tuple(here[1:-1])
+        ends[here[0]] = after[-1] if same else here[-1]
+    with da.UpdateCursor(path, ["OID@", end]) as rows:
+        for row in rows:
+            if row[0] in ends:
+                rows.updateRow([row[0], ends[row[0]]])
+    return Result(_text(in_table))
+
+
+def TransposeFields(in_table, in_field, out_table, in_transposed_field_name, in_value_field_name, attribute_fields=None):
+    """Fields turned into rows: for each input row and each field of ``in_field`` (``"field name;…"`` — the name
+    written in the transposed field, the field's own when none is given), a row holding that name and the field's value
+    as text, with the ``attribute_fields`` kept; ``Shape`` among them makes a feature class, as documented. INFERRED:
+    rows go input row by input row, each in the order of ``in_field``; a null value stays null; a number is written as
+    Python writes it."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(in_table)
+    columns, kind, srid, geometry = _schema(path)
+    by_name = {c.name.lower(): c for c in columns}
+    pairs = [(by_name[p[0].lower()].name, p[1] if len(p) > 1 else by_name[p[0].lower()].name) for p in _pairs(in_field)]
+    kept, shape = [], False
+    for name in _list(attribute_fields):
+        if name.lower() in ("shape", geometry.lower()):
+            shape = True
+        else:
+            kept.append(by_name[name.lower()])
+    if str(in_value_field_name).lower() in by_name:
+        raise ExecuteError(f"ERROR 000728: the value field '{in_value_field_name}' is already a field of the input.")
+    out_columns = [*kept, _gpkg.Column(str(in_transposed_field_name), "String"), _gpkg.Column(str(in_value_field_name), "String")]
+    out = _table_out("TransposeFields", out_table)
+    _gpkg.create(out, kind if shape else "Geometry", srid if shape else 0, out_columns)
+    with da.SearchCursor(path, [*[c.name for c in kept], *[f for f, _ in pairs], "SHAPE@"], where) as rows, \
+            da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
+        for row in rows:
+            values = row[len(kept):-1]
+            for (_, label), value in zip(pairs, values):
+                written.insertRow((*row[:len(kept)], label, None if value is None else str(value), row[-1] if shape else None))
     return Result(out)
 
 

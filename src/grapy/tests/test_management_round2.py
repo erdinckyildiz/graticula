@@ -167,6 +167,50 @@ class Round2(unittest.TestCase):
                          ("Land parcels",))
         connection.close()
 
+    # ---- bounding geometry and time
+
+    def test_minimum_bounding_geometry_fields(self):
+        shapes = self.make("shapes", "POLYGON", [("n", "TEXT")],
+                           [("long", box(0, 0, 100, 20)), ("turned", "POLYGON((0 0,30 30,20 40,-10 10,0 0))"),
+                            ("tri", "POLYGON((0 0,10 0,0 10,0 0))")])
+        out = arcpy.management.MinimumBoundingGeometry(shapes, self.out("mbg.gpkg"), "RECTANGLE_BY_WIDTH",
+                                                       mbg_fields_option="MBG_FIELDS")[0]
+        got = self.rows(out, ["n", "MBG_Width", "MBG_Length", "MBG_Orientation", "SHAPE@AREA"])
+        self.assertEqual((got[0][1], got[0][2], got[0][3], got[0][4]), (20.0, 100.0, 90.0, 2000.0))
+        # The turned rectangle's sides run (30, 30) and (-10, 10): 30√2 and 10√2 long, the longer at 45° from north.
+        self.assertAlmostEqual(got[1][1], 10 * 2 ** 0.5)
+        self.assertAlmostEqual(got[1][2], 30 * 2 ** 0.5)
+        self.assertAlmostEqual(got[1][3], 45.0)
+        # The narrowest rectangle round the right triangle lies along its hypotenuse: 10√2 long, 5√2 wide.
+        self.assertAlmostEqual(got[2][1], 5 * 2 ** 0.5)
+        self.assertAlmostEqual(got[2][2], 10 * 2 ** 0.5)
+        envelopes = arcpy.management.MinimumBoundingGeometry(shapes, self.out("env.gpkg"), "ENVELOPE", "NONE", None, "MBG_FIELDS")[0]
+        self.assertEqual(self.rows(envelopes, ["MBG_Width", "MBG_Length"])[1], (40.0, 40.0))   # x −10..30, y 0..40
+        circles = arcpy.management.MinimumBoundingGeometry(shapes, self.out("c.gpkg"), "CIRCLE", "ALL", None, "MBG_FIELDS")[0]
+        # ALL makes one circle round every shape; its diameter is checked on a single square below, 50√2 across.
+        single = arcpy.management.MinimumBoundingGeometry(self.parcels, self.out("c1.gpkg"), "CIRCLE", "NONE", None, "MBG_FIELDS")[0]
+        self.assertAlmostEqual(self.rows(single, ["MBG_Diameter"])[0][0], 50 * 2 ** 0.5)
+        self.assertEqual(len(self.rows(circles, ["MBG_Diameter"])), 1)
+        with self.assertRaises(arcpy.NotBuiltError):
+            arcpy.management.MinimumBoundingGeometry(shapes, self.out("h.gpkg"), "CONVEX_HULL", mbg_fields_option="MBG_FIELDS")
+
+    def test_calculate_end_time_and_transpose_fields(self):
+        times = self.table("times", [("who", "TEXT"), ("t", "TEXT"), ("e", "TEXT")],
+                           [("a", "2026-01-01", None), ("a", "2026-01-03", None), ("b", "2026-01-02", None),
+                            ("a", "2026-01-02", None)])
+        arcpy.management.CalculateEndTime(times, "t", "e", "who")
+        self.assertEqual([r[0] for r in self.rows(times, ["e"])], ["2026-01-02", "2026-01-03", "2026-01-02", "2026-01-03"])
+        arcpy.management.CalculateEndTime(times, "t", "e")
+        # In start order: a 01, b 02 (object ID 3 before 4), a 02, a 03.
+        self.assertEqual([r[0] for r in self.rows(times, ["e"])], ["2026-01-02", "2026-01-03", "2026-01-02", "2026-01-03"])
+        years = self.table("years", [("name", "TEXT"), ("y2020", "LONG"), ("y2021", "LONG")], [("A", 1, 2), ("B", 3, None)])
+        out = arcpy.management.TransposeFields(years, "y2020 2020;y2021 2021", self.out("tr.gpkg"), "year", "count", "name")[0]
+        self.assertEqual(self.rows(out, ["name", "year", "count"]),
+                         [("A", "2020", "1"), ("A", "2021", "2"), ("B", "2020", "3"), ("B", "2021", None)])
+        shaped = arcpy.management.TransposeFields(self.parcels, "value;extra", self.out("ts.gpkg"), "f", "v", "Shape;name")[0]
+        self.assertEqual(self.rows(shaped, ["name", "f", "v", "SHAPE@AREA"])[:2], [("p0", "value", "1.0", 2500.0),
+                                                                              ("p0", "extra", "10.0", 2500.0)])
+
     # ---- random points
 
     def test_random_points_fall_where_asked_and_repeat_with_the_seed(self):
