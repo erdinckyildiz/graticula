@@ -104,8 +104,8 @@ None recorded.
 
 ## 11. Conditions
 
-1. **The counter covers every group-1 module**, from a list read from arcpy and kept in the repository.
-2. **Image services cross into a tool as files** (§5.5), and `sa` reads one end to end.
+1. **The counter covers every group-1 module**, from a list read from arcpy and kept in the repository. **DISCHARGED 2026-10-29** (26a715f5): `tools/arcpy-surface.json` adds `sa`, `ia`, `ddd` and `ga`, read from Pro 3.7; 1,819 names.
+2. **Image services cross into a tool as files** (§5.5), and `sa` reads one end to end. **DISCHARGED 2026-10-29**: a raster parameter (`GPRasterLayer`, `DERasterDataset` and the like, served as `GPRasterDataLayer`) takes an image service of this server the caller may read. The runner writes its first band as raw doubles beside a header, and grapy turns that into the GeoTIFF the tool opens. `An_image_service_reaches_a_tool_as_a_raster_it_reads_cell_for_cell` uploads a corpus image and reads four cells, NoData included, against the values `truth.json` records. A mosaic of several images, and an image of more than 25 million cells, are refused by name.
 3. **Group 3 is refused with its reason**, tested.
 4. **Group 1 is complete**: the counter reads every group-1 name built.
 5. **Group 2 has an ADR per data model** before its tools are built.
