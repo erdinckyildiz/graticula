@@ -941,11 +941,50 @@ def KMLToLayer(in_kml_file, output_folder, output_data=None, include_groundoverl
     return Result(target, target)
 
 
+# ---- refused by name ----------------------------------------------------------------------------------------------------
+#
+# Every arcpy.conversion name grapy does not build is refused with its own reason (ADR-224). Left on the generic message,
+# not yet examined: DEMToRaster (USGS DEM, a public format), AddRasterToGeoPackage and KMLToGeodatabase, and the five
+# GTFS tools (GTFS is a public specification) — each may prove buildable.
+
+_REASONS = {
+    "needs a data model this server does not hold yet (ADR-224 group 2): network datasets": (
+        "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
+    "needs Z values or 3D data — LAS, point clouds, multipatches, meshes, BIM — which grapy's 2D shapes do not hold": (
+        "ConvertLas", "LasDatasetToRaster", "PointCloudToRaster", "MeshToLAS", "MultipatchToCollada", "MultipatchToRaster",
+        "BIMFileToGeodatabase", "ExtractBIMFileFloorplan"),
+    "reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented": (
+        "AddCADFields", "CADToGeodatabase", "ExportCAD"),
+    "reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's "
+    "workspace is a GeoPackage": ("ConvertPersonalGeodatabase", "MobileGdbToFileGdb"),
+    "needs a Parquet writer (pyarrow), which grapy's build of these tools does not carry": ("ExportToParquet",),
+    "uses Esri's undocumented text and document parsing to find locations": (
+        "ExtractLocationsDocument", "ExtractLocationsText"),
+    "follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line "
+    "takes — so any answer would be a guess under arcpy's name": (
+        "ExtractScannedLines", "ExtractScannedPolygons", "RasterToPolyline", "PolylineToRaster"),
+    "truncates field names to dBASE's ten characters by a rule the page does not give": (
+        "FeatureClassToShapefile", "TableToDBASE"),
+    "needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold": (
+        "FeaturesToGraphics", "GraphicsToFeatures", "MapToKML"),
+    "writes placemarks, pop-ups and styles whose content the page does not document": ("LayerToKML",),
+    "needs a PDF renderer, which grapy does not carry": ("PDFToTIFF",),
+    "writes a raster into a geodatabase or a format other than GeoTIFF; grapy's rasters are GeoTIFF files "
+    "(ADR-224 §5.5)": ("RasterToGeodatabase", "RasterToOtherFormat"),
+    "needs SAS, a commercial runtime grapy does not carry": ("SASToTable", "TableToSAS"),
+    "reaches a WFS service, and a fenced tool has no network (ADR-223 §5.3)": ("WFSToFeatureClass",),
+}
+
+_REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
+
+
 def __getattr__(name):
     if name.startswith("_"):
         raise AttributeError(name)
+    reason = _REFUSED.get(name)
+    message = f"arcpy.conversion.{name} {reason}." if reason else f"arcpy.conversion.{name} is not built in grapy yet."
 
     def missing(*_, **__):
-        raise NotBuiltError(f"arcpy.conversion.{name} is not built in grapy yet.")
+        raise NotBuiltError(message)
 
     return missing
