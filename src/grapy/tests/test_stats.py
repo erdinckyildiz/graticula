@@ -226,10 +226,14 @@ class Stats(unittest.TestCase):
                              10)
         self.assertAlmostEqual(self.rows(out[0], ["GiZScore"])[0][0], -2 / math.sqrt(5 / 3))
 
-    def test_fdr_is_refused(self):
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "FDR"):
-            stats.HotSpots(self.line4(), "v", self.out("fdr"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE",
-                           10, None, None, "APPLY_FDR")
+    def test_fdr_is_benjamini_hochberg(self):
+        # The ten points of test_gi_bin_reads_the_confidence_level: six p-values ≈ 0.0495, two ≈ 0.134, two ≈ 0.513.
+        # At α = .10 the largest k with p_(k) ≤ k·.10/10 is 6 (0.0495 ≤ 0.06; 0.134 > 0.07): those six are kept.
+        # At α = .05, p_(k) ≤ k·.005 holds for no k ≤ 6 (0.0495 > 0.03): none. So the six are bin ±1.
+        path = self.points("ten", [(10 * i, 0) for i in range(10)], [[1.0] * 5 + [0.0] * 5])
+        out = stats.HotSpots(path, "v", self.out("fdr"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE", 10,
+                             None, None, "APPLY_FDR")
+        self.assertEqual([r[0] for r in self.rows(out[0], ["Gi_Bin"])], [0, 1, 1, 1, 0, 0, -1, -1, -1, 0])
 
     # ---- Local Moran's I
 
@@ -254,10 +258,14 @@ class Stats(unittest.TestCase):
             self.assertAlmostEqual(p, two_sided(want_z))
             self.assertEqual(kind, "")   # none is significant at 0.05
 
-    def test_local_morans_i_refuses_permutations_and_marks_a_feature_with_no_neighbours(self):
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "Number_of_Permutations"):
-            stats.ClustersOutliers(self.line4(), "v", self.out("perm"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
-                                   "ROW", 10)
+    def test_local_morans_i_permutations_and_a_feature_with_no_neighbours(self):
+        # Three points, each the other two's neighbour, values 0, 3, 6 (deviations −3, 0, 3), row-standardized
+        # weights .5: a permutation of the other two values leaves .5·(a + b) unchanged, so every draw equals the
+        # observed I_i. Then M = R and the folded count is R − M = 0: the pseudo p-value is (0 + 1)/(9 + 1) = 0.1.
+        three = self.points("three", [(0, 0), (10, 0), (20, 0)], [[0.0, 3.0, 6.0]])
+        out = stats.ClustersOutliers(three, "v", self.out("perm"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
+                                     "ROW", 100, None, "NO_FDR", 9)
+        self.assertEqual([r[0] for r in self.rows(out[0], ["LMiPValue"])], [0.1, 0.1, 0.1])
         lonely = self.points("lonely", [(0, 0), (10, 0), (20, 0), (30, 0), (500, 0)], [[1.0, 2.0, 3.0, 4.0, 5.0]])
         out = stats.ClustersOutliers(lonely, "v", self.out("nn"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "ROW",
                                      10, None, "NO_FDR", 0)
@@ -505,8 +513,12 @@ class Stats(unittest.TestCase):
         self.assertEqual(self.rows(only.getOutput(0), ["SHAPE@XY"]), [((10.0, 0.0),)])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "whole"):
             stats.SpatialOutlierDetection(path, self.out("x"), 2, 30, None, "LOCAL")
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "GLOBAL"):
-            stats.SpatialOutlierDetection(path, self.out("g"), 2, 20)
+        # GLOBAL: points at 0, 1, 3, 6, 10, 15, 40 have nearest-neighbour distances 1, 1, 2, 3, 4, 5, 25. Quartiles by
+        # definition 7: Q1 at position 1.5 is 1.5, Q3 at 4.5 is 4.5; IQR 3. MEDIUM fence 4.5 + 1.5·3 = 9: only 25.
+        spread = self.points("spread", [(x, 0) for x in (0, 1, 3, 6, 10, 15, 40)])
+        out = stats.SpatialOutlierDetection(spread, self.out("g")).getOutput(0)
+        got = self.rows(out, ["NEIGHBOR_DIST", "IS_OUTLIER"])
+        self.assertEqual(got, [(1.0, 0), (1.0, 0), (2.0, 0), (3.0, 0), (4.0, 0), (5.0, 0), (25.0, 1)])
 
     # ---- equivalents (ADR-224 §5.6)
 
@@ -578,6 +590,43 @@ class Stats(unittest.TestCase):
         self.assertAlmostEqual(got[2][2], 9.625 / 2.125)
         with self.assertRaisesRegex(arcpy.NotBuiltError, "model_type"):
             stats.GWR(path, "v", "COUNT", "x", self.out("g2"), "DISTANCE_BAND", "USER_DEFINED", distance_band=2)
+
+    def test_incremental_spatial_autocorrelation(self):
+        # Six points 10 apart holding 1, 3, 2, 5, 4, 6: deviations −2.5, −.5, −1.5, 1.5, .5, 2.5, Σz² = 17.5. At 10,
+        # row-standardized: Σ z_i Σ w_ij z_j = 1.25 + 1 − .75 − .75 + 1 + 1.25 = 3, S0 = 6, so I = 3/17.5.
+        path = self.points("isa", [(10 * i, 0) for i in range(6)], [[1.0, 3, 2, 5, 4, 6]])
+        result = stats.IncrementalSpatialAutocorrelation(path, "v", 4, 10, 10, Output_Table=self.out("isa_t"))
+        rows = self.rows(result[0], ["Distance", "MoransI", "ZScore"])
+        self.assertEqual([r[0] for r in rows], [10.0, 20.0, 30.0, 40.0])
+        self.assertAlmostEqual(rows[0][1], 3 / 17.5)
+        # The first peak is the first band whose z-score is above both neighbours'; it is read as a distance.
+        peak = next(r[0] for a, r, b in zip(rows, rows[1:], rows[2:]) if r[2] > a[2] and r[2] > b[2])
+        self.assertEqual((result[2], result[3]), (peak, peak))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "Distance_Increment"):
+            stats.IncrementalSpatialAutocorrelation(path, "v", 4)
+
+    def test_multivariate_clustering_is_k_means(self):
+        # Values 0, 1, 10, 11: two clusters are {0, 1} and {10, 11} whatever the seeds. Pseudo F for two clusters:
+        # SSW = .5 + .5 = 1, SSB = 101 − 1 = 100 (mean 5.5): (100/1)/(1/2) = 200 — unchanged by scaling. For three:
+        # the best split leaves a pair, SSW = .5, SSB = 100.5: (100.5/2)/(.5/1) = 100.5. Two wins.
+        path = self.points("mc", [(10 * i, 0) for i in range(4)], [[0.0, 1, 10, 11]])
+        result = stats.MultivariateClustering(path, self.out("mc_out"), ["v"], output_table=self.out("mc_t"))
+        self.assertEqual([r[0] for r in self.rows(result[0], ["CLUSTER_ID"])], [1, 1, 2, 2])
+        table = self.rows(result[1], ["NUM_CLUSTERS", "PSEUDO_F"])
+        self.assertEqual(table[0][0], 2)
+        self.assertAlmostEqual(table[0][1], 200.0)
+        self.assertAlmostEqual(table[1][1], 100.5)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "K_MEDOIDS"):
+            stats.MultivariateClustering(path, self.out("km"), ["v"], "K_MEDOIDS")
+
+    def test_density_based_clustering_is_dbscan(self):
+        # x = 0, 1, 2, 10, 11, 12, 30; three points within 1 make a core: 1 and 11 are cores, 0, 2, 10 and 12 border
+        # points, 30 noise.
+        path = self.points("db", [(x, 0) for x in (0, 1, 2, 10, 11, 12, 30)])
+        out = stats.DensityBasedClustering(path, self.out("db_out"), "DBSCAN", 3, 1).getOutput(0)
+        self.assertEqual([r[0] for r in self.rows(out, ["CLUSTER_ID"])], [1, 1, 1, 2, 2, 2, -1])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "HDBSCAN"):
+            stats.DensityBasedClustering(path, self.out("h"), "HDBSCAN", 3)
 
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):

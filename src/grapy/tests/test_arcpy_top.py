@@ -398,7 +398,7 @@ class LegacyAndScriptTools(_Folder):
                            ("NetCDFFileProperties", "netCDF"), ("Render", "symbology")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy, name)
-        for name, said in (("SAR", "estimation"), ("MultivariateClustering", "random"),
+        for name, said in (("SAR", "estimation"), ("BuildBalancedZones", "random"),
                            ("GenerateSpatialWeightsMatrix", ".swm"), ("TimeSeriesSmoothing", "field names")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy.stats, name)()
