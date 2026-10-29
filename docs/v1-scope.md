@@ -191,6 +191,8 @@ rather than by shipping an interpreter. **This document is the authoritative sco
 (CLAUDE.md §1) and it described a reversed decision for twenty-two days**, which is
 [D-130](architecture-debt.md)'s propagation shape in the worst possible file.
 
+***Amended 2026-10-29 by [ADR-222](adr/ADR-222-geoprocessing-is-built-in-analysis-tools.md):*** *a GPServer comes back, for tools this server writes — ArcGIS's Spatial Analysis Service shape, no user code. The scope is INFERRED ([Q-192](open-questions.md)); everything else below stands.*
+
 **Everything else in this section stays cut, and the line is one sentence wide.**
 GPServer, the Python SDK, the sandbox and the *user* wheel set remain out;
 [Q-75](open-questions.md) — how user-supplied Python is sandboxed, *"the largest
