@@ -558,6 +558,117 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
     return Result(layer, "true" if succeeded else "false")
 
 
+# ---- more network tools --------------------------------------------------------------------------------------------
+
+def CalculateLocations(in_point_features, in_network_dataset=None, search_tolerance="5000 Meters", search_criteria=None,
+                       match_type=None, source_ID_field="SourceID", source_OID_field="SourceOID", position_field="PosAlong",
+                       side_field="SideOfEdge", snap_X_field="SnapX", snap_Y_field="SnapY",
+                       distance_field="DistanceToNetworkInMeters", snap_Z_field="SnapZ", location_field="Locations",
+                       exclude_restricted_elements=None, search_query=None, travel_mode=None):
+    """Each point's network location written to its own fields — SourceID, SourceOID, PosAlong, SideOfEdge, SnapX,
+    SnapY and DistanceToNetworkInMeters by default, as documented — and ``Status`` (0 located, 1 not) when the input has
+    that Long field; within 5000 meters by default, as documented. Fields not there are added (INFERRED). SnapZ is not
+    written: grapy's networks are 2D, as the page writes it only for z connectivity. Line and polygon inputs, search
+    criteria and queries are not built."""
+    from . import da
+    from .management import AddField, _linear, _schema, _source
+    for name, value in (("search_criteria", search_criteria), ("search_query", search_query)):
+        if _given(value):
+            raise NotBuiltError(f"arcpy.na.CalculateLocations: {name} is not built in grapy; every source is searched.")
+    path, where = _source(in_point_features)
+    columns, kind, srid, _ = _schema(path)
+    if kind != "Point":
+        raise NotBuiltError("arcpy.na.CalculateLocations: line and polygon inputs are not built in grapy.")
+    graph = _network.Graph(str(in_network_dataset), travel_mode)
+    tolerance = _linear(search_tolerance, graph.srid, "CalculateLocations") if _given(search_tolerance) else \
+        5000.0 / (_network._per_unit(graph.srid) or 1.0)
+    targets = [("SourceID", source_ID_field, "LONG"), ("SourceOID", source_OID_field, "LONG"),
+               ("PosAlong", position_field, "DOUBLE"), ("SideOfEdge", side_field, "LONG"),
+               ("SnapX", snap_X_field, "DOUBLE"), ("SnapY", snap_Y_field, "DOUBLE"),
+               ("DistanceToNetworkInMeters", distance_field, "DOUBLE")]
+    have = {c.name.lower(): c for c in columns}
+    for _, field, kind_word in targets:
+        if str(field).lower() not in have:
+            AddField(path, str(field), kind_word)
+    status = "status" in have and have["status"].type in ("Integer", "SmallInteger")
+    fields = [str(f) for _, f, _ in targets] + (["Status"] if status else [])
+    with da.UpdateCursor(path, [*fields, "SHAPE@"], where) as rows:
+        for row in rows:
+            point = row[-1]._shape if row[-1] is not None else None
+            located = graph.locate(point, tolerance) if point is not None else None
+            location = graph.location_fields(located, point)
+            values = [location[name] for name, _, _ in targets] + ([0 if located else 1] if status else [])
+            rows.updateRow([*values, row[-1]])
+    return Result(str(in_point_features))
+
+
+def DeleteNetworkAnalysisLayer(in_network_analysis_layers):
+    """Each analysis layer and its sublayers' tables deleted; the network itself stays, as documented."""
+    from .management import Delete, _list
+    for each in _list(in_network_analysis_layers) if not isinstance(in_network_analysis_layers, _AnalysisLayer) \
+            else [in_network_analysis_layers]:
+        layer = _layer(each)
+        for path in layer.classes.values():
+            Delete(path)
+        del ANALYSIS_LAYERS[layer.name]
+    return Result("true")
+
+
+def CopyNetworkAnalysisLayer(in_network_analysis_layer, out_layer_name=None):
+    """A copy of an analysis layer: its sublayers' tables copied, its settings and network kept, as documented — into
+    ``env.scratchGDB`` when the current workspace is no GeoPackage (INFERRED: grapy's analysis data lives in
+    GeoPackages), else the original's. INFERRED: with no name, the copy is "<name> 1", "<name> 2" ….
+    """
+    from .management import Copy
+    layer = _layer(in_network_analysis_layer)
+    name = str(out_layer_name) if _given(out_layer_name) else next(
+        f"{layer.name} {n}" for n in range(1, 10000) if f"{layer.name} {n}" not in ANALYSIS_LAYERS)
+    classes = {}
+    for key, path in layer.classes.items():
+        target = f"{layer.workspace}/{name}/{key}"
+        Copy(path, target)
+        classes[key] = target
+    ANALYSIS_LAYERS[name] = _AnalysisLayer(name, layer.solver, layer.network, layer.travel_mode, dict(layer.settings),
+                                           layer.workspace, classes)
+    return Result(ANALYSIS_LAYERS[name])
+
+
+def ExportNetworkTravelModes(in_network_dataset, out_travel_mode_file):
+    """The network's travel modes written to a .json file: an object of travel mode name → its properties, the default
+    first, as documented. INFERRED: a travel mode's properties as TravelMode's JSON writes them."""
+    modes = GetTravelModes(in_network_dataset)
+    with open(str(out_travel_mode_file), "w", encoding="utf-8") as written:
+        json.dump({name: json.loads(str(mode)) for name, mode in modes.items()}, written, indent=2)
+    return Result(str(out_travel_mode_file))
+
+
+def ReplaceNetworkTravelModes(in_travel_mode_file, in_network_dataset):
+    """The network's travel modes replaced by a .json file's, as documented. INFERRED: every existing travel mode is
+    removed first; the file's first is then the default; a mode's impedance and restrictions must be attributes of the
+    network."""
+    with open(str(in_travel_mode_file), encoding="utf-8") as read:
+        modes = json.load(read)
+    connection, _, _, name = _network.open_network(str(in_network_dataset))
+    try:
+        connection.execute("delete from grapy_network_travel_mode where network = ?", (name,))
+        connection.commit()
+    finally:
+        connection.close()
+    for mode_name, properties in modes.items():
+        mode = TravelMode(properties)
+        _refuse_mode(properties)
+        _network.add_travel_mode(str(in_network_dataset), mode_name, mode.impedance, mode.restrictions,
+                                 mode.timeAttributeName, mode.distanceAttributeName)
+    return Result(str(in_network_dataset))
+
+
+def UpgradeNetwork(in_network_dataset):
+    """A network dataset's schema brought to the current release. grapy's network tables have one schema, so a network
+    made by grapy is current already and nothing changes; it must be built, as the page's sample builds it after."""
+    _network.open_network(str(in_network_dataset))[0].close()
+    return Result(str(in_network_dataset))
+
+
 # ---- refused by name -----------------------------------------------------------------------------------------------
 
 _HEURISTIC = "is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2)"
@@ -577,7 +688,20 @@ _REASONS = {
     "shares route layers to a portal, and a fenced tool has no network (ADR-223 §5.3)": ("ShareAsRouteLayers",),
     "sets an attribute parameter, and grapy's evaluators take none": ("UpdateAnalysisLayerAttributeParameter",),
     "edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools": (
-        "GetSolverProperties",),
+        "GetSolverProperties", "ClosestFacilitySolverProperties", "LocationAllocationSolverProperties",
+        "ODCostMatrixSolverProperties", "RouteSolverProperties", "ServiceAreaSolverProperties",
+        "VehicleRoutingProblemSolverProperties"),
+    "writes or lists Esri's direction text and styles, whose rules are not published": (
+        "GenerateDirectionsFeatures", "ListDirectionsLanguages", "ListDirectionsStyleNames", "StreetDirectionsProperties"),
+    "reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3)": ("GetWebToolInfo",),
+    "solves through ArcGIS Online's routing service, and a fenced tool has no network (ADR-223 §5.3)": (
+        "SolveVehicleRoutingProblem",),
+    "updates a fleet routing plan — vehicle routing, an NP-hard problem whose published heuristic is not chosen yet "
+    "(ADR-226 §5.2)": ("UpdateFleetRoutingAssignments", "UpdateFleetRoutingResults"),
+    "copies the network elements a solve traversed, and grapy's solvers keep routes, not their traversed elements": (
+        "CopyTraversedSourceFeatures",),
+    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/network-analyst/"
+    "check-intersecting-features.html answered 404 (checked 2026-10-30)": ("CheckIntersectingFeatures",),
 }
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
 

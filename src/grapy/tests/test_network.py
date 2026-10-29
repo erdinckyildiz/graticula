@@ -98,11 +98,12 @@ class Network(unittest.TestCase):
 
     def test_field_costs_restrictions_and_travel_modes(self):
         # Minutes from a field; F (4 minutes over 20 m) prorated; a restriction closing BC.
-        _network.add_attribute(self.network, "Minutes", "Cost", "Minutes",
-                               [("roads", "BOTH", "FIELD", "minutes")])
-        _network.add_attribute(self.network, "Closed", "Restriction", None, [("roads", "BOTH", "FIELD", "closed")])
-        _network.add_travel_mode(self.network, "Driving", "Minutes", ["Closed"])
-        _network.set_connectivity(self.network, "roads", "ANY_VERTEX")
+        arcpy.graticula.AddNetworkAttribute(self.network, "Minutes", "Cost", "Minutes",
+                                            [("roads", "BOTH", "FIELD", "minutes")])
+        arcpy.graticula.AddNetworkAttribute(self.network, "Closed", "Restriction", None,
+                                            [("roads", "BOTH", "FIELD", "closed")])
+        arcpy.graticula.AddNetworkTravelMode(self.network, "Driving", "Minutes", ["Closed"])
+        arcpy.graticula.SetNetworkConnectivity(self.network, "roads", "ANY_VERTEX")
         with arcpy.da.UpdateCursor(self.roads, ["OID@", "closed"]) as rows:
             for row in rows:
                 if row[0] == 2:
@@ -204,6 +205,38 @@ class Network(unittest.TestCase):
         with self.assertRaises(arcpy.NotBuiltError):
             result.searchCursor(nax.ServiceAreaOutputDataType.Lines, ["FacilityID"])     # polygons were asked for
 
+    def test_locations_layers_and_travel_mode_files(self):
+        na.BuildNetwork(self.network)
+        arcpy.management.AddField(self.points, "Status", "LONG")
+        na.CalculateLocations(self.points, self.network, "5 Meters")
+        self.assertEqual(self.rows(self.points, ["SourceID", "SourceOID", "SnapX", "SnapY", "DistanceToNetworkInMeters",
+                                                 "Status"]),
+                         [(1, 1, 2.0, 0.0, 0.0, 0), (1, 5, 20.0, 4.0, 0.0, 0)])
+        layer = na.MakeODCostMatrixAnalysisLayer(self.network, "od")[0]
+        na.AddLocations(layer, "Origins", self.points)
+        copy = na.CopyNetworkAnalysisLayer(layer, "od copy")[0]
+        self.assertEqual(self.rows(na.GetNASublayer(copy, "Origins"), ["Name"]), [("start",), ("end",)])
+        na.DeleteNetworkAnalysisLayer(layer)
+        self.assertFalse(arcpy.Exists(na.GetNASublayer(copy, "Origins").replace("od copy", "od")))
+        with self.assertRaises(arcpy.ExecuteError):
+            na.GetNASublayer("od", "Origins")
+        modes = os.path.join(self.directory, "modes.json")
+        na.ExportNetworkTravelModes(self.network, modes)
+        with open(modes, encoding="utf-8") as read:
+            import json
+            self.assertEqual(json.load(read)["Length"]["impedanceAttributeName"], "Length")
+        _network.add_attribute(self.network, "Minutes", "Cost", "Minutes", [("roads", "BOTH", "FIELD", "minutes")])
+        with open(modes, "w", encoding="utf-8") as written:
+            written.write('{"Driving": {"name": "Driving", "impedanceAttributeName": "Minutes"}}')
+        na.ReplaceNetworkTravelModes(modes, self.network)
+        self.assertEqual(list(na.GetTravelModes(self.network)), ["Driving"])
+        self.assertEqual(na.UpgradeNetwork(self.network)[0], self.network)
+        self.assertIs(nax.BuildNetwork, na.BuildNetwork)
+        route = nax.Route(self.network)
+        mappings = route.fieldMappings(nax.RouteInputDataType.Stops, False, arcpy.ListFields(self.points))
+        self.assertEqual(mappings["Name"].mappedFieldName, "Name")
+        self.assertIsNone(mappings["RouteName"].mappedFieldName)
+
     def test_refused_by_name(self):
         na.BuildNetwork(self.network)
         with self.assertRaises(arcpy.NotBuiltError):
@@ -223,6 +256,12 @@ class Network(unittest.TestCase):
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             nax.LocationAllocation(self.network)
         self.assertIn("NP-hard", str(raised.exception))
+        for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "RouteSolverProperties", "solver"),
+                                    (nax, "NetworkDataset", "query API"), (nax, "TraversedEdge", "traversed"),
+                                    (nax, "DissolveNetwork", "dissolves")):
+            with self.assertRaises(arcpy.NotBuiltError) as raised:
+                getattr(module, name)()
+            self.assertIn(words, str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.nd.CreateDiagramTemplate
         self.assertIn("network diagrams", str(raised.exception))

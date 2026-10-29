@@ -183,6 +183,25 @@ def GetTravelModes(network_dataset):
 
 
 from .na import TravelMode  # noqa: E402,F401 — nax documents the same class
+from .na import BuildNetwork, CalculateLocations, CreateNetworkDataset  # noqa: E402,F401 — nax documents the same tools
+from .na import ExportNetworkTravelModes, ReplaceNetworkTravelModes  # noqa: E402,F401
+from .na import NAClassFieldMap  # noqa: E402,F401
+
+
+class NAClassFieldMappings(dict):
+    """A solver input's field maps, by property name, as a solver's ``fieldMappings`` answers them."""
+
+
+class CurbApproach(enum.Enum):
+    EitherSideOfVehicle = 0
+    RightSideOfVehicle = 1
+    LeftSideOfVehicle = 2
+    NoUTurn = 3
+
+
+class TimeOfDayUsage(enum.Enum):
+    StartTime = "StartTime"
+    EndTime = "EndTime"
 
 
 # ---- solver objects -----------------------------------------------------------------------------------------------
@@ -281,6 +300,16 @@ class _Solver:
         if use_location_fields:
             names += ["SourceID", "SourceOID", "PosAlong", "SideOfEdge"]
         return names
+
+    def fieldMappings(self, input_type, use_location_fields=False, list_candidate_fields=None):
+        """The input's properties, each mapped to the candidate field of the same name. Location fields are not built:
+        grapy locates every input when it solves."""
+        if use_location_fields:
+            raise NotBuiltError("arcpy.nax: loading network location fields is not built in grapy; grapy locates every "
+                                "input.")
+        candidates = {getattr(f, "name", str(f)).lower(): getattr(f, "name", str(f)) for f in (list_candidate_fields or [])}
+        return NAClassFieldMappings({name: NAClassFieldMap(candidates.get(name.lower()))
+                                     for name in self.fieldNames(input_type) if name not in ("ObjectID", "Shape")})
 
     def setLocateSettingsOverrides(self, input_type, search_sources=None, allow_auto_relocate=None, search_tolerance=None,
                                    search_tolerance_units=None):
@@ -637,7 +666,27 @@ _REASONS = {
     "reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3)": ("GetWebToolInfo",),
     "lists the languages of Esri's direction text, whose rules are not published": ("ListDirectionsLanguages",),
 }
+_REASONS[_HEURISTIC] += ("LastMileDeliveryInputDataType", "LastMileDeliveryOutputDataType", "WasteCollectionInputDataType",
+                         "WasteCollectionOutputDataType", "VehicleRoutingProblemInputDataType2",
+                         "VehicleRoutingProblemOutputDataType2", "VehicleRoutingProblemSchemaVersion", "DecayFunctionType",
+                         "StopCollectionMode")
+_REASONS["writes or customises Esri's direction text, landmarks and street names, whose rules are not published"] = (
+    "DirectionPoint", "DirectionPointType", "DirectionsCustomizer", "DirectionsFieldMapping", "DirectionsName",
+    "DirectionsQuery", "DirectionsStyle", "ReferenceLandmark", "ReferenceLandmarkType", "SpatialLandmark", "LandmarkSide",
+    "NameClass", "Importance")
+_REASONS["is the network dataset query API — elements, their attributes and evaluators read one by one — which is not "
+         "built yet; grapy's network is read through its solvers"] = (
+    "NetworkDataset", "NetworkElement", "Edge", "Junction", "Turn", "AdjacentEdge", "Attribute", "AttributeEvaluator",
+    "AttributeParameter", "AttributeParameterUsage", "AttributeUsage", "NetworkTimeUsage")
+_REASONS["is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements"] = (
+    "TraversedEdge", "TraversedElement", "TraversedElementType", "TraversedJunction", "TraversedTurn")
+_REASONS["needs turns and driving sides, refused until they are defined (ADR-226 §5.3)"] = ("DrivingSide",)
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
+from .na import _REFUSED as _NA_REFUSED  # noqa: E402 — nax documents the same network tools
+for _name in ("CreateNetworkDatasetFromTemplate", "CreateTemplateFromNetworkDataset", "CreateTurnFeatureClass",
+              "DissolveNetwork", "IncreaseMaximumEdges", "PopulateAlternateIDFields", "ShareAsRouteLayers",
+              "UpdateByAlternateIDFields", "UpdateByGeometry"):
+    _REFUSED[_name] = _NA_REFUSED[_name]
 
 
 def __getattr__(name):
