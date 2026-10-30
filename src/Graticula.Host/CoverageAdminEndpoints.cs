@@ -552,7 +552,7 @@ internal static partial class CoverageAdminEndpoints
             int next = Math.Max(coverage.NextImageId ?? 1, before.Count == 0 ? 1 : before.Max(i => i.Id) + 1);
             List<CoverageImageEntry> catalog =
             [
-                .. before.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(existing[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions)),
+                .. before.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(existing[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions, i.ZOrder)),
                 .. working.Skip(firstNew).Select((file, k) => new CoverageImageEntry(
                     next + k, Path.GetFileName(file), arrived[k].Name, arrived[k].Acquired, arrived[k].Variable, arrived[k].Dimensions)),
             ];

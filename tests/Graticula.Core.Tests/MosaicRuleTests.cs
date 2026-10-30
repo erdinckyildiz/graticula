@@ -52,6 +52,33 @@ public sealed class MosaicRuleTests
         Assert.Equal(MosaicOperation.Mean, rule!.Operation);
     }
 
+    // ADR-230 condition 5: the same row, the east image given a ZOrder below the others' null (read as 0).
+    private static readonly CatalogImage[] EastForward =
+    [
+        new(1, "west", new Envelope(0, 0, 10, 10), 1, null, 0),
+        new(2, "middle", new Envelope(10, 0, 20, 10), 1, null, 1),
+        new(3, "east", new Envelope(20, 0, 30, 10), 1, null, 2, ZOrder: -1),
+    ];
+
+    [Fact]
+    public void A_lower_zorder_comes_before_the_method_and_a_null_one_counts_as_zero()
+    {
+        Assert.True(MosaicRule.TryParse("""{"mosaicMethod":"esriMosaicNorthwest"}""", out MosaicRule? rule, out string? error), error);
+
+        // Without it, North-West puts the west image on top: drawn last.
+        Assert.Equal([2, 1, 0], rule!.DrawingOrder(Images, View));
+
+        // With it, the east image is on top whatever North-West says, and the method orders the two left tied.
+        Assert.Equal([1, 0, 2], rule.DrawingOrder(EastForward, View));
+    }
+
+    [Fact]
+    public void A_lock_is_not_reordered_by_zorder()
+    {
+        Assert.True(MosaicRule.TryParse("""{"mosaicMethod":"esriMosaicLockRaster","lockRasterIds":[1,3]}""", out MosaicRule? rule, out _));
+        Assert.Equal([2, 0], rule!.DrawingOrder(EastForward, View));
+    }
+
     [Fact]
     public void A_lock_draws_only_what_it_names_first_named_on_top()
     {

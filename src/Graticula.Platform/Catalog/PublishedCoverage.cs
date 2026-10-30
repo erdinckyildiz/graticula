@@ -346,13 +346,15 @@ public interface ICoverageCatalog
 /// <param name="Acquired">When it was taken, if anyone said — ADR-153.</param>
 /// <param name="Variable">The variable it is a slice of, in a multidimensional service — ADR-159.</param>
 /// <param name="Dimensions">Its values along the dimensions other than time — ADR-159.</param>
+/// <param name="ZOrder">Its priority over the mosaic method, lower on top; null for none — ADR-230 condition 5.</param>
 public sealed record CoverageImageEntry(
     int Id,
     string File,
     string Name,
     System.DateTimeOffset? Acquired,
     string? Variable = null,
-    IReadOnlyDictionary<string, double>? Dimensions = null);
+    IReadOnlyDictionary<string, double>? Dimensions = null,
+    int? ZOrder = null);
 
 /// <summary>One class of a classified image, as stored — ADR-154.</summary>
 /// <param name="Value">The pixel value.</param>

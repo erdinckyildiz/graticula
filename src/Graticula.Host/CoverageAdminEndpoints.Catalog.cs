@@ -89,7 +89,7 @@ internal static partial class CoverageAdminEndpoints
 
         await coverages.ReplaceImageAsync(at, name, written, info, cancellation).ConfigureAwait(false);
         await coverages.SetImagesAsync(at, name,
-            [.. images.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions))],
+            [.. images.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions, i.ZOrder))],
             NextOf(coverage, images), cancellation).ConfigureAwait(false);
         File.Delete(coverage.Path);
         await RecordAsync(context, audit, "coverage.image.move", Qualify(name, at), new { image = id, direction = move.Direction }, cancellation)
@@ -98,7 +98,7 @@ internal static partial class CoverageAdminEndpoints
     }
 
     /// <summary>A change to one image: its name, when it was taken — epoch milliseconds — or both; null leaves either.</summary>
-    internal sealed record ImageUpdate(string? Name, long? Acquired, bool? ClearAcquired);
+    internal sealed record ImageUpdate(string? Name, long? Acquired, bool? ClearAcquired, int? ZOrder = null, bool? ClearZOrder = null);
 
     private static async Task ListImagesAsync(
         HttpContext context, string name, string? folder, ICoverageCatalog coverages, ICoverageReaderFactory readers,
@@ -131,6 +131,7 @@ internal static partial class CoverageAdminEndpoints
                 variable = i.Variable,
                 dimensions = i.Dimensions,
                 position = i.Position,
+                zOrder = i.ZOrder,
                 extent = new { xmin = i.Extent.MinX, ymin = i.Extent.MinY, xmax = i.Extent.MaxX, ymax = i.Extent.MaxY },
             }),
         }).ExecuteAsync(context).ConfigureAwait(false);
@@ -150,7 +151,7 @@ internal static partial class CoverageAdminEndpoints
 
         DateTimeOffset? acquired = update.Acquired is { } ms ? DateTimeOffset.FromUnixTimeMilliseconds(ms) : null;
         string? error = await UpdateImageAsync(context, coverage, at, name, id, update.Name, acquired, update.ClearAcquired == true,
-            coverages, readers, audit, cancellation).ConfigureAwait(false);
+            coverages, readers, audit, cancellation, update.ZOrder, update.ClearZOrder == true).ConfigureAwait(false);
 
         if (error is not null)
         {
@@ -185,11 +186,13 @@ internal static partial class CoverageAdminEndpoints
     }
 
     /// <summary>
-    /// Renames an image, or says when it was taken — ADR-152, ADR-153. Returns why not, or null.
+    /// Renames an image, says when it was taken, or sets its ZOrder — ADR-152, ADR-153, ADR-230 condition 5. Returns why
+    /// not, or null.
     /// </summary>
     internal static async Task<string?> UpdateImageAsync(
         HttpContext context, PublishedCoverage coverage, string? at, string name, int id, string? newName, DateTimeOffset? acquired,
-        bool clearAcquired, ICoverageCatalog coverages, ICoverageReaderFactory readers, IAuditLog audit, CancellationToken cancellation)
+        bool clearAcquired, ICoverageCatalog coverages, ICoverageReaderFactory readers, IAuditLog audit, CancellationToken cancellation,
+        int? zOrder = null, bool clearZOrder = false)
     {
         List<CatalogImage> images = await ImageServerEndpoints.CatalogAsync(coverage, readers, cancellation).ConfigureAwait(false);
 
@@ -212,11 +215,13 @@ internal static partial class CoverageAdminEndpoints
             i.Id == id ? renamed ?? i.Name : i.Name,
             i.Id == id ? (clearAcquired ? null : acquired ?? i.Acquired) : i.Acquired,
             i.Variable,
-            i.Dimensions))];
+            i.Dimensions,
+            i.Id == id ? (clearZOrder ? null : zOrder ?? i.ZOrder) : i.ZOrder))];
 
         await coverages.SetImagesAsync(at, name, entries, NextOf(coverage, images), cancellation).ConfigureAwait(false);
         await RecordAsync(context, audit, "coverage.image.update", Qualify(name, at),
-            new { image = id, name = renamed, acquired = clearAcquired ? null : acquired }, cancellation).ConfigureAwait(false);
+            new { image = id, name = renamed, acquired = clearAcquired ? null : acquired, zOrder = clearZOrder ? null : zOrder },
+            cancellation).ConfigureAwait(false);
         return null;
     }
 
@@ -273,7 +278,7 @@ internal static partial class CoverageAdminEndpoints
 
         await coverages.ReplaceImageAsync(at, name, target, info, cancellation).ConfigureAwait(false);
         await coverages.SetImagesAsync(at, name,
-            [.. staying.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions))],
+            [.. staying.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions, i.ZOrder))],
             NextOf(coverage, images), cancellation)
             .ConfigureAwait(false);
 
@@ -464,6 +469,8 @@ internal static partial class CoverageAdminEndpoints
         string? newName = null;
         DateTimeOffset? acquired = null;
         bool clear = false;
+        int? zOrder = null;
+        bool clearZOrder = false;
 
         try
         {
@@ -483,9 +490,22 @@ internal static partial class CoverageAdminEndpoints
                         : attribute.Value.ValueKind == JsonValueKind.String && DateTimeOffset.TryParse(attribute.Value.GetString(),
                             CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset text) ? text : null;
                 }
+                else if (attribute.Name.Equals("ZOrder", StringComparison.OrdinalIgnoreCase))
+                {
+                    // ADR-230 condition 5: a lower value is drawn on top; null takes it away.
+                    clearZOrder = attribute.Value.ValueKind == JsonValueKind.Null;
+
+                    if (!clearZOrder && (attribute.Value.ValueKind != JsonValueKind.Number || !attribute.Value.TryGetInt32(out _)))
+                    {
+                        await Refuse(context, 400, "ZOrder is a whole number, or null to clear it.").ConfigureAwait(false);
+                        return;
+                    }
+
+                    zOrder = clearZOrder ? null : attribute.Value.GetInt32();
+                }
                 else
                 {
-                    await Refuse(context, 400, $"`attributes` sets Name and AcquisitionDate; '{attribute.Name}' is not one an image here has.")
+                    await Refuse(context, 400, $"`attributes` sets Name, AcquisitionDate and ZOrder; '{attribute.Name}' is not one an image here has.")
                         .ConfigureAwait(false);
                     return;
                 }
@@ -497,7 +517,8 @@ internal static partial class CoverageAdminEndpoints
             return;
         }
 
-        string? error = await UpdateImageAsync(context, coverage, folder, name, id, newName, acquired, clear, coverages, readers, audit, cancellation)
+        string? error = await UpdateImageAsync(context, coverage, folder, name, id, newName, acquired, clear, coverages, readers, audit, cancellation,
+                zOrder, clearZOrder)
             .ConfigureAwait(false);
 
         if (error is not null)

@@ -77,6 +77,7 @@ public enum MosaicOperation
 /// <param name="Position">Where it is in the mosaic's own order, from zero: later is drawn over earlier.</param>
 /// <param name="Variable">The variable it is a slice of, in a multidimensional service (ADR-159).</param>
 /// <param name="Dimensions">Its values along the dimensions other than time — a depth, a pressure level (ADR-159).</param>
+/// <param name="ZOrder">Its priority over the mosaic method, lower on top; null for none, read as 0 (ADR-230 condition 5).</param>
 public sealed record CatalogImage(
     int Id,
     string Name,
@@ -85,7 +86,8 @@ public sealed record CatalogImage(
     DateTimeOffset? Acquired,
     int Position,
     string? Variable = null,
-    IReadOnlyDictionary<string, double>? Dimensions = null);
+    IReadOnlyDictionary<string, double>? Dimensions = null,
+    int? ZOrder = null);
 
 /// <summary>
 /// One entry of ArcGIS's <c>multidimensionalDefinition</c>: a variable, a dimension, and the values or ranges of it
@@ -420,6 +422,14 @@ public sealed record MosaicRule
             {
                 ordered.Reverse();
             }
+        }
+
+        // ArcGIS's mosaicking rules: ZOrder, then cell size, come before every method but Lock Raster — a lower ZOrder on
+        // top, a null one as 0, then the finer image; the method orders what they leave tied. Sorted stably over the
+        // method's order, so a service whose images carry no ZOrder and share one grid draws exactly as before.
+        if (Method != MosaicMethod.LockRaster)
+        {
+            ordered = [.. ordered.OrderBy(i => i.ZOrder ?? 0).ThenBy(i => Math.Round(i.PixelSize, 9))];
         }
 
         // The first in the order is on top under MT_FIRST, so it is drawn last.

@@ -204,6 +204,84 @@ public sealed class MosaicCatalogConformanceTests : ArcGisClient
     }
 
     /// <summary>
+    /// ADR-230 condition 5: an image's ZOrder is its own — null until set, not its place in the mosaic — and it comes
+    /// before the mosaic method, as ArcGIS's mosaicking rules say: a lower value on top, a null one as 0. Set through
+    /// ArcGIS's update, it puts the first image on top under North-West, where the two tie, and without a rule, where the
+    /// last added was on top; cleared, both draw as before.
+    /// </summary>
+    [Fact]
+    public async Task An_images_zorder_comes_before_the_mosaic_method_and_is_its_own()
+    {
+        string root = await RequireServerAsync();
+        string? token = await TokenAsync(root);
+        Assert.False(token is null, "No administrator credential; set the suite's user and password.");
+
+        string name = $"zz_zord_{Guid.NewGuid():N}"[..16];
+        string service = $"/rest/services/hosted/{name}/ImageServer";
+
+        using (MultipartFormDataContent form = new())
+        {
+            form.Add(new ByteArrayContent(Constant(100)), "file", "hundred.tif");
+            form.Add(new ByteArrayContent(Constant(200)), "file", "two-hundred.tif");
+            form.Add(new StringContent(name), "name");
+            (HttpStatusCode made, JsonElement said) = await SendAsync(root, token!, HttpMethod.Post, "/admin/coverages/upload", form);
+            Assert.True(made == HttpStatusCode.Created, said.ToString());
+        }
+
+        try
+        {
+            async Task<JsonElement[]> RowsAsync() =>
+                [.. (await SendAsync(root, token!, HttpMethod.Get, $"{service}/query?where=1%3D1&outFields=*&f=json")).Body
+                    .GetProperty("features").EnumerateArray().Select(f => f.GetProperty("attributes"))];
+
+            // Null until set, for both: not the images' places in the mosaic.
+            Assert.All(await RowsAsync(), a => Assert.Equal(JsonValueKind.Null, a.GetProperty("ZOrder").ValueKind));
+
+            string northwest = Rule("""{"mosaicMethod":"esriMosaicNorthwest"}""");
+            Assert.Equal("200", await ValueAsync(root, token!, service));
+            Assert.Equal("100", await ValueAsync(root, token!, service, northwest));
+
+            // The second image below the first's null: on top under North-West, and in the plain view as before.
+            (HttpStatusCode updated, JsonElement result) = await SendAsync(root, token!, HttpMethod.Post, $"{service}/update",
+                Form(("rasterId", "2"), ("attributes", """{"ZOrder":-1}"""), ("f", "json")));
+            Assert.True(updated == HttpStatusCode.OK, result.ToString());
+            Assert.Equal("200", await ValueAsync(root, token!, service, northwest));
+            Assert.Equal(-1, (await RowsAsync()).Single(a => a.GetProperty("OBJECTID").GetInt32() == 2).GetProperty("ZOrder").GetInt32());
+
+            // The first image below the second: on top without a rule, where the last added was.
+            await SendAsync(root, token!, HttpMethod.Post, $"{service}/update",
+                Form(("rasterId", "1"), ("attributes", """{"ZOrder":-5}"""), ("f", "json")));
+            Assert.Equal("100", await ValueAsync(root, token!, service));
+
+            // A ZOrder survives another edit of the catalog.
+            await SendAsync(root, token!, HttpMethod.Post, $"{service}/update",
+                Form(("rasterId", "1"), ("attributes", """{"Name":"renamed"}"""), ("f", "json")));
+            Assert.Equal(-5, (await RowsAsync()).Single(a => a.GetProperty("OBJECTID").GetInt32() == 1).GetProperty("ZOrder").GetInt32());
+
+            // Cleared, both draw as before.
+            foreach (string id in new[] { "1", "2" })
+            {
+                await SendAsync(root, token!, HttpMethod.Post, $"{service}/update",
+                    Form(("rasterId", id), ("attributes", """{"ZOrder":null}"""), ("f", "json")));
+            }
+
+            Assert.Equal("200", await ValueAsync(root, token!, service));
+            Assert.Equal("100", await ValueAsync(root, token!, service, northwest));
+
+            // Not a whole number: refused, saying what it takes.
+            (HttpStatusCode refused, JsonElement why) = await SendAsync(root, token!, HttpMethod.Post, $"{service}/update",
+                Form(("rasterId", "1"), ("attributes", """{"ZOrder":"top"}"""), ("f", "json")));
+            Assert.Equal(HttpStatusCode.BadRequest, refused);
+            Assert.Contains("whole number", why.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            (HttpStatusCode removed, _) = await SendAsync(root, token!, HttpMethod.Delete, $"/admin/coverages/{name}?folder=hosted");
+            Assert.Equal(HttpStatusCode.OK, removed);
+        }
+    }
+
+    /// <summary>
     /// ADR-161: two images overlapping by half — 30.00° to 30.08° E and 30.04° to 30.12° E — under esriMosaicSeamline
     /// each is drawn where its centre is nearer, so the seam is at 30.06° E, where the last added was on top of all
     /// the overlap before.
