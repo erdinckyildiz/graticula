@@ -27,10 +27,16 @@ def _given(value):
     return value not in (None, "", "#")
 
 
-def surface_of(value, tool):
-    """The Surface a tool's ``in_surface`` names: a TIN, or a LAS dataset or layer triangulated from its points (as
-    PolygonVolume's page says a LAS dataset is processed); None for anything else."""
-    from . import _las
+def surface_of(value, tool, pyramid_level_resolution=0):
+    """The Surface a tool's ``in_surface`` names: a TIN, a LAS dataset or layer triangulated from its points (as
+    PolygonVolume's page says a LAS dataset is processed), or a terrain at a pyramid level (ADR-234); None for anything
+    else. A pyramid level other than 0 is refused on a TIN or LAS dataset, which have none."""
+    from . import _las, _terrain
+    if _terrain.exists(value):
+        return _terrain.surface(value, pyramid_level_resolution, tool)
+    if _given(pyramid_level_resolution) and float(pyramid_level_resolution) != 0 and is_surface(value):
+        _refuse(tool, "pyramid_level_resolution", pyramid_level_resolution,
+                "only a terrain has pyramid levels; a TIN or LAS dataset is read at full resolution")
     if _tin.exists(value):
         return _tin.load(value)
     if _las.is_las(value):
@@ -39,8 +45,8 @@ def surface_of(value, tool):
 
 
 def is_surface(value):
-    from . import _las
-    return _tin.exists(value) or _las.is_las(value)
+    from . import _las, _terrain
+    return _tin.exists(value) or _las.is_las(value) or _terrain.exists(value)
 
 
 def _write(out, kind, srid, columns, has_z, rows):
@@ -314,13 +320,18 @@ def TinRaster(in_tin, out_raster, data_type="FLOAT", method="LINEAR", sample_dis
     Refused: ``NATURAL_NEIGHBORS`` (ADR-229 §5.4); the extent environment.
 
     INFERRED: the grid holds whole cells from that centre to past the upper-right corner."""
+    return raster_of(_tin.load(in_tin), out_raster, data_type, method, sample_distance, z_factor, sample_value,
+                     "TinRaster")
+
+
+def raster_of(surface, out_raster, data_type, method, sample_distance, z_factor, sample_value, tool):
+    """TinRaster's raster of a Surface — a TIN's, or a terrain's at a pyramid level (TerrainToRaster, ADR-234)."""
     from ._raster import Raster
     if str(method or "LINEAR").upper() != "LINEAR":
-        _refuse("TinRaster", "method", method, "natural neighbour interpolation over a TIN is not built (ADR-229 §5.4)")
+        _refuse(tool, "method", method, "natural neighbour interpolation over a TIN is not built (ADR-229 §5.4)")
     kind = str(data_type or "FLOAT").upper()
     if kind not in ("FLOAT", "INT"):
-        _refuse("TinRaster", "data_type", data_type)
-    surface = _tin.load(in_tin)
+        _refuse(tool, "data_type", data_type)
     grid = _grid_for(surface.extent(), sample_distance, sample_value, surface.srid, centred=True)
     xs, ys = grid.centres()
     gx, gy = np.meshgrid(xs, ys)
@@ -408,17 +419,14 @@ def SurfaceContour(in_surface, out_feature_class, interval, base_contour=0, cont
     ``z_factor`` first, each triangle treated as a plane, as documented. With ``index_interval``, ``Index`` is 1 on index
     contours and 0 on the rest.
 
-    Refused: terrain surfaces (ADR-229 §5.6); a pyramid level other than 0.
+    On a terrain, any of its pyramid levels (ADR-234); a TIN or LAS dataset has only level 0.
 
     INFERRED: the contour field is ``Contour``; a precision of 0 makes it an integer field and 1–9 a double rounded to
     that many places; an index contour is one whose value less the base is a multiple of the index interval; each
     connected run of a contour is one feature."""
-    surface = surface_of(in_surface, "SurfaceContour")
+    surface = surface_of(in_surface, "SurfaceContour", pyramid_level_resolution)
     if surface is None:
-        _refuse("SurfaceContour", "in_surface", in_surface, "it is neither a TIN nor a LAS dataset grapy holds")
-    if _given(pyramid_level_resolution) and float(pyramid_level_resolution) != 0:
-        _refuse("SurfaceContour", "pyramid_level_resolution", pyramid_level_resolution,
-                "grapy's surfaces have no pyramids")
+        _refuse("SurfaceContour", "in_surface", in_surface, "it is neither a TIN, a LAS dataset nor a terrain grapy holds")
     interval = float(interval)
     if interval <= 0:
         raise ExecuteError("ERROR: the contour interval must be positive.")
@@ -495,18 +503,16 @@ def SurfaceSlope(in_surface, out_feature_class, units="PERCENT", class_breaks_ta
     """Polygons of slope classes: each triangle's slope from its surface normal, as documented, classed by the page's
     nine default classes (or a class breaks table), contiguous triangles of one class merged into one polygon.
 
-    Refused: terrain surfaces; a pyramid level other than 0.
+    On a terrain, any of its pyramid levels (ADR-234); a TIN or LAS dataset has only level 0.
 
     INFERRED: the field is ``SlopeCode``; a slope on a break belongs to the lower class; only the data area is
     written."""
     kind = str(units or "PERCENT").upper()
     if kind not in ("PERCENT", "DEGREE"):
         _refuse("SurfaceSlope", "units", units)
-    surface = surface_of(in_surface, "SurfaceSlope")
+    surface = surface_of(in_surface, "SurfaceSlope", pyramid_level_resolution)
     if surface is None:
-        _refuse("SurfaceSlope", "in_surface", in_surface, "it is neither a TIN nor a LAS dataset grapy holds")
-    if _given(pyramid_level_resolution) and float(pyramid_level_resolution) != 0:
-        _refuse("SurfaceSlope", "pyramid_level_resolution", pyramid_level_resolution, "grapy's surfaces have no pyramids")
+        _refuse("SurfaceSlope", "in_surface", in_surface, "it is neither a TIN, a LAS dataset nor a terrain grapy holds")
     slope, _, gradient = _slopes(surface, float(z_factor if _given(z_factor) else 1))
     values = gradient * 100 if kind == "PERCENT" else np.degrees(slope)
     codes = _classify(values, _breaks(class_breaks_table, _SLOPE_PERCENT if kind == "PERCENT" else _SLOPE_DEGREE), 0.0)
@@ -523,11 +529,9 @@ def SurfaceAspect(in_surface, out_feature_class, class_breaks_table=None, aspect
 
     INFERRED: the field is ``AspectCode``; an aspect on a break belongs to the lower class; a flat triangle is one whose
     plane has no gradient."""
-    surface = surface_of(in_surface, "SurfaceAspect")
+    surface = surface_of(in_surface, "SurfaceAspect", pyramid_level_resolution)
     if surface is None:
-        _refuse("SurfaceAspect", "in_surface", in_surface, "it is neither a TIN nor a LAS dataset grapy holds")
-    if _given(pyramid_level_resolution) and float(pyramid_level_resolution) != 0:
-        _refuse("SurfaceAspect", "pyramid_level_resolution", pyramid_level_resolution, "grapy's surfaces have no pyramids")
+        _refuse("SurfaceAspect", "in_surface", in_surface, "it is neither a TIN, a LAS dataset nor a terrain grapy holds")
     _, aspect, _ = _slopes(surface)
     codes = np.where(aspect < 0, -1, _classify(aspect, _breaks(class_breaks_table, _ASPECT), 0.0))
     which = np.nonzero(surface.inside & (codes != -999999))[0]
@@ -590,22 +594,22 @@ def SurfaceVolume(in_surface, out_text_file=None, reference_plane="ABOVE", base_
     file when one is named; the result's messages say the same. Exact over the TIN's planes (see ``volume``).
 
     Refused: raster surfaces — the page says a raster "is evaluated using the extent of the center point of each cell"
-    and no more, so how a cell's volume is formed is not specified (ADR-224 §5.4); terrain surfaces.
+    and no more, so how a cell's volume is formed is not specified (ADR-224 §5.4). A terrain is read at its pyramid
+    level (ADR-234).
 
     INFERRED: ``base_z`` defaults to 0; the file's header is ``Dataset,Plane_Height,Reference,Z_Factor,Area_2D,Area_3D,
     Volume``, written once when the file is new; numbers are written with two decimals, as the page's example shows;
     the areas are of the part above (or below) the plane."""
     from ._runtime import AddMessage
+    from . import _terrain
     from ._tin import exists
-    if not exists(in_surface):
-        _refuse("SurfaceVolume", "in_surface", in_surface, "only a TIN is built: a raster's cell volume is not specified "
-                "on the page, and terrains are not held (ADR-229 §5.6)")
+    if not exists(in_surface) and not _terrain.exists(in_surface):
+        _refuse("SurfaceVolume", "in_surface", in_surface, "only a TIN or a terrain is built: a raster's cell volume is "
+                "not specified on the page (ADR-229 §5.6)")
     kind = str(reference_plane or "ABOVE").upper()
     if kind not in ("ABOVE", "BELOW"):
         _refuse("SurfaceVolume", "reference_plane", reference_plane)
-    if _given(pyramid_level_resolution) and float(pyramid_level_resolution) != 0:
-        _refuse("SurfaceVolume", "pyramid_level_resolution", pyramid_level_resolution, "TINs have no pyramids")
-    surface = _tin.load(in_surface)
+    surface = surface_of(in_surface, "SurfaceVolume", pyramid_level_resolution)
     zf = float(z_factor if _given(z_factor) else 1)
     plane = float(base_z if _given(base_z) else 0)
     area2d, area3d, total = volume(surface, plane, kind == "ABOVE", None, zf)
@@ -635,12 +639,9 @@ def PolygonVolume(in_surface, in_feature_class, in_height_field, reference_plane
     kind = str(reference_plane or "BELOW").upper()
     if kind not in ("ABOVE", "BELOW", "BOTH"):
         _refuse("PolygonVolume", "reference_plane", reference_plane)
-    surface = surface_of(in_surface, "PolygonVolume")
+    surface = surface_of(in_surface, "PolygonVolume", pyramid_level_resolution)
     if surface is None:
-        _refuse("PolygonVolume", "in_surface", in_surface, "it is neither a TIN nor a LAS dataset grapy holds; terrains "
-                "are not held (ADR-229 §5.6)")
-    if _given(pyramid_level_resolution) and float(pyramid_level_resolution) != 0:
-        _refuse("PolygonVolume", "pyramid_level_resolution", pyramid_level_resolution, "grapy's surfaces have no pyramids")
+        _refuse("PolygonVolume", "in_surface", in_surface, "it is neither a TIN, a LAS dataset nor a terrain grapy holds")
     fields = ([out_volume_field or "Volume", surface_area_field or "SArea"] if kind != "BOTH" else
               [out_volume_above_field or "Above_Vol", out_volume_below_field or "Below_Vol",
                surface_area_above_field or "Above_SA", surface_area_below_field or "Below_SA"])
@@ -713,7 +714,7 @@ def _sampled_line(xy, tree, lines):
 
 
 def interpolate_shape(in_surface, in_feature_class, out_feature_class, sample_distance, z_factor, method, vertices_only,
-                      preserve_features, interpolate_m_value):
+                      preserve_features, interpolate_m_value, pyramid_level_resolution=0):
     """InterpolateShape on a TIN or LAS dataset — see ``ddd.InterpolateShape``."""
     from . import da
     from .analysis import _out, _schema
@@ -727,7 +728,7 @@ def interpolate_shape(in_surface, in_feature_class, out_feature_class, sample_di
         _refuse("InterpolateShape", "preserve_features", preserve_features, "it applies to a raster's nearest method")
     if str(interpolate_m_value or "NO_INTERPOLATE_M_VALUE").upper() != "NO_INTERPOLATE_M_VALUE":
         _refuse("InterpolateShape", "interpolate_m_value", interpolate_m_value)
-    surface = surface_of(in_surface, "InterpolateShape")
+    surface = surface_of(in_surface, "InterpolateShape", pyramid_level_resolution)
     zf = float(z_factor if _given(z_factor) else 1)
     every = str(vertices_only or "DENSIFY").upper() != "VERTICES_ONLY"
     tree, lines = _crossings(surface) if every else (None, None)
@@ -775,3 +776,140 @@ def _resampled(shape, heights, tree, lines, every):
     if shape.geom_type.startswith("Multi"):
         return type(shape)(parts)
     return parts[0]
+
+
+# ---- AddSurfaceInformation on a TIN, terrain or LAS dataset (ADR-234)
+
+_PROPERTIES = {"Point": ("Z",), "Multipoint": ("Z_MIN", "Z_MAX", "Z_MEAN"),
+               "Polyline": ("Z_MIN", "Z_MAX", "Z_MEAN", "SURFACE_LENGTH", "MIN_SLOPE", "MAX_SLOPE", "AVG_SLOPE"),
+               "Polygon": ("Z_MIN", "Z_MAX", "Z_MEAN", "SURFACE_AREA", "MIN_SLOPE", "MAX_SLOPE", "AVG_SLOPE")}
+
+
+def _closest_to_zero(values):
+    return float(values[int(np.argmin(np.abs(values)))])
+
+
+def _line_properties(shape, surface, tree, lines, zf, step, noise):
+    """Z_MIN … AVG_SLOPE of a line on the surface: sampled at its vertices, where it crosses a triangle edge and every
+    ``step``; each piece then lies on one triangle, so its slope is exact."""
+    zs_all, mids, lengths, slopes, slope_lengths = [], [], [], [], []
+    for part in getattr(shape, "geoms", [shape]):
+        coords = np.asarray(part.coords)[:, :2]
+        if step:
+            coords = np.asarray(shapely.segmentize(shapely.LineString(coords), step).coords)[:, :2]
+        xy = _sampled_line(coords, tree, lines)
+        z = surface.z_at(xy[:, 0], xy[:, 1], zf)
+        for k in range(len(xy) - 1):
+            if np.isnan(z[k]) or np.isnan(z[k + 1]):
+                continue
+            flat = float(np.hypot(*(xy[k + 1] - xy[k])))
+            if flat == 0:
+                continue
+            dz = float(z[k + 1] - z[k])
+            length = math.hypot(flat, dz)
+            zs_all.extend([z[k], z[k + 1]])
+            mids.append((z[k] + z[k + 1]) / 2)
+            lengths.append(length)
+            if noise is None or length >= noise:
+                slopes.append(abs(dz) / flat * 100)
+                slope_lengths.append(length)
+    if not lengths:
+        return None
+    lengths, slopes, slope_lengths = np.array(lengths), np.array(slopes), np.array(slope_lengths)
+    out = {"Z_MIN": float(np.min(zs_all)), "Z_MAX": float(np.max(zs_all)),
+           "Z_MEAN": float(np.dot(mids, lengths) / lengths.sum()), "SURFACE_LENGTH": float(lengths.sum())}
+    if len(slopes):
+        out.update({"MIN_SLOPE": _closest_to_zero(slopes), "MAX_SLOPE": float(slopes.max()),
+                    "AVG_SLOPE": float(np.dot(slopes, slope_lengths) / slope_lengths.sum())})
+    return out
+
+
+def _polygon_properties(shape, surface, zf, noise):
+    """Z_MIN … AVG_SLOPE of the surface over a polygon: every triangle of the data area clipped to it."""
+    a, b, c = surface.planes(zf)
+    region = shapely.force_2d(shape)
+    candidates = surface.tree().query(region, predicate="intersects")
+    zs, means, areas, slopes, slope_areas = [], [], [], [], []
+    polygons = surface.polygons()
+    for t in candidates:
+        if not surface.inside[t]:
+            continue
+        piece = shapely.intersection(polygons[t], region)
+        if piece.area <= 0:
+            continue
+        grade = math.hypot(a[t], b[t])
+        area3d = piece.area * math.sqrt(1 + grade ** 2)
+        xy = shapely.get_coordinates(piece)
+        zs.extend((a[t] * xy[:, 0] + b[t] * xy[:, 1] + c[t]).tolist())
+        centre = piece.centroid
+        means.append(a[t] * centre.x + b[t] * centre.y + c[t])
+        areas.append(area3d)
+        if noise is None or area3d >= noise:
+            slopes.append(grade * 100)
+            slope_areas.append(area3d)
+    if not areas:
+        return None
+    areas, slopes, slope_areas = np.array(areas), np.array(slopes), np.array(slope_areas)
+    out = {"Z_MIN": float(min(zs)), "Z_MAX": float(max(zs)), "Z_MEAN": float(np.dot(means, areas) / areas.sum()),
+           "SURFACE_AREA": float(areas.sum())}
+    if len(slopes):
+        out.update({"MIN_SLOPE": _closest_to_zero(slopes), "MAX_SLOPE": float(slopes.max()),
+                    "AVG_SLOPE": float(np.dot(slopes, slope_areas) / slope_areas.sum())})
+    return out
+
+
+def add_surface_information(in_feature_class, in_surface, out_property, method, sample_distance, z_factor,
+                            pyramid_level_resolution, noise_filtering):
+    """AddSurfaceInformation on a TIN, terrain or LAS dataset, as its page defines each property: ``Z`` at points;
+    ``Z_MIN``, ``Z_MAX`` and ``Z_MEAN`` (multipoints: the mean of the points' values; lines: each piece's midpoint z
+    weighted by its 3D length; polygons: each triangle's weighted by its 3D area); ``SURFACE_LENGTH`` and
+    ``SURFACE_AREA`` in 3D; slopes in percent grade per line piece or triangle — ``MIN_SLOPE`` the one closest to 0,
+    ``MAX_SLOPE`` the largest, ``AVG_SLOPE`` weighted by 3D length. Lines are sampled where they cross triangle edges —
+    the "natural densification" the page gives as the default — and every ``sample_distance`` when given.
+    ``noise_filtering`` leaves line pieces shorter, or triangles smaller, than it out of the slopes, as documented.
+
+    Refused: methods other than ``LINEAR`` (natural neighbours and conflation, ADR-229 §5.4).
+
+    INFERRED (ADR-234 §5.9 (f)): each property is written to a double field named after its keyword, overwritten when it
+    exists; a polygon's triangle "midpoint" is its clipped piece's centroid, and its AVG_SLOPE is weighted by 3D area as
+    a line's is by length; a feature off the data area gets empty values, and one partly off is measured where it is on
+    it; a point's value is its z times ``z_factor``."""
+    from . import da
+    from .analysis import _schema
+    from .management import _list
+    tool = "AddSurfaceInformation"
+    if str(method or "LINEAR").upper() not in ("LINEAR", "BILINEAR"):
+        _refuse(tool, "method", method, "natural neighbour and conflation over a triangulated surface are not built "
+                "(ADR-229 §5.4)")
+    surface = surface_of(in_surface, tool, pyramid_level_resolution)
+    _, kind, _, _ = _schema(in_feature_class)
+    allowed = _PROPERTIES.get(kind, ())
+    properties = [str(p).upper() for p in _list(out_property)]
+    for p in properties:
+        if p not in allowed:
+            raise ExecuteError(f"ERROR 000800: {p} is not a property of {kind} features; they take "
+                               f"{', '.join(allowed) or 'none'}.")
+    _ensure_fields(in_feature_class, properties)
+    zf = float(z_factor if _given(z_factor) else 1)
+    step = float(sample_distance) if _given(sample_distance) else None
+    noise = float(noise_filtering) if _given(noise_filtering) else None
+    tree, lines = _crossings(surface) if kind == "Polyline" else (None, None)
+    with da.UpdateCursor(in_feature_class, [*properties, "SHAPE@"]) as rows:
+        for row in rows:
+            values = None
+            if row[-1] is not None:
+                shape = shapely.force_2d(row[-1]._shape)
+                if kind in ("Point", "Multipoint"):
+                    xy = shapely.get_coordinates(shape)
+                    zs = surface.z_at(xy[:, 0], xy[:, 1], zf)
+                    zs = zs[~np.isnan(zs)]
+                    if len(zs):
+                        values = {"Z": float(zs[0]), "Z_MIN": float(zs.min()), "Z_MAX": float(zs.max()),
+                                  "Z_MEAN": float(zs.mean())}
+                elif kind == "Polyline":
+                    values = _line_properties(shape, surface, tree, lines, zf, step, noise)
+                else:
+                    values = _polygon_properties(shape, surface, zf, noise)
+            values = values or {}
+            rows.updateRow([*(values.get(p) for p in properties), row[-1]])
+    return Result(str(in_feature_class))

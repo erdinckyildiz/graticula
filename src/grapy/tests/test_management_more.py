@@ -472,7 +472,7 @@ class ManagementMore(unittest.TestCase):
         self.assertEqual(self.count(copied), 3)
 
     def test_group_two_is_refused_with_its_reason(self):
-        for name in ("CreateReplica", "CreateTrajectoryDataset", "AddAttributeRule", "CreateEnterpriseGeodatabase"):
+        for name in ("CreateTrajectoryDataset", "EnableEditorTracking", "CreateEnterpriseGeodatabase"):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(arcpy.management, name)()
             self.assertIn("needs a data model this server does not hold yet (ADR-224 group 2)", str(raised.exception))

@@ -1342,10 +1342,15 @@ _REASONS = {
     "builds public-transit sources into a network dataset; grapy's network datasets (ADR-226) have no transit "
     "evaluator, and the public transit evaluator's schedule rules are not published": (
         "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
-    "needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 "
-    "group 2)": (
-        "ConvertLas", "LasDatasetToRaster", "PointCloudToRaster", "MeshToLAS", "MultipatchToCollada", "MultipatchToRaster",
+    "needs a point cloud scene layer (I3S or a scene layer package) as input, which grapy does not hold; LAS datasets "
+    "are held since ADR-229 and LasDatasetToRaster reads them (ADR-224 group 2)": ("PointCloudToRaster",),
+    "reads an integrated mesh scene layer (I3S or a scene layer package), which grapy does not hold (ADR-224 group 2)": (
+        "MeshToLAS",),
+    "reads multipatch features, a 3D data model grapy does not hold (ADR-224 group 2)": (
+        "MultipatchToCollada", "MultipatchToRaster"),
+    "reads a BIM file workspace (Revit or IFC), which grapy does not hold (ADR-224 group 2)": (
         "BIMFileToGeodatabase", "ExtractBIMFileFloorplan"),
+
     "reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented": (
         "AddCADFields", "CADToGeodatabase", "ExportCAD"),
     "reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's "
@@ -1397,4 +1402,7 @@ from . import _las as _las_tools  # noqa: E402
 
 LasDatasetToRaster = _las_tools.LasDatasetToRaster
 _REFUSED.pop("LasDatasetToRaster", None)
-_REFUSED["ConvertLas"] = "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4)"
+from . import _lastools as _las_second  # noqa: E402 — ADR-229's second batch
+
+ConvertLas = _las_second.ConvertLas
+_REFUSED.pop("ConvertLas", None)

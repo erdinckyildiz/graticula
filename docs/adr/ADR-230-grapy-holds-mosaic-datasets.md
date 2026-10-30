@@ -108,8 +108,9 @@ falls at x = 3, halfway between the centres. No performance claim is made.
    item's file time when last read, its NoData definition). An item is one raster file of the Raster Dataset type. A
    mosaic dataset is named `<file>.gpkg/<name>`, or by its name in a GeoPackage workspace; ListFeatureClasses does not
    list its catalog, ListDatasets lists it as a mosaic, Delete removes it and grapy's rows for it.
-3. **Raster Dataset is the only raster type.** The other raster types read a sensor's metadata through Esri's raster
-   type definitions; they, product definitions, band definitions across items, CreateRasterType and
+3. **Raster Dataset is the only raster type** *(and Frame Camera since 2026-10-30, added from a frames table —
+   [ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md) §5.3)*. The other raster types read a sensor's
+   metadata through Esri's raster type definitions; they, product definitions, band definitions across items, CreateRasterType and
    AlterMosaicDatasetSchema are refused. Items must have the mosaic's band count and reference, and lie on its grid —
    the same cell size or a whole multiple read by NEAREST, corners whole cells apart (condition 4).
 4. **Methods and operators.** Built as documented: None, North-West, Closest to Center, Closest to Nadir (CenterX and
@@ -135,7 +136,9 @@ falls at x = 3, halfway between the centres. No performance claim is made.
    `SetMosaicDatasetProperties`, `MakeMosaicLayer`, `DefineMosaicDatasetNoData`, `ExportMosaicDatasetPaths`,
    `ExportMosaicDatasetItems`, `ExportMosaicDatasetGeometry`, `ImportMosaicDatasetGeometry`. Every other name of the old
    group-2 entry gives its own reason; `arcpy.ia.DetectControlPoints` and `TransformImageShapes` now name what they
-   still lack — sensor orientations — rather than the mosaic dataset.
+   still lack — sensor orientations — rather than the mosaic dataset. *(Since ADR-234 grapy holds Frame Camera
+   orientations, and the two name what they lack now: Esri's deep learning models, and the deep learning tools'
+   undocumented iShape field.)*
 8. **What a parameter's page leaves undefined is refused, not guessed**: BuildFootprints' `approx_num_vertices` other
    than -1 (how vertices are reduced is not said), `request_size`, `MAINTAIN_EDGES` and their tolerances;
    ExportMosaicDatasetItems' formats other than TIFF, image space and band selection; a `.dbf` paths table.

@@ -465,8 +465,8 @@ class WaterNetwork(unittest.TestCase):
                            synthesize_geometries="SYNTHESIZE_GEOMETRIES")
         self.assertIn("synthesize_geometries", str(said.exception))
         with self.assertRaises(NotBuiltError) as said:
-            arcpy.un.CreateDiagram(self.un, "d")
-        self.assertIn("network diagram", str(said.exception))
+            arcpy.un.CreateDiagramLayerDefinition(self.un, "d")
+        self.assertIn("diagram layer definition", str(said.exception))
         for name in ("AddTelecomDomainNetwork", "VerifyCircuits", "AnalyzeNetworkData", "ApplyErrorResolutions"):
             with self.assertRaises(NotBuiltError) as said:
                 getattr(arcpy.un, name)(self.un)
@@ -789,9 +789,10 @@ class WaterNetwork(unittest.TestCase):
             arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
         self.assertIn("valid", str(said.exception))
         self.assertEqual(self.subnet_rows()[0][1], 2)
-        with self.assertRaises(NotBuiltError):
-            arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.un.DisableNetworkTopology(self.un)
+        with self.assertRaises(ExecuteError) as said:
             arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Basic"])
+        self.assertIn("not a diagram template", str(said.exception))
 
     def test_update_is_connected(self):
         arcpy.un.DisableNetworkTopology(self.un)

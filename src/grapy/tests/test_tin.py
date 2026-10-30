@@ -300,8 +300,8 @@ class Tin(unittest.TestCase):
             arcpy.ddd.CreateTin(os.path.join(self.directory, "c"), None, None, "CONSTRAINED_DELAUNAY")
         with self.assertRaisesRegex(NotBuiltError, "natural neighbour"):
             arcpy.ddd.TinRaster(self.tin, os.path.join(self.directory, "nn.tif"), "FLOAT", "NATURAL_NEIGHBORS")
-        with self.assertRaisesRegex(NotBuiltError, "terrain dataset"):
-            arcpy.ddd.CreateTerrain()
+        with self.assertRaisesRegex(NotBuiltError, "BIM file workspace"):   # terrains are held since ADR-234
+            arcpy.ddd.BIMToTerrain()
         with self.assertRaisesRegex(NotBuiltError, "constrained Delaunay"):
             arcpy.ddd.LandXMLToTin()
         with self.assertRaisesRegex(NotBuiltError, "PRE_10.0"):

@@ -6,8 +6,9 @@ function and saves what it answers; the parameter order and defaults are the ddd
 
 Not built, each refused by name with its reason in ``__getattr__`` below:
 
-- Terrain, point cloud and multipatch tools: data models this server does not hold yet (ADR-224 group 2). TINs and
-  LAS datasets are held since ADR-229; the tools on them not yet built give their own reasons.
+- Point cloud deep learning and multipatch tools: data models this server does not hold yet (ADR-224 group 2). TINs
+  and LAS datasets are held since ADR-229 and terrain datasets since ADR-234; the tools on them not built give their own
+  reasons.
 - Tools on 3D features whose method or output the documentation leaves open, each with its reason (feature classes
   carry z and m since grapy's GeoPackage Z/M support).
 - Tools whose algorithm the documentation describes without specifying (Kriging, Spline, Natural Neighbor, Topo to
@@ -562,7 +563,9 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
     plus every ``sample_distance`` when one is given, as documented; a feature with a vertex off the data area is left
     out (INFERRED, as on a raster).
 
-    Refused: terrain surfaces (ADR-229 §5.6); the methods other than BILINEAR and NEAREST on a raster and LINEAR on a TIN
+    On a terrain (ADR-234) as on a TIN, at the pyramid level given.
+
+    Refused: the methods other than BILINEAR and NEAREST on a raster and LINEAR on a TIN
     (natural neighbours and conflation, ADR-229 §5.4); ``interpolate_m_value``.
 
     INFERRED: densification divides each segment into the fewest equal pieces no longer than the sample distance; under
@@ -571,9 +574,11 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
     from .analysis import _out
     if _tintools.is_surface(in_surface):
         return _tintools.interpolate_shape(in_surface, in_feature_class, out_feature_class, sample_distance, z_factor,
-                                           method, vertices_only, preserve_features, interpolate_m_value)
+                                           method, vertices_only, preserve_features, interpolate_m_value,
+                                           pyramid_level_resolution)
     if isinstance(in_surface, str) and not in_surface.lower().endswith((".tif", ".tiff")):
-        _refuse("InterpolateShape", "in_surface", in_surface, "terrains are not held (ADR-229 §5.6)")
+        _refuse("InterpolateShape", "in_surface", in_surface, "it is not a raster, TIN, terrain or LAS dataset grapy "
+                "holds")
     kind_of = str(method or "BILINEAR").upper()
     if kind_of not in ("BILINEAR", "NEAREST"):
         _refuse("InterpolateShape", "method", method)
@@ -1103,25 +1108,60 @@ LasPointStatsByArea = _las.LasPointStatsByArea
 PointFileInformation = _las.PointFileInformation
 ClassifyLasGround = _equivalent("the progressive morphological filter", "Zhang et al. 2003")(_las.ClassifyLasGround)
 
+from . import _lastools  # noqa: E402 — ADR-229's second batch
+
+ColorizeLas = _lastools.ColorizeLas
+ThinLas = _lastools.ThinLas
+TileLas = _lastools.TileLas
+ClassifyLasOverlap = _lastools.ClassifyLasOverlap
+LocateLasPointsByProximity = _lastools.LocateLasPointsByProximity
+LocateOutliers = _lastools.LocateOutliers
+ExtractObjectsFromPointCloud = _lastools.ExtractObjectsFromPointCloud
+ClassifyLasBuilding = _equivalent("plane detection by region growing with a smoothness constraint",
+                                  "Rabbani, van den Heuvel and Vosselman 2006")(_lastools.ClassifyLasBuilding)
+
 for _built in ("CreateTin", "EditTin", "CopyTin", "DelineateTinDataArea", "TinDomain", "TinEdge", "TinNode", "TinTriangle",
                "TinLine", "TinPolygonTag", "TinRaster", "TinContour", "SurfaceContour", "SurfaceSlope", "SurfaceAspect",
                "SurfaceVolume", "PolygonVolume", "TinPolygonVolume", "LasDatasetToTin", "LASToMultipoint", "ExtractLas",
                "ChangeLasClassCodes", "ClassifyLasByHeight", "SetLasClassCodesUsingFeatures", "LasPointStatsByArea",
-               "PointFileInformation", "ClassifyLasGround"):
+               "PointFileInformation", "ClassifyLasGround", "ColorizeLas", "ThinLas", "TileLas", "ClassifyLasOverlap",
+               "LocateLasPointsByProximity", "LocateOutliers", "ExtractObjectsFromPointCloud", "ClassifyLasBuilding"):
     _REFUSED.pop(_built, None)
 
-_TERRAIN = ("a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does "
-            "not hold; ADR-229 §5.6 holds TINs and LAS datasets instead")
-_LATER = "not in ADR-229's first batch of LAS and TIN tools (its condition 4)"
-_REFUSED.update({name: _TERRAIN for name in (
-    "AddFeatureClassToTerrain", "AddTerrainPoints", "AddTerrainPyramidLevel", "AppendTerrainPoints", "BuildTerrain",
-    "ChangeTerrainReferenceScale", "ChangeTerrainResolutionBounds", "CreateTerrain", "DeleteTerrainPoints",
-    "RemoveFeatureClassFromTerrain", "RemoveTerrainPoints", "RemoveTerrainPyramidLevel", "ReplaceTerrainPoints",
-    "TerrainToPoints", "TerrainToRaster", "TerrainToTin", "BIMToTerrain")})
-_REFUSED.update({name: _LATER for name in (
-    "ColorizeLas", "ClassifyLasOverlap", "ClassifyLasBuilding", "LocateLasPointsByProximity", "ThinLas", "TileLas",
-    "LocateOutliers", "ExtractObjectsFromPointCloud", "ExtractPowerLinesFromPointCloud", "ExtractRailsFromPointCloud",
-    "ExtractMeshFeaturesUsingPointCloud")})
+# ---- terrain datasets (ADR-234): built in _terrain, answered here under arcpy.ddd's names
+
+from . import _terrain  # noqa: E402
+
+CreateTerrain = _terrain.CreateTerrain
+AddTerrainPyramidLevel = _terrain.AddTerrainPyramidLevel
+RemoveTerrainPyramidLevel = _terrain.RemoveTerrainPyramidLevel
+ChangeTerrainReferenceScale = _terrain.ChangeTerrainReferenceScale
+AddFeatureClassToTerrain = _terrain.AddFeatureClassToTerrain
+RemoveFeatureClassFromTerrain = _terrain.RemoveFeatureClassFromTerrain
+ChangeTerrainResolutionBounds = _terrain.ChangeTerrainResolutionBounds
+BuildTerrain = _terrain.BuildTerrain
+AppendTerrainPoints = _terrain.AppendTerrainPoints
+ReplaceTerrainPoints = _terrain.ReplaceTerrainPoints
+DeleteTerrainPoints = _terrain.DeleteTerrainPoints
+RemoveTerrainPoints = _terrain.RemoveTerrainPoints
+TerrainToTin = _terrain.TerrainToTin
+TerrainToPoints = _terrain.TerrainToPoints
+TerrainToRaster = _terrain.TerrainToRaster
+
+for _built in ("CreateTerrain", "AddTerrainPyramidLevel", "RemoveTerrainPyramidLevel", "ChangeTerrainReferenceScale",
+               "AddFeatureClassToTerrain", "RemoveFeatureClassFromTerrain", "ChangeTerrainResolutionBounds",
+               "BuildTerrain", "AppendTerrainPoints", "ReplaceTerrainPoints", "DeleteTerrainPoints",
+               "RemoveTerrainPoints", "TerrainToTin", "TerrainToPoints", "TerrainToRaster"):
+    _REFUSED.pop(_built, None)
+_REFUSED.update({
+    "AddTerrainPoints": "its reference page could not be read: doc.esri.com/en/arcgis-pro/latest/tool-reference/"
+                        "3d-analyst/add-terrain-points.html answered 404, and pro.arcgis.com's add-terrain-points.htm "
+                        "redirects to it (checked 2026-10-30); AppendTerrainPoints, which grapy builds, adds points to a "
+                        "terrain (ADR-234)",
+    "BIMToTerrain": "it reads a TIN surface from an AutoCAD Civil 3D drawing or an IFC file through ArcGIS's BIM file "
+                    "workspace, which grapy does not hold — Civil 3D's drawing format is Autodesk's and unpublished, and "
+                    "conversion.BIMFileToGeodatabase is refused for the same model (ADR-234 §5.4)",
+})
 _REFUSED.update({name: "it trains or runs a deep learning model on point clouds, which grapy does not carry" for name in (
     "ClassifyPointCloudUsingTrainedModel", "DetectObjectsFromPointCloudUsingTrainedModel",
     "EvaluatePointCloudClassificationModel", "PreparePointCloudObjectDetectionTrainingData",
@@ -1142,6 +1182,15 @@ _REFUSED.update({
     "ClassifyLasNoise": "its page contradicts itself on the isolation limit (fewer than, or no more than, the point "
                         "limit), and its other methods' defaults are not given",
     "LasHeightMetrics": "how the ground surface the heights are measured from is built is not stated",
+    "ExtractPowerLinesFromPointCloud": "its page names a catenary fit but not how points are grouped into spans and "
+                                       "wires, how the curve is fitted, or how the wind correction is computed, and "
+                                       "its SAG and WIND_ANGLE fields depend on all three (ADR-229 condition 4)",
+    "ExtractRailsFromPointCloud": "it needs ArcGIS's deep learning frameworks installed, as its page says, and the page "
+                                  "does not say what they detect or how the rails are traced from the crown points; "
+                                  "grapy carries no deep learning model (ADR-229 condition 4)",
+    "ExtractMeshFeaturesUsingPointCloud": "its input is an integrated mesh scene layer (I3S or a scene layer package) "
+                                          "and its output multipatch features, data models this server does not hold "
+                                          "yet (ADR-224 group 2)",
 })
 
 
