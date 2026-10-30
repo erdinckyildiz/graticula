@@ -180,6 +180,7 @@ PyPI metadata (`license_expression`, or the classifier where that is all there i
 | geopandas | 1.2.0 | BSD-3-Clause | **Yes** |
 | rasterio | 1.5.2 | BSD-3-Clause; its wheel bundles GDAL as pyogrio's does | **Yes** — added with `grapy.sa` (ADR-224) |
 | scipy | 1.18.1 | BSD-3-Clause (the classifier says *BSD License*) | **Yes** — added with `grapy.sa` (ADR-224) |
+| laspy | 2.7.0 | BSD-2-Clause (`license_expression`); pure Python over numpy, no bundled native code. Its LAZ backends (lazrs, laszip) are optional extras and are **not** installed | **Yes** — added with grapy's LAS datasets (ADR-229) |
 
 **The image installs the newest of each when it is built**, so the version column says what was read, not what was
 pinned. A wheel whose licence changes would change here only if somebody looked. Pinning is the open part of this row.

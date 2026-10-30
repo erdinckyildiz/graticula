@@ -159,11 +159,10 @@ NETWORK = {"METERS": METRE, "KILOMETERS": KILOMETRE, "FEET": FOOT_US, "YARDS": Y
            "NAUTICALMILES": NAUTICAL_MILE_US, "INCHES": INCH_US, "CENTIMETERS": CENTIMETRE, "MILLIMETERS": MILLIMETRE,
            "DECIMETERS": DECIMETRE}
 
-# SummarizeWithin follows the server's own Summarize Within (Q-193), not Pro's tool, so these equal
-# AnalysisEndpoints.Units and AnalysisEndpoints.AreaUnits in Graticula.Host, international throughout. Pro's
-# SummarizeWithin reads its FEET, YARDS and MILES as US survey units (measured the same day); that difference is the
-# server's, and is recorded in D-323 rather than decided here.
-SERVER_LENGTH = {"METERS": METRE, "KILOMETERS": KILOMETRE, "FEET": FOOT_INT, "YARDS": YARD_INT, "MILES": MILE_INT,
+# SummarizeWithin follows the server's own Summarize Within (Q-193), so these equal AnalysisEndpoints.SummaryLengthUnits
+# and AnalysisEndpoints.AreaUnits in Graticula.Host. Both follow Pro's SummarizeWithin, measured the same day: its FEET,
+# YARDS and MILES are US survey units and its areas international (owner decision, 2026-10-30).
+SERVER_LENGTH = {"METERS": METRE, "KILOMETERS": KILOMETRE, "FEET": FOOT_US, "YARDS": YARD_US, "MILES": MILE_US,
                  "NAUTICALMILES": NAUTICAL_MILE_INT}
 SERVER_AREA = {"SQUAREMETERS": 1.0, "SQUAREKILOMETERS": 1e6, "HECTARES": 1e4, "ACRES": ACRE_INT,
                "SQUAREMILES": 2_589_988.110336, "SQUAREYARDS": YARD_INT ** 2, "SQUAREFEET": FOOT_INT ** 2}

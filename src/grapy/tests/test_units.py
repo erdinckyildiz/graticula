@@ -214,10 +214,23 @@ class Units(unittest.TestCase):
         if not os.path.exists(source):
             self.skipTest("the server's source is not beside grapy")
         text = open(source, encoding="utf-8").read()
-        server = {name.upper(): float(value.replace("_", ""))
-                  for name, value in re.findall(r'\["(\w+)"\]\s*=\s*([\d_.]+),', text)}
-        for key, (_, size) in {**analysis._SUM_LENGTH_UNITS, **analysis._SUM_AREA_UNITS}.items():
-            self.assertAlmostEqual(size, server[key], places=12, msg=key)
+
+        def table(name):
+            block = text[text.index(name + " = new"):]
+            block = block[:block.index("};")]
+            out = {}
+            for key, value in re.findall(r'\["(\w+)"\]\s*=\s*([\d_.]+(?:\s*/\s*[\d_.]+)?),', block):
+                parts = [float(p.replace("_", "")) for p in value.split("/")]
+                out[key.upper()] = parts[0] / parts[1] if len(parts) == 2 else parts[0]
+            return out
+
+        lengths, areas = table("SummaryLengthUnits"), table("AreaUnits")
+        for key, (_, size) in analysis._SUM_LENGTH_UNITS.items():
+            self.assertAlmostEqual(size, lengths[key], places=12, msg=key)
+        for key, (_, size) in analysis._SUM_AREA_UNITS.items():
+            self.assertAlmostEqual(size, areas[key], places=12, msg=key)
+        # Pro's own, measured 2026-10-30: a summary's feet is the US survey foot.
+        self.assertAlmostEqual(lengths["FEET"], 1200 / 3937, places=15)
 
 
 if __name__ == "__main__":

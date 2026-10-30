@@ -6,8 +6,8 @@ function and saves what it answers; the parameter order and defaults are the ddd
 
 Not built, each refused by name with its reason in ``__getattr__`` below:
 
-- TIN, terrain, LAS dataset, point cloud and multipatch tools: data models this server does not hold yet (ADR-224
-  group 2).
+- Terrain, point cloud and multipatch tools: data models this server does not hold yet (ADR-224 group 2). TINs and
+  LAS datasets are held since ADR-229; the tools on them not yet built give their own reasons.
 - Tools on 3D features whose method or output the documentation leaves open, each with its reason (feature classes
   carry z and m since grapy's GeoPackage Z/M support).
 - Tools whose algorithm the documentation describes without specifying (Kriging, Spline, Natural Neighbor, Topo to
@@ -557,16 +557,23 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
     off the surface's data is left out, unless the method is NEAREST and ``preserve_features`` is ``PRESERVE``, as
     documented. Fields are copied.
 
-    Refused: TIN, terrain and LAS surfaces (ADR-224 group 2); the methods other than BILINEAR and NEAREST;
-    ``interpolate_m_value``.
+    On a TIN or LAS dataset (ADR-229) the method is ``LINEAR`` — "a weighted average of the three nodes of the triangle
+    containing the interpolation point" — and lines are sampled at their vertices and where they cross a triangle edge,
+    plus every ``sample_distance`` when one is given, as documented; a feature with a vertex off the data area is left
+    out (INFERRED, as on a raster).
+
+    Refused: terrain surfaces (ADR-229 §5.6); the methods other than BILINEAR and NEAREST on a raster and LINEAR on a TIN
+    (natural neighbours and conflation, ADR-229 §5.4); ``interpolate_m_value``.
 
     INFERRED: densification divides each segment into the fewest equal pieces no longer than the sample distance; under
     PRESERVE a vertex off the data takes z 0; m-values are not carried."""
-    from . import _gpkg, da
+    from . import _gpkg, _tintools, da
     from .analysis import _out
+    if _tintools.is_surface(in_surface):
+        return _tintools.interpolate_shape(in_surface, in_feature_class, out_feature_class, sample_distance, z_factor,
+                                           method, vertices_only, preserve_features, interpolate_m_value)
     if isinstance(in_surface, str) and not in_surface.lower().endswith((".tif", ".tiff")):
-        _refuse("InterpolateShape", "in_surface", in_surface, "TIN, terrain and LAS surfaces need data models this "
-                "server does not hold yet (ADR-224 group 2)")
+        _refuse("InterpolateShape", "in_surface", in_surface, "terrains are not held (ADR-229 §5.6)")
     kind_of = str(method or "BILINEAR").upper()
     if kind_of not in ("BILINEAR", "NEAREST"):
         _refuse("InterpolateShape", "method", method)
@@ -610,13 +617,20 @@ def UpdateFeatureZ(in_features, in_surface, method="BILINEAR", status_field=None
     """Each vertex's z replaced by the raster surface's, bilinearly interpolated, for the features entirely on the
     surface; the others are left, as documented. ``status_field`` receives 1 for a feature updated and 0 for one not.
 
-    Refused: TIN, terrain and LAS surfaces (ADR-224 group 2); methods other than BILINEAR (the page names BILINEAR as
-    the raster's); a 2D feature class.
+    On a TIN or LAS dataset (ADR-229) the method is LINEAR, each vertex on its triangle's plane.
+
+    Refused: terrain surfaces (ADR-229 §5.6); methods other than BILINEAR on a raster (the page names BILINEAR as
+    the raster's) and LINEAR on a TIN; a 2D feature class.
 
     INFERRED: "entirely on the surface" means every vertex has a value under bilinear interpolation."""
-    from . import _gpkg, da
-    if isinstance(in_surface, str) and not in_surface.lower().endswith((".tif", ".tiff")):
-        _refuse("UpdateFeatureZ", "in_surface", in_surface, "TIN, terrain and LAS surfaces (ADR-224 group 2)")
+    from . import _gpkg, _tintools, da
+    tin = _tintools.surface_of(in_surface, "UpdateFeatureZ") if _tintools.is_surface(in_surface) else None
+    if tin is None and isinstance(in_surface, str) and not in_surface.lower().endswith((".tif", ".tiff")):
+        _refuse("UpdateFeatureZ", "in_surface", in_surface, "terrains are not held (ADR-229 §5.6)")
+    if tin is not None:
+        if str(method or "LINEAR").upper() not in ("LINEAR", "BILINEAR"):
+            _refuse("UpdateFeatureZ", "method", method, "a TIN is interpolated linearly (ADR-229 §5.4)")
+        return _update_on_tin(in_features, tin, status_field)
     if str(method or "BILINEAR").upper() != "BILINEAR":
         _refuse("UpdateFeatureZ", "method", method, "a raster surface is interpolated bilinearly")
     _, _, _, has_z, has_m = _z_class(in_features, "UpdateFeatureZ")
@@ -635,6 +649,28 @@ def UpdateFeatureZ(in_features, in_surface, method="BILINEAR", status_field=None
                 continue
             built = _gpkg.rebuild(shape, True, has_m, None,
                                   lambda z, xy: np.array([sa._sample(raster, x, y, True) for x, y in xy], dtype=np.float64))
+            rows.updateRow([built, *([1] if len(fields) > 1 else [])])
+    return Result(in_features)
+
+
+def _update_on_tin(in_features, tin, status_field):
+    """UpdateFeatureZ on a TIN: each vertex given its triangle plane's height, for features wholly on the data area."""
+    from . import _gpkg, da
+    _, _, _, has_z, has_m = _z_class(in_features, "UpdateFeatureZ")
+    if not has_z:
+        _refuse("UpdateFeatureZ", "in_features", in_features, "it is a 2D feature class")
+    fields = ["SHAPE@"] + ([status_field] if status_field not in (None, "", "#") else [])
+    with da.UpdateCursor(in_features, fields) as rows:
+        for row in rows:
+            if row[0] is None:
+                continue
+            shape = row[0]._shape
+            xy = _shapely.get_coordinates(shape)
+            if np.isnan(tin.z_at(xy[:, 0], xy[:, 1])).any():
+                rows.updateRow([row[0], *([0] if len(fields) > 1 else [])])
+                continue
+            built = _gpkg.rebuild(shape, True, has_m, None,
+                                  lambda z, part: tin.z_at(np.asarray(part)[:, 0], np.asarray(part)[:, 1]))
             rows.updateRow([built, *([1] if len(fields) > 1 else [])])
     return Result(in_features)
 
@@ -1032,6 +1068,81 @@ def CutFill(in_before_surface, in_after_surface, out_raster, z_factor=1):
 
 for _built in ("Lookup", "CutFill"):
     _REFUSED.pop(_built, None)
+
+
+# ---- TINs and LAS datasets (ADR-229): built in _tintools and _las, answered here under arcpy.ddd's names
+
+
+from . import _las, _tintools  # noqa: E402
+
+CreateTin = _tintools.CreateTin
+EditTin = _tintools.EditTin
+CopyTin = _tintools.CopyTin
+DelineateTinDataArea = _tintools.DelineateTinDataArea
+TinDomain = _tintools.TinDomain
+TinEdge = _tintools.TinEdge
+TinNode = _tintools.TinNode
+TinTriangle = _tintools.TinTriangle
+TinLine = _tintools.TinLine
+TinPolygonTag = _tintools.TinPolygonTag
+TinRaster = _tintools.TinRaster
+TinContour = _tintools.TinContour
+SurfaceContour = _tintools.SurfaceContour
+SurfaceSlope = _tintools.SurfaceSlope
+SurfaceAspect = _tintools.SurfaceAspect
+SurfaceVolume = _tintools.SurfaceVolume
+PolygonVolume = _tintools.PolygonVolume
+TinPolygonVolume = _tintools.TinPolygonVolume
+LasDatasetToTin = _las.LasDatasetToTin
+LASToMultipoint = _las.LASToMultipoint
+ExtractLas = _las.ExtractLas
+ChangeLasClassCodes = _las.ChangeLasClassCodes
+ClassifyLasByHeight = _las.ClassifyLasByHeight
+SetLasClassCodesUsingFeatures = _las.SetLasClassCodesUsingFeatures
+LasPointStatsByArea = _las.LasPointStatsByArea
+PointFileInformation = _las.PointFileInformation
+ClassifyLasGround = _equivalent("the progressive morphological filter", "Zhang et al. 2003")(_las.ClassifyLasGround)
+
+for _built in ("CreateTin", "EditTin", "CopyTin", "DelineateTinDataArea", "TinDomain", "TinEdge", "TinNode", "TinTriangle",
+               "TinLine", "TinPolygonTag", "TinRaster", "TinContour", "SurfaceContour", "SurfaceSlope", "SurfaceAspect",
+               "SurfaceVolume", "PolygonVolume", "TinPolygonVolume", "LasDatasetToTin", "LASToMultipoint", "ExtractLas",
+               "ChangeLasClassCodes", "ClassifyLasByHeight", "SetLasClassCodesUsingFeatures", "LasPointStatsByArea",
+               "PointFileInformation", "ClassifyLasGround"):
+    _REFUSED.pop(_built, None)
+
+_TERRAIN = ("a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does "
+            "not hold; ADR-229 §5.6 holds TINs and LAS datasets instead")
+_LATER = "not in ADR-229's first batch of LAS and TIN tools (its condition 4)"
+_REFUSED.update({name: _TERRAIN for name in (
+    "AddFeatureClassToTerrain", "AddTerrainPoints", "AddTerrainPyramidLevel", "AppendTerrainPoints", "BuildTerrain",
+    "ChangeTerrainReferenceScale", "ChangeTerrainResolutionBounds", "CreateTerrain", "DeleteTerrainPoints",
+    "RemoveFeatureClassFromTerrain", "RemoveTerrainPoints", "RemoveTerrainPyramidLevel", "ReplaceTerrainPoints",
+    "TerrainToPoints", "TerrainToRaster", "TerrainToTin", "BIMToTerrain")})
+_REFUSED.update({name: _LATER for name in (
+    "ColorizeLas", "ClassifyLasOverlap", "ClassifyLasBuilding", "LocateLasPointsByProximity", "ThinLas", "TileLas",
+    "LocateOutliers", "ExtractObjectsFromPointCloud", "ExtractPowerLinesFromPointCloud", "ExtractRailsFromPointCloud",
+    "ExtractMeshFeaturesUsingPointCloud")})
+_REFUSED.update({name: "it trains or runs a deep learning model on point clouds, which grapy does not carry" for name in (
+    "ClassifyPointCloudUsingTrainedModel", "DetectObjectsFromPointCloudUsingTrainedModel",
+    "EvaluatePointCloudClassificationModel", "PreparePointCloudObjectDetectionTrainingData",
+    "PreparePointCloudTrainingData", "TrainPointCloudClassificationModel", "TrainPointCloudObjectDetectionModel")})
+_REFUSED.update({
+    "DecimateTinNodes": "how the nodes kept are chosen is not documented, for either method (ADR-229 §5.7)",
+    "LandXMLToTin": "it makes a constrained Delaunay TIN, as the page says, and grapy's TINs are conforming Delaunay — "
+                    "scipy has no constrained triangulation (ADR-229 §5.3)",
+    "RasterTin": "how it selects the raster's points within the z tolerance is not documented (ADR-229 §5.7)",
+    "TINToMultipatch": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
+    "LasBuildingMultipatch": "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)",
+    "TinSlope": "it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read",
+    "TinAspect": "it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read",
+    "SurfaceDifference": "its difference surface is built by constrained Delaunay triangulation, as documented, which "
+                         "grapy does not have (ADR-229 §5.3)",
+    "TinDifference": "it is the legacy name of SurfaceDifference, whose difference surface is built by constrained "
+                     "Delaunay triangulation, which grapy does not have (ADR-229 §5.3)",
+    "ClassifyLasNoise": "its page contradicts itself on the isolation limit (fewer than, or no more than, the point "
+                        "limit), and its other methods' defaults are not given",
+    "LasHeightMetrics": "how the ground surface the heights are measured from is built is not stated",
+})
 
 
 def __getattr__(name):

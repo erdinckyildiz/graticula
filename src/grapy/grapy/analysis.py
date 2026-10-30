@@ -1300,8 +1300,8 @@ def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", 
 
 # ---- Summarize Within: the server's own summary, by the names Q-193 decided ----------------------------------------
 
-# The server's units and sizes, international throughout (_units.SERVER_LENGTH/SERVER_AREA); Pro's own SummarizeWithin
-# reads FEET, YARDS and MILES as US survey units, which D-323 records for the server rather than grapy deciding it.
+# The server's units and sizes (_units.SERVER_LENGTH/SERVER_AREA), which are Pro's: FEET, YARDS and MILES US survey
+# units, areas international (owner decision, 2026-10-30).
 _SUM_LENGTH_UNITS = {key: (name, _units.SERVER_LENGTH[key]) for key, name in
                      [("METERS", "Meters"), ("KILOMETERS", "Kilometers"), ("FEET", "Feet"), ("YARDS", "Yards"),
                       ("MILES", "Miles")]}

@@ -73,7 +73,10 @@ class _Described:
             oid = _gpkg.oid_column(connection, table)
             bounds = None
             from shapely import union_all
-            shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select "{geometry}" from "{table}"')]
+            own = [r[1] for r in connection.execute(f'pragma table_info("{table}")')]
+            has_shape = geometry in own
+            shapes = [_gpkg.decode(r[0]) for r in connection.execute(f'select "{geometry}" from "{table}"')] \
+                if has_shape else []
             shapes = [s for s in shapes if s is not None and not s.is_empty]
             if shapes:
                 bounds = union_all(shapes).bounds
@@ -81,6 +84,7 @@ class _Described:
             titles = _field_titles(connection, table)
             joined = _joined_fields(path, connection, table, oid, geometry)
             has_z, has_m = _gpkg.dimensions(connection, table)
+            model = _model_properties(connection, table)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -94,9 +98,20 @@ class _Described:
         self.hasOID = True
         self.spatialReference = SpatialReference(srid) if srid > 0 else None
         self.fields = [Field(oid, "OID", False), *[Field(c.name, c.type, c.nullable, aliasName=titles.get(c.name.lower()))
-                                                    for c in columns], Field(geometry, "Geometry")]
+                                                    for c in columns]] + ([Field(geometry, "Geometry")] if has_shape else [])
+        global_id, subtype, defaults, relationships = model
         for field in self.fields:
             field.domain = domains.get(field.name.lower(), "")
+            field.defaultValue = defaults.get((field.name.lower(), None))
+            if global_id and field.name.lower() == global_id.lower():
+                field.type, field.editable, field.required, field.isNullable, field.length = "GlobalID", False, True, False, 38
+        # The geodatabase table properties of ADR-228. INFERRED: without a subtype field, subtypeFieldName is empty and
+        # defaultSubtypeCode -1; relationshipClassNames names the relationship classes the table takes part in.
+        self.subtypeFieldName = subtype[0] if subtype else ""
+        self.defaultSubtypeCode = subtype[1] if subtype else -1
+        self.globalIDFieldName = global_id or ""
+        self.hasGlobalID = bool(global_id)
+        self.relationshipClassNames = relationships
         if joined is not None:
             own = f"{table}.".lower()
             for field in joined:
@@ -118,6 +133,23 @@ class _Described:
             self.path = ""
         if shape == "Geometry" and srid == 0:
             self.dataType = self.datasetType = "Table"
+
+
+def _model_properties(connection, table):
+    """(GlobalID field, (subtype field, default code) or None, {(field, code): default}, [relationship class names]) of a
+    table — ADR-225 and ADR-228."""
+    from . import _attachments, _relationships, _subtypes
+    classes = _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table)
+    return (_attachments.global_id_field(connection, table), _subtypes.field(connection, table),
+            _subtypes.defaults(connection, table), sorted({rc["name"].rsplit("/", 1)[-1] for rc in classes}))
+
+
+def _own_tables(contents):
+    """The tables of a GeoPackage's contents that are not kept for another — attachment tables and their mappings
+    (ADR-228) — so that a file of one class and its attachments still names that class."""
+    from ._attachments import is_companion
+    names = [c[0] for c in contents]
+    return [c for c in contents if not is_companion(c[0], names)]
 
 
 def _raster_fields(path):
@@ -177,19 +209,24 @@ class _DescribedWorkspace:
 
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
-    object), a folder, a GeoPackage of several tables (a workspace), or a topology, relationship class or network
-    dataset held in a GeoPackage (ADR-225, ADR-226)."""
+    object), a folder, a GeoPackage of several tables (a workspace), a topology, relationship class or network
+    dataset held in a GeoPackage (ADR-225, ADR-226), or a TIN or LAS dataset (ADR-229)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
     try:
         path = os.fspath(value)
     except TypeError:  # A layer object: described by its source.
         return _Described(value)
+    from . import _las, _tin
+    for model in (_tin, _las):  # a TIN may be a folder, and a .lasd is no raster (ADR-229)
+        described = model.describe(path)
+        if described is not None:
+            return described
     if os.path.isdir(path):
         return _DescribedWorkspace(path)
     if os.path.splitext(path)[1].lower() in _RASTER_EXTENSIONS:
         return _DescribedRaster(Raster(path))
-    if path.lower().endswith(".gpkg") and os.path.exists(path) and len(_contents(path)) != 1:
+    if path.lower().endswith(".gpkg") and os.path.exists(path) and len(_own_tables(_contents(path))) != 1:
         return _DescribedWorkspace(path)
     from . import _network, _relationships, _topology
     for model in (_network, _topology, _relationships):
@@ -322,7 +359,7 @@ def _entries(kind):
         stem = os.path.splitext(base)[0]
         for table, k, shape in contents:
             if k == kind:
-                found.append((base if table == stem or len(contents) == 1 else f"{base}/{table}", shape))
+                found.append((base if table == stem or len(_own_tables(contents)) == 1 else f"{base}/{table}", shape))
     return found
 
 
@@ -930,7 +967,8 @@ _REFUSED_NAMES.update({
     "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
     "Multipatch": "a multipatch is a data model this server does not hold yet (ADR-224 group 2)",
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
-    "ListLasDatasetFiles": "LAS datasets are a data model this server does not hold (ADR-224 group 2)",
+    "ListLasDatasetFiles": "it is not documented: absent from ArcPy's function list on pro.arcgis.com on "
+                           "2026-10-30, so its parameters and answer are unknown (ADR-229 §5.8)",
     "CrossValidationResult": "it reads a geostatistical layer, a model object grapy does not have",
     "GeostatisticalDatasets": "it reads a geostatistical layer, a model object grapy does not have",
     "GetIDMessage": "its text is Esri's message catalogue, which is not published as data",

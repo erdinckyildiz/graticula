@@ -2,7 +2,11 @@
 
 The tokens a field list may hold: ``OID@``, ``SHAPE@`` (a geometry object), ``SHAPE@XY`` (the centroid's x and y),
 ``SHAPE@X``, ``SHAPE@Y``, ``SHAPE@Z``, ``SHAPE@M``, ``SHAPE@XYZ``, ``SHAPE@WKT``, ``SHAPE@WKB``, ``SHAPE@JSON``,
-``SHAPE@AREA``, ``SHAPE@LENGTH``, and ``*`` for every field and the shape.
+``SHAPE@AREA``, ``SHAPE@LENGTH``, and ``*`` for every field and the shape; ``SUBTYPE@``, the subtype code, and
+``GLOBALID@``, the read-only global ID, on a class that has them (ADR-228).
+
+A new row takes, for each field an InsertCursor does not name, its default value: its subtype's, or the field's own,
+its subtype being the default subtype when it names none; a class with global IDs gives it a new one (ADR-228).
 
 Z and M: a class whose geometry column carries z or m (gpkg_geometry_columns' flags) is read with them, and a shape
 written to it is made to have exactly them — a missing z 0, a missing m NaN, and one the class does not carry dropped
@@ -27,9 +31,32 @@ def _columns(fields, described, oid):
     if isinstance(fields, str):
         fields = [f.strip() for f in fields.split(";")]
     for f in fields:
-        if not f.upper().startswith(("OID@", "SHAPE@")) and f not in names and f != oid:
+        if not f.upper().startswith(("OID@", "SHAPE@")) and f.upper() not in _MODEL_TOKENS and f not in names and f != oid:
             raise RuntimeError(f"Cannot find field '{f}'")
     return list(fields)
+
+
+_MODEL_TOKENS = ("SUBTYPE@", "GLOBALID@")
+
+
+def _model_tokens(connection, table, fields):
+    """{token: column} for the SUBTYPE@ and GLOBALID@ a field list names (ADR-228); a class without a subtype field or
+    global IDs cannot answer them (INFERRED: RuntimeError, as for a field that is not there)."""
+    from . import _attachments, _subtypes
+    out = {}
+    for f in fields:
+        upper = f.upper()
+        if upper == "SUBTYPE@":
+            found = _subtypes.field(connection, table)
+            if found is None:
+                raise RuntimeError(f"Cannot find field 'SUBTYPE@': '{table}' has no subtype field.")
+            out[upper] = found[0]
+        elif upper == "GLOBALID@":
+            found = _attachments.global_id_field(connection, table)
+            if found is None:
+                raise RuntimeError(f"Cannot find field 'GLOBALID@': '{table}' has no global IDs.")
+            out[upper] = found
+    return out
 
 
 def _shape_token(token, shape, reference):
@@ -131,6 +158,9 @@ class _Cursor:
                                    f"{self._joined.names[0] if self._joined.names else 'table.field'}.") from None
         else:
             self.fields = tuple(_columns(field_names, self._described, self._oid))
+        self._tokens = _model_tokens(self._connection, self._table, self.fields)
+        if self._tokens and self._joined is not None:
+            raise NotBuiltError("arcpy.da: SUBTYPE@ and GLOBALID@ on a joined layer are not built in grapy.")
         self._versioned = self._version_of(layer)
         if self._versioned is not None and self._joined is not None:
             raise NotBuiltError("arcpy.da: a cursor on a joined layer of a versioned class is not built in grapy.")
@@ -167,13 +197,20 @@ class _Cursor:
         out = {}
         for field, value in zip(self.fields, row):
             upper = field.upper()
-            if upper == "OID@":
+            if upper in ("OID@", "GLOBALID@"):
                 continue
             if upper.startswith("SHAPE@"):
                 out[self._geometry] = _gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m)
             else:
-                out[field] = value
+                out[self._tokens.get(upper, field)] = value
         return out
+
+    def _defaults(self, values):
+        """``values`` with what a new row does not name: its subtype, defaults and global ID (ADR-228)."""
+        if not hasattr(self, "_plan"):
+            from . import _subtypes
+            self._plan = _subtypes.InsertPlan(self._connection, self._table)
+        return self._plan.apply(values) if self._plan else values
 
     def _select(self):
         out = []
@@ -183,7 +220,8 @@ class _Cursor:
                 out.append(self._joined.oid_sql if upper == "OID@" else self._joined.geometry_sql
                            if upper.startswith("SHAPE@") else self._joined.sql(f))
             else:
-                out.append(f'"{self._oid}"' if upper == "OID@" else f'"{self._geometry}"' if upper.startswith("SHAPE@") else f'"{f}"')
+                out.append(f'"{self._oid}"' if upper == "OID@" else f'"{self._geometry}"' if upper.startswith("SHAPE@")
+                           else f'"{self._tokens[upper]}"' if upper in self._tokens else f'"{f}"')
         return ", ".join(out)
 
     def _from(self):
@@ -385,19 +423,10 @@ class InsertCursor(_Cursor):
             from . import _versions
             branch, _ = self._writable_version()
             object_id = _versions.reserve_id(self._connection, self._table)
-            _versions.write(self._connection, self._table, branch, object_id, self._row_values(row))
+            _versions.write(self._connection, self._table, branch, object_id, self._defaults(self._row_values(row)))
             return object_id
-        names, values = [], []
-        for field, value in zip(self.fields, row):
-            upper = field.upper()
-            if upper == "OID@":
-                continue
-            if upper.startswith("SHAPE@"):
-                names.append(self._geometry)
-                values.append(_gpkg.encode(_shape_from(value), self._srid, self._has_z, self._has_m))
-            else:
-                names.append(field)
-                values.append(value)
+        written = self._defaults(self._row_values(row))
+        names, values = list(written), list(written.values())
         quoted = ", ".join('"' + n + '"' for n in names)
         marks = ", ".join("?" for _ in names)
         cursor = self._connection.execute(f'insert into "{self._table}" ({quoted}) values ({marks})', values)
@@ -438,7 +467,11 @@ class UpdateCursor(SearchCursor):
         names, values = [], []
         for i, (field, value) in enumerate(zip(self.fields, row)):
             upper = field.upper()
-            if upper == "OID@":
+            if upper in ("OID@", "GLOBALID@"):
+                continue
+            if upper in self._tokens:
+                names.append(self._tokens[upper])
+                values.append(value)
                 continue
             if upper.startswith("SHAPE@"):
                 names.append(self._geometry)
@@ -996,10 +1029,9 @@ class Editor:
         return False
 
 
-_NO_MODEL = "a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences " \
-            "(ADR-224 group 2)"
+_NO_MODEL = "a GeoPackage holds no replicas, contingent values or database sequences (ADR-224 group 2)"
 _REFUSED = {name: _NO_MODEL for name in (
-    "ListReplicas", "Replica", "SyncReplica", "ListSubtypes", "ContingentFieldValue",
+    "ListReplicas", "Replica", "SyncReplica", "ContingentFieldValue",
     "ContingentValue", "ListContingentValues", "DatabaseSequence", "ListDatabaseSequences",
     "SearchRelatedRecords")}
 _REFUSED["TableToArrowTable"] = "pyarrow is not among the wheels a user tool runs with today"
@@ -1135,3 +1167,48 @@ def ListFieldConflictFilters(table):
         return _versions.filters(connection, name)
     finally:
         connection.close()
+
+
+# ---- subtypes (ADR-228) -------------------------------------------------------------------------------------------
+
+
+def ListSubtypes(table):
+    """A table's subtypes as a dictionary keyed by subtype code, each a dictionary of its properties, as documented:
+    ``Name``, ``Default`` (whether it is the default subtype), ``SubtypeField``, and ``FieldValues`` — for each field,
+    ``(default value, Domain or None)``. A table without a subtype field answers one entry, code 0, named after the
+    table, ``Default`` True and ``SubtypeField`` empty, as documented. INFERRED: ``Code`` is a property too;
+    ``FieldValues`` names every field but the object id and the shape; a subtype that sets no default or domain for a
+    field answers the field's own."""
+    import os
+    from . import _subtypes
+    from . import _field_domains
+    connection, name = _gpkg.table_of(os.fspath(table) if isinstance(table, os.PathLike) else str(table))
+    try:
+        file = connection.execute("pragma database_list").fetchone()[2]
+        columns = [c.name for c in _gpkg.describe(connection, name)[0]]
+        found = _subtypes.field(connection, name)
+        codes = _subtypes.codes(connection, name)
+        defaults = _subtypes.defaults(connection, name)
+        own_domains = _field_domains(connection, name)
+        subtype_domains = _subtypes.domains(connection, name)
+    finally:
+        connection.close()
+    domains = {d.name: d for d in ListDomains(file)} if (own_domains or subtype_domains) else {}
+
+    def values(code):
+        out = {}
+        for column in columns:
+            lower = column.lower()
+            default = defaults.get((lower, code), defaults.get((lower, None))) if code is not None else \
+                defaults.get((lower, None))
+            domain = subtype_domains.get((lower, code)) if code is not None else None
+            domain = domain or own_domains.get(lower)
+            out[column] = (default, domains.get(domain) if domain else None)
+        return out
+
+    if found is None:
+        return {0: {"Code": 0, "Name": name.rsplit("/", 1)[-1], "Default": True, "SubtypeField": "",
+                    "FieldValues": values(None)}}
+    field, default_code = found
+    return {code: {"Code": code, "Name": label, "Default": code == default_code, "SubtypeField": field,
+                   "FieldValues": values(code)} for code, label in codes.items()}

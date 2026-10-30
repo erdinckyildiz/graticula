@@ -58,6 +58,21 @@ internal static partial class AnalysisEndpoints
         ["Yards"] = 0.9144,
     };
 
+    /// <summary>
+    /// The units <c>SummarizeWithin</c> sums a length in, and a metre's worth of each — ArcGIS Pro's own, measured in Pro
+    /// 3.7 on 2026-10-30 (D-323): its Feet, Yards and Miles are US survey units, where a distance's here are international.
+    /// The owner decided the summary follows Pro (2026-10-30). Areas are international in both.
+    /// </summary>
+    internal static readonly IReadOnlyDictionary<string, double> SummaryLengthUnits = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Meters"] = 1,
+        ["Kilometers"] = 1000,
+        ["Feet"] = 1200.0 / 3937,
+        ["Miles"] = 6_336_000.0 / 3937,
+        ["NauticalMiles"] = 1852,
+        ["Yards"] = 3600.0 / 3937,
+    };
+
     /// <summary>The statistics a summary field may ask for, and PostgreSQL's aggregate for each.</summary>
     internal static readonly IReadOnlyDictionary<string, string> Statistics = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -1102,7 +1117,7 @@ internal static partial class AnalysisEndpoints
             if (shape != AnalysisShape.Points)
             {
                 bool lines = shape == AnalysisShape.Lines;
-                IReadOnlyDictionary<string, double> units = lines ? Units : AreaUnits;
+                IReadOnlyDictionary<string, double> units = lines ? SummaryLengthUnits : AreaUnits;
                 string fallback = lines ? "Meters" : "SquareMeters";
 
                 if (Choice(asked("shapeUnits"), fallback, [.. units.Keys]) is not { } unit)
