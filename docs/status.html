@@ -110,11 +110,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>b120ac7a</code> · 2026-10-30 14:11</p>
+<p class="stamp">Generated from commit <code>312b42f3</code> · 2026-10-30 15:44</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">229</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">502/593</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">81 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">503/593</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">80 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">open questions</div><div class="kpi-n">202 answered</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">open debts</div><div class="kpi-n">305 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-199</b> — [OWNER] How grapy stores utility networks and the trace rules the pages leave open, INFERRED 2026-10-30 (ADR-231 §5.9): (a) the network&#x27;s classes are ordinary grapy classes in its feature dataset under ArcGIS&#x27;s names (WaterDevice … StructureEdgeObject), with…</p><p><b>Q-198</b> — [OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p><p><b>Q-197</b> — [OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p><p><b>Q-196</b> — [OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">95 items</span></div><p><b>81 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">94 items</span></div><p><b>80 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -137,7 +137,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-229 · grapy holds LAS datasets and TINs</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-230 · grapy holds mosaic datasets</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-231 · grapy holds utility networks</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -145,6 +144,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-228 · grapy holds subtypes, field defaul</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-231 · grapy holds utility networks</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -428,7 +428,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">228</td><td>grapy holds subtypes, field defaults, global IDs and attachments in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/6</td></tr>
 <tr><td class="id">229</td><td>grapy holds LAS datasets and TINs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the TIN measurements, which are exact on a triangle&#x27;s…</td><td class="num">3/7</td></tr>
 <tr><td class="id">230</td><td>grapy holds mosaic datasets</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the methods and operators the pages define (FIRST, LAST,…</td><td class="num">3/6</td></tr>
-<tr><td class="id">231</td><td>grapy holds utility networks</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the configuration tools, whose pages give their parameters,…</td><td class="num">3/6</td></tr>
+<tr><td class="id">231</td><td>grapy holds utility networks</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the configuration tools, whose pages give their parameters,…</td><td class="num">4/6</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
@@ -591,7 +591,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:37.1%"></div></div><div class="bar-n">23 / 62</div></div>
 <div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:43.2%"></div></div><div class="bar-n">41 / 95</div></div>
 <div class="bar"><div class="bar-l">arcpy.nd</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 74</div></div>
-<div class="bar"><div class="bar-l">arcpy.un</div><div class="bar-t"><div class="bar-f" style="width:20.2%"></div></div><div class="bar-n">25 / 124</div></div>
+<div class="bar"><div class="bar-l">arcpy.un</div><div class="bar-t"><div class="bar-f" style="width:31.5%"></div></div><div class="bar-n">39 / 124</div></div>
 </div>
 <div class="scroll" style="margin-top:18px"><table><thead><tr><th>Module</th><th class="num">Built</th><th class="num">of which equivalents (ADR-224 §5.6)</th><th class="num">Refused, with the reason</th><th class="num">Not yet examined</th></tr></thead><tbody>
 <tr><td class="id">arcpy</td><td class="num">99</td><td class="num">0</td><td class="num">84</td><td class="num">0</td></tr>
@@ -609,10 +609,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.nd</td><td class="num">0</td><td class="num">0</td><td class="num">74</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.sa</td><td class="num">200</td><td class="num">21</td><td class="num">178</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">37</td><td class="num">18</td><td class="num">28</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.un</td><td class="num">25</td><td class="num">1</td><td class="num">99</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.un</td><td class="num">39</td><td class="num">2</td><td class="num">85</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>312b42f3</code><time>2026-10-30</time><span>A console test waiting for a message waits while its element is not drawn yet, rather than failing</span></li>
+<li><code>d719b02a</code><time>2026-10-30</time><span>grapy holds utility networks: their definition, rules, associations, topology and traces (ADR-231)</span></li>
 <li><code>b120ac7a</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>932abf3f</code><time>2026-10-30</time><span>grapy holds mosaic datasets (ADR-230)</span></li>
 <li><code>4e31c680</code><time>2026-10-30</time><span>grapy&#x27;s DefineProjection records a raster&#x27;s coordinate system, as arcpy&#x27;s does</span></li>
@@ -625,8 +627,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>8ae44c5d</code><time>2026-10-30</time><span>grapy reads a bare Feet as Pro does, a US survey foot, from one table measured in Pro (D-323)</span></li>
 <li><code>f9e4c6b6</code><time>2026-10-30</time><span>grapy holds subtypes and attachments (ADR-228)</span></li>
 <li><code>05cb2675</code><time>2026-10-30</time><span>README: what grapy covers now, without a count that would go stale</span></li>
-<li><code>562a1b78</code><time>2026-10-30</time><span>SummarizeWithin in grapy with the server&#x27;s names, and the final sweep of management, conversion and the network modules (merging grapy-b and grapy-c)</span></li>
-<li><code>43303438</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

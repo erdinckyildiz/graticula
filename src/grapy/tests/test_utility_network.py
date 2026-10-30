@@ -14,6 +14,7 @@ upstream of L5 is T, L2, V1, L1 and S, never L3 (T dominates L3); the leak on L3
 because V2 is fed only through the leak's own area.
 """
 import csv
+import json
 import os
 import sqlite3
 import sys
@@ -117,7 +118,7 @@ class WaterNetwork(unittest.TestCase):
         path = arcpy.management.CreateFeatureclass(self.directory, f"{name}.gpkg", "POINT", spatial_reference=3857)[0]
         for field, kind in (("FEATUREGLOBALID", "GUID"), ("TERMINALID", "LONG"), ("PERCENTALONG", "DOUBLE")):
             arcpy.management.AddField(path, field, kind)
-        ids = {**self.devices, **self.lines, **self.ids(self.junction)}
+        ids = {**self.devices, **self.ids(self.line), **self.ids(self.junction)}
         with arcpy.da.InsertCursor(path, ["FEATUREGLOBALID", "TERMINALID", "PERCENTALONG", "SHAPE@XY"]) as written:
             for feature, terminal, percent in rows:
                 written.insertRow((ids[feature], terminal, percent, (0, 0)))
@@ -424,21 +425,403 @@ class WaterNetwork(unittest.TestCase):
 
     def test_what_is_not_built_is_refused_by_name(self):
         start = self.locations("s", [("L5", None, 0.5)])
-        for kind in ("LOOPS", "PATH", "CIRCUIT"):
-            with self.assertRaises(NotBuiltError):
-                arcpy.un.Trace(self.un, kind, start)
         with self.assertRaises(NotBuiltError) as said:
-            arcpy.un.Trace(self.un, "UPSTREAM", start, domain_network="Water", tier="Pressure", target_tier="Pressure")
-        self.assertIn("target_tier", str(said.exception))
+            arcpy.un.Trace(self.un, "CIRCUIT", start)
+        self.assertIn("telecom domain network", str(said.exception))
         with self.assertRaises(NotBuiltError):
-            arcpy.un.Trace(self.un, "CONNECTED", start, result_types="FEATURES")
+            arcpy.un.Trace(self.un, "CONNECTED", start, result_types="CIRCUITS",
+                           out_json_file=os.path.join(self.directory, "c.json"))
+        with self.assertRaises(NotBuiltError) as said:
+            arcpy.un.Trace(self.un, "CONNECTED", start, result_types="AGGREGATED_GEOMETRY",
+                           synthesize_geometries="SYNTHESIZE_GEOMETRIES")
+        self.assertIn("synthesize_geometries", str(said.exception))
         with self.assertRaises(NotBuiltError) as said:
             arcpy.un.CreateDiagram(self.un, "d")
         self.assertIn("network diagram", str(said.exception))
+        for name in ("AddTelecomDomainNetwork", "VerifyCircuits", "AnalyzeNetworkData", "ApplyErrorResolutions"):
+            with self.assertRaises(NotBuiltError) as said:
+                getattr(arcpy.un, name)(self.un)
+            self.assertNotIn("later batch", str(said.exception))
         with self.assertRaises(NotBuiltError) as said:
-            arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure")
-        self.assertIn("later batch", str(said.exception))
+            arcpy.un.AnalyzeNetworkData(self.un, self.directory)
+        self.assertIn("error resolution database", str(said.exception))
 
+    # -- ADR-231's second batch: the remaining trace types --------------------------------------------------------
+
+    def json_trace(self, kind, starts, types, **more):
+        out = os.path.join(self.directory, "trace.json")
+        arcpy.un.Trace(self.un, kind, self.locations("start", starts), domain_network="Water", tier="Pressure",
+                       result_types=types, out_json_file=out, **more)
+        with open(out, encoding="utf-8") as read:
+            return json.load(read)
+
+    def names_of(self, globalids):
+        everything = {**self.ids(self.device), **self.ids(self.line), **self.ids(self.junction)}
+        back = {g.upper(): n for n, g in everything.items()}
+        return {back.get(str(g).upper()) for g in globalids if g}
+
+    def test_loops_return_the_cycle_and_nothing_hanging_off_it(self):
+        # The only cycle is V2 ─ L4 ─ T2 ─ L7 ─ L8 ─ L9 ─ V2; L3 reaches it as a bridge.
+        self.assertEqual(self.trace("LOOPS", [("L2", None, 0.5)]), {"V2", "L4", "T2", "L7", "L8", "L9"})
+        # A barrier on L8 breaks the cycle: no loop is left.
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "LOOPS", self.locations("s", [("L2", None, 0.5)]),
+                       self.locations("b", [("L8", None, 0.5)]))
+        self.assertEqual(self.selected(), set())
+
+    def test_shortest_path_takes_the_main_not_the_loop(self):
+        # S to T2: along the main through L4 costs 40; round the loop through L9, L8, L7 costs 60.
+        self.assertEqual(self.trace("SHORTEST_PATH", [("S", None, None), ("T2", None, None)],
+                                    shortest_path_network_attribute_name="Shape length"),
+                         {"S", "L1", "V1", "L2", "T", "L3", "V2", "L4", "T2"})
+        with self.assertRaises(ExecuteError):  # two starting points, and a cost attribute
+            self.trace("SHORTEST_PATH", [("S", None, None)], shortest_path_network_attribute_name="Shape length")
+
+    def test_path_counts_hops_and_returns_the_paths_asked_for(self):
+        # With no stopping point the path ends at the unterminated end of L6: through the check valve's terminals.
+        self.assertEqual(self.trace("PATH", [("S", None, None)]), {"S", "L1", "V1", "L2", "T", "L5", "CV", "L6"})
+        stop = self.locations("stop", [("T2", None, None)])
+        # L3 to T2: through L4 (one hop) or round the loop (three hops).
+        self.assertEqual(self.trace("PATH", [("L3", None, 0.5)], stopping_points=stop), {"L3", "V2", "L4", "T2"})
+        self.assertEqual(self.trace("PATH", [("L3", None, 0.5)], stopping_points=stop, num_paths=2),
+                         {"L3", "V2", "L4", "T2", "L9", "L8", "L7"})
+        self.assertEqual(self.trace("PATH", [("L3", None, 0.5)], stopping_points=stop, num_paths=2, max_hops=2),
+                         {"L3", "V2", "L4", "T2"})
+
+    def test_a_function_barrier_with_local_values_stops_each_branch(self):
+        barrier = [["ADD", "Shape length", "IS_GREATER_THAN", 15, True]]
+        # From L2 (10 m): L3 and L5 each bring the total to 20 and stop the trace.
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)], function_barriers=barrier,
+                                    include_barriers="EXCLUDE_BARRIERS"), {"L2", "T"})
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)], function_barriers=barrier), {"L2", "T", "L3", "L5"})
+        with self.assertRaises(ExecuteError):  # local values allow one starting point
+            self.trace("DOWNSTREAM", [("L2", None, 0.5), ("L4", None, 0.5)], function_barriers=barrier)
+
+    def test_functions_are_reported(self):
+        from grapy import _runtime
+        del _runtime.MESSAGES[:]
+        found = self.json_trace("DOWNSTREAM", [("L5", None, 0.5)], ["ELEMENTS"],
+                                functions=[["ADD", "Shape length", None, None, None, None, "Length"],
+                                           ["COUNT", "Shape length", None, None, None, None, None]])
+        results = found["traceResults"]["globalFunctionResults"]
+        self.assertEqual([(r["functionType"], r["result"]) for r in results], [("add", 20.0), ("count", 2)])
+        self.assertIn("Length: 20.0", arcpy.GetMessages())
+        with self.assertRaises(ExecuteError):  # subtract is not supported in a loops trace
+            self.trace("LOOPS", [("L2", None, 0.5)], functions=[["SUBTRACT", "Shape length", None, None, None, None,
+                                                                   None]])
+
+    def test_a_propagator_makes_a_barrier_of_what_fails_it(self):
+        self.set_status("V2", 1)
+        arcpy.un.ValidateNetworkTopology(self.un)
+        propagator = [["Device Status", None, "PROPAGATED_MAX", "IS_LESS_THAN", 1]]
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "SUBNETWORK", domain_network="Water", tier="Pressure", subnetwork_name="Zone1",
+                       propagators=propagator)
+        self.assertEqual(self.selected(), ALL - {"V2", "L4", "T2", "L7", "L8", "L9"})
+
+    def test_attribute_substitution_maps_bits_as_the_page_encodes_them(self):
+        from grapy._untrace import Accumulator, substitute
+        self.assertEqual(substitute(4, 128), 2)    # A to B
+        self.assertEqual(substitute(7, 140), 7)    # A→B, B→C, C→A
+        self.assertEqual(substitute(1, 2), 2)      # C to B
+        self.assertEqual(substitute(6, 2), 0)      # A and B de-energised
+        self.assertEqual(Accumulator("SUBTRACT").add(10).add(3).add(None).add(2).value, 5)
+
+    def test_a_bitset_filter_stops_where_no_bit_is_left(self):
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.management.AddField(self.device, "PHASES", "SHORT")
+        arcpy.un.AddNetworkAttribute(self.un, "Phases", "SHORT")
+        arcpy.un.SetNetworkAttribute(self.un, "Phases", "Water", "WaterDevice", "PHASES")
+        for name, value in (("S", 7), ("V1", 3), ("CV", 4), ("V2", 1)):
+            with arcpy.da.UpdateCursor(self.device, ["PHASES"], f"NAME = '{name}'") as rows:
+                for row in rows:
+                    rows.updateRow([value])
+        arcpy.un.EnableNetworkTopology(self.un)
+        # From L1 the bits are 7, then V1's 3; the check valve's 4 leaves none, so it and L6 are not traced.
+        self.assertEqual(self.trace("DOWNSTREAM", [("L1", None, 0.5)], filter_bitset_network_attribute_name="Phases"),
+                         {"L1", "V1", "L2", "T", "L3", "L5", "V2", "L4", "T2", "L7", "L8", "L9"})
+
+    def test_nearest_returns_the_cheapest_features_of_a_category(self):
+        nearest = dict(filter_nearest="FILTER_BY_NEAREST", nearest_cost_network_attribute="Shape length",
+                       nearest_categories=["Isolating"])
+        self.assertEqual(self.trace("CONNECTED", [("L3", None, 0.5)], nearest_count=1, **nearest), {"V2"})
+        self.assertEqual(self.trace("CONNECTED", [("L3", None, 0.5)], nearest_count=2, **nearest), {"V1", "V2"})
+        with self.assertRaises(ExecuteError):
+            self.trace("CONNECTED", [("L3", None, 0.5)], filter_nearest="FILTER_BY_NEAREST")
+
+    def test_a_target_tier_passes_the_controllers_between_the_tiers(self):
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.un.AddTier(self.un, "Water", "District", 2, "RADIAL")
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "CheckValve", "Standard", "Subnetwork Controller")
+        arcpy.un.UtilityNetwork(self.un).EnableSubnetworkController("WaterDevice", self.devices["CV"], "Load", "Gate",
+                                                                    "D1", "District")
+        arcpy.un.EnableNetworkTopology(self.un)
+        loop = {"V2", "L4", "T2", "L7", "L8", "L9"}
+        # The check valve now bounds the Pressure tier; downstream stops at it unless District is the target.
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)]), {"L2", "T", "L3", "L5", "CV"} | loop)
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)], target_tier="District"),
+                         {"L2", "T", "L3", "L5", "CV", "L6"} | loop)
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "UPSTREAM", self.locations("s", [("L6", None, 0.5)]), domain_network="Water",
+                       tier="District")
+        self.assertEqual(self.selected(), {"L6", "CV"})
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "UPSTREAM", self.locations("s", [("L6", None, 0.5)]), domain_network="Water",
+                       tier="District", target_tier="Pressure")
+        self.assertEqual(self.selected(), {"L6", "CV", "L5", "T", "L2", "V1", "L1", "S"})
+
+    def test_digitized_direction_follows_the_lines_as_drawn(self):
+        self.assertEqual(self.trace("DOWNSTREAM", [("L4", None, 0.5)], use_digitized_direction="USE_DIGITIZED_DIRECTION"),
+                         {"L4", "T2", "L7", "L8", "L9", "V2"})
+        self.assertEqual(self.trace("UPSTREAM", [("L3", None, 0.5)], use_digitized_direction="USE_DIGITIZED_DIRECTION"),
+                         {"L3", "T", "L2", "V1", "L1", "S"})
+
+    def test_json_results_carry_the_rest_layout(self):
+        found = self.json_trace("DOWNSTREAM", [("L5", None, 0.5)],
+                                ["ELEMENTS", "CONNECTIVITY", "FEATURES"], include_flow_directions="INCLUDE_FLOW_DIRECTIONS",
+                                include_domain_descriptions="INCLUDE_DOMAIN_DESCRIPTIONS",
+                                result_fields=[["WaterDevice", "NAME"]], include_geometry="INCLUDE_GEOMETRY")
+        results = found["traceResults"]
+        self.assertTrue(found["success"])
+        self.assertEqual(found["resultTypes"], ["elements", "connectivity", "features"])
+        self.assertEqual(self.names_of(e["globalId"] for e in results["elements"]), {"L5", "CV", "L6"})
+        self.assertEqual(sorted(e["terminalId"] for e in results["elements"] if e["terminalId"]), [1, 2])
+        # L6 runs from the check valve's Load terminal to its open end; L5's tee was not traced, so it has no entry.
+        (link,) = results["connectivity"]
+        self.assertEqual((self.names_of([link["viaGlobalId"]]), link["fromTerminalId"], link["toNetworkSourceId"]),
+                         ({"L6"}, 2, 0))
+        self.assertEqual(link["flowDirection"], "withDigitized")
+        self.assertEqual(link["fromGeometry"], {"x": 20.0, "y": 10.0})
+        named = [f for f in results["featureElements"] if f.get("fieldValues")]
+        self.assertEqual({f["fieldValues"][0]["value"] for f in named}, {"CV"})
+        self.assertEqual({f["assetGroupName"] for f in named}, {"CheckValve"})
+        found = self.json_trace("UPSTREAM", [("L4", None, 0.5)], ["CONTAINMENT_AND_ATTACHMENT_ASSOCIATIONS",
+                                                                   "RELATED_RECORDS"],
+                                include_containers="INCLUDE_CONTAINERS")
+        self.assertEqual(found["traceResults"]["relatedRecords"], [])  # no relationship class
+        (association,) = found["traceResults"]["associations"]
+        self.assertEqual((association["associationType"], association["toGlobalId"]), ("containment", self.devices["V2"]))
+        with self.assertRaises(ExecuteError):  # a JSON result type needs its file
+            arcpy.un.Trace(self.un, "CONNECTED", self.locations("s", [("L5", None, 0.5)]), result_types="FEATURES")
+
+    def test_locatability_and_the_first_spatial_container(self):
+        objects = f"{self.fds}/WaterJunctionObject"
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.management.CreateDomain(self.gpkg, "ObjectTypes", "", "SHORT", "CODED")
+        arcpy.management.AddCodedValueToDomain(self.gpkg, "ObjectTypes", 1, "Card")
+        arcpy.management.AddSubtype(objects, 1, "Sensor")
+        arcpy.management.AssignDomainToField(objects, "ASSETTYPE", "ObjectTypes", 1)
+        arcpy.management.AddField(objects, "NAME", "TEXT")
+        arcpy.un.AddRule(self.un, "JUNCTION_JUNCTION_CONNECTIVITY", "WaterJunctionObject", "Sensor", "Card",
+                         "WaterJunction", "Tee", "Standard")
+        with arcpy.da.InsertCursor(objects, ["NAME", "ASSETGROUP", "ASSETTYPE"]) as rows:
+            rows.insertRow(("O1", 1, 1))
+        with arcpy.da.SearchCursor(objects, ["GLOBALID@"]) as read:
+            sensor = next(read)[0]
+        arcpy.un.UtilityNetwork(self.un).AddConnectivityAssociation(1, "WaterJunctionObject", sensor, None,
+                                                                     "WaterJunction", self.ids(self.junction)["T"], None)
+        arcpy.un.EnableNetworkTopology(self.un)
+        start = self.locations("s", [("L3", None, 0.5)])
+        arcpy.un.Trace(self.un, "CONNECTED", start)
+        with self.assertRaises(ExecuteError) as said:
+            arcpy.un.Trace(self.un, "CONNECTED", start, validate_locatability="VALIDATE_LOCATABILITY")
+        self.assertIn("cannot be", str(said.exception))
+
+    # -- trace locations and configurations -------------------------------------------------------------------------
+
+    def test_trace_locations_are_written_in_the_schema_trace_reads(self):
+        out = f"{self.gpkg}/TraceLocations"
+        arcpy.un.AddTraceLocations(self.un, out, trace_locations=[["WaterLine", self.lines["L3"], None, None]])
+        with arcpy.da.SearchCursor(out, ["FEATUREGLOBALID", "PERCENTALONG", "ISFILTERBARRIER", "SHAPE@XY"]) as read:
+            self.assertEqual(list(read), [(self.lines["L3"].upper(), 0.5, 0, (25.0, 0.0))])
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "SUBNETWORK_CONTROLLERS", out, domain_network="Water", tier="Pressure")
+        self.assertEqual(self.selected(), {"S"})
+        # Valves added as filter barriers isolate the leak without a filter barrier condition.
+        barriers = f"{self.gpkg}/Barriers"
+        arcpy.un.AddTraceLocations(self.un, barriers, trace_locations=[["WaterDevice", self.devices["V1"], None, None],
+                                                                        ["WaterDevice", self.devices["V2"], None, None]],
+                                   filter_barrier="FILTER_BARRIER")
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, "ISOLATION", out, barriers, domain_network="Water", tier="Pressure")
+        self.assertEqual(self.selected(), {"V1"})
+        arcpy.un.AddTraceLocations(self.un, barriers, clear_trace_locations="CLEAR_LOCATIONS",
+                                   trace_locations=[["WaterDevice", self.devices["S"], "Load", None]])
+        with arcpy.da.SearchCursor(barriers, ["TERMINALID", "PERCENTALONG"]) as read:
+            self.assertEqual(list(read), [(2, None)])
+
+    def test_trace_configurations_are_kept_used_exported_and_imported(self):
+        arcpy.un.AddTraceConfiguration(self.un, "Leak", "ISOLATION", "Valves to close", ["water", "leak"], "Water",
+                                       "Pressure",
+                                       filter_barriers="Category IS_EQUAL_TO SPECIFIC_VALUE Isolating")
+        start = self.locations("s", [("L3", None, 0.5)])
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, starting_points=start, use_trace_config="USE_TRACE_CONFIGURATION",
+                       trace_config_name="Leak")
+        self.assertEqual(self.selected(), {"V1"})
+        out = os.path.join(self.directory, "configs.json")
+        arcpy.un.ExportTraceConfigurations(self.un, ["Leak"], out)
+        with open(out, encoding="utf-8") as read:
+            (item,) = json.load(read)
+        self.assertEqual(set(item), {"creator", "name", "description", "traceType", "configuration", "resultTypes",
+                                     "tags"})
+        configuration = json.loads(item["configuration"])
+        self.assertEqual((item["traceType"], configuration["domainNetworkName"], configuration["traversabilityScope"]),
+                         (8, "Water", "junctionsAndEdges"))
+        self.assertEqual(configuration["filterBarriers"][0]["type"], "category")
+        self.assertEqual(json.loads(item["tags"]), ["water", "leak"])
+        with self.assertRaises(ExecuteError):  # the name is taken
+            arcpy.un.ImportTraceConfigurations(self.un, out)
+        arcpy.un.DeleteTraceConfiguration(self.un, "Leak")
+        arcpy.un.ImportTraceConfigurations(self.un, out)
+        _layers.LAYERS.clear()
+        arcpy.un.Trace(self.un, starting_points=start, use_trace_config="USE_TRACE_CONFIGURATION",
+                       trace_config_name="Leak")
+        self.assertEqual(self.selected(), {"V1"})
+        with self.assertRaises(ExecuteError):  # a subnetwork-based configuration needs its tier
+            arcpy.un.AddTraceConfiguration(self.un, "Down", "DOWNSTREAM")
+
+    # -- subnetworks ---------------------------------------------------------------------------------------------------
+
+    def subnet_rows(self):
+        with arcpy.da.SearchCursor(f"{self.fds}/WaterSubnetLine", ["SUBNETWORKNAME", "ISDIRTY",
+                                                                   "SUBNETWORKCONTROLLERNAMES", "SHAPE@"]) as read:
+            return [(n, d, c, round(s.length, 6) if s else None) for n, d, c, s in read]
+
+    def names_written(self, table=None):
+        with arcpy.da.SearchCursor(table or self.line, ["NAME", "SUBNETWORKNAME", "ISCONNECTED"]) as read:
+            return {n: (s, c) for n, s, c in read}
+
+    def test_update_subnetwork_writes_names_and_its_subnet_line(self):
+        out = arcpy.un.ValidateNetworkTopology(self.un)
+        self.assertEqual(json.loads(out.getOutput(1))["discoveredSubnetworks"],
+                         [{"domainNetworkName": "Water", "tierName": "Pressure", "subnetworkName": "Zone1"}])
+        with self.assertRaises(ExecuteError):  # still dirty: export refuses
+            arcpy.un.ExportSubnetwork(self.un, "Water", "Pressure", "Zone1", "NO_ACKNOWLEDGE",
+                                      os.path.join(self.directory, "z.json"))
+        arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
+        self.assertEqual(set(self.names_written().values()), {("Zone1", 1)})
+        self.assertEqual(self.subnet_rows(), [("Zone1", 0, "Plant", 90.0)])
+        self.assertEqual(json.loads(arcpy.un.ValidateNetworkTopology(self.un).getOutput(1))["discoveredSubnetworks"], [])
+        # A new line at the open end of L6: an unvalidated edit stops the update, a validated one is discovered.
+        self.insert(self.line, ["NAME", "ASSETGROUP", "ASSETTYPE", "SHAPE@"], [("L10", 1, 1, "LINESTRING(20 20, 20 30)")])
+        with self.assertRaises(ExecuteError) as said:
+            arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
+        self.assertIn("dirty areas", str(said.exception))
+        discovered = json.loads(arcpy.un.ValidateNetworkTopology(self.un).getOutput(1))["discoveredSubnetworks"]
+        self.assertEqual([d["subnetworkName"] for d in discovered], ["Zone1"])
+        self.assertEqual(self.subnet_rows()[0][1], 1)
+        arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "ALL_SUBNETWORKS_IN_TIER")
+        self.assertEqual(self.subnet_rows(), [("Zone1", 0, "Plant", 100.0)])
+        self.assertEqual(self.names_written()["L10"], ("Zone1", 1))
+        # Exported and acknowledged.
+        out = os.path.join(self.directory, "zone1.json")
+        arcpy.un.ExportSubnetwork(self.un, "Water", "Pressure", "Zone1", "ACKNOWLEDGE", out, result_types=["FEATURES"])
+        with open(out, encoding="utf-8") as read:
+            document = json.load(read)
+        self.assertEqual([c["subnetworkControllerName"] for c in document["controllers"]], ["Plant"])
+        self.assertEqual(self.names_of(f["globalId"] for f in document["traceResults"]["featureElements"]),
+                         ALL | {"L10"})
+        with arcpy.da.SearchCursor(f"{self.fds}/WaterSubnetLine", ["LASTACKEXPORTSUBNETWORK"]) as read:
+            self.assertIsNotNone(next(read)[0])
+        # Its controller gone, the subnetwork is deleted: names cleared, its SubnetLine removed.
+        arcpy.un.UtilityNetwork(self.un).DisableSubnetworkController("WaterDevice", self.devices["S"], "Load")
+        arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
+        self.assertEqual(set(self.names_written().values()), {("Unknown", 0)})
+        self.assertEqual(self.subnet_rows(), [])
+
+    def test_a_subnetwork_definition_shapes_the_update(self):
+        with self.assertRaises(ExecuteError):  # the topology must be disabled
+            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure")
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.management.AddField(f"{self.fds}/WaterSubnetLine", "TOTALLENGTH", "DOUBLE")
+        arcpy.management.AddField(self.line, "MAXSTATUS", "SHORT")
+        with self.assertRaises(ExecuteError):  # aggregated lines are a subset of the valid lines
+            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", valid_lines=None,
+                                             aggregated_line=["Main/Ductile"])
+        arcpy.un.SetSubnetworkDefinition(
+            self.un, "Water", "Pressure", valid_lines=["Main/Ductile"], aggregated_line=["Main/Ductile"],
+            summaries=[["ADD", "Shape length", None, None, None, None, "TOTALLENGTH"]],
+            propagators=[["Device Status", None, "PROPAGATED_MAX", "IS_LESS_THAN", 5, "MAXSTATUS"]])
+        self.set_status("V1", 2)
+        arcpy.un.EnableNetworkTopology(self.un)
+        arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
+        with arcpy.da.SearchCursor(f"{self.fds}/WaterSubnetLine", ["TOTALLENGTH"]) as read:
+            self.assertEqual(next(read)[0], 90.0)
+        with arcpy.da.SearchCursor(self.line, ["NAME", "MAXSTATUS"]) as read:
+            status = dict(read)
+        self.assertEqual((status["L1"], status["L3"], status["L6"]), (0, 2, 2))
+        # Only sources are valid devices: the valves make the subnetwork invalid.
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", valid_devices=["Source/Standard"])
+        arcpy.un.EnableNetworkTopology(self.un)
+        with self.assertRaises(ExecuteError) as said:
+            arcpy.un.UpdateSubnetwork(self.un, "Water", "Pressure", "SPECIFIC_SUBNETWORK", "Zone1")
+        self.assertIn("valid", str(said.exception))
+        self.assertEqual(self.subnet_rows()[0][1], 2)
+        with self.assertRaises(NotBuiltError):
+            arcpy.un.DisableNetworkTopology(self.un)
+            arcpy.un.SetSubnetworkDefinition(self.un, "Water", "Pressure", diagram_template=["Basic"])
+
+    def test_update_is_connected(self):
+        arcpy.un.DisableNetworkTopology(self.un)
+        self.insert(self.line, ["NAME", "ASSETGROUP", "ASSETTYPE", "SHAPE@"], [("L10", 1, 1, "LINESTRING(60 60, 70 60)")])
+        arcpy.un.EnableNetworkTopology(self.un)
+        arcpy.un.UpdateIsConnected(self.un)
+        written = self.names_written()
+        self.assertEqual((written["L1"][1], written["L8"][1], written["L10"][1]), (1, 1, 2))
+
+    # -- asset type settings and maintenance --------------------------------------------------------------------------
+
+    def test_end_vertex_connectivity(self):
+        arcpy.un.DisableNetworkTopology(self.un)
+        # L10 passes V1 at a middle vertex: under ANY_VERTEX it connects there, under END_VERTEX it does not.
+        self.insert(self.line, ["NAME", "ASSETGROUP", "ASSETTYPE", "SHAPE@"], [("L10", 1, 1, "LINESTRING(10 10, 10 0, 10 -5)")])
+        arcpy.un.EnableNetworkTopology(self.un)
+        self.assertIn("V1", self.trace("CONNECTED", [("L10", None, 0.25)]))
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.un.SetEdgeConnectivity(self.un, "Water", "WaterLine", "Main", "Ductile", "END_VERTEX")
+        arcpy.un.EnableNetworkTopology(self.un)
+        self.assertEqual(self.trace("CONNECTED", [("L10", None, 0.25)]), {"L10"})
+
+    def test_association_roles_and_cascading_deletes(self):
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.un.SetAssociationRole(self.un, "Structure", "StructureJunction", "Vault", "Concrete", "CONTAINER", "CASCADE")
+        with self.assertRaises(ExecuteError):  # removing the role after the topology was enabled
+            arcpy.un.SetAssociationRole(self.un, "Structure", "StructureJunction", "Vault", "Concrete", "NONE")
+        with self.assertRaises(ExecuteError):  # only the structure network has structures
+            arcpy.un.SetAssociationRole(self.un, "Water", "WaterDevice", "Valve", "Standard", "STRUCTURE", "CASCADE")
+        arcpy.un.EnableNetworkTopology(self.un)
+        with arcpy.da.UpdateCursor(self.vault, ["NAME"]) as rows:
+            for _ in rows:
+                rows.deleteRow()
+        arcpy.un.ValidateNetworkTopology(self.un)
+        self.assertNotIn("V2", self.ids(self.device))
+        with arcpy.da.SearchCursor(f"{self.fds}/Water_Associations", ["OID@"]) as read:
+            self.assertEqual(list(read), [])
+
+    def test_rebuild_takes_every_feature_in_the_extent(self):
+        self.set_status("V1", 1)
+        self.trace("CONNECTED", [("L4", None, 0.5)])
+        self.assertEqual(len(self.dirty()), 1)
+        arcpy.un.RebuildNetworkTopology(self.un, "5 -5 15 5")
+        self.assertEqual(self.dirty(), [])
+
+    def test_cluster_keys_group_what_is_connected_and_contained(self):
+        with self.assertRaises(ExecuteError):  # the field first
+            arcpy.un.DisableNetworkTopology(self.un)
+            arcpy.un.CalculateClusterKeys(self.un)
+        arcpy.un.EnableClusterKeys(self.un)
+        self.insert(self.line, ["NAME", "ASSETGROUP", "ASSETTYPE", "SHAPE@"], [("L10", 1, 1, "LINESTRING(60 60, 70 60)")])
+        arcpy.un.EnableNetworkTopology(self.un)
+        arcpy.un.DisableNetworkTopology(self.un)
+        arcpy.un.CalculateClusterKeys(self.un)
+        with arcpy.da.SearchCursor(self.line, ["NAME", "CLUSTERKEY"]) as read:
+            keys = dict(read)
+        with arcpy.da.SearchCursor(self.vault, ["CLUSTERKEY"]) as read:
+            vault = next(read)[0]
+        self.assertEqual({keys[n] for n in ("L1", "L6", "L8")}, {vault})
+        self.assertNotEqual(keys["L10"], vault)
 
 if __name__ == "__main__":
     unittest.main()
