@@ -135,6 +135,37 @@ fails by name past it (segments meeting at very small angles are the known case)
      cell 1.5 × the point spacing);
    - (h) LASToMultipoint writes one multipoint per file, the page saying only that recursion gives "a row for each
      file".
+   - (i) **the second batch's LAS outputs** (ConvertLas, ProjectLAS, ColorizeLas, ThinLas, TileLas): a file keeps its
+     source's name with `.las` (ConvertLas's page does not name its outputs); REARRANGE_POINTS keeps the points' order;
+     REMOVE_VLR keeps only the coordinate system's records; with no format given, the source's point format, or its
+     counterpart across the 1.4 divide (6↔1, 7/8↔3, 9↔4, 10↔5); a format must hold the input's class codes and flags,
+     as ConvertLas documents, applied to every tool that converts;
+   - (j) ProjectLAS: PROJ's default transformation, an Esri transformation name refused; z transformed only where both
+     systems have a vertical datum; output scale 0.0000001 for geographic x and y, else 0.001, offsets the whole units
+     below the smallest coordinates;
+   - (k) ColorizeLas: a point takes the image cell it falls in, unresampled and unscaled (rounded, held to 0–65535),
+     0 off the image or on NoData; a channel not named keeps the source's value; every point of a file is coloured;
+   - (l) ThinLas: regions start at the file's lower-left corner and lowest z; CLOSEST_TO_CENTER is 2D for 2D thinning
+     and 3D for 3D; an unweighted class weighs 0; PREDOMINANT_CLASS keeps the point of the predominant class closest to
+     the centre; other ties go to the earlier point; the layer's filters are honoured;
+   - (m) TileLas: a point on a tile's left or bottom edge belongs to it; a megabyte is 2^20 bytes in the file-size
+     estimate; the base name defaults to the LAS dataset's; ROW_COLUMN counts from 1 at the origin; extra bytes are
+     kept where every file has them; the first file's coordinate system, records and scale;
+   - (n) ClassifyLasOverlap: the squares start at the file's lower-left corner; "closest to nadir" is the smallest
+     absolute scan angle, a tie to the lower point source ID; the layer's filters are not read; formats 9 and 10 take
+     the overlap flag as 6–8 do;
+   - (o) ClassifyLasBuilding, an **equivalent** (Rabbani et al. 2006, region growing with a smoothness constraint):
+     tolerances CONSERVATIVE 0.05, STANDARD 0.1, AGGRESSIVE 0.2; neighbours within 2 × the point spacing; planes no
+     steeper than 60° and normals within 15°; a rooftop's area its points' convex hull; `min_height` 2 by default;
+   - (p) LocateLasPointsByProximity: the radius is 3D and inclusive; MULTIPOINT is the default and writes one
+     multipoint per feature; POINT writes each point once with its distance to the nearest feature;
+   - (q) LocateOutliers: natural neighbours are the Delaunay edges; a neighbour exceeds the tolerances when the height
+     difference *and* the slope both exceed theirs; the cap takes points in node order;
+   - (r) InterpolateFromPointCloud: TRIANGULATION, no smoothing and DSM by default; withheld points left out; the grid
+     at the points' lower-left corner; a DTM only from ground already classified (ReuseGround 1).
+     ExtractObjectsFromPointCloud: a code without a group ID is its own group, the centre point the points' mean,
+     BOUNDING_BOX_2D axis-aligned, the concave hull the alpha shape of the Delaunay triangles whose circumradius is at
+     most the radius.
 
 ## 6. Consequences
 
@@ -144,7 +175,8 @@ fails by name past it (segments meeting at very small angles are the known case)
   the Dockerfile and both CI jobs install it.
 - **Names.** `tools/grapy-refusals.json` before → after: `arcpy.ddd` built 35 → 62 (equivalents 5 → 6), refused
   121 → 94; `arcpy.management` built 149 → 156, refused 298 → 291; `arcpy.conversion` built 27 → 28, refused
-  37 → 36; none unexamined.
+  37 → 36; none unexamined. The second batch (condition 4): `arcpy.ddd` built 62 → 70 (equivalents 6 → 7), refused
+  94 → 86; `arcpy.management` built 190 → 192, refused 257 → 255; `arcpy.conversion` built 28 → 29, refused 36 → 35.
 - **ChangeLasClassCodes and the other classifiers rewrite the LAS files in place**, as documented: the files a run
   reaches are the ones in its own directory (ADR-223 §5.5).
 
@@ -194,13 +226,19 @@ None recorded.
    filters, counts, binned and triangulated rasters, roof statistics (6.25 mean, 0.25 deviation), class edits,
    height classes and the morphological filter (every ground point but the withheld one, no roof point) are checked
    against it.
-4. **Every remaining TIN, LAS and terrain name is built or refused with its own reason.** **PARTLY DISCHARGED
+4. **Every remaining TIN, LAS and terrain name is built or refused with its own reason.** **DISCHARGED
    2026-10-30**: none answers the generic message, and terrains, constrained triangulation, undocumented selection,
-   multipatch outputs and deep learning give their reasons. Fourteen are refused only as *not in this ADR's first
-   batch*, which is a schedule, not a reason: in `arcpy.ddd` ColorizeLas, ClassifyLasOverlap, ClassifyLasBuilding,
-   LocateLasPointsByProximity, ThinLas, TileLas, LocateOutliers and four point-cloud extraction tools; ProjectLAS and
-   InterpolateFromPointCloud in `arcpy.management`; ConvertLas in `arcpy.conversion`. Each is to be read and built or
-   given its own reason.
+   multipatch outputs and deep learning give their reasons. The fourteen that were refused only as *not in this ADR's
+   first batch* — a schedule, not a reason — were each read on doc.esri.com and decided (`_lastools.py`,
+   `test_lastools.py`, twenty tests on LAS files the tests write): **ten built** — ConvertLas, ProjectLAS, ColorizeLas,
+   ThinLas, TileLas, ClassifyLasOverlap, LocateLasPointsByProximity, LocateOutliers, InterpolateFromPointCloud and
+   ExtractObjectsFromPointCloud (its multipatch types refused); **one equivalent** — ClassifyLasBuilding, whose page
+   names a "plane detection process" without describing it, built as region growing with a smoothness constraint
+   (Rabbani et al. 2006); **three refused for their own reason** — ExtractPowerLinesFromPointCloud (a catenary fit
+   whose grouping, fitting and wind correction are not described), ExtractRailsFromPointCloud (it needs Esri's deep
+   learning frameworks and does not describe the detection) and ExtractMeshFeaturesUsingPointCloud (an integrated
+   mesh in, multipatch out). Their INFERRED choices are §5.9 (i)–(r). No name in grapy is refused as a batch any more,
+   and `test_lastools.py` fails if one is.
 5. **LAZ is read in the image**: a LAZ backend (lazrs, MIT/Apache-2.0, or laszip) is chosen, its licence recorded, and
    a LAZ file read end to end — or LAZ is decided out.
 6. **CONSTRAINED_DELAUNAY** is built with a permissively licensed triangulator, or refused for good with the search

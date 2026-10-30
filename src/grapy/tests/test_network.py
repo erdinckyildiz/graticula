@@ -353,8 +353,8 @@ class Network(unittest.TestCase):
                 getattr(module, name)()
             self.assertIn(words, str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            arcpy.nd.CreateDiagramTemplate
-        self.assertIn("network diagrams", str(raised.exception))
+            arcpy.nd.ApplyRotateTreeLayout("diagram")
+        self.assertIn("pivot junctions", str(raised.exception))
 
 
 if __name__ == "__main__":

@@ -55,16 +55,17 @@ class Ga(unittest.TestCase):
 
     def test_idw_refuses_what_it_cannot_answer_as_documented(self):
         circle = ga.SearchNeighborhoodStandardCircular(200, 0, 2, 1, "ONE_SECTOR")
-        # Radius 40: (25,75) and (75,25) are 79.06 from both points and find none.
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "fewer neighbours"):
-            ga.IDW(self.two, "z", "", self.out("r.tif"), 50, 2, ga.SearchNeighborhoodStandardCircular(40, 0, 2, 1))
+        # Radius 40, nbrMin 2: (25,25) holds (0,0) alone inside the circle and takes the nearest outside, (100,100),
+        # as GA Neighborhood Selection documents — so the answer is the radius-200 one; (25,75) and (75,25) find none
+        # inside and take both.
+        near = ga.IDW(self.two, "z", "", self.out("r.tif"), 50, 2, ga.SearchNeighborhoodStandardCircular(40, 0, 2, 2))
+        self.assertEqual(cells(near.getOutput(1)), [[50.0, 90.0], [10.0, 50.0]])
+        with self.assertRaisesRegex(ValueError, "out_ga_layer, out_raster"):
+            ga.IDW(self.two, "z", "", "", 50, 2, circle)
         refusals = [
-            ({"out_ga_layer": "layer"}, "out_ga_layer"),
-            ({"out_raster": ""}, "out_raster"),
             ({"power": None}, "power"),
             ({"search_neighborhood": None}, "search_neighborhood"),
             ({"search_neighborhood": ga.SearchNeighborhoodSmoothCircular(200, 0.5)}, "sigmoidal"),
-            ({"search_neighborhood": ga.SearchNeighborhoodStandard(200, 100, 30, 2, 1)}, "ellipse"),
             ({"search_neighborhood": ga.SearchNeighborhoodStandardCircular(200, 0, 2, 1, "FOUR_SECTORS")}, "sectorType"),
             ({"weight_field": "z"}, "weight_field"),
         ]
@@ -94,7 +95,7 @@ class Ga(unittest.TestCase):
         self.assertEqual(ga.SearchNeighborhoodSmooth(10, 5, 0, 0.2).smoothFactor, 0.2)
 
     def test_layer_and_kriging_tools_are_refused_with_their_reason(self):
-        for name, said in (("GALayerToGrid", "geostatistical layer"), ("EmpiricalBayesianKriging", "semivariogram"),
+        for name, said in (("GALayer3DToNetCDF", "3D geostatistical layer"), ("EmpiricalBayesianKriging", "semivariogram"),
                            ("SubsetFeatures", "random"), ("DirectionalTrend", "active map")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(ga, name)()

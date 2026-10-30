@@ -655,7 +655,7 @@ _REFUSED_NAMES.update({name: _NO_APPLICATION for name in ("ListPrinterNames", "P
                                                           "SetParameterSymbology")})
 
 
-from . import analysis, cartography, conversion, da, ddd, edit, ga, graticula, ia, management, na, nax, sa, stats, un  # noqa: E402 — they import the names above
+from . import analysis, cartography, conversion, da, ddd, edit, ga, graticula, ia, management, na, nax, nd, sa, stats, un  # noqa: E402 — they import the names above
 from .management import AlterAliasName, FieldMap, FieldMappings  # noqa: E402,F401 — arcpy's own names
 
 
@@ -666,6 +666,8 @@ SearchNeighborhoodSmooth = ga.SearchNeighborhoodSmooth
 SearchNeighborhoodStandardCircular = ga.SearchNeighborhoodStandardCircular
 SearchNeighborhoodSmoothCircular = ga.SearchNeighborhoodSmoothCircular
 SearchNeighborhoodStandard3D = ga.SearchNeighborhoodStandard3D
+CrossValidationResult = ga.CrossValidationResult  # ADR-233
+GeostatisticalDatasets = ga.GeostatisticalDatasets
 
 
 def _parameter_index(value):
@@ -982,8 +984,6 @@ _REFUSED_NAMES.update({
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
     "ListLasDatasetFiles": "it is not documented: absent from ArcPy's function list on pro.arcgis.com on "
                            "2026-10-30, so its parameters and answer are unknown (ADR-229 §5.8)",
-    "CrossValidationResult": "it reads a geostatistical layer, a model object grapy does not have",
-    "GeostatisticalDatasets": "it reads a geostatistical layer, a model object grapy does not have",
     "GetIDMessage": "its text is Esri's message catalogue, which is not published as data",
     "GetImageEXIFProperties": "its answer's keys and conversions are not documented closely enough to reproduce",
     "GetRasterKeyMetadata": "Esri's raster key metadata names are not documented as a mapping to GDAL's metadata",
@@ -1011,7 +1011,6 @@ _DATA_MODEL = "needs a data model this server does not hold yet (ADR-224 group 2
 _ESRI_SERVICE = "answers from Esri's own data or cloud services, which grapy cannot reproduce (ADR-224 group 3)"
 _REFUSED_MODULES = {
     "parcel": f"the parcel fabric {_DATA_MODEL}",
-    "nd": f"network diagrams, the schematic views of a utility or trace network, {_DATA_MODEL}",
     "topographic": f"the topographic production model {_DATA_MODEL}", "locref": f"linear referencing networks {_DATA_MODEL}",
     "ba": f"Business Analyst {_ESRI_SERVICE}: its demographics are Esri's data",
     "agolservices": f"ArcGIS Online's analysis services {_ESRI_SERVICE}",
