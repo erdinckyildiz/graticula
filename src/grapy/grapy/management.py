@@ -7265,16 +7265,18 @@ MakeLasDatasetLayer = _las_tools.MakeLasDatasetLayer
 LasPointStatsAsRaster = _las_tools.LasPointStatsAsRaster
 MakeTinLayer = _tin_tools.MakeTinLayer
 
+from . import _lastools as _las_second  # noqa: E402 — ADR-229's second batch
+
+ProjectLAS = _las_second.ProjectLAS
+InterpolateFromPointCloud = _las_second.InterpolateFromPointCloud
+
 for _built in ("CreateLasDataset", "AddFilesToLasDataset", "RemoveFilesFromLasDataset", "LasDatasetStatistics",
-               "MakeLasDatasetLayer", "LasPointStatsAsRaster", "MakeTinLayer"):
+               "MakeLasDatasetLayer", "LasPointStatsAsRaster", "MakeTinLayer", "ProjectLAS", "InterpolateFromPointCloud"):
     _REFUSED.pop(_built, None)
 _REFUSED.update({
     "BuildLasDatasetPyramid": "is not built in grapy: the pyramid's format and the default point selection are not "
                               "documented, and grapy's LAS datasets read their files directly (ADR-229 §5.2)",
     "TINCompare": "is not built in grapy: the columns of its comparison file are not documented",
-    "ProjectLAS": "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4)",
-    "InterpolateFromPointCloud": "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its "
-                                 "condition 4)",
 })
 
 

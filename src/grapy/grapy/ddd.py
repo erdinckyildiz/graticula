@@ -1103,25 +1103,33 @@ LasPointStatsByArea = _las.LasPointStatsByArea
 PointFileInformation = _las.PointFileInformation
 ClassifyLasGround = _equivalent("the progressive morphological filter", "Zhang et al. 2003")(_las.ClassifyLasGround)
 
+from . import _lastools  # noqa: E402 — ADR-229's second batch
+
+ColorizeLas = _lastools.ColorizeLas
+ThinLas = _lastools.ThinLas
+TileLas = _lastools.TileLas
+ClassifyLasOverlap = _lastools.ClassifyLasOverlap
+LocateLasPointsByProximity = _lastools.LocateLasPointsByProximity
+LocateOutliers = _lastools.LocateOutliers
+ExtractObjectsFromPointCloud = _lastools.ExtractObjectsFromPointCloud
+ClassifyLasBuilding = _equivalent("plane detection by region growing with a smoothness constraint",
+                                  "Rabbani, van den Heuvel and Vosselman 2006")(_lastools.ClassifyLasBuilding)
+
 for _built in ("CreateTin", "EditTin", "CopyTin", "DelineateTinDataArea", "TinDomain", "TinEdge", "TinNode", "TinTriangle",
                "TinLine", "TinPolygonTag", "TinRaster", "TinContour", "SurfaceContour", "SurfaceSlope", "SurfaceAspect",
                "SurfaceVolume", "PolygonVolume", "TinPolygonVolume", "LasDatasetToTin", "LASToMultipoint", "ExtractLas",
                "ChangeLasClassCodes", "ClassifyLasByHeight", "SetLasClassCodesUsingFeatures", "LasPointStatsByArea",
-               "PointFileInformation", "ClassifyLasGround"):
+               "PointFileInformation", "ClassifyLasGround", "ColorizeLas", "ThinLas", "TileLas", "ClassifyLasOverlap",
+               "LocateLasPointsByProximity", "LocateOutliers", "ExtractObjectsFromPointCloud", "ClassifyLasBuilding"):
     _REFUSED.pop(_built, None)
 
 _TERRAIN = ("a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does "
             "not hold; ADR-229 §5.6 holds TINs and LAS datasets instead")
-_LATER = "not in ADR-229's first batch of LAS and TIN tools (its condition 4)"
 _REFUSED.update({name: _TERRAIN for name in (
     "AddFeatureClassToTerrain", "AddTerrainPoints", "AddTerrainPyramidLevel", "AppendTerrainPoints", "BuildTerrain",
     "ChangeTerrainReferenceScale", "ChangeTerrainResolutionBounds", "CreateTerrain", "DeleteTerrainPoints",
     "RemoveFeatureClassFromTerrain", "RemoveTerrainPoints", "RemoveTerrainPyramidLevel", "ReplaceTerrainPoints",
     "TerrainToPoints", "TerrainToRaster", "TerrainToTin", "BIMToTerrain")})
-_REFUSED.update({name: _LATER for name in (
-    "ColorizeLas", "ClassifyLasOverlap", "ClassifyLasBuilding", "LocateLasPointsByProximity", "ThinLas", "TileLas",
-    "LocateOutliers", "ExtractObjectsFromPointCloud", "ExtractPowerLinesFromPointCloud", "ExtractRailsFromPointCloud",
-    "ExtractMeshFeaturesUsingPointCloud")})
 _REFUSED.update({name: "it trains or runs a deep learning model on point clouds, which grapy does not carry" for name in (
     "ClassifyPointCloudUsingTrainedModel", "DetectObjectsFromPointCloudUsingTrainedModel",
     "EvaluatePointCloudClassificationModel", "PreparePointCloudObjectDetectionTrainingData",
@@ -1142,6 +1150,15 @@ _REFUSED.update({
     "ClassifyLasNoise": "its page contradicts itself on the isolation limit (fewer than, or no more than, the point "
                         "limit), and its other methods' defaults are not given",
     "LasHeightMetrics": "how the ground surface the heights are measured from is built is not stated",
+    "ExtractPowerLinesFromPointCloud": "its page names a catenary fit but not how points are grouped into spans and "
+                                       "wires, how the curve is fitted, or how the wind correction is computed, and "
+                                       "its SAG and WIND_ANGLE fields depend on all three (ADR-229 condition 4)",
+    "ExtractRailsFromPointCloud": "it needs ArcGIS's deep learning frameworks installed, as its page says, and the page "
+                                  "does not say what they detect or how the rails are traced from the crown points; "
+                                  "grapy carries no deep learning model (ADR-229 condition 4)",
+    "ExtractMeshFeaturesUsingPointCloud": "its input is an integrated mesh scene layer (I3S or a scene layer package) "
+                                          "and its output multipatch features, data models this server does not hold "
+                                          "yet (ADR-224 group 2)",
 })
 
 

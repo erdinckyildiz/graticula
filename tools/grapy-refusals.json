@@ -164,7 +164,7 @@
   "unexamined": []
  },
  "arcpy.conversion": {
-  "built": 28,
+  "built": 29,
   "equivalents": {
    "FeatureClassToShapefile": "the ESRI Shapefile Technical Description (1998) and dBASE III, field names cut to ten characters (ESRI Shapefile Technical Description, July 1998)",
    "TableToDBASE": "dBASE III tables, field names cut to ten characters (dBASE III file format)"
@@ -176,7 +176,6 @@
    "BIMFileToGeodatabase": "arcpy.conversion.BIMFileToGeodatabase needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
    "CADToGeodatabase": "arcpy.conversion.CADToGeodatabase reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented.",
    "ConnectNetworkDatasetTransitSourcesToStreets": "arcpy.conversion.ConnectNetworkDatasetTransitSourcesToStreets builds public-transit sources into a network dataset; grapy's network datasets (ADR-226) have no transit evaluator, and the public transit evaluator's schedule rules are not published.",
-   "ConvertLas": "arcpy.conversion.ConvertLas is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "ConvertPersonalGeodatabase": "arcpy.conversion.ConvertPersonalGeodatabase reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's workspace is a GeoPackage.",
    "DEMToRaster": "arcpy.conversion.DEMToRaster lays the profiles of a USGS DEM, which start at different rows, on an output grid whose extent and filling the page does not define.",
    "ExportCAD": "arcpy.conversion.ExportCAD reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented.",
@@ -229,8 +228,9 @@
   "unexamined": []
  },
  "arcpy.ddd": {
-  "built": 62,
+  "built": 70,
   "equivalents": {
+   "ClassifyLasBuilding": "plane detection by region growing with a smoothness constraint (Rabbani, van den Heuvel and Vosselman 2006)",
    "ClassifyLasGround": "the progressive morphological filter (Zhang et al. 2003)",
    "Kriging": "ordinary and universal kriging with a semivariogram fitted by weighted least squares (Cressie 1985; Cressie 1993, §3.2–3.4; Johnston et al. 2001, Appendix A)",
    "NaturalNeighbor": "Sibson's natural neighbour interpolation (Sibson 1981)",
@@ -250,11 +250,8 @@
    "CalculateMissingZValues": "arcpy.ddd.CalculateMissingZValues is not built in grapy: the page does not give its interpolation or extrapolation, nor how a placeholder z is matched.",
    "ChangeTerrainReferenceScale": "arcpy.ddd.ChangeTerrainReferenceScale is not built in grapy: a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does not hold; ADR-229 §5.6 holds TINs and LAS datasets instead.",
    "ChangeTerrainResolutionBounds": "arcpy.ddd.ChangeTerrainResolutionBounds is not built in grapy: a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does not hold; ADR-229 §5.6 holds TINs and LAS datasets instead.",
-   "ClassifyLasBuilding": "arcpy.ddd.ClassifyLasBuilding is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "ClassifyLasNoise": "arcpy.ddd.ClassifyLasNoise is not built in grapy: its page contradicts itself on the isolation limit (fewer than, or no more than, the point limit), and its other methods' defaults are not given.",
-   "ClassifyLasOverlap": "arcpy.ddd.ClassifyLasOverlap is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "ClassifyPointCloudUsingTrainedModel": "arcpy.ddd.ClassifyPointCloudUsingTrainedModel is not built in grapy: it trains or runs a deep learning model on point clouds, which grapy does not carry.",
-   "ColorizeLas": "arcpy.ddd.ColorizeLas is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "ContourWithBarriers": "arcpy.ddd.ContourWithBarriers is not built in grapy: its algorithm is described in the documentation but not specified closely enough to reproduce.",
    "CreateTerrain": "arcpy.ddd.CreateTerrain is not built in grapy: a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does not hold; ADR-229 §5.6 holds TINs and LAS datasets instead.",
    "DecimateTinNodes": "arcpy.ddd.DecimateTinNodes is not built in grapy: how the nodes kept are chosen is not documented, for either method (ADR-229 §5.7).",
@@ -265,11 +262,10 @@
    "EnforceRiverMonotonicity": "arcpy.ddd.EnforceRiverMonotonicity is not built in grapy: its boundary sampling and simplification are described, not specified.",
    "EvaluatePointCloudClassificationModel": "arcpy.ddd.EvaluatePointCloudClassificationModel is not built in grapy: it trains or runs a deep learning model on point clouds, which grapy does not carry.",
    "ExtractLOD2Buildings": "arcpy.ddd.ExtractLOD2Buildings is not built in grapy: needs a data model this server does not hold yet (ADR-224 group 2).",
-   "ExtractMeshFeaturesUsingPointCloud": "arcpy.ddd.ExtractMeshFeaturesUsingPointCloud is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
+   "ExtractMeshFeaturesUsingPointCloud": "arcpy.ddd.ExtractMeshFeaturesUsingPointCloud is not built in grapy: its input is an integrated mesh scene layer (I3S or a scene layer package) and its output multipatch features, data models this server does not hold yet (ADR-224 group 2).",
    "ExtractMultipatchFromMesh": "arcpy.ddd.ExtractMultipatchFromMesh is not built in grapy: needs a data model this server does not hold yet (ADR-224 group 2).",
-   "ExtractObjectsFromPointCloud": "arcpy.ddd.ExtractObjectsFromPointCloud is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
-   "ExtractPowerLinesFromPointCloud": "arcpy.ddd.ExtractPowerLinesFromPointCloud is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
-   "ExtractRailsFromPointCloud": "arcpy.ddd.ExtractRailsFromPointCloud is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
+   "ExtractPowerLinesFromPointCloud": "arcpy.ddd.ExtractPowerLinesFromPointCloud is not built in grapy: its page names a catenary fit but not how points are grouped into spans and wires, how the curve is fitted, or how the wind correction is computed, and its SAG and WIND_ANGLE fields depend on all three (ADR-229 condition 4).",
+   "ExtractRailsFromPointCloud": "arcpy.ddd.ExtractRailsFromPointCloud is not built in grapy: it needs ArcGIS's deep learning frameworks installed, as its page says, and the page does not say what they detect or how the rails are traced from the crown points; grapy carries no deep learning model (ADR-229 condition 4).",
    "ExtrudeBetween": "arcpy.ddd.ExtrudeBetween is not built in grapy: needs a data model this server does not hold yet (ADR-224 group 2).",
    "FeaturesFromCityEngineRules": "arcpy.ddd.FeaturesFromCityEngineRules is not built in grapy: it runs CityEngine rule packages (.rpk), which need Esri's procedural engine (ADR-224 group 3).",
    "FenceDiagram": "arcpy.ddd.FenceDiagram is not built in grapy: it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2).",
@@ -289,8 +285,6 @@
    "Layer3DToFeatureClass": "arcpy.ddd.Layer3DToFeatureClass is not built in grapy: it reads a 3D layer from a map, which a user tool on the server does not have.",
    "LayerToKML": "arcpy.ddd.LayerToKML is not built in grapy: it reads map layers, which a user tool on the server does not have.",
    "LineOfSight": "arcpy.ddd.LineOfSight is not built in grapy: how the sight line is sampled against the surface is not documented.",
-   "LocateLasPointsByProximity": "arcpy.ddd.LocateLasPointsByProximity is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
-   "LocateOutliers": "arcpy.ddd.LocateOutliers is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "MapToKML": "arcpy.ddd.MapToKML is not built in grapy: it reads a map, which a user tool on the server does not have.",
    "MinimumBoundingVolume": "arcpy.ddd.MinimumBoundingVolume is not built in grapy: it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2).",
    "MultiPatchFootprint": "arcpy.ddd.MultiPatchFootprint is not built in grapy: needs a data model this server does not hold yet (ADR-224 group 2).",
@@ -323,8 +317,6 @@
    "TerrainToPoints": "arcpy.ddd.TerrainToPoints is not built in grapy: a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does not hold; ADR-229 §5.6 holds TINs and LAS datasets instead.",
    "TerrainToRaster": "arcpy.ddd.TerrainToRaster is not built in grapy: a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does not hold; ADR-229 §5.6 holds TINs and LAS datasets instead.",
    "TerrainToTin": "arcpy.ddd.TerrainToTin is not built in grapy: a terrain dataset is a multiresolution pyramid kept inside a geodatabase feature dataset, which grapy does not hold; ADR-229 §5.6 holds TINs and LAS datasets instead.",
-   "ThinLas": "arcpy.ddd.ThinLas is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
-   "TileLas": "arcpy.ddd.TileLas is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "TinAspect": "arcpy.ddd.TinAspect is not built in grapy: it is the legacy name of SurfaceAspect, which grapy builds; its own page was not read.",
    "TinDifference": "arcpy.ddd.TinDifference is not built in grapy: it is the legacy name of SurfaceDifference, whose difference surface is built by constrained Delaunay triangulation, which grapy does not have (ADR-229 §5.3).",
    "TinSlope": "arcpy.ddd.TinSlope is not built in grapy: it is the legacy name of SurfaceSlope, which grapy builds; its own page was not read.",
@@ -604,7 +596,7 @@
   "unexamined": []
  },
  "arcpy.management": {
-  "built": 190,
+  "built": 192,
   "equivalents": {
    "ConvertCoordinateNotation": "the published grid definitions (NGA.SIG.0012 for MGRS and UTM, FGDC-STD-011-2001 for USNG, NGA's GARS and GEOREF) with fixed-precision strings (NGA and FGDC public specifications)",
    "CreateRandomRaster": "NumPy's PCG64 generator seeded from env.randomGenerator (NumPy random Generator)",
@@ -796,7 +788,6 @@
    "ImportReplicaSchema": "arcpy.management.ImportReplicaSchema needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
    "ImportTileCache": "arcpy.management.ImportTileCache needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "ImportXMLWorkspaceDocument": "arcpy.management.ImportXMLWorkspaceDocument reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
-   "InterpolateFromPointCloud": "arcpy.management.InterpolateFromPointCloud is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "LoadDataToPreview": "arcpy.management.LoadDataToPreview reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "LoadDataUsingWorkspace": "arcpy.management.LoadDataUsingWorkspace reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "MakeAggregationQueryLayer": "arcpy.management.MakeAggregationQueryLayer reaches a database server, portal or cloud store, and a fenced tool has no network (ADR-223 §5.3).",
@@ -826,7 +817,6 @@
    "PackageMap": "arcpy.management.PackageMap needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "PackageProject": "arcpy.management.PackageProject needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "PackageResult": "arcpy.management.PackageResult needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
-   "ProjectLAS": "arcpy.management.ProjectLAS is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4).",
    "ProjectRaster": "arcpy.management.ProjectRaster resamples or transforms cells by a method or extent rule the page does not define exactly.",
    "RasterCompare": "arcpy.management.RasterCompare follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "ReExportUnacknowledgedMessages": "arcpy.management.ReExportUnacknowledgedMessages needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",

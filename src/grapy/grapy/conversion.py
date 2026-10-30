@@ -1397,4 +1397,7 @@ from . import _las as _las_tools  # noqa: E402
 
 LasDatasetToRaster = _las_tools.LasDatasetToRaster
 _REFUSED.pop("LasDatasetToRaster", None)
-_REFUSED["ConvertLas"] = "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4)"
+from . import _lastools as _las_second  # noqa: E402 — ADR-229's second batch
+
+ConvertLas = _las_second.ConvertLas
+_REFUSED.pop("ConvertLas", None)
