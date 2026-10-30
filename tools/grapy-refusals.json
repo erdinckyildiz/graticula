@@ -1366,8 +1366,12 @@
   "unexamined": []
  },
  "arcpy.stats": {
-  "built": 28,
+  "built": 35,
   "equivalents": {
+   "BivariateSpatialAssociation": "Lee's L by its documented formulas, its permutations drawn with NumPy's PCG64 from env.randomGenerator (Lee 2001; Lee 2009; Esri's \"How Bivariate Spatial Association (Lee's L) works\")",
+   "CalculateCompositeIndex": "the documented scaling, combination and post-processing steps, with the OECD handbook's weighted arithmetic and geometric aggregation (Esri's \"How Calculate Composite Index works\"; OECD/JRC, Handbook on Constructing Composite Indicators, 2008, §6)",
+   "CalculateRates": "crude rates; empirical Bayes smoothing by Marshall's moment estimator, global and local; the spatial rate smoother Σy/Σn and the population-weighted median of the neighbourhood's rates (Marshall 1991; Clayton and Kaldor 1987; Kafadar 1996)",
+   "ColocationAnalysis": "the local colocation quotient with a Gaussian, bisquare or box kernel and conditional permutation pseudo p-values with a stated seed; the global colocation quotient as their mean (Leslie and Kronenfeld 2011; Wang, Hu, Wang and Li 2017)",
    "DensityBasedClustering": "DBSCAN (Ester, Kriegel, Sander and Xu 1996)",
    "GWR": "geographically weighted regression with a Gaussian or bisquare kernel and an AICc bandwidth chosen by golden-section search (Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002)",
    "GeneralizedLinearRegression": "a generalized linear model fitted by iteratively reweighted least squares — Gaussian identity, binomial logit, Poisson log (McCullagh and Nelder, Generalized Linear Models, 2nd ed., 1989)",
@@ -1377,18 +1381,16 @@
    "MultivariateClustering": "k-means by Lloyd's algorithm with k-means++ seeding, the number of clusters by the Calinski–Harabasz pseudo F (Lloyd 1982; Arthur and Vassilvitskii 2007; Calinski and Harabasz 1974)",
    "OptimizedHotSpotAnalysis": "Optimized Hot Spot Analysis's documented steps over grapy's Gi*, Benjamini–Hochberg FDR and Tukey's fence for locational outliers (the tool's How it works page; Getis and Ord 1992; Benjamini and Hochberg 1995; Tukey 1977)",
    "OptimizedOutlierAnalysis": "Optimized Outlier Analysis's documented steps over grapy's Local Moran's I with seeded permutations, Benjamini–Hochberg FDR and Tukey's fence for locational outliers (the tool's How it works page; Anselin 1995; Benjamini and Hochberg 1995; Tukey 1977)",
-   "OrdinaryLeastSquares": "ordinary least squares with classical, White (HC0), Koenker–Bassett and Jarque–Bera diagnostics (Greene, Econometric Analysis, 7th ed., ch. 4–5 and 9; White 1980; Koenker 1981; Jarque and Bera 1980)"
+   "OrdinaryLeastSquares": "ordinary least squares with classical, White (HC0), Koenker–Bassett and Jarque–Bera diagnostics (Greene, Econometric Analysis, 7th ed., ch. 4–5 and 9; White 1980; Koenker 1981; Jarque and Bera 1980)",
+   "SAR": "Anselin's LM tests and the documented model choice; the spatial lag model by spatial two-stage least squares, the error model by Kelejian and Prucha's generalized moments and feasible GLS, the combined model by generalized spatial two-stage least squares (Anselin 1988; Anselin, Bera, Florax and Yoon 1996; Kelejian and Prucha 1998, 1999)",
+   "TimeSeriesSmoothing": "backward, forward and centered moving averages over a closed time window (Esri's \"How Time Series Smoothing works\"; Hyndman and Athanasopoulos, Forecasting: Principles and Practice, 3rd ed., §3.3)"
   },
   "of": 65,
   "refused": {
    "AttributeUncertainty": "arcpy.stats.AttributeUncertainty is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
-   "BivariateSpatialAssociation": "arcpy.stats.BivariateSpatialAssociation is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
    "BuildBalancedZones": "arcpy.stats.BuildBalancedZones is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
    "CalculateAreas": "arcpy.stats.CalculateAreas is not built in grapy — its page is retired (404), so its output field cannot be checked; management.CalculateGeometryAttributes does its work.",
-   "CalculateCompositeIndex": "arcpy.stats.CalculateCompositeIndex is not built in grapy — its output field names are not documented.",
-   "CalculateRates": "arcpy.stats.CalculateRates is not built in grapy — the page giving its empirical Bayes smoothing formulas answers 404, so the rates cannot be checked against them.",
    "CausalInferenceAnalysis": "arcpy.stats.CausalInferenceAnalysis is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
-   "ColocationAnalysis": "arcpy.stats.ColocationAnalysis is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
    "CompareNeighborhoodConceptualizations": "arcpy.stats.CompareNeighborhoodConceptualizations is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
    "ConvertSSPopup": "arcpy.stats.ConvertSSPopup is not built in grapy — it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts.",
    "ConvertSpatialWeightsMatrixtoTable": "arcpy.stats.ConvertSpatialWeightsMatrixtoTable is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
@@ -1402,7 +1404,6 @@
    "EvaluateBinSizes": "arcpy.stats.EvaluateBinSizes is not built in grapy — its page answers 404, so its recommendation cannot be checked.",
    "EvaluateVariableInfluence": "arcpy.stats.EvaluateVariableInfluence is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "ExploratoryRegression": "arcpy.stats.ExploratoryRegression is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
-   "ExportXYv": "arcpy.stats.ExportXYv is not built in grapy — its header names and number formatting are not documented closely enough to write the same file.",
    "FilterSpatialAutocorrelationFromField": "arcpy.stats.FilterSpatialAutocorrelationFromField is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
    "Forest": "arcpy.stats.Forest is not built in grapy — random forests are random by definition.",
    "GenerateNetworkSWM": "arcpy.stats.GenerateNetworkSWM is not built in grapy — it needs a network dataset and writes an .swm file.",
@@ -1414,10 +1415,8 @@
    "PredictUsingSSMFile": "arcpy.stats.PredictUsingSSMFile is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "PrepareData": "arcpy.stats.PrepareData is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
    "PresenceOnlyPrediction": "arcpy.stats.PresenceOnlyPrediction is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
-   "SAR": "arcpy.stats.SAR is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
    "SetSSMFileProperties": "arcpy.stats.SetSSMFileProperties is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
-   "SpatiallyConstrainedMultivariateClustering": "arcpy.stats.SpatiallyConstrainedMultivariateClustering is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
-   "TimeSeriesSmoothing": "arcpy.stats.TimeSeriesSmoothing is not built in grapy — its output field names are not documented, nor how a month or year window is counted."
+   "SpatiallyConstrainedMultivariateClustering": "arcpy.stats.SpatiallyConstrainedMultivariateClustering is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer."
   },
   "unexamined": []
  }

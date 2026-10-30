@@ -110,7 +110,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>2941fdaf</code> · 2026-10-30 03:37</p>
+<p class="stamp">Şu commit’ten üretildi: <code>10a9de9c</code> · 2026-10-30 04:25</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">225</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
@@ -572,7 +572,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:37.5%"></div></div><div class="bar-n">24 / 64</div></div>
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:10.2%"></div></div><div class="bar-n">5 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:78.9%"></div></div><div class="bar-n">15 / 19</div></div>
-<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:43.1%"></div></div><div class="bar-n">28 / 65</div></div>
+<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:53.8%"></div></div><div class="bar-n">35 / 65</div></div>
 <div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:52.9%"></div></div><div class="bar-n">200 / 378</div></div>
 <div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:45.0%"></div></div><div class="bar-n">156 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:22.4%"></div></div><div class="bar-n">35 / 156</div></div>
@@ -596,10 +596,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.nax</td><td class="num">36</td><td class="num">5</td><td class="num">59</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">0</td><td class="num">0</td><td class="num">74</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.sa</td><td class="num">200</td><td class="num">21</td><td class="num">178</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.stats</td><td class="num">28</td><td class="num">10</td><td class="num">37</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.stats</td><td class="num">35</td><td class="num">16</td><td class="num">30</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>10a9de9c</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>332218f2</code><time>2026-10-30</time><span>grapy stats: Lee&#x27;s L, colocation quotients, rates, composite index, time series smoothing, SAR and ExportXYv (ADR-224 §5.6)</span></li>
+<li><code>6ee73dc3</code><time>2026-10-30</time><span>Raster attribute tables, and the tools that read them (merging grapy-a)</span></li>
 <li><code>2941fdaf</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>ba9df2f5</code><time>2026-10-30</time><span>grapy: raster attribute tables, and the tools that read or write them (ADR-224)</span></li>
 <li><code>b93bddff</code><time>2026-10-30</time><span>D-324: a user tool&#x27;s raster output is not published yet</span></li>
@@ -611,9 +614,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>78b5c4b0</code><time>2026-10-30</time><span>grapy: stats.GeographicallyWeightedRegression (the Gaussian-kernel GWR) as a marked equivalent (ADR-224 §5.6)</span></li>
 <li><code>3e8e1710</code><time>2026-10-30</time><span>grapy: the edit conflation tools as marked equivalents — GenerateRubbersheetLinks, GenerateEdgematchLinks, EdgematchFeatures, AlignFeatures, TransferAttributes (ADR-224 §5.6)</span></li>
 <li><code>6ee75379</code><time>2026-10-30</time><span>grapy: analysis.RemoveOverlapMultiple as a marked equivalent — Voronoi divisions of the overlaps (ADR-224 §5.6)</span></li>
-<li><code>070faf86</code><time>2026-10-30</time><span>grapy: the tools Z makes buildable, and every Z refusal re-examined (ADR-224)</span></li>
-<li><code>a30c9be4</code><time>2026-10-30</time><span>grapy: SimplifyBuilding and CollapseDualLinesToCenterline as marked equivalents (ADR-224 §5.6)</span></li>
-<li><code>ff685497</code><time>2026-10-30</time><span>Every name in na and nax is built or refused with its reason, and arcpy.ListVersions (merging grapy-c; ADR-226 and ADR-227 condition 3)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
