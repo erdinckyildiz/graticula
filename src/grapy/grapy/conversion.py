@@ -1388,3 +1388,13 @@ def __getattr__(name):
         raise NotBuiltError(message)
 
     return missing
+
+
+# ---- LAS datasets (ADR-229): built in _las, answered here under arcpy.conversion's name
+
+
+from . import _las as _las_tools  # noqa: E402
+
+LasDatasetToRaster = _las_tools.LasDatasetToRaster
+_REFUSED.pop("LasDatasetToRaster", None)
+_REFUSED["ConvertLas"] = "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4)"

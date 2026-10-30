@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-196 | **[OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30** ([ADR-229](adr/ADR-229-grapy-holds-las-datasets-and-tins.md) §5.9): (a) a TIN is grapy's own tables in the GeoPackage (`grapy_tin`, its inputs, nodes, triangles and enforced edges), and a folder path names `<folder>/tin.gpkg`; a .lasd is grapy's own JSON, because Esri's TIN and .lasd formats are not published; (b) breaklines are made conforming by splitting a segment at its midpoint, and of two inputs at one x,y the later one's height is kept; (c) a triangle is inside a clip, erase, replace or value fill polygon when its centroid is, clips apply before erases, and a replace polygon's height is its height field or its first vertex's z; (d) a .lasd used directly shows every point but the withheld ones; (e) the raster grids' origins and the default cell size 10; (f) the report and field names the pages do not give; (g) ClassifyLasGround as the progressive morphological filter with its slopes and thresholds; (h) LASToMultipoint writing one multipoint per file. Recommendation: confirm all eight; (a) is the one whose change rewrites storage. | Owner | Built as inferred on branch grapy-c; nothing waits on the answer. |
 
 ## Answered
 

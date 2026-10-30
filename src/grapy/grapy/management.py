@@ -6523,3 +6523,29 @@ def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
     return Result(folder)
 
 
+
+
+# ---- LAS datasets and TINs (ADR-229): built in _las and _tintools, answered here under arcpy.management's names
+
+
+from . import _las as _las_tools, _tintools as _tin_tools  # noqa: E402
+
+CreateLasDataset = _las_tools.CreateLasDataset
+AddFilesToLasDataset = _las_tools.AddFilesToLasDataset
+RemoveFilesFromLasDataset = _las_tools.RemoveFilesFromLasDataset
+LasDatasetStatistics = _las_tools.LasDatasetStatistics
+MakeLasDatasetLayer = _las_tools.MakeLasDatasetLayer
+LasPointStatsAsRaster = _las_tools.LasPointStatsAsRaster
+MakeTinLayer = _tin_tools.MakeTinLayer
+
+for _built in ("CreateLasDataset", "AddFilesToLasDataset", "RemoveFilesFromLasDataset", "LasDatasetStatistics",
+               "MakeLasDatasetLayer", "LasPointStatsAsRaster", "MakeTinLayer"):
+    _REFUSED.pop(_built, None)
+_REFUSED.update({
+    "BuildLasDatasetPyramid": "is not built in grapy: the pyramid's format and the default point selection are not "
+                              "documented, and grapy's LAS datasets read their files directly (ADR-229 §5.2)",
+    "TINCompare": "is not built in grapy: the columns of its comparison file are not documented",
+    "ProjectLAS": "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4)",
+    "InterpolateFromPointCloud": "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its "
+                                 "condition 4)",
+})
