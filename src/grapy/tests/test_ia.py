@@ -46,9 +46,10 @@ class ImageAnalyst(unittest.TestCase):
         self.assertEqual(self.bands.bandCount, 4)
         path = self.bands.save(os.path.join(self.directory, "four.tif"))
         self.assertEqual(cells(ia.NDVI(path)), [[0.25, ND]])
-        # A Raster is still one band: opening four bands with it is refused, as it was.
+        # A Raster opens all four bands; a single-band tool refuses it by name.
+        self.assertEqual(arcpy.Raster(path).bandCount, 4)
         with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.Raster(path)
+            ia.Slope(path)
         self.assertAlmostEqual(self.first(ia.ExtractBand(self.bands, [3])), 0.3, places=6)
         self.assertEqual(ia.ExtractBand(path, [4, 1]).bandCount, 2)
         with self.assertRaises(arcpy.NotBuiltError):
