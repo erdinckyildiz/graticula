@@ -6,7 +6,7 @@
 | **Confidence** | `MEDIUM` for the model · `HIGH` for the TIN measurements, which are exact on a triangle's plane · `LOW` for agreement with Pro's triangulation wherever breaklines force densification points, whose placement Esri does not publish |
 | **Decided** | 2026-10-30, by owner decision on scope and order: LAS datasets and TINs are their own ADR and batch, after subtypes and attachments (ADR-228, written beside this one) and before mosaic datasets and the utility network ([ADR-224](ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) §5.7). The storage design below is INFERRED and listed for confirmation in §5.9 and [Q-196](../open-questions.md). |
 | **Supersedes** | — |
-| **Superseded by** | — |
+| **Superseded by** | [ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md) for §5.1 and §5.6 only: grapy holds terrain datasets since 2026-10-30 |
 
 > Status values: `DRAFT`, `REQUIRES PROTOTYPE`, `REQUIRES BENCHMARK`,
 > `ACCEPTED`, `ACCEPTED WITH CONDITIONS`, `REJECTED`, `DEFERRED`, `REOPENED`.
@@ -90,8 +90,9 @@ fails by name past it (segments meeting at very small angles are the known case)
 
 ## 5. Decision
 
-1. **grapy holds TINs and LAS datasets, not terrains.** Group 2's 3D models begin with these two because the tools on
-   them are documented by their results.
+1. **grapy holds TINs and LAS datasets, ~~not terrains~~.** Group 2's 3D models begin with these two because the tools
+   on them are documented by their results. *(Terrains too since 2026-10-30, by owner decision —
+   [ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md), whose levels are this ADR's TINs.)*
 2. **Storage, INFERRED (§5.9).**
    - A TIN is five tables registered as the `grapy_tin` extension in `gpkg_extensions`: `grapy_tin` (name, reference,
      the delineation last applied), `grapy_tin_input` (each surface feature added, in order, with its type, tag,
@@ -112,8 +113,11 @@ fails by name past it (segments meeting at very small angles are the known case)
    methods are refused by name until a natural neighbour interpolant over a TIN is built.
 5. **LAS through laspy; LAZ only when a LAZ backend is installed, and none is in the image yet (condition 5); zLAS is
    refused** — Esri's format is not published.
-6. **Terrain datasets are refused**, every tool naming them: a terrain is a pyramid inside a geodatabase feature
-   dataset, built by Esri's thinning, and a TIN or LAS dataset is the surface grapy holds.
+6. ~~**Terrain datasets are refused**, every tool naming them: a terrain is a pyramid inside a geodatabase feature
+   dataset, built by Esri's thinning, and a TIN or LAS dataset is the surface grapy holds.~~ **Reversed 2026-10-30 by
+   owner decision ([ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md))**: a terrain is grapy's own
+   tables in the feature dataset's GeoPackage, each pyramid level read as a TIN of this ADR; Esri's pyramid storage is
+   still not reproduced.
 7. **What the pages leave undefined is refused or an equivalent (ADR-224 §5.6).** DecimateTinNodes and RasterTin do not
    say how points are chosen; RANDOM thinning does not say how points are drawn — refused. ClassifyLasGround's methods
    are not described; it is built as an **equivalent**, the progressive morphological filter (Zhang et al. 2003),

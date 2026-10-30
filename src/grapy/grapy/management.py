@@ -5082,12 +5082,6 @@ _GROUP_2_MODELS = {
     "trajectory datasets": ("CreateTrajectoryDataset", "AddDataToTrajectoryDataset", "RepairTrajectoryDatasetPaths",
                             "MakeTrajectoryLayer"),
     "annotation feature classes": ("AppendAnnotation",),
-    "ortho mapping and stereo workspaces": (
-        "AnalyzeControlPoints", "AppendControlPoints", "ApplyBlockAdjustment", "ComputeBlockAdjustment",
-        "ComputeCameraModel", "ComputeControlPoints", "ComputeDepthMap", "ComputeFiducials", "ComputeTiePoints",
-        "ExportFrameAndCameraParameters", "GenerateBlockAdjustmentReport", "GeneratePointCloud", "MatchControlPoints",
-        "RemoveDepthMap", "UpdateInteriorOrientation", "BuildStereoModel", "GenerateExcludeArea",
-        "CreateOrthoCorrectedRasterDataset"),
 }
 
 
@@ -5149,12 +5143,17 @@ def CompositeBands(in_rasters, out_raster):
 
 
 _REASONS = {
-    "needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet "
-    "(ADR-224 group 2)": (
-        "Add3DFormats", "Remove3DFormats", "AddFilesToLasDataset", "RemoveFilesFromLasDataset", "BuildLasDatasetPyramid",
-        "CreateLasDataset", "LasDatasetStatistics", "LasPointStatsAsRaster", "MakeLasDatasetLayer", "ProjectLAS",
-        "Export3DObjects", "Import3DObjects", "TINCompare", "MakeTinLayer", "CreateVoxelSceneLayerContent",
-        "GenerateLevelOfDetail", "MakeBuildingLayer", "MakeSceneLayer", "InterpolateFromPointCloud"),
+    "works on the 3D object formats of multipatch features, a 3D data model grapy does not hold (ADR-224 group 2)": (
+        "Add3DFormats", "Remove3DFormats", "Export3DObjects", "Import3DObjects"),
+    "generates levels of detail for multipatch (3D object) features, a 3D data model grapy does not hold (ADR-224 "
+    "group 2)": ("GenerateLevelOfDetail",),
+    "writes a voxel scene layer's content from a voxel layer; grapy holds no voxels or scene layers (ADR-224 group 2)": (
+        "CreateVoxelSceneLayerContent",),
+    "makes a building layer from a BIM file workspace (Revit or IFC), which grapy does not hold (ADR-224 group 2)": (
+        "MakeBuildingLayer",),
+    "makes a layer over a scene layer (I3S) or scene layer package, which grapy does not hold (ADR-224 group 2)": (
+        "MakeSceneLayer",),
+
     "needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or "
     "project — which a tool running on the server does not hold": (
         "ApplySymbologyFromLayer", "MatchLayerSymbologyToAStyle", "SaveToLayerFile", "ExportLayouts", "ExportReportToPDF",
@@ -7430,3 +7429,49 @@ GenerateUpdateRelatedAttributeRule = _rulegen.GenerateUpdateRelatedAttributeRule
 for _built in ("CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
                "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule"):
     _REFUSED.pop(_built, None)
+
+
+# ---- ortho mapping (ADR-234): built in _ortho and _orthotools, answered here under arcpy.management's names
+
+
+from . import _orthotools as _ortho_tools  # noqa: E402
+
+ComputeTiePoints = _equivalent(*_ortho_tools._ortho.MATCHING)(_ortho_tools.ComputeTiePoints)
+ComputeControlPoints = _equivalent(*_ortho_tools._ortho.MATCHING)(_ortho_tools.ComputeControlPoints)
+MatchControlPoints = _equivalent(*_ortho_tools._ortho.MATCHING)(_ortho_tools.MatchControlPoints)
+ComputeBlockAdjustment = _equivalent(*_ortho_tools.ADJUSTMENT)(_ortho_tools.ComputeBlockAdjustment)
+AppendControlPoints = _ortho_tools.AppendControlPoints
+AnalyzeControlPoints = _ortho_tools.AnalyzeControlPoints
+ApplyBlockAdjustment = _ortho_tools.ApplyBlockAdjustment
+GenerateBlockAdjustmentReport = _ortho_tools.GenerateBlockAdjustmentReport
+ExportFrameAndCameraParameters = _ortho_tools.ExportFrameAndCameraParameters
+BuildStereoModel = _ortho_tools.BuildStereoModel
+CreateOrthoCorrectedRasterDataset = _ortho_tools.CreateOrthoCorrectedRasterDataset
+
+for _built in ("ComputeTiePoints", "ComputeControlPoints", "MatchControlPoints", "ComputeBlockAdjustment",
+               "AppendControlPoints", "AnalyzeControlPoints", "ApplyBlockAdjustment", "GenerateBlockAdjustmentReport",
+               "ExportFrameAndCameraParameters", "BuildStereoModel", "CreateOrthoCorrectedRasterDataset"):
+    _REFUSED.pop(_built, None)
+_REFUSED.update({
+    "ComputeCameraModel": "is not built in grapy: it estimates the cameras from the images' EXIF headers, computes tie "
+                          "points, adjusts and refines by steps its page names without describing, and writes a DSM and "
+                          "a flight path by methods it does not give (ADR-234 §5.5); with frames and cameras tables, "
+                          "ComputeTiePoints and ComputeBlockAdjustment do the documented part",
+    "ComputeDepthMap": "is not built in grapy: it writes a .dm depth map file per image, Esri's own format, by a method "
+                       "its page does not describe (ADR-234 §5.5)",
+    "RemoveDepthMap": "is not built in grapy: it deletes the .dm depth maps ComputeDepthMap writes, Esri's own format, "
+                      "which grapy never writes (ADR-234 §5.5)",
+    "ComputeFiducials": "is not built in grapy: its page does not name how fiducials are found from the templates, nor "
+                        "the fields of the fiducial table it writes, and the one tool that reads that table, "
+                        "UpdateInteriorOrientation, has no page grapy could read (ADR-234 §5.5)",
+    "UpdateInteriorOrientation": "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/"
+                                 "data-management/update-interior-orientation.html answered 404, and pro.arcgis.com's "
+                                 "update-interior-orientation.htm redirects to it (checked 2026-10-30), so its "
+                                 "parameters and how it fits the affine are unknown",
+    "GeneratePointCloud": "is not built in grapy: its page says repeated runs give different points because of random "
+                          "sampling, and its ETM and MVM matchers are described without their algorithms; only SGM is "
+                          "cited (ADR-234 §5.5)",
+    "GenerateExcludeArea": "is not built in grapy: its page contradicts itself on whether the colour mask's values are "
+                           "excluded or kept, and does not say how a pixel is tested against the eight colour "
+                           "thresholds (ADR-234 §5.5)",
+})

@@ -240,9 +240,12 @@ def AddRastersToMosaicDataset(in_mosaic_dataset, raster_type, input_path, update
     mosaic dataset's; ``operation_description`` is kept in the mosaic dataset's properties."""
     tool = "AddRastersToMosaicDataset"
     kind = re.sub(r"[\s_]", "", str(raster_type or "")).upper()
+    if kind == "FRAMECAMERA":
+        return _add_frame_camera(in_mosaic_dataset, input_path, update_cellsize_ranges, update_boundary, aux_inputs,
+                                 duplicate_items_action, operation_description, tool)
     if kind not in ("RASTERDATASET",):
-        _refuse(tool, "raster_type", raster_type, "only the Raster Dataset type is built; the others read a sensor's "
-                "metadata through Esri's raster type definitions (ADR-230 §5.3)")
+        _refuse(tool, "raster_type", raster_type, "only the Raster Dataset and Frame Camera types are built; the others "
+                "read a sensor's metadata through Esri's raster type definitions (ADR-230 §5.3, ADR-234 §5.3)")
     for name, value, default in (("update_overviews", update_overviews, "NO_OVERVIEWS"),
                                  ("build_pyramids", build_pyramids, "NO_PYRAMIDS"),
                                  ("build_thumbnails", build_thumbnails, "NO_THUMBNAILS"),
@@ -262,6 +265,36 @@ def AddRastersToMosaicDataset(in_mosaic_dataset, raster_type, input_path, update
     files = _gather(input_path, filter, _word(sub_folder, "SUBFOLDERS") in ("SUBFOLDERS", "TRUE"), tool)
     added = _add(in_mosaic_dataset, files, _word(duplicate_items_action, "ALLOW_DUPLICATES"), tool,
                  _word(calculate_statistics, "NO_STATISTICS") in ("CALCULATE_STATISTICS", "TRUE"))
+    connection, mosaic, rec, _ = _mosaic.open_mosaic(in_mosaic_dataset, tool)
+    try:
+        if _given(operation_description):
+            properties = dict(rec.properties)
+            properties.setdefault("operations", []).append(str(operation_description))
+            _mosaic.save_properties(connection, mosaic, properties)
+        if added and _word(update_cellsize_ranges, "UPDATE_CELL_SIZES") in ("UPDATE_CELL_SIZES", "TRUE"):
+            _cell_sizes(connection, mosaic, f'"{_mosaic.OID}" in ({", ".join(str(i) for i in added)})', True, True, 10,
+                        rec.properties.get("cellSizeToleranceFactor") or 0, False)
+        if _word(update_boundary, "UPDATE_BOUNDARY") in ("UPDATE_BOUNDARY", "TRUE"):
+            _boundary(connection, mosaic, rec.srid, None, "OVERWRITE", "NONE")
+    finally:
+        _close(connection)
+    return Result(_mosaic.text(in_mosaic_dataset))
+
+
+def _add_frame_camera(in_mosaic_dataset, input_path, update_cellsize_ranges, update_boundary, aux_inputs,
+                      duplicate_items_action, operation_description, tool):
+    """The Frame Camera raster type (ADR-234 §5.3): ``input_path`` names a frames table — a GeoPackage table or a CSV
+    file with the frames table schema's fields — and each row becomes an item: its image, its perspective centre and
+    Omega, Phi, Kappa, and its camera's fields from the same row or, given as ``aux_inputs`` ``CameraFile <table>``, from
+    a cameras table matched on CameraID; a frame's own camera fields take precedence, as the frames table page says. An
+    item's footprint is its image's corners projected to the camera's AverageZ (0 by default); LowPS and HighPS its
+    ground sample distance there; CenterX and CenterY its perspective centre (its nadir).
+
+    INFERRED (ADR-234 §5.9 (b)): a relative Raster path is read from the frames table's folder; ``CameraFile`` as the
+    name of the cameras table among the auxiliary inputs; the footprint and cell sizes at AverageZ."""
+    from . import _ortho
+    added = _ortho.add_frames(in_mosaic_dataset, input_path, aux_inputs, _word(duplicate_items_action,
+                                                                                "ALLOW_DUPLICATES"), tool)
     connection, mosaic, rec, _ = _mosaic.open_mosaic(in_mosaic_dataset, tool)
     try:
         if _given(operation_description):

@@ -204,8 +204,10 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
    - (h) a restrictive group with no contingent values for a row's subtype, and a row whose group fields are all
      null, are not restricted; a field the value table leaves out is ANY; a CODED_VALUE needs the field's coded
      domain; a new contingent value's id is one more than the highest held; RANGE is written 'min;max'; in Generate's
-     DATA mode a field without a domain is ANY, or NULL where null; and whether the owner wants Alternative D's
-     replicas on branch versions despite §2;
+     DATA mode a field without a domain is ANY, or NULL where null; and ~~whether the owner wants Alternative D's
+     replicas on branch versions despite §2~~ — **decided by the owner 2026-10-30: replicas stay refused (*"Reddedilmiş
+     kalsın"*)**: grapy has none of what CreateReplica's page requires, and a tool under its name that behaved otherwise
+     would be worse than a plain refusal;
    - (i) a FeatureSet that GroupBy, Distinct or FeatureSet makes is a temporary table of the connection, its object id
      ROW__ID unless the definition names one; FeatureSetByAssociation's className omits the feature dataset; an
      attachment is a Dictionary, and `metadata` adds exifInfo and keywords as UpgradeAttachments keeps them;
@@ -251,7 +253,7 @@ read, and no Esri script was reproduced.
 ## 9. Revisit triggers
 
 - A toolbox needs a refused parameter value of §5.3 or §5.4, or Pro's own generated script.
-- The owner answers Q-203 (h) in favour of replicas on branch versions.
+- ~~The owner answers Q-203 (h) in favour of replicas on branch versions.~~ Answered against, 2026-10-30.
 - Esri publishes the replica message schema or the validation error tables' fields.
 
 ## 10. Dissent
