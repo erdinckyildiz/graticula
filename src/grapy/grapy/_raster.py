@@ -75,10 +75,13 @@ def _refuse_environment(tool):
 class Raster:
     """arcpy.Raster: ``Raster(path)`` opens a GeoTIFF; map algebra answers new, temporary rasters; ``save`` writes one."""
 
+    _rat = None  # its raster attribute table (_Rat), or None
+
     def __init__(self, inRaster=None, is_multidimensional=False, *_, **__):
         if isinstance(inRaster, Raster):
             self._array, self._mask, self._grid = inRaster._array, inRaster._mask, inRaster._grid
             self.catalogPath, self.isTemporary = inRaster.catalogPath, inRaster.isTemporary
+            self._rat = inRaster._rat
             return
         if inRaster is None:
             raise ValueError("Raster needs a raster dataset.")
@@ -100,6 +103,7 @@ class Raster:
             self._grid = _Grid(t.c, t.f, t.a, -t.e, source.height, source.width, source.crs.to_epsg() if source.crs else 0)
         self._array, self._mask = band, mask
         self.catalogPath, self.isTemporary = path, False
+        self._rat = _read_rat(path)
 
     @classmethod
     def _of(cls, array, mask, grid):
@@ -183,7 +187,8 @@ class Raster:
 
     @property
     def hasRAT(self):
-        return False
+        """Whether the raster carries an attribute table (its .aux.xml's GDALRasterAttributeTable)."""
+        return self._rat is not None
 
     @property
     def name(self):
@@ -220,6 +225,8 @@ class Raster:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with rasterio.open(path, "w", **profile) as out:
             out.write(written, 1)
+        # Its attribute table goes into the .aux.xml beside it, as GDAL keeps one; a stale one there is removed.
+        _write_rat(path, self._rat)
         self.catalogPath, self.isTemporary = path, False
         return path
 
@@ -514,3 +521,119 @@ def _open_bands(value, tool="arcpy.ia"):
     bands = _Bands(arrays, masks, grid)
     bands.catalogPath, bands.isTemporary = path, False
     return bands
+
+
+# ---- raster attribute tables (RAT), stored as GDAL stores them: a ``GDALRasterAttributeTable`` in the dataset's
+# ``.aux.xml`` PAM file. Field types are GDAL's GFT codes (0 integer, 1 real, 2 string) and usages its GFU codes
+# (0 generic, 1 pixel count, 5 min-max, the value column).
+
+_GFT = {"Integer": 0, "Double": 1, "String": 2}
+_GFT_BACK = {0: "Integer", 1: "Double", 2: "String"}
+
+
+class _Rat:
+    """A raster attribute table: its fields — (name, type word, GDAL usage) — and its rows, a list of lists."""
+
+    def __init__(self, fields, rows):
+        self.fields = [tuple(f) for f in fields]
+        self.rows = [list(r) for r in rows]
+
+    def names(self):
+        return [f[0] for f in self.fields]
+
+    def index(self, name):
+        lower = [f[0].lower() for f in self.fields]
+        if str(name).lower() not in lower:
+            raise KeyError(name)
+        return lower.index(str(name).lower())
+
+    def column(self, name):
+        i = self.index(name)
+        return [r[i] for r in self.rows]
+
+    def copy(self):
+        return _Rat(self.fields, self.rows)
+
+
+def _aux_path(path):
+    return os.fspath(path) + ".aux.xml"
+
+
+def _read_rat(path):
+    """The RAT of a GeoTIFF's first band from its .aux.xml, or None."""
+    import xml.etree.ElementTree as ET
+    aux = _aux_path(path)
+    if not os.path.exists(aux):
+        return None
+    root = ET.parse(aux).getroot()
+    for band in root.iter("PAMRasterBand"):
+        if band.get("band", "1") != "1":
+            continue
+        table = band.find("GDALRasterAttributeTable")
+        if table is None:
+            return None
+        fields = []
+        for defn in sorted(table.findall("FieldDefn"), key=lambda d: int(d.get("index", 0))):
+            fields.append((defn.findtext("Name", ""), _GFT_BACK.get(int(defn.findtext("Type", "2")), "String"),
+                           int(defn.findtext("Usage", "0"))))
+        rows = []
+        for row in sorted(table.findall("Row"), key=lambda r: int(r.get("index", 0))):
+            values = []
+            for (name, kind, _), cell in zip(fields, row.findall("F")):
+                text = cell.text
+                if text is None or text == "":
+                    values.append(None if kind != "String" else "")
+                elif kind == "Integer":
+                    values.append(int(float(text)))
+                elif kind == "Double":
+                    values.append(float(text))
+                else:
+                    values.append(text)
+            rows.append(values)
+        return _Rat(fields, rows)
+    return None
+
+
+def _write_rat(path, rat):
+    """The RAT written into the dataset's .aux.xml as GDAL's PAM writes it; with None, a RAT already there is removed
+    (and the file with it when it holds nothing else)."""
+    import xml.etree.ElementTree as ET
+    aux = _aux_path(path)
+    root = ET.parse(aux).getroot() if os.path.exists(aux) else ET.Element("PAMDataset")
+    band = next((b for b in root.iter("PAMRasterBand") if b.get("band", "1") == "1"), None)
+    if band is None:
+        if rat is None:
+            return
+        band = ET.SubElement(root, "PAMRasterBand", band="1")
+    for old in band.findall("GDALRasterAttributeTable"):
+        band.remove(old)
+    if rat is not None:
+        table = ET.SubElement(band, "GDALRasterAttributeTable", tableType="thematic")
+        for i, (name, kind, usage) in enumerate(rat.fields):
+            defn = ET.SubElement(table, "FieldDefn", index=str(i))
+            ET.SubElement(defn, "Name").text = name
+            ET.SubElement(defn, "Type").text = str(_GFT.get(kind, 2))
+            ET.SubElement(defn, "Usage").text = str(usage)
+        for i, row in enumerate(rat.rows):
+            element = ET.SubElement(table, "Row", index=str(i))
+            for value in row:
+                ET.SubElement(element, "F").text = "" if value is None else (
+                    repr(float(value)) if isinstance(value, float) else str(value))
+    if len(band) == 0:
+        root.remove(band)
+    if len(root) == 0:
+        if os.path.exists(aux):
+            os.remove(aux)
+        return
+    ET.ElementTree(root).write(aux, encoding="utf-8", xml_declaration=False)
+
+
+def _value_count(array, mask):
+    """The Value and Count table of an integer raster: each value present, ascending, with how many cells hold it."""
+    values, counts = np.unique(np.asarray(array)[~mask], return_counts=True)
+    return _Rat([("Value", "Integer", 5), ("Count", "Integer", 1)],
+                [[int(v), int(c)] for v, c in zip(values, counts)])
+
+
+def _is_raster_path(value):
+    return isinstance(value, (str, os.PathLike)) and os.fspath(value).lower().endswith((".tif", ".tiff"))

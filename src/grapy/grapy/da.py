@@ -227,8 +227,115 @@ class _Cursor:
             pass
 
 
+class _RatCursor:
+    """A cursor on a raster's attribute table, read as a table: ``OID@`` (the row's position from 1) and its fields,
+    by name without regard to case. Rows are held in an in-memory SQLite table so a where clause and sql_clause work
+    as on a feature class; an update cursor writes the table back to the raster's .aux.xml when it closes.
+
+    INFERRED: ``OID@`` is the row's position from 1, as ArcGIS shows an ObjectID column on an attribute table."""
+
+    def __init__(self, in_table, field_names, where_clause=None, update=False, sql_clause=(None, None)):
+        import sqlite3
+        from ._raster import _read_rat
+        self._path, self._update = in_table, update
+        self._rat = _read_rat(in_table)
+        if self._rat is None:
+            raise RuntimeError(f"'{in_table}' has no attribute table; build one (management.BuildRasterAttributeTable).")
+        names = self._rat.names()
+        lower = {n.lower(): n for n in names}
+        if field_names in ("*", ["*"]):
+            field_names = ["OID@", *names]
+        if isinstance(field_names, str):
+            field_names = [f.strip() for f in field_names.split(";")]
+        fields = []
+        for f in field_names:
+            if f.upper() == "OID@":
+                fields.append("OID@")
+            elif f.upper().startswith("SHAPE@"):
+                raise RuntimeError(f"'{f}': a raster attribute table has no shapes.")
+            elif f.lower() in lower:
+                fields.append(lower[f.lower()])
+            else:
+                raise RuntimeError(f"Cannot find field '{f}'")
+        self.fields = tuple(fields)
+        self._connection = sqlite3.connect(":memory:")
+        kinds = {"Integer": "INTEGER", "Double": "REAL", "String": "TEXT"}
+        defined = ", ".join(f'"{n}" {kinds[k]}' for n, k, _ in self._rat.fields)
+        self._connection.execute(f'create table rat (oid integer primary key{", " + defined if defined else ""})')
+        for i, row in enumerate(self._rat.rows, 1):
+            marks = ", ".join("?" for _ in range(len(row) + 1))
+            self._connection.execute(f"insert into rat values ({marks})", [i, *row])
+        columns = ", ".join("oid" if f == "OID@" else f'"{f}"' for f in self.fields)
+        prefix, postfix = sql_clause or (None, None)
+        sql = f'select oid, {columns} from rat' + (f" where {where_clause}" if where_clause else "")
+        sql += f" {postfix}" if postfix else " order by oid"
+        self._rows = self._connection.execute(sql).fetchall()
+        self._at = -1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self._close()
+        return False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self._at += 1
+        if self._at >= len(self._rows):
+            raise StopIteration
+        values = self._rows[self._at][1:]
+        return list(values) if self._update else tuple(values)
+
+    def next(self):
+        return self.__next__()
+
+    def reset(self):
+        self._at = -1
+
+    def updateRow(self, row):
+        if not self._update:
+            raise RuntimeError("A search cursor does not update rows.")
+        oid = self._rows[self._at][0]
+        pairs = [(f, v) for f, v in zip(self.fields, row) if f != "OID@"]
+        if pairs:
+            assignments = ", ".join(f'"{f}" = ?' for f, _ in pairs)
+            self._connection.execute(f"update rat set {assignments} where oid = ?", [*[v for _, v in pairs], oid])
+
+    def deleteRow(self):
+        if not self._update:
+            raise RuntimeError("A search cursor does not delete rows.")
+        self._connection.execute("delete from rat where oid = ?", (self._rows[self._at][0],))
+
+    def _close(self):
+        if self._connection is None:
+            return
+        if self._update:
+            from ._raster import _write_rat
+            names = [n for n, _, _ in self._rat.fields]
+            columns = ", ".join(f'"{n}"' for n in names)
+            rows = self._connection.execute(f"select {columns} from rat order by oid").fetchall() if names else []
+            self._rat.rows = [list(r) for r in rows]
+            _write_rat(self._path, self._rat)
+        self._connection.close()
+        self._connection = None
+
+
+def _raster_table(value):
+    from ._raster import _is_raster_path
+    return _is_raster_path(value)
+
+
 class SearchCursor(_Cursor):
     """Reads rows: ``with SearchCursor(fc, ["name", "SHAPE@"]) as rows: for name, shape in rows: …``"""
+
+    def __new__(cls, in_table, field_names=None, where_clause=None, *args, **kwargs):
+        if _raster_table(in_table):
+            sql = kwargs.get("sql_clause", args[2] if len(args) > 2 else (None, None))
+            return _RatCursor(in_table, field_names, where_clause, update=issubclass(cls, UpdateCursor), sql_clause=sql)
+        return super().__new__(cls)
 
     def __init__(self, in_table, field_names, where_clause=None, spatial_reference=None, explode_to_points=False,
                  sql_clause=(None, None), datum_transformation=None):
@@ -462,9 +569,9 @@ def _array(tool, in_table, field_names, where_clause, skip_nulls, null_value, sp
         names = [field_names] if isinstance(field_names, str) else list(field_names)
     for name in names:
         upper = name.upper()
-        if upper in ("SHAPE@", "SHAPE@Z", "SHAPE@M", "SHAPE@XYZ"):
+        if upper == "SHAPE@":
             raise NotBuiltError(f"arcpy.da.{tool}: '{name}' is not built in grapy — a geometry object does not go in an "
-                                "array, and z and m in arrays are not built yet.")
+                                "array.")
     reading = [n if n.upper() != "SHAPE@TRUECENTROID" else "SHAPE@XY" for n in names]
     if "OID@" not in [n.upper() for n in reading]:
         reading.append("OID@")
@@ -478,8 +585,10 @@ def _array(tool, in_table, field_names, where_clause, skip_nulls, null_value, sp
                 shape = row[-1]._shape if row[-1] is not None else None
                 points = list(_vertices(shape)) if shape is not None else [None]
                 for point in points:
-                    rows.append([(point if n.upper() == "SHAPE@XY" else point[0] if n.upper() == "SHAPE@X" else
-                                  point[1] if n.upper() == "SHAPE@Y" else v) if point is not None else v
+                    tokens = {"SHAPE@XY": lambda p: (p[0], p[1]), "SHAPE@X": lambda p: p[0], "SHAPE@Y": lambda p: p[1],
+                              "SHAPE@Z": lambda p: p[2], "SHAPE@M": lambda p: p[3],
+                              "SHAPE@XYZ": lambda p: (p[0], p[1], p[2])}
+                    rows.append([(tokens[n.upper()](point) if n.upper() in tokens else v) if point is not None else v
                                  for n, v in zip(reading, values)])
             else:
                 rows.append(values)
@@ -504,7 +613,9 @@ def _array(tool, in_table, field_names, where_clause, skip_nulls, null_value, sp
             kind = "<i4"
         elif upper in ("SHAPE@XY", "SHAPE@TRUECENTROID"):
             kind = ("<f8", 2)
-        elif upper in ("SHAPE@X", "SHAPE@Y", "SHAPE@AREA", "SHAPE@LENGTH"):
+        elif upper == "SHAPE@XYZ":
+            kind = ("<f8", 3)
+        elif upper in ("SHAPE@X", "SHAPE@Y", "SHAPE@Z", "SHAPE@M", "SHAPE@AREA", "SHAPE@LENGTH"):
             kind = "<f8"
         elif upper == "SHAPE@WKB":
             kind = "O"
@@ -512,7 +623,7 @@ def _array(tool, in_table, field_names, where_clause, skip_nulls, null_value, sp
             kind = "O" if any(v is None for v in column) else f"<U{max([len(str(v)) for v in column] + [1])}"
         else:
             kind = _NUMPY_TYPES.get(types.get(name.lower()), "O")
-        if kind not in ("O", ("<f8", 2)) and not str(kind).startswith(("<U", "<f")) and any(v is None for v in column):
+        if kind not in ("O", ("<f8", 2), ("<f8", 3)) and not str(kind).startswith(("<U", "<f")) and any(v is None for v in column):
             raise ValueError(f"arcpy.da.{tool}: field '{name}' holds nulls, which an integer or date array cannot; pass "
                              "null_value or skip_nulls.")
         if kind in ("<f8", "<f4"):
@@ -522,15 +633,18 @@ def _array(tool, in_table, field_names, where_clause, skip_nulls, null_value, sp
         if isinstance(kind, tuple):
             for r in out:
                 if r[i] is None:
-                    r[i] = (np.nan, np.nan)
+                    r[i] = (np.nan,) * kind[1]
+                elif any(v is None for v in r[i]):
+                    r[i] = tuple(np.nan if v is None else v for v in r[i])
         dtype.append((name, *kind) if isinstance(kind, tuple) else (name, kind))
     return np.array([tuple(r) for r in out], dtype=np.dtype(dtype))
 
 
 def _vertices(shape):
-    from ._geometry import _coordinates
-    for c in _coordinates(shape):
-        yield (c[0], c[1])
+    """Each vertex as (x, y, z, m), z and m None when the shape has none."""
+    has_z, has_m = bool(shapely.has_z(shape)), bool(shapely.has_m(shape))
+    for c in shapely.get_coordinates(shape, include_z=has_z, include_m=has_m):
+        yield (float(c[0]), float(c[1]), float(c[2]) if has_z else None, float(c[-1]) if has_m else None)
 
 
 def TableToNumPyArray(in_table, field_names="*", where_clause=None, skip_nulls=False, null_value=None):

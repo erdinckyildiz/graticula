@@ -11,8 +11,7 @@ Not built, each refused by name with its reason in ``__getattr__`` below:
 - Tools on 3D features whose method or output the documentation leaves open, each with its reason (feature classes
   carry z and m since grapy's GeoPackage Z/M support).
 - Tools whose algorithm the documentation describes without specifying (Kriging, Spline, Natural Neighbor, Topo to
-  Raster, Viewshed, Visibility …), and tools whose answer lives in a raster attribute table, which grapy's rasters do
-  not carry.
+  Raster, Viewshed, Visibility …).
 """
 from __future__ import annotations
 
@@ -1016,6 +1015,23 @@ _REFUSED.update({
                                "matched",
     "Intersect3DLines": "its horizontal tolerance, and how the XY and Z tolerance environments apply, are not given",
 })
+
+
+# ---- raster attribute tables
+
+
+def Lookup(in_raster, lookup_field, out_raster):
+    """arcpy.sa.Lookup, saved with its attribute table; see its docstring."""
+    return _saved(sa.Lookup(in_raster, lookup_field), out_raster)
+
+
+def CutFill(in_before_surface, in_after_surface, out_raster, z_factor=1):
+    """arcpy.sa.CutFill, saved with its attribute table (Value, Count, Volume, Area); see its docstring."""
+    return _saved(sa.CutFill(in_before_surface, in_after_surface, z_factor), out_raster)
+
+
+for _built in ("Lookup", "CutFill"):
+    _REFUSED.pop(_built, None)
 
 
 def __getattr__(name):
