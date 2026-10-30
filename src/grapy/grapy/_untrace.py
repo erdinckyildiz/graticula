@@ -5,7 +5,8 @@ Isolation, Loops, Shortest Path and Path — over the topology ``_utility.build`
 the one place where a trace's flow is decided: UpdateSubnetwork, ExportSubnetwork and Validate's discovered subnetworks
 call ``run`` too. What each does is what the "Utility network trace types", "Connectivity and traversability",
 "Barriers", "Configure a trace" and "Attribute propagation" pages say; where they say what but not how, the rule chosen
-is written beside it and in ADR-231 §5.9 (f) and (j):
+is written beside it and in ADR-231 §5.9 (f) and (j), and what ArcGIS Pro 3.7 was measured doing on 2026-10-30 is
+marked so there (condition 5):
 
 - a connected trace treats a device with terminals as one feature and spans every link until a barrier;
 - the subnetwork controllers of a starting point are those from which the resource can reach it — a search against
@@ -14,11 +15,14 @@ is written beside it and in ADR-231 §5.9 (f) and (j):
 - a subnetwork is everything the resource reaches from its controllers, passing through controllers of other tiers in a
   hierarchical domain network and stopping at them in a partitioned one; controllers of the tier with another
   subnetwork name are the documented error;
-- upstream and downstream follow the flow found from the controllers (``_utility.flow_arcs``, an equivalent); a loop has
-  no single direction, so it is traced whole unless indeterminate flow is ignored; a target tier lets them pass the
-  controllers of every tier ranked between the two, the flow found from the highest of them (rank 1 is the highest);
+- upstream and downstream follow the flow found from the controllers (``_utility.flow_arcs``, an equivalent) with the
+  trace's feature and condition barriers closed and its filter barriers open; an edge the resource enters from both
+  ends is indeterminate and passable both ways, or, when indeterminate flow is ignored, not entered — and a trace
+  starting on one returns nothing; a target tier lets them pass the controllers of every tier ranked between the two,
+  the flow found from the highest of them (rank 1 is the highest);
 - an isolation trace spans out from the starting points to the filter barriers; those the resource can reach without
-  passing the area are the isolating features, and the isolated features are what loses its supply once they close;
+  passing the area are the isolating features, returned whether or not barriers are included, and the isolated
+  features are what loses its supply once they close; an area holding a subnetwork controller returns nothing;
 - a loops trace returns the elements on a cycle of what is connected to the starting points: the biconnected
   components of three or more nodes (Hopcroft and Tarjan 1973), a device's terminals counted as one node;
 - a shortest path is Dijkstra's (1959) over the terminal paths both ways, an element costing its attribute's value on
@@ -434,14 +438,22 @@ def _subnetwork_based(network, graph, request, values, starts, feature_barriers,
             return i in feature_barriers or (i not in dynamic_free and condition(element[i]))
         return barrier(i)
 
-    # Flow is a property of the network, not of one trace's barriers (INFERRED, ADR-231 §5.9 (f)): upstream and
-    # downstream find their controllers and the subnetwork's flow without them, and stop at them when they trace.
-    # Propagators travel with that span from the controllers; what fails them is a barrier every trace type keeps.
+    # Upstream and downstream find the subnetwork's flow with the trace's traversability barriers closed — feature and
+    # condition barriers — and not its filter barriers, at which they only stop: measured in Pro 3.7 on 2026-10-30
+    # (ADR-231 §5.9 (f)), a closed valve as a condition or feature barrier changes which way the mesh around it flows,
+    # and the same valve as a filter barrier does not. Propagators travel with that span from the controllers; what
+    # fails them is a barrier every trace type keeps.
     directional = kind in ("UPSTREAM", "DOWNSTREAM")
+
+    def traversability(i):
+        return i in feature_barriers or (i not in dynamic_free and condition(element[i]))
+
+    def closed(i):
+        return i not in seeds and (traversability(i) if directional else user_barrier(i))
+
     propagation = Propagation(request.propagators, values)
     span_gate = _gates(propagation, None if directional else functions_gate, None if directional else filter_gate)
-    passed, stopped = _utility.reach(seeds, controlled, lambda i: (not directional and user_barrier(i) and
-                                                                    i not in seeds) or boundary(i), gate=span_gate)
+    passed, stopped = _utility.reach(seeds, controlled, lambda i: closed(i) or boundary(i), gate=span_gate)
     for i in passed | stopped:
         if i in own and own[i].lower() not in names:
             raise ExecuteError("ERROR 002081: two or more subnetworks are traversable: "
@@ -458,17 +470,20 @@ def _subnetwork_based(network, graph, request, values, starts, feature_barriers,
     if kind == "SUBNETWORK":
         kept = passed | boundaries
         kept |= (stopped - failed) if request.include_barriers else set()
-        return finish(kept - failed, resource(_utility.flow_arcs(region - failed, controlled, seeds, boundary)),
+        return finish(kept - failed, resource(_flow(graph, region - failed, controlled, seeds, boundary)[0]),
                       propagated)
 
     if directional:
-        arcs = _utility.flow_arcs(region, controlled, seeds, boundary)
+        arcs, indeterminate = _flow(graph, region, controlled, seeds, lambda i: boundary(i) or traversability(i))
         if not request.allow_indeterminate_flow:
-            arcs = {a: {b for b in bs if a not in arcs.get(b, ())} for a, bs in arcs.items()}
+            # Ignored, an indeterminate edge is not entered, and a trace starting on one returns nothing (measured in
+            # Pro 3.7, 2026-10-30).
+            arcs = {a: {b for b in bs if a not in arcs.get(b, ()) and b not in indeterminate}
+                    for a, bs in arcs.items() if a not in indeterminate}
         forward = arcs if domain[4] == "SOURCE" else _utility.reverse(arcs)
         if kind == "UPSTREAM":
             forward = _utility.reverse(forward)
-        inside = [s for s in starts if s in region]
+        inside = [s for s in starts if s in region and (request.allow_indeterminate_flow or s not in indeterminate)]
         bits = BitsetGate(request.filter_bitset, values) if request.filter_bitset else None
 
         def stop_here(i):
@@ -492,16 +507,40 @@ def _subnetwork_based(network, graph, request, values, starts, feature_barriers,
                     within[b].add(a)
     zone, edge = _utility.reach(starts, within, lambda i: user_barrier(i) or i in failed or isolator(i),
                                 starts_free=True, gate=_gates(filter_gate))
+    flow = resource(_flow(graph, region, controlled, seeds, boundary)[0])
+    if zone & seeds:
+        # A subnetwork controller inside the leak's own area: no valve can isolate it, and Pro 3.7 returns nothing,
+        # isolated features or not (measured 2026-10-30, ADR-231 §5.9 (f)).
+        return finish(set(), flow, propagated)
     candidates = {i for i in edge if isolator(i) or (filter_gate and i not in failed and not user_barrier(i))}
     local = {a: {b for b in bs if b in region} for a, bs in controlled.items() if a in region}
     fed, _ = _utility.reach(seeds, local, lambda i: user_barrier(i) or i in failed or i in zone)
     isolating = {b for b in candidates if b in fed and any(z in zone for z in local.get(b, ()))}
-    kept = set(isolating) if request.include_barriers else set()
+    # The isolating features are the answer, not barriers the trace met: Pro 3.7 returns them with EXCLUDE_BARRIERS too
+    # (measured 2026-10-30).
+    kept = set(isolating)
     if request.include_isolated_features:
         before, _ = _utility.reach(seeds, local, lambda i: user_barrier(i) or i in failed)
         after, _ = _utility.reach(seeds, local, lambda i: user_barrier(i) or i in failed or i in isolating)
         kept |= (before - after - isolating) | zone
-    return finish(kept, resource(_utility.flow_arcs(region, controlled, seeds, boundary)), propagated)
+    return finish(kept, flow, propagated)
+
+
+def _flow(graph, region, controlled, seeds, barrier):
+    """The subnetwork's flow (``_utility.flow_arcs``) and its indeterminate edges: an edge element the resource can
+    enter from both ends. Such an edge is passable both ways between everything it touches — measured in Pro 3.7 on
+    2026-10-30, downstream of B1 with VB closed reaches J1 back through A2, which the dominator rule alone forbids
+    (ADR-231 §5.9 (f))."""
+    arcs = _utility.flow_arcs(region, controlled, seeds, barrier)
+    into = _utility.reverse(arcs)
+    indeterminate = {a for a, bs in arcs.items() if graph.elements[a].kind == "E" and any(a in arcs.get(b, ())
+                                                                                           for b in bs)}
+    out = defaultdict(set, {a: set(bs) for a, bs in arcs.items()})
+    for e in indeterminate:
+        for n in set(arcs.get(e, ())) | set(into.get(e, ())):
+            out[e].add(n)
+            out[n].add(e)
+    return out, indeterminate
 
 
 def _invalid(bits):
@@ -806,8 +845,9 @@ def features(graph, ids):
 
 
 def filter_output(network, graph, ids, assettypes, conditions):
-    """Results kept by Output Asset Types (``Class/AssetGroup/AssetType``) and Output Conditions: a feature stays when
-    one of its traced elements passes (INFERRED, ADR-231 §5.9 (f))."""
+    """Results kept by Output Asset Types (``Class/AssetGroup/AssetType``) and Output Conditions: the elements that pass
+    them, and so the features with an element that passes — measured in Pro 3.7, 2026-10-30, whose ELEMENTS result of
+    ``Terminal ID = 2`` lists a check valve's Source terminal and not its Load (ADR-231 §5.9 (f))."""
     if not assettypes and not conditions:
         return ids
     wanted = set()
@@ -828,10 +868,7 @@ def filter_output(network, graph, ids, assettypes, conditions):
         if conditions and not condition(e):
             continue
         keep.add(i)
-    by_feature = defaultdict(set)
-    for i in ids:
-        by_feature[graph.elements[i].feature].add(i)
-    return {i for f, members in by_feature.items() if members & keep for i in members}
+    return keep
 
 
 def related(graph, keys, containers, content, structures, first_spatial=False):

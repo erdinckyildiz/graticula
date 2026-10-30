@@ -949,6 +949,14 @@ class Element:
         return None if self.source == 0 else (self.source, self.oid)
 
 
+def terminal_of(element):
+    """An element's terminal ID as Pro reports it: a configuration's terminals from 2, and 1 — the Single Terminal — for
+    the junction of an asset type with none (measured in Pro 3.7, 2026-10-30, ADR-231 §5.9 (b)); an edge has none."""
+    if element.terminal is not None:
+        return element.terminal
+    return 1 if element.kind == "J" and element.feature is not None else None
+
+
 class Graph:
     """The network topology built from the record: junction elements (one per terminal of a device or junction
     object, one per point otherwise, and system junctions), edge elements (a line between consecutive connection
@@ -1345,7 +1353,7 @@ class Values:
         if low == "asset type":
             return data["type"]
         if low == "terminal id":
-            return element.terminal
+            return terminal_of(element)
         if low == "is subnetwork controller":
             return 1 if self.controller(element) else 0
         if low == "tier name":

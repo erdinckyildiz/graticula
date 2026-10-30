@@ -313,8 +313,8 @@ def DeleteNetworkCategory(in_utility_network, category_name):
 def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, traversability_model,
                              terminals_directional=None, terminals_bidirectional=None, valid_paths=None,
                              default_path=None):
-    """A terminal configuration: two to eight terminals of at most 32 characters, numbered 1, 2 … in the order given
-    (INFERRED, ADR-231 §5.9 (b)); valid paths named, each All, None or terminal pairs ``A-B, A-C``; required for a
+    """A terminal configuration: two to eight terminals of at most 32 characters, numbered 2, 3 … in the order given,
+    1 being the Single Terminal of an asset type without a configuration (measured in Pro 3.7, ADR-231 §5.9 (b)); valid paths named, each All, None or terminal pairs ``A-B, A-C``; required for a
     bidirectional configuration of three or four terminals. A directional configuration needs an upstream terminal.
     The default path is a path's name, ALL or NONE, ALL when none is given."""
     model = _word(traversability_model, "")
@@ -376,7 +376,7 @@ def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, tr
                            network.name).fetchone()[0]
         network.q("insert into grapy_un_terminal_config values (?, ?, ?, ?, ?, ?, ?)", network.name, new_id,
                   str(terminal_configuration_name), model,
-                  json.dumps([[i + 1, n, bool(up)] for i, (n, up) in enumerate(terminals)]), json.dumps(paths), default)
+                  json.dumps([[i + 2, n, bool(up)] for i, (n, up) in enumerate(terminals)]), json.dumps(paths), default)
     return Result(_path(in_utility_network))
 
 
@@ -1692,7 +1692,7 @@ def ExportSubnetwork(in_utility_network, domain_network, tier, subnetwork_name, 
                 if found and found[1].lower() == found_tier[1].lower() and found[2].lower() == name.lower():
                     data = graph.features[e.feature][1]
                     controllers.append({"networkSourceId": e.source, "globalId": e.globalid, "objectId": e.oid,
-                                        "terminalId": e.terminal, "assetGroupCode": data["group"],
+                                        "terminalId": _utility.terminal_of(e), "assetGroupCode": data["group"],
                                         "assetTypeCode": data["type"], "subnetworkControllerName": found[0]})
             writer = _unjson.Writer(network, graph, outcome, outcome.ids, keys,
                                     _flag(include_geometry, "INCLUDE_GEOMETRY", "EXCLUDE_GEOMETRY", "EXCLUDE_GEOMETRY"),

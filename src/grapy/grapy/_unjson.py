@@ -15,6 +15,7 @@ import json
 
 from . import _gpkg, _untrace
 from ._runtime import ExecuteError
+from ._utility import terminal_of
 
 RESULT_TYPES = ("ELEMENTS", "CONNECTIVITY", "FEATURES", "CONTAINMENT_AND_ATTACHMENT_ASSOCIATIONS", "RELATED_RECORDS")
 
@@ -66,7 +67,7 @@ class Writer:
     def element(self, i, names=False):
         e = self.graph.elements[i]
         data = self.graph.features[e.feature][1]
-        out = {"networkSourceId": e.source, "globalId": e.globalid, "objectId": e.oid, "terminalId": e.terminal,
+        out = {"networkSourceId": e.source, "globalId": e.globalid, "objectId": e.oid, "terminalId": terminal_of(e),
                "assetGroupCode": data["group"], "assetTypeCode": data["type"]}
         if e.kind == "E":
             out["positionFrom"], out["positionTo"] = e.start, e.end
@@ -86,7 +87,7 @@ class Writer:
         out = {f"{prefix}NetworkSourceId": e.source, f"{prefix}GlobalId": e.globalid,
                f"{prefix}ObjectId": e.oid if e.feature else None}
         if prefix != "via":
-            out[f"{prefix}TerminalId"] = e.terminal
+            out[f"{prefix}TerminalId"] = terminal_of(e)
         else:
             out["viaPositionFrom"], out["viaPositionTo"] = e.start, e.end
         if self.geometry:

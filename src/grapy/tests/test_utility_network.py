@@ -88,7 +88,7 @@ class WaterNetwork(unittest.TestCase):
                                              "SHAPE@"], [
             ("L1", 1, 1, None, None, "LINESTRING(0 0, 10 0)"), ("L2", 1, 1, None, None, "LINESTRING(10 0, 20 0)"),
             ("L3", 1, 1, None, None, "LINESTRING(20 0, 30 0)"), ("L4", 1, 1, None, None, "LINESTRING(30 0, 40 0)"),
-            ("L5", 1, 1, None, 1, "LINESTRING(20 0, 20 10)"), ("L6", 1, 1, 2, None, "LINESTRING(20 10, 20 20)"),
+            ("L5", 1, 1, None, 2, "LINESTRING(20 0, 20 10)"), ("L6", 1, 1, 3, None, "LINESTRING(20 10, 20 20)"),
             ("L7", 1, 1, None, None, "LINESTRING(40 0, 40 10)"), ("L8", 1, 1, None, None, "LINESTRING(40 10, 30 10)"),
             ("L9", 1, 1, None, None, "LINESTRING(30 10, 30 0)")])
         self.vaults = self.insert(self.vault, ["NAME", "ASSETGROUP", "ASSETTYPE", "SHAPE@"], [("VA", 1, 1, "POINT(30 0)")])
@@ -371,13 +371,20 @@ class WaterNetwork(unittest.TestCase):
         self.assertEqual(self.trace("DOWNSTREAM", [("L5", None, 0.5)]), {"L5", "CV", "L6"})
         self.assertEqual(self.trace("UPSTREAM", [("L5", None, 0.5)]), {"L5", "T", "L2", "V1", "L1", "S"})
         self.assertEqual(self.trace("UPSTREAM", [("L6", None, 0.5)]), {"L6", "CV", "L5", "T", "L2", "V1", "L1", "S"})
-        # In the loop flow has no direction: traced whole, or not at all when indeterminate flow is ignored.
+        # In the loop flow has no direction: traced whole, or not at all when indeterminate flow is ignored — and a
+        # trace starting on an indeterminate edge then returns nothing, as Pro 3.7 was measured doing.
         self.assertEqual(self.trace("UPSTREAM", [("L8", None, 0.5)]), loop | {"L3", "T", "L2", "V1", "L1", "S"})
         self.assertEqual(self.trace("UPSTREAM", [("L8", None, 0.5)], allow_indeterminate_flow="IGNORE_INDETERMINATE_FLOW"),
-                         {"L8"})
-        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)], barriers=None,
-                                    condition_barriers="Category IS_EQUAL_TO SPECIFIC_VALUE Isolating"),
+                         set())
+        self.assertEqual(self.trace("UPSTREAM", [("L3", None, 0.5)], allow_indeterminate_flow="IGNORE_INDETERMINATE_FLOW"),
+                         {"L3", "T", "L2", "V1", "L1", "S"})
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)], filter_barriers="Category IS_EQUAL_TO "
+                                                                                     "SPECIFIC_VALUE Isolating"),
                          {"L2", "T", "L3", "L5", "CV", "L6", "V2"})
+        # Closed as condition barriers, the valves take part in the flow (measured in Pro 3.7): V1 cuts L2 off from S,
+        # no resource reaches it, and it has no downstream (INFERRED for an unfed start, ADR-231 §5.9 (f)).
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)], barriers=None,
+                                    condition_barriers="Category IS_EQUAL_TO SPECIFIC_VALUE Isolating"), set())
 
     def test_isolation_closes_only_the_valves_that_feed_the_leak(self):
         isolating = "Category IS_EQUAL_TO SPECIFIC_VALUE Isolating"
@@ -388,13 +395,24 @@ class WaterNetwork(unittest.TestCase):
         with self.assertRaises(ExecuteError):
             self.trace("ISOLATION", [("L3", None, 0.5)])
 
+    def test_isolation_returns_its_valves_without_barriers_and_nothing_around_a_controller(self):
+        # Measured in Pro 3.7 (ADR-231 condition 5): the isolating valves are the answer, not barriers the trace met,
+        # so EXCLUDE_BARRIERS keeps them; and a leak on L1 has S in its own area — no valve isolates a controller, and
+        # the trace returns nothing, with or without the isolated features.
+        isolating = "Category IS_EQUAL_TO SPECIFIC_VALUE Isolating"
+        self.assertEqual(self.trace("ISOLATION", [("L3", None, 0.5)], filter_barriers=isolating,
+                                    include_barriers="EXCLUDE_BARRIERS"), {"V1"})
+        self.assertEqual(self.trace("ISOLATION", [("L1", None, 0.5)], filter_barriers=isolating), set())
+        self.assertEqual(self.trace("ISOLATION", [("L1", None, 0.5)], filter_barriers=isolating,
+                                    include_isolated_features="INCLUDE_ISOLATED_FEATURES"), set())
+
     def test_a_check_valve_hides_a_second_source_and_two_subnetworks_are_an_error(self):
         arcpy.un.DisableNetworkTopology(self.un)
         second = self.insert(self.device, ["NAME", "ASSETGROUP", "ASSETTYPE", "STATUS", "SHAPE@"],
                              [("S2", 1, 1, 0, "POINT(20 20)")])
         with arcpy.da.UpdateCursor(self.line, ["TODEVICETERMINAL"], "NAME = 'L6'") as rows:
             for row in rows:
-                rows.updateRow([2])
+                rows.updateRow([3])  # S2's Load
         arcpy.un.UtilityNetwork(self.un).EnableSubnetworkController("WaterDevice", second["S2"], "Load", "Well", "Zone2",
                                                                     "Pressure")
         arcpy.un.EnableNetworkTopology(self.un)
@@ -410,6 +428,17 @@ class WaterNetwork(unittest.TestCase):
                                     output_conditions="Category IS_EQUAL_TO SPECIFIC_VALUE Isolating"), {"V2"})
         self.trace("UPSTREAM", [("L4", None, 0.5)], include_containers="INCLUDE_CONTAINERS")
         self.assertEqual(self.selected(("StructureJunction",)), {"VA"})
+
+    def test_terminal_ids_and_the_elements_an_output_condition_keeps(self):
+        # Pro 3.7 numbers the Single Terminal 1 and a configuration's terminals from 2: downstream of L2, Terminal ID 1
+        # is the tees and the valve; Terminal ID 2 the check valve's Source — and the ELEMENTS result lists that
+        # terminal alone, not the Load the feature also has in the trace.
+        self.assertEqual(self.trace("DOWNSTREAM", [("L2", None, 0.5)],
+                                    output_conditions="'Terminal ID' IS_EQUAL_TO SPECIFIC_VALUE 1"), {"T", "V2", "T2"})
+        found = self.json_trace("DOWNSTREAM", [("L2", None, 0.5)], ["ELEMENTS"],
+                                output_conditions="'Terminal ID' IS_EQUAL_TO SPECIFIC_VALUE 2")
+        elements = found["traceResults"]["elements"]
+        self.assertEqual([(self.names_of([e["globalId"]]), e["terminalId"]) for e in elements], [({"CV"}, 2)])
 
     def test_aggregated_geometry(self):
         _layers.LAYERS.clear()
@@ -585,11 +614,12 @@ class WaterNetwork(unittest.TestCase):
         self.assertTrue(found["success"])
         self.assertEqual(found["resultTypes"], ["elements", "connectivity", "features"])
         self.assertEqual(self.names_of(e["globalId"] for e in results["elements"]), {"L5", "CV", "L6"})
-        self.assertEqual(sorted(e["terminalId"] for e in results["elements"] if e["terminalId"]), [1, 2])
+        # A configuration's terminals are numbered from 2 (Source 2, Load 3), as Pro 3.7 numbers them.
+        self.assertEqual(sorted(e["terminalId"] for e in results["elements"] if e["terminalId"]), [2, 3])
         # L6 runs from the check valve's Load terminal to its open end; L5's tee was not traced, so it has no entry.
         (link,) = results["connectivity"]
         self.assertEqual((self.names_of([link["viaGlobalId"]]), link["fromTerminalId"], link["toNetworkSourceId"]),
-                         ({"L6"}, 2, 0))
+                         ({"L6"}, 3, 0))
         self.assertEqual(link["flowDirection"], "withDigitized")
         self.assertEqual(link["fromGeometry"], {"x": 20.0, "y": 10.0})
         named = [f for f in results["featureElements"] if f.get("fieldValues")]
@@ -648,7 +678,7 @@ class WaterNetwork(unittest.TestCase):
         arcpy.un.AddTraceLocations(self.un, barriers, clear_trace_locations="CLEAR_LOCATIONS",
                                    trace_locations=[["WaterDevice", self.devices["S"], "Load", None]])
         with arcpy.da.SearchCursor(barriers, ["TERMINALID", "PERCENTALONG"]) as read:
-            self.assertEqual(list(read), [(2, None)])
+            self.assertEqual(list(read), [(3, None)])  # Load: Source is 2, the Single Terminal 1
 
     def test_trace_configurations_are_kept_used_exported_and_imported(self):
         arcpy.un.AddTraceConfiguration(self.un, "Leak", "ISOLATION", "Valves to close", ["water", "leak"], "Water",
@@ -822,6 +852,139 @@ class WaterNetwork(unittest.TestCase):
             vault = next(read)[0]
         self.assertEqual({keys[n] for n in ("L1", "L6", "L8")}, {vault})
         self.assertNotEqual(keys["L10"], vault)
+
+class MeshNetwork(unittest.TestCase):
+    """The mesh of two controllers and a closed valve that ArcGIS Pro 3.7 was measured on (ADR-231 condition 5):
+
+                   E1 (10,20)
+        (0,10)  J4 ─B2─ CV2 ─B3─ J5           CV2: Source on J4's side, Load on J5's
+                │                │            CV : Source on D1, Load on D2
+                B1               B4           VB : a valve with Device Status 1
+                │                │
+        S1 ─A1─ J1 ─────A2────── J2 ─A3a─ VB ─A3b─ J3 ─A4─ S2      (x 0, 10, 20, 25, 30, 40)
+                                 │                 │
+                                 C1               D1 ─ CV ─ D2 (up to y 20)
+
+    Worked by hand, as the measurement found it: with VB open, S2 reaches J2 through A3a and A3b, so the A-line and
+    the loop J1─A2─J2─B4─J5─B3─CV2─B2─J4─B1 are indeterminate and upstream of C1 is everything but the far ends.
+    With VB closed as a condition or a feature barrier, S1 alone feeds the left half: A1 flows into J1, upstream of C1
+    is the left half without A3a and VB, and downstream of B1 runs round the loop and back through A2 to J1, never
+    to A1 or S1. As a filter barrier VB changes no flow: the trace stops at it and keeps it.
+    """
+
+    def setUp(self):
+        _layers.LAYERS.clear()
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        gpkg = arcpy.management.CreateFileGDB(self.directory, "mesh")[0]
+        fds = arcpy.management.CreateFeatureDataset(gpkg, "utility", 3857)[0]
+        territory = arcpy.management.CreateFeatureclass(fds, "Territory", "POLYGON", has_z="ENABLED", has_m="ENABLED")[0]
+        with arcpy.da.InsertCursor(territory, ["SHAPE@"]) as rows:
+            rows.insertRow(["POLYGON((-100 -100, 200 -100, 200 200, -100 200, -100 -100))"])
+        self.un = arcpy.un.CreateUtilityNetwork(fds, "Water", "Territory")[0]
+        arcpy.un.AddDomainNetwork(self.un, "Water", "PARTITIONED", "SOURCE", "Water Distribution")
+        arcpy.un.AddTier(self.un, "Water", "Pressure", 1, "MESH")
+        device, line, junction = f"{fds}/WaterDevice", f"{fds}/WaterLine", f"{fds}/WaterJunction"
+        arcpy.management.CreateDomain(gpkg, "Types", "Types", "SHORT", "CODED")
+        arcpy.management.AddCodedValueToDomain(gpkg, "Types", 1, "Standard")
+        for table, groups in ((device, [(1, "Source"), (2, "Valve"), (3, "CheckValve")]), (line, [(1, "Main")]),
+                              (junction, [(1, "Tee")])):
+            for code, text in groups:
+                arcpy.management.AddSubtype(table, code, text)
+                arcpy.management.AssignDomainToField(table, "ASSETTYPE", "Types", code)
+            arcpy.management.AddField(table, "NAME", "TEXT")
+        arcpy.management.AddField(device, "STATUS", "SHORT")
+        arcpy.un.AddTerminalConfiguration(self.un, "Source-Load", "DIRECTIONAL", "Source true;Load false")
+        for group in ("Source", "CheckValve"):
+            arcpy.un.SetTerminalConfiguration(self.un, "Water", "WaterDevice", group, "Standard", "Source-Load")
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Source", "Standard", "Subnetwork Controller")
+        arcpy.un.AddNetworkCategory(self.un, "Isolating")
+        arcpy.un.SetNetworkCategory(self.un, "Water", "WaterDevice", "Valve", "Standard", ["Isolating"])
+        arcpy.un.AddNetworkAttribute(self.un, "Device Status", "SHORT")
+        arcpy.un.SetNetworkAttribute(self.un, "Device Status", "Water", "WaterDevice", "STATUS")
+        je = "JUNCTION_EDGE_CONNECTIVITY"
+        arcpy.un.AddRule(self.un, je, "WaterDevice", "Source", "Standard", "WaterLine", "Main", "Standard", "Load")
+        arcpy.un.AddRule(self.un, je, "WaterDevice", "Valve", "Standard", "WaterLine", "Main", "Standard")
+        for terminal in ("Source", "Load"):
+            arcpy.un.AddRule(self.un, je, "WaterDevice", "CheckValve", "Standard", "WaterLine", "Main", "Standard",
+                             terminal)
+        arcpy.un.AddRule(self.un, je, "WaterJunction", "Tee", "Standard", "WaterLine", "Main", "Standard")
+        source, load = 2, 3  # as Pro 3.7 numbers a configuration's terminals
+        self.ids = {}
+        for table, fields, rows in (
+                (device, ["NAME", "ASSETGROUP", "ASSETTYPE", "STATUS", "SHAPE@"],
+                 [("S1", 1, 1, 0, "POINT(0 0)"), ("S2", 1, 1, 0, "POINT(40 0)"), ("CV2", 3, 1, 0, "POINT(15 10)"),
+                  ("CV", 3, 1, 0, "POINT(30 10)"), ("VB", 2, 1, 1, "POINT(25 0)")]),
+                (junction, ["NAME", "ASSETGROUP", "ASSETTYPE", "SHAPE@"],
+                 [("J1", 1, 1, "POINT(10 0)"), ("J2", 1, 1, "POINT(20 0)"), ("J3", 1, 1, "POINT(30 0)"),
+                  ("J4", 1, 1, "POINT(10 10)"), ("J5", 1, 1, "POINT(20 10)")]),
+                (line, ["NAME", "ASSETGROUP", "ASSETTYPE", "FROMDEVICETERMINAL", "TODEVICETERMINAL", "SHAPE@"],
+                 [("A1", 1, 1, load, None, "LINESTRING(0 0, 10 0)"), ("A2", 1, 1, None, None, "LINESTRING(10 0, 20 0)"),
+                  ("A3a", 1, 1, None, None, "LINESTRING(20 0, 25 0)"),
+                  ("A3b", 1, 1, None, None, "LINESTRING(25 0, 30 0)"),
+                  ("A4", 1, 1, None, load, "LINESTRING(30 0, 40 0)"), ("B1", 1, 1, None, None, "LINESTRING(10 0, 10 10)"),
+                  ("B2", 1, 1, None, source, "LINESTRING(10 10, 15 10)"),
+                  ("B3", 1, 1, load, None, "LINESTRING(15 10, 20 10)"),
+                  ("B4", 1, 1, None, None, "LINESTRING(20 10, 20 0)"), ("C1", 1, 1, None, None, "LINESTRING(20 0, 20 -10)"),
+                  ("D1", 1, 1, None, source, "LINESTRING(30 0, 30 10)"),
+                  ("D2", 1, 1, load, None, "LINESTRING(30 10, 30 20)"),
+                  ("E1", 1, 1, None, None, "LINESTRING(10 10, 10 20)")])):
+            with arcpy.da.InsertCursor(table, fields) as written:
+                for row in rows:
+                    written.insertRow(row)
+            with arcpy.da.SearchCursor(table, ["NAME", "GLOBALID@"]) as read:
+                self.ids.update(dict(read))
+        self.lines = {"A1", "A2", "A3a", "A3b", "A4", "B1", "B2", "B3", "B4", "C1", "D1", "D2", "E1"}
+        controllers = os.path.join(self.directory, "controllers.csv")
+        with open(controllers, "w", newline="", encoding="utf-8") as written:
+            out = csv.writer(written)
+            out.writerow(["SUBNETWORKCONTROLLERNAME", "FEATUREGLOBALID", "FEATURECLASSNAME", "FEATUREASSETGROUP",
+                          "FEATUREASSETTYPE", "FEATURETERMINAL", "TIERNAME", "SUBNETWORKNAME", "DESCRIPTION", "NOTES"])
+            for name, controller in (("S1", "Plant1"), ("S2", "Plant2")):
+                out.writerow([controller, self.ids[name], "WaterDevice", "Source", "Standard", "Load", "Pressure",
+                              "Zone1", "", ""])
+        arcpy.un.EnableNetworkTopology(self.un)
+        arcpy.un.ImportSubnetworkControllers(self.un, controllers)
+        arcpy.un.ValidateNetworkTopology(self.un)
+
+    def locations(self, name, names):
+        path = arcpy.management.CreateFeatureclass(self.directory, f"{name}.gpkg", "POINT", spatial_reference=3857)[0]
+        for field, kind in (("FEATUREGLOBALID", "GUID"), ("TERMINALID", "LONG"), ("PERCENTALONG", "DOUBLE")):
+            arcpy.management.AddField(path, field, kind)
+        with arcpy.da.InsertCursor(path, ["FEATUREGLOBALID", "TERMINALID", "PERCENTALONG", "SHAPE@XY"]) as written:
+            for n in names:
+                written.insertRow((self.ids[n], None, 0.5 if n in self.lines else None, (0, 0)))
+        return path
+
+    def trace(self, kind, start, **more):
+        _layers.LAYERS.clear()
+        if "barriers" in more:
+            more["barriers"] = self.locations("barriers", more["barriers"])
+        arcpy.un.Trace(self.un, kind, self.locations("start", [start]), domain_network="Water", tier="Pressure", **more)
+        found = set()
+        for layer in ("WaterDevice", "WaterLine", "WaterJunction"):
+            if layer in _layers.LAYERS and _layers.LAYERS[layer].selection:
+                with arcpy.da.SearchCursor(layer, ["NAME"]) as read:
+                    found |= {r[0] for r in read}
+        return found
+
+    def test_feature_and_condition_barriers_take_part_in_the_flow_and_filter_barriers_do_not(self):
+        closed = "'Device Status' IS_EQUAL_TO SPECIFIC_VALUE 1 #"
+        left = {"A1", "A2", "B1", "B2", "B3", "B4", "C1", "CV2", "J1", "J2", "J4", "J5", "S1"}
+        self.assertEqual(self.trace("UPSTREAM", "C1"), left | {"A3a", "VB", "A3b", "J3", "A4", "S2"})
+        self.assertEqual(self.trace("UPSTREAM", "C1", condition_barriers=closed), left)
+        self.assertEqual(self.trace("UPSTREAM", "C1", barriers=["VB"]), left)
+        self.assertEqual(self.trace("UPSTREAM", "C1", filter_barriers=closed), left | {"A3a", "VB"})
+        self.assertEqual(self.trace("DOWNSTREAM", "B1", condition_barriers=closed),
+                         left - {"A1", "S1"} | {"E1", "A3a", "VB"})
+        self.assertEqual(self.trace("DOWNSTREAM", "A4", barriers=["VB"]), {"A4", "J3", "A3b", "VB", "D1", "CV", "D2"})
+
+    def test_ignoring_indeterminate_flow_from_an_indeterminate_start_returns_nothing(self):
+        ignore = dict(allow_indeterminate_flow="IGNORE_INDETERMINATE_FLOW")
+        self.assertEqual(self.trace("UPSTREAM", "A3a", **ignore), set())
+        self.assertEqual(self.trace("DOWNSTREAM", "A1", **ignore), set())
+        self.assertEqual(self.trace("UPSTREAM", "D2", **ignore), {"D2", "CV", "D1", "J3"})
+
 
 if __name__ == "__main__":
     unittest.main()

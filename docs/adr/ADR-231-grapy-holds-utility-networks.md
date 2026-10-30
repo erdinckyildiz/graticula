@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
-| **Confidence** | `MEDIUM` for the model and the configuration tools, whose pages give their parameters, keywords, CSV columns and constraints · `HIGH` for the connected, subnetwork and subnetwork controllers traces on the hand-worked network of the tests · `LOW` for agreement with Pro wherever the pages describe a trace's purpose but not its rule — upstream and downstream flow, the isolating set, how conditions combine — which grapy decides as §5.9 records · second batch: `HIGH` for loops, shortest path, path, target tier, digitized direction and the subnetwork tools on the hand-worked network, `LOW` for agreement with Pro on what the pages leave open — function barrier order, propagation through a mesh, the JSON files' layout, the Subnetworks table — §5.9 (j) to (n) |
+| **Confidence** | `MEDIUM` for the model and the configuration tools, whose pages give their parameters, keywords, CSV columns and constraints · `HIGH` for the connected, subnetwork and subnetwork controllers traces on the hand-worked network of the tests · ~~`LOW` for agreement with Pro wherever the pages describe a trace's purpose but not its rule — upstream and downstream flow, the isolating set, how conditions combine — which grapy decides as §5.9 records~~ `HIGH` for upstream, downstream, isolation and condition precedence on the four networks measured in ArcGIS Pro 3.7 on 2026-10-30 (§4, condition 5): 110 of 126 traces answer as Pro's do, and the 16 others are ignored indeterminate flow in one mesh, a stated difference (§5.9 (f)) · second batch: `HIGH` for loops, shortest path, path, target tier, digitized direction and the subnetwork tools on the hand-worked network, `LOW` for agreement with Pro on what the pages leave open — function barrier order, propagation through a mesh, the JSON files' layout, the Subnetworks table — §5.9 (j) to (n) |
 | **Decided** | 2026-10-30, by owner decision on scope and order: the utility network is the last of the four group-2 models after subtypes and attachments (ADR-228), LAS datasets and TINs (ADR-229) and mosaic datasets (ADR-230); it is large, so this ADR decides the model and builds its core, and names what later batches add ([ADR-224](ADR-224-grapy-aims-at-arcpys-whole-buildable-surface.md) §5.7). The storage and the rules the pages leave open are INFERRED and listed for confirmation in §5.9 and [Q-199](../open-questions.md). **Second batch 2026-10-30, by the owner's "devam et"**: every name §5.8 scheduled is built, built as an equivalent, or refused for its own reason (§5.7, §5.8; condition 4). |
 | **Supersedes** | — |
 | **Superseded by** | — |
@@ -115,7 +115,10 @@ Rejected by the owner's scope answer.
 **Several rules are grapy's, not Pro's.** Flow direction, the isolating set and condition precedence are decided in
 §5.9 (f) because the pages describe the result, not the rule. On a radial network with directional devices every
 reading of the pages gives the same answer, and the tests use such a network; in a mesh of several controllers, or with
-barriers between a starting point and its controller, Pro's answer may differ.
+barriers between a starting point and its controller, Pro's answer may differ. **It did, and was measured** (§4,
+2026-10-30): barriers took part in Pro's flow and not in grapy's, terminals were numbered from 2, and isolation answered
+otherwise around a controller and without barriers. grapy now answers as Pro was measured answering, except where Pro
+ignores indeterminate flow in a mesh, which no rule over the network's shape reproduces (§5.9 (f)).
 
 **Dirty areas are found, not tracked.** grapy has no edit session to see an edit as it is made, so a utility network
 tool compares the features with the topology's record and writes the dirty areas then. An edit is visible in
@@ -128,12 +131,12 @@ been measured.
 ## 4. Evidence
 
 `src/grapy/tests/test_utility_network.py`, twenty-two tests on a water network drawn in its docstring (forty-four
-with the second batch, below): a source whose
+with the second batch, below, and forty-eight with the Pro measurement's, the last two on its mesh): a source whose
 Load terminal is the controller of Zone1, two valves of category Isolating, a check valve with Source and Load
 terminals, two tees and a loop of three lines that meet through system junctions. The expected answers are worked by
 hand there: downstream of L2 is T, L3, L5, the check valve, L6, V2 and the loop; upstream of L5 is T, L2, V1, L1 and S
-but never L3; upstream of the loop is the whole loop and the main, and only the starting line when indeterminate flow
-is ignored; the leak on L3 is isolated by V1 alone, because V2 is fed only through the leak's own area, and with
+but never L3; upstream of the loop is the whole loop and the main, and ~~only the starting line~~ nothing when indeterminate flow
+is ignored (measured in Pro 3.7, below); the leak on L3 is isolated by V1 alone, because V2 is fed only through the leak's own area, and with
 isolated features every feature beyond V1; a second source behind the check valve is not found from upstream of it
 (Scenario 1 of the page) and makes a subnetwork trace from below it the documented two-subnetworks error. No
 performance claim is made.
@@ -154,6 +157,35 @@ controller gone, clears every name to Unknown and removes the SubnetLine; a defi
 propagator writes 0 on L1 and 2 below V1, and valid devices of sources only make the subnetwork invalid; an isolated
 line is not connected; END_VERTEX stops a line connecting at a middle vertex; cascading a vault's delete deletes the
 valve it contains; cluster keys put the vault with the whole network and an isolated line apart.
+
+**Measured against ArcGIS Pro 3.7 (build 1901, Advanced licence, file geodatabase) on 2026-10-30** for condition 5:
+four networks built the same way in Pro and in grapy — a radial one with one controller, a mesh of two controllers and
+two check valves, that mesh with a valve VB between the controllers, and a mesh of valves for isolation — and 126
+identical traces run on both, Pro's answers taken from its ELEMENTS result (its per-edge `flowDirection` too, through
+`include_flow_directions`). The harness was disposable and is not kept in the repository; the third network is drawn
+in `test_utility_network.py`'s `MeshNetwork`. Before this batch's corrections 69 traces were identical and 57 differed;
+after them **110 are identical and 16 differ** — radial 11 of 11 (11 before), mesh 28 of 28 (21 before), mesh with VB 53 of 69 (21 before), isolation 18
+of 18 (16 before) (AND before OR among them, confirmed). What Pro was measured doing, and grapy now does:
+
+- feature and condition barriers take part in the flow — with VB closed, A1 has a direction, upstream of C1 leaves out
+  A3a and VB, downstream of A1 or A4 leaves out the controller — and a feature barrier answers as the condition barrier
+  does; a filter barrier changes no flow, and the trace stops at it and keeps it;
+- an edge the resource enters from both ends is indeterminate and passable both ways: downstream of B1 with VB closed
+  reaches J1 back through A2 (but never A1); ignoring indeterminate flow, a trace starting on such an edge returns
+  nothing;
+- Pro's per-edge flow directions on the two-controller mesh are grapy's, edge for edge (twelve edges in the subnetwork,
+  nine upstream of C1);
+- isolation returns nothing when the leak's own area holds a subnetwork controller, isolated features asked for or not,
+  and returns the isolating valves with EXCLUDE_BARRIERS too;
+- terminals are numbered from 2 in a configuration's order (Source 2, Load 3) and a Single Terminal is 1; an output
+  condition keeps the elements that pass it — `Terminal ID = 2` lists the check valves' Source terminals, not their Load
+  — and so the features those belong to.
+
+The 16 that differ are all IGNORE_INDETERMINATE_FLOW on the mesh with VB, and are §5.9 (f)'s stated difference. Two
+smaller ones were recorded rather than built: Pro lists each directional device's internal path it passes as an element
+of its own (`positionFrom` 0, `positionTo` 1, with a flow direction), which no page grapy read describes, and grapy lists
+the device's terminals only; and Pro ignores a barrier row on a device without terminals unless TERMINALID is 1, which
+grapy also accepts as null (§5.9 (b)).
 
 ## 5. Decision
 
@@ -204,9 +236,12 @@ valve it contains; cluster keys put the vault with the whole network and an isol
    partitioned domain and passing them in a hierarchical one; meeting a controller of the tier with another subnetwork
    name is the documented error; UPSTREAM and DOWNSTREAM are an *equivalent* (ADR-224 §5.6) — flow passes from u to v
    when some path from a controller reaches u without passing v, read off the dominator tree (Cooper, Harvey and
-   Kennedy 2001), so a loop is indeterminate and traced whole unless indeterminate flow is ignored; ISOLATION returns
-   the filter-barrier features the resource reaches the area through, and with isolated features what loses its supply
-   when they close. Starting points and barriers are a class or table with FEATUREGLOBALID, TERMINALID and
+   Kennedy 2001), found with the trace's feature and condition barriers closed and its filter barriers open; an edge
+   the resource enters from both ends is indeterminate and passable both ways, so a loop is traced whole unless
+   indeterminate flow is ignored, when it is not entered and a trace starting on it returns nothing; ISOLATION returns
+   the filter-barrier features the resource reaches the area through, with or without barriers included, and with
+   isolated features what loses its supply when they close — and nothing when the area holds a subnetwork controller.
+   All of this as ArcGIS Pro 3.7 was measured doing (§4). Starting points and barriers are a class or table with FEATUREGLOBALID, TERMINALID and
    PERCENTALONG, read as the Starting points page says. Condition and filter barriers, both scopes, output asset types
    and conditions, containers, content, structures, include barriers, ignore barriers at starting points and validate
    consistency are honoured. As the page says, a subnetwork-based trace run from Python applies no tier's trace
@@ -252,8 +287,13 @@ valve it contains; cluster keys put the vault with the whole network and an isol
 9. **INFERRED, for confirmation** ([Q-199](../open-questions.md)):
    - (a) the storage of §5.2: the classes in the feature dataset under ArcGIS's names; `<network>_Associations` and
      `<network>_DirtyAreas` beside them; grapy's sixteen `grapy_un*` tables; COMPATIBLE and CURRENT make version 8;
-   - (b) terminal IDs 1, 2 … in the order a configuration names its terminals; an asset type with no configuration has
-     one junction and no terminal ID, written `Single Terminal` in CSV files;
+   - (b) ~~terminal IDs 1, 2 … in the order a configuration names its terminals; an asset type with no configuration has
+     one junction and no terminal ID, written `Single Terminal` in CSV files~~ **measured in Pro 3.7, 2026-10-30, and no
+     longer an inference**: a configuration's terminals are numbered 2, 3 … in the order it names them (Source-Load:
+     Source 2, Load 3), and the one junction of an asset type with no configuration is the Single Terminal, 1 — written
+     so in trace results and read so by a `Terminal ID` condition, and `Single Terminal` in CSV files. Still grapy's: a
+     network made before this numbering keeps the IDs it stored; and a barrier or starting point on a device without
+     terminals is placed with TERMINALID 1 or null, where Pro silently ignores the null;
    - (c) coincidence within 0.001 of the data's unit (ArcGIS's default x,y tolerance; a GeoPackage keeps none), at any
      vertex of a line, and only within one network — a domain network's own classes, or the structure network's, as
      the feature restrictions page pairs them; a structure over a device is no connection and no error; a line end on
@@ -267,11 +307,27 @@ valve it contains; cluster keys put the vault with the whole network and an isol
      they return;
    - (f) trace rules: a directional configuration's path carries the resource only from an upstream terminal to a
      downstream one, and a device's current path is its TERMINALCONFIGURATION value or the configuration's default;
-     controllers are found against the flow and the search stops at the first controller of the tier; upstream and
+     controllers are found against the flow and the search stops at the first controller of the tier; ~~upstream and
      downstream find their controllers and the flow without the trace's barriers and stop at the barriers when they
-     trace; the flow rule of §5.6; the isolating set and isolated features of §5.6; in a condition AND binds before OR;
-     a feature passes an output filter when one of its traced elements does; filter barriers stop the non-isolation
-     traces as condition barriers do; a line row without PERCENTALONG places nothing;
+     trace~~; the flow rule of §5.6; the isolating set and isolated features of §5.6; ~~in a condition AND binds before
+     OR~~; ~~a feature passes an output filter when one of its traced elements does~~; filter barriers stop the
+     non-isolation traces as condition barriers do; a line row without PERCENTALONG places nothing; a starting point
+     the trace's barriers cut off from every controller has no flow and no upstream or downstream.
+     **Measured in Pro 3.7, 2026-10-30 (§4), and no longer inferences:** upstream and downstream find the flow with the
+     feature and condition barriers closed — a feature barrier answering as a condition barrier does — and with the
+     filter barriers open, at which they stop and which they keep; an edge the resource enters from both ends is
+     indeterminate and passable both ways, and ignoring indeterminate flow a trace starting on one returns nothing;
+     on a mesh of two controllers Pro's per-edge flow directions are the dominator rule's, edge for edge; isolation
+     returns its isolating features with EXCLUDE_BARRIERS too, and nothing when the leak's area holds a subnetwork
+     controller; AND binds before OR; an output filter keeps the elements that pass it, and a feature is returned when
+     one of its elements is. **A measured difference, kept:** with IGNORE_INDETERMINATE_FLOW in a mesh, Pro's flow
+     depends on more than the network's shape. The mesh with VB open is the two-controller mesh with one more valve on
+     A3 and nothing else changed, yet Pro answers 16 traces differently on it — upstream of C1 is C1 and J2 on the
+     first and eleven features on the second — and its answers on it imply a circular flow, J1 → B1 → CV2 → B4 → J2 →
+     A2 → J1: downstream of B1 reaches J1 through A2 and upstream of C1 reaches J1 the other way round. No rule over the
+     topology gives two answers to one shape, so grapy keeps the dominator rule — which reproduces every per-edge
+     direction Pro reported — and does not fit one; the explanation that Pro marks an edge indeterminate where two
+     controllers' traversals cross it in opposite directions, in an order of its own, is INFERRED, not measured;
    - (g) a selection is made on a layer named after each class (`WaterDevice`), made when there is none; aggregated
      geometry goes to `Trace_Results_Aggregated_Points`, `_Lines` and `_Polygons` in the network's GeoPackage when no
      class is named, as the project's default geodatabase has no counterpart;
@@ -348,7 +404,8 @@ shapely; clean room (CLAUDE.md §5): only documented behaviour is reproduced, an
 - Esri publishes the telecom domain network's classes and tables, or the error resolution database's layout — the
   names refused for their absence become buildable.
 - The owner changes an inference of §5.9, or Pro is found to answer a trace of §5.9 (f) differently on a network where
-  the pages leave it open.
+  the pages leave it open. **Fired 2026-10-30 by the Pro 3.7 measurement (§4)**: the differences were fixed or written
+  down, and §5.9 (b) and (f) say which; it stays armed for the inferences that remain.
 - A network too large for a run's memory: a persisted graph becomes the step.
 
 ## 10. Dissent
@@ -387,5 +444,10 @@ None recorded.
    network with barriers between a starting point and its controller, using the owner's Pro install (the harness of
    the Pro arcpy probes) — or the owner accepts §5.9 (f) as grapy's reading. The second batch adds to the comparison
    the rules of §5.9 (j) a mesh would expose: global function barriers, propagation through a loop, and which paths a
-   path trace returns.
+   path trace returns. **PARTLY DISCHARGED 2026-10-30**: the first half is done — 126 traces on four networks in
+   ArcGIS Pro 3.7 (§4), 69 identical before and 110 after the corrections, every difference found either fixed and
+   pinned by a test (barriers in the flow, an indeterminate start, isolation around a controller and without barriers,
+   terminal IDs from 2, the elements an output filter keeps) or written down as a measured difference (ignored
+   indeterminate flow in a mesh, §5.9 (f); a device's path element and a null TERMINALID, §4). The second half is
+   open: no function barrier, propagator or path trace was run in Pro.
 6. **The owner confirms or changes §5.9** ([Q-199](../open-questions.md)).
