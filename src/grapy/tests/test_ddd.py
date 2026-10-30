@@ -176,7 +176,7 @@ class Ddd(unittest.TestCase):
             ddd.AddSurfaceInformation(points, surface, "Z_MEAN")
 
     def test_tools_not_built_say_why(self):
-        for name, words in (("CreateTin", "ADR-224 group 2"), ("InterpolateShape", "two-dimensional"),
+        for name, words in (("CreateTin", "ADR-224 group 2"), ("RasterDomain", "corner"),
                             ("TopoToRaster", "not specified"), ("CutFill", "attribute table")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(ddd, name)("a", "b", "c")

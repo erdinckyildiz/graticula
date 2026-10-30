@@ -9,6 +9,7 @@ documented only in words; the tools whose output is true circular arcs; and COGO
 """
 from __future__ import annotations
 
+import math
 import os
 
 import numpy
@@ -592,14 +593,323 @@ def RubbersheetFeatures(in_features, in_link_features, in_identity_links=None, m
     return Result(in_features)
 
 
+_MATCHING = "INFERRED construction: features match when the Hausdorff distance between them is within the search distance"
+
+
+def _features_of(path, fields=()):
+    """[(oid, {field: value}, shape)] of a feature class."""
+    names = list(fields)
+    with da.SearchCursor(path, ["OID@", *names, "SHAPE@"]) as rows:
+        return [(r[0], dict(zip(names, r[1:-1])), r[-1]._shape) for r in rows if r[-1] is not None]
+
+
+def _match_pairs(match_fields):
+    pairs = _pairs(match_fields) if match_fields not in (None, "", "#") else []
+    return [(p[0], p[1] if len(p) > 1 else p[0]) for p in pairs]
+
+
+def _directed(shape, other, spacing):
+    """The largest distance from a point of ``shape`` (its vertices, densified to ``spacing``) to ``other``."""
+    import shapely
+    return max(other.distance(shapely.Point(c)) for c in shapely.segmentize(shape, spacing).coords)
+
+
+def _best(feature, candidates, distance, pairs, directed=False):
+    """The candidate nearest ``feature`` by Hausdorff distance within ``distance`` — with ``directed``, the distance from
+    the feature to the candidate only — those agreeing on every match field preferred when any do — ties by object id;
+    and how many candidates there were."""
+    measure = ((lambda a, b: _directed(a, b, distance / 10)) if directed else (lambda a, b: a.hausdorff_distance(b)))
+    near = [(measure(feature[2], c[2]), c[0], c) for c in candidates
+            if feature[2].distance(c[2]) <= distance and measure(feature[2], c[2]) <= distance]
+    if pairs:
+        agreeing = [n for n in near if all(feature[1].get(a) == n[2][1].get(b) for a, b in pairs)]
+        near = agreeing or near
+    if not near:
+        return None, 0
+    near.sort(key=lambda n: (n[0], n[1]))
+    return near[0][2], len(near)
+
+
+def _ends(shape):
+    line = _single_line(shape, "edit")
+    return tuple(line.coords[0][:2]), tuple(line.coords[-1][:2])
+
+
+def _link_output(out_feature_class, srid, fields):
+    from .analysis import _out
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polyline", srid, [_gpkg.Column(f, kind) for f, kind in fields])
+    return out
+
+
+@_equivalent("source and target lines matched by least Hausdorff distance within the search distance; links from each "
+             "source end to the matched target's corresponding end", "INFERRED construction; Hausdorff distance as in "
+             "Alt and Guibas 2000")
+def GenerateRubbersheetLinks(source_features, target_features, out_feature_class, search_distance, match_fields=None,
+                             out_match_table=None):
+    """EQUIVALENT: each source line is matched to the target line nearest it by Hausdorff distance within the search
+    distance — those agreeing on the match fields preferred — ties by object id (the page's matching "by line topology,
+    patterns and geometric characteristics" is not specified). Each matched pair gives a link from each source end to
+    the target end nearer it. A link whose ends coincide is an identity link, written to the ``_pnt`` point feature
+    class beside the output (INFERRED name). SRC_FID and TGT_FID are −1 where a location is shared by more than one
+    source or target feature, as documented; one link per source location, the lowest source id's. Refused:
+    out_match_table."""
+    tool = "GenerateRubbersheetLinks"
+    if out_match_table not in (None, "", "#"):
+        _refuse(tool, "out_match_table", out_match_table, "its match groups and confidence levels are not specified")
+    _, _, srid, _ = _schema(source_features)
+    distance = _length(search_distance, srid, tool, "search_distance")
+    pairs = _match_pairs(match_fields)
+    sources = _features_of(source_features, [a for a, _ in pairs])
+    targets = _features_of(target_features, [b for _, b in pairs])
+    source_ends = {}
+    for oid, _, shape in sources:
+        for end in _ends(shape):
+            source_ends.setdefault(end, set()).add(oid)
+    target_ends = {}
+    for oid, _, shape in targets:
+        for end in _ends(shape):
+            target_ends.setdefault(end, set()).add(oid)
+    links = {}
+    for feature in sorted(sources, key=lambda f: f[0]):
+        target, _ = _best(feature, targets, distance, pairs)
+        if target is None:
+            continue
+        (s0, s1), (t0, t1) = _ends(feature[2]), _ends(target[2])
+        near0 = t0 if math.dist(s0, t0) <= math.dist(s0, t1) else t1
+        near1 = t1 if near0 == t0 else t0
+        for source_end, target_end in ((s0, near0), (s1, near1)):
+            links.setdefault(source_end, target_end)
+    out = _link_output(out_feature_class, srid, [("SRC_FID", "Integer"), ("TGT_FID", "Integer")])
+    from .analysis import _out
+    identity = _out(out[:-5] + "_pnt.gpkg") if out.lower().endswith(".gpkg") else out + "_pnt"
+    _gpkg.create(identity, "Point", srid, [_gpkg.Column("SRC_FID", "Integer"), _gpkg.Column("TGT_FID", "Integer")])
+    fid = (lambda table, location: next(iter(table[location])) if len(table.get(location, ())) == 1 else -1)
+    with da.InsertCursor(out, ["SRC_FID", "TGT_FID", "SHAPE@"]) as written, \
+            da.InsertCursor(identity, ["SRC_FID", "TGT_FID", "SHAPE@"]) as same:
+        for source_end, target_end in links.items():
+            values = (fid(source_ends, source_end), fid(target_ends, target_end))
+            if source_end == target_end:
+                same.insertRow((*values, Point(source_end)))
+            else:
+                written.insertRow((*values, LineString([source_end, target_end])))
+    return Result(out, identity)
+
+
+@_equivalent("each source dangle linked to the nearest adjacent dangle within the search distance",
+             "INFERRED construction")
+def GenerateEdgematchLinks(source_features, adjacent_features, out_feature_class, search_distance, match_fields=None):
+    """EQUIVALENT: a dangle is a line end no other line of its own dataset shares. Each source dangle, in object id
+    order, is linked to the nearest unused adjacent dangle within the search distance — dangles of lines agreeing on the
+    match fields preferred — ties by object id; "a line … is generated from the end of the source line to the end of
+    the matched adjacent line", as documented. EM_CONF is 100 divided by the number of candidate dangles (INFERRED; the
+    page names what lowers it without a formula)."""
+    tool = "GenerateEdgematchLinks"
+    _, _, srid, _ = _schema(source_features)
+    distance = _length(search_distance, srid, tool, "search_distance")
+    pairs = _match_pairs(match_fields)
+    sources = _features_of(source_features, [a for a, _ in pairs])
+    adjacent = _features_of(adjacent_features, [b for _, b in pairs])
+
+    def dangles(features):
+        count = {}
+        for _, _, shape in features:
+            for end in _ends(shape):
+                count[end] = count.get(end, 0) + 1
+        return [(oid, values, end) for oid, values, shape in features for end in _ends(shape) if count[end] == 1]
+
+    source_dangles, adjacent_dangles = dangles(sources), dangles(adjacent)
+    used = set()
+    out = _link_output(out_feature_class, srid, [("SRC_FID", "Integer"), ("ADJ_FID", "Integer"), ("EM_CONF", "Double")])
+    with da.InsertCursor(out, ["SRC_FID", "ADJ_FID", "EM_CONF", "SHAPE@"]) as written:
+        for oid, values, end in sorted(source_dangles, key=lambda d: (d[0], d[2])):
+            near = [(math.dist(end, a[2]), a[0], a) for a in adjacent_dangles
+                    if (a[0], a[2]) not in used and math.dist(end, a[2]) <= distance]
+            if pairs:
+                agreeing = [n for n in near if all(values.get(x) == n[2][1].get(y) for x, y in pairs)]
+                near = agreeing or near
+            if not near:
+                continue
+            near.sort(key=lambda n: (n[0], n[1]))
+            chosen = near[0][2]
+            used.add((chosen[0], chosen[2]))
+            written.insertRow((oid, chosen[0], 100.0 / len(near), LineString([end, chosen[2]])))
+    return Result(out)
+
+
+@_equivalent("line ends moved to the documented connecting locations; ADJUST_VERTICES spreads the move along the line in "
+             "proportion to the distance from the far end", "INFERRED construction for ADJUST_VERTICES")
+def EdgematchFeatures(in_features, in_link_features, method="MOVE_ENDPOINT", adjacent_features=None, border_features=None):
+    """EQUIVALENT: the connecting location of each link is, as documented, its end (input features only), its midpoint
+    (with adjacent features), or the point on the border features nearest its midpoint (with border features). The line
+    whose id is the link's SRC_FID — and with adjacent features the line ADJ_FID names — has its end nearest the link
+    moved there: MOVE_ENDPOINT moves the end vertex; ADD_SEGMENT adds a straight segment to it; ADJUST_VERTICES moves
+    every vertex by the end's shift times (its distance along the line from the far end)/(the line's length) — the
+    page says only that the change is "gradually reduced toward the opposite end"."""
+    import shapely
+    from shapely.ops import nearest_points
+    tool = "EdgematchFeatures"
+    method = str(method or "MOVE_ENDPOINT").upper()
+    if method not in ("MOVE_ENDPOINT", "ADD_SEGMENT", "ADJUST_VERTICES"):
+        raise ValueError(f"arcpy.edit.{tool}: method is MOVE_ENDPOINT, ADD_SEGMENT or ADJUST_VERTICES.")
+    with da.SearchCursor(in_link_features, ["SRC_FID", "ADJ_FID", "SHAPE@"]) as rows:
+        links = [(r[0], r[1], _ends(r[2]._shape)) for r in rows if r[2] is not None]
+    border = None
+    if border_features not in (None, "", "#"):
+        border = shapely.union_all([f[2] for f in _features_of(border_features)])
+    moves_in, moves_adjacent = {}, {}
+    for source, adjacent, (start, end) in links:
+        if border is not None:
+            middle = Point((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+            target = tuple(nearest_points(border, middle)[0].coords[0][:2])
+        elif adjacent_features not in (None, "", "#"):
+            target = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+        else:
+            target = end
+        moves_in.setdefault(source, []).append((start, target))
+        if adjacent_features not in (None, "", "#"):
+            moves_adjacent.setdefault(adjacent, []).append((end, target))
+
+    def adjust(path, moves):
+        with da.UpdateCursor(path, ["OID@", "SHAPE@"]) as rows:
+            for oid, shape in rows:
+                if oid not in moves or shape is None:
+                    continue
+                coordinates = [tuple(c[:2]) for c in _single_line(shape._shape, tool).coords]
+                for near, target in moves[oid]:
+                    at_start = math.dist(coordinates[0], near) <= math.dist(coordinates[-1], near)
+                    if not at_start:
+                        coordinates.reverse()
+                    if method == "MOVE_ENDPOINT":
+                        coordinates[0] = target
+                    elif method == "ADD_SEGMENT":
+                        coordinates.insert(0, target)
+                    else:
+                        line = LineString(coordinates)
+                        dx, dy = target[0] - coordinates[0][0], target[1] - coordinates[0][1]
+                        total = line.length
+                        moved, run = [], 0.0
+                        for k, c in enumerate(coordinates):
+                            if k:
+                                run += math.dist(coordinates[k - 1], c)
+                            share = (total - run) / total if total else 1.0
+                            moved.append((c[0] + dx * share, c[1] + dy * share))
+                        coordinates = moved
+                    if not at_start:
+                        coordinates.reverse()
+                rows.updateRow([oid, LineString(coordinates)])
+
+    adjust(in_features, moves_in)
+    if adjacent_features not in (None, "", "#"):
+        adjust(adjacent_features, moves_adjacent)
+    return Result(in_features)
+
+
+@_equivalent("input lines matched to target lines by Hausdorff distance within the search distance and replaced by "
+             "the target's stretch between their ends' projections", "INFERRED construction")
+def AlignFeatures(in_features, target_features, search_distance, match_fields=None):
+    """EQUIVALENT: an input line lying wholly within the search distance of a target line (the directed Hausdorff
+    distance from the input to the target, its vertices densified to a tenth of the search distance), the
+    nearest such target preferred — those agreeing on the match fields first — ties by object id, is replaced by the
+    target's stretch between the points nearest its two ends; any other input line ending where it ended is moved with
+    it, so connections stay, as documented. AF_CONF is 100 divided by the number of candidates, −1 for unmodified
+    features (INFERRED formula; the page names what lowers it). Polygons are refused in this equivalent."""
+    from shapely.ops import substring
+    tool = "AlignFeatures"
+    _, kind, srid, _ = _schema(in_features)
+    if kind != "Polyline":
+        _refuse(tool, "in_features", in_features, "polygon alignment is not in this equivalent")
+    distance = _length(search_distance, srid, tool, "search_distance")
+    pairs = _match_pairs(match_fields)
+    inputs = _features_of(in_features, [a for a, _ in pairs])
+    targets = _features_of(target_features, [b for _, b in pairs])
+    new_shapes, confidence, moved_ends = {}, {}, {}
+    for feature in inputs:
+        target, count = _best(feature, targets, distance, pairs, directed=True)
+        if target is None:
+            continue
+        line = _single_line(target[2], tool)
+        (s0, s1) = _ends(feature[2])
+        a, b = line.project(Point(s0)), line.project(Point(s1))
+        piece = substring(line, a, b)
+        if piece.geom_type != "LineString" or piece.length == 0:
+            continue
+        new_shapes[feature[0]] = piece
+        confidence[feature[0]] = 100.0 / count
+        moved_ends[s0], moved_ends[s1] = tuple(piece.coords[0][:2]), tuple(piece.coords[-1][:2])
+    names = {c.name.lower() for c in _schema(in_features)[0]}
+    if "af_conf" not in names:
+        _gpkg.add_column(in_features, _gpkg.Column("AF_CONF", "Double"))
+    with da.UpdateCursor(in_features, ["OID@", "AF_CONF", "SHAPE@"]) as rows:
+        for oid, _, shape in rows:
+            if oid in new_shapes:
+                rows.updateRow([oid, confidence[oid], new_shapes[oid]])
+            elif shape is not None:
+                coordinates = [tuple(c[:2]) for c in _single_line(shape._shape, tool).coords]
+                ends = [moved_ends.get(coordinates[0]), moved_ends.get(coordinates[-1])]
+                if ends[0]:
+                    coordinates[0] = ends[0]
+                if ends[1]:
+                    coordinates[-1] = ends[1]
+                rows.updateRow([oid, -1.0, LineString(coordinates)])
+    return Result(in_features)
+
+
+@_equivalent("target lines matched to source lines by Hausdorff distance within the search distance; an m:n match "
+             "takes the longest source, as documented", "INFERRED construction for the matching")
+def TransferAttributes(source_features, target_features, transfer_fields, search_distance, match_fields=None,
+                       out_match_table=None, transfer_rule_fields=None):
+    """EQUIVALENT: each target line takes the transfer fields of the source lines within the search distance of it
+    (Hausdorff distance), those agreeing on the match fields preferred; when several match, "attributes will be
+    transferred from the longest of the matched source features", as documented, ties by object id. A transfer field
+    with a target field's name is written with ``_1`` (``_2`` …), as documented; a missing source value transfers
+    nothing. Refused: out_match_table and transfer_rule_fields."""
+    tool = "TransferAttributes"
+    if out_match_table not in (None, "", "#"):
+        _refuse(tool, "out_match_table", out_match_table, "its match groups and confidence levels are not specified")
+    if transfer_rule_fields not in (None, "", "#"):
+        _refuse(tool, "transfer_rule_fields", transfer_rule_fields, "its rule evaluation is not in this equivalent")
+    _, _, srid, _ = _schema(target_features)
+    distance = _length(search_distance, srid, tool, "search_distance")
+    pairs = _match_pairs(match_fields)
+    fields = _list(transfer_fields)
+    source_columns = {c.name.lower(): c for c in _schema(source_features)[0]}
+    sources = _features_of(source_features, [*fields, *[a for a, _ in pairs]])
+    targets = _features_of(target_features, [b for _, b in pairs])
+    existing = {c.name.lower() for c in _schema(target_features)[0]}
+    written_names = []
+    for field in fields:
+        name, k = field, 0
+        while name.lower() in existing:
+            k += 1
+            name = f"{field}_{k}"
+        existing.add(name.lower())
+        written_names.append(name)
+        _gpkg.add_column(target_features, _gpkg.Column(name, source_columns[field.lower()].type))
+    chosen = {}
+    for target in targets:
+        near = [s for s in sources if target[2].distance(s[2]) <= distance and
+                target[2].hausdorff_distance(s[2]) <= distance]
+        if pairs:
+            agreeing = [s for s in near if all(s[1].get(a) == target[1].get(b) for a, b in pairs)]
+            near = agreeing or near
+        if near:
+            chosen[target[0]] = sorted(near, key=lambda s: (-s[2].length, s[0]))[0]
+    with da.UpdateCursor(target_features, ["OID@", *written_names]) as rows:
+        for row in rows:
+            source = chosen.get(row[0])
+            if source is None:
+                continue
+            values = [source[1].get(f) for f in fields]
+            if any(v is None for v in values):
+                continue
+            rows.updateRow([row[0], *values])
+    return Result(target_features)
+
+
 _REFUSED = {
-    "AlignFeatures": "its matching of candidates is documented only in words — no similarity measure, thresholds or "
-                     "tie-breaking — so any answer would be grapy's own under arcpy's name",
-    "EdgematchFeatures": "it moves features along edgematch links whose generation is documented only in words",
-    "GenerateEdgematchLinks": "its matching of features across an edge is documented only in words",
-    "GenerateRubbersheetLinks": "its matching of source and target features is documented only in words",
-    "TransferAttributes": "its line matching is documented only in words",
-    "SplitLineByMatch": "its line matching is documented only in words",
+    "SplitLineByMatch": "its input is a match table, which grapy's matching tools do not write — their match groups "
+                        "and confidence levels are not specified",
     "SimplifyByStraightLinesAndCircularArcs": "it writes true circular arcs, which a GeoPackage feature class here does "
                                               "not hold, and its fitting is not specified",
     "SimplifyByTangentSegments": "it writes true curves, which a GeoPackage feature class here does not hold, and its "

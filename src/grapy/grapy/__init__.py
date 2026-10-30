@@ -80,6 +80,7 @@ class _Described:
             domains = _field_domains(connection, table)
             titles = _field_titles(connection, table)
             joined = _joined_fields(path, connection, table, oid, geometry)
+            has_z, has_m = _gpkg.dimensions(connection, table)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -108,8 +109,8 @@ class _Described:
             self.shapeFieldName = f"{table}.{geometry}"
         self.extent = Extent(*bounds, self.spatialReference) if bounds else None
         self.featureType = "Simple"
-        self.hasZ = False
-        self.hasM = False
+        self.hasZ = has_z
+        self.hasM = has_m
         try:
             file = _gpkg.split(path)[0]
             self.path = os.path.dirname(file) if table == os.path.splitext(os.path.basename(file))[0] else file
@@ -155,7 +156,8 @@ class _DescribedWorkspace:
 
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
-    object), a folder, or a GeoPackage of several tables (a workspace)."""
+    object), a folder, a GeoPackage of several tables (a workspace), or a topology, relationship class or network
+    dataset held in a GeoPackage (ADR-225, ADR-226)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
     try:
@@ -168,6 +170,11 @@ def Describe(value, datatype=None):
         return _DescribedRaster(Raster(path))
     if path.lower().endswith(".gpkg") and os.path.exists(path) and len(_contents(path)) != 1:
         return _DescribedWorkspace(path)
+    from . import _network, _relationships, _topology
+    for model in (_network, _topology, _relationships):
+        described = model.describe(path)
+        if described is not None:
+            return described
     return _Described(value)
 
 
@@ -898,7 +905,7 @@ _REFUSED_NAMES["SetMessageLevels"] = "its message categories are the internal di
 _REFUSED_NAMES.update({
     "Annotation": "annotation features are a geodatabase data model this server does not hold (ADR-224 group 2)",
     "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
-    "Multipatch": "a multipatch is a 3D geometry, and grapy's geometries hold no z values",
+    "Multipatch": "a multipatch is a data model this server does not hold yet (ADR-224 group 2)",
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
     "ListLasDatasetFiles": "LAS datasets are a data model this server does not hold (ADR-224 group 2)",
     "CrossValidationResult": "it reads a geostatistical layer, a model object grapy does not have",

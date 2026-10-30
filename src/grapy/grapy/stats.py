@@ -2441,6 +2441,80 @@ def MGWR(in_features, dependent_variable, model_type, explanatory_variables, out
     return Result(out, table)
 
 
+def _gwr_cv(x, y, d, bandwidth, kernel, adaptive):
+    """The cross-validation score Σ (y_i − ŷ_{≠i})², from the leave-one-out residual e_i/(1 − S_ii) (Fotheringham
+    et al. 2002, eq. 2.30)."""
+    import numpy as np
+    betas, s, *_ = _gwr_fit(x, y, d, bandwidth, kernel, adaptive)
+    residual = y - (x * betas).sum(axis=1)
+    influence = np.diag(s)
+    if (influence >= 1).any():
+        return math.inf
+    return float(((residual / (1 - influence)) ** 2).sum())
+
+
+@_equivalent("geographically weighted regression with a Gaussian kernel, the bandwidth by golden-section search on AICc "
+             "or cross-validation", "Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002")
+def GeographicallyWeightedRegression(in_features, dependent_field, explanatory_field, out_featureclass, kernel_type,
+                                     bandwidth_method, distance=None, number_of_neighbors=None, weight_field=None,
+                                     coefficient_raster_workspace=None, cell_size=None, in_prediction_locations=None,
+                                     prediction_explanatory_field=None, out_prediction_featureclass=None):
+    """EQUIVALENT: GWR as stats.GWR computes it, with the Gaussian kernel this tool documents — FIXED a distance,
+    ADAPTIVE a number of neighbours — and the bandwidth given (BANDWIDTH_PARAMETER) or chosen by golden-section search
+    on AICc (eq. 2.33) or on the cross-validation score (eq. 2.30) between 5 percent and half of the features. The
+    summary table is written beside the output with ``_supp`` appended, as documented, as Diag_Name and Diag_Value
+    (INFERRED fields): Bandwidth, ResidualSquares, EffectiveNumber, Sigma, AICc, R2, R2Adjusted. Output fields as
+    stats.GWR's. Refused: weight_field, coefficient rasters, prediction locations.
+    """
+    import numpy as np
+    tool = "GeographicallyWeightedRegression"
+    for name, value in (("weight_field", weight_field), ("coefficient_raster_workspace", coefficient_raster_workspace),
+                        ("in_prediction_locations", in_prediction_locations),
+                        ("out_prediction_featureclass", out_prediction_featureclass)):
+        if _given(value):
+            _refuse(tool, name, value, "it is not part of this equivalent")
+    adaptive = _keyword(kernel_type) == "ADAPTIVE"
+    if not adaptive and _keyword(kernel_type) != "FIXED":
+        raise ValueError(f"arcpy.stats.{tool}: kernel_type is FIXED or ADAPTIVE.")
+    method = _keyword(bandwidth_method)
+    explanatory = [e for e in _list(explanatory_field) if _given(e)]
+    kept, y, x, xy, _, _, srid = _regression_data(tool, in_features, dependent_field, explanatory)
+    n = len(y)
+    d = _distances(xy)
+    if method == "BANDWIDTH_PARAMETER":
+        given = number_of_neighbors if adaptive else distance
+        if not _given(given):
+            raise ValueError(f"arcpy.stats.{tool}: BANDWIDTH_PARAMETER needs {'number_of_neighbors' if adaptive else 'distance'}.")
+        bandwidth = int(given) if adaptive else _threshold(given, srid)
+    elif method in ("AICC", "CV"):
+        score = (lambda b: _gwr_aicc(x, y, d, b, "GAUSSIAN", adaptive)) if method == "AICC" else \
+            (lambda b: _gwr_cv(x, y, d, b, "GAUSSIAN", adaptive))
+        sorted_d = np.sort(d, axis=1)
+        if adaptive:
+            low, high = max(int(math.ceil(0.05 * n)), x.shape[1] + 1), max(x.shape[1] + 2, n // 2)
+        else:
+            low = float(sorted_d[:, max(int(math.ceil(0.05 * n)) - 1, 1)].max())
+            high = float(sorted_d[:, max(n // 2 - 1, 1)].max())
+        bandwidth = _golden(score, low, high, adaptive)
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: bandwidth_method is AICc, CV or BANDWIDTH_PARAMETER.")
+    out = GWR(in_features, dependent_field, "CONTINUOUS", explanatory, out_featureclass,
+              "NUMBER_OF_NEIGHBORS" if adaptive else "DISTANCE_BAND", "USER_DEFINED",
+              number_of_neighbors=bandwidth if adaptive else None, distance_band=None if adaptive else bandwidth,
+              local_weighting_scheme="GAUSSIAN").getOutput(0)
+    betas, s, *_ = _gwr_fit(x, y, d, bandwidth, "GAUSSIAN", adaptive)
+    residual = y - (x * betas).sum(axis=1)
+    rss, trace = float(residual @ residual), float(np.trace(s))
+    tss = float(((y - y.mean()) ** 2).sum())
+    r2 = 1 - rss / tss
+    rows = [("Bandwidth", float(bandwidth)), ("ResidualSquares", rss), ("EffectiveNumber", trace),
+            ("Sigma", math.sqrt(rss / (n - trace))), ("AICc", _gwr_aicc(x, y, d, bandwidth, "GAUSSIAN", adaptive)),
+            ("R2", r2), ("R2Adjusted", 1 - (1 - r2) * (n - 1) / (n - trace - 1))]
+    supp = _out(out)[:-5] + "_supp.gpkg" if _out(out).lower().endswith(".gpkg") else _out(out) + "_supp"
+    table = _write_table(supp, [_gpkg.Column("Diag_Name", "String"), _gpkg.Column("Diag_Value", "Double")], rows)
+    return Result(out, table)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -2502,7 +2576,7 @@ _REFUSED.update({name: _SWM for name in (
 _REFUSED.update({name: _SSM for name in (
     "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
 _REFUSED.update({name: _FIT for name in (
-    "GeographicallyWeightedRegression", "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
     "EstimateTimeToEvent")})
 _REFUSED.update({
     "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",

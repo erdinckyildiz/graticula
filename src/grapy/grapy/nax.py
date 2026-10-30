@@ -204,6 +204,219 @@ class TimeOfDayUsage(enum.Enum):
     EndTime = "EndTime"
 
 
+# ---- the network dataset query API ----------------------------------------------------------------------------------
+
+class _Rows:
+    """A network element cursor: iterates tuples, and supports ``with``."""
+
+    def __init__(self, rows):
+        self._rows = list(rows)
+
+    def __iter__(self):
+        return iter(self._rows)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+_EDGE_PROPERTIES = ("EID", "SOURCEID", "SOURCEOID", "FROMPOSITION", "TOPOSITION", "DIRECTION", "FROMJUNCTION",
+                    "TOJUNCTION", "ISRESTRICTED", "COST", "TIME", "DISTANCE")
+_JUNCTION_PROPERTIES = ("EID", "SOURCEID", "SOURCEOID", "ISRESTRICTED", "COST", "TIME", "DISTANCE")
+
+
+def _names(value):
+    if value is None:
+        return []
+    return [value] if isinstance(value, str) else list(value)
+
+
+class NetworkDataset:
+    """arcpy.nax.NetworkDataset: a built network read element by element, over grapy's network tables (ADR-226).
+    ``edges()`` and ``junctions()`` answer the documented properties, then the values of the attributes named, under a
+    travel mode. INFERRED: an edge is read once in each direction, ``DIRECTION`` True along its digitised direction, its
+    positions and junctions in the direction of travel; every junction is a system junction here, with the system
+    junction source's id, its own EID as SOURCEOID, no cost and no restriction. Turns, time of day, live traffic,
+    custom evaluators and custom directions are refused."""
+
+    def __init__(self, in_network):
+        self._path = str(_network.LAYERS.get(str(in_network), in_network))
+        _network.open_network(self._path)[0].close()
+
+    def _query(self, sql, parameters=()):
+        connection, _, _, name = _network.open_network(self._path)
+        try:
+            return connection.execute(sql, (name, *parameters)).fetchall()
+        finally:
+            connection.close()
+
+    @property
+    def isBuilt(self):
+        return bool(self._query("select built from grapy_network where name = ?")[0][0])
+
+    @property
+    def buildTimestamp(self):
+        import datetime
+        text = self._query("select built_at from grapy_network where name = ?")[0][0]
+        return datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%f") if text else None
+
+    @property
+    def edgeCount(self):
+        return int(self._query("select count(*) from grapy_network_edge where network = ?")[0][0])
+
+    @property
+    def junctionCount(self):
+        return int(self._query("select count(*) from grapy_network_junction where network = ?")[0][0])
+
+    @property
+    def turnCount(self):
+        return 0
+
+    @property
+    def travelModes(self):
+        return GetTravelModes(self._path)
+
+    @property
+    def customEvaluators(self):
+        return []
+
+    @customEvaluators.setter
+    def customEvaluators(self, value):
+        if value:
+            raise NotBuiltError("arcpy.nax: custom evaluators are script evaluators, refused (ADR-226 §5.1).")
+
+    @property
+    def directionsCustomizer(self):
+        return None
+
+    @directionsCustomizer.setter
+    def directionsCustomizer(self, value):
+        if value is not None:
+            raise NotBuiltError("arcpy.nax: a directions customizer writes Esri's direction text, whose rules are not "
+                                "published.")
+
+    def describe(self):
+        return _network.describe(self._path)
+
+    def getDataSourceFromSourceID(self, source_id):
+        file, _, _ = _network.locate(self._path)
+        sources = [r[0] for r in self._query("select class_name from grapy_network_source where network = ? order by rowid")]
+        if 1 <= int(source_id) <= len(sources):
+            return f"{file}/{sources[int(source_id) - 1]}"
+        raise ValueError(f"The network has no source {source_id}.")
+
+    def checkIntersectingFeatures(self, feature_layer, cutoff):
+        """True when the features intersect no more than ``cutoff`` edge source features, as documented."""
+        import shapely
+        from .management import _features
+        graph = _network.Graph(self._path)
+        area = shapely.union_all([s for _, _, s in _features(feature_layer, graph.srid) if s is not None])
+        touched = {(e["source"], e["oid"]) for e in graph.edges if e["shape"].intersects(area)}
+        return len(touched) <= int(cutoff)
+
+    def _graph(self, travel_mode, time_of_day):
+        if time_of_day is not None:
+            raise NotBuiltError("arcpy.nax.NetworkDataset: time_of_day needs traffic, refused until it is defined "
+                                "(ADR-226 §5.3).")
+        return _network.Graph(self._path, travel_mode)
+
+    @staticmethod
+    def _check(properties, allowed, travel_mode):
+        for p in properties:
+            if str(p).upper() not in allowed:
+                raise ValueError(f"'{p}' is not a property this cursor reads.")
+            if str(p).upper() in ("ISRESTRICTED", "COST", "TIME", "DISTANCE") and travel_mode is None:
+                raise ValueError(f"'{p}' needs a travel_mode.")
+
+    @staticmethod
+    def _within(area_of_interest):
+        if area_of_interest is None:
+            return None
+        shape = getattr(area_of_interest, "_shape", None)
+        if shape is None and hasattr(area_of_interest, "polygon"):
+            shape = area_of_interest.polygon._shape
+        return shape
+
+    def edges(self, edge_properties=None, attribute_names=None, time_of_day=None, eids=None, travel_mode=None,
+              area_of_interest=None):
+        properties, attributes = _names(edge_properties), _names(attribute_names)
+        self._check(properties, _EDGE_PROPERTIES, travel_mode)
+        graph = self._graph(travel_mode, time_of_day)
+        wanted = None if eids is None else {int(e) for e in _names(eids)}
+        area = self._within(area_of_interest)
+        mode = graph.mode
+        rows = []
+        for i, edge in enumerate(graph.edges):
+            if wanted is not None and edge["edge_id"] not in wanted:
+                continue
+            if area is not None and not edge["shape"].intersects(area):
+                continue
+            for forward in (True, False):
+                values = {"EID": edge["edge_id"], "SOURCEID": graph.sources.index(edge["source"]) + 1,
+                          "SOURCEOID": edge["oid"], "FROMPOSITION": edge["p0"] if forward else edge["p1"],
+                          "TOPOSITION": edge["p1"] if forward else edge["p0"], "DIRECTION": forward,
+                          "FROMJUNCTION": edge["u"] if forward else edge["v"],
+                          "TOJUNCTION": edge["v"] if forward else edge["u"],
+                          "ISRESTRICTED": not graph.passable(i, forward),
+                          "COST": graph.cost(graph.impedance, i, forward),
+                          "TIME": graph.cost(mode["timeAttributeName"], i, forward) if mode.get("timeAttributeName")
+                          else None,
+                          "DISTANCE": graph.cost(mode["distanceAttributeName"], i, forward)
+                          if mode.get("distanceAttributeName") else None}
+                row = [values[str(p).upper()] for p in properties]
+                for attribute in attributes:
+                    usage = graph.attributes[attribute][0]
+                    row.append(graph.restriction_values.get((attribute, i, forward), False) if usage == "Restriction"
+                               else graph.cost(attribute, i, forward))
+                rows.append(tuple(row))
+        return _Rows(rows)
+
+    def junctions(self, junction_properties=None, attribute_names=None, time_of_day=None, eids=None, travel_mode=None,
+                  area_of_interest=None):
+        from shapely.geometry import Point as ShapelyPoint
+        properties, attributes = _names(junction_properties), _names(attribute_names)
+        self._check(properties, _JUNCTION_PROPERTIES, travel_mode)
+        graph = self._graph(travel_mode, time_of_day)
+        wanted = None if eids is None else {int(e) for e in _names(eids)}
+        area = self._within(area_of_interest)
+        system = len(graph.sources) + 1
+        rows = []
+        for eid, (x, y) in sorted(graph.junctions.items()):
+            if wanted is not None and eid not in wanted:
+                continue
+            if area is not None and not area.intersects(ShapelyPoint(x, y)):
+                continue
+            values = {"EID": eid, "SOURCEID": system, "SOURCEOID": eid, "ISRESTRICTED": False, "COST": 0.0,
+                      "TIME": 0.0 if graph.mode.get("timeAttributeName") else None,
+                      "DISTANCE": 0.0 if graph.mode.get("distanceAttributeName") else None}
+            row = [values[str(p).upper()] for p in properties]
+            row += [False if graph.attributes[a][0] == "Restriction" else 0.0 for a in attributes]
+            rows.append(tuple(row))
+        return _Rows(rows)
+
+    def turns(self, *_, **__):
+        raise NotBuiltError("arcpy.nax.NetworkDataset.turns: turns are refused until they are defined (ADR-226 §5.3).")
+
+    def getLiveTrafficStatus(self, wait_for_update=False):
+        raise NotBuiltError("arcpy.nax.NetworkDataset: live traffic is refused (ADR-226 §5.3).")
+
+    def updateTrafficCache(self, timeout_seconds=None):
+        raise NotBuiltError("arcpy.nax.NetworkDataset: live traffic is refused (ADR-226 §5.3).")
+
+    def updateNetworkDatasetSchema(self, custom_evaluators=None, custom_directions=None, openlr_traffic_service_id=None,
+                                   openlr_traffic_feed_ids=None, travel_modes=None):
+        """Only ``travel_modes`` is built: each travel mode given added or replaced. INFERRED: the others are kept."""
+        if custom_evaluators or custom_directions or openlr_traffic_service_id or openlr_traffic_feed_ids:
+            raise NotBuiltError("arcpy.nax: custom evaluators (script evaluators), custom directions and live traffic are "
+                                "refused (ADR-226 §5.1, §5.3).")
+        for name, mode in (travel_modes or {}).items():
+            travel = TravelMode(mode)
+            _network.add_travel_mode(self._path, name, travel.impedance, travel.restrictions, travel.timeAttributeName,
+                                     travel.distanceAttributeName)
+
+
 # ---- solver objects -----------------------------------------------------------------------------------------------
 
 class _Cursor:
@@ -674,10 +887,12 @@ _REASONS["writes or customises Esri's direction text, landmarks and street names
     "DirectionPoint", "DirectionPointType", "DirectionsCustomizer", "DirectionsFieldMapping", "DirectionsName",
     "DirectionsQuery", "DirectionsStyle", "ReferenceLandmark", "ReferenceLandmarkType", "SpatialLandmark", "LandmarkSide",
     "NameClass", "Importance")
-_REASONS["is the network dataset query API — elements, their attributes and evaluators read one by one — which is not "
-         "built yet; grapy's network is read through its solvers"] = (
-    "NetworkDataset", "NetworkElement", "Edge", "Junction", "Turn", "AdjacentEdge", "Attribute", "AttributeEvaluator",
-    "AttributeParameter", "AttributeParameterUsage", "AttributeUsage", "NetworkTimeUsage")
+_REASONS["belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — "
+         "which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the "
+         "elements"] = (
+    "NetworkElement", "Edge", "Junction", "AdjacentEdge", "Attribute", "AttributeEvaluator", "AttributeParameter",
+    "AttributeParameterUsage", "AttributeUsage", "NetworkTimeUsage")
+_REASONS["is a turn, refused until turns are defined (ADR-226 §5.3)"] = ("Turn",)
 _REASONS["is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements"] = (
     "TraversedEdge", "TraversedElement", "TraversedElementType", "TraversedJunction", "TraversedTurn")
 _REASONS["needs turns and driving sides, refused until they are defined (ADR-226 §5.3)"] = ("DrivingSide",)

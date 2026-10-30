@@ -393,7 +393,7 @@ class LegacyAndScriptTools(_Folder):
 
     def test_each_refused_name_says_why(self):
         for name, said in (("GetInstallInfo", "not ArcGIS"), ("ListTools", "toolbox catalogue"),
-                           ("AIO", "network"), ("ListTransformations", "catalogue"), ("Multipatch", "z values"),
+                           ("AIO", "network"), ("ListTransformations", "catalogue"), ("Multipatch", "group 2"),
                            ("Annotation", "group 2"), ("Chart", "application"), ("ViewContext", "could not be found"),
                            ("NetCDFFileProperties", "netCDF"), ("Render", "symbology")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):

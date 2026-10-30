@@ -61,6 +61,8 @@ def ensure(connection):
         from_position double not null, to_position double not null, shape blob not null)""")
     connection.execute("""create table if not exists grapy_network_junction (network text not null, junction_id integer
         not null, x double not null, y double not null)""")
+    if "built_at" not in [r[1] for r in connection.execute("pragma table_info(grapy_network)")]:
+        connection.execute("alter table grapy_network add column built_at text")
     register(connection, TABLES, EXTENSION, DEFINITION)
 
 
@@ -108,7 +110,8 @@ def create(file, dataset, name, sources, elevation_model, srid):
         ensure(connection)
         if connection.execute("select 1 from grapy_network where name = ?", (name,)).fetchone():
             raise ExecuteError(f"ERROR 000258: a network dataset named '{name}' already exists.")
-        connection.execute("insert into grapy_network values (?, ?, ?, 0)", (name, dataset, elevation_model))
+        connection.execute("insert into grapy_network (name, dataset, elevation_model, built) values (?, ?, ?, 0)",
+                           (name, dataset, elevation_model))
         for table in sources:
             connection.execute("insert into grapy_network_source values (?, ?, 'END_POINT')", (name, table))
             connection.execute("insert into grapy_network_evaluator values (?, 'Length', ?, 'BOTH', 'LENGTH', null)",
@@ -279,7 +282,8 @@ def build(network):
                                [(name, e[0], e[1], e[2], e[3], e[4], e[5], e[6], _gpkg.encode(e[7], srid)) for e in edges])
         connection.executemany("insert into grapy_network_junction values (?, ?, ?, ?)",
                                [(name, j, xy[0], xy[1]) for xy, j in junctions.items()])
-        connection.execute("update grapy_network set built = 1 where name = ?", (name,))
+        connection.execute("update grapy_network set built = 1, built_at = strftime('%Y-%m-%dT%H:%M:%f','now') where name = ?",
+                           (name,))
         connection.commit()
     finally:
         connection.close()
@@ -350,6 +354,7 @@ class Graph:
         per = _per_unit(self.srid)
         self.costs = {}       # (attribute, edge index, forward) -> cost
         self.blocked = set()  # (edge index, forward)
+        self.restriction_values = {}  # (attribute, edge index, forward) -> bool
         for i, edge in enumerate(self.edges):
             share = edge["shape"].length / lengths[(edge["source"], edge["oid"])] if lengths[(edge["source"], edge["oid"])] else 0
             for attribute, table, direction, kind, value in evaluators:
@@ -370,6 +375,7 @@ class Graph:
                         raw = values[(table, edge["oid"])][value]
                         amount = raw if usage == "Restriction" else (float(raw) * share if raw is not None else 0.0)
                     if usage == "Restriction":
+                        self.restriction_values[(attribute, i, forward)] = _truthy(amount)
                         if attribute in mode["restrictions"] and _truthy(amount):
                             self.blocked.add((i, forward))
                     else:
@@ -771,3 +777,79 @@ def solve_service_area(graph, facilities, breaks, direction, rings, trim):
                              "SHAPE": disk.difference(previous) if rings and previous is not None else disk})
             previous = disk
     return lines, polygons
+
+
+# ---- Describe ----------------------------------------------------------------------------------------------------------
+
+class _Object:
+    def __init__(self, **values):
+        self.__dict__.update(values)
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {getattr(self, 'name', '')}>"
+
+
+class Described:
+    """What Describe answers for a network dataset: the documented properties and the Dataset group's names. INFERRED,
+    the pages of the objects the properties answer not being read: an attribute has ``name``, ``usageType``
+    (``Cost``/``Restriction``), ``units``, ``dataType`` (``Double``/``Boolean``) and ``useByDefault``; a source has
+    ``name``, ``sourceID`` (from 1, in the order given), ``sourceType`` (``EdgeFeature``, ``SystemJunction``) and
+    ``elementType`` (``Edge``, ``Junction``); the system junction source is ``<network>_Junctions`` and numbers after the
+    edge sources. ``elevationModel`` is ``None`` unless elevation fields are named — grapy names none."""
+
+    def __init__(self, path, file, dataset, name, sources, attributes, modes, srid):
+        from ._reference import SpatialReference
+        self.catalogPath = str(path)
+        self.name = self.baseName = name
+        self.path = f"{file}/{dataset}"
+        self.dataType = self.datasetType = "NetworkDataset"
+        self.attributes = [_Object(name=a, usageType=u, units=units or "Unknown",
+                                   dataType="Boolean" if u == "Restriction" else "Double", useByDefault=bool(d))
+                           for a, u, units, d in attributes]
+        self.edgeSources = [_Object(name=s.rsplit("/", 1)[1], sourceID=i, sourceType="EdgeFeature", elementType="Edge",
+                                    connectivityPolicy=policy)
+                            for i, (s, policy) in enumerate(sources, start=1)]
+        self.junctionSources = []
+        self.turnSources = []
+        self.systemJunctionSource = _Object(name=f"{name}_Junctions", sourceID=len(sources) + 1,
+                                            sourceType="SystemJunction", elementType="Junction")
+        self.sources = [*self.edgeSources, self.systemJunctionSource]
+        self.defaultTravelModeName = modes[0] if modes else ""
+        self.elevationModel = "None"
+        self.isBuildable = True
+        self.networkType = "Geodatabase"
+        self.optimizations = []
+        self.supportsDirections = False
+        self.supportsHistoricalTrafficData = False
+        self.supportsLiveTrafficData = False
+        self.supportsTurns = False
+        self.timeZoneAttributeName = ""
+        self.timeZoneTableName = ""
+        self.trafficSupportType = "NONE"
+        self.spatialReference = SpatialReference(srid) if srid > 0 else None
+
+
+def describe(path):
+    """A Described for a network dataset path or layer name, or None when it names none."""
+    try:
+        file, dataset, name = locate(path)
+    except (ExecuteError, ValueError):
+        return None
+    if not os.path.exists(file):
+        return None
+    connection = _gpkg.connect(file)
+    try:
+        if not connection.execute("select 1 from sqlite_master where name = 'grapy_network'").fetchone():
+            return None
+        if not connection.execute("select 1 from grapy_network where name = ? and dataset = ?", (name, dataset)).fetchone():
+            return None
+        sources = connection.execute("select class_name, connectivity from grapy_network_source where network = ? "
+                                     "order by rowid", (name,)).fetchall()
+        attributes = connection.execute("select name, usage, units, use_by_default from grapy_network_attribute where "
+                                        "network = ? order by rowid", (name,)).fetchall()
+        modes = [r[0] for r in connection.execute("select name from grapy_network_travel_mode where network = ? "
+                                                  "order by rowid", (name,))]
+    finally:
+        connection.close()
+    srid = _source_srid(file, sources[0][0]) if sources else 0
+    return Described(path, file, dataset, name, sources, attributes, modes, srid)
