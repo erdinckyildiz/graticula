@@ -143,7 +143,7 @@ class Relationships(unittest.TestCase):
         connection = sqlite3.connect(self.gpkg)
         self.assertEqual(connection.execute("select count(*) from grapy_relationship_rule").fetchone(), (0,))
         connection.close()
-        with self.assertRaises(arcpy.NotBuiltError):
+        with self.assertRaises(arcpy.ExecuteError):  # poles has no subtypes (ADR-228 builds them)
             arcpy.management.AddRuleToRelationshipClass(rc, "Residential", 0, 1)
         with self.assertRaises(arcpy.NotBuiltError):
             arcpy.management.CreateRelationshipClass(self.poles, self.transformers, self.gpkg + "/Bad", "COMPOSITE", "a",
