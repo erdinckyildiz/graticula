@@ -446,6 +446,8 @@ public sealed class SpatialAnalysisSummariesTests : ArcGisClient
     /// <summary>The area around both squares of the null-weight test.</summary>
     private static readonly string[] Summaries = ["v Mean", "v Sum"];
 
+    private static readonly double[][][] Diagonal = [[[0.0, 0.0], [0.03, 0.01]]];
+
     private static readonly double[][][] Around = [[[-0.01, -0.01], [-0.01, 0.02], [0.04, 0.02], [0.04, -0.01], [-0.01, -0.01]]];
 
     /// <summary>
@@ -506,6 +508,62 @@ public sealed class SpatialAnalysisSummariesTests : ArcGisClient
         Assert.Equal(10.0, Attribute(area, "mean_v").GetDouble(), 9);
         Assert.Equal(10.0, Attribute(area, "sum_v").GetDouble(), 9);
         Assert.Equal(2, Attribute(area, "count").GetInt32());
+    }
+
+    /// <summary>
+    /// A summary's feet, yards and miles are the US survey units, as ArcGIS Pro's Summarize Within reads them — measured in
+    /// Pro 3.7 on 2026-10-30 (D-323), where a distance's feet elsewhere in this service are international. The same line is
+    /// summed in metres and in each unit, and each sum is the metres over that unit's size.
+    /// </summary>
+    [Theory]
+    [InlineData("Feet", 1200.0 / 3937)]
+    [InlineData("Yards", 3600.0 / 3937)]
+    [InlineData("Miles", 6_336_000.0 / 3937)]
+    public async Task A_summarys_feet_yards_and_miles_are_the_US_survey_units_as_in_Pro(string unit, double metres)
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        using HttpClient http = Unverified();
+
+        async Task<double> Summed(string units)
+        {
+            JsonElement summary = await ResultAsync(http, root, token, "SummarizeWithin", "resultLayer", new()
+            {
+                ["sumWithinLayer"] = Json(new
+                {
+                    layerDefinition = new { geometryType = "esriGeometryPolygon", fields = new object[] { new { name = "zone", type = "esriFieldTypeString" } } },
+                    featureSet = new
+                    {
+                        geometryType = "esriGeometryPolygon",
+                        spatialReference = new { wkid = 4326 },
+                        features = new object[] { new { attributes = new { zone = "all" }, geometry = new { rings = Around } } },
+                    },
+                }),
+                ["summaryLayer"] = Json(new
+                {
+                    layerDefinition = new { geometryType = "esriGeometryPolyline", fields = new object[] { new { name = "v", type = "esriFieldTypeDouble" } } },
+                    featureSet = new
+                    {
+                        geometryType = "esriGeometryPolyline",
+                        spatialReference = new { wkid = 4326 },
+                        features = new object[]
+                        {
+                            new { attributes = new { v = 1.0 }, geometry = new { paths = Diagonal } },
+                        },
+                    },
+                }),
+                ["shapeUnits"] = units,
+            });
+
+            JsonElement area = Assert.Single(Features(summary));
+            return Attribute(area, $"sum_length_{units.ToLowerInvariant()}").GetDouble();
+        }
+
+        double inMetres = await Summed("Meters");
+        double inUnit = await Summed(unit);
+
+        Assert.True(inMetres > 3000, $"the line is {inMetres} m");
+        Assert.Equal(inMetres / metres, inUnit, 6);
     }
 
     private static JsonElement[] Features(JsonElement result) =>
