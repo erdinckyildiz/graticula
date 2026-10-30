@@ -872,16 +872,15 @@ class ServiceArea(_Solver):
 
 _HEURISTIC = "is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2)"
 _REASONS = {
-    _HEURISTIC: ("LocationAllocation", "LocationAllocationResult", "VehicleRoutingProblem", "VehicleRoutingProblemResult",
-                 "LastMileDelivery", "LastMileDeliveryResult", "WasteCollection", "WasteCollectionResult",
-                 "LocationAllocationInputDataType", "LocationAllocationOutputDataType", "LocationAllocationProblemType",
-                 "VehicleRoutingProblemInputDataType", "VehicleRoutingProblemOutputDataType"),
+    _HEURISTIC: ("VehicleRoutingProblem", "VehicleRoutingProblemResult", "LastMileDelivery", "LastMileDeliveryResult",
+                 "WasteCollection", "WasteCollectionResult", "VehicleRoutingProblemInputDataType",
+                 "VehicleRoutingProblemOutputDataType"),
     "reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3)": ("GetWebToolInfo",),
     "lists the languages of Esri's direction text, whose rules are not published": ("ListDirectionsLanguages",),
 }
 _REASONS[_HEURISTIC] += ("LastMileDeliveryInputDataType", "LastMileDeliveryOutputDataType", "WasteCollectionInputDataType",
                          "WasteCollectionOutputDataType", "VehicleRoutingProblemInputDataType2",
-                         "VehicleRoutingProblemOutputDataType2", "VehicleRoutingProblemSchemaVersion", "DecayFunctionType",
+                         "VehicleRoutingProblemOutputDataType2", "VehicleRoutingProblemSchemaVersion",
                          "StopCollectionMode")
 _REASONS["writes or customises Esri's direction text, landmarks and street names, whose rules are not published"] = (
     "DirectionPoint", "DirectionPointType", "DirectionsCustomizer", "DirectionsFieldMapping", "DirectionsName",
@@ -914,3 +913,209 @@ def __getattr__(name):
         raise NotBuiltError(message)
 
     return missing
+
+
+# ---- location-allocation ---------------------------------------------------------------------------------------------
+
+class LocationAllocationInputDataType(enum.Enum):
+    Facilities = "Facilities"
+    DemandPoints = "DemandPoints"
+    PointBarriers = "PointBarriers"
+    LineBarriers = "LineBarriers"
+    PolygonBarriers = "PolygonBarriers"
+
+
+class LocationAllocationOutputDataType(enum.Enum):
+    Facilities = "Facilities"
+    DemandPoints = "DemandPoints"
+    Lines = "Lines"
+
+
+class LocationAllocationProblemType(enum.Enum):
+    MinimizeImpedance = "MinimizeImpedance"
+    MaximizeCoverage = "MaximizeCoverage"
+    MaximizeCapacitatedCoverage = "MaximizeCapacitatedCoverage"
+    MinimizeFacilities = "MinimizeFacilities"
+    MaximizeAttendance = "MaximizeAttendance"
+    MaximizeMarketShare = "MaximizeMarketShare"
+    TargetMarketShare = "TargetMarketShare"
+
+
+class DecayFunctionType(enum.Enum):
+    Linear = "Linear"
+    Power = "Power"
+    Exponential = "Exponential"
+
+
+def _teitz_bart(costs, weights, candidates, required, count):
+    """The facilities chosen to minimise the total weighted cost, each demand served by its nearest chosen facility:
+    a greedy start, then Teitz and Bart's vertex substitution until no swap of a chosen facility for an unchosen one
+    improves. A demand no chosen facility reaches within the cutoff is not served; serving more weight comes first.
+    Ties go to the lower facility index."""
+    import math
+
+    def score(chosen):
+        served, total = 0.0, 0.0
+        for d, weight in enumerate(weights):
+            best = min((costs[d][f] for f in chosen), default=math.inf)
+            if math.isfinite(best):
+                served += weight
+                total += weight * best
+        return (-served, total)
+
+    chosen = list(required)
+    while len(chosen) < count:
+        options = [f for f in candidates if f not in chosen]
+        if not options:
+            break
+        chosen.append(min(options, key=lambda f: (score(chosen + [f]), f)))
+    improved = True
+    while improved:
+        improved = False
+        current = score(chosen)
+        for out in [f for f in chosen if f not in required]:
+            for into in [f for f in candidates if f not in chosen]:
+                trial = [into if f == out else f for f in chosen]
+                if score(trial) < current:
+                    chosen, current, improved = trial, score(trial), True
+                    break
+            if improved:
+                break
+    return sorted(chosen)
+
+
+def _allocate(graph, facilities, demands, away, cutoff, count, tool):
+    """The minimize-impedance allocation shared by nax.LocationAllocation and na's location-allocation layer: the
+    network costs from each facility to each demand point (or back, travelling toward the facilities), the facilities
+    Teitz–Bart chooses, and each served demand's facility and path, as ``{demand index: (facility index, arcs)}``."""
+    import math
+    for item in facilities:
+        if int(item.get("FacilityType") or 0) == 2:
+            raise NotBuiltError(f"{tool}: competitor facilities are for market share problems, not built in grapy.")
+    if any(item.get("GroupName") for item in demands):
+        raise NotBuiltError(f"{tool}: demand point groups are not built in grapy.")
+    solver = graph.solver([(i["key"], i["located"][0], i["located"][1]) for i in facilities + demands if i["located"]],
+                          reverse=away)
+    costs, paths = [], []
+    for demand in demands:
+        if demand["located"] is None:
+            costs.append([math.inf] * len(facilities))
+            paths.append([None] * len(facilities))
+            continue
+        row, way = [], []
+        distances, predecessors = solver.run(demand["key"])
+        for facility in facilities:
+            cost = float(distances[solver.location_node[facility["key"]]]) if facility["located"] else math.inf
+            if cutoff is not None and cost > float(cutoff):
+                cost = math.inf
+            row.append(cost)
+            way.append(solver.path(predecessors, demand["key"], facility["key"]) if math.isfinite(cost) else None)
+        costs.append(row)
+        paths.append(way)
+    weights = [float(d.get("Weight") if d.get("Weight") is not None else 1.0) for d in demands]
+    candidates = [i for i, f in enumerate(facilities) if f["located"] and int(f.get("FacilityType") or 0) in (0, 3)]
+    required = [i for i, f in enumerate(facilities) if f["located"] and int(f.get("FacilityType") or 0) == 1]
+    chosen = _teitz_bart(costs, weights, sorted(set(candidates) | set(required)), required,
+                         max(int(count or 1), len(required)))
+    served = {}
+    for d in range(len(demands)):
+        reach = [(costs[d][f], f) for f in chosen if math.isfinite(costs[d][f])]
+        if reach:
+            f = min(reach)[1]
+            served[d] = (f, paths[d][f])
+    return solver, chosen, required, weights, served
+
+
+class LocationAllocation(_Solver):
+    """EQUIVALENT: the minimize-impedance problem (the p-median problem) by a greedy start and Teitz and Bart's vertex
+    substitution (Teitz and Bart 1968), over Dijkstra's network costs (ADR-226 §5.2, §5.4). Facilities are candidates
+    (``FacilityType`` 0) or required (1), as documented; ``facilityCount`` facilities are chosen in all, chosen ones
+    written as type 3, each demand point allocated to its nearest chosen facility within the cutoff. Outputs carry the
+    documented fields — DemandCount, DemandWeight, FacilityID, AllocatedWeight, Weight, DemandID — and their totals as
+    the other nax solvers name them (``Total_`` and ``TotalWeighted_``); line names follow the travel direction, as
+    documented. INFERRED: serving more demand weight comes before a lower weighted cost; a demand point's weight is 1
+    when null. The other problem types, competitors, group names and decay functions other than linear are not
+    built."""
+
+    __grapy_equivalent__ = "Teitz–Bart vertex substitution for the p-median problem (Teitz and Bart 1968)"
+    _INPUT_TYPES = tuple(LocationAllocationInputDataType)
+    _INPUT_FIELDS = {"Facilities": ["FacilityType", "Weight", "Capacity", "CurbApproach"],
+                     "DemandPoints": ["GroupName", "Weight", "CurbApproach"]}
+
+    def __init__(self, in_network):
+        super().__init__(in_network)
+        self.problemType = LocationAllocationProblemType.MinimizeImpedance
+        self.facilityCount = 1
+        self.defaultImpedanceCutoff = None
+        self.defaultCapacity = 1
+        self.decayFunctionType = DecayFunctionType.Linear
+        self.decayFunctionParameterValue = 1
+        self.targetMarketShare = 10
+        self.travelDirection = TravelDirection.FromFacility
+        self.lineShapeType = LineShapeType.StraightLine
+
+    def _say(self):
+        from ._runtime import AddWarning, _SAID_EQUIVALENT
+        if "nax.LocationAllocation" not in _SAID_EQUIVALENT:
+            _SAID_EQUIVALENT.add("nax.LocationAllocation")
+            AddWarning(f"nax.LocationAllocation.solve is an equivalent, not ArcGIS Pro's own computation: "
+                       f"{self.__grapy_equivalent__}. Its numbers may differ from Pro's.")
+
+    def solve(self):
+        if self.problemType is not LocationAllocationProblemType.MinimizeImpedance:
+            raise NotBuiltError(f"arcpy.nax.LocationAllocation: problemType {self.problemType.name} is not built in "
+                                "grapy; MinimizeImpedance is.")
+        if self.decayFunctionType is not DecayFunctionType.Linear:
+            raise NotBuiltError("arcpy.nax.LocationAllocation: decay functions other than Linear are not built in grapy.")
+        self._say()
+        graph = self._graph()
+        facilities = self._located(graph, LocationAllocationInputDataType.Facilities, "Facilities")
+        demands = self._located(graph, LocationAllocationInputDataType.DemandPoints, "DemandPoints")
+        away = self.travelDirection is TravelDirection.FromFacility
+        solver, chosen, required, weights, served = _allocate(graph, facilities, demands, away, self.defaultImpedanceCutoff,
+                                                              self.facilityCount, "arcpy.nax.LocationAllocation")
+        lines, by_facility = [], {i: [] for i in chosen}
+        demand_rows = {}
+        for d, demand in enumerate(demands):
+            if d not in served:
+                demand_rows[demand["key"]] = {"FacilityID": None, "AllocatedWeight": None}
+                continue
+            f, path = served[d]
+            facility = facilities[f]
+            totals = {a: solver.total(path, a) for a, (usage, _) in graph.attributes.items() if usage == "Cost"}
+            by_facility[f].append((weights[d], totals))
+            demand_rows[demand["key"]] = {"FacilityID": facility["oid"], "AllocatedWeight": weights[d]}
+            name = f"{facility['name']} - {demand['name']}" if away else f"{demand['name']} - {facility['name']}"
+            line = {"ObjectID": len(lines) + 1, "Name": name, "FacilityID": facility["oid"], "DemandID": demand["oid"],
+                    "Weight": weights[d]}
+            line.update(self._totals(graph, totals, "Total"))
+            line.update(self._totals(graph, {a: v * weights[d] for a, v in totals.items()}, "TotalWeighted"))
+            if self.lineShapeType is not LineShapeType.NoLine:
+                from shapely.geometry import LineString
+                ends = [facility["point"], demand["point"]] if away else [demand["point"], facility["point"]]
+                line["SHAPE"] = LineString([(p.x, p.y) for p in ends])
+            lines.append(line)
+        facility_rows = {}
+        for f, facility in enumerate(facilities):
+            allocated = by_facility.get(f, [])
+            row = {"FacilityType": 3 if f in chosen and f not in required else int(facility.get("FacilityType") or 0),
+                   "DemandCount": len(allocated), "DemandWeight": sum(w for w, _ in allocated)}
+            summed = {}
+            weighted = {}
+            for w, totals in allocated:
+                for a, v in totals.items():
+                    summed[a] = summed.get(a, 0.0) + v
+                    weighted[a] = weighted.get(a, 0.0) + v * w
+            row.update(self._totals(graph, summed, "Total"))
+            row.update(self._totals(graph, weighted, "TotalWeighted"))
+            facility_rows[facility["key"]] = row
+        return _Result({LocationAllocationOutputDataType.Facilities: self._inputs_out(facilities, facility_rows),
+                        LocationAllocationOutputDataType.DemandPoints: self._inputs_out(demands, demand_rows),
+                        LocationAllocationOutputDataType.Lines: lines}, graph.srid, bool(lines))
+
+
+LocationAllocationResult = _Result
+
+for _built in ("LocationAllocation", "LocationAllocationResult", "LocationAllocationInputDataType", "LocationAllocationOutputDataType",
+               "LocationAllocationProblemType", "DecayFunctionType"):
+    _REFUSED.pop(_built, None)

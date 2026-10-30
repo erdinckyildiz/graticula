@@ -5144,7 +5144,6 @@ _REASONS = {
         "SetRelationshipClassSplitPolicy",),
     "converts between Windows time zone names, whose mapping to the IANA zones Python holds Esri does not publish": (
         "ConvertTimeZone",),
-    "writes DTED, a military elevation format grapy does not write": ("RasterToDTED",),
     "makes a mobile geodatabase (.geodatabase), Esri's own SQLite schema; CreateFileGDB and CreateSQLiteDatabase make "
     "grapy's GeoPackage workspace": ("CreateMobileGDB",),
 }
@@ -5718,3 +5717,809 @@ def RemoveFieldConflictFilter(table, fields):
 
 for _built in ("AddFieldConflictFilter", "RemoveFieldConflictFilter"):
     _REFUSED.pop(_built, None)
+
+
+# ---- equivalents of the final sweep (ADR-224 §5.6) --------------------------------------------------------------------
+
+def _geographic(srid):
+    """Transformers from a reference to its own geographic system and back."""
+    from pyproj import CRS, Transformer
+    crs = CRS.from_epsg(srid)
+    geographic = crs.geodetic_crs
+    return (crs.get_geod(), Transformer.from_crs(crs, geographic, always_xy=True),
+            Transformer.from_crs(geographic, crs, always_xy=True))
+
+
+@_equivalent("geodesic interpolation at equal spacing no longer than the distance", "Karney 2013, as pyproj.Geod computes it")
+def GeodeticDensify(in_features, out_feature_class, geodetic_type="GEODESIC", distance="50 Kilometers"):
+    """EQUIVALENT: each segment replaced by the geodesic between its end points on the reference's ellipsoid, as
+    documented, with vertices at equal spacing no longer than ``distance`` — the page not saying how a shorter last
+    piece is handled. A single segment whose ends coincide is not written, as documented. ``LOXODROME``,
+    ``GREAT_ELLIPTIC`` and ``NORMAL_SECTION`` are not built."""
+    import math
+    import shapely
+    from . import da
+    from ._runtime import ExecuteError
+    if str(geodetic_type or "GEODESIC").upper() != "GEODESIC":
+        raise NotBuiltError(f"arcpy.management.GeodeticDensify: geodetic_type '{geodetic_type}' is not built in grapy; "
+                            "GEODESIC is.")
+    columns, kind, srid, _ = _schema(_source(in_features)[0])
+    if srid <= 0:
+        raise ExecuteError("ERROR 000732: GeodeticDensify needs a coordinate system.")
+    parts = str(distance).split()
+    metres = float(parts[0]) * (_metres(parts[1], "GeodeticDensify") if len(parts) > 1 else 1.0)
+    geod, to_geographic, back = _geographic(srid)
+
+    def densify(coordinates):
+        out = []
+        for (x0, y0), (x1, y1) in zip(coordinates, coordinates[1:]):
+            (lon0, lon1), (lat0, lat1) = to_geographic.transform([x0, x1], [y0, y1])
+            length = geod.inv(lon0, lat0, lon1, lat1)[2]
+            count = max(0, math.ceil(length / metres) - 1)
+            between = geod.npts(lon0, lat0, lon1, lat1, count) if count else []
+            xs, ys = back.transform([p[0] for p in between], [p[1] for p in between]) if between else ([], [])
+            out.extend([(x0, y0), *zip(xs, ys)])
+        out.append(coordinates[-1])
+        return out
+
+    def rebuild(shape):
+        if shape.geom_type == "LineString":
+            return shapely.LineString(densify([c[:2] for c in shape.coords]))
+        if shape.geom_type == "Polygon":
+            return shapely.Polygon(densify([c[:2] for c in shape.exterior.coords]),
+                                   [densify([c[:2] for c in r.coords]) for r in shape.interiors])
+        return type(shape)([rebuild(p) for p in shape.geoms])
+
+    out = _path(out_feature_class)
+    _gpkg.create(out, kind, srid, columns)
+    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for _, values, shape in _features(in_features):
+            if shape is None or shape.is_empty:
+                continue
+            coordinates = shapely.get_coordinates(shape).tolist()
+            if len(coordinates) == 2 and coordinates[0] == coordinates[1]:
+                continue
+            written.insertRow((*values, rebuild(shape)))
+    return Result(out)
+
+
+def _bisect(shape, limit, depth=0):
+    """A shape cut in halves across its envelope's longer side, and again, until no piece has more than ``limit``
+    vertices — or 32 cuts deep, a limit a polygon's own four corners could otherwise never meet."""
+    import shapely
+    if len(shapely.get_coordinates(shape)) <= limit or depth >= 32:
+        return [shape]
+    x0, y0, x1, y1 = shape.bounds
+    if x1 - x0 >= y1 - y0:
+        middle = (x0 + x1) / 2
+        halves = [shapely.box(x0 - 1, y0 - 1, middle, y1 + 1), shapely.box(middle, y0 - 1, x1 + 1, y1 + 1)]
+    else:
+        middle = (y0 + y1) / 2
+        halves = [shapely.box(x0 - 1, y0 - 1, x1 + 1, middle), shapely.box(x0 - 1, middle, x1 + 1, y1 + 1)]
+    pieces = []
+    dimension = shapely.get_dimensions(shape)
+    for half in halves:
+        part = shape.intersection(half)
+        kept = [p for p in _parts(part) if not p.is_empty and shapely.get_dimensions(p) == dimension]
+        if kept:
+            whole = shapely.union_all(kept) if len(kept) > 1 else kept[0]
+            pieces.extend(_bisect(whole, limit, depth + 1))
+    return pieces
+
+
+@_equivalent("recursive bisection across the envelope's longer side until each piece is within the vertex limit",
+             "a quadtree-style subdivision")
+def Dice(in_features, out_feature_class, vertex_limit):
+    """EQUIVALENT: a feature with more vertices than ``vertex_limit`` is cut in two across the longer side of its
+    envelope, and each half again, until every piece is within the limit; a feature within it is copied unchanged and
+    each piece keeps its feature's attributes, as documented. Esri's own cutting is not published. A layer's ratio
+    policy is not built."""
+    from . import da
+    limit = int(vertex_limit)
+    columns, kind, srid, _ = _schema(_source(in_features)[0])
+    out = _path(out_feature_class)
+    _gpkg.create(out, kind, srid, columns)
+    with da.InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
+        for _, values, shape in _features(in_features):
+            if shape is None:
+                continue
+            for piece in _bisect(shape, limit) if kind in ("Polygon", "Polyline") else [shape]:
+                written.insertRow((*values, piece))
+    return Result(out)
+
+
+def _crack(coordinates, nodes, tolerance):
+    """A ring's or line's vertices with every node lying on a segment within the tolerance inserted, in order."""
+    from shapely.geometry import LineString, Point as ShapelyPoint
+    out = []
+    for a, b in zip(coordinates, coordinates[1:]):
+        out.append(a)
+        segment = LineString([a, b])
+        inner = []
+        for node in nodes:
+            point = ShapelyPoint(node)
+            if node in (a, b) or segment.distance(point) > tolerance:
+                continue
+            along = segment.project(point)
+            if 0 < along < segment.length:
+                inner.append((along, node))
+        out.extend(node for _, node in sorted(set(inner)))
+    out.append(coordinates[-1])
+    return out
+
+
+@_equivalent("vertex clustering onto the best-ranked feature class's vertex, then cracking at intersections",
+             "ADR-225 §5.3's clustering rule")
+def Integrate(in_features, cluster_tolerance=None):
+    """EQUIVALENT: the features of every class given (``[[features, rank], …]``) have their vertices within the
+    tolerance made coincident — onto the vertex of the class with the lower rank number (1 the highest), as documented,
+    by ADR-225 §5.3's rule — and a vertex inserted on an edge wherever another feature's vertex or a line's
+    intersection lies on it, as documented. INFERRED: the default tolerance is a geodatabase's default xy tolerance
+    (see CreateTopology). The inputs are changed in place, as documented."""
+    import shapely
+    from . import _topology, da
+    listed = []
+    for entry in _pairs(in_features) if not isinstance(in_features, (list, tuple)) else in_features:
+        entry = [entry] if isinstance(entry, str) else list(entry)
+        listed.append((_plain("Integrate", entry[0]), int(entry[1]) if len(entry) > 1 and _given(entry[1]) else 1))
+    srid = _schema(listed[0][0])[2]
+    tolerance = _linear(cluster_tolerance, srid, "Integrate") if _given(cluster_tolerance) else _default_tolerance(srid)
+    classes = []
+    for path, rank in listed:
+        with da.SearchCursor(path, ["OID@", "SHAPE@"]) as rows:
+            classes.append((rank, [(oid, shape._shape) for oid, shape in rows if shape is not None]))
+    moved = _topology.cluster(classes, tolerance)
+    shapes = [{oid: moved.get((i, oid), shape) for oid, shape in features} for i, (_, features) in enumerate(classes)]
+    linework = [s.boundary if s.geom_type in ("Polygon", "MultiPolygon") else s
+                for by_oid in shapes for s in by_oid.values() if shapely.get_dimensions(s) > 0]
+    nodes = {tuple(c) for c in shapely.get_coordinates(shapely.union_all(linework)).tolist()} if linework else set()
+    nodes |= {tuple(c) for by_oid in shapes for s in by_oid.values() for c in shapely.get_coordinates(s).tolist()}
+
+    def cracked(shape):
+        if shape.geom_type == "LineString":
+            return shapely.LineString(_crack([tuple(c[:2]) for c in shape.coords], nodes, tolerance))
+        if shape.geom_type == "Polygon":
+            return shapely.Polygon(_crack([tuple(c[:2]) for c in shape.exterior.coords], nodes, tolerance),
+                                   [_crack([tuple(c[:2]) for c in r.coords], nodes, tolerance) for r in shape.interiors])
+        if hasattr(shape, "geoms") and shape.geom_type != "MultiPoint":
+            return type(shape)([cracked(p) for p in shape.geoms])
+        return shape
+
+    for (path, _), by_oid in zip(listed, shapes):
+        with da.UpdateCursor(path, ["OID@", "SHAPE@"]) as rows:
+            for oid, shape in rows:
+                if oid in by_oid:
+                    new = cracked(by_oid[oid])
+                    if not new.equals_exact(shape._shape, 0):
+                        rows.updateRow([oid, new])
+    return Result(";".join(p for p, _ in listed))
+
+
+def _ellipse(center, major, minor, azimuth, vertices, geod):
+    """An ellipse's ring: ``major`` and ``minor`` full axis lengths, the major axis at ``azimuth`` degrees clockwise
+    from north; on the ellipsoid (geodesic distances from the centre) when ``geod`` is given, else in the plane."""
+    import math
+    a, b = major / 2.0, minor / 2.0
+    ring = []
+    for k in range(vertices):
+        phi = 2 * math.pi * k / vertices
+        radius = a * b / math.hypot(b * math.cos(phi), a * math.sin(phi)) if a and b else 0.0
+        bearing = azimuth + math.degrees(phi)
+        if geod is not None:
+            lon, lat, _ = geod.fwd(center[0], center[1], bearing, radius)
+            ring.append((lon, lat))
+        else:
+            ring.append((center[0] + radius * math.sin(math.radians(bearing)),
+                         center[1] + radius * math.cos(math.radians(bearing))))
+    ring.append(ring[0])
+    return ring
+
+
+@_equivalent("a 360-vertex ellipse traced by geodesic distance from its centre", "pyproj.Geod (Karney 2013)")
+def TableToEllipse(in_table, out_featureclass, x_field, y_field, major_field, minor_field, distance_units,
+                   azimuth_field=None, azimuth_units="DEGREES", id_field=None, spatial_reference=None,
+                   attributes="NO_ATTRIBUTES", geometry_type="LINE", method="GEODESIC"):
+    """EQUIVALENT: an ellipse around each row's x and y, its major axis rotated by the azimuth clockwise from north, as
+    a closed line (``LINE``) or a polygon; ``GEODESIC`` traces it by geodesic distance from the centre, ``PLANAR`` in
+    the plane of a projected system, as documented. INFERRED, the page not saying: the major and minor fields hold
+    full axis lengths; the ellipse has 360 vertices; fields as BearingDistanceToLine writes them. ``MILS`` is not
+    built."""
+    import shapely
+    from . import da
+    from ._reference import SpatialReference
+    from ._runtime import ExecuteError
+    units = {"DEGREES": 1.0, "RADS": 57.29577951308232, "RADIANS": 57.29577951308232, "GRADS": 0.9}
+    unit = str(azimuth_units or "DEGREES").upper()
+    if unit not in units:
+        raise NotBuiltError(f"arcpy.management.TableToEllipse: azimuth_units '{azimuth_units}' is not built in grapy.")
+    columns, srid, rows = _table_rows(in_table)
+    srid = _reference_code(spatial_reference, srid if srid > 0 else 4326)
+    geodesic = str(method or "GEODESIC").upper() == "GEODESIC"
+    reference = SpatialReference(srid)
+    if not geodesic and reference.type == "Geographic":
+        raise ExecuteError("ERROR 000732: PLANAR ellipses need a projected coordinate system.")
+    by_name = {c.name.lower(): c for c in columns}
+    lead = [by_name[str(f).lower()] for f in (x_field, y_field, major_field, minor_field, azimuth_field) if _given(f)]
+    if _given(id_field) and by_name[str(id_field).lower()] not in lead:
+        lead.append(by_name[str(id_field).lower()])
+    rest = [c for c in columns if c not in lead] if str(attributes).upper() == "ATTRIBUTES" else None
+    out_columns = lead + (rest + [_gpkg.Column("ORIG_FID", "Integer")] if rest is not None else [])
+    polygon = str(geometry_type or "LINE").upper() == "POLYGON"
+    metres = _metres(str(distance_units).replace("US_SURVEY_FEET", "FEET_US"), "TableToEllipse")
+    out = _path(out_featureclass)
+    _gpkg.create(out, "Polygon" if polygon else "Polyline", srid, out_columns)
+    geod = to_geographic = back = None
+    if geodesic:
+        geod, to_geographic, back = _geographic(srid)
+    names = [c.name for c in columns]
+    with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as written:
+        for oid, values, _ in rows:
+            row = dict(zip(names, values))
+            x, y = float(row[by_name[str(x_field).lower()].name]), float(row[by_name[str(y_field).lower()].name])
+            major = float(row[by_name[str(major_field).lower()].name]) * metres
+            minor = float(row[by_name[str(minor_field).lower()].name]) * metres
+            azimuth = float(row[by_name[str(azimuth_field).lower()].name]) * units[unit] if _given(azimuth_field) else 0.0
+            if geodesic:
+                lon, lat = to_geographic.transform(x, y)
+                ring = _ellipse((lon, lat), major, minor, azimuth, 360, geod)
+                xs, ys = back.transform([p[0] for p in ring], [p[1] for p in ring])
+                ring = list(zip(xs, ys))
+            else:
+                per = reference.metersPerUnit
+                ring = _ellipse((x, y), major / per, minor / per, azimuth, 360, None)
+            shape = shapely.Polygon(ring) if polygon else shapely.LineString(ring)
+            written.insertRow((*[row[c.name] for c in lead], *([row[c.name] for c in rest] + [oid] if rest is not None else []),
+                               shape))
+    return Result(out)
+
+
+_DISTRIBUTIONS = {"UNIFORM": (0.0, 1.0), "INTEGER": (1, 10), "NORMAL": (0.0, 1.0), "EXPONENTIAL": (1.0,),
+                  "POISSON": (1.0,), "GAMMA": (1.0, 1.0), "BINOMIAL": (10, 0.5), "GEOMETRIC": (0.5,),
+                  "NEGATIVE_BINOMIAL": (10.0, 0.5)}
+
+
+@_equivalent("NumPy's PCG64 generator seeded from env.randomGenerator", "NumPy random Generator")
+def CreateRandomRaster(out_path, out_name, distribution="UNIFORM 0.0 1.0", raster_extent=None, cellsize=None,
+                       build_rat="BUILD"):
+    """EQUIVALENT: a raster of random values from the documented distributions and their defaults, drawn with NumPy's
+    generator from ``env.randomGenerator``'s seed (see ``_seed``) — arcpy's own stream is not published. INFERRED: the
+    integer distributions answer 32-bit integers with an attribute table under ``BUILD``, the others doubles;
+    ``INTEGER`` draws its minimum and maximum inclusively; ``GAMMA``'s beta is the scale; with no cell size, the
+    extent's shorter side over 250, as the conversion tools document their default. An extent is required."""
+    import numpy
+    from ._raster import _Grid, _value_count
+    from ._runtime import env
+    from ._reference import reference_of
+    words = str(distribution or "UNIFORM").replace(",", " ").split()
+    name = words[0].upper()
+    if name == "NEGATIVE" and len(words) > 1 and words[1].upper() == "BINOMIAL":
+        name, words = "NEGATIVE_BINOMIAL", ["NEGATIVE_BINOMIAL", *words[2:]]
+    if name not in _DISTRIBUTIONS:
+        raise NotBuiltError(f"arcpy.management.CreateRandomRaster: distribution '{words[0]}' is not built in grapy.")
+    given = [float(w) for w in words[1:]]
+    p = list(given) + list(_DISTRIBUTIONS[name][len(given):])
+    if not _given(raster_extent) or str(raster_extent).upper() in ("MAXOF", "MINOF", "DISPLAY"):
+        raise NotBuiltError("arcpy.management.CreateRandomRaster: give the extent as an Extent or 'xmin ymin xmax ymax'.")
+    (x0, y0, x1, y1), srid = _extent_of(raster_extent)
+    if not srid and env.outputCoordinateSystem is not None:
+        srid = reference_of(env.outputCoordinateSystem).factoryCode
+    size = float(cellsize) if _given(cellsize) else min(x1 - x0, y1 - y0) / 250
+    columns, rows = max(1, int(round((x1 - x0) / size))), max(1, int(round((y1 - y0) / size)))
+    random = numpy.random.default_rng(_seed())
+    shape = (rows, columns)
+    draw = {"UNIFORM": lambda: random.uniform(p[0], p[1], shape),
+            "INTEGER": lambda: random.integers(int(p[0]), int(p[1]), shape, endpoint=True),
+            "NORMAL": lambda: random.normal(p[0], p[1], shape), "EXPONENTIAL": lambda: random.exponential(p[0], shape),
+            "POISSON": lambda: random.poisson(p[0], shape), "GAMMA": lambda: random.gamma(p[0], p[1], shape),
+            "BINOMIAL": lambda: random.binomial(int(p[0]), p[1], shape), "GEOMETRIC": lambda: random.geometric(p[0], shape),
+            "NEGATIVE_BINOMIAL": lambda: random.negative_binomial(p[0], p[1], shape)}[name]
+    array = draw()
+    integer = name in ("INTEGER", "POISSON", "BINOMIAL", "GEOMETRIC", "NEGATIVE_BINOMIAL")
+    array = array.astype(numpy.int32 if integer else numpy.float64)
+    mask = numpy.zeros(shape, bool)
+    grid = _Grid(x0, y0 + rows * size, size, size, rows, columns, srid)
+    path = _raster_path(os.path.join(_text(out_path), _text(out_name)), "CreateRandomRaster")
+    result = _write_raster(array, mask, grid, path)
+    if integer and str(build_rat or "BUILD").upper() == "BUILD":
+        from ._raster import _write_rat
+        _write_rat(path, _value_count(array, mask))
+    return result
+
+
+@_equivalent("a uniform random sample without replacement, NumPy's PCG64 seeded from env.randomGenerator",
+             "NumPy random Generator")
+def SubsetFeatures(in_features, out_training_feature_class, out_test_feature_class=None, size_of_training_dataset=50,
+                   subset_size_units="PERCENTAGE_OF_INPUT"):
+    """EQUIVALENT: a random subset of the features as the training set, the rest as the test set when one is asked,
+    as documented; drawn with NumPy's generator from ``env.randomGenerator``'s seed — arcpy's Mersenne Twister stream
+    is not reproduced. INFERRED: a percentage rounds to the nearest whole feature; features keep their input order."""
+    import numpy
+    from . import da
+    columns, kind, srid, _ = _schema(_source(in_features)[0])
+    features = _features(in_features)
+    count = len(features)
+    size = float(size_of_training_dataset if _given(size_of_training_dataset) else 50)
+    wanted = int(round(count * size / 100)) if str(subset_size_units or "PERCENTAGE_OF_INPUT").upper() == \
+        "PERCENTAGE_OF_INPUT" else int(size)
+    chosen = set(numpy.random.default_rng(_seed()).choice(count, size=min(wanted, count), replace=False).tolist())
+    names = [c.name for c in columns]
+    for out, keep in ((out_training_feature_class, True), (out_test_feature_class, False)):
+        if not _given(out):
+            continue
+        path = _path(out)
+        _gpkg.create(path, kind, srid, columns)
+        with da.InsertCursor(path, [*names, "SHAPE@"]) as written:
+            for i, (_, values, shape) in enumerate(features):
+                if (i in chosen) == keep:
+                    written.insertRow((*values, shape))
+    return Result(_path(out_training_feature_class), _path(out_test_feature_class) if _given(out_test_feature_class) else "")
+
+
+@_equivalent("one indicator field per category, named <field>_<category>", "one-hot encoding")
+def EncodeField(in_table, field, method="ONEHOT", time_step_interval=None, time_step_alignment="END_TIME",
+                reference_time=None):
+    """EQUIVALENT: one new field per category of ``field``, 1 where the row has it and 0 elsewhere (``ONECOLD`` the
+    reverse), added to the input, as documented. INFERRED, the page not naming them: the fields are named
+    ``<field>_<category>``, made valid with ValidateFieldName, short integers, in ascending order of category; a
+    null is no category. ``TEMPORAL`` is not built."""
+    from . import ValidateFieldName, da
+    kind = str(method or "ONEHOT").upper()
+    if kind not in ("ONEHOT", "ONECOLD"):
+        raise NotBuiltError(f"arcpy.management.EncodeField: method '{method}' is not built in grapy.")
+    path = _plain("EncodeField", in_table)
+    source = {c.name.lower(): c.name for c in _schema(path)[0]}[str(field).lower()]
+    with da.SearchCursor(path, [source]) as rows:
+        categories = sorted({r[0] for r in rows if r[0] is not None}, key=lambda v: (str(type(v)), v))
+    names = [ValidateFieldName(f"{source}_{c}") for c in categories]
+    for name in names:
+        AddField(path, name, "SHORT")
+    hit, miss = (1, 0) if kind == "ONEHOT" else (0, 1)
+    with da.UpdateCursor(path, [source, *names]) as rows:
+        for row in rows:
+            rows.updateRow([row[0], *[hit if row[0] == c else miss for c in categories]])
+    return Result(_text(in_table))
+
+
+@_equivalent("the documented transformations, Box-Cox's power fitted by maximum likelihood",
+             "Box and Cox 1964, scipy.stats.boxcox")
+def TransformField(in_table, fields, method="BOX-COX", power=None, shift=None):
+    """EQUIVALENT: each field transformed into a new field — ``LOG`` ln(x + shift), ``SQRT`` √(x + shift), ``INVX``
+    1/x (0 null), ``BOX-COX`` ((x + λ2)^λ1 − 1)/λ1 (ln(x + λ2) when λ1 is 0) with λ1 fitted by maximum likelihood when
+    no power is given, ``INV_BOX-COX`` its inverse, ``INV_SQRT`` x² − shift and ``INV_LOG`` eˣ − shift — as documented.
+    Default shifts as documented: LOG, SQRT and BOX-COX add the largest absolute negative value (and, for LOG and
+    BOX-COX, about 10⁻⁶ more, so a zero is lifted too). INFERRED: the new field is ``<field>_<METHOD>`` (BOX-COX as
+    BOXCOX), a double; an existing one is overwritten, as documented."""
+    import math
+    import numpy
+    from . import da
+    kind = str(method or "BOX-COX").upper()
+    if kind not in ("LOG", "SQRT", "INVX", "BOX-COX", "INV_BOX-COX", "INV_SQRT", "INV_LOG"):
+        raise NotBuiltError(f"arcpy.management.TransformField: method '{method}' is not built in grapy.")
+    if kind == "INV_BOX-COX" and not _given(power):
+        from ._runtime import ExecuteError
+        raise ExecuteError("ERROR 000735: INV_BOX-COX needs a power.")
+    path = _plain("TransformField", in_table)
+    own = {c.name.lower(): c.name for c in _schema(path)[0]}
+    for field in _list(fields):
+        source = own[str(field).lower()]
+        with da.SearchCursor(path, [source]) as rows:
+            values = [r[0] for r in rows]
+        present = numpy.array([float(v) for v in values if v is not None])
+        lowest = present.min() if present.size else 0.0
+        if _given(shift):
+            lift = float(shift)
+        elif kind in ("LOG", "BOX-COX"):
+            lift = abs(lowest) + 1e-6 if lowest <= 0 else 0.0
+        elif kind == "SQRT":
+            lift = abs(lowest) if lowest < 0 else 0.0
+        else:
+            lift = 0.0
+        lam = float(power) if _given(power) else None
+        if kind == "BOX-COX" and lam is None:
+            from scipy import stats
+            _, lam = stats.boxcox(present + lift)
+
+        def transform(x):
+            if x is None:
+                return None
+            x = float(x)
+            if kind == "LOG":
+                return math.log(x + lift)
+            if kind == "SQRT":
+                return math.sqrt(x + lift)
+            if kind == "INVX":
+                return None if x == 0 else 1.0 / x
+            if kind == "BOX-COX":
+                return math.log(x + lift) if lam == 0 else ((x + lift) ** lam - 1) / lam
+            if kind == "INV_BOX-COX":
+                return (math.exp(x) if lam == 0 else (lam * x + 1) ** (1 / lam)) - lift
+            if kind == "INV_SQRT":
+                return x * x - lift
+            return math.exp(x) - lift
+
+        name = f"{source}_{kind.replace('-', '')}"
+        if name.lower() not in own:
+            AddField(path, name, "DOUBLE")
+            own[name.lower()] = name
+        with da.UpdateCursor(path, [source, own[name.lower()]]) as rows:
+            for row in rows:
+                rows.updateRow([row[0], transform(row[0])])
+    return Result(_text(in_table))
+
+
+def _jenks(values, classes):
+    """Natural breaks: the class boundaries minimising the within-class sum of squared deviations, by dynamic
+    programming (Fisher 1958; Jenks 1967). Answers each class's upper bound."""
+    import numpy
+    data = numpy.sort(numpy.asarray(values, float))
+    n = len(data)
+    classes = min(classes, len(numpy.unique(data)))
+    prefix, squares = numpy.concatenate([[0], numpy.cumsum(data)]), numpy.concatenate([[0], numpy.cumsum(data ** 2)])
+
+    def cost(i, j):  # data[i:j]
+        s, q, m = prefix[j] - prefix[i], squares[j] - squares[i], j - i
+        return q - s * s / m
+    best = numpy.full((classes + 1, n + 1), numpy.inf)
+    split = numpy.zeros((classes + 1, n + 1), int)
+    best[0, 0] = 0.0
+    for k in range(1, classes + 1):
+        for j in range(k, n + 1):
+            for i in range(k - 1, j):
+                value = best[k - 1, i] + cost(i, j)
+                if value < best[k, j]:
+                    best[k, j], split[k, j] = value, i
+    bounds, j = [], n
+    for k in range(classes, 0, -1):
+        bounds.append(float(data[j - 1]))
+        j = split[k, j]
+    return sorted(bounds)
+
+
+@_equivalent("the documented classification methods, natural breaks by Fisher's exact dynamic programme",
+             "Fisher 1958; Jenks 1967")
+def ReclassifyField(in_table, field, method="EQUAL_INTERVAL", classes=None, interval=None, standard_deviations="ONE",
+                    reclass_table=None, reverse_values="ASC", output_field_name=None):
+    """EQUIVALENT: a numeric field classed by ``EQUAL_INTERVAL``, ``DEFINED_INTERVAL``, ``QUANTILE``, ``NATURAL_BREAKS``
+    or ``UNIQUE_VALUES`` into two new fields, the class (1 the lowest, or the highest with ``DESC``) and its range, as
+    documented; a text field by ``UNIQUE_VALUES`` into one, named ``output_field_name``. INFERRED, the page not naming
+    them: the numeric fields are ``<name>_CLASS`` and ``<name>_RANGE``, ``<name>`` being ``output_field_name`` or
+    ``<field>_<METHOD>``; a range is written "low - high"; a value on a boundary belongs to the lower class; 5
+    classes when none is given; quantile classes split at the nearest ranks. ``MANUAL``, ``STANDARD_DEVIATION`` and
+    ``GEOMETRIC_INTERVAL`` are not built."""
+    import math
+    from . import da
+    kind = str(method or "EQUAL_INTERVAL").upper()
+    if kind not in ("EQUAL_INTERVAL", "DEFINED_INTERVAL", "QUANTILE", "NATURAL_BREAKS", "UNIQUE_VALUES"):
+        raise NotBuiltError(f"arcpy.management.ReclassifyField: method '{method}' is not built in grapy.")
+    path = _plain("ReclassifyField", in_table)
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    column = columns[str(field).lower()]
+    with da.SearchCursor(path, [column.name]) as rows:
+        values = [r[0] for r in rows if r[0] is not None]
+    descending = str(reverse_values or "ASC").upper() == "DESC"
+    prefix = str(output_field_name) if _given(output_field_name) else f"{column.name}_{kind}"
+    if column.type == "String":
+        if kind != "UNIQUE_VALUES":
+            raise NotBuiltError("arcpy.management.ReclassifyField: a text field is classed by UNIQUE_VALUES only in grapy.")
+        order = sorted(set(values), reverse=descending)
+        AddField(path, prefix, "LONG")
+        with da.UpdateCursor(path, [column.name, prefix]) as rows:
+            for row in rows:
+                rows.updateRow([row[0], order.index(row[0]) + 1 if row[0] is not None else None])
+        return Result(_text(in_table))
+    count = int(classes) if _given(classes) else 5
+    low, high = min(values), max(values)
+    if kind == "UNIQUE_VALUES":
+        uppers = sorted(set(values))
+    elif kind == "EQUAL_INTERVAL":
+        uppers = [low + (high - low) * k / count for k in range(1, count + 1)]
+    elif kind == "DEFINED_INTERVAL":
+        step = float(interval)
+        uppers = [low + step * k for k in range(1, int(math.ceil((high - low) / step)) + 1)] or [high]
+    elif kind == "QUANTILE":
+        ordered = sorted(values)
+        uppers = sorted({ordered[max(0, int(round(len(ordered) * k / count)) - 1)] for k in range(1, count + 1)})
+    else:
+        uppers = _jenks(values, count)
+    uppers[-1] = max(uppers[-1], high)
+    lowers = [low] + uppers[:-1]
+    class_field, range_field = f"{prefix}_CLASS", f"{prefix}_RANGE"
+    AddField(path, class_field, "LONG")
+    AddField(path, range_field, "TEXT")
+
+    def of(value):
+        if value is None:
+            return None, None
+        k = next(i for i, upper in enumerate(uppers) if value <= upper)
+        number = len(uppers) - k if descending else k + 1
+        if kind == "UNIQUE_VALUES":
+            return number, f"{uppers[k]:g}"
+        return number, f"{lowers[k]:g} - {uppers[k]:g}"
+
+    with da.UpdateCursor(path, [column.name, class_field, range_field]) as rows:
+        for row in rows:
+            rows.updateRow([row[0], *of(row[0])])
+    return Result(_text(in_table))
+
+
+for _built in ("GeodeticDensify", "Dice", "Integrate", "TableToEllipse", "CreateRandomRaster", "SubsetFeatures",
+               "EncodeField", "TransformField", "ReclassifyField"):
+    _REFUSED.pop(_built, None)
+
+
+# ---- coordinate notations -----------------------------------------------------------------------------------------
+#
+# MGRS and USNG follow NGA's "The Universal Grids and the Transverse Mercator and Polar Stereographic Map Projections"
+# (NGA.SIG.0012) and FGDC-STD-011-2001; GARS and GEOREF NGA's published definitions. Their letters skip I and O.
+
+_BANDS = "CDEFGHJKLMNPQRSTUVWX"
+_ROWS = "ABCDEFGHJKLMNPQRSTUV"
+_COLUMN_SETS = ("ABCDEFGH", "JKLMNPQR", "STUVWXYZ")
+_LETTERS_24 = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+
+
+def _utm(lon, lat):
+    """(zone, band letter, easting, northing) of a WGS 1984 point, the Norway and Svalbard zone exceptions kept."""
+    import math
+    from pyproj import Transformer
+    if not -80 <= lat < 84:
+        raise ValueError("outside the UTM latitudes (UPS is not built)")
+    zone = int(math.floor((lon + 180) / 6)) % 60 + 1
+    if 56 <= lat < 64 and 3 <= lon < 12:
+        zone = 32
+    if 72 <= lat < 84:
+        for low, high, z in ((0, 9, 31), (9, 21, 33), (21, 33, 35), (33, 42, 37)):
+            if low <= lon < high:
+                zone = z
+    band = _BANDS[min(19, int(math.floor((lat + 80) / 8)))]
+    epsg = (32600 if lat >= 0 else 32700) + zone
+    easting, northing = Transformer.from_crs(4326, epsg, always_xy=True).transform(lon, lat)
+    return zone, band, easting, northing
+
+
+def _mgrs(lon, lat, digits, spaced):
+    zone, band, easting, northing = _utm(lon, lat)
+    column = _COLUMN_SETS[(zone - 1) % 3][int(easting // 100000) - 1]
+    row = _ROWS[(int(northing // 100000) + (5 if zone % 2 == 0 else 0)) % 20]
+    scale = 10 ** (digits - 5)
+    e = int((easting % 100000) * scale) if scale >= 1 else int((easting % 100000) // (10 ** (5 - digits)))
+    n = int((northing % 100000) * scale) if scale >= 1 else int((northing % 100000) // (10 ** (5 - digits)))
+    parts = [f"{zone}{band}", f"{column}{row}", f"{e:0{digits}d}", f"{n:0{digits}d}"]
+    return " ".join(parts) if spaced else "".join(parts)
+
+
+def _gars(lon, lat):
+    import math
+    x, y = (lon + 180) * 2, (lat + 90) * 2
+    band = int(math.floor(y))
+    cell = f"{int(math.floor(x)) + 1:03d}{_LETTERS_24[band // 24]}{_LETTERS_24[band % 24]}"
+    fx, fy = x - math.floor(x), y - math.floor(y)
+    quadrant = 1 + int(fx * 2) + 2 * (1 - int(fy * 2))
+    kx, ky = (fx * 2 - int(fx * 2)), (fy * 2 - int(fy * 2))
+    key = (2 - int(ky * 3)) * 3 + int(kx * 3) + 1
+    return f"{cell}{quadrant}{key}"
+
+
+def _georef(lon, lat):
+    import math
+    x, y = lon + 180, lat + 90
+    minutes_x, minutes_y = int((x - math.floor(x)) * 60), int((y - math.floor(y)) * 60)
+    return (f"{_LETTERS_24[int(x // 15)]}{'ABCDEFGHJKLM'[int(y // 15)]}{'ABCDEFGHJKLMNPQ'[int(x % 15)]}"
+            f"{'ABCDEFGHJKLMNPQ'[int(y % 15)]}{minutes_x:02d}{minutes_y:02d}")
+
+
+def _hemisphere(value, positive, negative):
+    return positive if value >= 0 else negative
+
+
+def _dms(value, positive, negative, kind):
+    """A latitude or longitude written as decimal degrees, degrees and decimal minutes, or degrees, minutes and
+    seconds, with its hemisphere letter."""
+    letter = _hemisphere(value, positive, negative)
+    value = abs(value)
+    if kind == "DD":
+        return f"{value:.5f}{letter}"
+    degrees = int(value)
+    minutes = (value - degrees) * 60
+    if kind == "DDM":
+        return f"{degrees} {minutes:.4f}{letter}"
+    whole = int(minutes)
+    return f"{degrees} {whole} {(minutes - whole) * 60:.2f}{letter}"
+
+
+def _parse_dd1(text):
+    """A DD_1 value — latitude then longitude, each signed or with a hemisphere letter, separated by a space, comma or
+    slash — as (lon, lat)."""
+    import re
+    parts = [p for p in re.split(r"[\s,/]+", str(text).strip()) if p]
+    if len(parts) != 2:
+        raise ValueError(text)
+    values = []
+    for part in parts:
+        letter = part[-1].upper() if part[-1].isalpha() else ""
+        number = float(part[:-1] if letter else part)
+        values.append(-number if letter in ("S", "W") else number)
+    return values[1], values[0]
+
+
+_NOTATIONS_ONE = {"DD_1", "DDM_1", "DMS_1", "UTM_ZONES", "UTM_BANDS", "MGRS", "MGRS16", "USNG", "USNG16", "GARS", "GEOREF"}
+_NOTATIONS_TWO = {"DD_2": ("DDLat", "DDLon"), "DDM_2": ("DDMLat", "DDMLon"), "DMS_2": ("DMSLat", "DMSLon"),
+                  "DD_NUMERIC": ("DDLat", "DDLon")}
+
+
+def _notation(kind, lon, lat):
+    """The value(s) of one output notation for a WGS 1984 point."""
+    if kind in _NOTATIONS_TWO:
+        if kind == "DD_NUMERIC":
+            return [lat, lon]
+        style = kind.split("_")[0]
+        return [_dms(lat, "N", "S", style), _dms(lon, "E", "W", style)]
+    if kind in ("DD_1", "DDM_1", "DMS_1"):
+        style = kind.split("_")[0]
+        return [f"{_dms(lat, 'N', 'S', style)} {_dms(lon, 'E', 'W', style)}"]
+    if kind in ("UTM_ZONES", "UTM_BANDS"):
+        zone, band, easting, northing = _utm(lon, lat)
+        letter = band if kind == "UTM_BANDS" else ("N" if lat >= 0 else "S")
+        return [f"{zone}{letter}{int(round(easting)):06d}{int(round(northing)):07d}"]
+    if kind in ("MGRS", "USNG"):
+        return [_mgrs(lon, lat, 4, kind == "USNG")]
+    if kind in ("MGRS16", "USNG16"):
+        return [_mgrs(lon, lat, 8, kind == "USNG16")]
+    if kind == "GARS":
+        return [_gars(lon, lat)]
+    return [_georef(lon, lat)]
+
+
+@_equivalent("the published grid definitions (NGA.SIG.0012 for MGRS and UTM, FGDC-STD-011-2001 for USNG, NGA's GARS and "
+             "GEOREF) with fixed-precision strings", "NGA and FGDC public specifications")
+def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, input_coordinate_format="DD_2",
+                              output_coordinate_format="DD_2", id_field=None, spatial_reference=None, in_coor_system=None,
+                              exclude_invalid_records="EXCLUDE_INVALID"):
+    """EQUIVALENT: a point for each row, carrying all its fields and the new notation, as documented. The grids are the
+    public specifications; the strings, which the page does not define, are INFERRED: DD 5 decimals, DDM 4 decimal
+    minutes and DMS 2 decimal seconds, each with a hemisphere letter, latitude first in the one-field forms (as the
+    page's DD_1 example); UTM as zone, letter, 6-digit easting and 7-digit northing (as the page's examples); MGRS and
+    USNG to 4 digits (10 m) and the 16 forms to 8, truncated, USNG spaced; GARS to its 5-minute key; GEOREF to whole
+    minutes. Two-field forms are named DDLat/DDLon, DDMLat/DDMLon, DMSLat/DMSLon; a name already taken gets a number,
+    as documented. Inputs built: DD_2, DD_NUMERIC, DD_1 and SHAPE; other inputs, GEOREF16 and polar (UPS) grids are not
+    built."""
+    import shapely
+    from . import da
+    from ._reference import SpatialReference
+    from ._runtime import AddWarning
+    source_kind, target_kind = str(input_coordinate_format or "DD_2").upper(), str(output_coordinate_format).upper()
+    if source_kind not in ("DD_2", "DD_NUMERIC", "DD_1", "SHAPE"):
+        raise NotBuiltError(f"arcpy.management.ConvertCoordinateNotation: input format '{source_kind}' is not built in grapy.")
+    if target_kind not in _NOTATIONS_ONE and target_kind not in _NOTATIONS_TWO:
+        raise NotBuiltError(f"arcpy.management.ConvertCoordinateNotation: output format '{target_kind}' is not built in grapy.")
+    path, where = _source(in_table)
+    columns, kind, own_srid, _ = _schema(path)
+    names = [c.name for c in columns]
+    taken = {n.lower() for n in names} | {_gpkg.OID.lower(), _gpkg.GEOMETRY.lower()}
+    new_names = []
+    for base in (_NOTATIONS_TWO[target_kind] if target_kind in _NOTATIONS_TWO else (target_kind,)):
+        name, i = base, 0
+        while name.lower() in taken:
+            i += 1
+            name = f"{base}_{i}"
+        taken.add(name.lower())
+        new_names.append(name)
+    new_type = "Double" if target_kind == "DD_NUMERIC" else "String"
+    srid = _reference_code(spatial_reference, 4326)
+    out = _path(out_featureclass)
+    _gpkg.create(out, "Point", srid, [*columns, *[_gpkg.Column(n, new_type) for n in new_names]])
+    if source_kind == "SHAPE":
+        from_srid = _reference_code(in_coor_system, own_srid if own_srid > 0 else 4326)
+    else:
+        from_srid = _reference_code(in_coor_system, 4326)
+    from pyproj import Transformer
+    to_wgs = Transformer.from_crs(from_srid, 4326, always_xy=True) if from_srid != 4326 else None
+    to_out = Transformer.from_crs(4326, srid, always_xy=True) if srid != 4326 else None
+    at = {n.lower(): i for i, n in enumerate(names)}
+    keep_invalid = str(exclude_invalid_records or "EXCLUDE_INVALID").upper() == "INCLUDE_INVALID"
+    with da.SearchCursor(path, ["OID@", *names, "SHAPE@"], where) as rows, \
+            da.InsertCursor(out, [*names, *new_names, "SHAPE@"]) as written:
+        for row in rows:
+            values = list(row[1:-1])
+            try:
+                if source_kind == "SHAPE":
+                    lon, lat = row[-1]._shape.x, row[-1]._shape.y
+                elif source_kind == "DD_1":
+                    lon, lat = _parse_dd1(values[at[str(x_field).lower()]])
+                else:
+                    lon, lat = float(values[at[str(x_field).lower()]]), float(values[at[str(y_field).lower()]])
+                if to_wgs is not None:
+                    lon, lat = to_wgs.transform(lon, lat)
+                if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+                    raise ValueError("out of range")
+                notation = _notation(target_kind, lon, lat)
+                x, y = to_out.transform(lon, lat) if to_out is not None else (lon, lat)
+                shape = shapely.Point(x, y)
+            except (ValueError, TypeError, KeyError):
+                if not keep_invalid:
+                    AddWarning(f"WARNING 001003: row {row[0]} has no valid {source_kind} notation and was not written.")
+                    continue
+                notation, shape = [None] * len(new_names), None
+            written.insertRow((*values, *notation, shape))
+    return Result(out)
+
+
+_REFUSED.pop("ConvertCoordinateNotation", None)
+
+
+# ---- DTED (MIL-PRF-89020B) -------------------------------------------------------------------------------------------
+
+_DTED_SECONDS = {"DTED_0": 30, "DTED_1": 3, "DTED_2": 1}
+
+
+def _dted_longitude_factor(south):
+    """How many times the latitude spacing the longitude spacing is, by the tile's latitude zone (MIL-PRF-89020B)."""
+    nearest = min(abs(south), abs(south + 1))
+    for limit, factor in ((50, 1), (70, 2), (75, 3), (80, 4)):
+        if nearest < limit:
+            return factor
+    return 6
+
+
+def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
+    """A single-band elevation raster written as one-degree DTED tiles in WGS 1984, as documented: each tile spans its
+    degree plus half a post on each edge, so neighbours share a row or column; values are signed 16-bit integers; the
+    post spacing is the level's — 30, 3 or 1 arc-second in latitude, and in longitude that times the latitude zone's
+    factor (1 below 50°, 2 to 70°, 3 to 75°, 4 to 80°, 6 beyond), as MIL-PRF-89020B defines. The files are written by
+    GDAL's DTED driver. INFERRED, the page not saying: the folder and file names are the specification's convention —
+    a folder per longitude (``e032``, ``w005``) holding a file per latitude (``n39.dt0``) — named by the tile's
+    south-west corner; values are rounded and clipped to the 16-bit range; a cell with no data is written as DTED's
+    null, -32767; a tile with no data at all is not written; with no resampling type, the environment's
+    ``resamplingMethod``, else ``NEAREST``."""
+    import math
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.warp import Resampling, reproject, transform_bounds
+    from ._raster import Raster
+    from ._runtime import env
+    level = str(dted_level or "").upper()
+    if level not in _DTED_SECONDS:
+        raise ValueError(f"RasterToDTED: dted_level '{dted_level}' is not DTED_0, DTED_1 or DTED_2.")
+    method = str(resampling_type or getattr(env, "resamplingMethod", None) or "NEAREST").upper()
+    resampling = {"NEAREST": Resampling.nearest, "BILINEAR": Resampling.bilinear, "CUBIC": Resampling.cubic}.get(method)
+    if resampling is None:
+        raise ValueError(f"RasterToDTED: resampling_type '{resampling_type}' is not NEAREST, BILINEAR or CUBIC.")
+    raster = in_raster if isinstance(in_raster, Raster) else Raster(in_raster)
+    grid = raster._grid
+    if grid.srid <= 0:
+        raise NotBuiltError("RasterToDTED: a raster with no spatial reference cannot be placed on the WGS 1984 grid.")
+    source = np.where(raster._mask, np.nan, raster._array.astype(np.float64))
+    source_transform = from_origin(grid.left, grid.top, grid.width, grid.height)
+    west, south, east, north = transform_bounds(f"EPSG:{grid.srid}", "EPSG:4326", grid.left, grid.top - grid.rows * grid.height,
+                                                grid.left + grid.columns * grid.width, grid.top)
+    folder = os.fspath(out_folder)
+    os.makedirs(folder, exist_ok=True)
+    seconds = _DTED_SECONDS[level]
+    for tile_south in range(math.floor(south), math.ceil(north)):
+        if not -90 <= tile_south < 90:
+            continue
+        factor = _dted_longitude_factor(tile_south)
+        dy = seconds / 3600.0
+        dx = dy * factor
+        rows, columns = round(1 / dy) + 1, round(1 / dx) + 1
+        for tile_west in range(math.floor(west), math.ceil(east)):
+            if not -180 <= tile_west < 180:
+                continue
+            out = np.full((rows, columns), np.nan)
+            reproject(source, out, src_transform=source_transform, src_crs=f"EPSG:{grid.srid}", src_nodata=np.nan,
+                      dst_transform=from_origin(tile_west - dx / 2, tile_south + 1 + dy / 2, dx, dy), dst_crs="EPSG:4326",
+                      dst_nodata=np.nan, resampling=resampling)
+            if np.isnan(out).all():
+                continue
+            posts = np.where(np.isnan(out), -32767, np.clip(np.round(np.nan_to_num(out)), -32766, 32767)).astype(np.int16)
+            column_folder = os.path.join(folder, f"{'e' if tile_west >= 0 else 'w'}{abs(tile_west):03d}")
+            os.makedirs(column_folder, exist_ok=True)
+            name = f"{'n' if tile_south >= 0 else 's'}{abs(tile_south):02d}.dt{level[-1]}"
+            with rasterio.open(os.path.join(column_folder, name), "w", driver="DTED", width=columns, height=rows, count=1,
+                               dtype="int16", crs="EPSG:4326", nodata=-32767,
+                               transform=from_origin(tile_west - dx / 2, tile_south + 1 + dy / 2, dx, dy)) as written:
+                written.write(posts, 1)
+    return Result(folder)
+
+
