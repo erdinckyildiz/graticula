@@ -663,6 +663,8 @@ SearchNeighborhoodSmooth = ga.SearchNeighborhoodSmooth
 SearchNeighborhoodStandardCircular = ga.SearchNeighborhoodStandardCircular
 SearchNeighborhoodSmoothCircular = ga.SearchNeighborhoodSmoothCircular
 SearchNeighborhoodStandard3D = ga.SearchNeighborhoodStandard3D
+CrossValidationResult = ga.CrossValidationResult  # ADR-233
+GeostatisticalDatasets = ga.GeostatisticalDatasets
 
 
 def _parameter_index(value):
@@ -979,8 +981,6 @@ _REFUSED_NAMES.update({
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
     "ListLasDatasetFiles": "it is not documented: absent from ArcPy's function list on pro.arcgis.com on "
                            "2026-10-30, so its parameters and answer are unknown (ADR-229 §5.8)",
-    "CrossValidationResult": "it reads a geostatistical layer, a model object grapy does not have",
-    "GeostatisticalDatasets": "it reads a geostatistical layer, a model object grapy does not have",
     "GetIDMessage": "its text is Esri's message catalogue, which is not published as data",
     "GetImageEXIFProperties": "its answer's keys and conversions are not documented closely enough to reproduce",
     "GetRasterKeyMetadata": "Esri's raster key metadata names are not documented as a mapping to GDAL's metadata",
