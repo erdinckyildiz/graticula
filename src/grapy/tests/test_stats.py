@@ -669,6 +669,20 @@ class Stats(unittest.TestCase):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GRADIENT_SEARCH"):
             stats.MGWR(path, "v", "CONTINUOUS", "x", self.out("m2"), "DISTANCE_BAND", "GRADIENT_SEARCH")
 
+    def test_legacy_gwr_with_a_gaussian_kernel(self):
+        # A Gaussian band far wider than the data weighs every feature exp(−½·(d/b)²) ≈ 1, so each local fit is the
+        # global one: β0 = .8, β1 = 2.1 on x = 0..4, y = 1, 3, 4, 8, 9 (worked for OLS above). The summary goes to _supp.
+        path = self.points("lg", [(10 * i, 0) for i in range(5)], [[1.0, 3.0, 4.0, 8.0, 9.0], [0.0, 1, 2, 3, 4]],
+                           more=[("x", "DOUBLE")])
+        result = stats.GeographicallyWeightedRegression(path, "v", "x", self.out("lg_out"), "FIXED",
+                                                        "BANDWIDTH_PARAMETER", 1e9)
+        for intercept, slope in self.rows(result[0], ["INTERCEPT", "C_x"]):
+            self.assertAlmostEqual(intercept, 0.8, places=6)
+            self.assertAlmostEqual(slope, 2.1, places=6)
+        self.assertTrue(result[1].endswith("lg_out_supp.gpkg"))
+        diag = dict(self.rows(result[1], ["Diag_Name", "Diag_Value"]))
+        self.assertAlmostEqual(diag["R2"], 1 - 1.9 / 46, places=6)
+
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):
             stats.GenerateSpatialWeightsMatrix("x")

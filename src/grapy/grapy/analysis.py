@@ -1193,6 +1193,115 @@ def AssignWeightsByPairwiseComparison(input_variables, out_table, add_comparison
     return Result(out)
 
 
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+
+@_equivalent("each overlap shared by a Voronoi division — CENTER_LINE between the polygons' non-overlapping parts, "
+             "THIESSEN between their centroids", "Okabe, Boots, Sugihara and Chiu, Spatial Tessellations, 2nd ed., 2000")
+def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", join_attributes="ALL"):
+    """EQUIVALENT (INFERRED construction): every polygon keeps what no other covers; each area two or more cover is
+    divided among them by a Voronoi division (Okabe et al. 2000) —
+
+    - CENTER_LINE: a point goes to the covering polygon whose own non-overlapping part is nearest, so the border runs
+      midway between them, "evenly distributing" the overlap. Computed from points every √(area)/50 along those parts'
+      boundaries (their Voronoi cells), so the border is placed to within that spacing.
+    - THIESSEN: a point goes to the covering polygon whose centroid is nearest — straight borders, the perpendicular
+      bisectors of the centroids.
+
+    GRID is refused: the page shows it only as a picture. The inputs are read together; the output carries ``FID_<input>``
+    for each input (−1 when the polygon came from another) and the inputs' fields, merged by name (ALL), the fields
+    alone (NO_FID), or the FIDs alone (ONLY_FID).
+    """
+    import math
+    import os
+
+    import numpy as np
+    import shapely
+    from shapely.geometry import MultiPoint, MultiPolygon
+    from shapely.ops import polygonize, unary_union
+    tool = "RemoveOverlapMultiple"
+    method = str(method or "CENTER_LINE").upper()
+    if method == "GRID":
+        _refuse_analysis(tool, "method", method, "the page shows its grid division only as a picture")
+    if method not in ("CENTER_LINE", "THIESSEN"):
+        raise ValueError(f"arcpy.analysis.{tool}: method is CENTER_LINE, THIESSEN or GRID.")
+    paths = _list(in_features)
+    polygons, all_columns, srid = [], [], None
+    for path in paths:
+        columns, kind, own_srid, _ = _schema(path)
+        if kind != "Polygon":
+            raise ValueError(f"arcpy.analysis.{tool} takes polygon features.")
+        srid = own_srid if srid is None else srid
+        for oid, values, shape in _read(path, srid):
+            polygons.append((path, oid, dict(zip([c.name for c in columns], values)), shape))
+        for column in columns:
+            if column.name.lower() not in {c.name.lower() for c in all_columns}:
+                all_columns.append(column)
+    shapes = [p[3] for p in polygons]
+    exclusive = [s.difference(unary_union([o for j, o in enumerate(shapes) if j != i])) if len(shapes) > 1 else s
+                 for i, s in enumerate(shapes)]
+    pieces = [[e] if not e.is_empty else [] for e in exclusive]
+    faces = list(polygonize(unary_union([s.boundary for s in shapes])))
+    for face in faces:
+        point = face.representative_point()
+        cover = [i for i, s in enumerate(shapes) if s.contains(point)]
+        if len(cover) < 2:
+            continue
+        if method == "THIESSEN":
+            sites = MultiPoint([shapes[i].centroid for i in cover])
+            cells = shapely.voronoi_polygons(sites, extend_to=face.envelope.buffer(face.length))
+            for cell in cells.geoms:
+                owner = min(cover, key=lambda i: (cell.representative_point().distance(shapes[i].centroid), i))
+                part = cell.intersection(face)
+                if not part.is_empty:
+                    pieces[owner].append(part)
+        else:
+            spacing = math.sqrt(face.area) / 50
+            sites, owners = [], []
+            for i in cover:
+                generator = exclusive[i] if not exclusive[i].is_empty else shapes[i]
+                for ring in getattr(generator, "geoms", [generator]):
+                    for line in [ring.exterior, *ring.interiors]:
+                        for coordinate in shapely.segmentize(line, spacing).coords:
+                            sites.append(coordinate[:2])
+                            owners.append(i)
+            unique, first = np.unique(np.round(np.array(sites), 9), axis=0, return_index=True)
+            owners = [owners[k] for k in first]
+            cells = shapely.voronoi_polygons(MultiPoint([tuple(p) for p in unique]),
+                                             extend_to=face.envelope.buffer(face.length))
+            tree = shapely.STRtree([shapely.Point(p) for p in unique])
+            for cell in cells.geoms:
+                site = int(tree.nearest(cell.representative_point()))
+                part = cell.intersection(face)
+                if not part.is_empty:
+                    pieces[owners[site]].append(part)
+    rule = str(join_attributes or "ALL").upper()
+    stems = []
+    for path in paths:
+        file, table = _gpkg.split(_out(path))
+        stem = table or os.path.splitext(os.path.basename(file))[0]
+        stems.append(f"FID_{stem}")
+    fid_columns = [_gpkg.Column(name, "Integer") for name in stems] if rule != "NO_FID" else []
+    value_columns = all_columns if rule != "ONLY_FID" else []
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polygon", srid, [*fid_columns, *value_columns])
+    with da.InsertCursor(out, [*[c.name for c in fid_columns], *[c.name for c in value_columns], "SHAPE@"]) as written:
+        for (path, oid, values, _), parts in zip(polygons, pieces):
+            if not parts:
+                continue
+            merged = unary_union(parts)
+            polygonal = [g for g in getattr(merged, "geoms", [merged]) if g.geom_type == "Polygon" and g.area > 0]
+            if not polygonal:
+                continue
+            fids = [oid if paths[k] == path else -1 for k in range(len(paths))] if fid_columns else []
+            written.insertRow((*fids, *[values.get(c.name) for c in value_columns], MultiPolygon(polygonal)))
+    return Result(out)
+
+
+def _refuse_analysis(tool, parameter, value, why):
+    raise NotBuiltError(f"arcpy.analysis.{tool}: {parameter} '{value}' is not built in grapy — {why}.")
+
+
 _REFUSED = {
     "Enrich": "it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3)",
     "EnrichLayer": "it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3)",
@@ -1201,7 +1310,6 @@ _REFUSED = {
                        "analysis (ADR-222)",
     "SummarizeNearby": "its driving, trucking and walking distances need Esri's network services (ADR-224 groups 2 and "
                        "3), and for straight-line distance the documentation does not name the fields it writes",
-    "RemoveOverlapMultiple": "its CENTER_LINE, THIESSEN and GRID divisions are described in words only, not specified",
     "PairwiseIntegrate": "the documentation does not say which coordinate a cluster of vertices within the tolerance "
                          "takes",
     "GeographicallyWeightedRegression": "its page is no longer in Esri's documentation (404 on 2026-10-29); the "

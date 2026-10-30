@@ -168,8 +168,8 @@ class Edit(unittest.TestCase):
 
     def test_the_tools_not_built_say_why(self):
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            grapy.edit.AlignFeatures("a", "b", "1 Meters")
-        self.assertIn("documented only in words", str(raised.exception))
+            grapy.edit.SplitLineByMatch("a", "b", "t", "o", "1 Meters")
+        self.assertIn("match table", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             grapy.edit.UpdateCOGO("lines")
         self.assertIn("ADR-224 group 2", str(raised.exception))

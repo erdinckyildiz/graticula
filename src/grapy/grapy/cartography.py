@@ -440,6 +440,167 @@ def AggregatePolygons(in_features, out_feature_class, aggregation_distance, mini
     return Result(out, table)
 
 
+@_equivalent("each building's ring by Douglas–Peucker at the tolerance, or its minimum-area rectangle when that lies within "
+             "the tolerance of it", "Douglas and Peucker 1973; Freeman and Shapira 1975 (minimum-area rectangle)")
+def SimplifyBuilding(in_features, out_feature_class, simplification_tolerance, minimum_area=0, conflict_option="NO_CHECK",
+                     in_barriers=None, collapsed_point_option="NO_KEEP"):
+    """EQUIVALENT (INFERRED construction): for each building part — smaller than the tolerance squared, its minimum-area
+    rectangle (BLD_STATUS 3); otherwise its minimum-area rectangle when every point of the building lies within the
+    tolerance of it, and the rectangle's within the tolerance of the building (Hausdorff distance ≤ tolerance;
+    BLD_STATUS 2); otherwise its outline by Douglas–Peucker at the tolerance (BLD_STATUS 1), or unchanged when that
+    removes no vertex (5) — the codes the page documents. Buildings smaller than minimum_area afterwards are removed,
+    their centroids to ``_Pnt`` with KEEP_COLLAPSED_POINTS. CHECK_CONFLICTS adds SimBldFlag, 1 where a simplified
+    building overlaps or touches another. Refused: barriers.
+    """
+    import shapely
+    from shapely.geometry import MultiPolygon, Polygon
+    from .analysis import _distance
+    tool = "SimplifyBuilding"
+    if _given(in_barriers):
+        _refuse(tool, "in_barriers", in_barriers, "barriers are not in this equivalent")
+    columns, kind, srid, _ = _schema(in_features)
+    if kind != "Polygon":
+        raise ValueError(f"arcpy.cartography.{tool} needs polygon features.")
+    tolerance = _distance(simplification_tolerance, srid)
+    if tolerance <= 0:
+        raise ValueError(f"arcpy.cartography.{tool}: the tolerance must be greater than zero.")
+    smallest = _area(minimum_area, srid) if _given(minimum_area) else 0.0
+    names = [c.name for c in columns]
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows:
+        features = [(r[0], list(r[1:-1]), r[-1]._shape) for r in rows if r[-1] is not None]
+    results = []
+    for oid, values, shape in features:
+        parts, statuses = [], []
+        for part in getattr(shape, "geoms", [shape]):
+            rectangle = shapely.minimum_rotated_rectangle(part)
+            if part.area < tolerance * tolerance:
+                parts.append(rectangle)
+                statuses.append(3)
+            elif part.hausdorff_distance(rectangle) <= tolerance:
+                parts.append(rectangle)
+                statuses.append(2)
+            else:
+                outer = _douglas_peucker([tuple(c[:2]) for c in part.exterior.coords], tolerance)
+                holes = [_douglas_peucker([tuple(c[:2]) for c in r.coords], tolerance) for r in part.interiors]
+                simplified = Polygon(outer, [h for h in holes if len(h) >= 4]) if len(outer) >= 4 else rectangle
+                unchanged = len(outer) == len(part.exterior.coords) and all(
+                    len(h) == len(r.coords) for h, r in zip(holes, part.interiors))
+                parts.append(part if unchanged else simplified.buffer(0))
+                statuses.append(5 if unchanged else 1)
+        merged = shapely.union_all(parts)
+        status = min(statuses)
+        results.append((oid, values, merged if merged.area >= smallest else None, status, shape))
+    check = str(conflict_option or "NO_CHECK").upper() in ("CHECK_CONFLICTS", "TRUE")
+    kept = [r for r in results if r[2] is not None]
+    flags = {}
+    if check:
+        from shapely.strtree import STRtree
+        shapes = [r[2] for r in kept]
+        tree = STRtree(shapes)
+        for i, shape in enumerate(shapes):
+            flags[kept[i][0]] = int(any(int(j) != i for j in tree.query(shape, predicate="intersects")))
+    extra = [_gpkg.Column("BLD_STATUS", "SmallInteger")] + ([_gpkg.Column("SimBldFlag", "SmallInteger")] if check else [])
+    plain = [c for c in columns if c.name.upper() not in ("BLD_STATUS", "SIMBLDFLAG")]
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polygon", srid, [*plain, *extra])
+    keep_index = [names.index(c.name) for c in plain]
+    with da.InsertCursor(out, [*[c.name for c in plain], *[c.name for c in extra], "SHAPE@"]) as written:
+        for oid, values, shape, status, _ in kept:
+            row = [values[i] for i in keep_index] + [status] + ([flags[oid]] if check else [])
+            written.insertRow((*row, shape if shape.geom_type == "MultiPolygon" else MultiPolygon([shape])))
+    points = ""
+    if str(collapsed_point_option or "NO_KEEP").upper() in ("KEEP_COLLAPSED_POINTS", "TRUE"):
+        points = _beside(out, "_Pnt")
+        _gpkg.create(points, "Point", srid, [_gpkg.Column("InBld_FID", "Integer")])
+        with da.InsertCursor(points, ["InBld_FID", "SHAPE@"]) as written:
+            for oid, _, shape, _, original in results:
+                if shape is None:
+                    written.insertRow((oid, original.centroid))
+    return Result(out, points)
+
+
+@_equivalent("the medial axis between a pair of casings: the Voronoi diagram of their densified vertices, its edges "
+             "between one casing's points and the other's, inside the pair's polygon",
+             "Lee 1982, Medial axis transformation of a planar shape; Voronoi by Qhull")
+def CollapseDualLinesToCenterline(in_features, out_feature_class, maximum_width, minimum_width=0):
+    """EQUIVALENT (INFERRED construction): each open line is paired with the nearest other open line within
+    maximum_width (ties by object id; each line in one pair). The pair's polygon is closed by joining their ends; their
+    vertices are densified to a tenth of maximum_width; the Voronoi edges whose two generating points lie one on each
+    casing, and which fall inside the polygon, are the medial axis (Lee 1982). Edges whose casings are closer than
+    minimum_width or farther than maximum_width apart are dropped. The pieces are merged into the centerline, oriented
+    as the first casing runs, with LnType 1 and the casings' ids in LeftLn_FID and RightLn_FID (left of the
+    centerline's direction). Lines left unpaired, and closed lines, are copied with LnType 2 and ids 0, as the page
+    says for "broken or unpaired lines". LnType 3 (unclear intersections) is not produced.
+    """
+    import numpy as np
+    import shapely
+    from scipy.spatial import Voronoi
+    from shapely.geometry import LineString, Polygon
+    from shapely.ops import linemerge
+    from .analysis import _distance
+    tool = "CollapseDualLinesToCenterline"
+    columns, kind, srid, _ = _schema(in_features)
+    if kind != "Polyline":
+        raise ValueError(f"arcpy.cartography.{tool} needs line features.")
+    widest = _distance(maximum_width, srid)
+    narrowest = _distance(minimum_width, srid) if _given(minimum_width) else 0.0
+    if widest <= 0 or narrowest < 0 or narrowest >= widest:
+        raise ValueError(f"arcpy.cartography.{tool}: 0 ≤ minimum_width < maximum_width, and maximum_width > 0.")
+    with da.SearchCursor(in_features, ["OID@", "SHAPE@"]) as rows:
+        lines = [(r[0], linemerge(r[1]._shape) if r[1]._shape.geom_type == "MultiLineString" else r[1]._shape)
+                 for r in rows if r[1] is not None]
+    open_lines = [(oid, s) for oid, s in lines if s.geom_type == "LineString" and not s.is_closed]
+    paired, used = [], set()
+    for oid, shape in sorted(open_lines):
+        if oid in used:
+            continue
+        candidates = sorted((shape.distance(other), other_oid, other) for other_oid, other in open_lines
+                            if other_oid != oid and other_oid not in used and shape.distance(other) <= widest)
+        if candidates:
+            _, other_oid, other = candidates[0]
+            used.update({oid, other_oid})
+            paired.append((oid, shape, other_oid, other))
+    out = _out(out_feature_class)
+    fields = [_gpkg.Column("LnType", "SmallInteger"), _gpkg.Column("LeftLn_FID", "Integer"),
+              _gpkg.Column("RightLn_FID", "Integer")]
+    _gpkg.create(out, "Polyline", srid, fields)
+    step = widest / 10
+    with da.InsertCursor(out, ["LnType", "LeftLn_FID", "RightLn_FID", "SHAPE@"]) as written:
+        for a_oid, a, b_oid, b in paired:
+            other = b if a.distance(shapely.Point(b.coords[0])) <= a.distance(shapely.Point(b.coords[-1])) else shapely.reverse(b)
+            polygon = Polygon([*a.coords, *reversed(other.coords)]).buffer(0)
+            a_points = np.array(shapely.segmentize(a, step).coords)[:, :2]
+            b_points = np.array(shapely.segmentize(b, step).coords)[:, :2]
+            points = np.vstack([a_points, b_points])
+            side = np.array([0] * len(a_points) + [1] * len(b_points))
+            diagram = Voronoi(points)
+            pieces = []
+            for (p, q), ridge in zip(diagram.ridge_points, diagram.ridge_vertices):
+                if side[p] == side[q] or -1 in ridge:
+                    continue
+                width = float(np.hypot(*(points[p] - points[q])))
+                if width < narrowest or width > widest:
+                    continue
+                edge = LineString(diagram.vertices[ridge])
+                if polygon.contains(edge.centroid):
+                    pieces.append(edge)
+            if not pieces:
+                continue
+            axis = linemerge(shapely.union_all(pieces))
+            for line in getattr(axis, "geoms", [axis]):
+                start, end = a.project(shapely.Point(line.coords[0])), a.project(shapely.Point(line.coords[-1]))
+                if end < start:
+                    line = shapely.reverse(line)
+                (x0, y0), (x1, y1) = line.coords[0][:2], line.coords[-1][:2]
+                mid = b.interpolate(0.5, normalized=True)
+                left_is_b = (x1 - x0) * (mid.y - y0) - (y1 - y0) * (mid.x - x0) > 0
+                written.insertRow((1, b_oid if left_is_b else a_oid, a_oid if left_is_b else b_oid, line))
+        for oid, shape in lines:
+            if oid not in used:
+                written.insertRow((2, 0, 0, shape))
+    return Result(out)
+
+
 _REFUSED = {
     "SmoothLine": "PAEK's kernel is described by its paper, not specified, and Bezier interpolation writes true curves a "
                   "GeoPackage cannot hold",
@@ -447,9 +608,7 @@ _REFUSED = {
                      "a GeoPackage cannot hold",
     "SmoothSharedEdges": "PAEK's kernel is described by its paper, not specified",
     "SimplifySharedEdges": "it keeps shared edges by the topology procedure the documentation does not specify",
-    "SimplifyBuilding": "its building-simplification procedure is described only in outline",
     "AggregatePoints": "the shape of the aggregation polygon is described only in outline",
-    "CollapseDualLinesToCenterline": "how the centerline is derived is described only in outline",
     "DelineateBuiltUpAreas": "its grouping procedure is described only in outline",
     "CalculatePolygonMainAngle": "what makes segments' orientations 'similar' is not defined",
 }
