@@ -2606,9 +2606,9 @@ def AddSurfaceInformation(in_feature_class, in_surface, out_property, method="BI
     """The surface's height under each point written to a ``Z`` field: the raster value at the point by bilinear
     interpolation from the four nearest cell centres, times ``z_factor``.
 
-    Built: point features on a raster surface, property ``Z``. The other properties are refused: the documentation says
-    a raster is first turned into an intermediate TIN, and does not say how. TIN, terrain and LAS surfaces need data
-    models this server does not hold yet (ADR-224 group 2).
+    Built: point features on a raster surface, property ``Z``. The other properties on a raster are refused: the
+    documentation says a raster is first turned into an intermediate TIN, and does not say how. On a TIN, terrain or LAS
+    dataset every property is built (ADR-229, ADR-234): see ``_tintools.add_surface_information``.
 
     INFERRED: the field is named after the property, ``Z``, a double (an existing field of that name in any case is
     written); a point over NoData or off the raster gets an empty value; at the outermost half cell, where four centres
@@ -2618,6 +2618,10 @@ def AddSurfaceInformation(in_feature_class, in_surface, out_property, method="BI
     from .analysis import _schema
     from .management import _list
     from ._result import Result
+    from . import _tintools
+    if _tintools.is_surface(in_surface):
+        return _tintools.add_surface_information(in_feature_class, in_surface, out_property, method, sample_distance,
+                                                 z_factor, pyramid_level_resolution, noise_filtering)
     properties = [p.upper() for p in _list(out_property)]
     if properties != ["Z"]:
         _refuse("AddSurfaceInformation", "out_property", out_property, "on a raster only Z at points is built")
@@ -2625,8 +2629,7 @@ def AddSurfaceInformation(in_feature_class, in_surface, out_property, method="BI
         _refuse("AddSurfaceInformation", "method", method, "a raster surface takes only BILINEAR")
     if isinstance(in_surface, str) and not in_surface.lower().endswith((".tif", ".tiff")):
         _refuse("AddSurfaceInformation", "in_surface", in_surface,
-                "only a raster surface is built; TIN, terrain and LAS need data models this server does not hold yet "
-                "(ADR-224 group 2)")
+                "it is not a raster, TIN, terrain or LAS dataset grapy holds")
     raster = as_raster(in_surface, "AddSurfaceInformation")
     columns, kind, _, _ = _schema(in_feature_class)
     if kind != "Point":
@@ -3410,13 +3413,15 @@ _REFUSED.update({
     "Subset": "it subsets multidimensional rasters by variable and dimension (ADR-224 group 2)",
     "SummarizeCategoricalRaster": "it summarises multidimensional categorical rasters (ADR-224 group 2)",
     "Complex": "grapy's rasters hold no complex pixel types, and the page defers the magnitude formula",
-    "Geometric": "it orthorectifies with a sensor model and RPCs, a data model this server does not hold (ADR-224 group 2)",
-    "DetectControlPoints": "it matches control points between images by a method its page does not specify, on a "
-                           "mosaic dataset's sensor orientations, which grapy's mosaic datasets of Raster Dataset items "
-                           "do not hold (ADR-230 §5.3)",
-    "TransformImageShapes": "it needs image orientations from a mosaic dataset — sensor models grapy's mosaic datasets "
-                            "of Raster Dataset items do not hold (ADR-230 §5.3) — and the deep learning tools' "
-                            "image-space shapes (ADR-224 group 3)",
+    "Geometric": "it approximates the sensor model by a Polynomial or Projective transform within a pixel tolerance, "
+                 "and the page does not say how that approximation is fitted; arcpy.management."
+                 "CreateOrthoCorrectedRasterDataset orthorectifies an RPC raster or Frame Camera items by their exact "
+                 "model (ADR-234 §5.5)",
+    "DetectControlPoints": "it finds ground control point markers with two deep learning models trained by Esri, as its "
+                           "page says, and grapy carries no deep learning model (ADR-224 group 3; ADR-234 §5.5)",
+    "TransformImageShapes": "its input is the iShape field the deep learning tools write in image space, whose encoding "
+                            "and image identifier the page does not document; grapy carries no deep learning tool to "
+                            "write one (ADR-224 group 3; ADR-234 §5.5)",
     "ApparentReflectance": "it needs sensor metadata and the page defers its formula to a raster function topic",
     "StatisticsHistogram": "it attaches statistics and histogram metadata, which grapy's rasters do not carry",
     "Merge": "the page does not give the output extent and cell size rules or how NoData enters MEAN and SUM",

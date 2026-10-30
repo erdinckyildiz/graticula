@@ -481,6 +481,19 @@ def read(value, tool="Raster"):
                     wanted.append(item)
         candidates = wanted
 
+    # Frame Camera items are images in their sensor's geometry (ADR-234): read through their model, not as a grid.
+    connection = _gpkg.connect(locate(value)[0])
+    try:
+        from . import _ortho
+        framed = _ortho.models(connection, name)
+    finally:
+        connection.close()
+    if any(i["OBJECTID"] in framed for i in candidates):
+        raise NotBuiltError(f"{tool}: {name} holds Frame Camera items, which grapy does not orthorectify as a mosaic "
+                            "dataset is read: the page of the Geometric function that would do it on the fly does not "
+                            "define its approximation (ADR-234 §5.5); CreateOrthoCorrectedRasterDataset writes the "
+                            "orthorectified raster.")
+
     # The items' files; a broken path is left out, with a warning (INFERRED).
     sources = {}
     for item in candidates:

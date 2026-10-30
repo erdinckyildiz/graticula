@@ -218,9 +218,9 @@ def Describe(value, datatype=None):
         path = os.fspath(value)
     except TypeError:  # A layer object: described by its source.
         return _Described(value)
-    from . import _las, _mosaic, _tin
-    for model in (_tin, _las, _mosaic):  # a TIN may be a folder, a .lasd is no raster (ADR-229), and a mosaic
-        described = model.describe(path)  # dataset's catalog is no feature class (ADR-230)
+    from . import _las, _mosaic, _terrain, _tin
+    for model in (_tin, _las, _mosaic, _terrain):  # a TIN may be a folder, a .lasd is no raster (ADR-229), a mosaic
+        described = model.describe(path)  # dataset's catalog is no feature class (ADR-230), nor a terrain (ADR-234)
         if described is not None:
             return described
     if os.path.isdir(path):
