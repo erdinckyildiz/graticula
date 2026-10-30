@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>9e2349ca</code> · 2026-10-30 13:34</p>
+<p class="stamp">Şu commit’ten üretildi: <code>b120ac7a</code> · 2026-10-30 14:11</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">228</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">499/587</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">78 canlı · 10 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">3</div><div class="kpi-l">açık soru</div><div class="kpi-n">202 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">229</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">502/593</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">81 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">açık soru</div><div class="kpi-n">202 yanıtlandı</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">açık borç</div><div class="kpi-n">305 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">3 açık</span></div><p><b>Q-198</b> — [OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p><p><b>Q-197</b> — [OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p><p><b>Q-196</b> — [OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">4 açık</span></div><p><b>Q-199</b> — [OWNER] How grapy stores utility networks and the trace rules the pages leave open, INFERRED 2026-10-30 (ADR-231 §5.9): (a) the network&#x27;s classes are ordinary grapy classes in its feature dataset under ArcGIS&#x27;s names (WaterDevice … StructureEdgeObject), with…</p><p><b>Q-198</b> — [OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p><p><b>Q-197</b> — [OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p><p><b>Q-196</b> — [OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">92 madde</span></div><p><b>78 ADR conditions</b> outstanding across 50 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">95 madde</span></div><p><b>81 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -137,6 +137,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-229 · grapy holds LAS datasets and TINs</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-230 · grapy holds mosaic datasets</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-231 · grapy holds utility networks</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -427,6 +428,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">228</td><td>grapy holds subtypes, field defaults, global IDs and attachments in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/6</td></tr>
 <tr><td class="id">229</td><td>grapy holds LAS datasets and TINs</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the TIN measurements, which are exact on a triangle&#x27;s…</td><td class="num">3/7</td></tr>
 <tr><td class="id">230</td><td>grapy holds mosaic datasets</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · HIGH for the methods and operators the pages define (FIRST, LAST,…</td><td class="num">3/6</td></tr>
+<tr><td class="id">231</td><td>grapy holds utility networks</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the configuration tools, whose pages give their parameters,…</td><td class="num">3/6</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -434,6 +436,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-196</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-197</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-198</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-199</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores utility networks and the trace rules the pages leave open, INFERRED 2026-10-30 (ADR-231 §5.9): (a) the network&#x27;s classes are ordinary grapy classes in its feature dataset under ArcGIS&#x27;s names (WaterDevice … StructureEdgeObject), with…</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -588,6 +591,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:37.1%"></div></div><div class="bar-n">23 / 62</div></div>
 <div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:43.2%"></div></div><div class="bar-n">41 / 95</div></div>
 <div class="bar"><div class="bar-l">arcpy.nd</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 74</div></div>
+<div class="bar"><div class="bar-l">arcpy.un</div><div class="bar-t"><div class="bar-f" style="width:20.2%"></div></div><div class="bar-n">25 / 124</div></div>
 </div>
 <div class="scroll" style="margin-top:18px"><table><thead><tr><th>Modül</th><th class="num">Kurulan</th><th class="num">bunların eşdeğer olanı (ADR-224 §5.6)</th><th class="num">Gerekçesiyle reddedilen</th><th class="num">Henüz bakılmayan</th></tr></thead><tbody>
 <tr><td class="id">arcpy</td><td class="num">99</td><td class="num">0</td><td class="num">84</td><td class="num">0</td></tr>
@@ -605,9 +609,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.nd</td><td class="num">0</td><td class="num">0</td><td class="num">74</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.sa</td><td class="num">200</td><td class="num">21</td><td class="num">178</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">37</td><td class="num">18</td><td class="num">28</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.un</td><td class="num">25</td><td class="num">1</td><td class="num">99</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>b120ac7a</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>932abf3f</code><time>2026-10-30</time><span>grapy holds mosaic datasets (ADR-230)</span></li>
+<li><code>4e31c680</code><time>2026-10-30</time><span>grapy&#x27;s DefineProjection records a raster&#x27;s coordinate system, as arcpy&#x27;s does</span></li>
 <li><code>9e2349ca</code><time>2026-10-30</time><span>A summary&#x27;s feet, yards and miles are the US survey units, as ArcGIS Pro&#x27;s Summarize Within reads them (D-323)</span></li>
 <li><code>2aa86127</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>12974509</code><time>2026-10-30</time><span>grapy holds TINs and LAS datasets (ADR-229)</span></li>
@@ -619,9 +627,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>05cb2675</code><time>2026-10-30</time><span>README: what grapy covers now, without a count that would go stale</span></li>
 <li><code>562a1b78</code><time>2026-10-30</time><span>SummarizeWithin in grapy with the server&#x27;s names, and the final sweep of management, conversion and the network modules (merging grapy-b and grapy-c)</span></li>
 <li><code>43303438</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>52c89651</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>be939f38</code><time>2026-10-30</time><span>A null value is left out of a weighted summary statistic with its weight</span></li>
-<li><code>2d8c01a4</code><time>2026-10-30</time><span>grapy: location-allocation by Teitz-Bart vertex substitution, RasterToDTED</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
