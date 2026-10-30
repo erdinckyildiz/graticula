@@ -1,7 +1,6 @@
 """Arcade's function library in grapy (ADR-235 §5.3): the registry of built functions, the constants, and the catalogue
-of every function the public function reference documents — each one built, scheduled with its reason, or refused
-with its reason. A documented function that is not built raises an error naming it and the reason; it never answers
-silently wrong.
+of every function the public function reference documents — each one built, or refused with its reason. A documented
+function that is refused raises an error naming it and the reason; it never answers silently wrong.
 
 The catalogue was read from developers.arcgis.com/arcade/function-reference on 2026-10-30, category by category.
 """
@@ -59,7 +58,7 @@ _LOADED = []
 
 def _load():
     if not _LOADED:
-        from . import _fn_core, _fn_date, _geometry, _data  # noqa: F401 — each registers its functions
+        from . import _fn_core, _fn_date, _geometry, _data, _direction  # noqa: F401 — each registers its functions
         _LOADED.append(True)
 
 
@@ -138,45 +137,21 @@ REFUSED = {
        for name in DOCUMENTED["Track"]},
 }
 
-# Not built in this batch: each with what it waits for. ADR-235 §5.3 lists them.
-SCHEDULED = {
-    "FeatureSetByAssociation": "utility network associations (ADR-231) are not yet reached from Arcade",
-    "FeatureSetByRelationshipClass": "relationship classes (ADR-225) are not yet reached from Arcade",
-    "Attachments": "attachments (ADR-228) are not yet reached from Arcade",
-    "GroupBy": "its statistics over SQL expressions are not yet built",
-    "BufferGeodetic": "a geodesic buffer needs an equivalent method of its own (ADR-224 §5.6)",
-    "DensifyGeodetic": "geodesic densification needs an equivalent method of its own (ADR-224 §5.6)",
-    "ConvertDirection": "its direction notations (QUADRANT_BEARING, DMS and the rest) are not yet built",
-    "Cut": "the left and right parts and the order of the answer are not yet built",
-    "DistanceToCoordinate": "not yet built",
-    "MeasureToCoordinate": "grapy's 2D shapes carry no m-values through Arcade yet",
-    "PointToCoordinate": "not yet built",
-    "NearestCoordinate": "sideOfLine is not yet built",
-    "NearestVertex": "sideOfLine is not yet built",
-    "Offset": "its join types and bevel ratio are not yet built",
-    "Generalize": "its simplification method is not documented; it needs an equivalent (ADR-224 §5.6)",
-    "Length3D": "grapy's 2D shapes carry no z-values through Arcade yet",
-    "FeatureSet": "a FeatureSet built from REST JSON is an in-memory table, which grapy's FeatureSets on a GeoPackage "
-                  "table do not yet hold",
-}
-
-
 def status(name):
-    """'built', 'scheduled', 'refused' or 'unknown' for a function name."""
+    """'built', 'refused' or 'unknown' for a function name."""
     _load()
     lower = name.lower()
     if lower in _REGISTRY:
         return "built"
-    for table, word in ((SCHEDULED, "scheduled"), (REFUSED, "refused")):
-        if any(k.lower() == lower for k in table):
-            return word
+    if any(k.lower() == lower for k in REFUSED):
+        return "refused"
     return "unknown"
 
 
 def not_built(name, line=None, args=None):
     """Raises the error a documented function that is not built answers — or, for an overload not built, that one."""
     lower = name.lower()
-    for table, word in ((REFUSED, "is refused in grapy"), (SCHEDULED, "is not built in grapy yet")):
+    for table, word in ((REFUSED, "is refused in grapy"),):
         for key, reason in table.items():
             if key.lower() == lower:
                 raise NotBuiltFunction(f"The Arcade function {key} {word}: {reason}.", line)
@@ -186,11 +161,11 @@ def not_built(name, line=None, args=None):
         raise NotBuiltFunction(f"The Arcade function {_CANONICAL[lower]} is not built in grapy for ({shown}).", line)
     documented = any(lower == n.lower() for names in DOCUMENTED.values() for n in names)
     if documented:
-        raise NotBuiltFunction(f"The Arcade function {name} is not built in grapy yet.", line)
+        raise NotBuiltFunction(f"The Arcade function {name} has no implementation in grapy.", line)
     raise ArcadeError(f"'{name}' is not a function.", line)
 
 
 def coverage():
-    """{documented name: 'built' | 'scheduled' | 'refused'} — what ADR-235 §5.3 counts."""
+    """{documented name: 'built' | 'refused'} — what ADR-235 §5.3 counts."""
     names = sorted({n for names in DOCUMENTED.values() for n in names}, key=str.lower)
     return {n: status(n) for n in names}

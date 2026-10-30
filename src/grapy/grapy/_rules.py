@@ -222,7 +222,7 @@ class Engine:
     """A table's immediate rules and restrictive field groups, ready to run on its edits. ``active`` is False when
     there is nothing to run, so a cursor on a table without either costs one query."""
 
-    def __init__(self, connection, table, depth=0):
+    def __init__(self, connection, table, depth=0, version=None):
         self.connection, self.table, self.depth = connection, table, depth
         found = [r for r in rules(connection, table) if r.isEnabled and not r.batch and r.kind != "VALIDATION"]
         # Calculation rules first, in evaluation order, then constraint rules (INFERRED, ADR-235 §5.8).
@@ -232,7 +232,7 @@ class Engine:
         self.active = bool(self.rules or self.groups)
         if self.active:
             from ._arcade._data import Datastore, Table
-            self.store = Datastore(connection)
+            self.store = Datastore(connection, version)
             self.layout = Table(connection, table)
             self.has_z, self.has_m = _gpkg.dimensions(connection, table)
             from . import _subtypes
@@ -458,8 +458,8 @@ class Engine:
                                 f"allows {shown}.")
 
 
-def engine(connection, table, depth=0):
-    return Engine(connection, table, depth)
+def engine(connection, table, depth=0, version=None):
+    return Engine(connection, table, depth, version)
 
 
 # ---- edits a calculation rule returns ------------------------------------------------------------------------------------

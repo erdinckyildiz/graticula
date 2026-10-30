@@ -178,6 +178,7 @@ class _Cursor:
         if name is None and self._shared:
             file = self._connection.execute("pragma database_list").fetchone()[2]
             name = _EDITING_VERSION.get(_file_key(file))
+        self._version_name = name
         branch, base = 0, 0
         if name is not None:
             _, branch, base = _versions.version(self._connection, name)
@@ -217,7 +218,7 @@ class _Cursor:
         has neither."""
         if not hasattr(self, "_engine"):
             from . import _rules
-            found = _rules.engine(self._connection, self._table)
+            found = _rules.engine(self._connection, self._table, version=getattr(self, "_version_name", None))
             self._engine = found if found.active else None
         return self._engine
 

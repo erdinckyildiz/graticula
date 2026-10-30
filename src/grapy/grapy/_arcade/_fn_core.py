@@ -198,14 +198,19 @@ def _product(_, args):
 @builtin("Number")
 def _number(_, args):
     arity("Number", args, 1, 2)
-    if len(args) == 2 and args[1] not in (None, ""):
-        raise ArcadeError("Number with a pattern (localised text) is not built in grapy yet: its pattern grammar is "
-                          "not yet built (ADR-235 §5.3).")
     value = args[0]
+    if len(args) == 2 and args[1] not in (None, ""):
+        from ._patterns import number
+        return number(to_text(value), to_text(args[1]))
     if isinstance(value, Date):
         return value.epoch
-    if isinstance(value, (DateOnly, Time)):
-        raise ArcadeError(f"Number of a {type_of(value)} is not built in grapy yet.")
+    if isinstance(value, DateOnly):
+        # INFERRED (ADR-235 §5.8): milliseconds since the epoch to the date's midnight, UTC, as the Types page says a
+        # DateOnly is stored; a Time, milliseconds since midnight.
+        import datetime as _dt
+        return _dt.datetime.combine(value.value, _dt.time(), _dt.timezone.utc).timestamp() * 1000.0
+    if isinstance(value, Time):
+        return float(value.ms)
     return to_number(value)
 
 

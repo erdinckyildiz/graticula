@@ -48,6 +48,17 @@ class Table:
         self.columns = [c.name for c in columns]
         self.nullable = {c.name: c.nullable for c in columns}
 
+    @classmethod
+    def made(cls, name, oid, geometry, shape, srid, columns):
+        """A table described by hand: a temporary one a FeatureSet function made."""
+        table = cls.__new__(cls)
+        table.name, table.oid, table.geometry, table.shape = name, oid, geometry, shape if geometry else None
+        table.srid = int(srid) if srid else None
+        table.types = {c: t for c, t in columns}
+        table.columns = [c for c, _ in columns]
+        table.nullable = {c: True for c, _ in columns}
+        return table
+
     def column(self, name):
         lower = name.lower()
         if lower == self.oid.lower():
@@ -61,9 +72,11 @@ class Table:
 class Datastore:
     """The GeoPackage a rule's table is in, through an open connection."""
 
-    def __init__(self, connection):
+    def __init__(self, connection, version=None):
         self.connection = connection
+        self.version = version  # the branch version an edit is made in (ADR-227), None for DEFAULT
         self._tables = {}
+        _register_aggregates(connection)
 
     def names(self):
         return [r[0] for r in self.connection.execute("select table_name from gpkg_contents")]
@@ -191,6 +204,15 @@ class FeatureSet:
             out.append(_Read(feature, row[0]))
         return [f.feature for f in out] if geometry is None else out
 
+    def subquery(self):
+        """The FeatureSet's rows as an SQL subquery, its filters, order and limit applied."""
+        return f'(select * from "{self.table.name}"{self._clause()})'
+
+    def derived(self, sql, names):
+        """A FeatureSet on a temporary table holding what ``sql`` selects, columns ``names``."""
+        rows = self._run(sql)
+        return temporary(self.store, [(n, "String") for n in names], rows)
+
     def count(self):
         if self.limit is None and not self.order:
             return int(self._run(f'select count(*) from "{self.table.name}"{self._clause()}')[0][0])
@@ -312,8 +334,168 @@ _statistic("Stdev", lambda v: math.sqrt(_sample_variance(v)) if len(v) > 1 else 
 
 @builtin("Distinct", accepts=first_is(FeatureSet))
 def _distinct(_, args):
-    raise ArcadeError("Distinct of a FeatureSet is not built in grapy yet: it answers a new FeatureSet of computed "
-                      "columns, which grapy's FeatureSets on a table do not yet hold (ADR-235 §5.3).")
+    """A FeatureSet of the unique values or combinations of the fields or SQL expressions given (text, an array of
+    text, a dictionary of name and expression, or an array of them), as documented."""
+    arity("Distinct", args, 2)
+    features = args[0]
+    columns = _named_expressions("Distinct", args[1])
+    selected = ", ".join(f'{expression} as "{name}"' for name, expression in columns)
+    return features.derived(f"select distinct {selected} from {features.subquery()}", [n for n, _ in columns])
+
+
+_STATISTICS = {"SUM": "sum", "COUNT": "count", "MIN": "min", "MAX": "max", "AVG": "avg", "STDEV": "grapy_stdev",
+               "VAR": "grapy_var"}
+
+
+@builtin("GroupBy")
+def _group_by(_, args):
+    """A FeatureSet with one row per group: the grouping columns, then each statistic (SUM, COUNT, MIN, MAX, AVG, STDEV,
+    VAR) of its SQL expression, as documented. INFERRED (ADR-235 §5.8): STDEV and VAR are sample statistics, as a
+    FeatureSet's Stdev is."""
+    arity("GroupBy", args, 3)
+    features = _featureset("GroupBy", args[0])
+    groups = _named_expressions("GroupBy", args[1])
+    statistics = args[2] if isinstance(args[2], list) else [args[2]]
+    parts, names = [f'{e} as "{n}"' for n, e in groups], [n for n, _ in groups]
+    for statistic in statistics:
+        if not isinstance(statistic, Dictionary) or not all(statistic.has(k) for k in ("name", "expression",
+                                                                                      "statistic")):
+            raise ArcadeError("GroupBy's statistics are dictionaries of name, expression and statistic.")
+        kind = to_text(statistic.get("statistic")).upper()
+        if kind not in _STATISTICS:
+            raise ArcadeError(f"GroupBy: '{kind}' is not a statistic: SUM, COUNT, MIN, MAX, AVG, STDEV or VAR.")
+        parts.append(f'{_STATISTICS[kind]}({to_text(statistic.get("expression"))}) as "{to_text(statistic.get("name"))}"')
+        names.append(to_text(statistic.get("name")))
+    grouped = ", ".join(e for _, e in groups)
+    sql = f"select {', '.join(parts)} from {features.subquery()}" + (f" group by {grouped}" if grouped else "")
+    return features.derived(sql, names)
+
+
+def _named_expressions(name, value):
+    """[(column name, SQL expression)] from text, an array of text, a dictionary or an array of dictionaries."""
+    items = value if isinstance(value, list) else [value]
+    out = []
+    for item in items:
+        if isinstance(item, Dictionary):
+            if not item.has("name") or not item.has("expression"):
+                raise ArcadeError(f"{name}: a dictionary names a column (name) and its SQL expression (expression).")
+            out.append((to_text(item.get("name")), to_text(item.get("expression"))))
+        elif isinstance(item, str):
+            out.append((item, f'"{item}"'))
+        else:
+            raise ArcadeError(f"{name} takes field names or dictionaries of name and expression.")
+    if not out:
+        raise ArcadeError(f"{name} needs at least one field.")
+    return out
+
+
+class _Sample:
+    """A sample variance aggregate for SQLite, which has none."""
+
+    def __init__(self):
+        self.values = []
+
+    def step(self, value):
+        if value is not None:
+            try:
+                self.values.append(float(value))
+            except (TypeError, ValueError):
+                pass
+
+    def finalize(self):
+        if len(self.values) < 2:
+            return None
+        mean = sum(self.values) / len(self.values)
+        return sum((v - mean) ** 2 for v in self.values) / (len(self.values) - 1)
+
+
+class _SampleDeviation(_Sample):
+    def finalize(self):
+        variance = super().finalize()
+        return None if variance is None else math.sqrt(variance)
+
+
+def _register_aggregates(connection):
+    try:
+        connection.create_aggregate("grapy_var", 1, _Sample)
+        connection.create_aggregate("grapy_stdev", 1, _SampleDeviation)
+    except sqlite3.Error:
+        pass
+
+
+_TEMPORARY = [0]
+_ESRI_BACK = {v: k for k, v in _ESRI_TYPES.items()}
+
+
+def temporary(store, columns, rows, geometry=None, srid=None, shape=None, oid="ROW__ID"):
+    """A FeatureSet on a temporary table of the connection: ``columns`` [(name, type)], ``rows`` [[values]] and, with
+    ``geometry``, a shape per row (shapely or None). INFERRED (ADR-235 §5.8): its object id is ROW__ID unless the
+    definition names one."""
+    _TEMPORARY[0] += 1
+    name = f"grapy_arcade_{_TEMPORARY[0]}"
+    defined = [f'"{oid}" integer primary key'] + [f'"{c}"' for c, _ in columns]
+    if geometry is not None:
+        defined.append('"shape" blob')
+    store.connection.execute(f'create temp table "{name}" ({", ".join(defined)})')
+    from .. import _gpkg
+    names = [c for c, _ in columns] + (["shape"] if geometry is not None else [])
+    for at, row in enumerate(rows):
+        values = list(row) + ([_gpkg.encode(geometry[at], int(srid or 0))] if geometry is not None else [])
+        store.connection.execute(f'insert into "{name}" ({", ".join(chr(34) + n + chr(34) for n in names)}) values '
+                                 f'({", ".join("?" for _ in names)})', values)
+    table = Table.made(name, oid, "shape" if geometry is not None else None, shape, srid, columns)
+    return FeatureSet(store, table)
+
+
+def _esri_definition(definition):
+    import json
+    if isinstance(definition, str):
+        try:
+            definition = json.loads(definition)
+        except ValueError:
+            raise ArcadeError("FeatureSet: the text is not JSON.") from None
+    else:
+        from ._values import to_json
+        definition = to_json(definition)
+    if not isinstance(definition, dict):
+        raise ArcadeError("FeatureSet takes a JSON object with fields and features.")
+    return definition
+
+
+@builtin("FeatureSet")
+def _featureset_of(interpreter, args):
+    """A FeatureSet from ArcGIS REST JSON — text or a dictionary of fields, geometryType, spatialReference and
+    features — held in a temporary table of the datastore's connection, or of one of its own without a datastore."""
+    arity("FeatureSet", args, 1)
+    definition = _esri_definition(args[0])
+    collection = interpreter.profile.get("$datastore")
+    store = collection.store if isinstance(collection, FeatureSetCollection) else _scratch(interpreter)
+    fields = definition.get("fields") or []
+    oid = next((f["name"] for f in fields if f.get("type") == "esriFieldTypeOID"), "ROW__ID")
+    columns = [(f["name"], _ESRI_BACK.get(f.get("type"), "String")) for f in fields
+               if f.get("type") != "esriFieldTypeOID"]
+    reference = definition.get("spatialReference") or {}
+    srid = reference.get("latestWkid") or reference.get("wkid")
+    shape = {v: k for k, v in _SHAPE_TYPES.items()}.get(definition.get("geometryType"))
+    rows, shapes, oids = [], [], []
+    from ..conversion import _from_esri
+    for feature in definition.get("features") or []:
+        attributes = feature.get("attributes") or {}
+        rows.append([attributes.get(c) for c, _ in columns])
+        oids.append(attributes.get(oid))
+        shapes.append(_from_esri(feature.get("geometry")) if feature.get("geometry") else None)
+    made = temporary(store, columns, rows, shapes if shape else None, srid, shape, oid)
+    if oid != "ROW__ID":
+        for at, given in enumerate(oids, start=1):
+            if given is not None:
+                store.connection.execute(f'update "{made.table.name}" set "{oid}" = ? where rowid = ?', (given, at))
+    return made
+
+
+def _scratch(interpreter):
+    if getattr(interpreter, "scratch", None) is None:
+        interpreter.scratch = Datastore(sqlite3.connect(":memory:"))
+    return interpreter.scratch
 
 
 # ---- feature functions -----------------------------------------------------------------------------------------------
@@ -383,7 +565,8 @@ def _gdb_version(_, args):
     store, table = _source("GdbVersion", args[0])
     from .. import _versions
     if _versions.kind(store.connection, table.name) is not None:
-        raise ArcadeError("GdbVersion on a versioned class is not built in grapy yet (ADR-235 §5.3).")
+        # A versioned class (ADR-227): the version the edit is made in, DEFAULT unqualified as grapy names it.
+        return store.version or "DEFAULT"
     return ""  # not a multi-user geodatabase: empty text, as documented
 
 
@@ -578,3 +761,177 @@ def _next_sequence_value(interpreter, args):
     if value is None:
         raise ArcadeError(f"The database sequence '{args[0]}' does not exist.")
     return float(value)
+
+
+# ---- related rows, associations and attachments (ADR-225, ADR-231, ADR-228) ------------------------------------------
+
+
+def _feature_source(name, feature):
+    if not isinstance(feature, Feature):
+        raise ArcadeError(f"{name} takes a feature; a {type_of(feature)} was given.")
+    if feature.source is None:
+        raise ArcadeError(f"{name} takes a feature read from a table; this one was made in the expression.")
+    return feature.source
+
+
+def _global_id(name, store, table, feature):
+    from .. import _attachments
+    field = _attachments.global_id_field(store.connection, table.name)
+    if field is None:
+        raise ArcadeError(f"{name}: '{table.name}' has no global IDs.")
+    return feature.attributes.get(field)
+
+
+@builtin("FeatureSetByRelationshipClass")
+def _by_relationship_class(_, args):
+    """The rows related to a feature through a relationship class of the GeoPackage (ADR-225), named as it was made:
+    destination rows for an origin feature, origin rows for a destination feature. A many-to-many or attributed class
+    is read through its relationship table. ``fieldNames`` are the related table's fields."""
+    arity("FeatureSetByRelationshipClass", args, 2, 4)
+    store, table = _feature_source("FeatureSetByRelationshipClass", args[0])
+    from .. import _relationships
+    wanted = to_text(args[1]).lower()
+    found = [rc for rc in _relationships.classes(store.connection)
+             if rc["name"].lower() == wanted or rc["name"].rsplit("/", 1)[-1].lower() == wanted]
+    if not found:
+        raise ArcadeError(f"The datastore has no relationship class '{args[1]}'.")
+    rc = found[0]
+    feature = args[0]
+    if rc["origin"].lower() == table.name.lower():
+        own_key, other = rc["origin_primary_key"], rc["destination"]
+        if rc["relationship_table"]:
+            where = (f'"{rc["destination_primary_key"]}" in (select "{rc["destination_foreign_key"]}" from '
+                     f'"{rc["relationship_table"]}" where "{rc["origin_foreign_key"]}" = {{key}})')
+        else:
+            where = f'"{rc["origin_foreign_key"]}" = {{key}}'
+    elif rc["destination"].lower() == table.name.lower():
+        other = rc["origin"]
+        if rc["relationship_table"]:
+            own_key = rc["destination_primary_key"]
+            where = (f'"{rc["origin_primary_key"]}" in (select "{rc["origin_foreign_key"]}" from '
+                     f'"{rc["relationship_table"]}" where "{rc["destination_foreign_key"]}" = {{key}})')
+        else:
+            own_key = rc["origin_foreign_key"]
+            where = f'"{rc["origin_primary_key"]}" = {{key}}'
+    else:
+        raise ArcadeError(f"'{table.name}' does not take part in the relationship class '{args[1]}'.")
+    key = feature.attributes.get(own_key)
+    related = store.table(other)
+    fields = args[2] if len(args) > 2 and args[2] is not None else ["*"]
+    geometry = bool(args[3]) if len(args) > 3 and args[3] is not None else True
+    features = FeatureSet(store, related, [to_text(f) for f in fields], geometry)
+    return features.filtered(where.format(key=sql_literal(key)))
+
+
+_ASSOCIATIONS = {"connected": ((1,), None), "container": ((2,), "to"), "content": ((2,), "from"),
+                 "structure": ((3,), "to"), "attached": ((3,), "from"), "junctionedge": ((4, 6), None),
+                 "midspan": ((5,), None)}
+
+
+@builtin("FeatureSetByAssociation")
+def _by_association(_, args):
+    """The associations of a utility network feature (ADR-231), as the page lists them: one row per associated
+    feature with className, globalId, objectId (the association's row), isContentVisible, percentAlong and side.
+    ``connected`` takes either end, and with ``terminalName`` only associations at that terminal of the feature;
+    ``container`` and ``structure`` answer the feature's container or structure, ``content`` and ``attached`` what it
+    contains or has attached; ``junctionEdge`` answers side 'from' or 'to', ``midspan`` the percentAlong.
+
+    INFERRED (ADR-235 §5.8): className is the class's own name, without its feature dataset; isContentVisible and
+    percentAlong are null where the association type has none."""
+    arity("FeatureSetByAssociation", args, 2, 3)
+    store, table = _feature_source("FeatureSetByAssociation", args[0])
+    kind = to_text(args[1]).lower()
+    if kind not in _ASSOCIATIONS:
+        raise ArcadeError("FeatureSetByAssociation's type is connected, container, content, structure, attached, "
+                          "junctionEdge or midspan.")
+    terminal = args[2] if len(args) > 2 and args[2] not in (None, "") else None
+    if terminal is not None and kind != "connected":
+        raise ArcadeError("FeatureSetByAssociation: a terminal name applies to connected associations only.")
+    connection = store.connection
+    exists = connection.execute("select 1 from sqlite_master where name = 'grapy_un_source'").fetchone()
+    sources = connection.execute("select network, source_id from grapy_un_source where lower(class_name) = lower(?)",
+                                 (table.name,)).fetchall() if exists else []
+    if not sources:
+        raise ArcadeError(f"'{table.name}' is not a class of a utility network.")
+    network = sources[0][0]
+    dataset = table.name.rsplit("/", 1)[0] if "/" in table.name else None
+    associations = f"{dataset}/{network}_Associations" if dataset else f"{network}_Associations"
+    names = {s: c for s, c in connection.execute("select source_id, class_name from grapy_un_source where network = ?",
+                                                 (network,))}
+    me = _global_id("FeatureSetByAssociation", store, table, args[0])
+    terminal_id = _terminal_id(connection, network, table.name, args[0], terminal) if terminal is not None else None
+    types, own_end = _ASSOCIATIONS[kind]
+    rows = connection.execute(
+        f'select fid, FROMNETWORKSOURCEID, FROMGLOBALID, FROMTERMINALID, TONETWORKSOURCEID, TOGLOBALID, TOTERMINALID, '
+        f'ASSOCIATIONTYPE, ISCONTENTVISIBLE, PERCENTALONG from "{associations}" where ASSOCIATIONTYPE in '
+        f'({", ".join(str(t) for t in types)}) and (upper(FROMGLOBALID) = upper(?) or upper(TOGLOBALID) = upper(?))',
+        (me, me)).fetchall()
+    out = []
+    for oid, f_src, f_gid, f_term, t_src, t_gid, t_term, a_type, visible, percent in rows:
+        from_me = str(f_gid).upper() == str(me).upper()
+        if own_end == "from" and not from_me or own_end == "to" and from_me:
+            continue
+        if terminal_id is not None and (f_term if from_me else t_term) != terminal_id:
+            continue
+        other_source, other_gid = (t_src, t_gid) if from_me else (f_src, f_gid)
+        side = None
+        if a_type in (4, 6):
+            side = "from" if a_type == 4 else "to"
+        out.append([names.get(other_source, str(other_source)).rsplit("/", 1)[-1], other_gid, oid,
+                    visible if a_type == 2 else None, percent if a_type == 5 else None, side])
+    columns = [("className", "String"), ("globalId", "String"), ("objectId", "Integer"),
+               ("isContentVisible", "Integer"), ("percentAlong", "Double"), ("side", "String")]
+    return temporary(store, columns, out)
+
+
+def _terminal_id(connection, network, class_name, feature, terminal):
+    group, kind = feature.attributes.get("ASSETGROUP"), feature.attributes.get("ASSETTYPE")
+    row = connection.execute(
+        "select c.terminals from grapy_un_terminal_asset a join grapy_un_terminal_config c on c.network = a.network and "
+        "c.id = a.config_id where a.network = ? and lower(a.class_name) = lower(?) and a.asset_group = ? and "
+        "a.asset_type = ?", (network, class_name, group, kind)).fetchone()
+    if row is None:
+        raise ArcadeError(f"FeatureSetByAssociation: the feature's asset type has no terminal named '{terminal}'.")
+    import json
+    for terminal_id, name, *_ in json.loads(row[0]):
+        if name.lower() == to_text(terminal).lower():
+            return terminal_id
+    raise ArcadeError(f"FeatureSetByAssociation: the feature's asset type has no terminal named '{terminal}'.")
+
+
+@builtin("Attachments")
+def _attachments_of(_, args):
+    """A feature's attachments (ADR-228), each a dictionary of id, name, contentType and size, in order of id.
+    ``options`` filters them by ``types`` (file extensions), ``minsize`` and ``maxsize`` in bytes; with ``metadata`` true
+    an attachment also answers exifInfo and keywords, as UpgradeAttachments keeps them (null otherwise).
+
+    INFERRED (ADR-235 §5.8): an attachment is a Dictionary; a type matches the name's extension without regard to case."""
+    arity("Attachments", args, 1, 2)
+    store, table = _feature_source("Attachments", args[0])
+    from .. import _attachments
+    if not _attachments.enabled(store.connection, table.name):
+        return []
+    me = _global_id("Attachments", store, table, args[0])
+    options = args[1] if len(args) > 1 and isinstance(args[1], Dictionary) else Dictionary()
+    types = [to_text(t).lower().lstrip(".") for t in (options.get("types") or [])]
+    low, high = options.get("minsize"), options.get("maxsize")
+    metadata = options.get("metadata") is True
+    attach = _attachments.attach_table(table.name)
+    columns = {r[1].upper() for r in store.connection.execute(f'pragma table_info("{attach}")')}
+    extra = [c for c in ("EXIFINFO", "KEYWORDS") if c in columns]
+    selected = ", ".join(["ATTACHMENTID", "ATT_NAME", "CONTENT_TYPE", "DATA_SIZE", *extra])
+    out = []
+    for row in store.connection.execute(f'select {selected} from "{attach}" where upper(REL_GLOBALID) = upper(?) '
+                                        "order by ATTACHMENTID", (me,)):
+        attachment_id, name, content_type, size = row[:4]
+        if types and (name or "").rsplit(".", 1)[-1].lower() not in types:
+            continue
+        if low is not None and (size or 0) < to_number(low) or high is not None and (size or 0) > to_number(high):
+            continue
+        entry = Dictionary({"id": attachment_id, "name": name, "contentType": content_type, "size": size})
+        if metadata:
+            found = dict(zip(extra, row[4:]))
+            entry.set("exifInfo", found.get("EXIFINFO"))
+            entry.set("keywords", found.get("KEYWORDS"))
+        out.append(entry)
+    return out

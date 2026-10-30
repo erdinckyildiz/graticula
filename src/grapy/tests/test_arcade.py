@@ -279,8 +279,14 @@ class Math(_Case):
         self.equal("Round(2.5)", 3)
         self.equal("Round(-2.5)", -2)
         self.equal("Round(1.005, 2)", 1.01)
-        with self.assertRaisesRegex(ArcadeError, "pattern"):
-            evaluate("Number('1,365', ',###')")
+        # The Number page's pattern examples.
+        self.equal("Number('1,365', ',###')", 1365)
+        self.equal("Number('abc10def', 'abc##def')", 10)
+        self.equal("Number('10.456', '00.00##')", 10.456)
+        self.equal("Number('10.4', '00.00##')", math.nan)
+        self.equal("Number('12,12,456', ',##,###')", 1212456)
+        self.equal("Number('-12,23,345', ',##,###;-,##,###')", -1223345)
+        self.equal("Number('99.99%', '#.##%')", 0.9999)
         value = evaluate("Random()")
         self.assertTrue(0 <= value < 1)
 
@@ -703,31 +709,28 @@ class Geometry(_Case):
 
 
 class Coverage(unittest.TestCase):
-    """ADR-235 §5.3: every function of the function reference is built, scheduled with its reason, or refused with its
-    reason — and one that is not built says so by name."""
+    """ADR-235 §5.3: every function of the function reference is built or refused with its reason — and one refused
+    says so by name."""
 
     def test_every_documented_function_has_a_status(self):
         found = coverage()
-        self.assertEqual([n for n, s in found.items() if s not in ("built", "scheduled", "refused")], [])
-        counts = {s: sum(1 for v in found.values() if v == s) for s in ("built", "scheduled", "refused")}
+        self.assertEqual([n for n, s in found.items() if s not in ("built", "refused")], [])
+        counts = {s: sum(1 for v in found.values() if v == s) for s in ("built", "refused")}
         self.assertEqual(sum(counts.values()), len(found))
         self.assertEqual(len(found), len({n.lower() for names in _library.DOCUMENTED.values() for n in names}))
-        self.assertEqual(counts, {"built": 171, "scheduled": 17, "refused": 26})
+        self.assertEqual(counts, {"built": 188, "refused": 26})
 
-    def test_a_function_not_built_names_itself_and_why(self):
+    def test_a_refused_function_names_itself_and_why(self):
         for name, status in coverage().items():
             if status == "built":
                 continue
             with self.assertRaises(NotBuiltFunction, msg=name) as raised:
                 evaluate(f"{name}()")
-            self.assertIn(f"The Arcade function {name} ", str(raised.exception))
-            self.assertIn("refused" if status == "refused" else "not built", str(raised.exception))
+            self.assertIn(f"The Arcade function {name} is refused in grapy: ", str(raised.exception))
+            for word in ("yet", "scheduled", "later", "batch"):
+                self.assertNotIn(word, str(raised.exception), name)
 
-    def test_an_overload_not_built_names_its_argument_types(self):
-        with self.assertRaisesRegex(ArcadeError, "Distinct of a FeatureSet"):
-            from grapy._arcade._data import FeatureSet
-            from grapy._arcade._library import _dispatch
-            _dispatch("Distinct")(None, [FeatureSet.__new__(FeatureSet), "a"])
+    def test_unknown_names_and_values_that_are_no_function(self):
         with self.assertRaisesRegex(ArcadeError, "'Foo' is not a function"):
             evaluate("Foo(1)")
         with self.assertRaisesRegex(ArcadeError, "is a Number, not a function"):

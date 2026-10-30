@@ -91,7 +91,7 @@ def properties(geometry):
     if geometry.kind == "Point":
         out["x"], out["y"] = shape.x, shape.y
         out["z"] = shape.z if shape.has_z else None
-        out["m"] = None
+        out["m"] = shape.m if getattr(shape, "has_m", False) else None
     elif geometry.kind == "Extent":
         x0, y0, x1, y1 = shape.bounds
         out.update({"xmin": x0, "ymin": y0, "xmax": x1, "ymax": y1, "width": x1 - x0, "height": y1 - y0,
@@ -105,7 +105,7 @@ def properties(geometry):
         if "points" in document:
             out["points"] = [_point(c[0], c[1], wkid) for c in document["points"]]
     out["hasZ"] = bool(shape.has_z)
-    out["hasM"] = False
+    out["hasM"] = bool(getattr(shape, "has_m", False))
     out["spatialReference"] = Dictionary({"wkid": float(wkid)} if wkid else {})
     out["type"] = geometry.kind.lower()
     return out
@@ -156,7 +156,10 @@ def _from_definition(definition, wanted=None):
         kind = "Multipoint"
     elif definition.has("paths"):
         from shapely.geometry import MultiLineString
-        shape = MultiLineString([[_coordinates(p) for p in path] for path in definition.get("paths")])
+        if definition.get("hasM") is True or definition.get("hasZ") is True:
+            shape = _dimensioned(definition)
+        else:
+            shape = MultiLineString([[_coordinates(p) for p in path] for path in definition.get("paths")])
         kind = "Polyline"
     elif definition.has("rings"):
         from ..conversion import _from_esri
@@ -167,6 +170,23 @@ def _from_definition(definition, wanted=None):
     if wanted and kind != wanted:
         raise ArcadeError(f"The definition is a {kind}, not a {wanted}.")
     return Geometry(shape, wkid, kind)
+
+
+def _dimensioned(definition):
+    """A polyline whose paths carry z and/or m after x and y (hasZ, hasM), made through WKT, which carries both."""
+    has_z, has_m = definition.get("hasZ") is True, definition.get("hasM") is True
+    width = 2 + has_z + has_m
+    paths = []
+    for path in definition.get("paths"):
+        points = []
+        for p in path:
+            values = [to_number(v) for v in p] if isinstance(p, list) else [to_number(p.shape.x), to_number(p.shape.y)]
+            if len(values) < width:
+                raise ArcadeError("A path's coordinates carry x, y and, with hasZ and hasM, z and m.")
+            points.append(" ".join(repr(float(v)) for v in values[:width]))
+        paths.append("(" + ", ".join(points) + ")")
+    tag = " ".join(t for t, on in (("Z", has_z), ("M", has_m)) if on)
+    return shapely.from_wkt(f"MULTILINESTRING {tag} (" + ", ".join(paths) + ")")
 
 
 def _constructor(name):
@@ -568,3 +588,421 @@ def _ring_is_clockwise(_, args):
 
 
 _ = (LineString, Polygon, is_number, to_bool, to_json)
+
+
+# ---- geodetic construction (pyproj) ------------------------------------------------------------------------------------
+
+
+def _curve(name, args, at):
+    if len(args) > at and args[at] not in (None, "") and to_text(args[at]).lower() != "geodesic":
+        raise ArcadeError(f"{name}: the curve type '{args[at]}' is not built in grapy; pyproj's Geod measures "
+                          "geodesics, the default.")
+
+
+def _geodetic_metres(name, geometry, value, unit):
+    """A length given to a geodetic function, in metres: in ``unit``, else in the reference's linear unit (metres
+    on a geographic reference — INFERRED, ADR-235 §5.8)."""
+    if unit not in (None, ""):
+        return to_number(value) * _factor(_LINEAR, unit, name)
+    from .._reference import SpatialReference
+    reference = SpatialReference(int(geometry.wkid))
+    return to_number(value) * (1.0 if reference.type == "Geographic" else reference.metersPerUnit)
+
+
+def _lonlat(wkid):
+    """(to longitude-latitude, back, Geod) for a reference."""
+    from pyproj import CRS, Transformer
+    crs = CRS.from_epsg(int(wkid))
+    geographic = crs.geodetic_crs
+    return (Transformer.from_crs(crs, geographic, always_xy=True), Transformer.from_crs(geographic, crs, always_xy=True),
+            geographic.get_geod())
+
+
+@builtin("BufferGeodetic")
+def _buffer_geodetic(_, args):
+    """EQUIVALENT (ADR-224 §5.6, ADR-235 §5.3): the page names a geodesic buffer but not its construction. grapy buffers
+    in an azimuthal equidistant projection centred on the geometry — where distance from the centre is true geodesic
+    distance (Snyder 1987, *Map Projections — A Working Manual*, USGS PP 1395, §25) — and projects the polygon back."""
+    arity("BufferGeodetic", args, 2, 4)
+    _curve("BufferGeodetic", args, 3)
+    geometry = geometry_of(args[0], "BufferGeodetic")
+    if geometry is None:
+        return None
+    if not geometry.wkid:
+        raise ArcadeError("BufferGeodetic needs a spatial reference.")
+    metres = _geodetic_metres("BufferGeodetic", geometry, args[1], args[2] if len(args) > 2 else None)
+    import numpy
+    from pyproj import CRS, Transformer
+    to_ll, _, _ = _lonlat(geometry.wkid)
+
+    def transform(transformer, shape):
+        return shapely.transform(shape, lambda xy: numpy.column_stack(transformer.transform(xy[:, 0], xy[:, 1])))
+    centre = geometry.shape.centroid
+    lon, lat = to_ll.transform(centre.x, centre.y)
+    local = CRS.from_proj4(f"+proj=aeqd +lat_0={lat} +lon_0={lon} +datum=WGS84 +units=m")
+    there = Transformer.from_crs(CRS.from_epsg(int(geometry.wkid)), local, always_xy=True)
+    back = Transformer.from_crs(local, CRS.from_epsg(int(geometry.wkid)), always_xy=True)
+    buffered = transform(there, geometry.shape).buffer(metres)
+    return _wrap(transform(back, buffered), geometry, "Polygon")
+
+
+@builtin("DensifyGeodetic")
+def _densify_geodetic(_, args):
+    """Each segment replaced by its geodesic, with vertices so that no part is longer than the maximum, as documented:
+    pyproj's Geod.npts places them along the geodesic (Karney 2013, *Algorithms for geodesics*)."""
+    arity("DensifyGeodetic", args, 2, 4)
+    _curve("DensifyGeodetic", args, 3)
+    geometry = geometry_of(args[0], "DensifyGeodetic")
+    if geometry is None:
+        return None
+    if not geometry.wkid:
+        raise ArcadeError("DensifyGeodetic needs a spatial reference.")
+    step = _geodetic_metres("DensifyGeodetic", geometry, args[1], args[2] if len(args) > 2 else None)
+    if not step > 0:
+        raise ArcadeError("DensifyGeodetic's maximum segment length is greater than 0.")
+    to_ll, from_ll, geod = _lonlat(geometry.wkid)
+
+    def line(coordinates):
+        out = []
+        for (x0, y0, *_), (x1, y1, *_) in zip(coordinates, coordinates[1:]):
+            a, b = to_ll.transform(x0, y0), to_ll.transform(x1, y1)
+            length = geod.inv(a[0], a[1], b[0], b[1])[2]
+            pieces = int(math.ceil(length / step)) if length > 0 else 1
+            out.append((x0, y0))
+            for lon, lat in geod.npts(a[0], a[1], b[0], b[1], pieces - 1) if pieces > 1 else []:
+                out.append(from_ll.transform(lon, lat))
+        out.append(tuple(coordinates[-1][:2]))
+        return out
+
+    shape = geometry.shape
+    from shapely.geometry import MultiLineString, MultiPolygon
+    if shape.geom_type in ("Point", "MultiPoint"):
+        return geometry
+    if shape.geom_type in ("LineString", "MultiLineString"):
+        parts = [shape] if shape.geom_type == "LineString" else list(shape.geoms)
+        return Geometry(MultiLineString([line(list(p.coords)) for p in parts]), geometry.wkid, geometry.kind)
+    polygons = [shape] if shape.geom_type == "Polygon" else list(shape.geoms)
+    made = [Polygon(line(list(p.exterior.coords)), [line(list(r.coords)) for r in p.interiors]) for p in polygons]
+    return Geometry(MultiPolygon(made) if len(made) > 1 else made[0], geometry.wkid, geometry.kind)
+
+
+# ---- generalising, offsetting, cutting ---------------------------------------------------------------------------------
+
+
+def _in_units(name, geometry, value, unit):
+    if unit in (None, ""):
+        return to_number(value)
+    return to_number(value) * _factor(_LINEAR, unit, name) / _meters_per_unit(geometry.wkid, name)
+
+
+@builtin("Generalize")
+def _generalize(_, args):
+    """Douglas–Peucker simplification within ``maxDeviation`` (Douglas and Peucker 1973), the method ArcGIS's Generalize
+    tool names; points and multipoints unchanged, an extent made a polygon first, as documented. With
+    ``removeDegenerateParts``, parts that collapse are dropped (shapely drops them always; INFERRED, ADR-235 §5.8)."""
+    arity("Generalize", args, 2, 4)
+    geometry = geometry_of(args[0], "Generalize")
+    if geometry is None:
+        return None
+    if geometry.kind in ("Point", "Multipoint"):
+        return geometry
+    tolerance = _in_units("Generalize", geometry, args[1], args[3] if len(args) > 3 else None)
+    simplified = shapely.simplify(geometry.shape, tolerance, preserve_topology=False)
+    return _wrap(simplified, geometry, "Polygon" if geometry.kind == "Extent" else geometry.kind)
+
+
+_JOINS = {"round": "round", "bevel": "bevel", "miter": "mitre"}
+
+
+@builtin("Offset")
+def _offset(_, args):
+    """A one-sided offset: a positive distance to the right of each path or ring, a negative one to the left, and for a
+    simple polygon the right is inside, as documented. Lines are offset with shapely's offset_curve, polygons by a
+    buffer of the opposite sign. ``bevelRatio`` is the mitre limit (multiplied by the distance, as documented);
+    ``flattenError`` sets how many segments approximate a round join. The ``square`` join is refused: shapely's
+    offsets have none. INFERRED (ADR-235 §5.8): bevelRatio 10 and flattenError 0 (sixteen segments a quarter) when
+    not given."""
+    arity("Offset", args, 2, 6)
+    geometry = geometry_of(args[0], "Offset")
+    if geometry is None:
+        return None
+    if geometry.kind in ("Point", "Multipoint"):
+        raise ArcadeError("Offset does not take points, as documented.")
+    distance = _in_units("Offset", geometry, args[1], args[2] if len(args) > 2 else None)
+    join = to_text(args[3]).lower() if len(args) > 3 and args[3] not in (None, "") else "round"
+    if join == "square":
+        raise ArcadeError("Offset's 'square' join is refused in grapy: shapely's offsets join round, bevel or mitre.")
+    if join not in _JOINS:
+        raise ArcadeError("Offset's join type is round, bevel, miter or square.")
+    ratio = to_number(args[4]) if len(args) > 4 and args[4] is not None else 10.0
+    segments = 16
+    if len(args) > 5 and args[5] not in (None, 0) and distance:
+        error = min(abs(to_number(args[5])), abs(distance))
+        angle = 2 * math.acos(1 - error / abs(distance)) if error > 0 else math.pi / 32
+        segments = max(1, min(45, int(math.ceil((math.pi / 2) / angle))))
+    if distance == 0:
+        return geometry
+    shape = geometry.shape
+    if shape.geom_type in ("Polygon", "MultiPolygon"):
+        made = shape.buffer(-distance, quad_segs=segments, join_style=_JOINS[join], mitre_limit=ratio)
+    else:
+        made = shapely.offset_curve(shape, -distance, quad_segs=segments, join_style=_JOINS[join], mitre_limit=ratio)
+    return _wrap(made, geometry, geometry.kind)
+
+
+def _side(shape_line, point):
+    """1 left, -1 right, 0 on, of ``point`` against the nearest segment of a line."""
+    best, side = None, 0
+    for part in _paths(shape_line):
+        coordinates = list(part.coords)
+        for (x0, y0, *_), (x1, y1, *_) in zip(coordinates, coordinates[1:]):
+            segment = LineString([(x0, y0), (x1, y1)])
+            distance = segment.distance(point)
+            if best is None or distance < best - 1e-12:
+                cross = (x1 - x0) * (point.y - y0) - (y1 - y0) * (point.x - x0)
+                best, side = distance, (0 if abs(cross) < 1e-12 else (1 if cross > 0 else -1))
+    return side
+
+
+def _paths(shape):
+    if shape.geom_type in ("LineString", "LinearRing"):
+        return [shape]
+    if shape.geom_type == "MultiLineString":
+        return list(shape.geoms)
+    if shape.geom_type in ("Polygon", "MultiPolygon"):
+        from shapely.geometry.polygon import orient
+        polygons = [shape] if shape.geom_type == "Polygon" else list(shape.geoms)
+        out = []
+        for polygon in polygons:
+            oriented = orient(polygon, -1.0)  # Esri's winding: outer rings clockwise
+            out.append(LineString(oriented.exterior.coords))
+            out.extend(LineString(r.coords) for r in oriented.interiors)
+        return out
+    return []
+
+
+@builtin("Cut")
+def _cut(_, args):
+    """A line or polygon cut by a polyline, as documented: the left cuts grouped first, the right cuts (with
+    coincident ones) second, then each part the cutter did not reach on its own; nothing cut, an empty array. A piece's
+    side is that of a point inside it against the cutter's nearest segment. INFERRED (ADR-235 §5.8): grapy does not
+    separate *undefined* cuts — a piece bounded by the cutter on both sides is put to the side its interior point
+    falls."""
+    arity("Cut", args, 2)
+    geometry, cutter = geometry_of(args[0], "Cut"), geometry_of(args[1], "Cut")
+    if geometry is None or cutter is None:
+        return []
+    if cutter.kind != "Polyline" or geometry.kind not in ("Polyline", "Polygon"):
+        raise ArcadeError("Cut cuts a polyline or polygon with a polyline.")
+    from shapely.ops import split
+    parts = list(geometry.shape.geoms) if hasattr(geometry.shape, "geoms") else [geometry.shape]
+    left, right, untouched = [], [], []
+    cut_any = False
+    for part in parts:
+        pieces = list(split(part, cutter.shape).geoms)
+        if len(pieces) <= 1:
+            untouched.append(part)
+            continue
+        cut_any = True
+        for piece in pieces:
+            inside = piece.representative_point() if geometry.kind == "Polygon" else piece.interpolate(0.5,
+                                                                                                     normalized=True)
+            (left if _side(cutter.shape, inside) > 0 else right).append(piece)
+    if not cut_any:
+        return []
+    out = []
+    for group in (left, right):
+        out.append(_wrap(unary_union(group), geometry, geometry.kind) if group else None)
+    out += [Geometry(p, geometry.wkid, geometry.kind) for p in untouched]
+    return out
+
+
+# ---- coordinates along a line --------------------------------------------------------------------------------------------
+
+
+def _line_parts(name, value):
+    geometry = geometry_of(value, name) if not isinstance(value, list) else None
+    if isinstance(value, list):
+        from shapely.geometry import LineString as Line
+        points = [geometry_of(p, name).shape for p in value]
+        return [list(Line([(p.x, p.y) for p in points]).coords)], None
+    if geometry is None:
+        return None, None
+    if geometry.kind != "Polyline":
+        raise ArcadeError(f"{name} takes a polyline.")
+    shape = geometry.shape
+    parts = [shape] if shape.geom_type == "LineString" else list(shape.geoms)
+    return [shapely.get_coordinates(p, include_z=p.has_z, include_m=p.has_m).tolist() for p in parts], geometry
+
+
+def _point_at(coordinate, wkid):
+    return Geometry(Point(*coordinate[:3]) if len(coordinate) > 2 and coordinate[2] == coordinate[2] else
+                    Point(coordinate[0], coordinate[1]), wkid, "Point")
+
+
+def _lerp(a, b, t):
+    return [a[i] + (b[i] - a[i]) * t for i in range(min(len(a), len(b)))]
+
+
+@builtin("DistanceToCoordinate")
+def _distance_to_coordinate(_, args):
+    """The coordinate at a distance along a line from its start, gaps between parts not counted, with its part and
+    segment (the previous vertex's index at a vertex, 0 at the first); null when the line is not that long, as
+    documented."""
+    arity("DistanceToCoordinate", args, 2)
+    parts, geometry = _line_parts("DistanceToCoordinate", args[0])
+    if parts is None:
+        return None
+    target, walked = to_number(args[1]), 0.0
+    if target < 0:
+        return None
+    wkid = geometry.wkid if geometry else None
+    for part_id, coordinates in enumerate(parts):
+        for segment_id, (a, b) in enumerate(zip(coordinates, coordinates[1:])):
+            length = math.hypot(b[0] - a[0], b[1] - a[1])
+            if walked + length >= target - 1e-12:
+                t = (target - walked) / length if length else 0.0
+                return Dictionary({"coordinate": _point_at(_lerp(a, b, min(t, 1.0)), wkid), "partId": float(part_id),
+                                   "segmentId": float(segment_id)})
+            walked += length
+    return None
+
+
+@builtin("MeasureToCoordinate")
+def _measure_to_coordinate(_, args):
+    """The first coordinate along a line whose m-value is the measure, with the distance along (gaps not counted),
+    part and segment; null for a line without m-values, as documented, or a measure it does not reach."""
+    arity("MeasureToCoordinate", args, 2)
+    parts, geometry = _line_parts("MeasureToCoordinate", args[0])
+    if parts is None or geometry is None or not geometry.shape.has_m:
+        return None
+    measure, walked = to_number(args[1]), 0.0
+    for part_id, coordinates in enumerate(parts):
+        for segment_id, (a, b) in enumerate(zip(coordinates, coordinates[1:])):
+            length = math.hypot(b[0] - a[0], b[1] - a[1])
+            m0, m1 = a[-1], b[-1]
+            if min(m0, m1) <= measure <= max(m0, m1):
+                t = 0.0 if m1 == m0 else (measure - m0) / (m1 - m0)
+                coordinate = _lerp(a, b, t)
+                return Dictionary({"coordinate": _point_at(coordinate[:-1] if geometry.shape.has_z else coordinate[:2],
+                                                           geometry.wkid),
+                                   "distanceAlong": walked + length * t, "partId": float(part_id),
+                                   "segmentId": float(segment_id)})
+            walked += length
+    return None
+
+
+def _nearest_on(parts, point):
+    """(coordinate, distance, distance along, part, segment) of the point of the lines nearest ``point``."""
+    best = None
+    walked = 0.0
+    for part_id, coordinates in enumerate(parts):
+        for segment_id, (a, b) in enumerate(zip(coordinates, coordinates[1:])):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            length2 = dx * dx + dy * dy
+            t = 0.0 if length2 == 0 else max(0.0, min(1.0, ((point.x - a[0]) * dx + (point.y - a[1]) * dy) / length2))
+            coordinate = _lerp(a, b, t)
+            distance = math.hypot(point.x - coordinate[0], point.y - coordinate[1])
+            if best is None or distance < best[1] - 1e-12:
+                best = (coordinate, distance, walked + math.sqrt(length2) * t, part_id, segment_id)
+            walked += math.sqrt(length2)
+    return best
+
+
+@builtin("PointToCoordinate")
+def _point_to_coordinate(_, args):
+    """The point of a line nearest a search point: its coordinate (z interpolated), the distance to it, the distance
+    along the line (gaps not counted), its part and segment, as documented."""
+    arity("PointToCoordinate", args, 2)
+    parts, geometry = _line_parts("PointToCoordinate", args[0])
+    search = geometry_of(args[1], "PointToCoordinate")
+    if parts is None or search is None:
+        return None
+    if geometry is not None and geometry.shape.has_m:
+        parts = [[c[:-1] for c in p] for p in parts]
+    coordinate, distance, along, part_id, segment_id = _nearest_on(parts, search.shape)
+    return Dictionary({"coordinate": _point_at(coordinate, geometry.wkid if geometry else None), "distance": distance,
+                       "distanceAlong": along, "partId": float(part_id), "segmentId": float(segment_id)})
+
+
+def _side_word(geometry, point, distance):
+    """sideOfLine: left, right, or straddle on top. INFERRED (ADR-235 §5.8): a point or multipoint input, which has no
+    sides, answers straddle on top of it and left otherwise; a point inside a polygon is on it."""
+    if distance == 0:
+        return "straddle"
+    if geometry.kind in ("Point", "Multipoint"):
+        return "left"
+    side = _side(geometry.shape, point)
+    return "left" if side > 0 else "right" if side < 0 else "straddle"
+
+
+@builtin("NearestCoordinate")
+def _nearest_coordinate(_, args):
+    """The coordinate of a geometry nearest a search point — on a segment, not only at a vertex — with the planar
+    distance and the side of the line the search point is on; a point on the geometry (inside a polygon, too) is
+    answered itself with distance 0."""
+    arity("NearestCoordinate", args, 2)
+    geometry, search = geometry_of(args[0], "NearestCoordinate"), geometry_of(args[1], "NearestCoordinate")
+    if geometry is None or search is None:
+        return None
+    point = search.shape
+    if geometry.shape.covers(point):
+        return Dictionary({"coordinate": Geometry(Point(point.x, point.y), geometry.wkid, "Point"), "distance": 0.0,
+                           "sideOfLine": "straddle"})
+    if geometry.kind in ("Point", "Multipoint"):
+        nearest = min(_vertices(geometry.shape), key=lambda c: math.hypot(c[0] - point.x, c[1] - point.y))
+        distance = math.hypot(nearest[0] - point.x, nearest[1] - point.y)
+        return Dictionary({"coordinate": _point_at(nearest, geometry.wkid), "distance": distance,
+                           "sideOfLine": _side_word(geometry, point, distance)})
+    parts = [shapely.get_coordinates(p).tolist() for p in _paths(geometry.shape)]
+    coordinate, distance, _, _, _ = _nearest_on(parts, point)
+    return Dictionary({"coordinate": _point_at(coordinate, geometry.wkid), "distance": distance,
+                       "sideOfLine": _side_word(geometry, point, distance)})
+
+
+def _vertices(shape):
+    return shapely.get_coordinates(shape).tolist()
+
+
+@builtin("NearestVertex")
+def _nearest_vertex(_, args):
+    """The vertex of a geometry nearest a search point, the planar distance to it, and the side of the line the search
+    point is on (against the geometry's nearest segment)."""
+    arity("NearestVertex", args, 2)
+    geometry, search = geometry_of(args[0], "NearestVertex"), geometry_of(args[1], "NearestVertex")
+    if geometry is None or search is None:
+        return None
+    point = search.shape
+    nearest = min(_vertices(geometry.shape), key=lambda c: math.hypot(c[0] - point.x, c[1] - point.y))
+    distance = math.hypot(nearest[0] - point.x, nearest[1] - point.y)
+    on = geometry.shape.covers(point)
+    return Dictionary({"coordinate": _point_at(nearest, geometry.wkid), "distance": distance,
+                       "sideOfLine": "straddle" if on else _side_word(geometry, point, distance)})
+
+
+@builtin("Length3D")
+def _length_3d(_, args):
+    """The planar length with z-values counted, on a projected reference, as documented; with no z a 2D length. In
+    the reference's unit, or in ``unit``."""
+    arity("Length3D", args, 1, 2)
+    from ._data import FeatureSet
+    if isinstance(args[0], FeatureSet):
+        geometries = [f.geometry for f in args[0].features() if f.geometry is not None]
+    else:
+        geometry = geometry_of(args[0], "Length3D")
+        if geometry is None:
+            return None
+        geometries = [geometry]
+    total = 0.0
+    for geometry in geometries:
+        for part in _paths(geometry.shape):
+            coordinates = shapely.get_coordinates(part, include_z=part.has_z).tolist()
+            for a, b in zip(coordinates, coordinates[1:]):
+                dz = (b[2] - a[2]) if len(a) > 2 and a[2] == a[2] and b[2] == b[2] else 0.0
+                total += math.sqrt((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2 + dz ** 2)
+    if not geometries:
+        return 0.0
+    per_unit = _meters_per_unit(geometries[0].wkid, "Length3D") if geometries[0].wkid else 1.0
+    if len(args) < 2 or args[1] in (None, ""):
+        return float(total)
+    return float(total * per_unit / _factor(_LINEAR, args[1], "Length3D"))

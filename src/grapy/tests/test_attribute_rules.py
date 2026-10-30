@@ -521,7 +521,7 @@ class ContingentValues(_Workspace):
 
 
 class Refusals(unittest.TestCase):
-    def test_replicas_and_rule_generators_are_refused_with_their_reasons(self):
+    def test_replicas_and_extraction_are_refused_with_their_reasons(self):
         for name in ("CreateReplica", "SynchronizeChanges", "ExportDataChangeMessage", "ImportMessage",
                      "CompareReplicaSchema"):
             with self.assertRaisesRegex(NotBuiltError, "traditionally versioned"):
@@ -530,10 +530,8 @@ class Refusals(unittest.TestCase):
             arcpy.management.ExportAcknowledgementMessage()
         with self.assertRaisesRegex(NotBuiltError, "fenced tool cannot reach"):
             arcpy.management.CreateReplicaFromServer()
-        for name in ("GenerateIDAttributeRule", "CalculateGeometryFieldsAttributeRule",
-                     "GenerateSpatialJoinAttributeRule"):
-            with self.assertRaisesRegex(NotBuiltError, "Arcade script is Esri's own"):
-                getattr(arcpy.management, name)()
+        with self.assertRaisesRegex(NotBuiltError, "expand_feature_classes_and_tables without defining them"):
+            arcpy.management.ExtractDataFromGeodatabase()
         with self.assertRaisesRegex(NotBuiltError, "no geodatabase replicas"):
             arcpy.da.ListReplicas()
 

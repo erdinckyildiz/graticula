@@ -7410,12 +7410,23 @@ _REFUSED.update({
                              "replicas, which a GeoPackage and a fenced tool do not have (ADR-235 §5.6)",
     "DisableReplicaTracking": "tracks branch-versioned data in an enterprise geodatabase for a feature service's "
                               "offline replicas, which a GeoPackage and a fenced tool do not have (ADR-235 §5.6)",
-    "ExtractDataFromGeodatabase": "writes a geodatabase or Esri's XML workspace document, neither of which grapy "
-                                  "writes; extracting into a GeoPackage is scheduled (ADR-235 §5.6)",
+    "ExtractDataFromGeodatabase": "extracts into a geodatabase, a mobile geodatabase or Esri's XML workspace "
+                                  "document, none of which grapy writes, and carries the geodatabase's expanded "
+                                  "classes — topologies, networks, relationship classes — by rules the page leaves to "
+                                  "expand_feature_classes_and_tables without defining them; a GeoPackage copy of a "
+                                  "class, filtered by extent or geometry, is arcpy.conversion.ExportFeatures or "
+                                  "ExportTable "
+                                  "(ADR-235 §5.6)",
 })
-_GENERATED = ("writes a template rule whose Arcade script is Esri's own and not published; grapy will write a script of "
-              "its own with the behaviour the page documents, as an equivalent (ADR-224 §5.6), in a later batch "
-              "(ADR-235 §5.4)")
-_REFUSED.update({name: _GENERATED for name in (
-    "CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
-    "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule")})
+
+# The template-rule generators: equivalents writing grapy's own Arcade (ADR-235 §5.4, grapy._rulegen).
+from . import _rulegen  # noqa: E402
+
+CalculateGeometryFieldsAttributeRule = _rulegen.CalculateGeometryFieldsAttributeRule
+GenerateIDAttributeRule = _rulegen.GenerateIDAttributeRule
+GenerateSpatialJoinAttributeRule = _rulegen.GenerateSpatialJoinAttributeRule
+GenerateSymbolRotationAttributeRule = _rulegen.GenerateSymbolRotationAttributeRule
+GenerateUpdateRelatedAttributeRule = _rulegen.GenerateUpdateRelatedAttributeRule
+for _built in ("CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
+               "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule"):
+    _REFUSED.pop(_built, None)

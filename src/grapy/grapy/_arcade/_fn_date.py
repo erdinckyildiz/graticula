@@ -332,8 +332,9 @@ def _date_only(_, args):
             return None
         raise ArcadeError(f"DateOnly takes a number, text or a date; a {type_of(first)} was given.")
     if len(args) == 2:
-        raise ArcadeError("DateOnly with a format pattern is not built in grapy yet: only ISO 8601 text is read "
-                          "(ADR-235 §5.3).")
+        from ._patterns import date_only
+        found = date_only(to_text(first), to_text(args[1]))
+        return None if found is None else DateOnly(found)
     arity("DateOnly", args, 3)
     year, month, day = (to_number(a) for a in args)
     try:
@@ -378,8 +379,9 @@ def _time(_, args):
             return None
         raise ArcadeError(f"Time takes a number, text or a date; a {type_of(first)} was given.")
     if len(args) == 2 and isinstance(first, str):
-        raise ArcadeError("Time with a format pattern is not built in grapy yet: only hh:mm[:ss] text, with AM or "
-                          "PM, is read (ADR-235 §5.3).")
+        from ._patterns import time
+        found = time(first, to_text(args[1]))
+        return None if found is None else Time(found)
     arity("Time", args, 2, 4)
     hour, minute = int(to_number(args[0])), int(to_number(args[1]))
     second = int(to_number(args[2])) if len(args) > 2 else 0

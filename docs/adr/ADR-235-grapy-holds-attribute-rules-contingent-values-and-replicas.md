@@ -119,24 +119,28 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
    case-insensitive names, function scope, operators with JavaScript's precedence (§5.8 b), `if`/`else`, three forms
    of `for`, `while`, `break`, `continue`, `function`, `return` and implicit return, arrays, dictionaries, features,
    geometries, template literals, safe access, and the casting tables — and a function library catalogued against
-   all **214** documented names: **171 built, 17 scheduled, 26 refused**, each not built raising an error that names
-   it and why (`grapy._arcade.coverage()` counts them; `test_arcade.Coverage` checks every one).
-   - **Built:** all of Math except Hash; all of Text, Logical, Array, Dictionary and Debugging; Date except
-     format-pattern parsing in DateOnly and Time; Feature (Feature, Schema, Domain, DomainName, DomainCode, Subtypes,
-     SubtypeCode, SubtypeName, FeatureInFilter, HasKey, HasValue, DefaultValue, Expects, GdbVersion, TimeReceived);
-     FeatureSet on the GeoPackage (FeatureSetByName, Filter with `@variables`, OrderBy, Top, First, Count, Sum, Min,
-     Max, Mean, Average, Stdev, Variance, FilterBySubtypeCode, Intersects, Contains, Within, Crosses, Overlaps,
-     Touches, EnvelopeIntersects, Area, Length, AreaGeodetic, LengthGeodetic, GetUser); Geometry with shapely and
-     pyproj (constructors, properties, Area, Length, the geodetic measures, Distance, DistanceGeodetic, Buffer,
-     Centroid, Clip, ConvexHull, Densify, Intersection, Union, Difference, SymmetricDifference, the relations, Relate,
-     IsSimple, IsSelfIntersecting, Simplify, MultiPartToSinglePart, Rotate, Angle, Bearing, RingIsClockwise,
-     SetGeometry, Extent); NextSequenceValue.
-   - **Scheduled, each with what it waits for:** FeatureSetByAssociation (utility network associations), 
-     FeatureSetByRelationshipClass (relationship classes), Attachments, GroupBy, FeatureSet from REST JSON,
-     BufferGeodetic and DensifyGeodetic and Generalize (equivalents to be chosen, ADR-224 §5.6), ConvertDirection,
-     Cut, DistanceToCoordinate, MeasureToCoordinate and Length3D (m- and z-values through Arcade), PointToCoordinate,
-     NearestCoordinate, NearestVertex (sideOfLine), Offset (join types); and the overloads Distinct of a FeatureSet,
-     Number and DateOnly and Time with a format pattern, and GdbVersion on a versioned class.
+   all **214** documented names: **188 built, 26 refused**, each refused one raising an error that names it and why
+   (`grapy._arcade.coverage()` counts them; `test_arcade.Coverage` checks every one).
+   - **Built:** all of Math except Hash; all of Text, Logical, Array, Dictionary and Debugging, with Number's text
+     patterns; all of Date, with DateOnly's and Time's formats; Feature (Feature, Schema, Domain, DomainName,
+     DomainCode, Subtypes, SubtypeCode, SubtypeName, FeatureInFilter, HasKey, HasValue, DefaultValue, Expects,
+     GdbVersion — the edit's version on a versioned class (ADR-227) — and TimeReceived); FeatureSet on the GeoPackage
+     (FeatureSetByName, FeatureSet from REST JSON, Filter with `@variables`, OrderBy, Top, First, Distinct, GroupBy,
+     Count, Sum, Min, Max, Mean, Average, Stdev, Variance, FilterBySubtypeCode, the spatial filters, Area, Length,
+     AreaGeodetic, LengthGeodetic, Length3D, GetUser, and through grapy's models FeatureSetByRelationshipClass
+     (ADR-225), FeatureSetByAssociation (ADR-231) and Attachments (ADR-228)); Geometry with shapely and pyproj
+     (constructors with z and m, properties, the measures, Distance, DistanceGeodetic, Buffer, BufferGeodetic, Centroid,
+     Clip, ConvexHull, Cut, Densify, DensifyGeodetic, Generalize, Offset, Intersection, Union, Difference,
+     SymmetricDifference, the relations, Relate, IsSimple, IsSelfIntersecting, Simplify, MultiPartToSinglePart, Rotate,
+     Angle, Bearing, ConvertDirection, DistanceToCoordinate, MeasureToCoordinate, PointToCoordinate, NearestCoordinate,
+     NearestVertex, RingIsClockwise, SetGeometry, Extent); NextSequenceValue.
+   - **Built as equivalents**, each saying its method in its docstring: BufferGeodetic (a buffer in an azimuthal
+     equidistant projection centred on the geometry, where distance from the centre is geodesic — Snyder 1987, §25)
+     and Generalize (Douglas–Peucker 1973, the method ArcGIS's Generalize tool names). DensifyGeodetic places vertices
+     on the geodesic with pyproj's Geod (Karney 2013), as the page describes.
+   - **Refused by value**, each with its reason: the curve types other than geodesic (pyproj measures geodesics);
+     Offset's `square` join (shapely joins round, bevel or mitre); curves in a geometry definition (grapy's geometries
+     are linear).
    - **Refused, each with its reason:** TranslateText, FeatureSetByPortalItem, Portal, KnowledgeGraphByPortalItem and
      QueryGraph (a fenced tool has no network or portal; knowledge graphs are not held); FeatureSetById,
      FeatureSetByRelationshipName, GetFeatureSet and GetFeatureSetInfo (map- and service-profile answers a GeoPackage
@@ -144,10 +148,15 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
      tools only).
 4. **Attribute rule tools built:** AddAttributeRule, AlterAttributeRule, DeleteAttributeRule, DisableAttributeRules,
    EnableAttributeRules, ReorderAttributeRule, ExportAttributeRules, ImportAttributeRules and EvaluateRules.
-   **Refused, scheduled as equivalents:** CalculateGeometryFieldsAttributeRule, GenerateIDAttributeRule,
-   GenerateSpatialJoinAttributeRule, GenerateSymbolRotationAttributeRule and GenerateUpdateRelatedAttributeRule — each
-   writes a template rule whose Arcade script is Esri's own and unpublished, so grapy will write its own script with
-   the documented behaviour (ADR-224 §5.6) in a later batch.
+   **Built as equivalents** (`grapy/_rulegen.py`, ADR-224 §5.6): CalculateGeometryFieldsAttributeRule,
+   GenerateIDAttributeRule, GenerateSpatialJoinAttributeRule, GenerateSymbolRotationAttributeRule and
+   GenerateUpdateRelatedAttributeRule. Each writes a template rule whose Arcade script Esri's tool writes and does not
+   publish, so grapy writes a script of its own, from the functions of §5.3, that does what the page says the rule
+   does, in ExportAttributeRules' columns for ImportAttributeRules. Refused by parameter, each with its reason: the z
+   and m of centroids, inside points, extents and line ends, POINT_COORD_NOTATION and `coordinate_format` (the page's
+   format descriptions do not match its keywords); GenerateID's CODED_VALUES, *Sequence by lookup*, an intersect class
+   and an id table's IntersectClass (the page does not say what sequence, prefix or ID each gets); field mappings as
+   a string (their string form is not documented).
 5. **Database sequences** are rows of `grapy_sequence` (`grapy_sequences` extension): CreateDatabaseSequence,
    DeleteDatabaseSequence, `da.ListDatabaseSequences`, `da.DatabaseSequence`, and Arcade's NextSequenceValue.
 6. **Replicas are refused**, each name with its reason: CreateReplica (traditional versioning in an enterprise parent,
@@ -156,8 +165,11 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
    ExportReplicaSchema and ImportReplicaSchema (they work on a replica grapy cannot make), ExportAcknowledgementMessage,
    ExportDataChangeMessage, ImportMessage and ReExportUnacknowledgedMessages (also Esri's unpublished replica XML),
    EnableReplicaTracking and DisableReplicaTracking (a feature service's offline replicas of enterprise data), and
-   `da.ListReplicas`, `da.Replica`, `da.SyncReplica`. ExtractDataFromGeodatabase is refused as scheduled: it writes a
-   geodatabase or Esri's XML workspace document, and extracting into a GeoPackage is a later batch.
+   `da.ListReplicas`, `da.Replica`, `da.SyncReplica`. ExtractDataFromGeodatabase is refused: it extracts into a
+   geodatabase, a mobile geodatabase or Esri's XML workspace document, none of which grapy writes, and carries the
+   expanded classes (topologies, networks, relationship classes) by rules the page leaves to
+   `expand_feature_classes_and_tables` without defining them; a GeoPackage copy of a class filtered by extent or
+   geometry is `arcpy.conversion.ExportFeatures` or `ExportTable`.
 7. **Contingent values built:** CreateFieldGroup, AlterFieldGroup, DeleteFieldGroup, AddContingentValue,
    RemoveContingentValue, ExportContingentValues, ImportContingentValues, GenerateContingentValues,
    `da.ListContingentValues`, `da.ContingentValue` and `da.ContingentFieldValue`. A restrictive group is enforced on
@@ -193,14 +205,30 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
      null, are not restricted; a field the value table leaves out is ANY; a CODED_VALUE needs the field's coded
      domain; a new contingent value's id is one more than the highest held; RANGE is written 'min;max'; in Generate's
      DATA mode a field without a domain is ANY, or NULL where null; and whether the owner wants Alternative D's
-     replicas on branch versions despite §2.
+     replicas on branch versions despite §2;
+   - (i) a FeatureSet that GroupBy, Distinct or FeatureSet makes is a temporary table of the connection, its object id
+     ROW__ID unless the definition names one; FeatureSetByAssociation's className omits the feature dataset; an
+     attachment is a Dictionary, and `metadata` adds exifInfo and keywords as UpgradeAttachments keeps them;
+     GdbVersion answers DEFAULT outside a named version;
+   - (j) ConvertDirection reads text input by its numbers and letters and writes text without a format as the number
+     (DMS as `d° m' s"`, a quadrant's parts joined by spaces); Number's single pattern also reads a minus sign;
+     YY is 2000–2068 for 00–68; a Time format reads M and MM as minutes, as the page's own example does; a DateOnly
+     is its midnight, UTC, in milliseconds;
+   - (k) Cut puts a piece to the side of the cutter its interior point falls on and does not separate *undefined*
+     cuts; NearestCoordinate finds a point inside a polygon on it, and a point or multipoint input answers `left` off
+     it; Offset's bevelRatio is 10 and its round joins sixteen segments a quarter unless flattenError says otherwise;
+     the distance of a geodetic function without a unit is in metres on a geographic reference;
+   - (l) the generators write `<out_folder>/<table>/<table>.csv` (then `_1`, `_2` …); their rules' names, their
+     insert-and-update triggers (insert only for an ID), an ID kept when a feature arrives with one, the rotation of
+     the segment from its start vertex, and CONCATENATE onto an empty target being the value alone.
 
 ## 6. Consequences
 
 - **State.** The GeoPackage the tool works on holds up to five grapy tables and, after EvaluateRules, up to four
   validation error tables. Nothing goes in the catalogue or on the server. A hosted layer imported from a tool's
   output carries neither rules nor contingent values: ADR-223 §5.5 copies features, not models.
-- `arcpy.management` moves from 190 to 209 built (257 to 238 refused) and `arcpy.da` from 19 to 24 (10 to 5).
+- Against `grapy-surface` when this ADR merged, `arcpy.management` moves from 192 to 216 built (255 to 231 refused;
+  equivalents 11 to 16) and `arcpy.da` from 19 to 24 (10 to 5); all modules from 1,116 to 1,145 of 2,174.
 - **Negative.** Every edit through a cursor on a table with rules runs Arcade, row by row; a bulk load into such a
   table is slower, as it is in Pro, where the page advises disabling rules first. A GeoPackage reader that is not
   grapy runs none of the rules.
@@ -222,7 +250,7 @@ read, and no Esri script was reproduced.
 
 ## 9. Revisit triggers
 
-- A toolbox needs a scheduled function or one of the template-rule generators of §5.4.
+- A toolbox needs a refused parameter value of §5.3 or §5.4, or Pro's own generated script.
 - The owner answers Q-203 (h) in favour of replicas on branch versions.
 - Esri publishes the replica message schema or the validation error tables' fields.
 
@@ -236,9 +264,9 @@ None recorded.
    own worked examples. **DISCHARGED 2026-10-30**: `src/grapy/tests/test_arcade.py` checks the examples the guide's
    pages and the Math, Text, Logical, Array, Dictionary and Date pages print (with the page's Pacific-time and Sin(1)
    exceptions named), the casting tables, and geometry on hand-worked shapes.
-2. **Every documented Arcade function is built, scheduled or refused with its reason**, and one not built names
-   itself. **DISCHARGED 2026-10-30**: `test_arcade.Coverage` finds none of the 214 without a status and calls each of
-   the 43 not built.
+2. **Every documented Arcade function is built or refused with its reason**, and one refused names itself.
+   **DISCHARGED 2026-10-30**: `test_arcade.Coverage` finds none of the 214 without a status and calls each of the 26
+   refused, none of whose reasons is a schedule.
 3. **Immediate rules run on grapy's edits; batch rules run in EvaluateRules.** **DISCHARGED 2026-10-30**:
    `src/grapy/tests/test_attribute_rules.py` works out by hand each rule's effect on inserts, updates and deletes —
    order, triggering fields, subtypes, NONEDITABLE, result dictionaries, edits to another class and their own rules,
@@ -246,6 +274,10 @@ None recorded.
 4. **Contingent values are enforced and round-trip through their files.** **DISCHARGED 2026-10-30**: the
    `ContingentValues` tests cover restriction, retirement, subtypes, Alter and Delete, Export and Import against the
    documented columns, and Generate's DATA and SCHEMA modes against hand-counted combinations.
-5. **The scheduled functions of §5.3 and the template-rule generators of §5.4 are built**, or refused with a reason
-   that is not *not yet*.
+5. **The functions of §5.3 and the template-rule generators of §5.4 are built**, or refused with a reason that is
+   not *not yet*. **DISCHARGED 2026-10-30**: `src/grapy/tests/test_arcade_more.py` checks ConvertDirection on the
+   page's ten examples, Number's seven pattern examples, DateOnly's and Time's format examples, the coordinate,
+   nearest, Cut, Generalize, Offset, Length3D and geodetic functions on hand-worked shapes, GroupBy, Distinct and
+   FeatureSet from JSON, FeatureSetByRelationshipClass, FeatureSetByAssociation and Attachments through grapy's
+   models, and each generator's rule imported and run on hand-worked edits.
 6. **The owner confirms §5.8's inferences**, or names the ones to change, before data made with them is relied on.
