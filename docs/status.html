@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>904e2734</code> · 2026-10-29 23:45</p>
+<p class="stamp">Generated from commit <code>0382a8bc</code> · 2026-10-30 01:16</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">222</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">479/557</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">68 live · 10 deferred with their decision</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">201 answered</div></div>
+<div class="kpi "><div class="kpi-v">225</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
+<div class="kpi good"><div class="kpi-v">488/567</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">69 live · 10 deferred with their decision</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">201 answered</div></div>
 <div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">open debts</div><div class="kpi-n">303 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">0 open</span></div><p>Nothing is waiting on the owner.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-195</b> — [OWNER] How grapy stores the three group-2 data models, INFERRED 2026-10-30 (ADR-225, ADR-226, ADR-227): (a) each model lives in grapy&#x27;s own tables inside the GeoPackage a tool works on, not on the server; (b) relationships are also written to the OGC Related…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">82 items</span></div><p><b>68 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">83 items</span></div><p><b>69 ADR conditions</b> outstanding across 47 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -134,13 +134,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">7</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:86%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-089 · Sign-in through an LDAP directory,</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-090 · Sign-in through a SAML 2.0 identit</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
-<div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -417,11 +417,15 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">221</td><td>The system administrator has a surface of their own</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split, which follows the API&#x27;s own (TenantRouting.SystemOnly) · MEDIUM for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">222</td><td>Geoprocessing is built-in analysis tools, served as ArcGIS&#x27;s Spatial Analysis Service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the protocol is publicly documented and copied as documented; which clients find…</td><td class="num">5/7</td></tr>
 <tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">6/6</td></tr>
-<tr><td class="id">224</td><td>grapy aims at arcpy&#x27;s whole buildable surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/5</td></tr>
+<tr><td class="id">224</td><td>grapy aims at arcpy&#x27;s whole buildable surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
+<tr><td class="id">225</td><td>grapy holds topology rules and relationship classes in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
+<tr><td class="id">226</td><td>grapy holds network datasets and solves routes on them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · LOW for agreement with Pro&#x27;s numbers, which this cannot reproduce…</td><td class="num">3/3</td></tr>
+<tr><td class="id">227</td><td>grapy holds branch versions and archives in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 </tbody></table></div></section>
 <section><h2>Open questions</h2>
 <p class="sub">Uncertainty is recorded rather than hidden. An empty list here would mean the recording stopped, not that the uncertainty did.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-195</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores the three group-2 data models, INFERRED 2026-10-30 (ADR-225, ADR-226, ADR-227): (a) each model lives in grapy&#x27;s own tables inside the GeoPackage a tool works on, not on the server; (b) relationships are also written to the OGC Related…</p></article>
 </div></section>
 <section><h2>Architecture debt</h2>
 <p class="sub">Temporary compromises, each with the trigger that repays it. A compromise with no trigger is a permanent decision wearing a temporary label.</p>
@@ -561,49 +565,55 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </div></section>
 <section><h2>grapy against arcpy</h2>
 <p class="sub">Names grapy builds, of the public names arcpy 3.7 has in each module. Counted by tools/grapy_surface.py from grapy’s source; a name grapy refuses is not counted.</p><div class="bars">
-<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:53.6%"></div></div><div class="bar-n">98 / 183</div></div>
-<div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:48.3%"></div></div><div class="bar-n">14 / 29</div></div>
-<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:24.2%"></div></div><div class="bar-n">108 / 447</div></div>
+<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:54.1%"></div></div><div class="bar-n">99 / 183</div></div>
+<div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:62.1%"></div></div><div class="bar-n">18 / 29</div></div>
+<div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:30.0%"></div></div><div class="bar-n">134 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:82.5%"></div></div><div class="bar-n">33 / 40</div></div>
 <div class="bar"><div class="bar-l">arcpy.conversion</div><div class="bar-t"><div class="bar-f" style="width:37.5%"></div></div><div class="bar-n">24 / 64</div></div>
-<div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:2.0%"></div></div><div class="bar-n">1 / 49</div></div>
-<div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:47.4%"></div></div><div class="bar-n">9 / 19</div></div>
-<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:27.7%"></div></div><div class="bar-n">18 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:41.3%"></div></div><div class="bar-n">156 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:37.2%"></div></div><div class="bar-n">129 / 347</div></div>
-<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:11.5%"></div></div><div class="bar-n">18 / 156</div></div>
+<div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:6.1%"></div></div><div class="bar-n">3 / 49</div></div>
+<div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:52.6%"></div></div><div class="bar-n">10 / 19</div></div>
+<div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:41.5%"></div></div><div class="bar-n">27 / 65</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:51.9%"></div></div><div class="bar-n">196 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:44.7%"></div></div><div class="bar-n">155 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:14.7%"></div></div><div class="bar-n">23 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:16.7%"></div></div><div class="bar-n">7 / 42</div></div>
+<div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:35.5%"></div></div><div class="bar-n">22 / 62</div></div>
+<div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:36.8%"></div></div><div class="bar-n">35 / 95</div></div>
+<div class="bar"><div class="bar-l">arcpy.nd</div><div class="bar-t"><div class="bar-f" style="width:0.0%"></div></div><div class="bar-n">0 / 74</div></div>
 </div>
-<div class="scroll" style="margin-top:18px"><table><thead><tr><th>Module</th><th class="num">Built</th><th class="num">Refused, with the reason</th><th class="num">Not yet examined</th></tr></thead><tbody>
-<tr><td class="id">arcpy</td><td class="num">98</td><td class="num">85</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.analysis</td><td class="num">33</td><td class="num">7</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.cartography</td><td class="num">1</td><td class="num">48</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.conversion</td><td class="num">24</td><td class="num">40</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.da</td><td class="num">14</td><td class="num">15</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ddd</td><td class="num">18</td><td class="num">138</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.edit</td><td class="num">9</td><td class="num">10</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ga</td><td class="num">7</td><td class="num">35</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">129</td><td class="num">218</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.management</td><td class="num">108</td><td class="num">339</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">156</td><td class="num">222</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.stats</td><td class="num">18</td><td class="num">47</td><td class="num">0</td></tr>
+<div class="scroll" style="margin-top:18px"><table><thead><tr><th>Module</th><th class="num">Built</th><th class="num">of which equivalents (ADR-224 §5.6)</th><th class="num">Refused, with the reason</th><th class="num">Not yet examined</th></tr></thead><tbody>
+<tr><td class="id">arcpy</td><td class="num">99</td><td class="num">0</td><td class="num">84</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.analysis</td><td class="num">33</td><td class="num">0</td><td class="num">7</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.cartography</td><td class="num">3</td><td class="num">2</td><td class="num">46</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.conversion</td><td class="num">24</td><td class="num">0</td><td class="num">40</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.da</td><td class="num">18</td><td class="num">0</td><td class="num">11</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ddd</td><td class="num">23</td><td class="num">5</td><td class="num">133</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.edit</td><td class="num">10</td><td class="num">1</td><td class="num">9</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ga</td><td class="num">7</td><td class="num">0</td><td class="num">35</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">155</td><td class="num">4</td><td class="num">192</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.management</td><td class="num">134</td><td class="num">1</td><td class="num">313</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.na</td><td class="num">22</td><td class="num">1</td><td class="num">40</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.nax</td><td class="num">35</td><td class="num">5</td><td class="num">60</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.nd</td><td class="num">0</td><td class="num">0</td><td class="num">74</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">196</td><td class="num">20</td><td class="num">182</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.stats</td><td class="num">27</td><td class="num">9</td><td class="num">38</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
-<li><code>904e2734</code><time>2026-10-29</time><span>Every name in grapy&#x27;s management and conversion is built or refused with its reason; AddJoin (merging grapy-c)</span></li>
-<li><code>f469eedc</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>008f0cd4</code><time>2026-10-29</time><span>grapy: no generic refusal left in management or conversion; BatchUpdateFields, GTFS readers, joined ListFields (ADR-224)</span></li>
-<li><code>acd03ede</code><time>2026-10-29</time><span>Every name in grapy&#x27;s sa, ia, ddd, ga and analysis is built or refused with its reason (merging grapy-a)</span></li>
-<li><code>b8f2e7ad</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>c0436e5e</code><time>2026-10-29</time><span>grapy: every remaining sa and ia name read and classified; Buffered and NbrIrregular built (ADR-224)</span></li>
-<li><code>d8d116bb</code><time>2026-10-29</time><span>grapy: every remaining management and conversion name refused with its reason; more management tools (ADR-224)</span></li>
-<li><code>f3bbb41b</code><time>2026-10-29</time><span>Every name in grapy&#x27;s top level, stats, cartography and edit is built or refused with its reason (merging grapy-b)</span></li>
-<li><code>32c73827</code><time>2026-10-29</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
-<li><code>e2733d8a</code><time>2026-10-29</time><span>grapy: SimilaritySearch, SpatialAssociationBetweenZones and SpatialOutlierDetection; nothing left unexamined (ADR-224)</span></li>
-<li><code>2c1c2835</code><time>2026-10-29</time><span>grapy: sa, ia and ddd&#x27;s remaining names classified; ia&#x27;s image tools move into sa; Corridor, PointStatistics, LineStatistics, TransposeBits, FuzzyOverlay, GVITM, SubsetBands (ADR-224)</span></li>
-<li><code>e0bf6499</code><time>2026-10-29</time><span>grapy: every remaining top-level, stats, cartography and edit name built or refused with its reason (ADR-224)</span></li>
-<li><code>31030d98</code><time>2026-10-29</time><span>grapy: AddJoin and RemoveJoin, the cursors reading a joined layer (ADR-224)</span></li>
-<li><code>507a1cdf</code><time>2026-10-29</time><span>The status page splits what grapy has not built into refused and unexamined (ADR-224 condition 4)</span></li>
+<li><code>0382a8bc</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>cb7382b3</code><time>2026-10-30</time><span>grapy: every na and nax name built or refused with its reason; arcpy.ListVersions; network settings in grapy.graticula (ADR-226 condition 3, ADR-227)</span></li>
+<li><code>b1083e80</code><time>2026-10-30</time><span>MGWR, the optimized hot spot tools, AggregatePolygons, rubber-sheeting and field conflict filters (merging grapy-b)</span></li>
+<li><code>e5ea5303</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>7ecbc4f6</code><time>2026-10-30</time><span>grapy: AggregatePolygons (morphological closing) and RubbersheetFeatures (Saalfeld piecewise-linear) as marked equivalents (ADR-224 §5.6)</span></li>
+<li><code>3784d3f0</code><time>2026-10-30</time><span>ADR-225 condition 1 is met: all 31 topology rules are tested</span></li>
+<li><code>7f5d4e50</code><time>2026-10-30</time><span>Network datasets and route solving in the GeoPackage, and every topology rule tested (merging grapy-c; ADR-226, ADR-225 condition 1)</span></li>
+<li><code>0879ac6a</code><time>2026-10-30</time><span>grapy: stats.MGWR as a marked equivalent — back-fitting, a bandwidth per variable on AICc (ADR-224 §5.6)</span></li>
+<li><code>411a194e</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>9bc1e245</code><time>2026-10-30</time><span>grapy: arcpy.nax solver objects over the network model, na and nax out of the refused modules (ADR-226)</span></li>
+<li><code>792f11af</code><time>2026-10-30</time><span>grapy: OptimizedHotSpotAnalysis and OptimizedOutlierAnalysis as marked equivalents (ADR-224 §5.6)</span></li>
+<li><code>60a69911</code><time>2026-10-30</time><span>grapy: field conflict filters honoured by reconcile by attribute; Add/RemoveFieldConflictFilter, da.ListFieldConflictFilters (ADR-227)</span></li>
+<li><code>1ef947f3</code><time>2026-10-30</time><span>grapy: network datasets and arcpy.na&#x27;s Route, Closest Facility, Service Area and OD Cost Matrix (ADR-226, part)</span></li>
+<li><code>dc384116</code><time>2026-10-30</time><span>Q-195 asks about the versioned history&#x27;s place too</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

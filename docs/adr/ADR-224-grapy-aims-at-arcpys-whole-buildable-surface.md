@@ -4,7 +4,7 @@
 |---|---|
 | **Status** | `ACCEPTED WITH CONDITIONS` |
 | **Confidence** | `MEDIUM` |
-| **Decided** | 2026-10-29, by owner decision. Asked for *"grapy'da arcpy da olan tüm yetenekleri istiyorum"*, then shown the measured size and three groups, the owner chose: scope *"Önce 1. grup, sonra 2."*; order *"İkisi paralel"* (vector and raster together); releases *"Her partiyi yayımla"*. |
+| **Decided** | 2026-10-29, by owner decision. Asked for *"grapy'da arcpy da olan tüm yetenekleri istiyorum"*, then shown the measured size and three groups, the owner chose: scope *"Önce 1. grup, sonra 2."*; order *"İkisi paralel"* (vector and raster together); releases *"Her partiyi yayımla"*. **Amended 2026-10-30** by two more answers: undocumented tools are built as equivalents under arcpy's name (*"Aynı adla, yakın bir eşdeğer"*, §5.6), and group 2 begins with topology and relationship classes, network datasets, versioning and archiving (§5.7). |
 | **Supersedes** | — |
 | **Superseded by** | — |
 
@@ -74,6 +74,22 @@ this session; condition 1 below moves it into the repository.
    not honour is refused by name, never ignored.
 5. **Raster needs one step in the server first:** an image service must reach a tool as a file, as a hosted layer does
    (ADR-223 §5.5). Until it does, `sa` and `ia` run on rasters the tool makes or reads from its own run directory.
+6. **Where Esri's documentation does not define the answer, the tool is built anyway, under arcpy's name, as the
+   standard method of the literature** — owner decision 2026-10-30, *"Aynı adla, yakın bir eşdeğer"*, asked with the
+   alternatives of keeping it refused or naming it differently. On 2026-10-29 every one of the 1,819 group-one names had
+   been decided: 615 built and 1,204 refused, of which about 300 were refused because the documentation leaves the
+   algorithm or the output undefined (Kernel Density's formulas only as images, Kriging's fitting, FlowDirection's flats,
+   SmoothLine's PAEK, Stretch …). **Such a tool is an *equivalent*, not a reproduction**, and it says so three ways:
+   - its docstring begins `EQUIVALENT:` and names the method and its source (a paper, a textbook, a public standard);
+   - it is marked with `_runtime.equivalent(...)`, which `tools/grapy_refusals.py` reads, so the status page counts
+     equivalents apart from the tools built to their documentation;
+   - its run says so in the tool's messages, once per run: a user of the toolbox sees that the number may differ from
+     ArcGIS Pro's.
+   The rules of §5.4 still hold within it: what the equivalent does not do is refused by name, and it is tested against
+   a hand-worked answer of the method it names.
+7. **Group 2 begins with three data models**, owner decision 2026-10-30, in this order of ADRs, each before its tools:
+   topology and relationship classes, network datasets, versioning and archiving. They are grapy's data models, held in
+   the GeoPackage a tool works on.
 
 ## 6. Consequences
 
@@ -107,5 +123,6 @@ None recorded.
 1. **The counter covers every group-1 module**, from a list read from arcpy and kept in the repository. **DISCHARGED 2026-10-29** (26a715f5): `tools/arcpy-surface.json` adds `sa`, `ia`, `ddd` and `ga`, read from Pro 3.7; 1,819 names.
 2. **Image services cross into a tool as files** (§5.5), and `sa` reads one end to end. **DISCHARGED 2026-10-29**: a raster parameter (`GPRasterLayer`, `DERasterDataset` and the like, served as `GPRasterDataLayer`) takes an image service of this server the caller may read. The runner writes its first band as raw doubles beside a header, and grapy turns that into the GeoTIFF the tool opens. `An_image_service_reaches_a_tool_as_a_raster_it_reads_cell_for_cell` uploads a corpus image and reads four cells, NoData included, against the values `truth.json` records. A mosaic of several images, and an image of more than 25 million cells, are refused by name.
 3. **Group 3 is refused with its reason**, tested. **DISCHARGED 2026-10-29**: `arcpy.ba`, `agolservices`, `geoai` and `geocoding` answer every tool with NotBuiltError naming the tool and saying it answers from Esri's data or services. Group 2's modules (`un`, `parcel`, `na`, `nax`, `nd`, `topographic`, `locref`) say they need a data model this server does not hold. Group-3 tools inside a group-1 module (`analysis.Enrich`, `EnrichLayer`) are refused the same way. Tested in `test_a_module_on_esris_data_or_on_a_model_not_held_is_refused_with_its_reason`.
-4. **Group 1 is complete**: the counter reads every group-1 name built.
+4. **Group 1 is complete**: the counter reads every group-1 name built. **PARTLY DISCHARGED 2026-10-29**: every name is *decided* — `tools/grapy_refusals.py` read 615 built, 1,204 refused with a reason and none unexamined. §5.6 turns the undocumented refusals into equivalents; the rest of the refusals are groups 2 and 3, a Pro application, no network from a fenced tool, or grapy's own limits (Z on features, raster attribute tables, multiband rasters), which are this project's to remove.
 5. **Group 2 has an ADR per data model** before its tools are built.
+6. **Equivalents are counted apart** (§5.6): the status page shows built-to-documentation and built-as-equivalent separately, and every equivalent names its method and source and says so in its run.

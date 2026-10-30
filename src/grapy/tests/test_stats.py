@@ -26,6 +26,7 @@ class Stats(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp()
         arcpy.env.workspace = self.directory
+        arcpy.env.scratchWorkspace = self.directory
         arcpy.env.outputCoordinateSystem = None
 
     def make(self, name, shape, fields, rows, srid=3857):
@@ -226,10 +227,14 @@ class Stats(unittest.TestCase):
                              10)
         self.assertAlmostEqual(self.rows(out[0], ["GiZScore"])[0][0], -2 / math.sqrt(5 / 3))
 
-    def test_fdr_is_refused(self):
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "FDR"):
-            stats.HotSpots(self.line4(), "v", self.out("fdr"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE",
-                           10, None, None, "APPLY_FDR")
+    def test_fdr_is_benjamini_hochberg(self):
+        # The ten points of test_gi_bin_reads_the_confidence_level: six p-values ≈ 0.0495, two ≈ 0.134, two ≈ 0.513.
+        # At α = .10 the largest k with p_(k) ≤ k·.10/10 is 6 (0.0495 ≤ 0.06; 0.134 > 0.07): those six are kept.
+        # At α = .05, p_(k) ≤ k·.005 holds for no k ≤ 6 (0.0495 > 0.03): none. So the six are bin ±1.
+        path = self.points("ten", [(10 * i, 0) for i in range(10)], [[1.0] * 5 + [0.0] * 5])
+        out = stats.HotSpots(path, "v", self.out("fdr"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "NONE", 10,
+                             None, None, "APPLY_FDR")
+        self.assertEqual([r[0] for r in self.rows(out[0], ["Gi_Bin"])], [0, 1, 1, 1, 0, 0, -1, -1, -1, 0])
 
     # ---- Local Moran's I
 
@@ -254,10 +259,14 @@ class Stats(unittest.TestCase):
             self.assertAlmostEqual(p, two_sided(want_z))
             self.assertEqual(kind, "")   # none is significant at 0.05
 
-    def test_local_morans_i_refuses_permutations_and_marks_a_feature_with_no_neighbours(self):
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "Number_of_Permutations"):
-            stats.ClustersOutliers(self.line4(), "v", self.out("perm"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
-                                   "ROW", 10)
+    def test_local_morans_i_permutations_and_a_feature_with_no_neighbours(self):
+        # Three points, each the other two's neighbour, values 0, 3, 6 (deviations −3, 0, 3), row-standardized
+        # weights .5: a permutation of the other two values leaves .5·(a + b) unchanged, so every draw equals the
+        # observed I_i. Then M = R and the folded count is R − M = 0: the pseudo p-value is (0 + 1)/(9 + 1) = 0.1.
+        three = self.points("three", [(0, 0), (10, 0), (20, 0)], [[0.0, 3.0, 6.0]])
+        out = stats.ClustersOutliers(three, "v", self.out("perm"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
+                                     "ROW", 100, None, "NO_FDR", 9)
+        self.assertEqual([r[0] for r in self.rows(out[0], ["LMiPValue"])], [0.1, 0.1, 0.1])
         lonely = self.points("lonely", [(0, 0), (10, 0), (20, 0), (30, 0), (500, 0)], [[1.0, 2.0, 3.0, 4.0, 5.0]])
         out = stats.ClustersOutliers(lonely, "v", self.out("nn"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE", "ROW",
                                      10, None, "NO_FDR", 0)
@@ -505,8 +514,160 @@ class Stats(unittest.TestCase):
         self.assertEqual(self.rows(only.getOutput(0), ["SHAPE@XY"]), [((10.0, 0.0),)])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "whole"):
             stats.SpatialOutlierDetection(path, self.out("x"), 2, 30, None, "LOCAL")
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "GLOBAL"):
-            stats.SpatialOutlierDetection(path, self.out("g"), 2, 20)
+        # GLOBAL: points at 0, 1, 3, 6, 10, 15, 40 have nearest-neighbour distances 1, 1, 2, 3, 4, 5, 25. Quartiles by
+        # definition 7: Q1 at position 1.5 is 1.5, Q3 at 4.5 is 4.5; IQR 3. MEDIUM fence 4.5 + 1.5·3 = 9: only 25.
+        spread = self.points("spread", [(x, 0) for x in (0, 1, 3, 6, 10, 15, 40)])
+        out = stats.SpatialOutlierDetection(spread, self.out("g")).getOutput(0)
+        got = self.rows(out, ["NEIGHBOR_DIST", "IS_OUTLIER"])
+        self.assertEqual(got, [(1.0, 0), (1.0, 0), (2.0, 0), (3.0, 0), (4.0, 0), (5.0, 0), (25.0, 1)])
+
+    # ---- equivalents (ADR-224 §5.6)
+
+    def test_ordinary_least_squares_by_the_textbook(self):
+        # x = 0..4, y = 1, 3, 4, 8, 9. x̄ = 2, ȳ = 5; Sxy = 8 + 2 + 0 + 3 + 8 = 21, Sxx = 10: β1 = 2.1, β0 = .8.
+        # Fitted .8, 2.9, 5, 7.1, 9.2; residuals .2, .1, −1, .9, −.2; RSS 1.9; TSS 46; σ² = 1.9/3; SE(β1) = √(σ²/10).
+        # White HC0 for the slope: Σ(x−x̄)²e²/Sxx² = (4·.04 + .01 + .81 + 4·.04)/100 = .0114.
+        # Koenker: e² = .04, .01, 1, .81, .04 on x has slope S(x,e²)/Sxx = .8/10 = .08, explained .064 of .9374: n·R².
+        # Jarque–Bera: m2 = .38, m3 = −.27/5, m4 = 1.6594/5; S = m3/m2^1.5, K = m4/m2²; JB = 5/6·(S² + (K−3)²/4).
+        # AICc = 5 ln(2π·1.9/5) + 5·7/(5 − 2 − 2).
+        path = self.points("ols", [(10 * i, 0) for i in range(5)], [[1.0, 3.0, 4.0, 8.0, 9.0], [0.0, 1, 2, 3, 4],
+                                                                     [1, 2, 3, 4, 5]],
+                           more=[("x", "DOUBLE"), ("uid", "LONG")])
+        result = stats.OrdinaryLeastSquares(path, "uid", self.out("ols_out"), "v", "x", self.out("coef"),
+                                            self.out("diag"))
+        coef = {r[0]: r[1:] for r in self.rows(result[1], ["Variable", "Coef", "StdError", "Robust_SE"])}
+        self.assertAlmostEqual(coef["Intercept"][0], 0.8)
+        self.assertAlmostEqual(coef["x"][0], 2.1)
+        self.assertAlmostEqual(coef["x"][1], math.sqrt(1.9 / 3 / 10))
+        self.assertAlmostEqual(coef["x"][2], math.sqrt(0.0114))
+        diag = dict(self.rows(result[2], ["Diag_Name", "Diag_Value"]))
+        self.assertAlmostEqual(diag["R2"], 1 - 1.9 / 46)
+        self.assertAlmostEqual(diag["K(BP)"], 5 * 0.064 / 0.9374)
+        m2, m3, m4 = 0.38, -0.27 / 5, 1.6594 / 5
+        self.assertAlmostEqual(diag["JB"], 5 / 6 * ((m3 / m2 ** 1.5) ** 2 + (m4 / m2 ** 2 - 3) ** 2 / 4))
+        self.assertAlmostEqual(diag["AICc"], 5 * math.log(2 * math.pi * 1.9 / 5) + 35)
+        residuals = [r[0] for r in self.rows(result[0], ["Residual"])]
+        for got, want in zip(residuals, [0.2, 0.1, -1.0, 0.9, -0.2]):
+            self.assertAlmostEqual(got, want)
+        self.assertIn("equivalent", stats.OrdinaryLeastSquares.__grapy_equivalent__ + " equivalent")
+
+    def test_generalized_linear_regression_logit_and_poisson(self):
+        # Logistic: at x = 0 one of four is 1, at x = 1 three of four. The MLE fits the two proportions exactly:
+        # β0 = logit(1/4) = −ln 3, β1 = logit(3/4) − logit(1/4) = 2 ln 3.
+        xs = [0, 0, 0, 0, 1, 1, 1, 1]
+        binary = self.points("bin", [(i * 10, 0) for i in range(8)], [[1.0, 0, 0, 0, 1, 1, 1, 0], xs],
+                             more=[("x", "DOUBLE")])
+        result = stats.GeneralizedLinearRegression(binary, "v", "BINARY", self.out("glr_b"), "x")
+        self.assertAlmostEqual(result[1], -math.log(3), places=8)
+        self.assertAlmostEqual(result[2], 2 * math.log(3), places=8)
+        # Poisson: counts 1, 3 at x = 0 (mean 2) and 4, 6 at x = 1 (mean 5): β0 = ln 2, β1 = ln(5/2).
+        counts = self.points("cnt", [(i * 10, 0) for i in range(4)], [[1.0, 3, 4, 6], [0.0, 0, 1, 1]],
+                             more=[("x", "DOUBLE")])
+        result = stats.GeneralizedLinearRegression(counts, "v", "COUNT", self.out("glr_c"), "x")
+        self.assertAlmostEqual(result[1], math.log(2), places=8)
+        self.assertAlmostEqual(result[2], math.log(2.5), places=8)
+        predicted = [r[0] for r in self.rows(result[0], ["PREDICTED"])]
+        for got, want in zip(predicted, [2, 2, 5, 5]):
+            self.assertAlmostEqual(got, want, places=8)
+
+    def test_gwr_local_fits_with_a_bisquare_band(self):
+        # Points at x = 0..4 with v = x and y = v². Bisquare band 2: weights (1 − (d/2)²)² — 1 at 0, .5625 at 1, 0 at 2.
+        # At 0: points 0 and 1 only — the line through (0,0) and (1,1): intercept 0, slope 1.
+        # At 1: points 0, 1, 2 weighted .5625, 1, .5625; weighted means v̄ = 1, ȳ = 3.25/2.125; S_vy = .5625(1.529…+2.470…)
+        #   = 2.25, S_vv = 1.125: slope 2, intercept 3.25/2.125 − 2.
+        # At 2: points 1, 2, 3, ȳ = 9.625/2.125, S_vy = .5625·8 = 4.5: slope 4, intercept 9.625/2.125 − 8.
+        # At 4: points 3 and 4: slope 7, intercept −12.
+        path = self.points("gwr", [(i, 0) for i in range(5)], [[0.0, 1, 4, 9, 16], [0.0, 1, 2, 3, 4]],
+                           more=[("x", "DOUBLE")])
+        out = stats.GWR(path, "v", "CONTINUOUS", "x", self.out("gwr_out"), "DISTANCE_BAND", "USER_DEFINED",
+                        distance_band=2).getOutput(0)
+        got = self.rows(out, ["INTERCEPT", "C_x", "PREDICTED"])
+        for (intercept, slope, _), (want_i, want_s) in zip(got, [(0, 1), (3.25 / 2.125 - 2, 2), (9.625 / 2.125 - 8, 4),
+                                                                  (None, None), (-12, 7)]):
+            if want_i is None:
+                continue
+            self.assertAlmostEqual(intercept, want_i)
+            self.assertAlmostEqual(slope, want_s)
+        self.assertAlmostEqual(got[2][2], 9.625 / 2.125)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "model_type"):
+            stats.GWR(path, "v", "COUNT", "x", self.out("g2"), "DISTANCE_BAND", "USER_DEFINED", distance_band=2)
+
+    def test_incremental_spatial_autocorrelation(self):
+        # Six points 10 apart holding 1, 3, 2, 5, 4, 6: deviations −2.5, −.5, −1.5, 1.5, .5, 2.5, Σz² = 17.5. At 10,
+        # row-standardized: Σ z_i Σ w_ij z_j = 1.25 + 1 − .75 − .75 + 1 + 1.25 = 3, S0 = 6, so I = 3/17.5.
+        path = self.points("isa", [(10 * i, 0) for i in range(6)], [[1.0, 3, 2, 5, 4, 6]])
+        result = stats.IncrementalSpatialAutocorrelation(path, "v", 4, 10, 10, Output_Table=self.out("isa_t"))
+        rows = self.rows(result[0], ["Distance", "MoransI", "ZScore"])
+        self.assertEqual([r[0] for r in rows], [10.0, 20.0, 30.0, 40.0])
+        self.assertAlmostEqual(rows[0][1], 3 / 17.5)
+        # The first peak is the first band whose z-score is above both neighbours'; it is read as a distance.
+        peak = next(r[0] for a, r, b in zip(rows, rows[1:], rows[2:]) if r[2] > a[2] and r[2] > b[2])
+        self.assertEqual((result[2], result[3]), (peak, peak))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "Distance_Increment"):
+            stats.IncrementalSpatialAutocorrelation(path, "v", 4)
+
+    def test_multivariate_clustering_is_k_means(self):
+        # Values 0, 1, 10, 11: two clusters are {0, 1} and {10, 11} whatever the seeds. Pseudo F for two clusters:
+        # SSW = .5 + .5 = 1, SSB = 101 − 1 = 100 (mean 5.5): (100/1)/(1/2) = 200 — unchanged by scaling. For three:
+        # the best split leaves a pair, SSW = .5, SSB = 100.5: (100.5/2)/(.5/1) = 100.5. Two wins.
+        path = self.points("mc", [(10 * i, 0) for i in range(4)], [[0.0, 1, 10, 11]])
+        result = stats.MultivariateClustering(path, self.out("mc_out"), ["v"], output_table=self.out("mc_t"))
+        self.assertEqual([r[0] for r in self.rows(result[0], ["CLUSTER_ID"])], [1, 1, 2, 2])
+        table = self.rows(result[1], ["NUM_CLUSTERS", "PSEUDO_F"])
+        self.assertEqual(table[0][0], 2)
+        self.assertAlmostEqual(table[0][1], 200.0)
+        self.assertAlmostEqual(table[1][1], 100.5)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "K_MEDOIDS"):
+            stats.MultivariateClustering(path, self.out("km"), ["v"], "K_MEDOIDS")
+
+    def test_density_based_clustering_is_dbscan(self):
+        # x = 0, 1, 2, 10, 11, 12, 30; three points within 1 make a core: 1 and 11 are cores, 0, 2, 10 and 12 border
+        # points, 30 noise.
+        path = self.points("db", [(x, 0) for x in (0, 1, 2, 10, 11, 12, 30)])
+        out = stats.DensityBasedClustering(path, self.out("db_out"), "DBSCAN", 3, 1).getOutput(0)
+        self.assertEqual([r[0] for r in self.rows(out, ["CLUSTER_ID"])], [1, 1, 1, 2, 2, 2, -1])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "HDBSCAN"):
+            stats.DensityBasedClustering(path, self.out("h"), "HDBSCAN", 3)
+
+    def test_optimized_hot_spot_analysis_follows_its_documented_steps(self):
+        # A 12 × 12 lattice of incidents 1 apart, plus five more on (0, 0). Unique points: every nearest neighbour is 1
+        # away, so no locational outlier and ANN = MNN = 1. Not dense: N random points in the 11 × 11 hull lie
+        # 0.5/√(144/121) ≈ 0.458 apart, and twice that is not under 11/100. So the cell is 2·max(1, 1) = 2: a 6 × 6
+        # fishnet from (0, 0), four incidents a cell, nine in the first.
+        xys = [(x, y) for y in range(12) for x in range(12)] + [(0, 0)] * 5
+        path = self.points("incidents", xys)
+        before = arcpy.GetMessageCount()
+        out = stats.OptimizedHotSpotAnalysis(path, self.out("ohsa"), None, "COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS")
+        said = [arcpy.GetMessage(i) for i in range(before, arcpy.GetMessageCount())]
+        self.assertIn("Cell size: 2.0", said)
+        counts = sorted(r[0] for r in self.rows(out[0], ["Join_Count"]))
+        self.assertEqual(counts, [4] * 35 + [9])
+        # With a distance band given, the analysis is HotSpots with the FDR correction on the same weighted features.
+        weighted = os.path.join(arcpy.env.scratchWorkspace, "optimizedhotspotanalysis_weighted.gpkg")
+        given = stats.OptimizedHotSpotAnalysis(path, self.out("ohsa2"), None, "COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS",
+                                               Distance_Band=4)
+        direct = stats.HotSpots(weighted, "Join_Count", self.out("direct"), "FIXED_DISTANCE_BAND", "EUCLIDEAN_DISTANCE",
+                                "NONE", 4, None, None, "APPLY_FDR")
+        self.assertEqual(self.rows(given[0], ["GiZScore", "Gi_Bin"]), self.rows(direct[0], ["GiZScore", "Gi_Bin"]))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "SNAP_NEARBY"):
+            stats.OptimizedHotSpotAnalysis(path, self.out("snap"), None, "SNAP_NEARBY_INCIDENTS_TO_CREATE_WEIGHTED_POINTS")
+        outliers = stats.OptimizedOutlierAnalysis(path, self.out("ooa"), None, "COUNT_INCIDENTS_WITHIN_FISHNET_POLYGONS",
+                                                  None, None, "QUICK_199", None, 4)
+        self.assertEqual(len(self.rows(outliers[0], ["LMiPValue"])), 36)
+
+    def test_mgwr_back_fitting(self):
+        # With a band far wider than the data, every bisquare weight is 1 to within 10⁻¹⁶, each term's local fit is the
+        # global one, and back-fitting converges to ordinary least squares: on x = 0..4, y = 1, 3, 4, 8, 9 that is
+        # β0 = .8, β1 = 2.1 (worked in test_ordinary_least_squares_by_the_textbook), at every feature.
+        path = self.points("mgwr", [(10 * i, 0) for i in range(5)], [[1.0, 3.0, 4.0, 8.0, 9.0], [0.0, 1, 2, 3, 4]],
+                           more=[("x", "DOUBLE")])
+        out = stats.MGWR(path, "v", "CONTINUOUS", "x", self.out("mgwr_out"), "DISTANCE_BAND", "USER_DEFINED",
+                         distance_band=1e9).getOutput(0)
+        for intercept, slope in self.rows(out, ["INTERCEPT", "C_x"]):
+            self.assertAlmostEqual(intercept, 0.8, places=6)
+            self.assertAlmostEqual(slope, 2.1, places=6)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "GRADIENT_SEARCH"):
+            stats.MGWR(path, "v", "CONTINUOUS", "x", self.out("m2"), "DISTANCE_BAND", "GRADIENT_SEARCH")
 
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):

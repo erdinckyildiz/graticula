@@ -101,6 +101,7 @@ TEXT = {
         "grapy": "grapy against arcpy",
         "grapy_module": "Module", "grapy_built": "Built", "grapy_refused": "Refused, with the reason",
         "grapy_unexamined": "Not yet examined",
+        "grapy_equivalent": "of which equivalents (ADR-224 §5.6)",
         "grapy_sub": "Names grapy builds, of the public names arcpy {v} has in each module. Counted by tools/grapy_surface.py from grapy\u2019s source; a name grapy refuses is not counted.",
         "recent": "Recent work",
         "k_adrs": "ADRs",
@@ -199,6 +200,7 @@ TEXT = {
         "grapy": "grapy ve arcpy",
         "grapy_module": "Modül", "grapy_built": "Kurulan", "grapy_refused": "Gerekçesiyle reddedilen",
         "grapy_unexamined": "Henüz bakılmayan",
+        "grapy_equivalent": "bunların eşdeğer olanı (ADR-224 §5.6)",
         "grapy_sub": "arcpy {v} her mod\u00fclde herkese a\u00e7\u0131k bir ad listesi sunar; grapy\u2019nin bunlardan ka\u00e7\u0131n\u0131 kurdu\u011fu. tools/grapy_surface.py grapy\u2019nin kayna\u011f\u0131ndan sayar; grapy\u2019nin reddetti\u011fi ad say\u0131lmaz.",
         "recent": "Son \u00e7al\u0131\u015fma",
         "k_adrs": "ADR",
@@ -1027,10 +1029,12 @@ def build():
         import json as _json
         refusals = _json.load(io.open(refusals_path, encoding="utf-8"))
         parts.append(f'<div class="scroll" style="margin-top:18px"><table><thead><tr><th>{esc(ui("grapy_module"))}</th>'
-                     f'<th class="num">{esc(ui("grapy_built"))}</th><th class="num">{esc(ui("grapy_refused"))}</th>'
+                     f'<th class="num">{esc(ui("grapy_built"))}</th><th class="num">{esc(ui("grapy_equivalent"))}</th>'
+                     f'<th class="num">{esc(ui("grapy_refused"))}</th>'
                      f'<th class="num">{esc(ui("grapy_unexamined"))}</th></tr></thead><tbody>')
         for module, row in refusals.items():
             parts.append(f'<tr><td class="id">{esc(module)}</td><td class="num">{row["built"]}</td>'
+                         f'<td class="num">{len(row.get("equivalents", {}))}</td>'
                          f'<td class="num">{len(row["refused"])}</td><td class="num">{len(row["unexamined"])}</td></tr>')
         parts.append('</tbody></table></div>')
     parts.append('</section>')

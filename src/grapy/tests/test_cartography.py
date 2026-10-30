@@ -111,8 +111,66 @@ class Cartography(unittest.TestCase):
             cartography.SimplifyLine(path, self.out("b"), "POINT_REMOVE", 2, in_barriers=[path])
         with self.assertRaisesRegex(arcpy.NotBuiltError, "SmoothLine.*PAEK"):
             cartography.SmoothLine(path, self.out("s"), "PAEK", 10)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "SimplifyPolygon"):
-            cartography.SimplifyPolygon(path, self.out("p"), "POINT_REMOVE", 10)
+
+    def test_simplify_polygon_opens_each_ring_at_its_first_vertex(self):
+        # Ring from (0,0): (10,0), (20,1), (30,0), (30,30), (0,30). Closed, its trend "line" is the point (0,0): (30,30)
+        # is farthest (42.4) and kept. (0,0)–(30,30): (30,0) is 21.2 away, kept; (0,0)–(30,0): (10,0) is 0 and (20,1)
+        # is 1 away, under 2, both dropped. (30,30)–(0,0): (0,30) is 21.2 away, kept. The square 0..30 remains.
+        # A 1×1 square far away, under minimum_area 2, is removed and leaves its centroid in _Pnt.
+        path = os.path.join(self.directory, "pg.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "pg.gpkg", "POLYGON", spatial_reference=3857)
+        ring = [(0, 0), (10, 0), (20, 1), (30, 0), (30, 30), (0, 30)]
+        tiny = [(100, 100), (101, 100), (101, 101), (100, 101)]
+        with arcpy.da.InsertCursor(path, ["SHAPE@"]) as rows:
+            for shape in (ring, tiny):
+                rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in shape]), 3857),))
+        result = cartography.SimplifyPolygon(path, self.out("sp"), "POINT_REMOVE", 2, 2)
+        with arcpy.da.SearchCursor(result[0], ["InPoly_FID", "SHAPE@"]) as rows:
+            (oid, shape), = [tuple(r) for r in rows]
+        self.assertEqual(oid, 1)
+        self.assertEqual(shape.area, 900.0)
+        self.assertEqual(shape.pointCount, 5)
+        with arcpy.da.SearchCursor(result[1], ["InPoly_FID", "SHAPE@XY"]) as rows:
+            self.assertEqual([tuple(r) for r in rows], [(2, (100.5, 100.5))])
+        self.assertIn("Douglas", cartography.SimplifyPolygon.__grapy_equivalent__)
+        # Two squares sharing an edge: simplified apart, their outlines would no longer coincide — refused.
+        shared = os.path.join(self.directory, "sh.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, "sh.gpkg", "POLYGON", spatial_reference=3857)
+        with arcpy.da.InsertCursor(shared, ["SHAPE@"]) as rows:
+            rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in
+                                                       [(0, 0), (10, 0), (10, 5), (10.5, 6), (10, 7), (10, 10), (0, 10)]]), 3857),))
+            rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in
+                                                       [(10, 0), (20, 0), (20, 10), (10, 10), (10, 7), (10.5, 6), (10, 5)]]), 3857),))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "meet differently"):
+            cartography.SimplifyPolygon(shared, self.out("shx"), "POINT_REMOVE", 2)
+
+    def polygons(self, name, rings):
+        path = os.path.join(self.directory, f"{name}.gpkg")
+        arcpy.management.CreateFeatureclass(self.directory, f"{name}.gpkg", "POLYGON", spatial_reference=3857)
+        with arcpy.da.InsertCursor(path, ["SHAPE@"]) as rows:
+            for ring in rings:
+                rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in ring]), 3857),))
+        return path
+
+    def test_aggregate_polygons_bridges_gaps_narrower_than_the_distance(self):
+        # Squares [0,10]² and [14,24]×[0,10] are 4 apart: at 5 they join (the bridge holds (12, 5)), at 3 they do not.
+        path = self.polygons("sq", [[(0, 0), (10, 0), (10, 10), (0, 10)], [(14, 0), (24, 0), (24, 10), (14, 10)]])
+        joined = cartography.AggregatePolygons(path, self.out("agg5"), 5, out_table=self.out("agg5_t"))
+        with arcpy.da.SearchCursor(joined[0], ["SHAPE@"]) as rows:
+            (shape,), = [tuple(r) for r in rows]
+        self.assertTrue(shape.contains(arcpy.PointGeometry(arcpy.Point(12, 5), 3857)))
+        self.assertGreater(shape.area, 200.0)
+        with arcpy.da.SearchCursor(joined[1], ["OUTPUT_FID", "INPUT_FID"]) as rows:
+            self.assertEqual(sorted(tuple(r) for r in rows), [(1, 1), (1, 2)])
+        apart = cartography.AggregatePolygons(path, self.out("agg3"), 3)
+        self.assertEqual(arcpy.management.GetCount(apart[0])[0], "2")
+        # No self-aggregation: a notch 2 wide in one polygon stays open at 5 — 100 − 2·6 = 88.
+        notch = self.polygons("notch", [[(0, 0), (10, 0), (10, 10), (6, 10), (6, 4), (4, 4), (4, 10), (0, 10)]])
+        kept = cartography.AggregatePolygons(notch, self.out("agg_n"), 5)
+        with arcpy.da.SearchCursor(kept[0], ["SHAPE@AREA"]) as rows:
+            self.assertAlmostEqual(next(rows)[0], 88.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "ORTHOGONAL"):
+            cartography.AggregatePolygons(path, self.out("o"), 5, 0, 0, "ORTHOGONAL")
 
 
 if __name__ == "__main__":

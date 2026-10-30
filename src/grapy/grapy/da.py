@@ -73,6 +73,8 @@ def _shape_from(value):
 # The GeoPackages an Editor holds open, by normalised file path: a cursor on one of them works inside the Editor's
 # transaction instead of opening its own connection.
 _EDITING: dict = {}
+# The version each of those Editors edits (ADR-227): cursors in its session read and write that version.
+_EDITING_VERSION: dict = {}
 
 
 def _file_key(path):
@@ -110,6 +112,49 @@ class _Cursor:
                                    f"{self._joined.names[0] if self._joined.names else 'table.field'}.") from None
         else:
             self.fields = tuple(_columns(field_names, self._described, self._oid))
+        self._versioned = self._version_of(layer)
+        if self._versioned is not None and self._joined is not None:
+            raise NotBuiltError("arcpy.da: a cursor on a joined layer of a versioned class is not built in grapy.")
+
+    def _version_of(self, layer):
+        """(branch, base moment, until moment) when this cursor reads a named version or a historical moment of a
+        registered class (ADR-227), else None: a layer's version or moment (management.ChangeVersion), or the version
+        of the Editor whose session this cursor joins."""
+        from . import _versions
+        kind = _versions.kind(self._connection, self._table)
+        if kind is None:
+            return None
+        name = getattr(layer, "version", None) if layer is not None else None
+        until = getattr(layer, "moment", None) if layer is not None else None
+        if name is None and self._shared:
+            file = self._connection.execute("pragma database_list").fetchone()[2]
+            name = _EDITING_VERSION.get(_file_key(file))
+        branch, base = 0, 0
+        if name is not None:
+            _, branch, base = _versions.version(self._connection, name)
+        if branch == 0 and until is None:
+            return None
+        if branch and kind != "branch":
+            raise NotBuiltError(f"arcpy.da: '{self._table}' is archived, not branch versioned; it has no named versions.")
+        return branch, base, until
+
+    def _writable_version(self):
+        if self._versioned[2] is not None:
+            raise RuntimeError(f"arcpy.da: '{self._table}' is read at a historical moment, which cannot be edited.")
+        return self._versioned[0], self._versioned[1]
+
+    def _row_values(self, row):
+        """{column: value} of the fields a write names, the geometry encoded under its column name."""
+        out = {}
+        for field, value in zip(self.fields, row):
+            upper = field.upper()
+            if upper == "OID@":
+                continue
+            if upper.startswith("SHAPE@"):
+                out[self._geometry] = _gpkg.encode(_shape_from(value), self._srid)
+            else:
+                out[field] = value
+        return out
 
     def _select(self):
         out = []
@@ -123,6 +168,10 @@ class _Cursor:
         return ", ".join(out)
 
     def _from(self):
+        if getattr(self, "_versioned", None) is not None:
+            from . import _versions
+            branch, base, until = self._versioned
+            return _versions.state_sql(self._connection, self._table, branch, base, until)
         return self._joined.from_sql if self._joined is not None else f'"{self._table}"'
 
     def _where(self, in_table, where_clause):
@@ -206,6 +255,12 @@ class InsertCursor(_Cursor):
             raise NotBuiltError("arcpy.da.InsertCursor on a joined layer is not built in grapy; insert into its table.")
         if len(row) != len(self.fields):
             raise RuntimeError(f"insertRow takes {len(self.fields)} values, one per field; {len(row)} were given.")
+        if self._versioned is not None:
+            from . import _versions
+            branch, _ = self._writable_version()
+            object_id = _versions.reserve_id(self._connection, self._table)
+            _versions.write(self._connection, self._table, branch, object_id, self._row_values(row))
+            return object_id
         names, values = [], []
         for field, value in zip(self.fields, row):
             upper = field.upper()
@@ -247,6 +302,13 @@ class UpdateCursor(SearchCursor):
 
     def updateRow(self, row):
         oid = self._rows[self._at][0]
+        if self._versioned is not None:
+            from . import _versions
+            branch, base = self._writable_version()
+            current = _versions.current_row(self._connection, self._table, branch, base, oid)
+            current.update(self._row_values(row))
+            _versions.write(self._connection, self._table, branch, oid, current)
+            return
         names, values = [], []
         for i, (field, value) in enumerate(zip(self.fields, row)):
             upper = field.upper()
@@ -270,6 +332,16 @@ class UpdateCursor(SearchCursor):
         self._connection.execute(f'update "{self._table}" set {assignments} where "{self._oid}" = ?', [*values, oid])
 
     def deleteRow(self):
+        if self._versioned is not None:
+            from . import _versions
+            branch, base = self._writable_version()
+            oid = self._rows[self._at][0]
+            current = _versions.current_row(self._connection, self._table, branch, base, oid)
+            _versions.write(self._connection, self._table, branch, oid, current, deleted=True)
+            return
+        # A composite relationship class deletes the row's destination rows with it (ADR-225, grapy._relationships).
+        from . import _relationships
+        _relationships.cascade(self._connection, self._table, [self._rows[self._at][0]])
         self._connection.execute(f'delete from "{self._table}" where "{self._oid}" = ?', (self._rows[self._at][0],))
 
 
@@ -689,21 +761,28 @@ class Editor:
     savepoint (stopOperation keeps it, abortOperation rolls it back), stopEditing commits or discards the session.
     The da cursors opened on that GeoPackage while it is being edited work inside the session.
 
-    A GeoPackage is not versioned, so undoOperation and redoOperation are refused — "nonversioned edit sessions do
-    not support undo and redo operations" — and so is a version. A folder is refused: an edit session edits one
+    With ``version``, the session edits that branch version (ADR-227): the da cursors in it read and write the
+    version's state of every registered class. undoOperation and redoOperation are refused — grapy keeps no undo
+    stack, and "nonversioned edit sessions do not support undo and redo operations". A folder is refused: an edit
+    session edits one
     database. While the session holds its write lock, a tool that opens the GeoPackage itself (to add a field, say)
     waits for it and then fails, as a schema change needs a lock arcpy would not grant either."""
 
     def __init__(self, workspace, multiuser_mode=True, version=None):
         import os
-        if version not in (None, ""):
-            raise NotBuiltError("arcpy.da.Editor: a version is not built in grapy; a GeoPackage is not versioned.")
         path = getattr(workspace, "catalogPath", workspace)
         path = os.fspath(path)
         if ".gpkg" not in path.lower():
             raise NotBuiltError(f"arcpy.da.Editor: '{path}' is not a GeoPackage; only a GeoPackage is edited in grapy.")
         self.workspacePath = _gpkg.split(path)[0]
         self.version = None
+        if version not in (None, ""):
+            from . import _versions
+            connection = _gpkg.connect(self.workspacePath)
+            try:
+                self.version = _versions.version(connection, version)[0]
+            finally:
+                connection.close()
         self._connection = None
         self._operation = False
 
@@ -722,6 +801,8 @@ class Editor:
         self._connection.execute("pragma foreign_keys = on")
         self._connection.execute("begin")
         _EDITING[key] = self._connection
+        if self.version is not None:
+            _EDITING_VERSION[key] = self.version
 
     def startOperation(self):
         if self._connection is None:
@@ -755,16 +836,17 @@ class Editor:
             self._connection.execute("commit" if save_changes else "rollback")
         finally:
             _EDITING.pop(_file_key(self.workspacePath), None)
+            _EDITING_VERSION.pop(_file_key(self.workspacePath), None)
             self._connection.close()
             self._connection = None
 
     def undoOperation(self):
-        raise NotBuiltError("arcpy.da.Editor.undoOperation: a GeoPackage is not versioned, and nonversioned edit sessions "
-                            "do not support undo, as documented.")
+        raise NotBuiltError("arcpy.da.Editor.undoOperation is not built in grapy: it keeps no undo stack, and nonversioned "
+                            "edit sessions do not support undo, as documented.")
 
     def redoOperation(self):
-        raise NotBuiltError("arcpy.da.Editor.redoOperation: a GeoPackage is not versioned, and nonversioned edit sessions "
-                            "do not support redo, as documented.")
+        raise NotBuiltError("arcpy.da.Editor.redoOperation is not built in grapy: it keeps no undo stack, and nonversioned "
+                            "edit sessions do not support redo, as documented.")
 
     def __enter__(self):
         self.startEditing()
@@ -781,14 +863,62 @@ class Editor:
         return False
 
 
-_NO_MODEL = "a GeoPackage holds no versions, replicas, subtypes, contingent values, relationship classes or database " \
-            "sequences (ADR-224 group 2)"
+_NO_MODEL = "a GeoPackage holds no replicas, subtypes, contingent values, relationship classes or database sequences " \
+            "(ADR-224 group 2)"
 _REFUSED = {name: _NO_MODEL for name in (
-    "ListReplicas", "Replica", "SyncReplica", "ListVersions", "Version", "ListSubtypes", "ContingentFieldValue",
-    "ContingentValue", "ListContingentValues", "DatabaseSequence", "ListDatabaseSequences", "ListFieldConflictFilters",
+    "ListReplicas", "Replica", "SyncReplica", "ListSubtypes", "ContingentFieldValue",
+    "ContingentValue", "ListContingentValues", "DatabaseSequence", "ListDatabaseSequences",
     "SearchRelatedRecords")}
 _REFUSED["TableToArrowTable"] = "pyarrow is not among the wheels a user tool runs with today"
 _REFUSED["CreateParquetCache"] = "pyarrow is not among the wheels a user tool runs with today"
+
+
+# ---- versions (ADR-227) -------------------------------------------------------------------------------------------
+
+
+class Version:
+    """A version, as ListVersions answers it. INFERRED: ``isOwner`` is True — a user tool runs as one user, the owner of
+    what it creates — and dates are UTC datetimes."""
+
+    def __init__(self, name, parentVersionName, description, access, created, lastModified, isOwner=True):
+        self.name, self.parentVersionName, self.description, self.access = name, parentVersionName, description, access
+        self.created, self.lastModified, self.isOwner = created, lastModified, isOwner
+        self.ancestors, self.children = [], []
+
+    def __repr__(self):
+        return f"<Version {self.name}>"
+
+
+def _when(text):
+    import datetime
+    return datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%f") if text else None
+
+
+def ListVersions(sde_workspace=None):
+    """The versions of a GeoPackage workspace (ADR-227): DEFAULT and the branch versions made off it. Each version's
+    ancestors and children are Version objects too, as documented."""
+    import os
+    from . import _versions
+    from ._runtime import env
+    workspace = os.fspath(sde_workspace if sde_workspace not in (None, "") else env.workspace)
+    file, _ = _gpkg.split(workspace)
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        connection.commit()
+        rows = connection.execute(f"select name, parent, description, access, created, modified from "
+                                  f"{_versions.VERSIONS} order by branch_id").fetchall()
+    finally:
+        connection.close()
+    made = {r[0]: Version(r[0], r[1], r[2] or "", r[3] or "Public", _when(r[4]), _when(r[5])) for r in rows}
+    for version in made.values():
+        parent = made.get(version.parentVersionName)
+        while parent is not None:
+            version.ancestors.append(parent)
+            parent = made.get(parent.parentVersionName)
+        if version.parentVersionName in made:
+            made[version.parentVersionName].children.append(version)
+    return list(made.values())
 
 
 def __getattr__(name):
@@ -796,3 +926,79 @@ def __getattr__(name):
         raise AttributeError(name)
     why = _REFUSED.get(name)
     raise NotBuiltError(f"arcpy.da.{name} is not built in grapy" + (f" — {why}." if why else " yet."))
+
+
+# ---- relationship classes (ADR-225) -------------------------------------------------------------------------------
+
+
+class SearchRelatedRecords:
+    """Reads related rows through a relationship class (``<file>.gpkg/<class>``), as documented: for each related
+    pair, a tuple of the origin row and the destination row, each holding ``origin_fields`` and ``destination_fields``
+    (fields or tokens); ``oids_to_search`` (``"*"`` for all) are origin object ids, or with ``backward`` destination
+    ones; an id with no related rows yields nothing. INFERRED: a side whose fields are not asked for is an empty
+    tuple; pairs come in order of origin and then destination object id."""
+
+    def __init__(self, relationship_class, oids_to_search="*", origin_fields=None, destination_fields=None, backward=False):
+        import os
+        from . import _relationships
+        if origin_fields is None and destination_fields is None:
+            raise ValueError("SearchRelatedRecords needs origin_fields or destination_fields.")
+        file, name = _gpkg.split(os.fspath(relationship_class) if isinstance(relationship_class, os.PathLike)
+                                 else str(relationship_class))
+        connection = _gpkg.connect(file)
+        try:
+            found = _relationships.classes(connection, name=name)
+            if not found:
+                raise RuntimeError(f"'{relationship_class}' is not a relationship class.")
+            rc = found[0]
+            pairs = _relationships.pairs(connection, rc)
+        finally:
+            connection.close()
+        if oids_to_search not in (None, "*", ["*"]):
+            wanted = {int(o) for o in (oids_to_search if isinstance(oids_to_search, (list, tuple, set)) else [oids_to_search])}
+            pairs = [p for p in pairs if (p[1] if backward else p[0]) in wanted]
+
+        def rows(table, fields):
+            if fields is None:
+                return None, []
+            listed = [fields] if isinstance(fields, str) else list(fields)
+            with SearchCursor(f"{file}/{table}", ["OID@", *listed]) as read:
+                return {r[0]: tuple(r[1:]) for r in read}, listed
+
+        self._origin, _ = rows(rc["origin"], origin_fields)
+        self._destination, _ = rows(rc["destination"], destination_fields)
+        self._pairs = pairs
+        self._at = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._at >= len(self._pairs):
+            raise StopIteration
+        origin, destination = self._pairs[self._at]
+        self._at += 1
+        return (self._origin[origin] if self._origin is not None else (),
+                self._destination[destination] if self._destination is not None else ())
+
+    def next(self):
+        return self.__next__()
+
+    def reset(self):
+        self._at = 0
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return False
+
+
+def ListFieldConflictFilters(table):
+    """The fields of a versioned class with field conflict filters (management.AddFieldConflictFilter), ADR-227."""
+    from . import _versions
+    connection, name = _gpkg.table_of(table)
+    try:
+        return _versions.filters(connection, name)
+    finally:
+        connection.close()

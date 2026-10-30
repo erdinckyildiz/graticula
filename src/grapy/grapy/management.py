@@ -131,6 +131,7 @@ def Delete(in_data, data_type=None):
             os.remove(file)
     else:
         connection = _gpkg.connect(file)
+        _drop_models(connection, table)
         connection.execute(f'drop table if exists "{table}"')
         connection.execute("delete from gpkg_contents where table_name = ?", (table,))
         connection.execute("delete from gpkg_geometry_columns where table_name = ?", (table,))
@@ -539,10 +540,15 @@ def AddFields(in_table, field_description, *_, **__):
 
 
 def DeleteFeatures(in_features):
-    """Every row deleted — of a layer, only its selected rows."""
+    """Every row deleted — of a layer, only its selected rows; through a composite relationship class, their
+    destination rows too (ADR-225)."""
+    from . import _relationships
     path, where = _source(in_features)
     connection, table = _gpkg.table_of(path)
     try:
+        oid = _gpkg.oid_column(connection, table)
+        doomed = [r[0] for r in connection.execute(f'select "{oid}" from "{table}"' + (f" where {where}" if where else ""))]
+        _relationships.cascade(connection, table, doomed)
         connection.execute(f'delete from "{table}"' + (f" where {where}" if where else ""))
         connection.commit()
     finally:
@@ -1379,10 +1385,14 @@ def CreateTable(out_path, out_name, template=None, config_keyword=None, out_alia
 
 
 def TruncateTable(in_table):
-    """Every row of a table or feature class deleted; its schema stays."""
+    """Every row of a table or feature class deleted; its schema stays. Composite relationship classes delete their
+    destination rows too (ADR-225)."""
+    from . import _relationships
     path = _plain("TruncateTable", in_table)
     connection, table = _gpkg.table_of(path)
     try:
+        oid = _gpkg.oid_column(connection, table)
+        _relationships.cascade(connection, table, [r[0] for r in connection.execute(f'select "{oid}" from "{table}"')])
         connection.execute(f'delete from "{table}"')
         connection.commit()
     finally:
@@ -2288,7 +2298,9 @@ def DeleteIdentical(in_dataset, fields, xy_tolerance=None, z_tolerance=None, out
     path, _ = _source(in_dataset)
     connection, table = _gpkg.table_of(path)
     try:
+        from . import _relationships
         oid_name = _gpkg.oid_column(connection, table)
+        _relationships.cascade(connection, table, doomed)
         connection.executemany(f'delete from "{table}" where "{oid_name}" = ?', [(o,) for o in doomed])
         connection.commit()
     finally:
@@ -2583,12 +2595,16 @@ def Copy(in_data, out_data, data_type=None, associated_data=None):
     _gpkg.create(target, shape if shape != "Geometry" else "Geometry", srid, columns)
     out_connection, new_table = _gpkg.table_of(target)
     try:
-        out_connection.execute("attach database ? as source", (file,))
+        same = os.path.normcase(os.path.abspath(file)) == os.path.normcase(os.path.abspath(out_file))
+        if not same:
+            out_connection.execute("attach database ? as source", (file,))
         names = ", ".join(f'"{c.name}"' for c in columns)
+        origin = f'"{table}"' if same else f'source."{table}"'
         out_connection.execute(f'insert into "{new_table}" ({_gpkg.OID}, {_gpkg.GEOMETRY}{", " + names if names else ""}) '
-                               f'select "{oid}", "{geometry}"{", " + names if names else ""} from source."{table}"')
+                               f'select "{oid}", "{geometry}"{", " + names if names else ""} from {origin}')
         out_connection.commit()
-        out_connection.execute("detach database source")
+        if not same:
+            out_connection.execute("detach database source")
     except sqlite3.Error as error:
         raise ExecuteError(f"ERROR 000732: {error}") from error
     finally:
@@ -4197,6 +4213,28 @@ def AlterCodedValueDescription(in_workspace, domain_name, code, new_description)
     return Result(_text(in_workspace))
 
 
+def _drop_models(connection, table):
+    """INFERRED: a table that is deleted takes with it the relationship classes it takes part in (their relationship
+    tables and Related Tables mappings) and its place, rules and errors in any topology (ADR-225)."""
+    from . import _relationships
+    for rc in _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table):
+        for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
+            if extra:
+                connection.execute(f'drop table if exists "{extra}"')
+                connection.execute("delete from gpkg_contents where table_name = ?", (extra,))
+                connection.execute("delete from gpkg_geometry_columns where table_name = ?", (extra,))
+        connection.execute("delete from gpkgext_relations where mapping_table_name = ?", (f'{rc["name"]}_rte',))
+        connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (rc["name"],))
+        connection.execute("delete from grapy_relationship_class where name = ?", (rc["name"],))
+    if connection.execute("select 1 from sqlite_master where name = 'grapy_topology_class'").fetchone():
+        rules = [r[0] for r in connection.execute("select rule_id from grapy_topology_rule where origin = ? or destination = ?",
+                                                  (table, table))]
+        for rule_id in rules:
+            connection.execute("delete from grapy_topology_error where rule_id = ?", (rule_id,))
+            connection.execute("delete from grapy_topology_rule where rule_id = ?", (rule_id,))
+        connection.execute("delete from grapy_topology_class where class_name = ?", (table,))
+
+
 def DeleteMultiple(in_data):
     """Each item deleted, as Delete deletes one: ``[[data, {type}], …]`` or ``"a;b"``; the output is ``true``."""
     kinds = ("FEATURECLASS", "FEATUREDATASET", "MOSAICDATASET", "PARCELFABRIC", "RELATIONSHIPCLASS", "TOPOLOGY")
@@ -4302,6 +4340,465 @@ def BatchUpdateFields(in_table, out_table, field_definition_table, script_file=N
     return Result(out)
 
 
+# ---- topology (ADR-225) -------------------------------------------------------------------------------------------------
+
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+def _default_tolerance(srid):
+    """INFERRED: a geodatabase's default xy tolerance, 0.001 m in the data's units, or 8.98e-9° on geographic data."""
+    from ._reference import SpatialReference
+    if srid > 0 and SpatialReference(srid).type == "Geographic":
+        return 8.983152841195214e-09
+    return 0.001 / (_per_unit(srid) or 1.0)
+
+
+def _topology(in_topology):
+    """(connection, file, dataset, name, row) of an existing topology; the caller closes the connection."""
+    from . import _topology as topo
+    from ._runtime import ExecuteError
+    file, dataset, name = topo.locate(_text(in_topology))
+    connection = _gpkg.connect(file)
+    topo.ensure(connection)
+    row = connection.execute("select dataset, cluster_tolerance from grapy_topology where name = ?", (name,)).fetchone()
+    if row is None or row[0] != dataset:
+        connection.close()
+        raise ExecuteError(f"ERROR 000732: there is no topology '{name}' in the feature dataset '{dataset}'.")
+    return connection, file, dataset, name, row
+
+
+def _class_in(file, dataset, in_featureclass, tool):
+    from ._runtime import ExecuteError
+    path = _plain(tool, in_featureclass)
+    their_file, table = _gpkg.split(path)
+    if os.path.normcase(os.path.abspath(their_file)) != os.path.normcase(os.path.abspath(file)) or not table \
+            or not table.startswith(dataset + "/"):
+        raise ExecuteError(f"ERROR 000732: '{in_featureclass}' is not in the topology's feature dataset '{dataset}'.")
+    return table
+
+
+def CreateTopology(in_dataset, out_name, in_cluster_tolerance=None):
+    """A new, empty topology in a feature dataset, its name unique in the workspace, as documented. A cluster tolerance
+    of 0 or none is the default xy tolerance (see ``_default_tolerance``). The topology is kept in grapy's tables in the
+    GeoPackage (``grapy._topology``, ADR-225)."""
+    from . import _topology as topo
+    from ._runtime import ExecuteError
+    file, dataset = _gpkg.split(_text(in_dataset))
+    srid = _feature_dataset_of(f"{file}/{dataset}/x") if dataset else None
+    if srid is None:
+        raise ExecuteError("ERROR 000732: a topology is created within a feature dataset (CreateFeatureDataset).")
+    tolerance = float(in_cluster_tolerance) if _given(in_cluster_tolerance) else 0.0
+    connection = _gpkg.connect(file)
+    try:
+        topo.ensure(connection)
+        if connection.execute("select 1 from grapy_topology where name = ?", (str(out_name),)).fetchone():
+            raise ExecuteError(f"ERROR 000258: a topology named '{out_name}' already exists in the workspace.")
+        connection.execute("insert into grapy_topology values (?, ?, ?)",
+                           (str(out_name), dataset, tolerance if tolerance > 0 else _default_tolerance(srid)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset).rstrip("/\\") + "/" + str(out_name))
+
+
+def SetClusterTolerance(in_topology, cluster_tolerance):
+    """A topology's cluster tolerance changed; 0 gives the default, as documented."""
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        tolerance = float(cluster_tolerance or 0)
+        if tolerance <= 0:
+            tolerance = _default_tolerance(_feature_dataset_of(f"{file}/{dataset}/x") or 0)
+        connection.execute("update grapy_topology set cluster_tolerance = ? where name = ?", (tolerance, name))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def AddFeatureClassToTopology(in_topology, in_featureclass, xy_rank=1, z_rank=1):
+    """A feature class of the topology's feature dataset added, with its xy and z ranks — 1 the most accurate, up to 50,
+    as documented. INFERRED: the z rank is kept though grapy's shapes are 2D."""
+    from ._runtime import ExecuteError
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        table = _class_in(file, dataset, in_featureclass, "AddFeatureClassToTopology")
+        for rank in (xy_rank, z_rank):
+            if not 1 <= int(rank) <= 50:
+                raise ExecuteError("ERROR 000800: a rank is from 1 to 50.")
+        if connection.execute("select 1 from grapy_topology_class where topology = ? and class_name = ?", (name, table)).fetchone():
+            raise ExecuteError(f"ERROR 001029: '{table}' is in the topology already.")
+        connection.execute("insert into grapy_topology_class (topology, class_name, xy_rank, z_rank) values (?, ?, ?, ?)",
+                           (name, table, int(xy_rank), int(z_rank)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def RemoveFeatureClassFromTopology(in_topology, in_featureclass):
+    """A feature class taken out of a topology, with every rule it takes part in, as documented, and their errors."""
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        table = _class_in(file, dataset, in_featureclass, "RemoveFeatureClassFromTopology")
+        rules = [r[0] for r in connection.execute("select rule_id from grapy_topology_rule where topology = ? and "
+                                                  "(origin = ? or destination = ?)", (name, table, table))]
+        for rule_id in rules:
+            connection.execute("delete from grapy_topology_error where rule_id = ?", (rule_id,))
+            connection.execute("delete from grapy_topology_rule where rule_id = ?", (rule_id,))
+        connection.execute("delete from grapy_topology_class where topology = ? and class_name = ?", (name, table))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def _class_kind(file, table):
+    return {"Polygon": "area", "Polyline": "line", "Point": "point", "Multipoint": "point"}.get(_schema(f"{file}/{table}")[1])
+
+
+def AddRuleToTopology(in_topology, rule_type, in_featureclass, subtype=None, in_featureclass2=None, subtype2=None):
+    """A rule of the documented list added between the topology's classes, of the shape types its name gives. The same
+    rule twice is an error (INFERRED). Subtypes are refused: grapy holds none (ADR-224 group 2)."""
+    from . import _topology as topo
+    from ._runtime import ExecuteError
+    if _given(subtype) or _given(subtype2):
+        raise NotBuiltError("arcpy.management.AddRuleToTopology: subtypes need a data model this server does not hold "
+                            "yet (ADR-224 group 2).")
+    name_found, entry = topo.rule(rule_type)
+    if entry is None:
+        raise ExecuteError(f"ERROR 000800: '{rule_type}' is not a topology rule.")
+    kinds = entry[0]
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        origin = _class_in(file, dataset, in_featureclass, "AddRuleToTopology")
+        destination = _class_in(file, dataset, in_featureclass2, "AddRuleToTopology") if len(kinds) == 2 else None
+        if len(kinds) == 2 and not _given(in_featureclass2):
+            raise ExecuteError(f"ERROR 000735: '{name_found}' needs a second feature class.")
+        for table in [t for t in (origin, destination) if t]:
+            if not connection.execute("select 1 from grapy_topology_class where topology = ? and class_name = ?",
+                                      (name, table)).fetchone():
+                raise ExecuteError(f"ERROR 001029: '{table}' is not in the topology.")
+        for table, kind in zip([origin, destination], kinds):
+            if _class_kind(file, table) != kind:
+                raise ExecuteError(f"ERROR 000800: '{name_found}' takes {kind} features; '{table}' holds others.")
+        if connection.execute("select 1 from grapy_topology_rule where topology = ? and rule_type = ? and origin = ? and "
+                              "destination is ?", (name, name_found, origin, destination)).fetchone():
+            raise ExecuteError(f"ERROR 001029: the rule '{name_found}' is in the topology already.")
+        connection.execute("insert into grapy_topology_rule (topology, rule_type, origin, destination) values (?, ?, ?, ?)",
+                           (name, name_found, origin, destination))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def RemoveRuleFromTopology(in_topology, in_rule):
+    """A rule removed, named as documented: its name and the object-class id of its class, or of both classes joined
+    by a hyphen — ``"Must Not Have Dangles (21)"``, ``"Must Be Properly Inside (78-79)"`` — the ids being the
+    ``class_id`` of ``grapy_topology_class``. Its errors go with it."""
+    import re
+    from ._runtime import ExecuteError
+    match = re.fullmatch(r"\s*(.+?)\s*\((\d+)(?:-(\d+))?\)\s*", str(in_rule))
+    if not match:
+        raise ExecuteError(f"ERROR 000800: '{in_rule}' is not a rule name with its class ids in parentheses.")
+    label, first, second = match.group(1).lower(), int(match.group(2)), match.group(3)
+    connection, _, _, name, _ = _topology(in_topology)
+    try:
+        ids = {r[1]: r[0] for r in connection.execute("select class_id, class_name from grapy_topology_class where "
+                                                      "topology = ?", (name,))}
+        found = None
+        for rule_id, rule_type, origin, destination in connection.execute(
+                "select rule_id, rule_type, origin, destination from grapy_topology_rule where topology = ?", (name,)):
+            from ._topology import description
+            if description(rule_type).lower() == label and ids.get(origin) == first and \
+                    (second is None and destination is None or second is not None and ids.get(destination) == int(second)):
+                found = rule_id
+        if found is None:
+            raise ExecuteError(f"ERROR 000800: the topology has no rule '{in_rule}'.")
+        connection.execute("delete from grapy_topology_error where rule_id = ?", (found,))
+        connection.execute("delete from grapy_topology_rule where rule_id = ?", (found,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+def _validate_topology(in_topology, visible_extent="Full_Extent"):
+    """The topology's vertices clustered within its cluster tolerance — the equivalent of ADR-225 §5.3, moving a vertex
+    onto the nearest-ranked class's vertex — and then every rule evaluated over the whole topology, the errors replacing
+    the last validation's. ``Visible_Extent`` and the extent environment are refused: a server tool has no map view.
+    Cracking (inserting a shared vertex where features cross) is not done; the rules' predicates do not need it."""
+    from . import _topology as topo, da
+    from ._runtime import env
+    if str(visible_extent or "Full_Extent").upper() in ("VISIBLE_EXTENT", "TRUE") or env.extent not in (None, "", "DEFAULT", "MAXOF"):
+        raise NotBuiltError("arcpy.management.ValidateTopology over the visible or an environment extent is not built in "
+                            "grapy; a server tool has no map view, and the whole topology is validated.")
+    connection, file, _, name, (_, tolerance) = _topology(in_topology)
+    try:
+        members = connection.execute("select class_name, xy_rank from grapy_topology_class where topology = ? "
+                                     "order by class_id", (name,)).fetchall()
+        rules = connection.execute("select rule_id, rule_type, origin, destination from grapy_topology_rule where "
+                                   "topology = ?", (name,)).fetchall()
+        srid = _schema(f"{file}/{members[0][0]}")[2] if members else 0
+    finally:
+        connection.close()
+    features = {}
+    for table, _ in members:
+        with da.SearchCursor(f"{file}/{table}", ["OID@", "SHAPE@"]) as rows:
+            features[table] = [(oid, shape._shape) for oid, shape in rows if shape is not None and not shape._shape.is_empty]
+    moved = topo.cluster([(rank, features[table]) for table, rank in members], tolerance)
+    for index, (table, _) in enumerate(members):
+        changed = {oid: shape for (i, oid), shape in moved.items() if i == index}
+        if not changed:
+            continue
+        with da.UpdateCursor(f"{file}/{table}", ["OID@", "SHAPE@"]) as rows:
+            for oid, _ in rows:
+                if oid in changed:
+                    rows.updateRow([oid, changed[oid]])
+        features[table] = [(oid, changed.get(oid, shape)) for oid, shape in features[table]]
+    connection = _gpkg.connect(file)
+    try:
+        connection.execute("delete from grapy_topology_error where topology = ?", (name,))
+        for rule_id, rule_type, origin, destination in rules:
+            for shape, origin_oid, destination_oid in topo.evaluate(rule_type, features[origin],
+                                                                    features[destination] if destination else []):
+                connection.execute(
+                    "insert into grapy_topology_error (topology, rule_id, kind, origin_class, origin_oid, destination_class, "
+                    "destination_oid, rule_type, description, is_exception, shape) values (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                    (name, rule_id, topo.kind_of(shape), origin.rsplit("/", 1)[1],
+                     int(origin_oid), (destination or origin).rsplit("/", 1)[1] if destination_oid else "",
+                     int(destination_oid), topo.rule(rule_type)[1][1], topo.description(rule_type),
+                     _gpkg.encode(shape, srid)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_topology))
+
+
+@_equivalent("vertices within the cluster tolerance snap to the best-ranked class's vertex (lowest xy rank, then class "
+             "order, then object id)", "ADR-225 §5.3")
+def ValidateTopology(in_topology, visible_extent="Full_Extent"):
+    """EQUIVALENT: clustering within the cluster tolerance snaps a vertex to the vertex of the best-ranked class within
+    the tolerance (lowest xy rank, then class order, then object id), as ADR-225 §5.3 decides — Esri describes its
+    cracking and clustering only in words. Every rule is then evaluated as the AddRuleToTopology page defines it; see
+    ``_validate_topology``."""
+    return _validate_topology(in_topology, visible_extent)
+
+
+def ExportTopologyErrors(in_topology, out_path=None, out_basename=None):
+    """The last validation's errors as three feature classes, always made even when empty — ``<basename>PointsErrors``,
+    ``<basename>LineErrors`` and ``<basename>PolygonErrors`` — with ``OriginObjectClassName``, ``OriginObjectID``,
+    ``DestinationObjectClassName``, ``DestinationObjectID``, ``RuleType``, ``RuleDescription`` and ``IsException``, as
+    documented; ``out_path`` defaults to the topology's workspace and ``out_basename`` to its name. INFERRED: RuleType
+    holds the esriTopologyRuleType name, RuleDescription the rule's name without its shape types, and a rule within one
+    class has no destination class name and destination id 0."""
+    from . import da
+    connection, file, dataset, name, _ = _topology(in_topology)
+    try:
+        members = [r[0] for r in connection.execute("select class_name from grapy_topology_class where topology = ?", (name,))]
+        errors = connection.execute("select kind, origin_class, origin_oid, destination_class, destination_oid, rule_type, "
+                                    "description, is_exception, shape from grapy_topology_error where topology = ? "
+                                    "order by error_id", (name,)).fetchall()
+    finally:
+        connection.close()
+    srid = _schema(f"{file}/{members[0]}")[2] if members else (_feature_dataset_of(f"{file}/{dataset}/x") or 0)
+    base = str(out_basename) if _given(out_basename) else name
+    where = _text(out_path) if _given(out_path) else file
+    fields = [_gpkg.Column("OriginObjectClassName", "String"), _gpkg.Column("OriginObjectID", "Integer"),
+              _gpkg.Column("DestinationObjectClassName", "String"), _gpkg.Column("DestinationObjectID", "Integer"),
+              _gpkg.Column("RuleType", "String"), _gpkg.Column("RuleDescription", "String"),
+              _gpkg.Column("IsException", "Integer")]
+    outputs = []
+    for suffix, kind, shape in (("PointsErrors", "point", "Point"), ("LineErrors", "line", "Polyline"),
+                                ("PolygonErrors", "area", "Polygon")):
+        out = f"{where}/{base}{suffix}"
+        _gpkg.create(out, shape, srid, fields)
+        with da.InsertCursor(out, [*[f.name for f in fields], "SHAPE@"]) as written:
+            for row in errors:
+                if row[0] == kind:
+                    written.insertRow((*row[1:8], _gpkg.decode(row[8])))
+        outputs.append(out)
+    return Result(*outputs)
+
+
+# ---- relationship classes (ADR-225) -------------------------------------------------------------------------------------
+
+def _relationship_path(value):
+    from ._runtime import ExecuteError
+    file, table = _gpkg.split(_text(value))
+    if not table:
+        raise ExecuteError(f"ERROR 000732: write a relationship class as <file>.gpkg/<name>, not '{value}'.")
+    return file, table
+
+
+def _same_file(*paths):
+    from ._runtime import ExecuteError
+    files = {os.path.normcase(os.path.abspath(_gpkg.split(p)[0])) for p in paths}
+    if len(files) != 1:
+        raise ExecuteError("ERROR 000732: a relationship class relates tables of one workspace.")
+
+
+def _make_relationship(origin_table, destination_table, out_relationship_class, relationship_type, forward_label,
+                       backward_label, message_direction, cardinality, attributed, origin_primary_key, origin_foreign_key,
+                       destination_primary_key, destination_foreign_key, relationship_rows=None, attribute_fields=()):
+    from . import _relationships as rel
+    from ._runtime import ExecuteError
+    origin_path, destination_path = _plain("CreateRelationshipClass", origin_table), _plain("CreateRelationshipClass", destination_table)
+    _same_file(origin_path, destination_path, _text(out_relationship_class))
+    file, name = _relationship_path(out_relationship_class)
+    origin, destination = _gpkg.split(origin_path)[1] or _stem_of(origin_path), _gpkg.split(destination_path)[1] or _stem_of(destination_path)
+    kind = str(relationship_type or "SIMPLE").upper()
+    cardinality = str(cardinality or "ONE_TO_ONE").upper()
+    with_table = cardinality == "MANY_TO_MANY" or str(attributed or "NONE").upper() == "ATTRIBUTED" or relationship_rows is not None
+    if kind not in ("SIMPLE", "COMPOSITE") or cardinality not in ("ONE_TO_ONE", "ONE_TO_MANY", "MANY_TO_MANY"):
+        raise ExecuteError("ERROR 000800: relationship_type is SIMPLE or COMPOSITE; cardinality ONE_TO_ONE, ONE_TO_MANY or "
+                           "MANY_TO_MANY.")
+    if kind == "COMPOSITE" and with_table:
+        raise NotBuiltError("arcpy.management.CreateRelationshipClass: a composite class kept in a relationship table is "
+                            "not built in grapy; the page says composite relationships are one to many.")
+    origin_columns = {c.name.lower(): c for c in _schema(origin_path)[0]}
+    destination_columns = {c.name.lower(): c for c in _schema(destination_path)[0]}
+    origin_oid, destination_oid = _oid_of(origin_path), _oid_of(destination_path)
+
+    def column(columns, oid, key, where):
+        if str(key).lower() == oid.lower():
+            return _gpkg.Column(oid, "Integer")
+        if str(key).lower() not in columns:
+            raise ExecuteError(f"ERROR 000728: the field '{key}' does not exist in {where}.")
+        return columns[str(key).lower()]
+
+    origin_pk = column(origin_columns, origin_oid, origin_primary_key, origin)
+    destination_pk = None
+    if with_table:
+        if not (_given(destination_primary_key) and _given(destination_foreign_key)):
+            raise ExecuteError("ERROR 000735: a many-to-many or attributed class needs destination keys.")
+        destination_pk = column(destination_columns, destination_oid, destination_primary_key, destination)
+    else:
+        column(destination_columns, destination_oid, origin_foreign_key, destination)
+    connection = _gpkg.connect(file)
+    try:
+        rel.ensure(connection)
+        if connection.execute("select 1 from grapy_relationship_class where name = ?", (name,)).fetchone() or \
+                connection.execute("select 1 from gpkg_contents where table_name = ?", (name,)).fetchone():
+            raise ExecuteError(f"ERROR 000258: '{name}' already exists.")
+    finally:
+        connection.close()
+    if with_table:
+        extra = [_gpkg.Column(c.name, c.type) for c in attribute_fields]
+        _gpkg.create(f"{file}/{name}", "Geometry", 0, [_gpkg.Column(str(origin_foreign_key), origin_pk.type),
+                                                       _gpkg.Column(str(destination_foreign_key), destination_pk.type), *extra])
+        if relationship_rows:
+            from . import da
+            with da.InsertCursor(f"{file}/{name}", [str(origin_foreign_key), str(destination_foreign_key),
+                                                     *[c.name for c in extra], "SHAPE@"]) as written:
+                for row in relationship_rows:
+                    written.insertRow((*row, None))
+    connection = _gpkg.connect(file)
+    try:
+        values = (name, origin, destination, kind, forward_label, backward_label,
+                  str(message_direction or "NONE").upper(), cardinality, int(str(attributed or "NONE").upper() == "ATTRIBUTED"),
+                  origin_pk.name, str(origin_foreign_key), destination_pk.name if destination_pk else None,
+                  str(destination_foreign_key) if with_table else None, name if with_table else None)
+        connection.execute("insert into grapy_relationship_class values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", values)
+        rel.write_related_tables(connection, rel.classes(connection, name=name)[0])
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(out_relationship_class))
+
+
+def CreateRelationshipClass(origin_table, destination_table, out_relationship_class, relationship_type="SIMPLE",
+                            forward_label=None, backward_label=None, message_direction="NONE", cardinality="ONE_TO_ONE",
+                            attributed="NONE", origin_primary_key=None, origin_foreign_key=None,
+                            destination_primary_key=None, destination_foreign_key=None):
+    """A relationship class between two tables of one workspace, as documented: SIMPLE or COMPOSITE (deleting an origin
+    row deletes its destination rows, through grapy's delete paths), labels, message direction, cardinality, and keys —
+    the destination's ``origin_foreign_key`` holding the origin's ``origin_primary_key`` for a one-to-one or
+    one-to-many class, or a relationship table for a many-to-many or attributed one. Kept in grapy's tables and in the
+    OGC Related Tables Extension (``grapy._relationships``). INFERRED: the relationship table is named after the class
+    and holds the two foreign keys under the names given; messages are kept but nothing in grapy sends them; a
+    composite class is one to one or one to many, the page saying composites are one to many."""
+    return _make_relationship(origin_table, destination_table, out_relationship_class, relationship_type, forward_label,
+                              backward_label, message_direction, cardinality, attributed, origin_primary_key,
+                              origin_foreign_key, destination_primary_key, destination_foreign_key)
+
+
+def TableToRelationshipClass(origin_table, destination_table, out_relationship_class, relationship_type="SIMPLE",
+                             forward_label=None, backward_label=None, message_direction="NONE", cardinality="ONE_TO_ONE",
+                             relationship_table=None, attribute_fields=None, origin_primary_key=None,
+                             origin_foreign_key=None, destination_primary_key=None, destination_foreign_key=None):
+    """A relationship class made from a table of pairs: each row of ``relationship_table`` relates the origin row whose
+    ``origin_primary_key`` is its ``origin_foreign_key`` to the destination row whose ``destination_primary_key`` is its
+    ``destination_foreign_key``, carrying its ``attribute_fields``; a null key is an error, as documented. The pairs are
+    kept in the class's own relationship table, as CreateRelationshipClass keeps a many-to-many class's."""
+    from . import da
+    from ._runtime import ExecuteError
+    path, where = _source(relationship_table)
+    columns = {c.name.lower(): c for c in _schema(path)[0]}
+    attributes = [columns[f.lower()] for f in _list(attribute_fields)]
+    keys = [columns[str(origin_foreign_key).lower()].name, columns[str(destination_foreign_key).lower()].name]
+    with da.SearchCursor(path, [*keys, *[c.name for c in attributes]], where) as rows:
+        listed = [tuple(r) for r in rows]
+    if any(r[0] is None or r[1] is None for r in listed):
+        raise ExecuteError("ERROR 000800: a relationship table's foreign keys cannot be null.")
+    return _make_relationship(origin_table, destination_table, out_relationship_class, relationship_type, forward_label,
+                              backward_label, message_direction, cardinality, "ATTRIBUTED" if attributes else "NONE",
+                              origin_primary_key, keys[0], destination_primary_key, keys[1], listed, attributes)
+
+
+def AddRuleToRelationshipClass(in_rel_class, origin_subtype=None, origin_minimum=None, origin_maximum=None,
+                               destination_subtype=None, destination_minimum=None, destination_maximum=None):
+    """A rule narrowing the class's cardinality kept with it, as documented. INFERRED: the page does not say when a rule
+    is checked, and no grapy tool checks it; subtypes are refused, grapy holding none (ADR-224 group 2)."""
+    from . import _relationships as rel
+    from ._runtime import ExecuteError
+    if _given(origin_subtype) or _given(destination_subtype):
+        raise NotBuiltError("arcpy.management.AddRuleToRelationshipClass: subtypes need a data model this server does "
+                            "not hold yet (ADR-224 group 2).")
+    file, name = _relationship_path(in_rel_class)
+    connection = _gpkg.connect(file)
+    try:
+        rel.ensure(connection)
+        if not rel.classes(connection, name=name):
+            raise ExecuteError(f"ERROR 000732: there is no relationship class '{name}'.")
+        number = lambda v: int(v) if _given(v) else None  # noqa: E731
+        connection.execute("insert into grapy_relationship_rule (relationship_class, origin_minimum, origin_maximum, "
+                           "destination_minimum, destination_maximum) values (?, ?, ?, ?, ?)",
+                           (name, number(origin_minimum), number(origin_maximum), number(destination_minimum),
+                            number(destination_maximum)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_rel_class))
+
+
+def RemoveRuleFromRelationshipClass(in_rel_class, origin_subtype=None, destination_subtype=None, remove_all="NOT_ALL"):
+    """The class's rule removed — or with ``REMOVE`` every rule, as documented. Subtypes are refused, as for adding."""
+    from . import _relationships as rel
+    if _given(origin_subtype) or _given(destination_subtype):
+        raise NotBuiltError("arcpy.management.RemoveRuleFromRelationshipClass: subtypes need a data model this server "
+                            "does not hold yet (ADR-224 group 2).")
+    file, name = _relationship_path(in_rel_class)
+    connection = _gpkg.connect(file)
+    try:
+        rel.ensure(connection)
+        connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (name,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_rel_class))
+
+
+def _cascade(path, oids):
+    """Composite deletes and relationship-table rows for rows about to be deleted from ``path``."""
+    from . import _relationships as rel
+    connection, table = _gpkg.table_of(path)
+    try:
+        rel.cascade(connection, table, oids)
+        connection.commit()
+    finally:
+        connection.close()
+
+
 # ---- refused by name ----------------------------------------------------------------------------------------------------
 #
 # Every arcpy.management name grapy does not build is refused here with its own reason (ADR-224): a data model this
@@ -4321,9 +4818,6 @@ _GROUP_2_MODELS = {
         "ExportReplicaSchema", "ImportReplicaSchema", "EnableReplicaTracking", "DisableReplicaTracking",
         "ExportAcknowledgementMessage", "ExportDataChangeMessage", "ImportMessage", "ReExportUnacknowledgedMessages",
         "ExtractDataFromGeodatabase"),
-    "geodatabase topology": (
-        "CreateTopology", "AddFeatureClassToTopology", "RemoveFeatureClassFromTopology", "AddRuleToTopology",
-        "RemoveRuleFromTopology", "ValidateTopology", "ExportTopologyErrors", "SetClusterTolerance"),
     "attribute rules": (
         "AddAttributeRule", "AlterAttributeRule", "DeleteAttributeRule", "DisableAttributeRules", "EnableAttributeRules",
         "EvaluateRules", "ExportAttributeRules", "ImportAttributeRules", "ReorderAttributeRule",
@@ -4338,9 +4832,8 @@ _GROUP_2_MODELS = {
         "CreateUnRegisteredFeatureclass", "CreateUnRegisteredTable", "AddIncrementingIDField"),
     "parcel fabrics": ("EnableCOGO", "DisableCOGO"),
     "geodatabase subtypes": ("AddSubtype", "AlterSubtype", "RemoveSubtype", "SetDefaultSubtype", "SetSubtypeField"),
-    "geodatabase relationship classes": (
-        "CreateRelationshipClass", "TableToRelationshipClass", "MigrateRelationshipClass", "AddRuleToRelationshipClass",
-        "RemoveRuleFromRelationshipClass", "SetRelationshipClassSplitPolicy"),
+    "global IDs (MigrateRelationshipClass moves a relationship class's keys to GlobalID fields)": (
+        "MigrateRelationshipClass",),
     "geodatabase attachments": (
         "AddAttachments", "RemoveAttachments", "EnableAttachments", "DisableAttachments", "ExportAttachments",
         "GenerateAttachmentMatchTable", "DowngradeAttachments", "UpgradeAttachments", "GeoTaggedPhotosToPoints",
@@ -4427,6 +4920,8 @@ _REASONS = {
         "AddSpatialIndex", "RemoveSpatialIndex"),
     "makes a layer over a table read live (an event layer) or over a raster; grapy's layers are over feature classes "
     "and tables — XYTableToPoint makes the points": ("MakeXYEventLayer", "MakeRasterLayer"),
+    "sets how ArcGIS Pro's split edit treats a relationship class's related rows; grapy has no split edit": (
+        "SetRelationshipClassSplitPolicy",),
     "converts between Windows time zone names, whose mapping to the IANA zones Python holds Esri does not publish": (
         "ConvertTimeZone",),
     "writes DTED, a military elevation format grapy does not write": ("RasterToDTED",),
@@ -4454,3 +4949,552 @@ def __getattr__(name):
         raise NotBuiltError(message)
 
     return missing
+
+
+# ---- branch versions and archives (ADR-227) ------------------------------------------------------------------------------
+#
+# Held in the GeoPackage the tool works on: see grapy._versions. A registered class keeps DEFAULT's current state in its
+# own table and its history beside it; named versions are branches off DEFAULT. Traditional versioning (delta tables,
+# compress, edits to base), replicas and enterprise administration stay refused above.
+
+def _versioned_tables(tool, in_dataset):
+    """(file, [tables]) of a feature class, table or feature dataset (every class in it)."""
+    path = _plain(tool, in_dataset) if _layers_find(in_dataset) is not None else _text(in_dataset)
+    file, table = _gpkg.split(path)
+    if not os.path.exists(file):
+        raise FileNotFoundError(f"'{file}' does not exist.")
+    connection = _gpkg.connect(file)
+    try:
+        names = [r[0] for r in connection.execute("select table_name from gpkg_contents")]
+        datasets = []
+        if connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone():
+            datasets = [r[0] for r in connection.execute("select name from grapy_feature_datasets")]
+    finally:
+        connection.close()
+    if table is None:
+        if len(names) != 1:
+            raise ValueError(f"arcpy.management.{tool}: '{file}' holds {len(names)} tables; name one.")
+        return file, names
+    if table in datasets:
+        return file, [n for n in names if n.startswith(table + "/")]
+    if table not in names:
+        raise ValueError(f"arcpy.management.{tool}: '{path}' does not exist.")
+    return file, [table]
+
+
+def _layers_find(value):
+    from . import _layers
+    return _layers.find(value)
+
+
+def _version_workspace(value):
+    file, _ = _gpkg.split(_text(value))
+    if not os.path.exists(file):
+        raise FileNotFoundError(f"'{file}' does not exist.")
+    return file
+
+
+def RegisterAsVersioned(in_dataset, edit_to_base=None):
+    """The dataset registered as branch versioned (ADR-227): its history begins, and named versions can edit it. A
+    feature dataset registers every class in it, as documented; an archive-enabled class is refused, as documented —
+    disable archiving first. ``EDITS_TO_BASE`` is traditional versioning's and is refused."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    if str(edit_to_base or "NO_EDITS_TO_BASE").upper() in ("EDITS_TO_BASE", "TRUE"):
+        raise NotBuiltError("arcpy.management.RegisterAsVersioned: EDITS_TO_BASE is traditional versioning's, which is "
+                            "not built in grapy (ADR-227 §5.4).")
+    file, tables = _versioned_tables("RegisterAsVersioned", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        for table in tables:
+            kind = _versions.kind(connection, table)
+            if kind == "archive":
+                raise ExecuteError(f"ERROR 000800: '{table}' is archive enabled; archive-enabled datasets cannot be "
+                                   "registered as versioned.")
+            if kind is None:
+                _versions.register(connection, table, "branch")
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def UnregisterAsVersioned(in_dataset, keep_edit="KEEP_EDIT", compress_default=None):
+    """The dataset no longer versioned: its history dropped; DEFAULT's state stays in the table. With KEEP_EDIT (the
+    default) the tool fails while a named version holds edits of it, as documented; NO_KEEP_EDIT discards them.
+    ``compress_default`` is traditional versioning's and changes nothing here."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file, tables = _versioned_tables("UnregisterAsVersioned", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        for table in tables:
+            if _versions.kind(connection, table) != "branch":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not registered as versioned.")
+            pending = connection.execute(f'select count(*) from "{_versions.history(table)}" where gdb_branch_id <> 0'
+                                         ).fetchone()[0]
+            if pending and str(keep_edit or "KEEP_EDIT").upper() in ("KEEP_EDIT", "TRUE"):
+                raise ExecuteError(f"ERROR 000800: named versions hold {pending} edits of '{table}'; post them, or pass "
+                                   "NO_KEEP_EDIT to discard them.")
+            _versions.unregister(connection, table)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def EnableArchiving(in_dataset):
+    """Archiving on a non-versioned class (ADR-227): every later insert, update and delete is kept with the moment
+    it was made, and a layer set to a historical moment (ChangeVersion) reads the class as it was then. A branch
+    versioned class is archived already, as documented."""
+    from . import _versions
+    file, tables = _versioned_tables("EnableArchiving", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        for table in tables:
+            if _versions.kind(connection, table) is None:
+                _versions.register(connection, table, "archive")
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def DisableArchiving(in_dataset, preserve_history="PRESERVE"):
+    """Archiving off. With PRESERVE (the default) the history is kept as a table named after the class with ``_h``
+    appended, as documented for non-versioned data; DELETE drops it. A branch versioned class is refused: its
+    archive is its versioning (unregister it instead)."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file, tables = _versioned_tables("DisableArchiving", in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        for table in tables:
+            kind = _versions.kind(connection, table)
+            if kind != "archive":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not archive enabled" +
+                                   (" — it is branch versioned." if kind == "branch" else "."))
+            keep = str(preserve_history or "PRESERVE").upper() in ("PRESERVE", "TRUE")
+            _versions.unregister(connection, table, f"{table}_h" if keep else None)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+_ACCESS = {"PRIVATE": "Private", "PUBLIC": "Public", "PROTECTED": "Protected"}
+
+
+def CreateVersion(in_workspace, parent_version, version_name, access_permission="PRIVATE", version_description=None):
+    """A branch version off DEFAULT, seeing DEFAULT as it is now. A branch version's parent is always DEFAULT, so any
+    other parent is refused. INFERRED: the name is kept as given — a fenced user tool has no database user to prefix
+    it with — and the access is recorded but not enforced, since a tool runs as one user."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file = _version_workspace(in_workspace)
+    access = _ACCESS.get(str(access_permission or "PRIVATE").upper())
+    if access is None:
+        raise ValueError("arcpy.management.CreateVersion: access_permission is PRIVATE, PUBLIC or PROTECTED.")
+    if version_description and len(str(version_description)) > 64:
+        raise ExecuteError("ERROR 000800: the description cannot exceed 64 characters.")
+    connection = _gpkg.connect(file)
+    try:
+        parent = _versions.version(connection, parent_version)
+        if parent[1] != 0:
+            raise NotBuiltError("arcpy.management.CreateVersion: a branch version's parent is DEFAULT; a version of a "
+                                "version is traditional versioning's, not built in grapy.")
+        name = str(version_name)
+        if connection.execute(f"select 1 from {_versions.VERSIONS} where name = ?", (name,)).fetchone():
+            raise ExecuteError(f"ERROR 000800: the version '{name}' already exists.")
+        branch = (connection.execute(f"select max(branch_id) from {_versions.VERSIONS}").fetchone()[0] or 0) + 1
+        now = _versions.now_text()
+        connection.execute(f"insert into {_versions.VERSIONS} values (?, ?, ?, ?, ?, '', ?, ?, ?)",
+                           (name, branch, _versions.DEFAULT, version_description or "", access, now, now,
+                            _versions.current_moment(connection)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def AlterVersion(in_workspace, in_version, name=None, description=None, access=None, target_owner=None):
+    """A version renamed, described, its access or owner changed. DEFAULT cannot be renamed."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file = _version_workspace(in_workspace)
+    connection = _gpkg.connect(file)
+    try:
+        current, branch, _ = _versions.version(connection, in_version)
+        if _given(name):
+            if branch == 0:
+                raise ExecuteError("ERROR 000800: DEFAULT cannot be renamed.")
+            connection.execute(f"update {_versions.VERSIONS} set name = ? where branch_id = ?", (str(name), branch))
+        if _given(description):
+            connection.execute(f"update {_versions.VERSIONS} set description = ? where branch_id = ?",
+                               (str(description), branch))
+        if _given(access):
+            value = _ACCESS.get(str(access).upper())
+            if value is None:
+                raise ValueError("arcpy.management.AlterVersion: access is PRIVATE, PUBLIC or PROTECTED.")
+            connection.execute(f"update {_versions.VERSIONS} set access = ? where branch_id = ?", (value, branch))
+        if _given(target_owner):
+            connection.execute(f"update {_versions.VERSIONS} set owner = ? where branch_id = ?", (str(target_owner), branch))
+        connection.execute(f"update {_versions.VERSIONS} set modified = ? where branch_id = ?", (_versions.now_text(), branch))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def DeleteVersion(in_workspace, version_name):
+    """A named version deleted, with its unposted edits. DEFAULT cannot be deleted."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file = _version_workspace(in_workspace)
+    connection = _gpkg.connect(file)
+    try:
+        _, branch, _ = _versions.version(connection, version_name)
+        if branch == 0:
+            raise ExecuteError("ERROR 000800: DEFAULT cannot be deleted.")
+        for table in _versions.registered(connection, "branch"):
+            connection.execute(f'delete from "{_versions.history(table)}" where gdb_branch_id = ?', (branch,))
+        connection.execute(f"delete from {_versions.VERSIONS} where branch_id = ?", (branch,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_workspace))
+
+
+def _rows_of_state(connection, table, branch, base, until=None):
+    """{object id: {column: value}} of a class as a version sees it (or DEFAULT at a moment)."""
+    from . import _versions
+    _, oid, _ = _versions.columns(connection, table)
+    cursor = connection.execute(f"select * from {_versions.state_sql(connection, table, branch, base, until)}")
+    names = [d[0] for d in cursor.description]
+    return {row[names.index(oid)]: {n: v for n, v in zip(names, row) if n != oid} for row in cursor.fetchall()}
+
+
+def _branch_latest(connection, table, branch):
+    """{object id: ({column: value}, deleted)} — each object's latest row on the branch."""
+    from . import _versions
+    names, _, geometry = _versions.columns(connection, table)
+    listed = [geometry, *names]
+    cursor = connection.execute(
+        f'select gdb_objectid, gdb_is_delete, {", ".join(chr(34) + n + chr(34) for n in listed)} from '
+        f'(select *, row_number() over (partition by gdb_objectid order by gdb_from_date desc, gdb_archive_oid desc) '
+        f'as rank from "{_versions.history(table)}" where gdb_branch_id = ?) where rank = 1', (branch,))
+    return {r[0]: (dict(zip(listed, r[2:])), bool(r[1])) for r in cursor.fetchall()}
+
+
+def _reconcile_one(connection, version_name, definition, resolution, abort, post, delete, said):
+    """Reconcile one branch version with DEFAULT, then post it when asked. Conflicts, as the ReconcileVersions page
+    defines them: BY_OBJECT, a row changed (updated or deleted) in both DEFAULT — since the version's base moment — and
+    the version; BY_ATTRIBUTE, the same column of the same row changed in both, a delete conflicting with any change.
+    FAVOR_EDIT_VERSION keeps the version's value, FAVOR_TARGET_VERSION takes DEFAULT's. A field with a conflict filter
+    (AddFieldConflictFilter) never conflicts by attribute, as documented. INFERRED: a column both sides set to the
+    same value is not a conflict; with BY_ATTRIBUTE, changes to different columns of one row are merged; a filtered
+    field changed on both sides keeps the version's value."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    name, branch, base = _versions.version(connection, version_name)
+    if branch == 0:
+        raise ExecuteError("ERROR 000800: DEFAULT is the target; it is not reconciled with itself.")
+    plans, conflicts = [], 0
+    for table in _versions.registered(connection, "branch"):
+        _, oid, _ = _versions.columns(connection, table)
+        filtered = set(_versions.filters(connection, table))
+        edits = _branch_latest(connection, table, branch)
+        if not edits:
+            continue
+        original = _rows_of_state(connection, table, 0, 0, base)
+        target = _rows_of_state(connection, table, 0, 0, None)
+        changed_in_target = {r[0] for r in connection.execute(
+            f'select distinct gdb_objectid from "{_versions.history(table)}" where gdb_branch_id = 0 and gdb_from_date > ?',
+            (base,))}
+        for object_id, (row, deleted) in edits.items():
+            if object_id not in changed_in_target or object_id not in original:
+                continue
+            was, now = original[object_id], target.get(object_id)
+            mine = None if deleted else row
+            if definition == "BY_OBJECT" or mine is None or now is None:
+                if mine == now:
+                    continue
+                conflicts += 1
+                said(f"Conflict on {table} {object_id} (by object).")
+                if resolution == "FAVOR_TARGET_VERSION":
+                    plans.append((table, object_id, now))
+                continue
+            merged, clashed = dict(mine), False
+            for column, value in now.items():
+                if value == was.get(column):
+                    continue
+                if mine.get(column) == was.get(column):
+                    merged[column] = value
+                elif mine.get(column) != value and column in filtered:
+                    continue   # a field conflict filter: not a conflict, and the version's value stands (INFERRED)
+                elif mine.get(column) != value:
+                    clashed = True
+                    conflicts += 1
+                    said(f"Conflict on {table} {object_id}, {column} (by attribute).")
+                    if resolution == "FAVOR_TARGET_VERSION":
+                        merged[column] = value
+            if merged != mine:
+                plans.append((table, object_id, merged))
+            elif clashed:
+                continue
+    if conflicts and abort:
+        raise ExecuteError(f"ERROR 001156: {conflicts} conflicts were found reconciling '{name}', and the reconcile "
+                           "aborts on conflicts.")
+    for table, object_id, values in plans:
+        _versions.write(connection, table, branch, object_id, values or {}, deleted=values is None)
+    connection.execute(f"update {_versions.VERSIONS} set base_moment = ? where branch_id = ?",
+                       (_versions.current_moment(connection), branch))
+    said(f"Reconciled '{name}' with DEFAULT: {conflicts} conflicts.")
+    if post:
+        for table in _versions.registered(connection, "branch"):
+            names, oid, geometry = _versions.columns(connection, table)
+            listed = [geometry, *names]
+            for object_id, (row, deleted) in _branch_latest(connection, table, branch).items():
+                exists = connection.execute(f'select 1 from "{table}" where "{oid}" = ?', (object_id,)).fetchone()
+                if deleted:
+                    if exists:
+                        connection.execute(f'delete from "{table}" where "{oid}" = ?', (object_id,))
+                elif exists:
+                    connection.execute(f'update "{table}" set {", ".join(chr(34) + n + chr(34) + " = ?" for n in listed)} '
+                                       f'where "{oid}" = ?', [row.get(n) for n in listed] + [object_id])
+                else:
+                    connection.execute(f'insert into "{table}" ("{oid}", {", ".join(chr(34) + n + chr(34) for n in listed)})'
+                                       f' values (?, {", ".join("?" for _ in listed)})', [object_id] + [row.get(n) for n in listed])
+            connection.execute(f'delete from "{_versions.history(table)}" where gdb_branch_id = ?', (branch,))
+        connection.execute(f"update {_versions.VERSIONS} set base_moment = ?, modified = ? where branch_id = ?",
+                           (_versions.current_moment(connection), _versions.now_text(), branch))
+        said(f"Posted '{name}' to DEFAULT.")
+        if delete:
+            connection.execute(f"delete from {_versions.VERSIONS} where branch_id = ?", (branch,))
+            said(f"Deleted '{name}'.")
+    return conflicts
+
+
+def ReconcileVersions(input_database, reconcile_mode="ALL_VERSIONS", target_version=None, edit_versions=None,
+                      acquire_locks=None, abort_if_conflicts="NO_ABORT", conflict_definition="BY_OBJECT",
+                      conflict_resolution="FAVOR_EDIT_VERSION", with_post="NO_POST", with_delete="KEEP_VERSION",
+                      out_log=None, proceed_if_conflicts_not_reviewed=None, reconcile_checkout_versions=None):
+    """Branch versions reconciled with DEFAULT — "if the input is a branch workspace, the only valid option for this
+    parameter is to reconcile with the default version" — and posted to it with POST, then deleted with
+    DELETE_VERSION. With no edit versions named, every named version is reconciled. The branch defaults hold: locks are
+    not acquired, and conflicts favour the edit version. See ``_reconcile_one`` for the conflict definitions.
+
+    Refused: BLOCKING_VERSIONS (traditional versioning's compress order). INFERRED: the log file holds the messages,
+    one per line; conflicts are reported in messages, not kept for review.
+    """
+    from . import _versions
+    from ._runtime import AddMessage
+    if str(reconcile_mode or "ALL_VERSIONS").upper() != "ALL_VERSIONS":
+        raise NotBuiltError("arcpy.management.ReconcileVersions: BLOCKING_VERSIONS is traditional versioning's, not built "
+                            "in grapy.")
+    if _given(target_version) and str(target_version).split(".")[-1].upper() != _versions.DEFAULT:
+        raise NotBuiltError("arcpy.management.ReconcileVersions: a branch version is reconciled with DEFAULT only.")
+    definition = str(conflict_definition or "BY_OBJECT").upper()
+    resolution = str(conflict_resolution or "FAVOR_EDIT_VERSION").upper()
+    if definition not in ("BY_OBJECT", "BY_ATTRIBUTE") or resolution not in ("FAVOR_EDIT_VERSION", "FAVOR_TARGET_VERSION"):
+        raise ValueError("arcpy.management.ReconcileVersions: conflict_definition is BY_OBJECT or BY_ATTRIBUTE, "
+                         "conflict_resolution FAVOR_EDIT_VERSION or FAVOR_TARGET_VERSION.")
+    file = _version_workspace(input_database)
+    lines = []
+
+    def said(text):
+        lines.append(text)
+        AddMessage(text)
+
+    connection = _gpkg.connect(file)
+    try:
+        _versions.ensure(connection)
+        names = [v for v in _list(edit_versions) if _given(v)] or [
+            r[0] for r in connection.execute(f"select name from {_versions.VERSIONS} where branch_id <> 0 order by branch_id")]
+        for name in names:
+            _reconcile_one(connection, name, definition, resolution,
+                           str(abort_if_conflicts or "NO_ABORT").upper() in ("ABORT_CONFLICTS", "TRUE"),
+                           str(with_post or "NO_POST").upper() in ("POST", "TRUE"),
+                           str(with_delete or "KEEP_VERSION").upper() in ("DELETE_VERSION", "TRUE"), said)
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+    if _given(out_log):
+        with open(_text(out_log), "w", encoding="utf-8") as written:
+            written.write("\n".join(lines) + "\n")
+    return Result(_text(input_database))
+
+
+def ReconcileVersion(in_workspace, version_name, target_name, conflict_definition="BY_OBJECT",
+                     conflict_resolution="FAVOR_TARGET_VERSION", aquired_locks=None, abort_if_conflicts="NO_ABORT",
+                     post="NO_POST"):
+    """One version reconciled with its target, DEFAULT, and posted with POST — ReconcileVersions for one version, with
+    this tool's own default resolution, FAVOR_TARGET_VERSION."""
+    return ReconcileVersions(in_workspace, "ALL_VERSIONS", target_name, [version_name], aquired_locks,
+                             abort_if_conflicts, conflict_definition, conflict_resolution, post)
+
+
+def ChangeVersion(in_features, version_type, version_name=None, date=None, include_participating=None):
+    """A layer switched to a version (TRANSACTIONAL) or to a historical moment (HISTORICAL, at ``date`` in UTC): the da
+    cursors on the layer, and every tool given it, then read that version or moment. INFERRED: this tool's page could
+    not be read (it answered 404 on 2026-10-30), so its parameters are taken from its arcpy signature; a named
+    historical marker is refused, as grapy keeps no markers; ``include_participating`` changes nothing, as grapy's
+    classes have no controller datasets."""
+    from . import _versions
+    layer = _layers_find(in_features)
+    if layer is None:
+        raise ValueError("arcpy.management.ChangeVersion takes a layer or table view (MakeFeatureLayer, MakeTableView).")
+    file, table = _gpkg.split(layer.source)
+    connection = _gpkg.connect(file)
+    try:
+        kind = str(version_type).upper()
+        if kind == "TRANSACTIONAL":
+            name = _versions.version(connection, version_name or _versions.DEFAULT)[0]
+            layer.version, layer.moment = (None if name == _versions.DEFAULT else name), None
+        elif kind == "HISTORICAL":
+            if not _given(date):
+                raise NotBuiltError("arcpy.management.ChangeVersion: a historical marker is not built in grapy; give a "
+                                    "date.")
+            import datetime
+            when = date if isinstance(date, datetime.datetime) else datetime.datetime.fromisoformat(str(date))
+            layer.version, layer.moment = None, _versions.moment_at(connection, when)
+        else:
+            raise ValueError("arcpy.management.ChangeVersion: version_type is TRANSACTIONAL or HISTORICAL.")
+    finally:
+        connection.close()
+    return Result(layer.name)
+
+
+def TrimArchiveHistory(in_table, trim_mode="DELETE", trim_before_date=None):
+    """Archive records older than ``trim_before_date`` (UTC) deleted — all of them with no date: the rows that are no
+    longer current, as an archive record is. The class must be archive enabled and not versioned, as documented.
+    INFERRED: a record is older than the date when it stopped being current (a later row of its object was made)
+    before that date."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    if str(trim_mode or "DELETE").upper() != "DELETE":
+        raise ValueError("arcpy.management.TrimArchiveHistory: DELETE is the only trim mode.")
+    file, tables = _versioned_tables("TrimArchiveHistory", in_table)
+    connection = _gpkg.connect(file)
+    try:
+        for table in tables:
+            if _versions.kind(connection, table) != "archive":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not an archive-enabled, non-versioned class.")
+            if _given(trim_before_date):
+                import datetime
+                when = trim_before_date if isinstance(trim_before_date, datetime.datetime) else \
+                    datetime.datetime.fromisoformat(str(trim_before_date))
+                cutoff = _versions.moment_at(connection, when)
+            else:
+                cutoff = 2 ** 62
+            history = _versions.history(table)
+            connection.execute(f'delete from "{history}" where gdb_archive_oid in (select h.gdb_archive_oid from '
+                               f'"{history}" h where exists (select 1 from "{history}" later where later.gdb_objectid = '
+                               f'h.gdb_objectid and (later.gdb_from_date > h.gdb_from_date or (later.gdb_from_date = '
+                               f'h.gdb_from_date and later.gdb_archive_oid > h.gdb_archive_oid)) and later.gdb_from_date <= ?))',
+                               (cutoff,))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def PruneBranchHistory(in_dataset, out_log, report_only="REPORT_ONLY", system_tables_only="ALL", prune_before_date=None):
+    """DEFAULT's history of a branch versioned class pruned: the rows no longer current at the oldest moment a version
+    still refers to (its base moment), or at ``prune_before_date`` (UTC) when that is earlier — as documented, "as
+    much of the archive history as possible based on referenced moments". REPORT_ONLY (the default) writes the count to
+    the log and prunes nothing. INFERRED: a version's base moment is the moment it refers to; SYSTEM_ONLY finds nothing,
+    as grapy keeps no extension datasets' internal tables."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    file, tables = _versioned_tables("PruneBranchHistory", in_dataset)
+    report = str(report_only or "REPORT_ONLY").upper() in ("REPORT_ONLY", "TRUE")
+    system = str(system_tables_only or "ALL").upper() == "SYSTEM_ONLY"
+    lines = []
+    connection = _gpkg.connect(file)
+    try:
+        referenced = connection.execute(f"select min(base_moment) from {_versions.VERSIONS} where branch_id <> 0"
+                                        ).fetchone()[0]
+        cutoff = int(referenced) if referenced is not None else _versions.current_moment(connection)
+        if _given(prune_before_date):
+            import datetime
+            when = prune_before_date if isinstance(prune_before_date, datetime.datetime) else \
+                datetime.datetime.fromisoformat(str(prune_before_date))
+            cutoff = min(cutoff, _versions.moment_at(connection, when))
+        for table in tables:
+            if _versions.kind(connection, table) != "branch":
+                raise ExecuteError(f"ERROR 000800: '{table}' is not registered as branch versioned.")
+            if system:
+                lines.append(f"{table}: no internal tables")
+                continue
+            history = _versions.history(table)
+            superseded = (f'select h.gdb_archive_oid from "{history}" h where h.gdb_branch_id = 0 and exists (select 1 '
+                          f'from "{history}" later where later.gdb_branch_id = 0 and later.gdb_objectid = h.gdb_objectid '
+                          f'and (later.gdb_from_date > h.gdb_from_date or (later.gdb_from_date = h.gdb_from_date and '
+                          f'later.gdb_archive_oid > h.gdb_archive_oid)) and later.gdb_from_date <= {cutoff})')
+            count = connection.execute(f"select count(*) from ({superseded})").fetchone()[0]
+            lines.append(f"{table}: {count} archive rows {'eligible' if report else 'pruned'} before moment {cutoff}")
+            if not report:
+                connection.execute(f'delete from "{history}" where gdb_archive_oid in ({superseded})')
+        connection.commit()
+    finally:
+        connection.close()
+    with open(_text(out_log), "w", encoding="utf-8") as written:
+        written.write("\n".join(lines) + "\n")
+    return Result(_text(in_dataset))
+
+
+_REFUSED.update({name: "is traditional versioning's or enterprise geodatabase administration, which grapy's branch "
+                       "versions do not have (ADR-227 §5.4)" for name in (
+    "Compress", "CreateVersionedView", "DiagnoseVersionMetadata", "DiagnoseVersionTables", "RepairVersionMetadata",
+    "RepairVersionTables", "UpdateGeodatabaseConnectionPropertiesToBranch")})
+_REFUSED.update({name: "keeps field conflict filters, which grapy's branch versions do not yet honour in "
+                       "ReconcileVersions (ADR-227)" for name in ("AddFieldConflictFilter", "RemoveFieldConflictFilter")})
+for _built in ("AlterVersion", "ChangeVersion", "CreateVersion", "DeleteVersion", "PruneBranchHistory", "ReconcileVersion",
+               "ReconcileVersions", "RegisterAsVersioned", "UnregisterAsVersioned", "EnableArchiving", "DisableArchiving",
+               "TrimArchiveHistory"):
+    _REFUSED.pop(_built, None)
+
+
+def _filter_fields(tool, table, fields, on):
+    """Field conflict filters set or removed (ADR-227): on a branch versioned class, not on its id or geometry."""
+    from . import _versions
+    from ._runtime import ExecuteError
+    path = _plain(tool, table)
+    connection, name = _gpkg.table_of(path)
+    try:
+        if _versions.kind(connection, name) != "branch":
+            raise ExecuteError(f"ERROR 000800: '{name}' is not registered as versioned.")
+        names, _, _ = _versions.columns(connection, name)
+        by_lower = {n.lower(): n for n in names}
+        chosen = []
+        for field in _list(fields):
+            if str(field).lower() not in by_lower:
+                raise ExecuteError(f"ERROR 000800: '{field}' is not a field conflict filters apply to — not the object "
+                                   "id, the shape, nor a field the table lacks.")
+            chosen.append(by_lower[str(field).lower()])
+        _versions.set_filters(connection, name, chosen, on)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(table))
+
+
+def AddFieldConflictFilter(table, fields):
+    """Field conflict filters on fields of a branch versioned class: a reconcile by attribute does not flag a change
+    to them on both sides as a conflict, as documented. INFERRED: the class must be registered as versioned."""
+    return _filter_fields("AddFieldConflictFilter", table, fields, True)
+
+
+def RemoveFieldConflictFilter(table, fields):
+    """The field conflict filters on those fields removed."""
+    return _filter_fields("RemoveFieldConflictFilter", table, fields, False)
+
+
+for _built in ("AddFieldConflictFilter", "RemoveFieldConflictFilter"):
+    _REFUSED.pop(_built, None)

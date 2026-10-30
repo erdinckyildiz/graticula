@@ -17,6 +17,10 @@ class Layer:
         self.name, self.source, self.where, self.kind = name, source, where, kind
         self.selection: set = set()
         self.joins: list = []
+        # The branch version (its name; None for DEFAULT) or historical moment the layer reads (ADR-227,
+        # management.ChangeVersion).
+        self.version = None
+        self.moment = None
 
     def __str__(self):
         return self.name

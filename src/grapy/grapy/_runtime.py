@@ -260,3 +260,26 @@ class ExecuteWarning(Warning):
 
 class NotBuiltError(NotImplementedError, AttributeError):
     """A name arcpy documents that grapy has not built — an AttributeError too, so ``hasattr`` answers False."""
+
+
+_SAID_EQUIVALENT: set = set()
+
+
+def equivalent(method, source):
+    """Marks a tool built as an equivalent where Esri's documentation does not define the answer (ADR-224 §5.6): it is
+    counted apart by tools/grapy_refusals.py, and its run warns once that its numbers may differ from ArcGIS Pro's."""
+    import functools
+
+    def mark(tool):
+        @functools.wraps(tool)
+        def run(*args, **kwargs):
+            if tool.__qualname__ not in _SAID_EQUIVALENT:
+                _SAID_EQUIVALENT.add(tool.__qualname__)
+                AddWarning(f"{tool.__name__} is an equivalent, not ArcGIS Pro's own computation: {method} ({source}). "
+                           "Its numbers may differ from Pro's.")
+            return tool(*args, **kwargs)
+
+        run.__grapy_equivalent__ = f"{method} ({source})"
+        return run
+
+    return mark

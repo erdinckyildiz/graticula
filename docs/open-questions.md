@@ -49,6 +49,7 @@ reported was five questions blocking a phase that had ended.*
 
 | # | Question | Owner | Notes |
 |---|---|---|---|
+| Q-195 | **[OWNER] How grapy stores the three group-2 data models, INFERRED 2026-10-30** ([ADR-225](adr/ADR-225-grapy-holds-topology-and-relationship-classes.md), [ADR-226](adr/ADR-226-grapy-holds-network-datasets.md), [ADR-227](adr/ADR-227-grapy-holds-versions-and-archives.md)): (a) each model lives in grapy's own tables inside the GeoPackage a tool works on, not on the server; (b) relationships are also written to the OGC Related Tables Extension, so other readers see the pairs; (c) topology clustering, and every network solver (Dijkstra), are equivalents under ADR-224 §5.6, not Pro's own computation; (d) turns, hierarchy and traffic are refused at first; (e) branch versioning only, with traditional versioning refused. (f) a versioned class keeps DEFAULT's current state in its table and its history in a `<table>__history` table beside it. The branch model writes it in one table; grapy keeps it beside so that readers that are not grapy see no duplicate rows. ADR-227 §5.1 was amended to this when it was built. Recommendation: confirm all five. Each answer is a design detail, and changing one is a rewrite of storage before data exists. | Owner | Asked when the first of the three is built. |
 
 ## Answered
 
