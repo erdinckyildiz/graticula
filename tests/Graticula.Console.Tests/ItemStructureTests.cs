@@ -695,7 +695,7 @@ public sealed class ItemStructureTests : ConsoleTest
             await Browser.EvaluateAsync<bool>("(document.querySelector('#exportBox [data-export-download]').focus(), true)");
             await ClickAsync("#exportBox [data-export-download]");
             // Said in the toast, which is in view from every row, and the button keeps the focus (the review's findings).
-            await WaitForAsync("/\\.vtpk \\(.+\\) is downloading/.test(document.getElementById('toast').textContent)"
+            await WaitForAsync("/\\.vtpk \\(.+\\) is downloading/.test(document.getElementById('toast')?.textContent || '')"
                 + " && document.activeElement && document.activeElement.matches('#exportBox [data-export-download]')"
                 + " && !document.activeElement.hasAttribute('aria-disabled')",
                 "Download did not hand the package to the browser, say what is coming where it can be seen, or keep focus.");

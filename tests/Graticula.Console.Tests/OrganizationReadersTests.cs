@@ -356,7 +356,7 @@ public sealed class OrganizationReadersTests : ConsoleTest
             await OpenOnHostAsync(host, "/system/operations", token);
             await WaitForAsync("location.pathname.startsWith('/server/') && document.getElementById('view-services')?.classList.contains('on')",
                 "/system/operations did not send an organization's administrator to Server.");
-            await WaitForAsync("(document.getElementById('toast').textContent || '').includes('system administrator')",
+            await WaitForAsync("(document.getElementById('toast')?.textContent || '').includes('system administrator')",
                 "Nothing said why System was refused.");
             await NothingRefusedAsync("A refused System");
 
