@@ -9,12 +9,10 @@ from __future__ import annotations
 
 import math
 
-from . import _gpkg, da
+from . import _gpkg, _units, da
 from ._result import Result
 from ._runtime import NotBuiltError
 
-_METRES = {"METERS": 1, "KILOMETERS": 1000, "FEET": 0.3048, "MILES": 1609.344, "YARDS": 0.9144, "NAUTICALMILES": 1852,
-           "DECIMETERS": 0.1, "CENTIMETERS": 0.01, "MILLIMETERS": 0.001, "INCHES": 0.0254}
 
 
 def _schema(path):
@@ -26,14 +24,21 @@ def _schema(path):
 
 
 def _distance(value, srid):
-    """A linear unit such as ``"100 Meters"`` in the data's units, or a number as it is."""
+    """A linear unit such as ``"100 Meters"`` in the data's units, or a number as it is. A bare ``Feet``, ``Miles``,
+    ``Yards``, ``Inches`` or ``NauticalMiles`` is the US survey unit and ``FeetInt`` … the international one, as Pro's
+    Buffer measures them (D-323)."""
     if isinstance(value, (int, float)):
         return float(value)
     parts = str(value).split()
     number = float(parts[0])
     if len(parts) == 1:
         return number
-    metres = number * _METRES.get(parts[1].upper().rstrip("S") + "S", _METRES.get(parts[1].upper(), 1))
+    if parts[1].upper() in ("UNKNOWN", "DECIMALDEGREES"):
+        return number
+    per = _units.linear(parts[1])
+    if per is None:
+        raise ValueError(f"'{value}' is not a linear unit: '{parts[1]}' is not a unit ArcGIS names.")
+    metres = number * per
     from ._reference import SpatialReference
     if srid > 0 and SpatialReference(srid).type == "Geographic":
         raise ValueError("A buffer of a geographic reference in metres needs the data projected first (management.Project).")
@@ -350,12 +355,14 @@ def SpatialJoin(target_features, join_features, out_feature_class, join_operatio
 def Near(in_features, near_features, search_radius=None, location="NO_LOCATION", angle="NO_ANGLE", method="PLANAR",
          field_names=None, distance_unit=None):
     """``NEAR_FID`` and ``NEAR_DIST`` added to each input feature — -1 for both when nothing is within the radius — and
-    ``NEAR_X``, ``NEAR_Y`` and ``NEAR_ANGLE`` when asked."""
+    ``NEAR_X``, ``NEAR_Y`` and ``NEAR_ANGLE`` when asked. ``NEAR_DIST`` is in ``distance_unit`` when one is named, its
+    bare ``Feet``, ``Miles``, ``Yards`` and ``NauticalMiles`` the US survey units, as measured in Pro (D-323)."""
     import math
     from shapely.ops import nearest_points
     from shapely.strtree import STRtree
     _, _, srid, _ = _schema(in_features)
     radius = _distance(search_radius, srid) if search_radius not in (None, "", "#") else 0.0
+    factor = _unit_factor(distance_unit, _units.NEAR, srid, "Near", "distance_unit")
     candidates = [c for path in _list(near_features) for c in [(path, *f) for f in _read(path, srid)]]
     tree = STRtree([c[3] for c in candidates]) if candidates else None
     fields = ["NEAR_FID", "NEAR_DIST"]
@@ -379,7 +386,7 @@ def Near(in_features, near_features, search_radius=None, location="NO_LOCATION",
                 gap = shape.distance(nearest[3])
                 if radius <= 0 or gap <= radius:
                     here, there = nearest_points(shape, nearest[3])
-                    values.update(NEAR_FID=nearest[1], NEAR_DIST=gap, NEAR_X=there.x, NEAR_Y=there.y, NEAR_FC=str(nearest[0]),
+                    values.update(NEAR_FID=nearest[1], NEAR_DIST=gap * factor, NEAR_X=there.x, NEAR_Y=there.y, NEAR_FC=str(nearest[0]),
                                   NEAR_ANGLE=math.degrees(math.atan2(there.y - here.y, there.x - here.x)))
             rows.updateRow([*[values[f] for f in fields], row[-1]])
     return Result(in_features)
@@ -492,17 +499,7 @@ import shapely  # noqa: E402 — the tools below use it throughout
 
 from ._runtime import ExecuteError  # noqa: E402
 
-# Units a tool writes its measures in. Only units whose size is unambiguous are here: the US survey variants arcpy
-# also lists (FEET beside FEET_INTERNATIONAL, MILES beside MILES_INTERNATIONAL …) are refused rather than guessed.
-_LINEAR_OUT = {"METERS": 1, "KILOMETERS": 1000, "DECIMETERS": 0.1, "CENTIMETERS": 0.01, "MILLIMETERS": 0.001,
-               "MILES_INTERNATIONAL": 1609.344, "NAUTICAL_MILES_INTERNATIONAL": 1852, "YARDS_INTERNATIONAL": 0.9144,
-               "FEET_INTERNATIONAL": 0.3048, "INCHES_INTERNATIONAL": 0.0254,
-               # GenerateNearTable's spelling of the same units
-               "MILESINT": 1609.344, "NAUTICALMILESINT": 1852, "YARDSINT": 0.9144, "FEETINT": 0.3048}
-_AREA_OUT = {"SQUARE_METERS": 1, "SQUARE_KILOMETERS": 1e6, "SQUARE_DECIMETERS": 0.01, "SQUARE_CENTIMETERS": 1e-4,
-             "SQUARE_MILLIMETERS": 1e-6, "SQUARE_MILES": 2589988.110336, "SQUARE_NAUTICAL_MILES": 3429904,
-             "SQUARE_YARDS": 0.83612736, "SQUARE_FEET": 0.09290304, "SQUARE_INCHES": 0.00064516, "HECTARES": 1e4,
-             "ACRES": 4046.8564224, "ARES": 100}
+# The units a tool writes its measures in are each tool's own keywords, measured in Pro: _units (D-323).
 
 
 def _refuse(tool, parameter, value, why=""):
@@ -515,7 +512,7 @@ def _unit_factor(unit, table, srid, tool, parameter, power=1):
         return 1.0
     name = str(unit).upper()
     if name not in table:
-        _refuse(tool, parameter, unit, "its size is not one grapy can be sure of")
+        _refuse(tool, parameter, unit, "it is not one of the units this parameter takes")
     from ._reference import SpatialReference
     if srid <= 0 or SpatialReference(srid).type == "Geographic":
         _refuse(tool, parameter, unit, "a unit for data in degrees needs the data projected first (management.Project)")
@@ -589,7 +586,7 @@ def GenerateNearTable(in_features, near_features, out_table, search_radius=None,
         _refuse("GenerateNearTable", "method", method, "geodesic distances are not built")
     columns, _, srid, _ = _schema(in_features)
     radius = _radius(search_radius, srid)
-    factor = _unit_factor(distance_unit, _LINEAR_OUT, srid, "GenerateNearTable", "distance_unit")
+    factor = _unit_factor(distance_unit, _units.NEAR, srid, "GenerateNearTable", "distance_unit")
     paths = _list(near_features)
     pairs = _pairs(match_fields)
     candidates = []
@@ -650,7 +647,9 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
 
     ``sum_fields`` is used only when overlapping links are aggregated, which is not built.
 
-    INFERRED: the six distance units are the international ones; ``search_distance`` is inclusive; nearest links are
+    The six distance units are the US survey ones where they are imperial, as measured in Pro (D-323).
+
+    INFERRED: ``search_distance`` is inclusive; nearest links are
     chosen by distance, then destination ObjectID; a link of length zero between two different features is not written,
     as the documentation says a zero-length line is a null geometry; the output holds the fields above and no others.
     """
@@ -664,8 +663,7 @@ def GenerateOriginDestinationLinks(origin_features, destination_features, out_fe
         raise ExecuteError("ERROR 000735: origin and destination group fields are given together.")
     o_columns, _, srid, _ = _schema(origin_features)
     d_columns = _schema(destination_features)[0]
-    units = {"KILOMETERS": 1000, "METERS": 1, "MILES": 1609.344, "NAUTICALMILES": 1852, "YARDS": 0.9144, "FEET": 0.3048}
-    factor = _unit_factor(distance_unit, units, srid, "GenerateOriginDestinationLinks", "distance_unit")
+    factor = _unit_factor(distance_unit, _units.OD_LINKS, srid, "GenerateOriginDestinationLinks", "distance_unit")
     limit = float(search_distance) / factor if search_distance not in (None, "", "#") else None
     nearest = int(float(num_nearest)) if num_nearest not in (None, "", "#") else None
 
@@ -711,8 +709,8 @@ def _neighbors(tool, in_features, out_table, in_fields, area_overlap, both_sides
         raise ExecuteError(f"ERROR 000365: {tool} takes polygons.")
     overlap = str(area_overlap or "NO_AREA_OVERLAP").upper() == "AREA_OVERLAP"
     both = str(both_sides or "BOTH_SIDES").upper() == "BOTH_SIDES"
-    linear = _unit_factor(out_linear_units, _LINEAR_OUT, srid, tool, "out_linear_units")
-    areal = _unit_factor(out_area_units, _AREA_OUT, srid, tool, "out_area_units", 2) if overlap else 1.0
+    linear = _unit_factor(out_linear_units, _units.NEIGHBOR_LINEAR, srid, tool, "out_linear_units")
+    areal = _unit_factor(out_area_units, _units.NEIGHBOR_AREAL, srid, tool, "out_area_units", 2) if overlap else 1.0
     by_name = {c.name.lower(): c for c in columns}
     report = [by_name[f.lower()] for f in _list(in_fields)] or [_gpkg.Column("OBJECTID", "Integer")]
     features = _read(in_features)
@@ -1063,7 +1061,7 @@ def TabulateIntersection(in_zone_features, zone_fields, in_class_features, out_t
     c_columns, c_kind, _, _ = _schema(in_class_features)
     if z_kind != "Polygon" or c_kind != "Polygon":
         _refuse("TabulateIntersection", "in_class_features", c_kind, "only polygon zones with polygon classes are built")
-    factor = _unit_factor(out_units, _AREA_OUT, srid, "TabulateIntersection", "out_units", 2)
+    factor = _unit_factor(out_units, _units.NEIGHBOR_AREAL, srid, "TabulateIntersection", "out_units", 2)
     z_by = {c.name.lower(): (i, c) for i, c in enumerate(z_columns)}
     c_by = {c.name.lower(): (i, c) for i, c in enumerate(c_columns)}
     zone_names, class_names, sums = _list(zone_fields), _list(class_fields), _list(sum_fields)
@@ -1302,12 +1300,15 @@ def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", 
 
 # ---- Summarize Within: the server's own summary, by the names Q-193 decided ----------------------------------------
 
-_SUM_LENGTH_UNITS = {"METERS": ("Meters", 1.0), "KILOMETERS": ("Kilometers", 1000.0), "FEET": ("Feet", 0.3048),
-                     "YARDS": ("Yards", 0.9144), "MILES": ("Miles", 1609.344)}
-_SUM_AREA_UNITS = {"SQUAREMETERS": ("SquareMeters", 1.0), "SQUAREKILOMETERS": ("SquareKilometers", 1_000_000.0),
-                   "HECTARES": ("Hectares", 10_000.0), "ACRES": ("Acres", 4046.8564224),
-                   "SQUAREMILES": ("SquareMiles", 2_589_988.110336), "SQUAREYARDS": ("SquareYards", 0.83612736),
-                   "SQUAREFEET": ("SquareFeet", 0.09290304)}
+# The server's units and sizes, international throughout (_units.SERVER_LENGTH/SERVER_AREA); Pro's own SummarizeWithin
+# reads FEET, YARDS and MILES as US survey units, which D-323 records for the server rather than grapy deciding it.
+_SUM_LENGTH_UNITS = {key: (name, _units.SERVER_LENGTH[key]) for key, name in
+                     [("METERS", "Meters"), ("KILOMETERS", "Kilometers"), ("FEET", "Feet"), ("YARDS", "Yards"),
+                      ("MILES", "Miles")]}
+_SUM_AREA_UNITS = {key: (name, _units.SERVER_AREA[key]) for key, name in
+                   [("SQUAREMETERS", "SquareMeters"), ("SQUAREKILOMETERS", "SquareKilometers"),
+                    ("HECTARES", "Hectares"), ("ACRES", "Acres"), ("SQUAREMILES", "SquareMiles"),
+                    ("SQUAREYARDS", "SquareYards"), ("SQUAREFEET", "SquareFeet")]}
 _SUM_STATISTICS = {"SUM": "Sum", "MEAN": "Mean", "MIN": "Min", "MAX": "Max", "STDDEV": "Stddev",
                    "MINIMUM": "Min", "MAXIMUM": "Max", "STANDARD_DEVIATION": "Stddev"}
 
