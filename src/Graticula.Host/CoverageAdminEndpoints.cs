@@ -468,7 +468,7 @@ internal static partial class CoverageAdminEndpoints
                 added.Add(path);
 
                 // ADR-009 condition 1: opened in the import reader's process first, and bounded there.
-                if (await OpenedApartAsync(context, path, Path.GetFileName(file.Name), cancellation).ConfigureAwait(false) is { } apart)
+                if (await OpenedApartAsync(context.RequestServices, path, Path.GetFileName(file.Name), cancellation).ConfigureAwait(false) is { } apart)
                 {
                     await Refuse(context, 400, apart).ConfigureAwait(false);
                     return null;
@@ -784,41 +784,16 @@ internal static partial class CoverageAdminEndpoints
                 string path = file.Path;
                 kept.Add(path);
 
-                // ADR-009 condition 1: opened in the import reader's process first, and bounded there.
-                if (await OpenedApartAsync(context, path, Path.GetFileName(file.Name), cancellation).ConfigureAwait(false) is { } apart)
+                (CoverageInfo? read, string? refusal) = await AdmitAsync(
+                    context.RequestServices, readers, path, Path.GetFileName(file.Name), cancellation).ConfigureAwait(false);
+
+                if (refusal is not null)
                 {
-                    await Refuse(context, 400, apart).ConfigureAwait(false);
+                    await Refuse(context, 400, refusal).ConfigureAwait(false);
                     return;
                 }
 
-                CoverageInfo read;
-
-                try
-                {
-                    using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
-                    read = reader.Info;
-                }
-                catch (InvalidDataException refused)
-                {
-                    // The file is named as its uploader named it: where this server keeps it is not theirs to read.
-                    string named = Path.GetFileName(file.Name);
-                    string why = refused.Message.Replace(path, named, StringComparison.Ordinal);
-                    await Refuse(context, 400, why.Contains("is not a TIFF", StringComparison.Ordinal)
-                            ? $"{named} is not a GeoTIFF this server can read. Check that it opens in a GIS, then try again."
-                            : $"{named} could not be read as imagery: {why}")
-                        .ConfigureAwait(false);
-                    return;
-                }
-
-                if (read.Srid == 0)
-                {
-                    await Refuse(context, 400,
-                        $"{Path.GetFileName(file.Name)} carries no EPSG code in its GeoKey directory, so this server cannot "
-                        + "say what its coordinates mean. Save it with its coordinate system and upload it again.").ConfigureAwait(false);
-                    return;
-                }
-
-                infos.Add(read);
+                infos.Add(read!);
             }
 
             // ADR-140, ADR-147: images are measured against the mosaic's grid from their headers, before any pyramid is built.
@@ -841,32 +816,10 @@ internal static partial class CoverageAdminEndpoints
 
             for (int index = 0; index < kept.Count; index++)
             {
-                string path = kept[index];
-                CoverageInfo read = infos[index];
-
                 // ADR-139: an image uploaded without overviews is given them, so a zoomed-out picture of it reads a small
-                // level instead of every pixel. It is servable without them, so a failure here is logged, not refused.
-                if (read.Overviews.Count == 0)
-                {
-                    try
-                    {
-                        if (await context.RequestServices.GetRequiredService<ICoveragePyramidBuilder>()
-                                .BuildAsync(path, cancellation).ConfigureAwait(false) > 0)
-                        {
-                            using ICoverageReader reader = await readers.OpenAsync(path, cancellation).ConfigureAwait(false);
-                            read = reader.Info;
-                        }
-                    }
-                    catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
-                    {
-                        Log.PyramidNotBuilt(
-                            context.RequestServices.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>().CreateLogger("Graticula.Coverages"),
-                            Path.GetFileName(path),
-                            e.Message);
-                    }
-                }
-
-                infos[index] = read;
+                // level instead of every pixel.
+                infos[index] = await WithOverviewsAsync(context.RequestServices, readers, kept[index], infos[index], cancellation)
+                    .ConfigureAwait(false);
             }
 
             string served = kept[0];
@@ -1417,7 +1370,7 @@ internal static partial class CoverageAdminEndpoints
 
         // ADR-009 condition 1: opened in the import reader's process first, and bounded there. The path is the
         // registrant's own, so it is named as they gave it.
-        if (await OpenedApartAsync(context, request.Path, Path.GetFileName(request.Path), cancellation).ConfigureAwait(false) is { } apart)
+        if (await OpenedApartAsync(context.RequestServices, request.Path, Path.GetFileName(request.Path), cancellation).ConfigureAwait(false) is { } apart)
         {
             await Refuse(context, 400, apart).ConfigureAwait(false);
             return;

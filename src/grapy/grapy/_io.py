@@ -130,3 +130,21 @@ def raster_from_raw(header_path: str, target: str) -> None:
         profile["nodata"] = nodata
     with rasterio.open(target, "w", **profile) as out:
         out.write(array.astype(kind), 1)
+
+
+def raster_to_geotiff(source: str, target: str) -> None:
+    """A raster a tool wrote, as the plain GeoTIFF the server publishes as an image service (D-324): every band, its
+    grid, its NoData, and its coordinate system by EPSG code, which the server needs to place it."""
+    import rasterio
+
+    with rasterio.open(source) as read:
+        profile = {"driver": "GTiff", "height": read.height, "width": read.width, "count": read.count,
+                   "dtype": read.dtypes[0], "transform": read.transform, "tiled": True, "compress": "deflate"}
+        epsg = read.crs.to_epsg() if read.crs else None
+        if epsg is None:
+            raise ValueError("the raster has no coordinate system with an EPSG code, so the server could not place it")
+        profile["crs"] = f"EPSG:{epsg}"
+        if read.nodata is not None:
+            profile["nodata"] = read.nodata
+        with rasterio.open(target, "w", **profile) as out:
+            out.write(read.read())

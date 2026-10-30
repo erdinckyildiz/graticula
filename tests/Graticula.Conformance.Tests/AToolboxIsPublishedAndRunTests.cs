@@ -228,7 +228,7 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         class Toolbox:
             def __init__(self):
                 self.label = "Raster probe"
-                self.tools = [Cells]
+                self.tools = [Cells, PlusOne]
 
         class Cells:
             def __init__(self):
@@ -242,6 +242,17 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
                 raster = arcpy.Raster(parameters[0].valueAsText)
                 a = arcpy.RasterToNumPyArray(raster, nodata_to_value=-1)
                 parameters[1].value = f"{raster.width} {raster.height} {a[29, 37]} {a[130, 130]} {a[191, 255]} {a[0, 0]}"
+
+        class PlusOne:
+            def __init__(self):
+                self.label = "Plus one"
+
+            def getParameterInfo(self):
+                return [arcpy.Parameter(name="in_raster", datatype="GPRasterLayer"),
+                        arcpy.Parameter(name="out_raster", datatype="DERasterDataset", direction="Output")]
+
+            def execute(self, parameters, messages):
+                parameters[1].value = arcpy.Raster(parameters[0].valueAsText) + 1
         """;
 
     /// <summary>
@@ -313,6 +324,79 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
             if (status == 200 && JsonDocument.Parse(body).RootElement.TryGetProperty("recycled", out JsonElement entry) && entry.ValueKind == JsonValueKind.String)
             {
                 await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{entry.GetString()}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// D-324: a raster a tool answers is published as an image service of the caller's, through the upload door's
+    /// checks, and named as the caller asked. Read back through the same tool path, every cell is one more than the
+    /// corpus image's and NoData stays NoData.
+    /// </summary>
+    [Fact]
+    public async Task A_raster_a_tool_answers_is_published_as_an_image_service_of_the_callers()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string image = $"zz_toolimg_{Guid.NewGuid():N}"[..20];
+        string made = $"zz_toolout_{Guid.NewGuid():N}"[..20];
+        string toolbox = "zz_rtools_" + Guid.NewGuid().ToString("N")[..8];
+        using HttpClient http = Unverified();
+        string corpus = System.IO.Path.Combine(RepositoryRoot(), "tests", "Graticula.Raster.Tiff.Tests", "corpus", "gray-byte-nodata.tif");
+
+        using (MultipartFormDataContent form = new())
+        {
+            form.Add(new ByteArrayContent(await System.IO.File.ReadAllBytesAsync(corpus)), "file", "gray.tif");
+            form.Add(new StringContent(image), "name");
+            using HttpRequestMessage upload = new(HttpMethod.Post, new Uri($"{root}/admin/coverages/upload")) { Content = form };
+            upload.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage uploaded = await http.SendAsync(upload);
+            Assert.True(uploaded.IsSuccessStatusCode, $"uploading: {(int)uploaded.StatusCode} {await uploaded.Content.ReadAsStringAsync()}");
+        }
+
+        try
+        {
+            using MultipartFormDataContent publishForm = new()
+            {
+                { new StringContent(toolbox), "name" },
+                { new ByteArrayContent(Encoding.UTF8.GetBytes(RasterToolbox)), "file", "raster.pyt" },
+            };
+            using HttpRequestMessage publish = new(HttpMethod.Post, new Uri($"{root}/content/toolboxes")) { Content = publishForm };
+            publish.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage published = await http.SendAsync(publish);
+            Assert.True((int)published.StatusCode == 201, $"Publishing answered {(int)published.StatusCode}: {await published.Content.ReadAsStringAsync()}");
+
+            string gp = $"{root}/rest/services/Tools/{toolbox}/GPServer";
+            JsonElement output = await RunAsync(http, token, gp, "PlusOne", "out_raster", new()
+            {
+                ["in_raster"] = Json(new { url = $"{root}/rest/services/hosted/{image}/ImageServer" }),
+                ["out_raster"] = made,
+            });
+            Assert.Equal("GPRasterDataLayer", output.GetProperty("dataType").GetString());
+            string url = output.GetProperty("value").GetProperty("url").GetString()!;
+            Assert.Equal($"{root}/rest/services/hosted/{made}/ImageServer", url);
+
+            JsonElement service = await GetAsync(http, token, $"{url}?f=json");
+            Assert.Equal(1, service.GetProperty("bandCount").GetInt32());
+
+            JsonElement cells = await RunAsync(http, token, gp, "Cells", "cells", new()
+            {
+                ["in_raster"] = Json(new { url }),
+            });
+            Assert.Equal("256 192 97 142 138 -1", cells.GetProperty("value").GetString());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+
+            foreach (string coverage in new[] { image, made })
+            {
+                (int status, string body) = await AdminAsync(HttpMethod.Delete, $"/admin/coverages/{coverage}?folder=hosted");
+
+                if (status == 200 && JsonDocument.Parse(body).RootElement.TryGetProperty("recycled", out JsonElement entry) && entry.ValueKind == JsonValueKind.String)
+                {
+                    await AdminAsync(HttpMethod.Delete, $"/admin/recycle-bin/{entry.GetString()}");
+                }
             }
         }
     }

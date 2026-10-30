@@ -157,8 +157,18 @@ internal static class ToolSandbox
             cancellation.ThrowIfCancellationRequested();
         }
 
-        string written = Path.Combine(directory, "result.json");
-        JsonObject? result = File.Exists(written) ? JsonNode.Parse(await File.ReadAllTextAsync(written, CancellationToken.None).ConfigureAwait(false)) as JsonObject : null;
+        // The runner writes its result from the tool's own process, so it is opened as a tool's output is (D-324): a link
+        // or a pipe in its place is no result, not a file read for the tool or a read that never ends.
+        JsonObject? result = null;
+
+        await using (FileStream? written = RunOutputs.OpenResult(directory))
+        {
+            // A result is messages and values; more than this is a tool filling the server's memory, not a result.
+            if (written is not null && written.Length <= ResultBytesLimit)
+            {
+                result = await JsonNode.ParseAsync(written, cancellationToken: CancellationToken.None).ConfigureAwait(false) as JsonObject;
+            }
+        }
 
         string tail;
         lock (errors)
@@ -168,6 +178,9 @@ internal static class ToolSandbox
 
         return new Outcome(result, process.ExitCode, timedOut, tail);
     }
+
+    /// <summary>The largest <c>result.json</c> read: it is parsed whole in this process (security review, 2026-10-30).</summary>
+    internal const long ResultBytesLimit = 16L * 1024 * 1024;
 
     /// <summary>The limits a run is told, as run.json carries them.</summary>
     public static JsonObject Limits(ToolSettings settings)

@@ -108,6 +108,28 @@ is Esri's. Rejected for the name, not the shape: grapy keeps `arcpy`'s documente
    Linux counts RLIMIT_NPROC per OS user, the server's own threads included, so it is a ceiling against a fork bomb
    rather than a count of the tool's processes (found writing the fence, 2026-10-29); (d) `content:publishTools` held by the
    administrator role only by default; (e) GeoPackage as the exchange file.
+10. **Added 2026-10-30 by owner decision on D-324 (*"Şimdi yap, incelemeyle"*): a raster output is published as an image
+   service of the caller's**, as a feature class output is a hosted layer. grapy's runner writes it as a GeoTIFF with its
+   EPSG code at `outputs/<parameter>.tif`; the server copies it under a name of its own into the imagery directory and
+   passes it through the upload door's own checks, now split out of the request that carried them
+   (`CoverageAdminEndpoints.AdmitAsync`, `WithOverviewsAsync`, `PublishProducedAsync`): opened first in the import
+   reader's process and bounded there, read, refused without an EPSG code, given overviews, published private, audited
+   as `coverage.tool-output`. A raster output may be named as a feature output may, and is refused before the run when
+   the name is taken. **Bounded by the security review of the same day**: the caller must hold `content:publishFeatures`,
+   which the upload door asks; a raster is published with at most the 25 million cells a tool is given (`RasterCellLimit`),
+   because the import reader bounds a header and a small file can describe billions of cells for the pyramid to decode;
+   publishing has its own deadline, the tool's wall clock again; `result.json` is read up to 16 MB and a layer's GeoJSON up
+   to 256 MB; an image service whose catalogue or audit fails is removed again. What the review left is
+   [D-325](../architecture-debt.md).
+11. **Added the same day: a file the tool wrote is the tool's, and the server reads none of them by a path the tool
+   chose or through a link** (`RunOutputs`). The result, the GeoJSON of a feature output and the GeoTIFF of a raster one
+   are found where the server says (`result.json`, `outputs/<parameter>.geojson`, `outputs/<parameter>.tif`); on Linux
+   the directory and the file are opened with `O_NOFOLLOW` and the file with `O_NONBLOCK`, and a file that is empty, not
+   seekable or not readable — a FIFO, a socket, a directory — is no file. **This closed two gaps older than D-324**, found
+   writing it: the server read a feature output from the path the runner named in `result.json`, which the tool's own
+   process writes, so a tool could have had the server parse any file it can read as GeoJSON; and a FIFO in the place of
+   `result.json` would have held the server's only tool slot for ever. A process the tool leaves behind is why the check
+   is on the handle and not the path: the sandbox kills the tree only past the deadline.
 
 ## Conditions
 
@@ -120,6 +142,15 @@ is Esri's. Rejected for the name, not the shape: grapy keeps `arcpy`'s documente
 5. **Studio publishes and runs a toolbox**, designed with the ux-designer agent. **DISCHARGED 2026-10-29** (4fb85034): a `.pyt` from New item or dropped on the device picker publishes; the toolbox's page has a form per tool, runs, stops and shows results, a layer result linking its item; its owner shares or deletes it. Two ux-designer passes. The first rejected it, because the router's rewrite of the address left every button acting on nothing. The second found all ten fixes holding. `ToolboxPageTests` reaches the page through the rewritten address and runs a tool.
 6. **grapy's surface is counted** against `arcpy`'s published function and tool list by a tool in this repository, and
    the count is on the status page. **DISCHARGED 2026-10-29**: `tools/grapy_surface.py` counts grapy's names from its source against `tools/arcpy-surface.json`, and the status page has a bar per module. The reference is arcpy's public callable names, read with `dir()` from the arcpy in the owner's ArcGIS Pro 3.7, toolbox aliases left out. Only names were read, each a documented API name. **The first count is 52 of 896:** 38 of 183 top-level names, 4 of 29 in `da`, 7 of 447 in `management`, 3 of 40 in `analysis`, and none yet in `conversion`, `cartography`, `edit` or `stats`. The condition asked for the count, not for it to be high. The count is what makes *one to one* checkable.
+7. **A tool's raster output is published through the upload door's checks, and a file a tool wrote is read through no
+   link and from no path it chose** (§5.10, §5.11). **DISCHARGED 2026-10-30.** `A_raster_a_tool_answers_is_published_as_an_image_service_of_the_callers`
+   runs a tool adding one to an uploaded image, finds its output published under the name the caller gave it, and reads it
+   back through the same tool path: every cell one more, NoData still NoData. `AToolsOutputIsOpenedThroughNoLinkTests`
+   refuses a link in a file's place, in `outputs`' and in `result.json`'s, an empty file, a directory and a name that is
+   not one plain name. The Linux path was run on the showcase's machine (arm64): a plain file opened; a link to a file,
+   an empty file, a FIFO, a directory, a link in `result.json`'s place and a link in `outputs`' place each refused, none
+   of them waited on. The open goes to `libc.so.6` by its file name, because the server's image carries no `libc.so`
+   (measured the same day), which a bare `libc` would be looked for as.
 
 ## 6. Consequences
 
