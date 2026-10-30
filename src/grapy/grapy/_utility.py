@@ -11,7 +11,9 @@ associations table's documented fields) and ``<network>_DirtyAreas``.
 
 The definition is grapy's own tables, registered in ``gpkg_extensions`` as ``grapy_utility_network`` (INFERRED, ADR-231
 §5.9 (a)): the network, its sources, domain networks, tier groups, tiers, network attributes and their fields, network
-categories and their asset types, terminal configurations and their asset types, rules and subnetwork controllers.
+categories and their asset types, terminal configurations and their asset types, rules and subnetwork controllers; and,
+since ADR-231's second batch, per-asset-type settings (edge connectivity, association role), subnetwork definitions, the
+Subnetworks table and named trace configurations.
 
 **The network topology is a record, not a live view** (ADR-231 §5.4). EnableNetworkTopology and ValidateNetworkTopology
 copy each feature's shape, asset group and type, terminal fields and network attribute fields into
@@ -45,7 +47,8 @@ DEFINITION = "Graticula ADR-231: grapy's utility networks"
 TABLES = ("grapy_un", "grapy_un_source", "grapy_un_domain", "grapy_un_tier_group", "grapy_un_tier", "grapy_un_attribute",
           "grapy_un_attribute_field", "grapy_un_category", "grapy_un_category_asset", "grapy_un_terminal_config",
           "grapy_un_terminal_asset", "grapy_un_rule", "grapy_un_controller", "grapy_un_topology_feature",
-          "grapy_un_topology_association", "grapy_un_error")
+          "grapy_un_topology_association", "grapy_un_error", "grapy_un_asset_setting", "grapy_un_subnetwork_definition",
+          "grapy_un_subnetwork", "grapy_un_trace_config")
 FLOW = ("flow direction away from the subnetwork controllers, read off the dominator tree: the resource passes from u to "
         "v when some path from a controller reaches u without passing v",
         "Cooper, Harvey and Kennedy 2001, A Simple, Fast Dominance Algorithm")
@@ -129,6 +132,19 @@ def ensure(connection):
         globalid text not null, signature text not null, data text not null, primary key (network, globalid))""")
     connection.execute("""create table if not exists grapy_un_error (network text not null, source_id integer not null,
         oid integer not null, globalid text, code integer not null, message text not null, envelope text)""")
+    # ADR-231's second batch: per-asset-type settings (edge connectivity, association role), subnetwork definitions,
+    # the subnetworks UpdateSubnetwork keeps, and named trace configurations.
+    connection.execute("""create table if not exists grapy_un_asset_setting (network text not null,
+        class_name text not null, asset_group integer not null, asset_type integer not null, setting text not null,
+        value text not null, primary key (network, class_name, asset_group, asset_type, setting))""")
+    connection.execute("""create table if not exists grapy_un_subnetwork_definition (network text not null,
+        domain text not null, tier text not null, definition text not null, primary key (network, tier))""")
+    connection.execute("""create table if not exists grapy_un_subnetwork (network text not null, domain text not null,
+        tier text not null, name text not null, controllers text, isdirty integer not null, isdeleted integer not null,
+        last_update text, last_ack_export text, features text, primary key (network, tier, name))""")
+    connection.execute("""create table if not exists grapy_un_trace_config (network text not null, name text not null,
+        creator text, description text, trace_type text not null, configuration text not null, result_types text,
+        tags text, primary key (network, name))""")
     register(connection, TABLES, EXTENSION, DEFINITION)
 
 
@@ -300,6 +316,16 @@ class Network:
             raise ExecuteError(f"ERROR 000732: there is no feature {globalid} in {class_name.rsplit('/', 1)[-1]}.")
         return int(row[0]), int(row[1] or 0), int(row[2] or 0)
 
+    def setting(self, class_name, group, kind, name, default=None):
+        """A per-asset-type setting (SetEdgeConnectivity, SetAssociationRole), or ``default``."""
+        row = self.q("select value from grapy_un_asset_setting where network = ? and class_name = ? and asset_group = ? "
+                     "and asset_type = ? and setting = ?", self.name, class_name, int(group), int(kind), name).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def set_setting(self, class_name, group, kind, name, value):
+        self.q("insert or replace into grapy_un_asset_setting values (?, ?, ?, ?, ?, ?)", self.name, class_name,
+               int(group), int(kind), name, json.dumps(value))
+
     def network_fields(self, class_name):
         """{network attribute: field} of a class."""
         return {a: f for a, f in self.q("select attribute, field from grapy_un_attribute_field where network = ? and "
@@ -375,7 +401,8 @@ def create(file, dataset, name, territory, srid, version):
         connection.close()
     source = 1
     for class_name, shape, role in STRUCTURE_CLASSES:
-        columns = _base_columns(role) + [_gpkg.Column("SUBNETWORKNAME", "String")]
+        columns = _base_columns(role) + [_gpkg.Column("SUBNETWORKNAME", "String"),
+                                         _gpkg.Column("SUPPORTEDSUBNETWORKNAME", "String")]
         table = _create_class(file, dataset, class_name, shape, srid, columns, True, True)
         _register_source(file, name, source, table, STRUCTURE, role)
         source += 1
@@ -487,7 +514,7 @@ def add_tier(path, domain, name, rank, topology_type, tier_group, subnetwork_fie
             kind, field = topology_type, "SUBNETWORKNAME"
         network.q("insert into grapy_un_tier values (?, ?, ?, ?, ?, ?, ?)", network.name, row[0], str(name), int(rank),
                   kind, tier_group if hierarchical else None, field)
-        if hierarchical:
+        if True:  # the subnetwork field on the domain's classes, the tier group's or SUBNETWORKNAME
             for class_name, in network.q("select class_name from grapy_un_source where network = ? and domain = ? and "
                                          "role in ('Device','Line','Junction','JunctionObject','EdgeObject')",
                                          network.name, row[0]).fetchall():
@@ -593,6 +620,14 @@ def add_association(network, kind, from_class, from_globalid, from_terminal, to_
     if not any(_rule_matches(r, rule_kind, a, b) for r in rules(network)):
         raise ExecuteError(f"ERROR 002095: no {rule_kind} rule supports the association between {from_globalid} and "
                            f"{to_globalid}.")
+    if kind in (2, 3):
+        # SetAssociationRole: once an asset type has a role, only a container contains and only a structure has
+        # attachments. An asset type given no role keeps both, as before the role existed (INFERRED, §5.9 (k)).
+        role = network.setting(from_class, fg, ft, "association_role")
+        wanted = "CONTAINER" if kind == 2 else "STRUCTURE"
+        if role is not None and role["role"] != wanted:
+            raise ExecuteError(f"ERROR 002095: the asset type of {from_globalid} has the association role "
+                               f"{role['role']}, not {wanted}.")
     if kind == 5 and (percent is None or not 0 <= float(percent) <= 1):
         raise ExecuteError("ERROR 000800: a midspan association needs PERCENTALONG between 0 and 1.")
     table = associations_table(network)
@@ -794,6 +829,21 @@ def _territory_extent(network):
     return unary_union(shapes).bounds if shapes else None
 
 
+def dirty_meets(network, keys, graph):
+    """Whether a dirty area — an edit not yet validated, by the envelopes of its old and new shapes, or an association
+    changed on one of ``keys`` — meets the features ``keys`` (Update Subnetwork: "no dirty areas intersect subnetwork
+    features")."""
+    features, associations, now = _changes(network)
+    if not features and not associations:
+        return False
+    if dirty_keys(network) & set(keys):
+        return True
+    areas = [box(*e).buffer(TOLERANCE) for _, old, new in features for e in (_envelope(old), _envelope(new)) if e]
+    shapes = [shapely.from_wkt(graph.features[k][1]["wkt"]) for k in keys
+              if k in graph.features and graph.features[k][1].get("wkt")]
+    return any(a.intersects(s) for a in areas for s in shapes)
+
+
 def dirty_keys(network):
     """The features (source, oid) that carry an edit dirty area now."""
     features, associations, now = _changes(network)
@@ -806,10 +856,16 @@ def dirty_keys(network):
     return keys
 
 
-def refresh(network, extent=None, max_errors=None):
+def refresh(network, extent=None, max_errors=None, everything=False):
     """Enable or validate: the record brought up to date — for every feature, or only those whose dirty area
-    intersects ``extent`` — the topology rebuilt from it, and its errors and dirty areas rewritten."""
+    intersects ``extent`` — the topology rebuilt from it, and its errors and dirty areas rewritten. ``everything``
+    (RebuildNetworkTopology) takes every feature in the extent, dirty or not."""
+    _apply_deletion_semantics(network)
     features, associations, now = _changes(network)
+    if everything:
+        then = _record(network)
+        changed = {k for k, _, _ in features}
+        features = features + [(k, then[k][1] if k in then else None, now[k][1]) for k in now if k not in changed]
     window = box(*extent) if extent else None
 
     def inside(*datas):
@@ -851,6 +907,34 @@ def refresh(network, extent=None, max_errors=None):
     return graph
 
 
+def _apply_deletion_semantics(network):
+    """SetAssociationRole's deletion semantics, applied when a utility network tool finds a container or structure
+    deleted since the record (grapy has no edit session to apply them at the delete, INFERRED §5.9 (k)): CASCADE deletes
+    its content or attachments, SET_TO_NONE only the associations, RESTRICTED leaves both as they are."""
+    now = {k for k in _current(network)}
+    record = _record(network)
+    sources = network.sources()
+    table = associations_table(network)
+    changed = False
+    for key, (globalid, data, _) in record.items():
+        if key in now or key[0] not in sources:
+            continue
+        role = network.setting(sources[key[0]][0], data["group"], data["type"], "association_role")
+        if not role or role.get("deletion") not in ("CASCADE", "SET_TO_NONE"):
+            continue
+        kind = 2 if role["role"] == "CONTAINER" else 3
+        for content_source, content in network.q(f'select TONETWORKSOURCEID, TOGLOBALID from "{table}" where '
+                                                 'upper(FROMGLOBALID) = ? and ASSOCIATIONTYPE = ?', str(globalid).upper(),
+                                                 kind).fetchall():
+            if role["deletion"] == "CASCADE" and content_source in sources:
+                network.q(f'delete from "{sources[content_source][0]}" where upper(GLOBALID) = upper(?)', content)
+        network.q(f'delete from "{table}" where upper(FROMGLOBALID) = ? and ASSOCIATIONTYPE = ?', str(globalid).upper(),
+                  kind)
+        changed = True
+    if changed:
+        _association_status(network)
+
+
 # ---- the graph -----------------------------------------------------------------------------------------------------
 
 class Element:
@@ -880,6 +964,7 @@ class Graph:
         self.association_errors = []  # (association globalid, code, message)
         self.features = {}            # (source, oid) -> (globalid, data)
         self.associations = []        # the recorded association rows
+        self.ends = {}                # edge element -> ([junctions at its start], [junctions at its end]), digitized
         self.sources = network.sources()
 
     def add(self, kind, feature, globalid, **more):
@@ -920,6 +1005,44 @@ class Graph:
         """Traversability: links both ways, a device's internal paths as its terminal configuration allows."""
         out = defaultdict(set)
         for a, b in self.links:
+            out[a].add(b)
+            out[b].add(a)
+        for a, b, directed in self.internal:
+            out[a].add(b)
+            if not directed:
+                out[b].add(a)
+        return self._within(out, domain)
+
+    def path_arcs(self, domain=None):
+        """Terminal paths respected but not their direction, as the shortest path and path traces do (the "Utility
+        network trace types" page)."""
+        out = defaultdict(set)
+        for a, b in self.links:
+            out[a].add(b)
+            out[b].add(a)
+        for a, b, _ in self.internal:
+            out[a].add(b)
+            out[b].add(a)
+        return self._within(out, domain)
+
+    def digitized_arcs(self, domain=None):
+        """Flow by digitized direction (Trace's USE_DIGITIZED_DIRECTION): an edge element carries the resource from the
+        junctions at its start to those at its end — a line's vertex order, an edge object's from and to associations;
+        a junction-junction or midspan link both ways; a device's internal paths as its configuration allows. grapy
+        computes no Flow direction network attribute (ADR-231 §5.5), so every line is traced as digitized (INFERRED,
+        §5.9 (j))."""
+        out = defaultdict(set)
+        ended = set()
+        for edge, (starts, ends) in self.ends.items():
+            for j in starts:
+                out[j].add(edge)
+                ended.add((min(j, edge), max(j, edge)))
+            for j in ends:
+                out[edge].add(j)
+                ended.add((min(j, edge), max(j, edge)))
+        for a, b in self.links:
+            if (a, b) in ended:
+                continue
             out[a].add(b)
             out[b].add(a)
         for a, b, directed in self.internal:
@@ -1003,7 +1126,12 @@ def build(network):
                 continue
             lines[key] = line
             coords = list(line.coords)
+            # SetEdgeConnectivity: an asset type set to END_VERTEX connects only at its end vertices.
+            ends_only = network.setting(sources[key[0]][0], data["group"], data["type"], "edge_connectivity",
+                                        "ANY_VERTEX") == "END_VERTEX"
             for i, c in enumerate(coords):
+                if ends_only and i not in (0, len(coords) - 1):
+                    continue
                 index[_key(c[0], c[1])]["lines"].append((key, i, i in (0, len(coords) - 1)))
 
     def line_asset(key):
@@ -1080,6 +1208,7 @@ def build(network):
         for a, b in zip(ordered, ordered[1:]):
             piece = substring(line, a, b, normalized=True)
             edge = graph.add("E", line_key, globalid, start=a, end=b, shape=piece, length=piece.length)
+            graph.ends[edge] = (list(stops[a]), list(stops[b]))
             for junction_id in stops[a] + stops[b]:
                 graph.link(edge, junction_id)
 
@@ -1169,6 +1298,7 @@ def _associate(graph, network, all_rules, asset, junction, terminal_ids, lines):
         ordered = sorted(stops)
         for x, y in zip(ordered, ordered[1:]):
             edge = graph.add("E", key, globalid, start=x, end=y, length=None)
+            graph.ends[edge] = (list(stops[x]), list(stops[y]))
             for junction_id in stops[x] + stops[y]:
                 graph.link(edge, junction_id)
 
@@ -1279,32 +1409,7 @@ class Condition:
             return has if operator == "IS_EQUAL_TO" else (not has) if operator == "DOES_NOT_EQUAL" else False
         left = self.values.attribute(element, name)
         right = self.values.attribute(element, value) if kind == "NETWORK_ATTRIBUTE" else value
-        if left is None or right is None:
-            return False
-        try:
-            left_n, right_n = float(left), float(right)
-        except (TypeError, ValueError):
-            left_n, right_n = str(left), str(right)
-        if operator == "IS_EQUAL_TO":
-            return left_n == right_n
-        if operator == "DOES_NOT_EQUAL":
-            return left_n != right_n
-        if operator == "IS_GREATER_THAN":
-            return left_n > right_n
-        if operator == "IS_GREATER_THAN_OR_EQUAL_TO":
-            return left_n >= right_n
-        if operator == "IS_LESS_THAN":
-            return left_n < right_n
-        if operator == "IS_LESS_THAN_OR_EQUAL_TO":
-            return left_n <= right_n
-        a, b = int(left_n), int(right_n)
-        if operator == "INCLUDES_THE_VALUES":
-            return a & b == b
-        if operator == "DOES_NOT_INCLUDE_THE_VALUES":
-            return a & b != b
-        if operator == "INCLUDES_ANY":
-            return a & b != 0
-        return a & b == 0
+        return compare(left, operator, right)
 
     def __call__(self, element):
         if not self.rows or not self.applies(element):
@@ -1320,24 +1425,63 @@ class Condition:
         return any(groups)
 
 
+def compare(left, operator, right):
+    """One comparison of a condition, function barrier or propagator, by the operator keywords the pages list; the
+    four bitwise ones on integers. A null on either side is false."""
+    operator = str(operator).upper()
+    if operator not in _OPERATORS:
+        raise ExecuteError(f"ERROR 000800: '{operator}' is not an operator of a condition.")
+    if left is None or right is None:
+        return False
+    try:
+        left_n, right_n = float(left), float(right)
+    except (TypeError, ValueError):
+        left_n, right_n = str(left), str(right)
+    if operator == "IS_EQUAL_TO":
+        return left_n == right_n
+    if operator == "DOES_NOT_EQUAL":
+        return left_n != right_n
+    if operator == "IS_GREATER_THAN":
+        return left_n > right_n
+    if operator == "IS_GREATER_THAN_OR_EQUAL_TO":
+        return left_n >= right_n
+    if operator == "IS_LESS_THAN":
+        return left_n < right_n
+    if operator == "IS_LESS_THAN_OR_EQUAL_TO":
+        return left_n <= right_n
+    a, b = int(left_n), int(right_n)
+    if operator == "INCLUDES_THE_VALUES":
+        return a & b == b
+    if operator == "DOES_NOT_INCLUDE_THE_VALUES":
+        return a & b != b
+    if operator == "INCLUDES_ANY":
+        return a & b != 0
+    return a & b == 0
+
+
 # ---- traversal -----------------------------------------------------------------------------------------------------
 
-def reach(seeds, arcs, barrier, starts_free=True):
-    """Elements reached from ``seeds`` over ``arcs``: a barrier is reached but not passed; returns (passed, barriers)."""
+def reach(seeds, arcs, barrier, starts_free=True, gate=None):
+    """Elements reached from ``seeds`` over ``arcs``: a barrier is reached but not passed; returns (passed, barriers).
+    Breadth first, each element's neighbours in id order, so a ``gate`` — ``gate(parent, child)`` true when the child
+    stops the trace, as a function barrier's running total or a bitset filter decides — meets them in a fixed order
+    (``parent`` is None for a seed)."""
     seen, stopped = set(), set()
     queue = deque()
-    for s in seeds:
-        if barrier(s) and not starts_free:
+    for s in sorted(seeds):
+        if (barrier(s) or (gate is not None and gate(None, s))) and not starts_free:
             stopped.add(s)
             continue
+        if gate is not None and starts_free:
+            gate(None, s)
         seen.add(s)
         queue.append(s)
     while queue:
         a = queue.popleft()
-        for b in arcs.get(a, ()):
+        for b in sorted(arcs.get(a, ())):
             if b in seen or b in stopped:
                 continue
-            if barrier(b):
+            if barrier(b) or (gate is not None and gate(a, b)):
                 stopped.add(b)
                 continue
             seen.add(b)
