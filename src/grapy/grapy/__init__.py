@@ -209,14 +209,19 @@ class _DescribedWorkspace:
 
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
-    object), a folder, a GeoPackage of several tables (a workspace), or a topology, relationship class or network
-    dataset held in a GeoPackage (ADR-225, ADR-226)."""
+    object), a folder, a GeoPackage of several tables (a workspace), a topology, relationship class or network
+    dataset held in a GeoPackage (ADR-225, ADR-226), or a TIN or LAS dataset (ADR-229)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
     try:
         path = os.fspath(value)
     except TypeError:  # A layer object: described by its source.
         return _Described(value)
+    from . import _las, _tin
+    for model in (_tin, _las):  # a TIN may be a folder, and a .lasd is no raster (ADR-229)
+        described = model.describe(path)
+        if described is not None:
+            return described
     if os.path.isdir(path):
         return _DescribedWorkspace(path)
     if os.path.splitext(path)[1].lower() in _RASTER_EXTENSIONS:
@@ -962,7 +967,8 @@ _REFUSED_NAMES.update({
     "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
     "Multipatch": "a multipatch is a data model this server does not hold yet (ADR-224 group 2)",
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
-    "ListLasDatasetFiles": "LAS datasets are a data model this server does not hold (ADR-224 group 2)",
+    "ListLasDatasetFiles": "it is not documented: absent from ArcPy's function list on pro.arcgis.com on "
+                           "2026-10-30, so its parameters and answer are unknown (ADR-229 §5.8)",
     "CrossValidationResult": "it reads a geostatistical layer, a model object grapy does not have",
     "GeostatisticalDatasets": "it reads a geostatistical layer, a model object grapy does not have",
     "GetIDMessage": "its text is Esri's message catalogue, which is not published as data",
