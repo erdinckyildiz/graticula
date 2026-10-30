@@ -7,6 +7,8 @@ that takes a linear unit (``"100 Meters"``).
 """
 from __future__ import annotations
 
+import math
+
 from . import _gpkg, da
 from ._result import Result
 from ._runtime import NotBuiltError
@@ -1298,6 +1300,274 @@ def RemoveOverlapMultiple(in_features, out_feature_class, method="CENTER_LINE", 
     return Result(out)
 
 
+# ---- Summarize Within: the server's own summary, by the names Q-193 decided ----------------------------------------
+
+_SUM_LENGTH_UNITS = {"METERS": ("Meters", 1.0), "KILOMETERS": ("Kilometers", 1000.0), "FEET": ("Feet", 0.3048),
+                     "YARDS": ("Yards", 0.9144), "MILES": ("Miles", 1609.344)}
+_SUM_AREA_UNITS = {"SQUAREMETERS": ("SquareMeters", 1.0), "SQUAREKILOMETERS": ("SquareKilometers", 1_000_000.0),
+                   "HECTARES": ("Hectares", 10_000.0), "ACRES": ("Acres", 4046.8564224),
+                   "SQUAREMILES": ("SquareMiles", 2_589_988.110336), "SQUAREYARDS": ("SquareYards", 0.83612736),
+                   "SQUAREFEET": ("SquareFeet", 0.09290304)}
+_SUM_STATISTICS = {"SUM": "Sum", "MEAN": "Mean", "MIN": "Min", "MAX": "Max", "STDDEV": "Stddev",
+                   "MINIMUM": "Min", "MAXIMUM": "Max", "STANDARD_DEVIATION": "Stddev"}
+
+
+def _column_name_for(name):
+    """The server's ColumnNameFor: lower case, every character but an ASCII letter or digit made ``_``."""
+    safe = "".join(c if c.isascii() and c.isalnum() else "_" for c in name.lower())
+    if len(safe) > 60:
+        raise ValueError(f"arcpy.analysis.SummarizeWithin: the field name '{safe}' is longer than 60 characters, which "
+                         "the server shortens by a digest grapy does not reproduce.")
+    return safe
+
+
+def _unclaimed(name, taken):
+    """The server's Unclaimed: the name, or with _1, _2 … after it, as ArcGIS renames a clash."""
+    candidate, i = name, 1
+    while candidate.lower() in taken or candidate.lower() in ("objectid", "geom"):
+        candidate = _column_name_for(f"{name}_{i}")
+        i += 1
+    taken.add(candidate.lower())
+    return candidate
+
+
+def _on_the_ground(srid):
+    """A function measuring a shapely geometry's length or area on the reference's ellipsoid, in metres, as the server
+    measures ``ST_Length``/``ST_Area`` of the geography — or planar for a feature class with no reference."""
+    if srid <= 0:
+        return lambda shape, area: shape.area if area else shape.length
+    import numpy as np
+    from pyproj import CRS, Transformer
+    crs = CRS.from_epsg(srid)
+    geographic = crs.geodetic_crs
+    geod = geographic.get_geod()
+    move = Transformer.from_crs(crs, geographic, always_xy=True).transform if crs.is_projected else None
+
+    def measure(shape, area):
+        if shape.is_empty:
+            return 0.0
+        moved = shapely.transform(shape, lambda xy: np.column_stack(move(xy[:, 0], xy[:, 1]))) if move else shape
+        return abs(geod.geometry_area_perimeter(moved)[0]) if area else geod.geometry_length(moved)
+
+    return measure
+
+
+def _summary_statistic(statistic, values, parts, wholes, weighted):
+    """One statistic, as the server's SQL takes it: nulls left out; for points sum, mean, minimum, maximum and the sample
+    standard deviation; for lines and polygons the sum of each value times its inside fraction, the mean and the
+    (population) standard deviation weighted by the inside measure, and the minimum and maximum of the features that
+    reach inside."""
+    rows = [(v, p, w) for v, p, w in zip(values, parts, wholes) if v is not None]
+    if not rows:
+        return None
+    if statistic == "Min":
+        return min(v for v, _, _ in rows)
+    if statistic == "Max":
+        return max(v for v, _, _ in rows)
+    if not weighted:
+        numbers = [float(v) for v, _, _ in rows]
+        if statistic == "Sum":
+            return sum(numbers)
+        if statistic == "Mean":
+            return sum(numbers) / len(numbers)
+        if len(numbers) < 2:
+            return None
+        mean = sum(numbers) / len(numbers)
+        return math.sqrt(sum((x - mean) ** 2 for x in numbers) / (len(numbers) - 1))
+    if statistic == "Sum":
+        return sum(float(v) * (p / w) for v, p, w in rows if w > 0)
+    total = sum(p for _, p, _ in rows)
+    if total == 0:
+        return None
+    mean = sum(float(v) * p for v, p, _ in rows) / total
+    if statistic == "Mean":
+        return mean
+    return math.sqrt(max(sum(p * float(v) ** 2 for v, p, _ in rows) / total - mean ** 2, 0.0))
+
+
+def SummarizeWithin(in_polygons, in_sum_features, out_feature_class, keep_all_polygons="KEEP_ALL", sum_fields=None,
+                    sum_shape="ADD_SHAPE_SUM", shape_unit=None, group_field=None, add_min_maj="NO_MIN_MAJ",
+                    add_group_percent="NO_PERCENT", out_group_table=None):
+    """The summary features in each polygon, by the documented parameters and Graticula's own Summarize Within (ADR-222):
+    the same names and the same arithmetic, so a toolbox and the server's analysis answer alike.
+
+    Field names — decided by the owner in Q-193 (ADR-222 §5 item 9), lower case as every hosted column: ``point_count``
+    for points and ``count`` for lines and polygons; ``sum_length_<unit>`` and ``sum_area_<unit>`` (``meters``,
+    ``squarekilometers`` …); ``<statistic>_<field>`` (``sum_``, ``mean_``, ``min_``, ``max_``, ``stddev_``); with a group
+    field ``join_id`` (the polygon's object id) and, with ADD_MIN_MAJ, ``majority_<field>`` and ``minority_<field>``; in
+    the group table ``join_id``, the group field, the count, the measure and the statistics again, and with ADD_PERCENT
+    ``percent_points`` or ``percent_shape``. A name the polygons already hold takes ``_1``, ``_2`` … after it.
+
+    As documented, lines and polygons are summarized in proportion to their part inside each polygon: their count is of
+    the features that reach inside with a length or area, the measure is the inside length or area summed, a sum takes
+    each value times its inside fraction, and a mean and standard deviation are weighted by the inside measure; a
+    minimum and maximum are of the features that reach inside. Points are counted where they meet a polygon, its
+    boundary included, and unweighted, the standard deviation the sample one. Nulls are left out of every statistic, as
+    documented. Lengths and areas are measured on the reference's ellipsoid, as the server measures the geography — on
+    WGS 84 for Web Mercator. The majority is the group value with the largest count (points) or measure, the minority the
+    smallest, a tie going to the lower value; a percentage is each value's share of that weight in its polygon.
+
+    The shape unit defaults to METERS for lines and SQUAREMETERS for polygons, as the server's does. Rows are written in
+    the polygons' object id order, the group table by polygon and then group value.
+    """
+    from shapely.strtree import STRtree
+    tool = "SummarizeWithin"
+    area_columns, area_kind, area_srid, _ = _schema(in_polygons)
+    if area_kind != "Polygon":
+        raise ValueError(f"arcpy.analysis.{tool}: in_polygons must be polygons.")
+    sum_columns, sum_kind, sum_srid, _ = _schema(in_sum_features)
+    if sum_kind == "Geometry":
+        raise ValueError(f"arcpy.analysis.{tool}: in_sum_features must be points, lines or polygons.")
+    if sum_srid != area_srid:
+        raise ValueError(f"arcpy.analysis.{tool}: the two inputs must share a spatial reference; project one first.")
+    shape = "points" if sum_kind in ("Point", "Multipoint") else "lines" if sum_kind == "Polyline" else "polygons"
+    weighted = shape != "points"
+    by_name = {c.name.lower(): c for c in sum_columns}
+
+    def word(value):
+        return str(value).strip().upper().replace(" ", "_")
+
+    add_shape = sum_shape is True or (sum_shape is not False and word(sum_shape or "ADD_SHAPE_SUM") in
+                                      ("ADD_SHAPE_SUM", "TRUE"))
+    entries = []
+    if sum_fields not in (None, "", "#"):
+        rows = [part.split() for part in sum_fields.split(";") if part.strip()] if isinstance(sum_fields, str) \
+            else [list(r) for r in sum_fields]
+        for row in rows:
+            if len(row) != 2 or str(row[0]).lower() not in by_name or word(row[1]) not in _SUM_STATISTICS:
+                raise ValueError(f"arcpy.analysis.{tool}: '{row}' is not a summary: write a field and one of Sum, Mean, "
+                                 "Min, Max or Stddev.")
+            entries.append((by_name[str(row[0]).lower()].name, _SUM_STATISTICS[word(row[1])]))
+    if not add_shape and not entries:
+        raise ValueError(f"arcpy.analysis.{tool}: with NO_SHAPE_SUM, sum_fields is needed: there would be nothing to "
+                         "summarise.")
+    taken = {c.name.lower() for c in area_columns}
+    count_name = measure_name = None
+    per_unit = 1.0
+    if add_shape:
+        count_name = _unclaimed("point_count" if shape == "points" else "count", taken)
+        if shape != "points":
+            units = _SUM_LENGTH_UNITS if shape == "lines" else _SUM_AREA_UNITS
+            asked = word(shape_unit) if shape_unit not in (None, "", "#") else ("METERS" if shape == "lines"
+                                                                                else "SQUAREMETERS")
+            if asked not in units:
+                raise ValueError(f"arcpy.analysis.{tool}: shape_unit for {shape} is one of {', '.join(units)}.")
+            unit, per_unit = units[asked]
+            measure_name = _unclaimed(_column_name_for(f"sum_{'length' if shape == 'lines' else 'area'}_{unit}"), taken)
+    outputs = [(field, statistic, _unclaimed(_column_name_for(f"{statistic}_{field}"), taken))
+               for field, statistic in entries]
+    group = None
+    if group_field not in (None, "", "#"):
+        if str(group_field).lower() not in by_name:
+            raise ValueError(f"arcpy.analysis.{tool}: group_field is a field of the summary features; there is no "
+                             f"'{group_field}'.")
+        if out_group_table in (None, "", "#"):
+            raise ValueError(f"arcpy.analysis.{tool}: out_group_table is required with a group_field.")
+        group = by_name[str(group_field).lower()].name
+        majority = add_min_maj is True or word(add_min_maj or "NO_MIN_MAJ") in ("ADD_MIN_MAJ", "TRUE")
+        join_name = "join_id"
+        majority_name = _unclaimed(_column_name_for(f"majority_{group}"), taken) if majority else None
+        minority_name = _unclaimed(_column_name_for(f"minority_{group}"), taken) if majority else None
+        percent = add_group_percent is True or word(add_group_percent or "NO_PERCENT") in ("ADD_PERCENT", "TRUE")
+        percent_name = ("percent_points" if shape == "points" else "percent_shape") if percent else None
+    keep_all = keep_all_polygons is not False and word(keep_all_polygons or "KEEP_ALL") not in ("ONLY_INTERSECTING",
+                                                                                                  "FALSE")
+    measure = _on_the_ground(area_srid)
+    wanted = sorted({f for f, _ in entries} | ({group} if group else set()))
+    with da.SearchCursor(in_sum_features, [*wanted, "SHAPE@"]) as rows:
+        summarized = [(dict(zip(wanted, row[:-1])), row[-1]._shape) for row in rows
+                      if row[-1] is not None and not row[-1]._shape.is_empty]
+    wholes = [measure(s, shape == "polygons") if weighted else 1.0 for _, s in summarized]
+    tree = STRtree([s for _, s in summarized]) if summarized else None
+    carried = [c.name for c in area_columns]
+    with da.SearchCursor(in_polygons, ["OID@", *carried, "SHAPE@"]) as rows:
+        areas = [(row[0], row[1:-1], row[-1]) for row in rows if row[-1] is not None]
+    written, group_rows = [], []
+    for oid, values, geometry in areas:
+        polygon = geometry._shape
+        members = []
+        if tree is not None and not polygon.is_empty:
+            for j in sorted(int(j) for j in tree.query(polygon, predicate="intersects")):
+                part = measure(polygon.intersection(summarized[j][1]), shape == "polygons") if weighted else 1.0
+                if weighted and part <= 0:
+                    continue
+                members.append((j, part))
+        if not members and not keep_all:
+            continue
+
+        def summary(chosen):
+            row = []
+            if count_name:
+                row.append(len(chosen))
+            if measure_name:
+                row.append(sum(p for _, p in chosen) / per_unit)
+            for field, statistic, _ in outputs:
+                row.append(_summary_statistic(statistic, [summarized[j][0][field] for j, _ in chosen],
+                                              [p for _, p in chosen], [wholes[j] for j, _ in chosen], weighted))
+            return row
+
+        row = [*values, *summary(members)]
+        if group:
+            by_value: dict = {}
+            for j, part in members:
+                by_value.setdefault(summarized[j][0][group], []).append((j, part))
+            order = sorted(by_value, key=lambda v: (v is None, v))
+            weights = {v: (len(by_value[v]) if shape == "points" else sum(p for _, p in by_value[v])) for v in order}
+            row.append(oid)
+            if majority_name:
+                row.append(min(order, key=lambda v: (-weights[v], v is None, v)) if order else None)
+                row.append(min(order, key=lambda v: (weights[v], v is None, v)) if order else None)
+            total = sum(weights.values())
+            for v in order:
+                chosen = by_value[v]
+                group_row = [oid, v, len(chosen)] if count_name else [oid, v]
+                if measure_name:
+                    group_row.append(sum(p for _, p in chosen) / per_unit)
+                group_row += summary(chosen)[(1 if count_name else 0) + (1 if measure_name else 0):]
+                if percent_name:
+                    group_row.append(100.0 * weights[v] / total if total else None)
+                group_rows.append(group_row)
+        written.append((row, geometry))
+
+    def statistic_type(field, statistic):
+        source = by_name[field.lower()].type
+        return source if statistic in ("Min", "Max") or (not weighted and statistic == "Sum" and
+                                                         source in ("SmallInteger", "Integer")) else "Double"
+
+    new_columns = []
+    if count_name:
+        new_columns.append(_gpkg.Column(count_name, "Integer"))
+    if measure_name:
+        new_columns.append(_gpkg.Column(measure_name, "Double"))
+    new_columns += [_gpkg.Column(name, statistic_type(field, statistic)) for field, statistic, name in outputs]
+    if group:
+        new_columns.append(_gpkg.Column(join_name, "Integer"))
+        if majority_name:
+            source = by_name[group.lower()].type
+            new_columns += [_gpkg.Column(majority_name, source), _gpkg.Column(minority_name, source)]
+    out = _out(out_feature_class)
+    _gpkg.create(out, "Polygon", area_srid, [*area_columns, *new_columns])
+    with da.InsertCursor(out, [*carried, *[c.name for c in new_columns], "SHAPE@"]) as cursor:
+        for row, geometry in written:
+            cursor.insertRow((*row, geometry))
+    if not group:
+        return Result(out)
+    group_columns = [_gpkg.Column(join_name, "Integer"), by_name[group.lower()]]
+    if count_name:
+        group_columns.append(_gpkg.Column(count_name, "Integer"))
+    if measure_name:
+        group_columns.append(_gpkg.Column(measure_name, "Double"))
+    group_columns += [_gpkg.Column(name, statistic_type(field, statistic)) for field, statistic, name in outputs]
+    if percent_name:
+        group_columns.append(_gpkg.Column(percent_name, "Double"))
+    table = _out(out_group_table)
+    _gpkg.create(table, "Geometry", 0, group_columns)
+    with da.InsertCursor(table, [*[c.name for c in group_columns], "SHAPE@"]) as cursor:
+        for group_row in group_rows:
+            cursor.insertRow((*group_row, None))
+    return Result(out, table)
+
+
 def _refuse_analysis(tool, parameter, value, why):
     raise NotBuiltError(f"arcpy.analysis.{tool}: {parameter} '{value}' is not built in grapy — {why}.")
 
@@ -1305,9 +1575,6 @@ def _refuse_analysis(tool, parameter, value, why):
 _REFUSED = {
     "Enrich": "it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3)",
     "EnrichLayer": "it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3)",
-    "SummarizeWithin": "the documentation does not name the fields it writes (the count, length, area and statistic "
-                       "fields), and a toolbox reads them by name; Graticula's own Summarize Within runs as a hosted "
-                       "analysis (ADR-222)",
     "SummarizeNearby": "its driving, trucking and walking distances need Esri's network services (ADR-224 groups 2 and "
                        "3), and for straight-line distance the documentation does not name the fields it writes",
     "PairwiseIntegrate": "the documentation does not say which coordinate a cluster of vertices within the tolerance "
