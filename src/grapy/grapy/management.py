@@ -3187,9 +3187,9 @@ _PIXEL_TYPES = {"8_BIT_UNSIGNED": "uint8", "8_BIT_SIGNED": "int8", "16_BIT_UNSIG
                 "32_BIT_UNSIGNED": "uint32", "32_BIT_SIGNED": "int32", "32_BIT_FLOAT": "float32", "64_BIT": "float64"}
 
 
-def _raster_in(value, tool):
+def _raster_in(value, tool, bands=False):
     from ._raster import as_raster
-    return as_raster(value if not isinstance(value, Result) else str(value), f"arcpy.management.{tool}")
+    return as_raster(value if not isinstance(value, Result) else str(value), f"arcpy.management.{tool}", bands=bands)
 
 
 def _raster_path(out_raster, tool):
@@ -3205,13 +3205,34 @@ def _raster_path(out_raster, tool):
     return path
 
 
-def _write_raster(array, mask, grid, path, nodata=None):
-    """A single-band GeoTIFF; NoData written as ``nodata`` or the type's own NoData value. A valid cell holding that value
-    would read back as NoData, so it is refused."""
+def _write_raster(array, mask, grid, path, nodata=None, names=None):
+    """A GeoTIFF; NoData written as ``nodata`` or the type's own NoData value. A valid cell holding that value would read
+    back as NoData, so it is refused. ``array`` and ``mask`` may be lists, a band each: one band is written as before,
+    several as one GeoTIFF of that many bands in their common cell type."""
     import numpy
     import rasterio
-    from ._raster import _nodata_for
+    from ._raster import _nodata_for, _saved_dtype
     from ._runtime import ExecuteError
+    if isinstance(array, list) and len(array) == 1:
+        array, mask = array[0], mask[0]
+    if isinstance(array, list):
+        dtype = _saved_dtype(numpy.result_type(*[a.dtype for a in array]))
+        if nodata is None:
+            nodata = _nodata_for(dtype)
+        for a, m in zip(array, mask):
+            if numpy.any(a[~m] == nodata):
+                raise ExecuteError(f"ERROR 999999: a valid cell holds {nodata}, the NoData value the output is written with.")
+        profile = {"driver": "GTiff", "height": grid.rows, "width": grid.columns, "count": len(array),
+                   "dtype": dtype.name, "transform": grid.transform(), "nodata": nodata}
+        if grid.srid:
+            profile["crs"] = f"EPSG:{grid.srid}"
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with rasterio.open(path, "w", **profile) as out:
+            for i, (a, m) in enumerate(zip(array, mask), 1):
+                out.write(numpy.where(m, nodata, a).astype(dtype), i)
+                if names is not None:
+                    out.set_band_description(i, names[i - 1])
+        return Result(path)
     if nodata is None:
         nodata = _nodata_for(array.dtype)
     if numpy.any(array[~mask] == nodata):
@@ -3264,14 +3285,15 @@ def Clip(in_raster, rectangle, out_raster, in_template_dataset=None, nodata_valu
     lie, as ``NO_MAINTAIN_EXTENT`` documents; ``ClippingGeometry`` also makes NoData every cell outside the template's
     polygons. INFERRED: the cut takes every cell the rectangle reaches into; a cell is inside a polygon when its centre
     is; ``nodata_value`` makes the cells holding it NoData and is the NoData value written. ``MAINTAIN_EXTENT``
-    resamples and is not built."""
+    resamples and is not built. A raster of several bands is cut band by band, every band alike, and keeps its bands
+    (INFERRED: the page does not single out multiband input)."""
     import numpy
     import shapely
     from ._raster import _Grid
     from ._runtime import ExecuteError
     if str(maintain_clipping_extent or "NO_MAINTAIN_EXTENT").upper() == "MAINTAIN_EXTENT":
         raise NotBuiltError("arcpy.management.Clip: MAINTAIN_EXTENT resamples, which is not built in grapy.")
-    raster = _raster_in(in_raster, "Clip")
+    raster = _raster_in(in_raster, "Clip", bands=True)
     g = raster._grid
     x0, y0, x1, y1 = _rectangle(rectangle, in_template_dataset)
     c0 = max(0, int(numpy.floor((x0 - g.left) / g.width + 1e-9)))
@@ -3280,13 +3302,14 @@ def Clip(in_raster, rectangle, out_raster, in_template_dataset=None, nodata_valu
     r1 = min(g.rows, int(numpy.ceil((g.top - y0) / g.height - 1e-9)))
     if c1 <= c0 or r1 <= r0:
         raise ExecuteError("ERROR 001566: the clipping extent does not overlap the raster.")
-    array = raster._array[r0:r1, c0:c1].copy()
-    mask = raster._mask[r0:r1, c0:c1].copy()
+    arrays = [a[r0:r1, c0:c1].copy() for a in raster._arrays]
+    masks = [m[r0:r1, c0:c1].copy() for m in raster._masks]
     grid = _Grid(g.left + c0 * g.width, g.top - r0 * g.height, g.width, g.height, r1 - r0, c1 - c0, g.srid)
     nodata = None
     if _given(nodata_value):
-        nodata = numpy.array(float(nodata_value)).astype(array.dtype).item()
-        mask |= array == nodata
+        nodata = numpy.array(float(nodata_value)).astype(numpy.result_type(*[a.dtype for a in arrays])).item()
+        for a, m in zip(arrays, masks):
+            m |= a == nodata
     if str(clipping_geometry or "NONE").upper() in ("CLIPPINGGEOMETRY", "CLIPPING_GEOMETRY"):
         if not _given(in_template_dataset):
             raise ExecuteError("ERROR 000735: ClippingGeometry needs a template feature class.")
@@ -3295,18 +3318,25 @@ def Clip(in_raster, rectangle, out_raster, in_template_dataset=None, nodata_valu
         xs, ys = grid.centres()
         xx, yy = numpy.meshgrid(xs, ys)
         inside = shapely.covers(area, shapely.points(xx, yy))
-        mask |= ~inside
-    return _write_raster(array, mask, grid, _raster_path(out_raster, "Clip"), nodata)
+        for m in masks:
+            m |= ~inside
+    return _write_raster(arrays, masks, grid, _raster_path(out_raster, "Clip"), nodata, raster._names)
 
 
 def GetRasterProperties(in_raster, property_type=None, band_index=None):
     """One property of a raster. INFERRED: ``STD`` is the population form, as arcpy's Raster.standardDeviation;
-    ``ANYNODATA`` and ``ALLNODATA`` answer 1 or 0; values are written as text, whole numbers without a decimal point.
+    ``ANYNODATA`` and ``ALLNODATA`` answer 1 or 0; values are written as text, whole numbers without a decimal point;
+    ``band_index`` is one-based or a band's name, and the statistics are the first band's when none is named.
     The sensor and acquisition properties are not built."""
     import numpy
-    raster = _raster_in(in_raster, "GetRasterProperties")
-    if band_index not in (None, "", "#", 1, "1", "Band_1"):
-        raise NotBuiltError("arcpy.management.GetRasterProperties: bands other than the first are not built in grapy.")
+    from ._raster import _band_number
+    whole = _raster_in(in_raster, "GetRasterProperties", bands=True)
+    raster = whole
+    if band_index not in (None, "", "#") or whole.bandCount > 1:
+        # INFERRED: band_index is one-based or a band's name; the first band when none is given.
+        number = 1 if band_index in (None, "", "#") else _band_number(str(band_index), whole.bandNames,
+                                                                       "GetRasterProperties' raster")
+        raster = whole._band(number)
     kind = str(property_type or "").upper()
     g = raster._grid
     values = raster._array[~raster._mask]
@@ -3316,7 +3346,7 @@ def GetRasterProperties(in_raster, property_type=None, band_index=None):
         "STD": lambda: values.std(), "UNIQUEVALUECOUNT": lambda: numpy.unique(values).size,
         "TOP": lambda: g.top, "LEFT": lambda: g.left, "RIGHT": lambda: g.right, "BOTTOM": lambda: g.bottom,
         "CELLSIZEX": lambda: g.width, "CELLSIZEY": lambda: g.height, "COLUMNCOUNT": lambda: g.columns,
-        "ROWCOUNT": lambda: g.rows, "BANDCOUNT": lambda: 1, "ANYNODATA": lambda: int(raster._mask.any()),
+        "ROWCOUNT": lambda: g.rows, "BANDCOUNT": lambda: whole.bandCount, "ANYNODATA": lambda: int(raster._mask.any()),
         "ALLNODATA": lambda: int(raster._mask.all()),
         "VALUETYPE": lambda: codes.get(raster._array.dtype.name, 10),
     }
@@ -3337,7 +3367,7 @@ def CopyRaster(in_raster, out_rasterdataset, config_keyword=None, background_val
                build_multidimensional_transpose="NO_TRANSPOSE"):
     """A raster copied, its cells holding ``background_value`` or ``nodata_value`` made NoData, in ``pixel_type`` when
     one is named. INFERRED: ``nodata_value`` is also the NoData value written. A value that does not fit the pixel type,
-    scaling, colormaps and formats other than TIFF are not built."""
+    scaling, colormaps and formats other than TIFF are not built. A raster of several bands is copied band by band."""
     import numpy
     for name, value in (("onebit_to_eightbit", onebit_to_eightbit), ("colormap_to_RGB", colormap_to_RGB),
                         ("scale_pixel_value", scale_pixel_value), ("RGB_to_Colormap", RGB_to_Colormap)):
@@ -3347,17 +3377,19 @@ def CopyRaster(in_raster, out_rasterdataset, config_keyword=None, background_val
         raise NotBuiltError(f"arcpy.management.CopyRaster: format '{format}' is not built in grapy; TIFF is.")
     if _given(transform) and str(transform).upper() not in ("NONE", "FALSE"):
         raise NotBuiltError("arcpy.management.CopyRaster: transform is not built in grapy.")
-    raster = _raster_in(in_raster, "CopyRaster")
-    array, mask = raster._array.copy(), raster._mask.copy()
+    raster = _raster_in(in_raster, "CopyRaster", bands=True)
+    arrays, masks = [a.copy() for a in raster._arrays], [m.copy() for m in raster._masks]
     nodata = None
     for value in (background_value, nodata_value):
         if _given(value):
-            mask |= array == numpy.array(float(value)).astype(array.dtype)
+            for a, m in zip(arrays, masks):
+                m |= a == numpy.array(float(value)).astype(a.dtype)
     if _given(pixel_type):
-        array = _cast(array, mask, pixel_type, "CopyRaster")
+        arrays = [_cast(a, m, pixel_type, "CopyRaster") for a, m in zip(arrays, masks)]
     if _given(nodata_value):
-        nodata = numpy.array(float(nodata_value)).astype(array.dtype).item()
-    return _write_raster(array, mask, raster._grid, _raster_path(out_rasterdataset, "CopyRaster"), nodata)
+        nodata = numpy.array(float(nodata_value)).astype(numpy.result_type(*[a.dtype for a in arrays])).item()
+    return _write_raster(arrays, masks, raster._grid, _raster_path(out_rasterdataset, "CopyRaster"), nodata,
+                         raster._names)
 
 
 def MosaicToNewRaster(input_rasters, output_location, raster_dataset_name_with_extension,
@@ -3366,17 +3398,20 @@ def MosaicToNewRaster(input_rasters, output_location, raster_dataset_name_with_e
     """Rasters on one grid mosaicked into a new one over their combined extent; where they overlap ``mosaic_method``
     decides. INFERRED: the extent is the union of the inputs'; NoData cells take no part, and a cell no input covers is
     NoData; with no pixel type named the output is 8-bit unsigned, as the page warns. Inputs that do not share a cell
-    size, alignment and reference need resampling and are refused, as are ``BLEND``, several bands, a cell size or a
-    coordinate system other than the inputs', and a ``MEAN`` that is not whole in an integer pixel type."""
+    size, alignment and reference need resampling and are refused, as are ``BLEND``, a cell size or a coordinate
+    system other than the inputs', and a ``MEAN`` that is not whole in an integer pixel type. With ``number_of_bands``
+    above one, each band is mosaicked from the inputs' same band; inputs with another band count are refused."""
     import numpy
     from ._raster import _Grid
     from ._runtime import ExecuteError
     method = str(mosaic_method or "LAST").upper()
     if method not in ("FIRST", "LAST", "MEAN", "MINIMUM", "MAXIMUM", "SUM"):
         raise NotBuiltError(f"arcpy.management.MosaicToNewRaster: mosaic_method '{method}' is not built in grapy.")
-    if int(number_of_bands or 1) != 1:
-        raise NotBuiltError("arcpy.management.MosaicToNewRaster: several bands are not built in grapy.")
-    rasters = [_raster_in(r, "MosaicToNewRaster") for r in _list(input_rasters)]
+    count = int(number_of_bands or 1)
+    rasters = [_raster_in(r, "MosaicToNewRaster", bands=True) for r in _list(input_rasters)]
+    if any(r.bandCount != count for r in rasters):
+        raise NotBuiltError(f"arcpy.management.MosaicToNewRaster: inputs whose band count is not number_of_bands ({count}) "
+                            "are not built in grapy; the page does not say which bands fill the output.")
     first = rasters[0]._grid
     for r in rasters[1:]:
         g = r._grid
@@ -3401,12 +3436,27 @@ def MosaicToNewRaster(input_rasters, output_location, raster_dataset_name_with_e
     columns = int(round((right - left) / first.width))
     rows = int(round((top - bottom) / first.height))
     grid = _Grid(left, top, first.width, first.height, rows, columns, first.srid)
+    folder = _text(output_location)
+    if not os.path.isdir(folder):
+        raise ExecuteError(f"ERROR 000732: the folder {folder} does not exist.")
+    arrays, masks = [], []
+    for band in range(count):
+        array, mask = _mosaic_band(rasters, band, method, top, left, rows, columns, first)
+        arrays.append(_cast(array, mask, pixel_type or "8_BIT_UNSIGNED", "MosaicToNewRaster"))
+        masks.append(mask)
+    return _write_raster(arrays, masks, grid, _raster_path(os.path.join(folder, _text(raster_dataset_name_with_extension)),
+                                                           "MosaicToNewRaster"))
+
+
+def _mosaic_band(rasters, band, method, top, left, rows, columns, first):
+    """One band of the inputs mosaicked over the output grid: its cells and NoData mask."""
+    import numpy
     stack = numpy.full((len(rasters), rows, columns), numpy.nan)
     for i, r in enumerate(rasters):
         row0 = int(round((top - r._grid.top) / first.height))
         column0 = int(round((r._grid.left - left) / first.width))
         window = stack[i, row0:row0 + r._grid.rows, column0:column0 + r._grid.columns]
-        window[:] = numpy.where(r._mask, numpy.nan, r._array.astype(float))
+        window[:] = numpy.where(r._masks[band], numpy.nan, r._arrays[band].astype(float))
     present = ~numpy.isnan(stack)
     mask = ~present.any(axis=0)
     with numpy.errstate(all="ignore"):
@@ -3422,13 +3472,7 @@ def MosaicToNewRaster(input_rasters, output_location, raster_dataset_name_with_e
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
                 result = reduce(stack, axis=0)
-    result = numpy.where(mask, 0, result)
-    array = _cast(result, mask, pixel_type or "8_BIT_UNSIGNED", "MosaicToNewRaster")
-    folder = _text(output_location)
-    if not os.path.isdir(folder):
-        raise ExecuteError(f"ERROR 000732: the folder {folder} does not exist.")
-    return _write_raster(array, mask, grid, _raster_path(os.path.join(folder, _text(raster_dataset_name_with_extension)),
-                                                         "MosaicToNewRaster"))
+    return numpy.where(mask, 0, result), mask
 
 
 def Resample(in_raster, out_raster, cell_size=None, resampling_type="NEAREST"):
@@ -3477,15 +3521,16 @@ def Resample(in_raster, out_raster, cell_size=None, resampling_type="NEAREST"):
 
 def Flip(in_raster, out_raster):
     """A raster turned upside down about its horizontal centre line; its extent stays."""
-    raster = _raster_in(in_raster, "Flip")
-    return _write_raster(raster._array[::-1].copy(), raster._mask[::-1].copy(), raster._grid, _raster_path(out_raster, "Flip"))
+    raster = _raster_in(in_raster, "Flip", bands=True)
+    return _write_raster([a[::-1].copy() for a in raster._arrays], [m[::-1].copy() for m in raster._masks], raster._grid,
+                         _raster_path(out_raster, "Flip"), None, raster._names)
 
 
 def Mirror(in_raster, out_raster):
     """A raster turned left to right about its vertical centre line; its extent stays."""
-    raster = _raster_in(in_raster, "Mirror")
-    return _write_raster(raster._array[:, ::-1].copy(), raster._mask[:, ::-1].copy(), raster._grid,
-                         _raster_path(out_raster, "Mirror"))
+    raster = _raster_in(in_raster, "Mirror", bands=True)
+    return _write_raster([a[:, ::-1].copy() for a in raster._arrays], [m[:, ::-1].copy() for m in raster._masks],
+                         raster._grid, _raster_path(out_raster, "Mirror"), None, raster._names)
 
 
 def Shift(in_raster, out_raster, x_value, y_value, in_snap_raster=None):
@@ -3494,10 +3539,11 @@ def Shift(in_raster, out_raster, x_value, y_value, in_snap_raster=None):
     from ._raster import _Grid
     if _given(in_snap_raster):
         raise NotBuiltError("arcpy.management.Shift: in_snap_raster is not built in grapy.")
-    raster = _raster_in(in_raster, "Shift")
+    raster = _raster_in(in_raster, "Shift", bands=True)
     g = raster._grid
     grid = _Grid(g.left + float(x_value), g.top + float(y_value), g.width, g.height, g.rows, g.columns, g.srid)
-    return _write_raster(raster._array.copy(), raster._mask.copy(), grid, _raster_path(out_raster, "Shift"))
+    return _write_raster([a.copy() for a in raster._arrays], [m.copy() for m in raster._masks], grid,
+                         _raster_path(out_raster, "Shift"), None, raster._names)
 
 
 # ---- workspaces, values and caches ---------------------------------------------------------------------------------------
@@ -5030,6 +5076,17 @@ def DeleteRasterAttributeTable(in_raster):
     return Result(raster.catalogPath)
 
 
+def CompositeBands(in_rasters, out_raster):
+    """The input rasters' bands, in order, as one raster of several bands, saved (arcpy.sa.CompositeBand's rule: the
+    inputs must lie on one grid, since resampling is not built). INFERRED: the inputs are a list or a
+    semicolon-separated string."""
+    from . import sa
+    inputs = in_rasters if isinstance(in_rasters, (list, tuple)) else [p for p in _text(in_rasters).split(";") if p]
+    path = _raster_path(out_raster, "CompositeBands")
+    sa.CompositeBand([str(r) if isinstance(r, Result) else r for r in inputs]).save(path)
+    return Result(path)
+
+
 _REASONS = {
     "needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet "
     "(ADR-224 group 2)": (
@@ -5066,9 +5123,9 @@ _REASONS = {
         "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
         "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
         "CalculateDefaultClusterTolerance", "AddFullTextIndex", "AssignDefaultToField"),
-    "needs multidimensional, colormapped or composited multiband rasters, which grapy's rasters — grids with an "
-    "attribute table — do not hold (ADR-224 §5.5)": (
-        "CompositeBands", "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
+    "needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or "
+    "pansharpening method grapy does not build (ADR-224 §5.5)": (
+        "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
         "BuildMultidimensionalTranspose", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights", "CreatePansharpenedRasterDataset"),
     "resamples or transforms cells by a method or extent rule the page does not define exactly": (
         "ProjectRaster", "Rescale", "Rotate", "Warp", "WarpFromFile", "RegisterRaster", "SplitRaster",

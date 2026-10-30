@@ -25,7 +25,7 @@ from ._runtime import NotBuiltError
 def _unary(name, function, keep_integer=False):
     def tool(in_raster_or_constant):
         _refuse_environment(f"arcpy.sa.{name}")
-        return _combine([as_raster(in_raster_or_constant, name)], function, keep_integer=keep_integer, tool=name)
+        return _combine([as_raster(in_raster_or_constant, name, bands=True)], function, keep_integer=keep_integer, tool=name)
     tool.__name__ = name
     tool.__doc__ = f"arcpy.sa.{name}, cell by cell."
     return tool
@@ -70,7 +70,7 @@ BooleanNot = _unary("BooleanNot", lambda a: (np.asarray(a) == 0).astype(np.int32
 def _binary(name, function, keep_integer=True):
     def tool(in_raster_or_constant1, in_raster_or_constant2):
         _refuse_environment(f"arcpy.sa.{name}")
-        values = [as_raster(v, name) if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
+        values = [as_raster(v, name, bands=True) if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
         return _combine(values, function, keep_integer=keep_integer, tool=name)
     tool.__name__ = name
     tool.__doc__ = f"arcpy.sa.{name}, cell by cell; NoData where either input is."
@@ -93,7 +93,7 @@ def Divide(in_raster_or_constant1, in_raster_or_constant2):
     divisor is zero."""
     from ._raster import _divide
     _refuse_environment("arcpy.sa.Divide")
-    values = [as_raster(v, "Divide") if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
+    values = [as_raster(v, "Divide", bands=True) if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
     return _divide(*values)
 Mod = _binary("Mod", _zero_is_nodata(np.fmod))
 Power = _binary("Power", lambda x, y: np.power(np.asarray(x, float), y), keep_integer=False)
@@ -161,10 +161,21 @@ def _where_on_table(raster, where_clause, tool):
     return np.isin(raster._array, np.array(chosen, dtype=np.float64))
 
 
+def _band_wise(values, function, tool):
+    from ._raster import _band_wise as _wise
+    opened = [as_raster(v, tool, bands=True) if isinstance(v, (str, Raster)) else v for v in values]
+    return _wise(opened, function, tool)
+
+
 def Con(in_conditional_raster, in_true_raster_or_constant, in_false_raster_or_constant=None, where_clause=None):
     """The true value where the condition holds (non-zero, or the where clause is true), the false value elsewhere, and
-    NoData where there is no false value."""
+    NoData where there is no false value. Multiband inputs are processed band by band, as documented: all of them
+    multiband with the same number of bands, or a multiband condition with constants."""
     _refuse_environment("arcpy.sa.Con")
+    multiband = _band_wise([in_conditional_raster, in_true_raster_or_constant, in_false_raster_or_constant],
+                           lambda c, t, f: Con(c, t, f, where_clause), "Con")
+    if multiband is not None:
+        return multiband
     condition = as_raster(in_conditional_raster, "Con")
     if where_clause:
         test = _where(condition, where_clause, "Con").astype(np.int32)
@@ -192,8 +203,12 @@ def Con(in_conditional_raster, in_true_raster_or_constant, in_false_raster_or_co
 
 
 def SetNull(in_conditional_raster, in_false_raster_or_constant, where_clause=None):
-    """NoData where the condition holds, the false value elsewhere."""
+    """NoData where the condition holds, the false value elsewhere; band by band for multiband inputs, as Con."""
     _refuse_environment("arcpy.sa.SetNull")
+    multiband = _band_wise([in_conditional_raster, in_false_raster_or_constant],
+                           lambda c, f: SetNull(c, f, where_clause), "SetNull")
+    if multiband is not None:
+        return multiband
     condition = as_raster(in_conditional_raster, "SetNull")
     test = _where(condition, where_clause, "SetNull") if where_clause else condition._array != 0
     flipped = Raster._of((~test).astype(np.int32), condition._mask.copy(), condition._grid)
@@ -201,13 +216,20 @@ def SetNull(in_conditional_raster, in_false_raster_or_constant, where_clause=Non
 
 
 def IsNull(in_raster):
-    """1 where the input is NoData, 0 elsewhere; never NoData itself."""
+    """1 where the input is NoData, 0 elsewhere; never NoData itself. Band by band for a multiband input."""
+    multiband = _band_wise([in_raster], IsNull, "IsNull")
+    if multiband is not None:
+        return multiband
     raster = as_raster(in_raster, "IsNull")
     return Raster._of(raster._mask.astype(np.int32), np.zeros(raster._mask.shape, bool), raster._grid)
 
 
 def Test(in_raster, where_clause):
-    """1 where the where clause is true, 0 where it is false, NoData where the input is."""
+    """1 where the where clause is true, 0 where it is false, NoData where the input is. Band by band for a multiband
+    input."""
+    multiband = _band_wise([in_raster], lambda r: Test(r, where_clause), "Test")
+    if multiband is not None:
+        return multiband
     raster = as_raster(in_raster, "Test")
     return Raster._of(_where(raster, where_clause, "Test").astype(np.int32), raster._mask.copy(), raster._grid)
 
@@ -464,9 +486,31 @@ _CELL = {"MEAN": np.nanmean, "SUM": np.nansum, "MINIMUM": np.nanmin, "MAXIMUM": 
 
 def CellStatistics(in_rasters_or_constants, statistics_type="MEAN", ignore_nodata="DATA", process_as_multiband=None,
                    percentile_value=90, percentile_interpolation_type="AUTO_DETECT"):
-    """A statistic of the inputs, cell by cell. ``DATA`` leaves NoData inputs out of each cell's statistic."""
+    """A statistic of the inputs, cell by cell. ``DATA`` leaves NoData inputs out of each cell's statistic.
+
+    Multiband inputs as documented: under ``SINGLE_BAND`` (the default) each band of a multiband input is an input of
+    its own and the output has one band; under ``MULTI_BAND`` the statistic is taken band by band over the inputs'
+    corresponding bands — every raster input multiband with the same number of bands, or multiband with constants —
+    and the output has as many bands. A multiband raster with a single-band one under MULTI_BAND is refused (the page
+    does not say how the single band pairs with the bands)."""
     _refuse_environment("arcpy.sa.CellStatistics")
-    inputs = [as_raster(v, "CellStatistics") if isinstance(v, str) else v for v in in_rasters_or_constants]
+    mode = str(process_as_multiband or "SINGLE_BAND").upper()
+    if mode in ("TRUE", "MULTI_BAND"):
+        mode = "MULTI_BAND"
+    elif mode in ("FALSE", "SINGLE_BAND"):
+        mode = "SINGLE_BAND"
+    else:
+        _refuse("CellStatistics", "process_as_multiband", process_as_multiband)
+    opened = [as_raster(v, "CellStatistics", bands=True) if isinstance(v, (str, Raster)) else v for v in in_rasters_or_constants]
+    if any(isinstance(v, Raster) and v.bandCount > 1 for v in opened):
+        if mode == "SINGLE_BAND":
+            expanded = []
+            for v in opened:
+                expanded.extend([v._band(b) for b in range(1, v.bandCount + 1)] if isinstance(v, Raster) else [v])
+            return CellStatistics(expanded, statistics_type, ignore_nodata)
+        return _band_wise(opened, lambda *band: CellStatistics(list(band), statistics_type, ignore_nodata),
+                          "CellStatistics")
+    inputs = opened
     rasters = [v for v in inputs if isinstance(v, Raster)]
     from ._raster import _align
     arrays, masks, grid = _align(rasters, "CellStatistics")
@@ -2785,12 +2829,25 @@ def ExtractBand(raster, band_ids=None, band_names=None, band_wavelengths=None, m
                 wavelength_match_tolerance=None):
     """The bands ``band_ids`` names, in that order: one band answers a Raster, several a raster of several bands.
 
-    Refused: ``band_names`` and ``band_wavelengths``, which need band metadata grapy's rasters do not carry; a band id
-    the raster does not have, since BestMatch's choice of a substitute is not specified.
+    ``band_names`` names bands by the raster's bandNames, in that order.
 
-    INFERRED: band ids are one-based, as every other arcpy.ia band id is; the page's example passes [1, 2]."""
+    Refused: ``band_wavelengths``, which needs band metadata grapy's rasters do not carry; a band id or name the raster
+    does not have, since BestMatch's choice of a substitute is not specified.
+
+    INFERRED: band ids are one-based, as every other arcpy.ia band id is; the page's example passes [1, 2].
+    ``band_names`` is a list of names, or one name (the page gives no format); names match without regard to case; the
+    output keeps the names of a raster whose bands are named."""
+    if _given(band_names) and _given(band_ids):
+        raise ValueError("ExtractBand takes band_ids or band_names, not both.")
     if _given(band_names):
-        _refuse("ExtractBand", "band_names", band_names, "band names are metadata grapy's rasters do not carry")
+        from ._raster import _band_number
+        source = _open_bands(raster, "ExtractBand")
+        names = band_names if isinstance(band_names, (list, tuple)) else [band_names]
+        try:
+            band_ids = [_band_number(str(n), source.bandNames, "ExtractBand's raster") for n in names]
+        except ValueError as error:
+            _refuse("ExtractBand", "band_names", band_names, f"{error} BestMatch's substitute is not specified")
+        raster = source
     if _given(band_wavelengths):
         _refuse("ExtractBand", "band_wavelengths", band_wavelengths, "wavelengths are metadata grapy's rasters do not carry")
     bands = _open_bands(raster, "ExtractBand")
@@ -2803,7 +2860,8 @@ def ExtractBand(raster, band_ids=None, band_names=None, band_wavelengths=None, m
                     "not specified")
     if len(ids) == 1:
         return bands._band(int(ids[0]))
-    return _Bands([bands._arrays[int(i) - 1] for i in ids], [bands._masks[int(i) - 1] for i in ids], bands._grid)
+    return _Bands([bands._arrays[int(i) - 1] for i in ids], [bands._masks[int(i) - 1] for i in ids], bands._grid,
+                  [bands.bandNames[int(i) - 1] for i in ids] if bands._names else None)
 
 
 # ---- local statistics across rasters, answered by arcpy.sa.CellStatistics
@@ -3230,13 +3288,15 @@ def SubsetBands(raster, method="BY_IDS", bands=None, missing_band_action="BestMa
     """The bands named by their one-based ids — ``"1 3"``, or ranges such as ``"2-4 6"`` — kept in the input's band
     order, as the page says the output keeps it.
 
-    Refused: ``BY_NAMES`` and ``BY_WAVELENGTHS`` and ``exclude_bad_bands`` (band metadata grapy's rasters do not carry);
+    Refused: ``BY_NAMES``, whose way of writing several names in ``bands`` the page does not give; ``BY_WAVELENGTHS``
+    and ``exclude_bad_bands`` (band metadata grapy's rasters do not carry);
     an id the raster does not have (BestMatch's substitute is chosen by wavelength, which is not held); and an empty
     ``bands``, whose meaning the page does not give.
 
     INFERRED: a range includes both its ends."""
     if str(method or "BY_IDS").upper() != "BY_IDS":
-        _refuse("SubsetBands", "method", method, "band names and wavelengths are metadata grapy's rasters do not carry")
+        _refuse("SubsetBands", "method", method, "how several names are written in bands is not documented, and "
+                "wavelengths are metadata grapy's rasters do not carry")
     if exclude_bad_bands:
         _refuse("SubsetBands", "exclude_bad_bands", exclude_bad_bands, "bad-band flags are metadata grapy's rasters do not carry")
     if not _given(bands):
@@ -3252,7 +3312,8 @@ def SubsetBands(raster, method="BY_IDS", bands=None, missing_band_action="BestMa
     chosen = sorted(wanted)
     if len(chosen) == 1:
         return source._band(chosen[0])
-    return _Bands([source._arrays[i - 1] for i in chosen], [source._masks[i - 1] for i in chosen], source._grid)
+    return _Bands([source._arrays[i - 1] for i in chosen], [source._masks[i - 1] for i in chosen], source._grid,
+                  [source.bandNames[i - 1] for i in chosen] if source._names else None)
 
 
 _REFUSED.update({

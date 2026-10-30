@@ -13,7 +13,7 @@ from ._geometry import (Array, ArealUnitConversionFactor, AsShape, FromCoordStri
 from ._parameter import Field, FieldInfo, Filter, Index, Parameter, ValueTable
 from ._reference import Extent, SpatialReference
 from ._result import Result
-from ._raster import NumPyArrayToRaster, Raster, RasterToNumPyArray
+from ._raster import NumPyArrayToRaster, Raster, RasterInfo, RasterToNumPyArray
 from ._runtime import (AddError, AddIDMessage, AddMessage, AddReturnMessage, AddWarning, ClearEnvironment, EnvManager,
                        ExecuteError, ExecuteWarning, GetAllMessages, GetArgumentCount, GetMaxSeverity, GetMessage,
                        GetMessageCount, GetMessages, GetParameter, GetParameterAsText, GetParameterCount, GetReturnCode,
