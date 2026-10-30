@@ -108,9 +108,10 @@
   "unexamined": []
  },
  "arcpy.cartography": {
-  "built": 5,
+  "built": 6,
   "equivalents": {
    "AggregatePolygons": "morphological closing by the half aggregation distance, less each polygon's own closing (Serra, Image Analysis and Mathematical Morphology, 1982)",
+   "CalculateColorTheoremField": "greedy graph colouring in Welsh and Powell's largest-degree-first order, each feature given the least-used colour its neighbours leave free (Welsh and Powell 1967)",
    "CollapseDualLinesToCenterline": "the medial axis between a pair of casings: the Voronoi diagram of their densified vertices, its edges between one casing's points and the other's, inside the pair's polygon (Lee 1982, Medial axis transformation of a planar shape; Voronoi by Qhull)",
    "SimplifyBuilding": "each building's ring by Douglas–Peucker at the tolerance, or its minimum-area rectangle when that lies within the tolerance of it (Douglas and Peucker 1973; Freeman and Shapira 1975 (minimum-area rectangle))",
    "SimplifyPolygon": "Douglas–Peucker or Visvalingam–Whyatt on each ring, the ring opened at its first stored vertex (Douglas and Peucker 1973; Visvalingam and Whyatt 1992)"
@@ -122,7 +123,6 @@
    "AnnotateSelectedFeatures": "arcpy.cartography.AnnotateSelectedFeatures is not built in grapy — it works on symbolized layers, labels or annotation in an ArcGIS Pro map — symbols at a reference scale — which a run on this server does not have.",
    "CalculateAdjacentFields": "arcpy.cartography.CalculateAdjacentFields is not built in grapy — how a neighbouring page's direction is decided is not documented.",
    "CalculateCentralMeridianAndParallels": "arcpy.cartography.CalculateCentralMeridianAndParallels is not built in grapy — it writes an Esri projection-engine string whose exact text grapy cannot reproduce, from the map's coordinate system, which a server run does not have.",
-   "CalculateColorTheoremField": "arcpy.cartography.CalculateColorTheoremField is not built in grapy — its procedure is described only in outline, not specified closely enough to reproduce.",
    "CalculateGridConvergenceAngle": "arcpy.cartography.CalculateGridConvergenceAngle is not built in grapy — with no coordinate system field it reads the Cartographic Coordinate System environment of an ArcGIS Pro session, and a field holds an Esri projection-engine string grapy does not parse.",
    "CalculateLineCaps": "arcpy.cartography.CalculateLineCaps is not built in grapy — it works on symbolized layers, labels or annotation in an ArcGIS Pro map — symbols at a reference scale — which a run on this server does not have.",
    "CalculatePolygonMainAngle": "arcpy.cartography.CalculatePolygonMainAngle is not built in grapy — what makes segments' orientations 'similar' is not defined.",
@@ -1366,13 +1366,15 @@
   "unexamined": []
  },
  "arcpy.stats": {
-  "built": 35,
+  "built": 37,
   "equivalents": {
    "BivariateSpatialAssociation": "Lee's L by its documented formulas, its permutations drawn with NumPy's PCG64 from env.randomGenerator (Lee 2001; Lee 2009; Esri's \"How Bivariate Spatial Association (Lee's L) works\")",
    "CalculateCompositeIndex": "the documented scaling, combination and post-processing steps, with the OECD handbook's weighted arithmetic and geometric aggregation (Esri's \"How Calculate Composite Index works\"; OECD/JRC, Handbook on Constructing Composite Indicators, 2008, §6)",
    "CalculateRates": "crude rates; empirical Bayes smoothing by Marshall's moment estimator, global and local; the spatial rate smoother Σy/Σn and the population-weighted median of the neighbourhood's rates (Marshall 1991; Clayton and Kaldor 1987; Kafadar 1996)",
    "ColocationAnalysis": "the local colocation quotient with a Gaussian, bisquare or box kernel and conditional permutation pseudo p-values with a stated seed; the global colocation quotient as their mean (Leslie and Kronenfeld 2011; Wang, Hu, Wang and Li 2017)",
+   "DecomposeSpatialStructure": "Moran eigenvector maps: the eigenvectors of the doubly centred, symmetric spatial weights matrix (Griffith 1996; Dray, Legendre and Peres-Neto 2006)",
    "DensityBasedClustering": "DBSCAN (Ester, Kriegel, Sander and Xu 1996)",
+   "DimensionReduction": "principal component analysis by the eigendecomposition of the sample covariance (or correlation) matrix (James, Witten, Hastie and Tibshirani, An Introduction to Statistical Learning, 2014, §10.2; Jolliffe, Principal Component Analysis, 2nd ed., 2002)",
    "GWR": "geographically weighted regression with a Gaussian or bisquare kernel and an AICc bandwidth chosen by golden-section search (Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002)",
    "GeneralizedLinearRegression": "a generalized linear model fitted by iteratively reweighted least squares — Gaussian identity, binomial logit, Poisson log (McCullagh and Nelder, Generalized Linear Models, 2nd ed., 1989)",
    "GeographicallyWeightedRegression": "geographically weighted regression with a Gaussian kernel, the bandwidth by golden-section search on AICc or cross-validation (Fotheringham, Brunsdon and Charlton, Geographically Weighted Regression, 2002)",
@@ -1396,9 +1398,7 @@
    "ConvertSpatialWeightsMatrixtoTable": "arcpy.stats.ConvertSpatialWeightsMatrixtoTable is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
    "CreateSpatialComponentExplanatoryVariables": "arcpy.stats.CreateSpatialComponentExplanatoryVariables is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
    "CrossValidate": "arcpy.stats.CrossValidate is not built in grapy — its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call would not give arcpy's answer.",
-   "DecomposeSpatialStructure": "arcpy.stats.DecomposeSpatialStructure is not built in grapy — it reads or writes spatial weights matrix (.swm) files, whose layout is not published.",
    "DescribeSSMFile": "arcpy.stats.DescribeSSMFile is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
-   "DimensionReduction": "arcpy.stats.DimensionReduction is not built in grapy — its page answers 404, so its components and output fields cannot be checked.",
    "DirectionalTrend": "arcpy.stats.DirectionalTrend is not built in grapy — its output is a chart on a layer in the active map, and the tool cannot run without one.",
    "EstimateTimeToEvent": "arcpy.stats.EstimateTimeToEvent is not built in grapy — its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not specified closely enough to reproduce.",
    "EvaluateBinSizes": "arcpy.stats.EvaluateBinSizes is not built in grapy — its page answers 404, so its recommendation cannot be checked.",
