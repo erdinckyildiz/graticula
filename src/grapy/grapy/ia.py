@@ -11,14 +11,14 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
     FerrousMinerals, Float, FocalStatistics, FuzzyGaussian, FuzzyLarge, FuzzyLinear, FuzzyMSLarge, FuzzyMSSmall,
     FuzzyNear, FuzzySmall, GEMI, GVITM, GreaterThan, GreaterThanEqual, GreaterThanFrequency, HighestPosition,
     Hillshade, Int, IronOxide, IsNull, KrigingModelOrdinary, KrigingModelUniversal, LessThan, LessThanEqual,
-    LessThanFrequency, Ln, Log10, Log2, LowestPosition, MSAVI, Majority, Max, Mean, Median, Merge, Min, Minority,
-    Minus, Mod, NBR, NDBI, NDMI, NDSI, NDVI, NDVIre, NDWI, NbrAnnulus, NbrCircle, NbrIrregular, NbrRectangle,
-    Negate, NotEqual, Over, PVI, Percentile, Pick, Plus, Point, Popularity, Power, RTVICore, RadiusFixed,
-    RadiusVariable, Range, Rank, Raster, RasterCalculator, Remap, RemapRange, RemapValue, RoundDown, RoundUp, SAVI,
-    SR, SRre, SetNull, Sin, SinH, Slope, Square, SquareRoot, StdDev, Stretch, SubsetBands, Sum, TSAVI, Tan, TanH,
-    Test, TfExponential, TfGaussian, TfLarge, TfLinear, TfLogarithm, TfLogisticDecay, TfLogisticGrowth, TfMSLarge,
-    TfMSSmall, TfNear, TfPower, TfSmall, TfSymmetricLinear, Threshold, Times, TransposeBits, VARI, Variety, WSTable,
-    WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
+    LessThanFrequency, Ln, Log10, Log2, Lookup, LowestPosition, MSAVI, Majority, Max, Mean, Median, Merge, Min,
+    Minority, Minus, Mod, NBR, NDBI, NDMI, NDSI, NDVI, NDVIre, NDWI, NbrAnnulus, NbrCircle, NbrIrregular,
+    NbrRectangle, Negate, NotEqual, Over, PVI, Percentile, Pick, Plus, Point, Popularity, Power, RTVICore,
+    RadiusFixed, RadiusVariable, Range, Rank, Raster, RasterCalculator, Remap, RemapRange, RemapValue, RoundDown,
+    RoundUp, SAVI, SR, SRre, SetNull, Sin, SinH, Slope, Square, SquareRoot, StdDev, Stretch, SubsetBands, Sum,
+    TSAVI, Tan, TanH, Test, TfExponential, TfGaussian, TfLarge, TfLinear, TfLogarithm, TfLogisticDecay,
+    TfLogisticGrowth, TfMSLarge, TfMSSmall, TfNear, TfPower, TfSmall, TfSymmetricLinear, Threshold, Times,
+    TransposeBits, VARI, Variety, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
 )
 from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
 

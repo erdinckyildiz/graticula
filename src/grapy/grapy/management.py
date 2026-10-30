@@ -82,7 +82,29 @@ def _feature_dataset_of(path):
 
 def AddField(in_table, field_name, field_type, field_precision=None, field_scale=None, field_length=None,
              field_alias=None, field_is_nullable="NULLABLE", *_, **__):
+    from ._raster import _is_raster_path
+    if _is_raster_path(in_table):
+        return _add_rat_field(in_table, field_name, field_type)
     _gpkg.add_column(in_table, _gpkg.Column(field_name, _FIELD_TYPES.get(field_type.upper(), "String")))
+    return Result(in_table)
+
+
+def _add_rat_field(in_table, field_name, field_type):
+    """A field added to a raster's attribute table, empty in every row. INFERRED: SHORT, LONG and BIGINTEGER are GDAL
+    integers, FLOAT and DOUBLE reals, everything else strings; the raster must already have a table."""
+    from ._raster import _read_rat, _write_rat
+    from ._runtime import ExecuteError
+    rat = _read_rat(in_table)
+    if rat is None:
+        raise ExecuteError(f"ERROR 000732: {in_table} has no attribute table; build one first (BuildRasterAttributeTable).")
+    if str(field_name).lower() in [n.lower() for n in rat.names()]:
+        raise ExecuteError(f"ERROR 000012: {field_name} already exists.")
+    word = str(field_type).upper()
+    kind = "Integer" if word in ("SHORT", "LONG", "BIGINTEGER") else "Double" if word in ("FLOAT", "DOUBLE") else "String"
+    rat.fields.append((field_name, kind, 0))
+    for row in rat.rows:
+        row.append(None if kind != "String" else "")
+    _write_rat(in_table, rat)
     return Result(in_table)
 
 
@@ -4929,6 +4951,53 @@ _GROUP_2_MODELS = {
         "CreateOrthoCorrectedRasterDataset"),
 }
 
+
+def BuildRasterAttributeTable(in_raster, overwrite="NONE", convert_colormap="NONE"):
+    """A raster attribute table for an integer raster: ``Value`` and ``Count``, each value present with the number of
+    its cells, written to the raster's .aux.xml as GDAL keeps one. ``Overwrite`` replaces a table already there;
+    ``NONE`` keeps it, its added fields and their values, and updates its values, as documented ("No fields will be
+    deleted, but the values in the table will be updated").
+
+    Refused: floating-point rasters, as documented; ``ConvertColormap`` (grapy's rasters carry no colormap).
+
+    INFERRED: the fields are named Value and Count, as ArcGIS shows them (the page does not name them); NoData cells are
+    not counted; under NONE a value no longer present loses its row and a new value gains one with its added fields
+    empty."""
+    from ._raster import Raster, _value_count, _write_rat
+    from ._runtime import ExecuteError
+    if str(convert_colormap or "NONE").upper() != "NONE":
+        raise NotBuiltError("arcpy.management.BuildRasterAttributeTable: convert_colormap is not built in grapy; its "
+                            "rasters carry no colormap.")
+    raster = Raster(in_raster)
+    if not raster.isInteger:
+        raise ExecuteError("ERROR 000049: an attribute table cannot be built for a floating-point raster.")
+    fresh = _value_count(raster._array, raster._mask)
+    old = raster._rat
+    if old is not None and str(overwrite or "NONE").upper() != "OVERWRITE":
+        names = old.names()
+        value_at = old.index("Value") if "value" in [n.lower() for n in names] else None
+        kept = {row[value_at]: row for row in old.rows} if value_at is not None else {}
+        rows = []
+        for value, count in fresh.rows:
+            row = list(kept.get(value, [None if f[1] != "String" else "" for f in old.fields]))
+            if value_at is not None:
+                row[value_at] = value
+            if "count" in [n.lower() for n in names]:
+                row[old.index("Count")] = count
+            rows.append(row)
+        fresh = type(old)(old.fields, rows)
+    _write_rat(raster.catalogPath, fresh)
+    return Result(raster.catalogPath)
+
+
+def DeleteRasterAttributeTable(in_raster):
+    """The raster's attribute table removed from its .aux.xml."""
+    from ._raster import Raster, _write_rat
+    raster = Raster(in_raster)
+    _write_rat(raster.catalogPath, None)
+    return Result(raster.catalogPath)
+
+
 _REASONS = {
     "needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet "
     "(ADR-224 group 2)": (
@@ -4968,8 +5037,7 @@ _REASONS = {
     "needs multiband, multidimensional, colormapped or attribute-table rasters; grapy's rasters are single-band grids "
     "(ADR-224 §5.5)": (
         "CompositeBands", "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
-        "BuildMultidimensionalTranspose", "AddColormap", "DeleteColormap", "BuildRasterAttributeTable",
-        "DeleteRasterAttributeTable", "SetRasterProperties", "ComputePansharpenWeights", "CreatePansharpenedRasterDataset"),
+        "BuildMultidimensionalTranspose", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights", "CreatePansharpenedRasterDataset"),
     "resamples or transforms cells by a method or extent rule the page does not define exactly": (
         "ProjectRaster", "Rescale", "Rotate", "Warp", "WarpFromFile", "RegisterRaster", "SplitRaster",
         "WorkspaceToRasterDataset", "CreateRasterDataset"),

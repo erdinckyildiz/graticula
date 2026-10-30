@@ -126,8 +126,6 @@ class More(_Fixture):
         self.assertEqual(cells(sa.RegionGroup(values, "EIGHT", "WITHIN", "NO_LINK")), [[1, 1, 2], [3, 1, 2], [3, 3, 1]])
         self.assertEqual(cells(sa.RegionGroup(values, "FOUR", "WITHIN", "NO_LINK", 3)), [[1, 1, 2], [0, 1, 2], [0, 0, 3]])
         self.assertEqual(cells(sa.RegionGroup(values, "FOUR", "CROSS", "NO_LINK")), [[1, 1, 1], [1, 1, 1], [1, 1, 1]])
-        with self.assertRaises(arcpy.NotBuiltError):
-            sa.RegionGroup(values)
 
     # ---- density
 
@@ -218,7 +216,7 @@ class More(_Fixture):
             sa.Fill(grid([[1]]), 3)
 
     def test_tools_refused_by_name_say_why(self):
-        for name, words in (("Combine", "attribute table"), ("TopoToRaster", "not specified")):
+        for name, words in (("TabulateArea", "fields"), ("TopoToRaster", "not specified")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a", "b")
             self.assertIn(words, str(raised.exception))
