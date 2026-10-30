@@ -2623,6 +2623,20 @@ def DefineProjection(in_dataset, coor_system):
     path = _plain("DefineProjection", in_dataset)
     reference = reference_of(coor_system)
     code = reference.factoryCode if reference is not None else 0
+    from ._raster import _is_raster_path
+    if _is_raster_path(path):
+        # A raster's reference is its GeoTIFF's, rewritten in place; its cells and grid are left as they are.
+        import rasterio
+        from ._runtime import ExecuteError
+        if not code:
+            raise ExecuteError("ERROR 000622: a raster's coordinate system is set from one with an EPSG code.")
+        from . import env
+        located = path if os.path.isabs(path) or os.path.exists(path) else os.path.join(env.workspace or "", path)
+        with rasterio.open(located, "r+") as raster:
+            if raster.crs is not None:
+                AddWarning("WARNING 001319: the dataset already had a coordinate system; it is replaced.")
+            raster.crs = f"EPSG:{code}"
+        return Result(str(in_dataset))
     connection, table = _gpkg.table_of(path)
     try:
         if _gpkg.describe(connection, table)[2] > 0:
