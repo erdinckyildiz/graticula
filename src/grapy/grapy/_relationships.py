@@ -63,8 +63,10 @@ def pairs(connection, rc):
     return sorted(set(connection.execute(sql).fetchall()))
 
 
-def write_related_tables(connection, rc):
-    """The class's pairs written to the OGC Related Tables Extension, replacing what was there."""
+def write_related_tables(connection, rc, relation=None):
+    """The class's pairs written to the OGC Related Tables Extension, replacing what was there. ``relation`` names the
+    extension's relation when the caller knows it (``media`` for an attachment class, ADR-228); otherwise it is
+    ``features`` or ``attributes`` by the destination."""
     mapping = f'{rc["name"]}_rte'
     connection.execute("""create table if not exists gpkgext_relations (id integer primary key autoincrement,
         base_table_name text not null, base_primary_column text not null default 'id', related_table_name text not null,
@@ -74,7 +76,8 @@ def write_related_tables(connection, rc):
     connection.execute(f'delete from "{mapping}"')
     connection.executemany(f'insert into "{mapping}" values (?, ?)', pairs(connection, rc))
     kind = connection.execute("select data_type from gpkg_contents where table_name = ?", (rc["destination"],)).fetchone()
-    relation = "features" if kind and kind[0] == "features" and _has_shapes(connection, rc["destination"]) else "attributes"
+    relation = relation or ("features" if kind and kind[0] == "features" and _has_shapes(connection, rc["destination"])
+                            else "attributes")
     connection.execute("delete from gpkgext_relations where mapping_table_name = ?", (mapping,))
     connection.execute("insert into gpkgext_relations (base_table_name, base_primary_column, related_table_name, "
                        "related_primary_column, relation_name, mapping_table_name) values (?, ?, ?, ?, ?, ?)",
@@ -155,7 +158,8 @@ class Described:
         self.isComposite = rc["relationship_type"] == "COMPOSITE"
         self.isAttributed = bool(rc["attributed"])
         self.isReflexive = rc["origin"] == rc["destination"]
-        self.isAttachmentRelationship = False
+        # An attachment class is the one EnableAttachments makes, <class>__ATTACHREL (ADR-228).
+        self.isAttachmentRelationship = rc["name"].endswith("__ATTACHREL") and rc["destination"] == rc["name"][:-3]
         self.keyType = "Single"
         self.classKey = "Undefined"
         self.notification = {"NONE": "None", "FORWARD": "Forward", "BACKWARD": "Backward", "BOTH": "Both"}.get(

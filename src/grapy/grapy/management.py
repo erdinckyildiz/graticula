@@ -569,13 +569,26 @@ def DeleteField(in_table, drop_field, method="DELETE_FIELDS"):
     from ._raster import _is_raster_path
     if _is_raster_path(in_table):
         return _delete_rat_fields(in_table, drop_field, method)
+    from . import _attachments, _subtypes
+    from ._runtime import ExecuteError
     connection, table = _gpkg.table_of(in_table)
     try:
         columns = [c.name for c in _gpkg.describe(connection, table)[0]]
         named = {n.lower() for n in _list(drop_field)}
         drop = [c for c in columns if (c.lower() in named) != (str(method).upper() == "KEEP_FIELDS")]
+        # INFERRED (ADR-228): the subtype field, and the GlobalID field of a class with attachments, cannot be deleted —
+        # clear the subtype field or disable attachments first; a field that is deleted takes its defaults with it.
+        subtype = _subtypes.field(connection, table)
+        keyed = _attachments.global_id_field(connection, table) if _attachments.enabled(connection, table) else None
+        for name in drop:
+            if (subtype and name.lower() == subtype[0].lower()) or (keyed and name.lower() == keyed.lower()):
+                raise ExecuteError(f"ERROR 000800: '{name}' is the subtype field or the attachments' GlobalID field and "
+                                   "cannot be deleted.")
         for name in drop:
             connection.execute(f'alter table "{table}" drop column "{name}"')
+            _subtypes.drop_field(connection, table, name)
+            if _attachments.global_id_field(connection, table) == name:
+                connection.execute("delete from grapy_global_id where table_name = ?", (table,))
         connection.commit()
     finally:
         connection.close()
@@ -634,10 +647,14 @@ def Rename(in_data, out_data, data_type=None):
     connection, table = _gpkg.table_of(in_data)
     new = out_table or os.path.splitext(os.path.basename(out_file))[0]
     try:
+        from . import _attachments, _subtypes
         connection.execute(f'alter table "{table}" rename to "{new}"')
         for meta in ("gpkg_contents", "gpkg_geometry_columns"):
             connection.execute(f"update {meta} set table_name = ? where table_name = ?", (new, table))
         connection.execute("update gpkg_contents set identifier = ? where table_name = ?", (new, new))
+        # A class's attachments, global IDs and subtypes keep with it under its new name (ADR-228).
+        _attachments.rename(connection, table, new)
+        _subtypes.rename(connection, table, new)
         connection.commit()
     finally:
         connection.close()
@@ -2737,7 +2754,8 @@ def _named_after_its_file(file):
         names = [r[0] for r in connection.execute("select table_name from gpkg_contents")]
     finally:
         connection.close()
-    return names == [os.path.splitext(os.path.basename(file))[0]]
+    from ._attachments import is_companion
+    return [n for n in names if not is_companion(n, names)] == [os.path.splitext(os.path.basename(file))[0]]
 
 
 def Compact(in_workspace):
@@ -2938,11 +2956,10 @@ _DOMAIN_FIELD = {"SHORT": "SmallInteger", "LONG": "Integer", "BIGINTEGER": "Inte
 
 
 def AssignDomainToField(in_table, field_name, domain_name, subtype_code=None):
-    """A domain set on a field. INFERRED: the field's type must be the domain's, a long or big integer domain taking an
-    integer field. Subtypes are not built."""
+    """A domain set on a field — or, with subtype codes, on the field in those subtypes only (ADR-228), kept in
+    ``grapy_subtype_domain`` while the field's own domain stays in the schema extension. INFERRED: the field's type
+    must be the domain's, a long or big integer domain taking an integer field."""
     from ._runtime import ExecuteError
-    if _given(subtype_code):
-        raise NotBuiltError("arcpy.management.AssignDomainToField: subtypes are not built in grapy.")
     path = _plain("AssignDomainToField", in_table)
     connection, table = _gpkg.table_of(path)
     try:
@@ -2954,6 +2971,14 @@ def AssignDomainToField(in_table, field_name, domain_name, subtype_code=None):
         if _DOMAIN_FIELD[field_type] != column.type:
             raise ExecuteError(f"ERROR 000800: the domain '{domain_name}' is {field_type}; the field '{column.name}' is "
                                f"{column.type}.")
+        if _given(subtype_code):
+            codes = _subtype_codes(subtype_code)
+            _subtyped(connection, table, codes)
+            for code in codes:
+                connection.execute("insert or replace into grapy_subtype_domain values (?, ?, ?, ?)",
+                                   (table, code, column.name, str(domain_name)))
+            connection.commit()
+            return Result(_text(in_table))
         connection.execute("insert into gpkg_data_columns (table_name, column_name, name, constraint_name) values (?, ?, ?, ?) "
                            "on conflict (table_name, column_name) do update set constraint_name = excluded.constraint_name",
                            (table, column.name, column.name, str(domain_name)))
@@ -2964,12 +2989,20 @@ def AssignDomainToField(in_table, field_name, domain_name, subtype_code=None):
 
 
 def RemoveDomainFromField(in_table, field_name, subtype_code=None):
-    """The domain taken off the fields named."""
-    if _given(subtype_code):
-        raise NotBuiltError("arcpy.management.RemoveDomainFromField: subtypes are not built in grapy.")
+    """The domain taken off the fields named — or, with subtype codes, off the fields in those subtypes only (ADR-228),
+    which then take the field's own domain again (INFERRED)."""
     path = _plain("RemoveDomainFromField", in_table)
     connection, table = _gpkg.table_of(path)
     try:
+        if _given(subtype_code):
+            codes = _subtype_codes(subtype_code)
+            _subtyped(connection, table, codes)
+            for field in _list(field_name):
+                for code in codes:
+                    connection.execute("delete from grapy_subtype_domain where table_name = ? and subtype_code = ? and "
+                                       "lower(field_name) = lower(?)", (table, code, field))
+            connection.commit()
+            return Result(_text(in_table))
         _domain_tables(connection)
         for field in _list(field_name):
             connection.execute("update gpkg_data_columns set constraint_name = null where table_name = ? and "
@@ -3847,8 +3880,9 @@ def TableCompare(in_base_table, in_test_table, sort_field, compare_type="ALL", i
     """Whether two tables are the same: their schemas (field names and types, omitted fields left out) and their rows,
     both sorted ascending by ``sort_field`` and compared pair by pair, numeric fields within their tolerance. The
     outputs are the base table and ``'true'`` or ``'false'``, as documented. INFERRED: field names compare without
-    regard to case and in order; ``ignore_options`` change nothing here, grapy keeping no aliases, subtypes, extension
-    properties or relationship classes. The compare file is not built."""
+    regard to case and in order; ``ignore_options`` change nothing here, the schema comparison reading field names and
+    types only — not aliases, subtypes (ADR-228), extension properties or relationship classes. The compare file is not
+    built."""
     tolerances, omit = _compare_common("TableCompare", out_compare_file, attribute_tolerances, omit_field)
     kind = str(compare_type or "ALL").upper()
     same = True
@@ -4378,8 +4412,11 @@ def AlterCodedValueDescription(in_workspace, domain_name, code, new_description)
 
 def _drop_models(connection, table):
     """INFERRED: a table that is deleted takes with it the relationship classes it takes part in (their relationship
-    tables and Related Tables mappings) and its place, rules and errors in any topology (ADR-225)."""
-    from . import _relationships
+    tables and Related Tables mappings) and its place, rules and errors in any topology (ADR-225); its attachment
+    table, global IDs, subtypes and defaults go too (ADR-228)."""
+    from . import _attachments, _relationships, _subtypes
+    _attachments.drop(connection, table)
+    _subtypes.drop(connection, table)
     for rc in _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table):
         for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
             if extra:
@@ -4620,12 +4657,13 @@ def _class_kind(file, table):
 
 def AddRuleToTopology(in_topology, rule_type, in_featureclass, subtype=None, in_featureclass2=None, subtype2=None):
     """A rule of the documented list added between the topology's classes, of the shape types its name gives. The same
-    rule twice is an error (INFERRED). Subtypes are refused: grapy holds none (ADR-224 group 2)."""
+    rule twice is an error (INFERRED). A rule on one subtype is refused: grapy holds subtypes (ADR-228) but its
+    ValidateTopology evaluates a rule on every feature of a class."""
     from . import _topology as topo
     from ._runtime import ExecuteError
     if _given(subtype) or _given(subtype2):
-        raise NotBuiltError("arcpy.management.AddRuleToTopology: subtypes need a data model this server does not hold "
-                            "yet (ADR-224 group 2).")
+        raise NotBuiltError("arcpy.management.AddRuleToTopology: a rule on one subtype is not built in grapy; its "
+                            "ValidateTopology evaluates a rule on every feature of a class (ADR-228).")
     name_found, entry = topo.rule(rule_type)
     if entry is None:
         raise ExecuteError(f"ERROR 000800: '{rule_type}' is not a topology rule.")
@@ -4910,24 +4948,26 @@ def TableToRelationshipClass(origin_table, destination_table, out_relationship_c
 
 def AddRuleToRelationshipClass(in_rel_class, origin_subtype=None, origin_minimum=None, origin_maximum=None,
                                destination_subtype=None, destination_minimum=None, destination_maximum=None):
-    """A rule narrowing the class's cardinality kept with it, as documented. INFERRED: the page does not say when a rule
-    is checked, and no grapy tool checks it; subtypes are refused, grapy holding none (ADR-224 group 2)."""
+    """A rule narrowing the class's cardinality kept with it, as documented, for the origin and destination subtypes
+    named (ADR-228): each must be a subtype of its table. INFERRED: the page does not say when a rule is checked, and
+    no grapy tool checks it."""
     from . import _relationships as rel
     from ._runtime import ExecuteError
-    if _given(origin_subtype) or _given(destination_subtype):
-        raise NotBuiltError("arcpy.management.AddRuleToRelationshipClass: subtypes need a data model this server does "
-                            "not hold yet (ADR-224 group 2).")
     file, name = _relationship_path(in_rel_class)
     connection = _gpkg.connect(file)
     try:
         rel.ensure(connection)
-        if not rel.classes(connection, name=name):
+        found = rel.classes(connection, name=name)
+        if not found:
             raise ExecuteError(f"ERROR 000732: there is no relationship class '{name}'.")
+        origin_code = _rule_subtype(connection, found[0]["origin"], origin_subtype)
+        destination_code = _rule_subtype(connection, found[0]["destination"], destination_subtype)
         number = lambda v: int(v) if _given(v) else None  # noqa: E731
-        connection.execute("insert into grapy_relationship_rule (relationship_class, origin_minimum, origin_maximum, "
-                           "destination_minimum, destination_maximum) values (?, ?, ?, ?, ?)",
-                           (name, number(origin_minimum), number(origin_maximum), number(destination_minimum),
-                            number(destination_maximum)))
+        connection.execute("insert into grapy_relationship_rule (relationship_class, origin_subtype, origin_minimum, "
+                           "origin_maximum, destination_subtype, destination_minimum, destination_maximum) values "
+                           "(?, ?, ?, ?, ?, ?, ?)",
+                           (name, origin_code, number(origin_minimum), number(origin_maximum), destination_code,
+                            number(destination_minimum), number(destination_maximum)))
         connection.commit()
     finally:
         connection.close()
@@ -4935,20 +4975,37 @@ def AddRuleToRelationshipClass(in_rel_class, origin_subtype=None, origin_minimum
 
 
 def RemoveRuleFromRelationshipClass(in_rel_class, origin_subtype=None, destination_subtype=None, remove_all="NOT_ALL"):
-    """The class's rule removed — or with ``REMOVE`` every rule, as documented. Subtypes are refused, as for adding."""
+    """The class's rule for the subtypes named removed — or with ``REMOVE``, or no subtype named, every rule, as
+    documented (ADR-228 for the subtypes)."""
     from . import _relationships as rel
-    if _given(origin_subtype) or _given(destination_subtype):
-        raise NotBuiltError("arcpy.management.RemoveRuleFromRelationshipClass: subtypes need a data model this server "
-                            "does not hold yet (ADR-224 group 2).")
     file, name = _relationship_path(in_rel_class)
     connection = _gpkg.connect(file)
     try:
         rel.ensure(connection)
-        connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (name,))
+        found = rel.classes(connection, name=name)
+        if str(remove_all or "").upper() != "REMOVE" and found and (_given(origin_subtype) or _given(destination_subtype)):
+            connection.execute("delete from grapy_relationship_rule where relationship_class = ? and origin_subtype is ? "
+                               "and destination_subtype is ?",
+                               (name, _rule_subtype(connection, found[0]["origin"], origin_subtype),
+                                _rule_subtype(connection, found[0]["destination"], destination_subtype)))
+        else:
+            connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (name,))
         connection.commit()
     finally:
         connection.close()
     return Result(_text(in_rel_class))
+
+
+def _rule_subtype(connection, table, value):
+    """A relationship rule's subtype code as text, checked against the table's subtypes; None when none is named.
+    INFERRED: a subtype may be named by its code or by its name, as Pro's dialog lists subtypes by name."""
+    if not _given(value):
+        return None
+    _, held = _subtyped(connection, table)
+    by_name = {n.lower(): c for c, n in held.items()}
+    codes = [by_name[str(value).strip().lower()]] if str(value).strip().lower() in by_name else _subtype_codes(value)
+    _subtyped(connection, table, codes[:1])
+    return str(codes[0])
 
 
 def _cascade(path, oids):
@@ -4994,18 +5051,11 @@ _GROUP_2_MODELS = {
         "AnalyzeDatasets", "RebuildIndexes", "UpdatePortalDatasetOwner", "Analyze", "CreateDatabaseView",
         "CreateUnRegisteredFeatureclass", "CreateUnRegisteredTable", "AddIncrementingIDField"),
     "parcel fabrics": ("EnableCOGO", "DisableCOGO"),
-    "geodatabase subtypes": ("AddSubtype", "AlterSubtype", "RemoveSubtype", "SetDefaultSubtype", "SetSubtypeField"),
-    "global IDs (MigrateRelationshipClass moves a relationship class's keys to GlobalID fields)": (
-        "MigrateRelationshipClass",),
-    "geodatabase attachments": (
-        "AddAttachments", "RemoveAttachments", "EnableAttachments", "DisableAttachments", "ExportAttachments",
-        "GenerateAttachmentMatchTable", "DowngradeAttachments", "UpgradeAttachments", "GeoTaggedPhotosToPoints",
-        "MatchPhotosToRowsByTime"),
     "contingent values and field groups": (
         "AddContingentValue", "RemoveContingentValue", "ExportContingentValues", "ImportContingentValues",
         "GenerateContingentValues", "CreateFieldGroup", "AlterFieldGroup", "DeleteFieldGroup"),
-    "geodatabase editing behaviours (editor tracking, global IDs, feature binning, split models)": (
-        "EnableEditorTracking", "DisableEditorTracking", "EnableLastEditTime", "DisableLastEditTime", "AddGlobalIDs",
+    "geodatabase editing behaviours (editor tracking, feature binning, split models)": (
+        "EnableEditorTracking", "DisableEditorTracking", "EnableLastEditTime", "DisableLastEditTime",
         "EnableFeatureBinning", "DisableFeatureBinning", "ManageFeatureBinCache", "SetFeatureClassSplitModel"),
     "mosaic datasets, catalog datasets and raster collections": (
         "AddRastersToMosaicDataset", "AnalyzeMosaicDataset", "BuildBoundary", "BuildFootprints",
@@ -5122,7 +5172,7 @@ _REASONS = {
         "CompressFileGeodatabaseData", "UncompressFileGeodatabaseData", "RecoverFileGDB", "GenerateFgdbLicense",
         "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
         "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
-        "CalculateDefaultClusterTolerance", "AddFullTextIndex", "AssignDefaultToField"),
+        "CalculateDefaultClusterTolerance", "AddFullTextIndex"),
     "needs multidimensional or colormapped rasters, raster properties grapy does not keep, or a colour-composite or "
     "pansharpening method grapy does not build (ADR-224 §5.5)": (
         "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
@@ -6523,3 +6573,672 @@ def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
     return Result(folder)
 
 
+
+
+# ---- subtypes, field defaults, global IDs and attachments (ADR-228) ----------------------------------------------------
+#
+# Held in the GeoPackage the tool works on: see grapy._subtypes (subtypes and defaults) and grapy._attachments (global IDs
+# and the <name>__ATTACH table with its <name>__ATTACHREL relationship class). Built from the tools' public pages; what a
+# page leaves open is INFERRED in the tool's docstring and listed in ADR-228 §5.
+
+def _model_table(tool, in_table):
+    """(connection, table) of the dataset a subtype or attachment tool works on: a layer's source, whole — these
+    tools change the dataset, not a layer's selection."""
+    from ._raster import _is_raster_path
+    if _is_raster_path(in_table):
+        raise NotBuiltError(f"arcpy.management.{tool} on a raster or mosaic is not built in grapy; its rasters keep no "
+                            "fields with defaults.")
+    layer = _LAYERS.get(_text(in_table))
+    return _gpkg.table_of(layer.source if layer is not None else _text(in_table))
+
+
+def _column_of(connection, table, name):
+    from ._runtime import ExecuteError
+    columns = {c.name.lower(): c for c in _gpkg.describe(connection, table)[0]}
+    column = columns.get(str(name).lower())
+    if column is None:
+        raise ExecuteError(f"ERROR 000728: the field '{name}' does not exist in '{table}'.")
+    return column
+
+
+def _subtype_codes(value):
+    """Subtype codes as integers, from a code, a list, ``"1;2"``, or ``"1: Name"`` as a dialog shows a subtype
+    (INFERRED: the number before the colon is the code)."""
+    from ._runtime import ExecuteError
+    out = []
+    for each in (value if isinstance(value, (list, tuple)) else _list(value) if isinstance(value, str) else [value]):
+        text = str(each).split(":", 1)[0].strip()
+        try:
+            number = float(text)
+        except ValueError:
+            raise ExecuteError(f"ERROR 000800: '{each}' is not a subtype code; a code is an integer.") from None
+        if not number.is_integer():
+            raise ExecuteError(f"ERROR 000800: '{each}' is not a subtype code; a code is an integer.")
+        out.append(int(number))
+    return out
+
+
+def _subtyped(connection, table, codes=None):
+    """The table's subtype field and its codes; an error when it has none, or lacks a code asked for."""
+    from . import _subtypes
+    from ._runtime import ExecuteError
+    found = _subtypes.field(connection, table)
+    if found is None:
+        raise ExecuteError(f"ERROR 000800: '{table}' has no subtype field; set one first (SetSubtypeField).")
+    held = _subtypes.codes(connection, table)
+    for code in codes or []:
+        if code not in held:
+            raise ExecuteError(f"ERROR 000800: '{table}' has no subtype {code}.")
+    return found, held
+
+
+def SetSubtypeField(in_table, field=None, clear_value=False):
+    """The integer field that holds a table's subtype codes, as documented; a table that had one loses its subtypes, as
+    the page says. ``CLEAR_SUBTYPE_FIELD`` (or True) clears it. INFERRED: clearing leaves the field and its values in
+    place and removes the designation, the subtypes and their own defaults and domains; the default subtype code is 0
+    until SetDefaultSubtype sets another."""
+    from . import _subtypes
+    from ._runtime import ExecuteError
+    clear = clear_value is True or str(clear_value or "").upper() in ("CLEAR_SUBTYPE_FIELD", "TRUE")
+    connection, table = _model_table("SetSubtypeField", in_table)
+    try:
+        _subtypes.ensure(connection)
+        if not clear:
+            if not _given(field):
+                raise ExecuteError("ERROR 000735: Field Name: value is required unless the subtype field is cleared.")
+            column = _column_of(connection, table, field)
+            if column.type not in _subtypes.INTEGER_TYPES:
+                raise ExecuteError(f"ERROR 000800: the subtype field must be an integer field; '{column.name}' is "
+                                   f"{column.type}.")
+        _subtypes.drop_subtypes(connection, table)
+        if not clear:
+            connection.execute("insert into grapy_subtype_field values (?, ?, 0)", (table, column.name))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def AddSubtype(in_table, subtype_code, subtype_description):
+    """A subtype added: its integer code and its name. A code already there is an error, and the subtype field must be
+    set first, as documented."""
+    from ._runtime import ExecuteError
+    code = _subtype_codes(subtype_code)
+    if len(code) != 1:
+        raise ExecuteError("ERROR 000800: AddSubtype adds one subtype code.")
+    connection, table = _model_table("AddSubtype", in_table)
+    try:
+        _, held = _subtyped(connection, table)
+        if code[0] in held:
+            raise ExecuteError(f"ERROR 000800: the subtype code {code[0]} already exists in '{table}'.")
+        connection.execute("insert into grapy_subtype values (?, ?, ?)", (table, code[0], str(subtype_description)))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def RemoveSubtype(in_table, subtype_code):
+    """The subtypes named by code removed, one or several, with their own defaults and domains. INFERRED: a code the
+    table does not have is an error; removing the default subtype leaves the default code as it was (the page is
+    silent on both). Rows keep the code they hold."""
+    codes = _subtype_codes(subtype_code)
+    connection, table = _model_table("RemoveSubtype", in_table)
+    try:
+        _subtyped(connection, table, codes)
+        for code in codes:
+            connection.execute("delete from grapy_subtype where table_name = ? and code = ?", (table, code))
+            connection.execute("delete from grapy_subtype_domain where table_name = ? and subtype_code = ?", (table, code))
+            connection.execute("delete from grapy_field_default where table_name = ? and subtype_code = ?", (table, code))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def AlterSubtype(in_table, subtype_code, new_subtype_name):
+    """A subtype's name changed; its code cannot be, as documented."""
+    codes = _subtype_codes(subtype_code)
+    connection, table = _model_table("AlterSubtype", in_table)
+    try:
+        _subtyped(connection, table, codes)
+        connection.execute("update grapy_subtype set name = ? where table_name = ? and code = ?",
+                           (str(new_subtype_name), table, codes[0]))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def SetDefaultSubtype(in_table, subtype_code):
+    """The subtype code a new row takes when it names none. INFERRED: the code must be one of the table's subtypes, the
+    page saying the table must already hold subtype codes."""
+    codes = _subtype_codes(subtype_code)
+    connection, table = _model_table("SetDefaultSubtype", in_table)
+    try:
+        _subtyped(connection, table, codes[:1])
+        connection.execute("update grapy_subtype_field set default_code = ? where table_name = ?", (codes[0], table))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def _default_typed(value, column):
+    """A default value as the field's type holds it; a value of another type is an error, as documented."""
+    from ._runtime import ExecuteError
+    text = str(value).strip()
+    try:
+        if column.type in ("SmallInteger", "Integer", "BigInteger"):
+            number = float(text)
+            if not number.is_integer():
+                raise ValueError
+            return int(number)
+        if column.type in ("Single", "Double"):
+            return float(text)
+        if column.type == "Date":
+            import datetime
+            return datetime.datetime.fromisoformat(text).isoformat(" ")
+        if column.type == "String":
+            return str(value)
+    except ValueError:
+        raise ExecuteError(f"ERROR 000800: '{value}' is not a {column.type} value for the field '{column.name}'.") from None
+    raise NotBuiltError(f"arcpy.management.AssignDefaultToField: a default on a {column.type} field is not built in grapy.")
+
+
+def AssignDefaultToField(in_table, field_name, default_value=None, subtype_code=None, clear_value=False):
+    """A field's default value: what a new row takes when it names no value for the field — for the field itself, or
+    for the subtypes named. ``CLEAR_VALUE`` (or an empty value) clears it, as documented. Existing rows are not
+    changed. INFERRED: the value is converted to the field's type, and a date is written as ISO 8601."""
+    from . import _subtypes
+    clear = clear_value is True or str(clear_value or "").upper() in ("CLEAR_VALUE", "TRUE") or \
+        default_value is None or str(default_value) == ""
+    connection, table = _model_table("AssignDefaultToField", in_table)
+    try:
+        column = _column_of(connection, table, field_name)
+        codes = _subtype_codes(subtype_code) if _given(subtype_code) else [None]
+        if codes != [None]:
+            _subtyped(connection, table, codes)
+        value = None if clear else _default_typed(default_value, column)
+        for code in codes:
+            _subtypes.set_default(connection, table, column.name, code, value)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_table))
+
+
+def AddGlobalIDs(in_datasets):
+    """Global IDs added to each class or table, or to every class of a feature dataset: a ``GlobalID`` field holding
+    each row's GUID, filled for the rows there and for every row grapy inserts after (grapy._attachments). A dataset
+    that has them is left as it is (INFERRED)."""
+    from . import _attachments
+    listed = list(in_datasets) if isinstance(in_datasets, (list, tuple)) else _list(in_datasets)
+    for each in listed:
+        path = _text(each)
+        layer = _LAYERS.get(path)
+        path = layer.source if layer is not None else path
+        file, table = _gpkg.split(path)
+        connection = _gpkg.connect(file)
+        try:
+            tables = []
+            if table and connection.execute("select 1 from sqlite_master where name = 'grapy_feature_datasets'").fetchone() \
+                    and connection.execute("select 1 from grapy_feature_datasets where name = ?", (table,)).fetchone():
+                tables = [r[0] for r in connection.execute("select table_name from gpkg_contents where table_name like ?",
+                                                           (table + "/%",))]
+        finally:
+            connection.close()
+        if not tables:
+            connection, found = _gpkg.table_of(path)
+            connection.close()
+            tables = [found]
+        connection = _gpkg.connect(file)
+        try:
+            for name in tables:
+                _attachments.add_global_ids(connection, name)
+            connection.commit()
+        finally:
+            connection.close()
+    return Result(";".join(_text(each) for each in listed))
+
+
+def EnableAttachments(in_dataset):
+    """Attachments enabled: the ``<name>__ATTACH`` table and the ``<name>__ATTACHREL`` relationship class, with global
+    IDs added first when the class has none (INFERRED: the page is silent; ArcGIS's attachment tables key on them). A
+    class that has attachments gets a warning and nothing more, as documented."""
+    from . import _attachments
+    from ._runtime import AddWarning
+    connection, table = _model_table("EnableAttachments", in_dataset)
+    try:
+        if _attachments.enabled(connection, table):
+            AddWarning(f"WARNING 000800: attachments are already enabled on '{table}'.")
+        else:
+            _attachments.enable(connection, table)
+            connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def DisableAttachments(in_dataset):
+    """Attachments disabled: every attachment of the class deleted, with its attachment table and relationship class,
+    as documented. A class without attachments gets a warning and nothing more."""
+    from . import _attachments
+    from ._runtime import AddWarning
+    connection, table = _model_table("DisableAttachments", in_dataset)
+    try:
+        if not _attachments.enabled(connection, table):
+            AddWarning(f"WARNING 000800: attachments are not enabled on '{table}'.")
+        else:
+            _attachments.disable(connection, table)
+            connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def _attached(tool, in_dataset):
+    """(file, table, GlobalID field) of a class with attachments; an error without them."""
+    from . import _attachments
+    from ._runtime import ExecuteError
+    connection, table = _model_table(tool, in_dataset)
+    try:
+        if not _attachments.enabled(connection, table):
+            raise ExecuteError(f"ERROR 000800: attachments are not enabled on '{table}'; run EnableAttachments first.")
+        key = _attachments.global_id_field(connection, table)
+        file = connection.execute("pragma database_list").fetchone()[2]
+    finally:
+        connection.close()
+    return file, table, key
+
+
+def _join_key(value):
+    """A join value compared as text, a whole float written as an integer (INFERRED: a match table's 3.0 finds 3)."""
+    return None if value is None else _code_text(value)
+
+
+def _rows_by_key(file, table, join_field, key):
+    from . import da
+    by_value = {}
+    with da.SearchCursor(f"{file}/{table}", [str(join_field), key]) as rows:
+        for value, guid in rows:
+            by_value.setdefault(_join_key(value), []).append(guid)
+    return by_value
+
+
+def AddAttachments(in_dataset, in_join_field, in_match_table, in_match_join_field, in_match_path_field,
+                   in_working_folder=None):
+    """Files attached to the rows whose join field matches a match table's join field, each copied into the attachment
+    table, as documented; several rows of the match table attach several files to one row. Selections on the input are
+    not honoured, as documented. INFERRED: a relative path is read from the working folder, or the current folder
+    without one; a file that is not there is skipped with a warning; the attachment's name is the file's name and its
+    content type is its MIME type by extension."""
+    from . import _attachments, da
+    from ._runtime import AddWarning
+    file, table, key = _attached("AddAttachments", in_dataset)
+    by_value = _rows_by_key(file, table, in_join_field, key)
+    match, where = _source(in_match_table)
+    with da.SearchCursor(match, [str(in_match_join_field), str(in_match_path_field)], where) as rows:
+        wanted = [(value, path) for value, path in rows]
+    connection = _gpkg.connect(file)
+    try:
+        for value, path in wanted:
+            if not path or _join_key(value) not in by_value:
+                continue
+            full = str(path)
+            if not os.path.isabs(full) and _given(in_working_folder):
+                full = os.path.join(_text(in_working_folder), full)
+            if not os.path.isfile(full):
+                AddWarning(f"WARNING 000800: '{full}' does not exist and was not attached.")
+                continue
+            with open(full, "rb") as opened:
+                data = opened.read()
+            for guid in by_value[_join_key(value)]:
+                _attachments.add(connection, table, guid, os.path.basename(full), data)
+        _attachments.refresh(connection, table)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def RemoveAttachments(in_dataset, in_join_field, in_match_table, in_match_join_field, in_match_name_field=None):
+    """Attachments removed from the rows a match table names: those whose name is in the name field, or every one of a
+    row whose name is null or empty or when no name field is given, as documented. Selections on the input are not
+    honoured. INFERRED: a name is compared with the attachment's name as a file name (a path's directory is
+    dropped), ignoring case."""
+    from . import _attachments, da
+    file, table, key = _attached("RemoveAttachments", in_dataset)
+    by_value = _rows_by_key(file, table, in_join_field, key)
+    match, where = _source(in_match_table)
+    fields = [str(in_match_join_field)] + ([str(in_match_name_field)] if _given(in_match_name_field) else [])
+    with da.SearchCursor(match, fields, where) as rows:
+        wanted = [(row[0], row[1] if len(row) > 1 else None) for row in rows]
+    connection = _gpkg.connect(file)
+    try:
+        attached = _attachments.attach_table(table)
+        for value, name in wanted:
+            for guid in by_value.get(_join_key(value), []):
+                if name is None or str(name).strip() == "":
+                    connection.execute(f'delete from "{attached}" where REL_GLOBALID = ?', (guid,))
+                else:
+                    connection.execute(f'delete from "{attached}" where REL_GLOBALID = ? and lower(ATT_NAME) = lower(?)',
+                                       (guid, os.path.basename(str(name).replace("\\", "/"))))
+        _attachments.refresh(connection, table)
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def _file_filter(patterns):
+    """A filter's patterns as fnmatch patterns. INFERRED: a pattern with no wildcard, such as ``.jpg``, matches the end
+    of a name."""
+    out = []
+    for each in str(patterns or "").split(";"):
+        each = each.strip()
+        if each:
+            out.append(each.lower() if any(c in each for c in "*?[") else "*" + each.lower())
+    return out
+
+
+def _new_table(tool, out, fields):
+    out = _table_out(tool, _text(out))
+    CreateTable(os.path.dirname(out), os.path.basename(out))
+    for name, kind in fields:
+        AddField(out, name, kind)
+    return out
+
+
+def GenerateAttachmentMatchTable(in_dataset, in_folder, out_match_table, in_key_field, in_file_filter=None,
+                                 in_use_relative_paths="RELATIVE", match_pattern="EXACT"):
+    """A match table for AddAttachments: a row for each file of the folder whose name, extension disregarded, matches a
+    row's key field — exactly, as a prefix, as a suffix or anywhere — holding ``MATCHID``, the row's object id, and
+    ``FILENAME``, the file's name or with ``ABSOLUTE`` its full path, as documented. INFERRED: the folder's own files,
+    not its subfolders'; every file counts (the page names no media types); matching ignores case; rows come in object
+    id order and then by file name; a row with a null key matches nothing; a layer's selection is honoured."""
+    import fnmatch
+    from . import da
+    from ._runtime import ExecuteError
+    folder = _text(in_folder)
+    if not os.path.isdir(folder):
+        raise ExecuteError(f"ERROR 000732: the folder {folder} does not exist.")
+    pattern = str(match_pattern or "EXACT").upper()
+    tests = {"EXACT": lambda k, s: s == k, "PREFIX": lambda k, s: s.startswith(k), "SUFFIX": lambda k, s: s.endswith(k),
+             "ANY": lambda k, s: k in s}
+    if pattern not in tests:
+        raise ExecuteError(f"ERROR 000800: '{match_pattern}' is not EXACT, PREFIX, SUFFIX or ANY.")
+    relative = str(in_use_relative_paths or "RELATIVE").upper() not in ("ABSOLUTE", "FALSE")
+    filters = _file_filter(in_file_filter)
+    files = sorted(n for n in os.listdir(folder) if os.path.isfile(os.path.join(folder, n))
+                   and (not filters or any(fnmatch.fnmatch(n.lower(), f) for f in filters)))
+    path, where = _source(in_dataset)
+    with da.SearchCursor(path, ["OID@", str(in_key_field)], where) as rows:
+        keyed = sorted((oid, value) for oid, value in rows)
+    out = _new_table("GenerateAttachmentMatchTable", out_match_table, (("MATCHID", "LONG"), ("FILENAME", "TEXT")))
+    with da.InsertCursor(out, ["MATCHID", "FILENAME"]) as written:
+        for oid, value in keyed:
+            if value is None or str(value) == "":
+                continue
+            key = _code_text(value).lower()
+            for name in files:
+                if tests[pattern](key, os.path.splitext(name)[0].lower()):
+                    written.insertRow((oid, name if relative else os.path.abspath(os.path.join(folder, name))))
+    return Result(out)
+
+
+_UNSAFE = {"/": "-", "\\": "-", "|": "-", "*": "_", "<": "_", ">": "_", "?": "_", '"': "_", ":": "_"}
+
+
+def _safe(text):
+    """A field value made fit for a file or folder name, as documented: slashes, backslashes and pipes become hyphens,
+    asterisks, angle brackets and question marks underscores (INFERRED: quotes and colons too); a null is ``None``."""
+    return "".join(_UNSAFE.get(c, c) for c in ("None" if text is None else _code_text(text)))
+
+
+def ExportAttachments(in_dataset, out_location, subdirectory_field=None, name_format="ORIGINAL", name_fields=None):
+    """Each attachment written to a file in the output folder, as documented: under its original name, or named by the
+    name fields' values joined with underscores (``REPLACE``, its extension kept), or with them before (``PREFIX``) or
+    after (``SUFFIX``) the original name; with a subdirectory field, in a folder named by each row's value. A
+    layer's selection is honoured. INFERRED: the joined values and the original name are separated by an underscore;
+    a name already taken gets ``_1``, ``_2`` … before its extension."""
+    from . import _attachments, da
+    from ._runtime import ExecuteError
+    file, table, key = _attached("ExportAttachments", in_dataset)
+    style = str(name_format or "ORIGINAL").upper()
+    if style not in ("ORIGINAL", "REPLACE", "PREFIX", "SUFFIX"):
+        raise ExecuteError(f"ERROR 000800: '{name_format}' is not ORIGINAL, REPLACE, PREFIX or SUFFIX.")
+    named = [str(f) for f in (list(name_fields) if isinstance(name_fields, (list, tuple)) else _list(name_fields))]
+    if style != "ORIGINAL" and not named:
+        raise ExecuteError(f"ERROR 000735: Name Fields: value is required for {style}.")
+    folder = _text(out_location)
+    os.makedirs(folder, exist_ok=True)
+    path, where = _source(in_dataset)
+    subfield = [str(subdirectory_field)] if _given(subdirectory_field) else []
+    with da.SearchCursor(path, [key, *subfield, *(named if style != "ORIGINAL" else [])], where) as rows:
+        listed = [tuple(r) for r in rows]
+    connection = _gpkg.connect(file)
+    taken = set()
+    try:
+        for row in listed:
+            guid, rest = row[0], row[1:]
+            target = os.path.join(folder, _safe(rest[0])) if subfield else folder
+            values = "_".join(_safe(v) for v in rest[len(subfield):])
+            for name, data in connection.execute(f'select ATT_NAME, DATA from "{_attachments.attach_table(table)}" '
+                                                 'where REL_GLOBALID = ? order by ATTACHMENTID', (guid,)).fetchall():
+                stem, extension = os.path.splitext(name)
+                stem = {"ORIGINAL": stem, "REPLACE": values, "PREFIX": f"{values}_{stem}",
+                        "SUFFIX": f"{stem}_{values}"}[style]
+                os.makedirs(target, exist_ok=True)
+                out, n = os.path.join(target, stem + extension), 0
+                while os.path.normcase(out) in taken or os.path.exists(out):
+                    n += 1
+                    out = os.path.join(target, f"{stem}_{n}{extension}")
+                taken.add(os.path.normcase(out))
+                with open(out, "wb") as written:
+                    written.write(data)
+    finally:
+        connection.close()
+    return Result(folder)
+
+
+def _upgrade_fields(tool, in_dataset, fields, add):
+    from . import _attachments
+    file, table, _ = _attached(tool, in_dataset)
+    connection = _gpkg.connect(file)
+    try:
+        attached = _attachments.attach_table(table)
+        have = {r[1].upper() for r in connection.execute(f'pragma table_info("{attached}")')}
+        for name in fields:
+            if add and name not in have:
+                connection.execute(f'alter table "{attached}" add column "{name}" TEXT')
+            elif not add and name in have:
+                connection.execute(f'alter table "{attached}" drop column "{name}"')
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(_text(in_dataset))
+
+
+def UpgradeAttachments(in_dataset, upgrade_level="EXIF"):
+    """The attachment table given the documented nullable fields: ``KEYWORDS`` and ``EXIFINFO`` (``EXIF``), and with
+    ``EXIF_AND_ALT`` also ``ATT_TITLE``, ``ATT_ALT_TEXT``, ``ATT_CAPTION`` and ``ATT_CREDIT``. INFERRED: all are text;
+    a field already there stays as it is."""
+    from . import _attachments
+    from ._runtime import ExecuteError
+    level = str(upgrade_level or "EXIF").upper()
+    if level not in ("EXIF", "EXIF_AND_ALT"):
+        raise ExecuteError(f"ERROR 000800: '{upgrade_level}' is not EXIF or EXIF_AND_ALT.")
+    fields = _attachments.UPGRADE_EXIF + (_attachments.UPGRADE_ALT if level == "EXIF_AND_ALT" else ())
+    return _upgrade_fields("UpgradeAttachments", in_dataset, fields, True)
+
+
+def DowngradeAttachments(in_dataset):
+    """An upgraded attachment table put back: the fields UpgradeAttachments adds, removed with their values."""
+    from . import _attachments
+    return _upgrade_fields("DowngradeAttachments", in_dataset, _attachments.UPGRADE_EXIF + _attachments.UPGRADE_ALT, False)
+
+
+_PHOTOS = (".jpg", ".jpeg", ".tif", ".tiff")
+
+
+def _photos(folder, kinds):
+    """Every photo file under a folder and its subfolders, by path."""
+    from ._runtime import ExecuteError
+    if not os.path.isdir(_text(folder)):
+        raise ExecuteError(f"ERROR 000732: the folder {_text(folder)} does not exist.")
+    found = []
+    for root, _, names in os.walk(_text(folder)):
+        found.extend(os.path.join(root, n) for n in names if os.path.splitext(n)[1].lower() in kinds)
+    return sorted(found)
+
+
+def _attach_files(path, files_by_oid):
+    """Files attached to rows by object id, attachments enabled first when the class has none."""
+    from . import _attachments
+    connection, table = _gpkg.table_of(path)
+    try:
+        if not _attachments.enabled(connection, table):
+            _attachments.enable(connection, table)
+        key = _attachments.global_id_field(connection, table)
+        oid = _gpkg.oid_column(connection, table)
+        for each, files in files_by_oid.items():
+            guid = connection.execute(f'select "{key}" from "{table}" where "{oid}" = ?', (each,)).fetchone()[0]
+            for photo in files:
+                with open(photo, "rb") as opened:
+                    _attachments.add(connection, table, guid, os.path.basename(photo), opened.read())
+        _attachments.refresh(connection, table)
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def _attaching(value):
+    return str(value or "ADD_ATTACHMENTS").upper() not in ("NO_ATTACHMENTS", "FALSE")
+
+
+def GeoTaggedPhotosToPoints(Input_Folder, Output_Feature_Class, Invalid_Photos_Table=None,
+                            Include_Non_GeoTagged_Photos="ALL_PHOTOS", Add_Photos_As_Attachments="ADD_ATTACHMENTS",
+                            **kwargs):
+    """A point for each geotagged photo under a folder and its subfolders, as documented: in WGS 1984, with ``Path``,
+    ``Name``, ``DateTime`` (when taken), ``Direction``, ``X``, ``Y`` and ``Z`` (altitude in metres) read from its Exif
+    tags (grapy._exif); a photo at 0,0 has no point; ``ALL_PHOTOS`` keeps photos without coordinates with a null shape;
+    ``ADD_ATTACHMENTS`` attaches each photo to its point. The documented name ``Include_Non-GeoTagged_Photos`` is
+    taken as a keyword too. ``.heic`` photos are not read (their Exif sits in a HEIF box grapy does not parse): each is
+    listed as invalid with a warning. INFERRED: the invalid photos table holds ``Path`` and ``Name``; points come in
+    order of path; a value the photo does not record is null; the shape is 2D, the altitude kept in ``Z``."""
+    from . import _exif, da
+    from ._runtime import AddWarning
+    include = kwargs.pop("Include_Non-GeoTagged_Photos", Include_Non_GeoTagged_Photos)
+    if kwargs:
+        raise TypeError(f"GeoTaggedPhotosToPoints got unexpected arguments {sorted(kwargs)}.")
+    keep_all = str(include or "ALL_PHOTOS").upper() not in ("ONLY_GEOTAGGED", "FALSE")
+    out = _path(_text(Output_Feature_Class))
+    CreateFeatureclass(os.path.dirname(out), os.path.basename(out), "POINT", spatial_reference=4326)
+    for name, kind in (("Path", "TEXT"), ("Name", "TEXT"), ("DateTime", "DATE"), ("Direction", "DOUBLE"),
+                       ("X", "DOUBLE"), ("Y", "DOUBLE"), ("Z", "DOUBLE")):
+        AddField(out, name, kind)
+    invalid, files_by_oid = [], {}
+    with da.InsertCursor(out, ["Path", "Name", "DateTime", "Direction", "X", "Y", "Z", "SHAPE@XY"]) as written:
+        for photo in _photos(Input_Folder, _PHOTOS + (".heic",)):
+            if photo.lower().endswith(".heic"):
+                AddWarning(f"WARNING 000800: {photo} is a HEIF photo, whose Exif grapy does not read.")
+                invalid.append(photo)
+                continue
+            try:
+                taken, x, y, z, direction = _exif.read(photo)
+            except _exif.Unreadable:
+                invalid.append(photo)
+                continue
+            located = x is not None and y is not None and not (x == 0 and y == 0)
+            if not located:
+                invalid.append(photo)
+                if not keep_all:
+                    continue
+            oid = written.insertRow((os.path.abspath(photo), os.path.basename(photo), taken, direction,
+                                     x if located else None, y if located else None, z, (x, y) if located else None))
+            files_by_oid[oid] = [photo]
+    if _attaching(Add_Photos_As_Attachments):
+        _attach_files(out, files_by_oid)
+    if _given(Invalid_Photos_Table):
+        table = _new_table("GeoTaggedPhotosToPoints", Invalid_Photos_Table, (("Path", "TEXT"), ("Name", "TEXT")))
+        with da.InsertCursor(table, ["Path", "Name"]) as written:
+            for photo in invalid:
+                written.insertRow((os.path.abspath(photo), os.path.basename(photo)))
+    return Result(out)
+
+
+def MatchPhotosToRowsByTime(Input_Folder, Input_Table, Time_Field, Output_Table, Unmatched_Photos_Table=None,
+                            Add_Photos_As_Attachments="ADD_ATTACHMENTS", Time_Tolerance=None, Clock_Offset=None):
+    """Each photo under a folder matched to the row whose date field is closest to the time it was taken, shifted by the
+    clock offset (positive when the camera's clock is behind), within the tolerance (0: any distance), as documented.
+    The output holds ``IN_FID``, ``Photo_Path``, ``Photo_Name`` and ``Match_Diff``; one row may match several photos.
+    ``ADD_ATTACHMENTS`` attaches each matched photo to its row. INFERRED: the photo's time is its Exif
+    DateTimeOriginal; ``Match_Diff`` is the absolute difference in seconds; with no tolerance any distance matches; a
+    tie goes to the lower object id; outputs come in order of photo path; the unmatched photos table holds
+    ``Photo_Path`` and ``Photo_Name``; a layer's selection and query are honoured."""
+    import datetime
+    from . import _exif, da
+    from ._runtime import ExecuteError
+    path, where = _source(Input_Table)
+    connection, table = _gpkg.table_of(path)
+    try:
+        column = _column_of(connection, table, Time_Field)
+    finally:
+        connection.close()
+    if column.type != "Date":
+        raise ExecuteError(f"ERROR 000800: the time field must be a date field; '{column.name}' is {column.type}.")
+    times = []
+    with da.SearchCursor(path, ["OID@", column.name], where) as rows:
+        for oid, value in rows:
+            if isinstance(value, str):
+                try:
+                    value = datetime.datetime.fromisoformat(value)
+                except ValueError:
+                    value = None
+            if value is not None:
+                times.append((oid, value))
+    tolerance = abs(float(Time_Tolerance)) if _given(Time_Tolerance) else 0.0
+    offset = datetime.timedelta(seconds=float(Clock_Offset) if _given(Clock_Offset) else 0.0)
+    matched, unmatched, files_by_oid = [], [], {}
+    for photo in _photos(Input_Folder, _PHOTOS):
+        try:
+            taken = _exif.read(photo)[0]
+        except _exif.Unreadable:
+            taken = None
+        best = None
+        if taken is not None and times:
+            shifted = taken + offset
+            best = min((abs((t - shifted).total_seconds()), oid) for oid, t in times)
+            if tolerance and best[0] > tolerance:
+                best = None
+        if best is None:
+            unmatched.append(photo)
+            continue
+        matched.append((best[1], os.path.abspath(photo), os.path.basename(photo), best[0]))
+        files_by_oid.setdefault(best[1], []).append(photo)
+    out = _new_table("MatchPhotosToRowsByTime", Output_Table, (("IN_FID", "LONG"), ("Photo_Path", "TEXT"),
+                                                               ("Photo_Name", "TEXT"), ("Match_Diff", "DOUBLE")))
+    with da.InsertCursor(out, ["IN_FID", "Photo_Path", "Photo_Name", "Match_Diff"]) as written:
+        for row in matched:
+            written.insertRow(row)
+    if _given(Unmatched_Photos_Table):
+        table_out = _new_table("MatchPhotosToRowsByTime", Unmatched_Photos_Table,
+                               (("Photo_Path", "TEXT"), ("Photo_Name", "TEXT")))
+        with da.InsertCursor(table_out, ["Photo_Path", "Photo_Name"]) as written:
+            for photo in unmatched:
+                written.insertRow((os.path.abspath(photo), os.path.basename(photo)))
+    if _attaching(Add_Photos_As_Attachments):
+        _attach_files(path, files_by_oid)
+    return Result(out)
+
+
+for _built in ("AddSubtype", "AlterSubtype", "RemoveSubtype", "SetDefaultSubtype", "SetSubtypeField",
+               "AssignDefaultToField", "AddGlobalIDs", "AddAttachments", "RemoveAttachments", "EnableAttachments",
+               "DisableAttachments", "ExportAttachments", "GenerateAttachmentMatchTable", "DowngradeAttachments",
+               "UpgradeAttachments", "GeoTaggedPhotosToPoints", "MatchPhotosToRowsByTime"):
+    _REFUSED.pop(_built, None)
+_REFUSED["MigrateRelationshipClass"] = (
+    "has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/"
+    "migrate-relationship-class.html answered 404 (checked 2026-10-30), so which fields it adds and what becomes of "
+    "the old keys is unknown; grapy's classes have carried GlobalID fields since ADR-228")
