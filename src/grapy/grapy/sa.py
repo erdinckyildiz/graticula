@@ -1374,11 +1374,10 @@ def RegionGroup(in_raster, number_neighbors="FOUR", zone_connectivity="WITHIN", 
 
 def _area_unit(unit, srid, tool, lines=False):
     """What a density in data units is multiplied by for ``area_unit_scale_factor``: square map units leave it, and
-    for data in metres the square units convert area and, for lines, length too — kilometres per square kilometre."""
+    for data in metres the square units convert area and, for lines, length too — kilometres per square kilometre. The
+    imperial units are the US survey ones, ``ACRES`` too, as Pro's PointDensity measures them (D-323)."""
     from ._reference import SpatialReference
-    square = {"SQUARE_KILOMETERS": 1e6, "SQUARE_METERS": 1.0, "SQUARE_CENTIMETERS": 1e-4, "SQUARE_MILLIMETERS": 1e-6,
-              "SQUARE_MILES": 2589988.110336, "SQUARE_YARDS": 0.83612736, "SQUARE_FEET": 0.09290304,
-              "SQUARE_INCHES": 0.00064516, "HECTARES": 1e4, "ACRES": 4046.8564224}
+    from ._units import DENSITY_AREA as square
     metres = srid > 0 and SpatialReference(srid).type == "Projected" and abs(SpatialReference(srid).metersPerUnit - 1) < 1e-12
     name = str(unit).upper() if _given(unit) else ("SQUARE_KILOMETERS" if metres else "SQUARE_MAP_UNITS")
     if name == "SQUARE_MAP_UNITS":

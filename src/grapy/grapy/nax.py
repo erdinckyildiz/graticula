@@ -575,7 +575,7 @@ class _Solver:
                 out[f"{prefix}_{self.timeUnits.value}"] = minutes / _MINUTES[self.timeUnits.value.upper()]
         if distance_attribute:
             metres = totals.get(distance_attribute, 0.0) * _network._LINEAR[str(units[distance_attribute]).upper()]
-            out[f"{prefix}_Miles"] = metres / 1609.344
+            out[f"{prefix}_Miles"] = metres / _network._LINEAR["MILES"]  # a US survey mile, as Pro's (D-323)
             out[f"{prefix}_Kilometers"] = metres / 1000.0
             if self.distanceUnits not in (DistanceUnits.Miles, DistanceUnits.Kilometers):
                 out[f"{prefix}_{self.distanceUnits.value}"] = metres / _network._LINEAR[self.distanceUnits.value.upper()]

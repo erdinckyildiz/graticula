@@ -5,41 +5,27 @@ import shapely
 from shapely.geometry import LineString, MultiLineString, MultiPoint, MultiPolygon, Polygon as ShapelyPolygon
 from shapely.geometry import Point as ShapelyPoint
 
+from . import _units
 from ._reference import SpatialReference, reference_of
 
-# Linear units in metres, by the names LinearUnitConversionFactor and getLength document. The international units are
-# exact by definition (1 ft = 0.3048 m); the US survey foot is 1200/3937 m. In getLength's list the bare names (Feet,
-# Miles, Yards, Inches) are the US survey units, as that page says. INFERRED: a point is 1/72 of an international inch.
-_US_FOOT = 1200 / 3937
-_LINEAR = {
-    "KILOMETERS": 1000.0, "METERS": 1.0, "DECIMETERS": 0.1, "CENTIMETERS": 0.01, "MILLIMETERS": 0.001,
-    "NAUTICALMILESINT": 1852.0, "MILESINT": 1609.344, "YARDSINT": 0.9144, "FEETINT": 0.3048, "INCHESINT": 0.0254,
-    "MILESUS": 5280 * _US_FOOT, "YARDSUS": 3 * _US_FOOT, "FEETUS": _US_FOOT, "INCHESUS": _US_FOOT / 12,
-    "MILES": 5280 * _US_FOOT, "YARDS": 3 * _US_FOOT, "FEET": _US_FOOT, "INCHES": _US_FOOT / 12,
-    "POINTS": 0.0254 / 72,
+# Linear and areal units by the names LinearUnitConversionFactor, ArealUnitConversionFactor, getLength and getArea
+# take, sized as ArcGIS Pro 3.7 measured them on 2026-10-30 (_units, D-323). A bare Feet, Miles, Yards, Inches or
+# NauticalMiles is the US survey unit (a nautical mile of 1853.248 m), and Points a US survey inch / 72; a bare
+# SquareFeet, Acres, SquareMiles, SquareYards, SquareInches or SquareNauticalMiles is the international one.
+_LINEAR = _units.LINEAR
+_AREAL = _units.AREAL
+# What each function refuses although the other takes it, as Pro does, with Pro's ValueError.
+_REFUSED_BY = {
+    "LinearUnitConversionFactor": set(),
+    "Geometry.getLength": {"POINTS", "NAUTICALMILESUS"},
+    "ArealUnitConversionFactor": set(),
+    "Geometry.getArea": {"SQUARENAUTICALMILES", "SQUARENAUTICALMILESUS"},
 }
-# Areal units in square metres, by the names ArealUnitConversionFactor and getArea document.
-_AREAL = {
-    "SQUAREKILOMETERS": 1e6, "HECTARES": 1e4, "ARES": 100.0, "SQUAREMETERS": 1.0, "SQUAREDECIMETERS": 0.01,
-    "SQUARECENTIMETERS": 1e-4, "SQUAREMILLIMETERS": 1e-6,
-    "SQUAREMILESINT": 1609.344 ** 2, "ACRESINT": 4046.8564224, "SQUAREYARDSINT": 0.9144 ** 2,
-    "SQUAREFEETINT": 0.3048 ** 2, "SQUAREINCHESINT": 0.0254 ** 2,
-    "SQUAREMILESUS": (5280 * _US_FOOT) ** 2, "ACRESUS": 43560 * _US_FOOT ** 2, "SQUAREYARDSUS": (3 * _US_FOOT) ** 2,
-    "SQUAREFEETUS": _US_FOOT ** 2, "SQUAREINCHESUS": (_US_FOOT / 12) ** 2,
-    "SQUAREMILES": (5280 * _US_FOOT) ** 2, "ACRES": 43560 * _US_FOOT ** 2, "SQUAREYARDS": (3 * _US_FOOT) ** 2,
-    "SQUAREFEET": _US_FOOT ** 2, "SQUAREINCHES": (_US_FOOT / 12) ** 2,
-}
-_REFUSED_UNITS = {"NAUTICALMILESUS": "the US survey nautical mile's length is not given in the documentation",
-                  "NAUTICALMILES": "the US survey nautical mile's length is not given in the documentation",
-                  "DECIMALDEGREES": "a degree has no constant length", "UNKNOWN": "an unknown unit has no length"}
 
 
 def _unit(table, name, function):
     key = str(name).replace(" ", "").replace("_", "").upper()
-    if key in _REFUSED_UNITS:
-        from ._runtime import NotBuiltError
-        raise NotBuiltError(f"arcpy.{function}: the unit '{name}' is not built in grapy — {_REFUSED_UNITS[key]}.")
-    if key not in table:
+    if key not in table or key in _REFUSED_BY.get(function, ()):
         raise ValueError(f"arcpy.{function}: '{name}' is not a unit it takes.")
     return table[key]
 

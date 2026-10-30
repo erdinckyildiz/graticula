@@ -153,8 +153,10 @@ class Values(unittest.TestCase):
         self.assertAlmostEqual(arcpy.LinearUnitConversionFactor("FeetUS", "Meters"), 1200 / 3937)
         self.assertAlmostEqual(arcpy.ArealUnitConversionFactor("AcresUS", "SquareFeetUS"), 43560.0)
         self.assertAlmostEqual(arcpy.ArealUnitConversionFactor("AcresInt", "SquareMeters"), 4046.8564224)
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "NauticalMilesUS"):
-            arcpy.LinearUnitConversionFactor("NauticalMilesUS", "Meters")
+        # The US survey nautical mile is 1853.248 m, as Pro measures it (D-323); a degree has no length.
+        self.assertAlmostEqual(arcpy.LinearUnitConversionFactor("NauticalMilesUS", "Meters"), 1853.248)
+        with self.assertRaises(ValueError):
+            arcpy.LinearUnitConversionFactor("DecimalDegrees", "Meters")
 
     def test_geometry_from_text_binary_json_and_geohash(self):
         point = arcpy.FromWKT("POINT (1 2)", 3857)

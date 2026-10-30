@@ -78,8 +78,10 @@ class Analysis(unittest.TestCase):
         self.assertEqual(got[4][1:4] + got[4][-1:], (3, 0.15, 1, 180.0))
         with self.assertRaises(arcpy.NotBuiltError):
             arcpy.analysis.GenerateNearTable(wells, parcels, self.out("g"), method="GEODESIC")
-        with self.assertRaises(arcpy.NotBuiltError):
-            arcpy.analysis.GenerateNearTable(wells, parcels, self.out("f"), distance_unit="Feet")
+        # A bare Feet is the US survey foot, as Pro measures it (D-323): 90 m is 295.275 US survey feet.
+        feet = arcpy.analysis.GenerateNearTable(wells, parcels, self.out("f"), None, "NO_LOCATION", "NO_ANGLE", "ALL", 2,
+                                                distance_unit="Feet").getOutput(0)
+        self.assertAlmostEqual(self.rows(feet, ["NEAR_DIST"])[1][0], 90 / (1200 / 3937))
 
     def test_origin_destination_links_nearest_grouped_and_within_a_distance(self):
         origins = self.make("o", "POINT", [("g", "TEXT")], [("a", point(0, 0)), ("b", point(100, 0))])

@@ -39,8 +39,10 @@ TABLES = ("grapy_network", "grapy_network_source", "grapy_network_attribute", "g
           "grapy_network_travel_mode", "grapy_network_edge", "grapy_network_junction")
 DIJKSTRA = ("Dijkstra's shortest path over the network's impedance", "Dijkstra 1959")
 
-_LINEAR = {"METERS": 1.0, "KILOMETERS": 1000.0, "FEET": 0.3048, "YARDS": 0.9144, "MILES": 1609.344,
-           "NAUTICALMILES": 1852.0, "INCHES": 0.0254, "CENTIMETERS": 0.01, "MILLIMETERS": 0.001, "DECIMETERS": 0.1}
+# arcpy.nax's DistanceUnits and a network attribute's units: the imperial ones US survey units, as Pro measures them
+# (D-323).
+from ._units import NETWORK as _LINEAR  # noqa: E402
+
 _TIME = {"SECONDS", "MINUTES", "HOURS", "DAYS"}
 
 
