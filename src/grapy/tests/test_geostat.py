@@ -152,7 +152,9 @@ class Geostat(unittest.TestCase):
             a = _geostat.open_layer(ok, "t").predict(*place)
             b = _geostat.open_layer(ck, "t").predict(*place)
             self.assertAlmostEqual(a[0], b[0], places=8)
-            self.assertAlmostEqual(a[1], b[1], places=8)
+            # A variance at a data point is zero up to round-off, which the secondary's sill of 900 amplifies differently
+            # on another BLAS (1.7e-9 against 7.6e-9 on CI's runner, 2026-10-30): compared to 1e-6, not to 8 places.
+            self.assertAlmostEqual(a[1], b[1], delta=1e-6)
         self.assertEqual(ga.GeostatisticalDatasets(ck).dataset2, secondary)
         with self.assertRaisesRegex(arcpy.NotBuiltError, "cross-semivariogram"):
             bad = self.model("ck_bad", "COKRIGING", {"semivariograms": {"primary": direct, "secondary": direct,
