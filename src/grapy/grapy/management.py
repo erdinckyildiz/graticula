@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 
-from . import _gpkg
+from . import _gpkg, _units
 from ._result import Result
 from ._runtime import NotBuiltError
 
@@ -798,7 +798,9 @@ def _coordinates(shape):
 def CalculateGeometryAttributes(in_features, geometry_property, length_unit="", area_unit="", coordinate_system=None,
                                 coordinate_format="SAME_AS_INPUT"):
     """Fields filled with each shape's properties, ``[[field, property], …]``. Lengths and areas are planar, in the data's
-    units or the unit named; a geographic reference must be projected first, as arcpy's planar measures need."""
+    units or the unit named; a geographic reference must be projected first, as arcpy's planar measures need. The units
+    are sized as Pro measures them (D-323): ``YARDS`` and ``NAUTICAL_MILES`` are US survey, ``ACRES``, ``SQUARE_YARDS``
+    and ``SQUARE_NAUTICAL_MILES`` international."""
     from . import da
     from ._reference import SpatialReference
     pairs = [(f, p.upper()) for f, p in _pairs(geometry_property)]
@@ -808,8 +810,8 @@ def CalculateGeometryAttributes(in_features, geometry_property, length_unit="", 
         if field.lower() not in existing:
             _gpkg.add_column(in_features, _gpkg.Column(field, "Integer" if prop.endswith("_COUNT") else "Double"))
     metres = SpatialReference(srid).metersPerUnit if srid > 0 else 1.0
-    linear = _unit_scale(length_unit, metres)
-    square = _unit_scale(str(area_unit).replace("SQUARE_", ""), metres) ** 2 if area_unit else 1.0
+    linear = _unit_scale(length_unit, metres, _units.CALCULATE_LENGTH, "length_unit")
+    square = _unit_scale(area_unit, metres ** 2, _units.CALCULATE_AREA, "area_unit")
     with da.UpdateCursor(in_features, [*[f for f, _ in pairs], "SHAPE@"]) as rows:
         for row in rows:
             shape = row[-1]._shape if row[-1] is not None else None
@@ -825,16 +827,16 @@ def CalculateGeometryAttributes(in_features, geometry_property, length_unit="", 
     return Result(in_features)
 
 
-_UNITS = {"METERS": 1, "KILOMETERS": 1000, "FEET_US": 1200 / 3937, "FEET_INT": 0.3048, "FEET": 0.3048,
-          "MILES_US": 1609.347, "MILES_INT": 1609.344, "MILES": 1609.344, "YARDS": 0.9144, "NAUTICAL_MILES": 1852,
-          "CENTIMETERS": 0.01, "MILLIMETERS": 0.001, "INCHES": 0.0254, "DECIMETERS": 0.1, "HECTARES": 100, "ACRES": 63.6149}
-
-
-def _unit_scale(unit, metres_per_unit):
-    """The factor taking a length in the data's units to the unit named; 1 when none is."""
-    if not unit:
+def _unit_scale(unit, metres_per_unit, table, parameter):
+    """The factor taking a measure in the data's units (``metres_per_unit`` of them, or square metres) to the unit named
+    from the tool's ``table``; 1 when none is."""
+    if not _given(unit):
         return 1.0
-    return metres_per_unit / _UNITS[str(unit).upper()]
+    key = str(unit).upper()
+    if key not in table:
+        from ._runtime import ExecuteError
+        raise ExecuteError(f"ERROR 000800: The value '{unit}' of {parameter} is not a member of {', '.join(table)}.")
+    return metres_per_unit / table[key]
 
 
 def _rectangle_by(shape, by_width):
@@ -1138,19 +1140,18 @@ def SelectLayerByAttribute(in_layer_or_view, selection_type="NEW_SELECTION", whe
     return Result(layer.name, str(len(layer.selection)))
 
 
-_LINEAR = {"METER": 1.0, "METERS": 1.0, "KILOMETER": 1000.0, "KILOMETERS": 1000.0, "DECIMETERS": 0.1,
-           "CENTIMETERS": 0.01, "MILLIMETERS": 0.001, "FOOT": 0.3048, "FEET": 0.3048, "FEET_INT": 0.3048,
-           "INTERNATIONALFEET": 0.3048, "FEET_US": 1200 / 3937, "USSURVEYFEET": 1200 / 3937,
-           "US_SURVEY_FEET": 1200 / 3937, "INCHES": 0.0254, "YARDS": 0.9144, "MILES": 1609.344, "MILES_INT": 1609.344,
-           "INTERNATIONALMILES": 1609.344, "MILES_US": 5280 * 1200 / 3937, "USSURVEYMILES": 5280 * 1200 / 3937,
-           "NAUTICALMILES": 1852.0, "NAUTICAL_MILES": 1852.0}
-
-
-def _metres(unit, tool):
-    key = str(unit).upper().replace(" ", "")
-    if key not in _LINEAR:
+def _metres(unit, tool, table=None):
+    """Metres in ``unit``: a word of a linear unit (``"Feet"`` of ``"20 Feet"``, a US survey foot), or one of a tool's own
+    keywords from its ``table`` in _units — sized as Pro measures them (D-323)."""
+    if table is not None:
+        key = str(unit).upper().replace(" ", "")
+        if key not in table:
+            raise NotBuiltError(f"arcpy.management.{tool}: the linear unit '{unit}' is not built in grapy.")
+        return table[key]
+    metres = _units.linear(unit)
+    if metres is None:
         raise NotBuiltError(f"arcpy.management.{tool}: the linear unit '{unit}' is not built in grapy.")
-    return _LINEAR[key]
+    return metres
 
 
 def _per_unit(srid):
@@ -1998,16 +1999,17 @@ def XYTableToPoint(in_table, out_feature_class, x_field, y_field, z_field=None, 
     return Result(out)
 
 
-_Z_UNITS = {"MILLIMETERS": 0.001, "CENTIMETERS": 0.01, "METERS": 1.0, "INCHES": 0.0254, "FEET": 0.3048,
-            "YARDS": 0.9144, "FATHOMS": 1.8288}
+_Z_UNITS = _units.ADJUST_Z
 
 
 def Adjust3DZ(in_features, reverse_sign="NO_REVERSE", adjust_value=None, from_units=None, to_units=None):
     """Every vertex's z changed in place, as documented: ``REVERSE`` inverts its sign, ``adjust_value`` — a number or a
     field — shifts it, and ``from_units``/``to_units`` convert it.
 
-    INFERRED: the order is sign, then shift, then units, the order the parameters come in; the units are the
-    international ones (a foot of 0.3048 m, a fathom of six feet); a null shift field leaves the feature unshifted.
+    The units are the US survey ones — a foot of 1200/3937 m, a fathom of six of them — as measured in Pro (D-323).
+
+    INFERRED: the order is sign, then shift, then units, the order the parameters come in; a null shift field leaves
+    the feature unshifted.
     Refused: a 2D feature class; units given one without the other."""
     import shapely
     from . import da
@@ -2117,7 +2119,7 @@ def BearingDistanceToLine(in_table, out_featureclass, x_field, y_field, distance
         x, y, d, b = [row[next(n for n in row if n.lower() == str(f).lower())] for f in fields]
         if None in (x, y, d, b):
             return None
-        d = float(d) * (_metres(distance_units, "BearingDistanceToLine") / _per_unit(srid) if _given(distance_units) else 1.0)
+        d = float(d) * (_metres(distance_units, "BearingDistanceToLine", _units.BEARING_DISTANCE) / _per_unit(srid) if _given(distance_units) else 1.0)
         angle = float(b) * _BEARINGS[unit]
         return LineString([(float(x), float(y)), (float(x) + d * math.sin(angle), float(y) + d * math.cos(angle))])
 
@@ -2235,8 +2237,7 @@ def CreateFishnet(out_feature_class, origin_coord, y_axis_coord, cell_width, cel
     return Result(*outputs)
 
 
-_SQUARE_UNITS = {"SQUAREMETERS": 1.0, "SQUAREKILOMETERS": 1e6, "HECTARES": 1e4, "SQUAREFEET": 0.3048 ** 2,
-                 "SQUAREYARDS": 0.9144 ** 2, "SQUAREMILES": 1609.344 ** 2, "SQUARENAUTICALMILES": 1852.0 ** 2}
+_SQUARE_UNITS = _units.AREAL  # an areal unit's words, keyed without underscores: SquareFeet international (D-323)
 
 
 def _letters(n):
@@ -2485,8 +2486,7 @@ def CheckGeometry(in_features, out_table=None, validation_method="ESRI"):
 
 # ---- geometry attributes and references ---------------------------------------------------------------------------------
 
-_AREA_UNITS = {"SQUARE_METERS": 1.0, "SQUARE_KILOMETERS": 1e6, "HECTARES": 1e4, "SQUARE_FEET_US": (1200 / 3937) ** 2,
-               "SQUARE_MILES_US": (5280 * 1200 / 3937) ** 2, "SQUARE_YARDS": 0.9144 ** 2, "SQUARE_NAUTICAL_MILES": 1852.0 ** 2}
+_AREA_UNITS = _units.ADD_GEOMETRY_AREA
 
 _GEOMETRY_FIELDS = {
     "AREA": ["POLY_AREA"], "AREA_GEODESIC": ["AREA_GEO"], "CENTROID": ["CENTROID_X", "CENTROID_Y"],
@@ -2502,7 +2502,9 @@ def AddGeometryAttributes(Input_Features, Geometry_Properties, Length_Unit=None,
     ``EXT_MIN_X`` …), in ``Coordinate_System`` when given. Planar measures are in the reference's units unless a unit
     is named; geodesic ones are on the reference's ellipsoid and need a unit. INFERRED: ``POINT_COUNT`` counts a ring's
     closing vertex, as a shape's ``pointCount`` does; a geodesic length runs along the geodesic between each pair of
-    vertices. ``CENTROID_INSIDE``, ``LINE_BEARING``, ``LENGTH_3D`` and ``ACRES`` are not built."""
+    vertices. The units are sized as Pro measures them (D-323): ``YARDS`` and ``NAUTICAL_MILES`` are US survey,
+    ``ACRES``, ``SQUARE_YARDS`` and ``SQUARE_NAUTICAL_MILES`` international. ``CENTROID_INSIDE``, ``LINE_BEARING`` and
+    ``LENGTH_3D`` are not built."""
     import shapely
     from . import da
     from ._reference import SpatialReference, reference_of
@@ -2519,7 +2521,7 @@ def AddGeometryAttributes(Input_Features, Geometry_Properties, Length_Unit=None,
     if _given(Length_Unit) and any(p in ("LENGTH", "PERIMETER_LENGTH") for p in properties):
         if per is None:
             raise NotBuiltError("arcpy.management.AddGeometryAttributes: a planar length in a unit on a geographic system is not built in grapy.")
-        planar_length = per / _metres(Length_Unit, "AddGeometryAttributes")
+        planar_length = per / _metres(Length_Unit, "AddGeometryAttributes", _units.ADD_GEOMETRY_LENGTH)
     if _given(Area_Unit):
         if str(Area_Unit).upper() not in _AREA_UNITS:
             raise NotBuiltError(f"arcpy.management.AddGeometryAttributes: Area_Unit '{Area_Unit}' is not built in grapy.")
@@ -2579,8 +2581,8 @@ def AddGeometryAttributes(Input_Features, Geometry_Properties, Length_Unit=None,
         if prop == "AREA_GEODESIC":
             return [abs(geod.geometry_area_perimeter(on_earth)[0]) / _AREA_UNITS[str(Area_Unit).upper()]]
         if prop == "LENGTH_GEODESIC":
-            return [geod.geometry_length(on_earth) / _metres(Length_Unit, "AddGeometryAttributes")]
-        return [geod.geometry_length(_linework(on_earth)) / _metres(Length_Unit, "AddGeometryAttributes")]
+            return [geod.geometry_length(on_earth) / _metres(Length_Unit, "AddGeometryAttributes", _units.ADD_GEOMETRY_LENGTH)]
+        return [geod.geometry_length(_linework(on_earth)) / _metres(Length_Unit, "AddGeometryAttributes", _units.ADD_GEOMETRY_LENGTH)]
 
     with da.UpdateCursor(path, [*fields, "SHAPE@"]) as rows:
         for row in rows:
@@ -5945,7 +5947,7 @@ def TableToEllipse(in_table, out_featureclass, x_field, y_field, major_field, mi
     rest = [c for c in columns if c not in lead] if str(attributes).upper() == "ATTRIBUTES" else None
     out_columns = lead + (rest + [_gpkg.Column("ORIG_FID", "Integer")] if rest is not None else [])
     polygon = str(geometry_type or "LINE").upper() == "POLYGON"
-    metres = _metres(str(distance_units).replace("US_SURVEY_FEET", "FEET_US"), "TableToEllipse")
+    metres = _metres(distance_units, "TableToEllipse", _units.BEARING_DISTANCE)
     out = _path(out_featureclass)
     _gpkg.create(out, "Polygon" if polygon else "Polyline", srid, out_columns)
     geod = to_geographic = back = None
