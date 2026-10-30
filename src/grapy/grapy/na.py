@@ -164,6 +164,16 @@ _SCHEMAS = {
         "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
         "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
     },
+    "Location-Allocation": {
+        "Facilities": ("Point", [("Name", _TEXT), ("FacilityType", _SHORT), ("Weight", _DOUBLE), ("Capacity", _DOUBLE),
+                                 ("CurbApproach", _SHORT), *_LOCATION, ("Status", _SHORT), ("DemandCount", _LONG),
+                                 ("DemandWeight", _DOUBLE)]),
+        "DemandPoints": ("Point", [("Name", _TEXT), ("GroupName", _TEXT), ("Weight", _DOUBLE), ("CurbApproach", _SHORT),
+                                   *_LOCATION, ("Status", _SHORT), ("FacilityID", _LONG), ("AllocatedWeight", _DOUBLE)]),
+        "LALines": ("Polyline", [("Name", _TEXT), ("FacilityID", _LONG), ("DemandID", _LONG), ("Weight", _DOUBLE)]),
+        "PointBarriers": ("Point", [("Name", _TEXT)]), "PolylineBarriers": ("Polyline", [("Name", _TEXT)]),
+        "PolygonBarriers": ("Polygon", [("Name", _TEXT)]),
+    },
     "OD Cost Matrix": {
         "Origins": ("Point", [("Name", _TEXT), ("TargetDestinationCount", _LONG), ("CurbApproach", _SHORT), *_LOCATION,
                               ("Status", _SHORT)]),
@@ -176,9 +186,10 @@ _SCHEMAS = {
 # The sublayer names the layers show (GetNAClassNames' values). INFERRED for the barrier and output names.
 _SUBLAYER_NAMES = {"Stops": "Stops", "Routes": "Routes", "Facilities": "Facilities", "Incidents": "Incidents",
                    "CFRoutes": "Routes", "SAPolygons": "Polygons", "SALines": "Lines", "Origins": "Origins",
-                   "Destinations": "Destinations", "ODLines": "Lines", "PointBarriers": "Point Barriers",
+                   "Destinations": "Destinations", "ODLines": "Lines",
+                   "DemandPoints": "Demand Points", "LALines": "Lines", "PointBarriers": "Point Barriers",
                    "PolylineBarriers": "Line Barriers", "PolygonBarriers": "Polygon Barriers"}
-_INPUTS = {"Stops", "Facilities", "Incidents", "Origins", "Destinations"}
+_INPUTS = {"Stops", "Facilities", "Incidents", "Origins", "Destinations", "DemandPoints"}
 
 
 def _make(solver, network_data_source, layer_name, travel_mode, settings, analysis_geodatabase, cost_fields):
@@ -190,7 +201,8 @@ def _make(solver, network_data_source, layer_name, travel_mode, settings, analys
     _refuse_mode(travel_mode)
     graph = _network.Graph(source, travel_mode)
     name = str(layer_name) if _given(layer_name) else {"Route": "Route", "Closest Facility": "Closest Facility",
-                                                       "Service Area": "Service Area", "OD Cost Matrix": "OD Cost Matrix"}[solver]
+                                                       "Service Area": "Service Area", "OD Cost Matrix": "OD Cost Matrix",
+                                                       "Location-Allocation": "Location-Allocation"}[solver]
     workspace = str(analysis_geodatabase) if _given(analysis_geodatabase) else env.scratchGDB
     if not workspace.lower().endswith(".gpkg"):
         raise NotBuiltError("An analysis geodatabase other than a GeoPackage is not built in grapy.")
@@ -322,6 +334,87 @@ def MakeODCostMatrixAnalysisLayer(network_data_source, layer_name=None, travel_m
                   "count": int(number_of_destinations_to_find) if _given(number_of_destinations_to_find) else None,
                   "line_shape": line_shape, "accumulate": accumulate, "ignore": ignore_invalid_locations},
                  analysis_geodatabase, costs)
+
+
+def MakeLocationAllocationAnalysisLayer(network_data_source, layer_name=None, travel_mode=None,
+                                        travel_direction="FROM_FACILITIES", problem_type="MINIMIZE_IMPEDANCE", cutoff=None,
+                                        number_of_facilities_to_find=1, decay_function_type="LINEAR",
+                                        decay_function_parameter_value=None, target_market_share=None, capacity=None,
+                                        time_of_day=None, time_zone="LOCAL_TIME_AT_LOCATIONS", line_shape="STRAIGHT_LINES",
+                                        accumulate_attributes=None, ignore_invalid_locations="SKIP",
+                                        analysis_geodatabase=None, analysis_feature_dataset_name=None):
+    """A location-allocation analysis layer: Facilities, Demand Points and Lines, with the documented fields and
+    defaults (away from the facilities, minimize impedance, one facility, no cutoff, linear decay, straight lines).
+    Solve chooses the facilities as nax.LocationAllocation does, an equivalent: Teitz and Bart's vertex substitution
+    (``grapy.nax._allocate``). Only ``MINIMIZE_IMPEDANCE`` and ``LINEAR`` are built; the other problem types are
+    refused. INFERRED: the Lines sublayer's class name, ``LALines``."""
+    if str(problem_type or "MINIMIZE_IMPEDANCE").upper() != "MINIMIZE_IMPEDANCE":
+        raise NotBuiltError(f"arcpy.na.MakeLocationAllocationAnalysisLayer: problem_type '{problem_type}' is not built in "
+                            "grapy; MINIMIZE_IMPEDANCE is.")
+    if str(decay_function_type or "LINEAR").upper() != "LINEAR":
+        raise NotBuiltError(f"arcpy.na.MakeLocationAllocationAnalysisLayer: decay_function_type '{decay_function_type}' "
+                            "is not built in grapy; LINEAR is.")
+    _common_refusals("MakeLocationAllocationAnalysisLayer", time_of_day)
+    accumulate = _accumulate(accumulate_attributes)
+
+    def costs(key, graph):
+        names = [graph.impedance, *[x for x in accumulate if x != graph.impedance]]
+        if key in ("Facilities", "LALines"):
+            return [(f"{p}_{a}", _DOUBLE) for p in ("Total", "TotalWeighted") for a in names]
+        return []
+
+    return _make("Location-Allocation", network_data_source, layer_name, travel_mode,
+                 {"direction": travel_direction, "cutoff": float(cutoff) if _given(cutoff) else None,
+                  "count": int(number_of_facilities_to_find or 1), "line_shape": line_shape, "accumulate": accumulate,
+                  "ignore": ignore_invalid_locations}, analysis_geodatabase, costs)
+
+
+def _solve_location_allocation(graph, layer, inputs):
+    """Solve's location-allocation branch: lines written, the facilities' and demand points' outputs updated."""
+    from shapely.geometry import LineString
+    from .nax import _allocate
+    from ._runtime import AddWarning, _SAID_EQUIVALENT
+    if "na.Solve location-allocation" not in _SAID_EQUIVALENT:
+        _SAID_EQUIVALENT.add("na.Solve location-allocation")
+        AddWarning("arcpy.na.Solve chooses location-allocation facilities by an equivalent, not ArcGIS Pro's own "
+                   "computation: Teitz-Bart vertex substitution for the p-median problem (Teitz and Bart 1968).")
+    s = layer.settings
+    facilities, demands = inputs["Facilities"], inputs["DemandPoints"]
+    away = str(s["direction"] or "FROM_FACILITIES").upper() == "FROM_FACILITIES"
+    solver, chosen, required, weights, served = _allocate(graph, facilities, demands, away, s["cutoff"], s["count"],
+                                                          "arcpy.na.Solve")
+    names = [graph.impedance, *[x for x in s["accumulate"] if x != graph.impedance]]
+    lines, by_facility, demand_updates = [], {}, {}
+    for d, demand in enumerate(demands):
+        if d not in served:
+            demand_updates[demand["oid"]] = {"FacilityID": None, "AllocatedWeight": None}
+            continue
+        f, path = served[d]
+        facility = facilities[f]
+        totals = {a: solver.total(path, a) for a in names}
+        by_facility.setdefault(f, []).append((weights[d], totals))
+        demand_updates[demand["oid"]] = {"FacilityID": facility["oid"], "AllocatedWeight": weights[d]}
+        line = {"Name": f"{facility['name']} - {demand['name']}" if away else f"{demand['name']} - {facility['name']}",
+                "FacilityID": facility["oid"], "DemandID": demand["oid"], "Weight": weights[d]}
+        line.update({f"Total_{a}": v for a, v in totals.items()})
+        line.update({f"TotalWeighted_{a}": v * weights[d] for a, v in totals.items()})
+        if str(s["line_shape"] or "STRAIGHT_LINES").upper() != "NO_LINES":
+            ends = [facility["point"], demand["point"]] if away else [demand["point"], facility["point"]]
+            line["SHAPE"] = LineString([(p.x, p.y) for p in ends])
+        lines.append(line)
+    facility_updates = {}
+    for f, facility in enumerate(facilities):
+        allocated = by_facility.get(f, [])
+        row = {"FacilityType": 3 if f in chosen and f not in required else int(facility.get("FacilityType") or 0),
+               "DemandCount": len(allocated), "DemandWeight": sum(w for w, _ in allocated)}
+        for a in names:
+            row[f"Total_{a}"] = sum(t[a] for _, t in allocated)
+            row[f"TotalWeighted_{a}"] = sum(w * t[a] for w, t in allocated)
+        facility_updates[facility["oid"]] = row
+    _write(layer.classes["LALines"], lines)
+    _update(layer.classes["Facilities"], facility_updates)
+    _update(layer.classes["DemandPoints"], demand_updates)
+    return bool(lines)
 
 
 def _layer(value):
@@ -542,6 +635,8 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
                                                   s["accumulate"], s["line_shape"])
             _write(layer.classes["ODLines"], lines)
             succeeded = bool(lines)
+        elif layer.solver == "Location-Allocation":
+            succeeded = _solve_location_allocation(graph, layer, inputs)
         else:
             trim = _linear(s["trim"], graph.srid, "Solve") if _given(s["trim"]) else 0.0
             lines, polygons = _network.solve_service_area(graph, inputs["Facilities"], s["breaks"], s["direction"],
@@ -674,9 +769,9 @@ def UpgradeNetwork(in_network_dataset):
 _HEURISTIC = "is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2)"
 _TURNS = "needs turns, refused until they are defined (ADR-226 §5.3)"
 _REASONS = {
-    _HEURISTIC: ("MakeLocationAllocationAnalysisLayer", "MakeVehicleRoutingProblemAnalysisLayer",
+    _HEURISTIC: ("MakeVehicleRoutingProblemAnalysisLayer",
                  "MakeLastMileDeliveryAnalysisLayer", "MakeWasteCollectionAnalysisLayer", "AddVehicleRoutingProblemBreaks",
-                 "AddVehicleRoutingProblemRoutes", "MakeLocationAllocationLayer", "MakeVehicleRoutingProblemLayer"),
+                 "AddVehicleRoutingProblemRoutes", "MakeVehicleRoutingProblemLayer"),
     _TURNS: ("CreateTurnFeatureClass", "IncreaseMaximumEdges", "PopulateAlternateIDFields", "TurnTableToTurnFeatureClass",
              "UpdateByAlternateIDFields", "UpdateByGeometry"),
     "writes turn-by-turn directions by Esri's direction rules, which are not published": ("Directions",),
@@ -684,7 +779,8 @@ _REASONS = {
         "CreateNetworkDatasetFromTemplate", "CreateTemplateFromNetworkDataset"),
     "dissolves network edges by Esri's rules, which are not published": ("DissolveNetwork",),
     "is a deprecated layer tool; its Analysis Layer successor is built": (
-        "MakeRouteLayer", "MakeClosestFacilityLayer", "MakeServiceAreaLayer", "MakeODCostMatrixLayer"),
+        "MakeRouteLayer", "MakeClosestFacilityLayer", "MakeServiceAreaLayer", "MakeODCostMatrixLayer",
+        "MakeLocationAllocationLayer"),
     "shares route layers to a portal, and a fenced tool has no network (ADR-223 §5.3)": ("ShareAsRouteLayers",),
     "sets an attribute parameter, and grapy's evaluators take none": ("UpdateAnalysisLayerAttributeParameter",),
     "edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools": (

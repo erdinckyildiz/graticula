@@ -5087,7 +5087,6 @@ _REASONS = {
         "SetRelationshipClassSplitPolicy",),
     "converts between Windows time zone names, whose mapping to the IANA zones Python holds Esri does not publish": (
         "ConvertTimeZone",),
-    "writes DTED, a military elevation format grapy does not write": ("RasterToDTED",),
     "makes a mobile geodatabase (.geodatabase), Esri's own SQLite schema; CreateFileGDB and CreateSQLiteDatabase make "
     "grapy's GeoPackage workspace": ("CreateMobileGDB",),
 }
@@ -6389,3 +6388,81 @@ def ConvertCoordinateNotation(in_table, out_featureclass, x_field, y_field, inpu
 
 
 _REFUSED.pop("ConvertCoordinateNotation", None)
+
+
+# ---- DTED (MIL-PRF-89020B) -------------------------------------------------------------------------------------------
+
+_DTED_SECONDS = {"DTED_0": 30, "DTED_1": 3, "DTED_2": 1}
+
+
+def _dted_longitude_factor(south):
+    """How many times the latitude spacing the longitude spacing is, by the tile's latitude zone (MIL-PRF-89020B)."""
+    nearest = min(abs(south), abs(south + 1))
+    for limit, factor in ((50, 1), (70, 2), (75, 3), (80, 4)):
+        if nearest < limit:
+            return factor
+    return 6
+
+
+def RasterToDTED(in_raster, out_folder, dted_level, resampling_type=None):
+    """A single-band elevation raster written as one-degree DTED tiles in WGS 1984, as documented: each tile spans its
+    degree plus half a post on each edge, so neighbours share a row or column; values are signed 16-bit integers; the
+    post spacing is the level's — 30, 3 or 1 arc-second in latitude, and in longitude that times the latitude zone's
+    factor (1 below 50°, 2 to 70°, 3 to 75°, 4 to 80°, 6 beyond), as MIL-PRF-89020B defines. The files are written by
+    GDAL's DTED driver. INFERRED, the page not saying: the folder and file names are the specification's convention —
+    a folder per longitude (``e032``, ``w005``) holding a file per latitude (``n39.dt0``) — named by the tile's
+    south-west corner; values are rounded and clipped to the 16-bit range; a cell with no data is written as DTED's
+    null, -32767; a tile with no data at all is not written; with no resampling type, the environment's
+    ``resamplingMethod``, else ``NEAREST``."""
+    import math
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+    from rasterio.warp import Resampling, reproject, transform_bounds
+    from ._raster import Raster
+    from ._runtime import env
+    level = str(dted_level or "").upper()
+    if level not in _DTED_SECONDS:
+        raise ValueError(f"RasterToDTED: dted_level '{dted_level}' is not DTED_0, DTED_1 or DTED_2.")
+    method = str(resampling_type or getattr(env, "resamplingMethod", None) or "NEAREST").upper()
+    resampling = {"NEAREST": Resampling.nearest, "BILINEAR": Resampling.bilinear, "CUBIC": Resampling.cubic}.get(method)
+    if resampling is None:
+        raise ValueError(f"RasterToDTED: resampling_type '{resampling_type}' is not NEAREST, BILINEAR or CUBIC.")
+    raster = in_raster if isinstance(in_raster, Raster) else Raster(in_raster)
+    grid = raster._grid
+    if grid.srid <= 0:
+        raise NotBuiltError("RasterToDTED: a raster with no spatial reference cannot be placed on the WGS 1984 grid.")
+    source = np.where(raster._mask, np.nan, raster._array.astype(np.float64))
+    source_transform = from_origin(grid.left, grid.top, grid.width, grid.height)
+    west, south, east, north = transform_bounds(f"EPSG:{grid.srid}", "EPSG:4326", grid.left, grid.top - grid.rows * grid.height,
+                                                grid.left + grid.columns * grid.width, grid.top)
+    folder = os.fspath(out_folder)
+    os.makedirs(folder, exist_ok=True)
+    seconds = _DTED_SECONDS[level]
+    for tile_south in range(math.floor(south), math.ceil(north)):
+        if not -90 <= tile_south < 90:
+            continue
+        factor = _dted_longitude_factor(tile_south)
+        dy = seconds / 3600.0
+        dx = dy * factor
+        rows, columns = round(1 / dy) + 1, round(1 / dx) + 1
+        for tile_west in range(math.floor(west), math.ceil(east)):
+            if not -180 <= tile_west < 180:
+                continue
+            out = np.full((rows, columns), np.nan)
+            reproject(source, out, src_transform=source_transform, src_crs=f"EPSG:{grid.srid}", src_nodata=np.nan,
+                      dst_transform=from_origin(tile_west - dx / 2, tile_south + 1 + dy / 2, dx, dy), dst_crs="EPSG:4326",
+                      dst_nodata=np.nan, resampling=resampling)
+            if np.isnan(out).all():
+                continue
+            posts = np.where(np.isnan(out), -32767, np.clip(np.round(np.nan_to_num(out)), -32766, 32767)).astype(np.int16)
+            column_folder = os.path.join(folder, f"{'e' if tile_west >= 0 else 'w'}{abs(tile_west):03d}")
+            os.makedirs(column_folder, exist_ok=True)
+            name = f"{'n' if tile_south >= 0 else 's'}{abs(tile_south):02d}.dt{level[-1]}"
+            with rasterio.open(os.path.join(column_folder, name), "w", driver="DTED", width=columns, height=rows, count=1,
+                               dtype="int16", crs="EPSG:4326", nodata=-32767,
+                               transform=from_origin(tile_west - dx / 2, tile_south + 1 + dy / 2, dx, dy)) as written:
+                written.write(posts, 1)
+    return Result(folder)
+
+

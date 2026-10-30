@@ -205,6 +205,67 @@ class Network(unittest.TestCase):
         with self.assertRaises(arcpy.NotBuiltError):
             result.searchCursor(nax.ServiceAreaOutputDataType.Lines, ["FacilityID"])     # polygons were asked for
 
+    def test_nax_location_allocation_minimize_impedance(self):
+        na.BuildNetwork(self.network)
+
+        def solve(count, required=None):
+            la = nax.LocationAllocation(self.network)
+            la.facilityCount = count
+            with la.insertCursor(nax.LocationAllocationInputDataType.Facilities,
+                                 ["Name", "FacilityType", "SHAPE@XY"]) as cursor:
+                cursor.insertRow(["A", 0, (2, 0)])
+                cursor.insertRow(["B", 0, (18, 0)])
+                cursor.insertRow(["C", 1 if required else 0, (10, 9)])
+            with la.insertCursor(nax.LocationAllocationInputDataType.DemandPoints, ["Name", "Weight", "SHAPE@XY"]) as cursor:
+                for name, weight, xy in (("d1", 1, (0, 0)), ("d2", 1, (4, 0)), ("d3", 1, (16, 0)), ("d4", 3, (20, 0))):
+                    cursor.insertRow([name, weight, xy])
+            result = la.solve()
+            return (list(result.searchCursor(nax.LocationAllocationOutputDataType.Facilities,
+                                             ["Name", "FacilityType", "DemandCount", "DemandWeight", "Total_Kilometers",
+                                              "TotalWeighted_Kilometers"])),
+                    list(result.searchCursor(nax.LocationAllocationOutputDataType.Lines, ["Name", "Weight"])))
+
+        # One facility: A costs 2+2+14+3·18 = 72 m, B 18+14+2+3·2 = 40 m, C at least 9 m more than A or B to each.
+        facilities, _ = solve(1)
+        self.assertEqual([(f[0], f[1], f[2]) for f in facilities], [("A", 0, 0), ("B", 3, 4), ("C", 0, 0)])
+        self.assertAlmostEqual(facilities[1][4], 0.036)            # 18 + 14 + 2 + 2 m
+        self.assertAlmostEqual(facilities[1][5], 0.040)
+        # Two: A takes d1 and d2 at 2 m each, B d3 and d4 at 2 m each — 12 m weighted, every other pair is worse.
+        facilities, lines = solve(2)
+        self.assertEqual([(f[0], f[1], f[2], f[3]) for f in facilities], [("A", 3, 2, 2), ("B", 3, 2, 4), ("C", 0, 0, 0)])
+        self.assertAlmostEqual(facilities[1][5], 0.008)
+        self.assertEqual(lines, [("A - d1", 1), ("A - d2", 1), ("B - d3", 1), ("B - d4", 3)])
+        # C required: with A the total is 72 m, with B 40 m (d1 and d2 still nearer B than C's 19 and 15 m).
+        facilities, _ = solve(2, required=True)
+        self.assertEqual([(f[0], f[1], f[2]) for f in facilities], [("A", 0, 0), ("B", 3, 4), ("C", 1, 0)])
+        # The same allocation through an analysis layer and Solve.
+        facilities_fc = self.make_points("cands", [("A", "POINT(2 0)"), ("B", "POINT(18 0)"), ("C", "POINT(10 9)")])
+        demand_fc = self.make_points("demand", [("d1", "POINT(0 0)"), ("d2", "POINT(4 0)"), ("d3", "POINT(16 0)"),
+                                                ("d4", "POINT(20 0)")])
+        arcpy.management.AddField(demand_fc, "Weight", "DOUBLE")
+        with arcpy.da.UpdateCursor(demand_fc, ["Name", "Weight"]) as rows:
+            for row in rows:
+                rows.updateRow([row[0], 3.0 if row[0] == "d4" else 1.0])
+        layer = na.MakeLocationAllocationAnalysisLayer(self.network, "la", number_of_facilities_to_find=1)[0]
+        na.AddLocations(layer, "Facilities", facilities_fc)
+        na.AddLocations(layer, "Demand Points", demand_fc)
+        na.Solve(layer)
+        self.assertEqual(self.rows(na.GetNASublayer(layer, "Facilities"), ["Name", "FacilityType", "DemandCount"]),
+                         [("A", 0, 0), ("B", 3, 4), ("C", 0, 0)])
+        self.assertEqual(self.rows(na.GetNASublayer(layer, "Demand Points"), ["Name", "FacilityID"]),
+                         [("d1", 2), ("d2", 2), ("d3", 2), ("d4", 2)])
+        weighted = self.rows(na.GetNASublayer(layer, "Lines"), ["Name", "TotalWeighted_Length"])
+        # B serves all four, 18, 14, 2 and 2 m away, d4 weighing 3.
+        self.assertEqual([(n, round(v, 9)) for n, v in weighted], [("B - d1", 18.0), ("B - d2", 14.0), ("B - d3", 2.0),
+                                                                   ("B - d4", 6.0)])
+        with self.assertRaises(arcpy.NotBuiltError):
+            na.MakeLocationAllocationAnalysisLayer(self.network, "cover", problem_type="MAXIMIZE_COVERAGE")
+        la = nax.LocationAllocation(self.network)
+        la.problemType = nax.LocationAllocationProblemType.MaximizeCoverage
+        with self.assertRaises(arcpy.NotBuiltError):
+            la.solve()
+        self.assertTrue(hasattr(nax.LocationAllocation, "__grapy_equivalent__"))
+
     def test_locations_layers_and_travel_mode_files(self):
         na.BuildNetwork(self.network)
         arcpy.management.AddField(self.points, "Status", "LONG")
@@ -283,7 +344,7 @@ class Network(unittest.TestCase):
         with self.assertRaises(arcpy.NotBuiltError):
             route.solve()
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            nax.LocationAllocation(self.network)
+            nax.VehicleRoutingProblem(self.network)
         self.assertIn("NP-hard", str(raised.exception))
         for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "RouteSolverProperties", "solver"),
                                     (nax, "Edge", "custom evaluators"), (nax, "TraversedEdge", "traversed"),

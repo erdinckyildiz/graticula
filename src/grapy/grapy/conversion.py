@@ -1339,7 +1339,8 @@ def PolylineToRaster(in_features, value_field, out_rasterdataset, cell_assignmen
 # Every arcpy.conversion name grapy does not build is refused with its own reason (ADR-224).
 
 _REASONS = {
-    "needs a data model this server does not hold yet (ADR-224 group 2): network datasets": (
+    "builds public-transit sources into a network dataset; grapy's network datasets (ADR-226) have no transit "
+    "evaluator, and the public transit evaluator's schedule rules are not published": (
         "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
     "needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 "
     "group 2)": (
@@ -1364,8 +1365,8 @@ _REASONS = {
     "needs SAS, a commercial runtime grapy does not carry": ("SASToTable", "TableToSAS"),
     "reaches a WFS service, and a fenced tool has no network (ADR-223 §5.3)": ("WFSToFeatureClass",),
     "writes GTFS columns the page does not name, in an order it does not give": ("FeaturesToGTFSStops", "FeaturesToGTFSShapes"),
-    "needs a network dataset for its default modes 3, 5 and 11, a data model this server does not hold yet (ADR-224 "
-    "group 2), and does not document how it names the shapes it draws as straight lines": ("GenerateShapesFeaturesFromGTFS",),
+    "routes its default modes 3, 5 and 11 along a network dataset by a travel mode the page does not give, and does not "
+    "document how it names the shapes it draws as straight lines": ("GenerateShapesFeaturesFromGTFS",),
     "writes a GeoPackage tile pyramid whose tile matrix set, tile size, image format and zoom levels the page does not "
     "define": ("AddRasterToGeoPackage",),
     "lays the profiles of a USGS DEM, which start at different rows, on an output grid whose extent and filling the page "

@@ -156,5 +156,26 @@ class Sweep(unittest.TestCase):
         self.assertEqual(combined._array.tolist(), [[2, 1]])
 
 
+    def test_raster_to_dted(self):
+        import numpy
+        import rasterio
+        from grapy import _raster, management
+        # 0.1-degree cells of 123.4 over 32.1–32.6 E, 39.5–39.9 N: inside tile e032/n39 only.
+        grid = _raster._Grid(32.1, 39.9, 0.1, 0.1, 4, 5, 4326)
+        source = _raster.Raster._of(numpy.full((4, 5), 123.4), numpy.zeros((4, 5), bool), grid).save(self.out("dem.tif"))
+        folder = arcpy.management.RasterToDTED(source, self.out("dted"), "DTED_0", "NEAREST")[0]
+        self.assertEqual(sorted(os.listdir(folder)), ["e032"])
+        self.assertEqual(os.listdir(os.path.join(folder, "e032")), ["n39.dt0"])
+        with rasterio.open(os.path.join(folder, "e032", "n39.dt0")) as tile:
+            posts = tile.read(1)
+            # 30-arc-second posts, the degree plus half a post each side: 121 by 121, the corner post on 32° E, 40° N.
+            self.assertEqual((tile.width, tile.height), (121, 121))
+            self.assertAlmostEqual(tile.transform.c, 32 - 1 / 240)
+        # The post at 32.3° E, 39.7° N is 36 rows and 36 columns in; 32° E has no data.
+        self.assertEqual((int(posts[36, 36]), int(posts[36, 0])), (123, -32767))
+        # Longitude spacing doubles from 50° and is sixfold beyond 80°, by the latitude nearer the equator.
+        self.assertEqual([management._dted_longitude_factor(s) for s in (49, 50, -51, 72, 80, -90)], [1, 2, 2, 3, 6, 6])
+
+
 if __name__ == "__main__":
     unittest.main()
