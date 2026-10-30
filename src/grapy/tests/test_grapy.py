@@ -224,6 +224,66 @@ class Toolboxes(unittest.TestCase):
         self.assertEqual(sorted(f["properties"]["name"] for f in back["features"]), ["a", "b"])
         self.assertLess(abs(back["features"][0]["geometry"]["coordinates"][0][0][0] - 28.9), 0.01)
 
+    def test_a_raster_goes_out_as_a_geotiff_where_the_server_looks_for_it(self):
+        # D-324: an output raster, saved or left in memory, is written to outputs/<parameter>.tif with every band, its
+        # grid and its EPSG code; the server reads it there, by its own name for it.
+        toolbox = textwrap.dedent('''
+            import numpy
+            import grapy as arcpy
+
+            class Toolbox:
+                def __init__(self):
+                    self.tools = [Ramp]
+
+            class Ramp:
+                def getParameterInfo(self):
+                    return [arcpy.Parameter(name="saved", datatype="DERasterDataset", direction="Output"),
+                            arcpy.Parameter(name="kept", datatype="GPRasterLayer", direction="Output")]
+
+                def execute(self, parameters, messages):
+                    cells = numpy.arange(12, dtype="float32").reshape(3, 4)
+                    arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(32635)
+                    arcpy.NumPyArrayToRaster(cells, arcpy.Point(500000, 4000000), 10, 10).save("ramp.tif")
+                    parameters[0].value = "ramp.tif"
+                    parameters[1].value = arcpy.Raster("ramp.tif") + 1
+        ''')
+        with open(os.path.join(self.directory, "ramp.pyt"), "w") as out:
+            out.write(toolbox)
+        result = _run(self.directory, {"mode": "run", "toolbox": "ramp.pyt", "tool": "Ramp"}, unfenced=sys.platform != "linux")
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["rasters"], {"saved": {"tiff": os.path.join("outputs", "saved.tif")},
+                                             "kept": {"tiff": os.path.join("outputs", "kept.tif")}})
+        import rasterio
+        with rasterio.open(os.path.join(self.directory, "outputs", "saved.tif")) as read:
+            self.assertEqual((read.width, read.height, read.crs.to_epsg()), (4, 3, 32635))
+            self.assertEqual(read.read(1)[2, 3], 11)
+            self.assertEqual((read.transform.c, read.transform.f), (500000, 4000030))
+        with rasterio.open(os.path.join(self.directory, "outputs", "kept.tif")) as read:
+            self.assertEqual(read.read(1)[0, 0], 1)
+
+    def test_a_raster_without_a_coordinate_system_is_refused_by_name(self):
+        toolbox = textwrap.dedent('''
+            import numpy
+            import grapy as arcpy
+
+            class Toolbox:
+                def __init__(self):
+                    self.tools = [Bare]
+
+            class Bare:
+                def getParameterInfo(self):
+                    return [arcpy.Parameter(name="out", datatype="DERasterDataset", direction="Output")]
+
+                def execute(self, parameters, messages):
+                    arcpy.NumPyArrayToRaster(numpy.ones((2, 2)), arcpy.Point(0, 0), 1, 1).save("bare.tif")
+                    parameters[0].value = "bare.tif"
+        ''')
+        with open(os.path.join(self.directory, "bare.pyt"), "w") as out:
+            out.write(toolbox)
+        result = _run(self.directory, {"mode": "run", "toolbox": "bare.pyt", "tool": "Bare"}, unfenced=sys.platform != "linux")
+        self.assertFalse(result["ok"])
+        self.assertIn("EPSG", result["error"])
+
     def test_a_tool_runs_and_answers_its_output(self):
         result = _run(self.directory, {"mode": "run", "toolbox": "probe.pyt", "tool": "Count",
                                        "parameters": {"in_features": "in.gpkg"}}, unfenced=sys.platform != "linux")

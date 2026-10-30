@@ -21,6 +21,11 @@ import sys
 import traceback
 
 
+# The raster types the server's task resource lists as GPRasterDataLayer (ToolboxEndpoints.DataTypeOf).
+_RASTER_TYPES = {"GPRasterLayer", "GPRasterDataLayer", "DERasterDataset", "Raster Layer", "Raster Dataset",
+                 "GPRasterLayerOrDataset"}
+
+
 def _write(directory: str, document: dict) -> None:
     with open(os.path.join(directory, "result.json"), "w", encoding="utf-8") as out:
         json.dump(document, out, default=str)
@@ -147,19 +152,32 @@ def main(directory: str) -> int:
             raise ValueError("; ".join(refused))
 
         tool.execute(parameters, _Messages(_runtime))
+        for parameter in parameters:
+            # An output set to a Raster object is its file, saved first when it is only in memory, as arcpy reads it.
+            if parameter.direction == "Output" and hasattr(parameter.value, "catalogPath") and hasattr(parameter.value, "save"):
+                if getattr(parameter.value, "isTemporary", False):
+                    parameter.value.save(os.path.join(directory, f"{parameter.name}_saved.tif"))
+                parameter.value = parameter.value.catalogPath
         outputs = {p.name: p.valueAsText for p in parameters if p.direction == "Output"}
 
-        # A feature class output goes back as GeoJSON in WGS 84, which the server imports as a hosted layer.
-        layers = {}
+        # A feature class output goes back as GeoJSON in WGS 84, which the server imports as a hosted layer; a raster as
+        # a GeoTIFF, which it publishes as an image service (D-324). The server finds each at outputs/<parameter>, by
+        # its own name for it, and reads no path from here.
+        layers, rasters = {}, {}
+        datatypes = {p.name: p.describe()["datatype"] for p in parameters if p.direction == "Output"}
         os.makedirs(os.path.join(directory, "outputs"), exist_ok=True)
         for name, value in outputs.items():
             if value and ".gpkg" in value.lower():
                 written = os.path.join("outputs", f"{name}.geojson")
                 layers[name] = {"geojson": written, "count": _io.gpkg_to_geojson(os.path.join(directory, value),
                                                                                  os.path.join(directory, written))}
+            elif value and datatypes.get(name) in _RASTER_TYPES:
+                written = os.path.join("outputs", f"{name}.tif")
+                _io.raster_to_geotiff(os.path.join(directory, value), os.path.join(directory, written))
+                rasters[name] = {"tiff": written}
         failed = any(m["type"] == "esriJobMessageTypeError" for m in _runtime.MESSAGES)
         _write(directory, {"ok": not failed, "fence": fenced, "messages": _runtime.MESSAGES, "outputs": outputs, "layers": layers,
-                           "datatypes": {p.name: p.describe()["datatype"] for p in parameters if p.direction == "Output"}})
+                           "rasters": rasters, "datatypes": datatypes})
         return 0 if not failed else 1
     except BaseException as failure:  # The tool's own failure, said whole — the process ends here anyway.
         _runtime.MESSAGES.append({"type": "esriJobMessageTypeError", "description": f"{type(failure).__name__}: {failure}"})

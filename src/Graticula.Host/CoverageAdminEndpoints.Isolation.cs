@@ -2,7 +2,6 @@ using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
@@ -12,8 +11,8 @@ namespace Graticula.Host;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Before this server opens it, at each of the three doors a file comes in by</b>: registration in place, an upload
-/// published as an image service, and an image added to one later. The import reader opens the file with the same
+/// <b>Before this server opens it, at each of the four doors a file comes in by</b>: registration in place, an upload
+/// published as an image service, an image added to one later, and a raster a user's tool wrote (D-324). The import reader opens the file with the same
 /// parser this server reads it with, applies the bound on its dimensions (<see cref="CoverageBounds"/>), and decodes a
 /// block at each end; only a file that survives all of that is opened here. A parser defect a file triggers is then a
 /// child process dying, refused <c>400</c>, rather than a fault in the process serving every other layer.
@@ -42,7 +41,7 @@ internal static partial class CoverageAdminEndpoints
     /// <summary>
     /// Opens <paramref name="path"/> in the import reader's process first, and says why it is refused, or null.
     /// </summary>
-    /// <param name="context">The request, for the reader and the settings.</param>
+    /// <param name="services">The server's services, for the reader and the settings — a request's, or a tool run's.</param>
     /// <param name="path">The file, where this server keeps it.</param>
     /// <param name="named">The file as its sender named it — never the path, which is not theirs to read.</param>
     /// <param name="cancellation">Cancellation.</param>
@@ -52,10 +51,10 @@ internal static partial class CoverageAdminEndpoints
     /// its own sender.
     /// </returns>
     private static async Task<string?> OpenedApartAsync(
-        HttpContext context, string path, string named, CancellationToken cancellation)
+        IServiceProvider services, string path, string named, CancellationToken cancellation)
     {
-        GeodatabaseReader reader = context.RequestServices.GetRequiredService<GeodatabaseReader>();
-        HostSettings settings = context.RequestServices.GetRequiredService<HostSettings>();
+        GeodatabaseReader reader = services.GetRequiredService<GeodatabaseReader>();
+        HostSettings settings = services.GetRequiredService<HostSettings>();
 
         if (!reader.Available)
         {

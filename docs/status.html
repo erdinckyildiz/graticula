@@ -110,16 +110,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>43303438</code> · 2026-10-30 04:57</p>
+<p class="stamp">Generated from commit <code>05cb2675</code> · 2026-10-30 04:59</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">225</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">488/567</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">69 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">489/568</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">69 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">open questions</div><div class="kpi-n">202 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">303 repaid · 5 waiting on a trigger · 5 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">open debts</div><div class="kpi-n">304 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5566</div><div class="kpi-l">tests</div><div class="kpi-n">604 source files, 269,207 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5580</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,658 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
@@ -416,7 +416,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">220</td><td>An item may be shared with every organisation on the server</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the reading rule, which is one line in the one place reading is decided · MEDIUM…</td><td class="num">5/5</td></tr>
 <tr><td class="id">221</td><td>The system administrator has a surface of their own</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the split, which follows the API&#x27;s own (TenantRouting.SystemOnly) · MEDIUM for…</td><td class="num">3/3</td></tr>
 <tr><td class="id">222</td><td>Geoprocessing is built-in analysis tools, served as ArcGIS&#x27;s Spatial Analysis Service</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — the protocol is publicly documented and copied as documented; which clients find…</td><td class="num">5/7</td></tr>
-<tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">6/6</td></tr>
+<tr><td class="id">223</td><td>User tools are Python toolboxes written against grapy, run in a sandboxed process with no network</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM — every mechanism named is a documented, unprivileged Linux facility, and none is…</td><td class="num">7/7</td></tr>
 <tr><td class="id">224</td><td>grapy aims at arcpy&#x27;s whole buildable surface</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/6</td></tr>
 <tr><td class="id">225</td><td>grapy holds topology rules and relationship classes in the GeoPackage</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">3/3</td></tr>
 <tr><td class="id">226</td><td>grapy holds network datasets and solves routes on them</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model · LOW for agreement with Pro&#x27;s numbers, which this cannot reproduce…</td><td class="num">3/3</td></tr>
@@ -444,9 +444,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-322</td><td>The Analyze dialog reads up to a hundred layer documents to open, and offers nothing past them.</td><td class="muted-t">A reader with more than a hundred services, or an open slower than a second.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-323</td><td>grapy reads &quot;Feet&quot; two ways.</td><td class="muted-t">The Linear Unit keywords&#x27; page is found, or a run of Pro against a known distance is measured</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-324</td><td>A user tool&#x27;s raster output is not published.</td><td class="muted-t">A toolbox that needs a raster result, or the next review of the coverage upload path</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-325</td><td>What a tool publishes is bounded per run, not per person or per organisation.</td><td class="muted-t">The first multi-organisation deployment that runs tools, or a disk filled by tool outputs</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">303 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">304 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -546,16 +546,16 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1524</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.8%"></div></div><div class="bar-n">942</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.9%"></div></div><div class="bar-n">883</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.7%"></div></div><div class="bar-n">560</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.8%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.3%"></div></div><div class="bar-n">370</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.6%"></div></div><div class="bar-n">238</div></div>
-<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.6%"></div></div><div class="bar-n">131</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1537</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:61.3%"></div></div><div class="bar-n">942</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.5%"></div></div><div class="bar-n">884</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.4%"></div></div><div class="bar-n">560</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.5%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.1%"></div></div><div class="bar-n">370</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">238</div></div>
+<div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.5%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:8.1%"></div></div><div class="bar-n">124</div></div>
-<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:7.0%"></div></div><div class="bar-n">106</div></div>
+<div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.9%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.6%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">50</div></div>
@@ -600,6 +600,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>05cb2675</code><time>2026-10-30</time><span>README: what grapy covers now, without a count that would go stale</span></li>
+<li><code>562a1b78</code><time>2026-10-30</time><span>SummarizeWithin in grapy with the server&#x27;s names, and the final sweep of management, conversion and the network modules (merging grapy-b and grapy-c)</span></li>
 <li><code>43303438</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>52c89651</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>be939f38</code><time>2026-10-30</time><span>A null value is left out of a weighted summary statistic with its weight</span></li>
@@ -612,8 +614,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>8ee4607c</code><time>2026-10-30</time><span>grapy: final sweep — Dimension Reduction, Decompose Spatial Structure, Calculate Color Theorem Field as equivalents (ADR-224 §5.6)</span></li>
 <li><code>81fe9483</code><time>2026-10-30</time><span>status-page.py: a docstring holding \| is a raw string, so Python 3.12 does not warn</span></li>
 <li><code>d4ccf6d2</code><time>2026-10-30</time><span>A raster&#x27;s attribute table in ListFields, Describe, field tools and the conversions (merging grapy-c)</span></li>
-<li><code>d3167359</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>e4a2eebf</code><time>2026-10-30</time><span>Dates are written by an explicitly registered adapter, not Python 3.12&#x27;s deprecated default</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

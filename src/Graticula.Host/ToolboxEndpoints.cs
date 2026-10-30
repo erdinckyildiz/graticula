@@ -365,9 +365,20 @@ internal static partial class ToolboxEndpoints
 
             if (IsOutput(parameter))
             {
+                // A raster output becomes an image service, which the upload door asks this privilege for; the tool's door
+                // asks the same, before the run (security review, 2026-10-30).
+                if (dataType == "GPRasterDataLayer" && !current.Authorization.Allows(Privilege.ContentPublishFeatures))
+                {
+                    await AnalysisEndpoints.RefuseAsync(context, 403,
+                        $"{parameterName} is published as an image service, which takes the privilege content:publishFeatures; ask an administrator for it.")
+                        .ConfigureAwait(false);
+                    return;
+                }
+
                 // A feature output's value, when sent, is the name its layer is published under — what a web tool's
-                // output name is in ArcGIS (design review); checked now so a run does not fail at its end on it.
-                string? layerName = dataType == "GPFeatureRecordSetLayer" ? asked(parameterName)?.Trim() : null;
+                // output name is in ArcGIS (design review); checked now so a run does not fail at its end on it. A raster
+                // output's names its image service the same way (D-324).
+                string? layerName = dataType is "GPFeatureRecordSetLayer" or "GPRasterDataLayer" ? asked(parameterName)?.Trim() : null;
 
                 if (!string.IsNullOrEmpty(layerName))
                 {
@@ -379,7 +390,10 @@ internal static partial class ToolboxEndpoints
                         return;
                     }
 
-                    if (await layers.FindServiceAsync("hosted", layerName, cancellation).ConfigureAwait(false) is not null)
+                    if (await layers.FindServiceAsync("hosted", layerName, cancellation).ConfigureAwait(false) is not null
+                        || (dataType == "GPRasterDataLayer"
+                            && context.RequestServices.GetService(typeof(ICoverageCatalog)) is ICoverageCatalog coverages
+                            && await coverages.FindAsync("hosted", layerName, cancellation).ConfigureAwait(false) is not null))
                     {
                         await AnalysisEndpoints.RefuseAsync(context, 400,
                             $"A layer named '{layerName}' already exists. Choose another name for {parameterName}.").ConfigureAwait(false);

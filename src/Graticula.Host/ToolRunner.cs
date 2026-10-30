@@ -23,8 +23,8 @@ namespace Graticula.Host;
 
 /// <summary>
 /// Runs a user tool's jobs — ADR-223 §5.3, §5.5 and §5.8: the toolbox's source and each layer input written to the run's
-/// directory, grapy's runner started fenced over it, and each feature class it answers published as a hosted layer of the
-/// caller's.
+/// directory, grapy's runner started fenced over it, each feature class it answers published as a hosted layer of the
+/// caller's, and each raster as an image service of theirs (D-324).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -61,6 +61,7 @@ internal sealed partial class ToolRunner : BackgroundService
     private readonly HostSettings _host;
     private readonly TimeProvider _clock;
     private readonly ILogger<ToolRunner> _log;
+    private readonly IServiceProvider _services;
     private readonly LeaseSweep _leases = new();
 
     public ToolRunner(
@@ -76,6 +77,7 @@ internal sealed partial class ToolRunner : BackgroundService
         HostSettings host,
         TimeProvider clock,
         ILogger<ToolRunner> log,
+        IServiceProvider services,
         ICoverageCatalog? coverages = null,
         Graticula.Coverages.ICoverageReaderFactory? readers = null)
     {
@@ -93,6 +95,7 @@ internal sealed partial class ToolRunner : BackgroundService
         _host = host;
         _clock = clock;
         _log = log;
+        _services = services;
     }
 
     [LoggerMessage(EventId = 2368, Level = LogLevel.Warning, Message = "A tool job could not be claimed: {Reason}")]
@@ -240,30 +243,48 @@ internal sealed partial class ToolRunner : BackgroundService
                 throw new InvalidOperationException(why);
             }
 
-            // Each output: a layer published as the caller's, or the value the tool set.
+            // Each output: a layer published as the caller's, or the value the tool set. Publishing has its own deadline,
+            // the tool's wall clock again: what it reads was written by the tool (security review, 2026-10-30).
+            using CancellationTokenSource publishing = CancellationTokenSource.CreateLinkedTokenSource(stop.Token);
+            publishing.CancelAfter(_settings.WallClock);
             JsonObject results = [];
             JsonObject layers = result["layers"] as JsonObject ?? [];
+            JsonObject rasters = result["rasters"] as JsonObject ?? [];
 
-            foreach (JsonObject output in plan["outputs"]!.AsArray().OfType<JsonObject>())
+            try
             {
-                string name = output["name"]!.GetValue<string>();
-                string dataType = output["dataType"]!.GetValue<string>();
+                foreach (JsonObject output in plan["outputs"]!.AsArray().OfType<JsonObject>())
+                {
+                    string name = output["name"]!.GetValue<string>();
+                    string dataType = output["dataType"]!.GetValue<string>();
 
-                if (layers[name] is JsonObject layer)
-                {
-                    results[name] = await PublishAsync(
-                            job, name, output["layerName"]?.GetValue<string>(), Path.Combine(directory, layer["geojson"]!.GetValue<string>()), stop.Token)
-                        .ConfigureAwait(false);
-                }
-                else
-                {
-                    results[name] = new JsonObject
+                    if (layers[name] is JsonObject)
                     {
-                        ["paramName"] = name,
-                        ["dataType"] = dataType,
-                        ["value"] = ToolboxEndpoints.ValueOf(result["outputs"]?[name]?.GetValue<string>(), dataType),
-                    };
+                        // The runner's own name for the file is not read: the result is written in the tool's process, so
+                        // a path in it is the tool's to choose (D-324).
+                        results[name] = await PublishAsync(job, name, output["layerName"]?.GetValue<string>(), directory, publishing.Token)
+                            .ConfigureAwait(false);
+                    }
+                    else if (dataType == "GPRasterDataLayer" && rasters[name] is JsonObject)
+                    {
+                        results[name] = await PublishRasterAsync(job, name, output["layerName"]?.GetValue<string>(), directory, publishing.Token)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        results[name] = new JsonObject
+                        {
+                            ["paramName"] = name,
+                            ["dataType"] = dataType,
+                            ["value"] = ToolboxEndpoints.ValueOf(result["outputs"]?[name]?.GetValue<string>(), dataType),
+                        };
+                    }
                 }
+            }
+            catch (OperationCanceledException) when (publishing.IsCancellationRequested && !stop.IsCancellationRequested)
+            {
+                throw new InvalidOperationException(
+                    $"Publishing the tool's outputs ran past {_settings.WallClock.TotalMinutes:0} minutes and was stopped.");
             }
 
             double seconds = (_clock.GetUtcNow() - started).TotalSeconds;
@@ -310,7 +331,6 @@ internal sealed partial class ToolRunner : BackgroundService
         }
     }
 
-    /// <summary>A feature class the tool answered, as a hosted layer of the caller's, and its result parameter.</summary>
     /// <summary>The most cells a raster input may have — 25 million, 200 MB as doubles (ADR-224 condition 2).</summary>
     internal const long RasterCellLimit = 25_000_000;
 
@@ -377,9 +397,48 @@ internal sealed partial class ToolRunner : BackgroundService
         return header.Replace('\\', '/');
     }
 
-    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, string geojson, CancellationToken cancellation)
+    /// <summary>
+    /// The largest GeoJSON a feature output is read from: it is parsed whole in this process, before the import's own
+    /// limits apply (security review, 2026-10-30).
+    /// </summary>
+    internal const long LayerBytesLimit = 256L * 1024 * 1024;
+
+    /// <summary>
+    /// The name an output is published under when the caller gave none: the parameter's, shortened so the run's first
+    /// digits always survive the 40-character limit — a long parameter name otherwise lost them, and every run after the
+    /// first collided with it (security review, 2026-10-30).
+    /// </summary>
+    internal static string OutputName(string parameter, JobRecord job)
     {
-        using JsonDocument document = JsonDocument.Parse(await File.ReadAllTextAsync(geojson, cancellation).ConfigureAwait(false));
+        string named = ToolboxEndpoints.NameFor(parameter);
+        return $"{(named.Length > 31 ? named[..31] : named)}_{job.Id.ToString("N")[..8]}".ToLowerInvariant();
+    }
+
+    /// <summary>A feature class the tool answered, as a hosted layer of the caller's, and its result parameter.</summary>
+    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, string directory, CancellationToken cancellation)
+    {
+        JsonDocument document;
+
+        await using (FileStream geojson = RunOutputs.Open(directory, parameter, ".geojson")
+            ?? throw new InvalidOperationException($"The tool's {parameter} is not a plain file in its outputs, so it was not published."))
+        {
+            if (geojson.Length > LayerBytesLimit)
+            {
+                throw new InvalidOperationException(
+                    $"The tool's {parameter} is {geojson.Length / (1024 * 1024)} MB of GeoJSON; a layer a tool answers is at most {LayerBytesLimit / (1024 * 1024)} MB.");
+            }
+
+            document = await JsonDocument.ParseAsync(geojson, cancellationToken: cancellation).ConfigureAwait(false);
+        }
+
+        using (document)
+        {
+            return await PublishAsync(job, parameter, named, document, cancellation).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, JsonDocument document, CancellationToken cancellation)
+    {
 
         if (!GeoJsonFeatures.TryRead(document.RootElement, ImportLimits.Default, out ImportedDataset? dataset, out string? bad))
         {
@@ -387,7 +446,7 @@ internal sealed partial class ToolRunner : BackgroundService
         }
 
         // The name the caller gave the output, or the parameter's with the job's first digits.
-        string name = named ?? ToolboxEndpoints.NameFor($"{parameter}_{job.Id.ToString("N")[..8]}").ToLowerInvariant();
+        string name = named ?? OutputName(parameter, job);
         ImportResult imported = await _importer.ImportAsync(dataset!, name, cancellation).ConfigureAwait(false);
         Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(_catalog, cancellation).ConfigureAwait(false);
 
@@ -420,6 +479,42 @@ internal sealed partial class ToolRunner : BackgroundService
                 ["url"] = $"/rest/services/{service.QualifiedName}/FeatureServer/0",
                 ["itemId"] = PortalEndpoints.ItemIdOf(service, "FeatureServer"),
                 ["name"] = name,
+            },
+        };
+    }
+
+    /// <summary>
+    /// A raster the tool answered, as an image service of the caller's, and its result parameter — D-324.
+    /// </summary>
+    /// <remarks>
+    /// <b>The file is where the server says, not where the tool does</b>: <c>outputs/&lt;parameter&gt;.tif</c> in the
+    /// run's directory, which the tool could write to and so could have made anything; it is opened through no link
+    /// (<see cref="RunOutputs"/>). What follows is the upload door's: <see cref="CoverageAdminEndpoints.PublishProducedAsync"/>.
+    /// </remarks>
+    private async Task<JsonObject> PublishRasterAsync(JobRecord job, string parameter, string? named, string directory, CancellationToken cancellation)
+    {
+        await using FileStream file = RunOutputs.Open(directory, parameter, ".tif")
+            ?? throw new InvalidOperationException($"The tool's {parameter} is not a plain file in its outputs, so it was not published.");
+
+        string name = named ?? OutputName(parameter, job);
+        (PublishedCoverage? published, string? refusal) = await CoverageAdminEndpoints.PublishProducedAsync(
+            _services, file, parameter, name, job.Owner, job.Id, cancellation).ConfigureAwait(false);
+
+        if (published is null)
+        {
+            throw new InvalidOperationException($"The tool's {parameter} was not published: {refusal}");
+        }
+
+        return new JsonObject
+        {
+            ["paramName"] = parameter,
+            ["dataType"] = "GPRasterDataLayer",
+            ["value"] = new JsonObject
+            {
+                ["url"] = $"/rest/services/{published.QualifiedName}/ImageServer",
+                ["itemId"] = PortalEndpoints.CoverageItemId(published),
+                ["name"] = name,
+                ["format"] = "tif",
             },
         };
     }
