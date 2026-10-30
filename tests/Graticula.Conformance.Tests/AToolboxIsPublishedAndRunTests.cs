@@ -401,6 +401,176 @@ public sealed class AToolboxIsPublishedAndRunTests : ArcGisClient
         }
     }
 
+    private const string PairToolbox = """
+        import grapy as arcpy
+
+        class Toolbox:
+            def __init__(self):
+                self.label = "Pair probe"
+                self.tools = [Pair]
+
+        class Pair:
+            def __init__(self):
+                self.label = "Pair"
+
+            def getParameterInfo(self):
+                return [arcpy.Parameter(name="in_features", datatype="GPFeatureLayer"),
+                        arcpy.Parameter(name="halo", datatype="GPFeatureRecordSetLayer", direction="Output", parameterType="Derived"),
+                        arcpy.Parameter(name="out_raster", datatype="DERasterDataset", direction="Output")]
+
+            def execute(self, parameters, messages):
+                projected = arcpy.management.Project(parameters[0].valueAsText, "p.gpkg", 3857).getOutput(0)
+                parameters[1].value = arcpy.analysis.Buffer(projected, "halo.gpkg", 10.0).getOutput(0)
+                arcpy.env.outputCoordinateSystem = arcpy.SpatialReference(3857)
+                parameters[2].value = arcpy.NumPyArrayToRaster(__import__("numpy").ones((4, 4)))
+        """;
+
+    /// <summary>
+    /// D-325 (d), owner decision 2026-10-31: a run whose second output cannot be published leaves its first withdrawn
+    /// rather than published and named nowhere. The two outputs are given one name, so the image service cannot take
+    /// the name the hosted layer took a moment before.
+    /// </summary>
+    [Fact]
+    public async Task A_run_whose_second_output_fails_leaves_its_first_withdrawn()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        string points = $"{root}/rest/services/{(Environment.GetEnvironmentVariable("GRATICULA_TEST_TEMPORAL") ?? "hosted/ci_observations").Trim('/')}/FeatureServer/0";
+        string toolbox = "zz_pair_" + Guid.NewGuid().ToString("N")[..8];
+        string both = $"zz_pairout_{Guid.NewGuid():N}"[..20];
+        using HttpClient http = Unverified();
+
+        using MultipartFormDataContent publishForm = new()
+        {
+            { new StringContent(toolbox), "name" },
+            { new ByteArrayContent(Encoding.UTF8.GetBytes(PairToolbox)), "file", "pair.pyt" },
+        };
+        using HttpRequestMessage publish = new(HttpMethod.Post, new Uri($"{root}/content/toolboxes")) { Content = publishForm };
+        publish.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage published = await http.SendAsync(publish);
+        Assert.True((int)published.StatusCode == 201, $"Publishing answered {(int)published.StatusCode}: {await published.Content.ReadAsStringAsync()}");
+
+        try
+        {
+            string gp = $"{root}/rest/services/Tools/{toolbox}/GPServer";
+            JsonElement status = await FinishedAsync(http, token, gp, "Pair", new()
+            {
+                ["in_features"] = Json(new { url = points }),
+                ["halo"] = both,
+                ["out_raster"] = both,
+            });
+
+            Assert.True(status.GetProperty("jobStatus").GetString() == "esriJobFailed", $"Pair should have failed: {status}");
+
+            using HttpRequestMessage look = new(HttpMethod.Get, new Uri($"{root}/rest/services/hosted/{both}/FeatureServer?f=json"));
+            look.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage gone = await http.SendAsync(look);
+            string said = await gone.Content.ReadAsStringAsync();
+            Assert.True((int)gone.StatusCode == 404 || said.Contains("\"error\"", StringComparison.Ordinal), $"The first output is still published: {said}");
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            await AdminAsync(HttpMethod.Delete, $"/admin/featureservices/{both}?folder=hosted&drop=true");
+            await AdminAsync(HttpMethod.Delete, $"/admin/coverages/{both}?folder=hosted");
+        }
+    }
+
+    /// <summary>
+    /// D-325 (b), owner decision 2026-10-31: a feature output is a hosted layer, and a run that would publish one asks
+    /// <c>content:publishFeatures</c> as the upload door does — so a member of the user role is refused the tool that
+    /// answers a layer, and not the one that answers a number.
+    /// </summary>
+    [Fact]
+    public async Task A_member_without_the_publish_privilege_is_refused_a_tool_that_answers_a_layer()
+    {
+        string root = await RequireServerAsync();
+        string admin = (await TokenAsync(root))!;
+        string points = $"{root}/rest/services/{(Environment.GetEnvironmentVariable("GRATICULA_TEST_TEMPORAL") ?? "hosted/ci_observations").Trim('/')}/FeatureServer/0";
+        string toolbox = "zz_tools_" + Guid.NewGuid().ToString("N")[..8];
+        const string member = "zz_tools_user";
+        const string password = "a-long-enough-test-password-325";
+        using HttpClient http = Unverified();
+
+        using MultipartFormDataContent publishForm = new()
+        {
+            { new StringContent(toolbox), "name" },
+            { new ByteArrayContent(Encoding.UTF8.GetBytes(Toolbox)), "file", "probe.pyt" },
+        };
+        using HttpRequestMessage publish = new(HttpMethod.Post, new Uri($"{root}/content/toolboxes")) { Content = publishForm };
+        publish.Headers.Authorization = new AuthenticationHeaderValue("Bearer", admin);
+        using HttpResponseMessage published = await http.SendAsync(publish);
+        Assert.True((int)published.StatusCode == 201, $"Publishing answered {(int)published.StatusCode}: {await published.Content.ReadAsStringAsync()}");
+
+        await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
+
+        try
+        {
+            (HttpStatusCode shared, string sharedSaid) = await RequestAsync(
+                HttpMethod.Put, $"{root}/content/toolboxes/{toolbox}/sharing", admin, Json(new { sharing = "organization" }));
+            Assert.True(shared is HttpStatusCode.OK or HttpStatusCode.NoContent, $"sharing: {shared} {sharedSaid}");
+
+            (int made, string madeBody) = await AdminAsync(HttpMethod.Post, "/admin/members",
+                JsonSerializer.Serialize(new { name = member, role = "user", userType = "creator" }));
+            Assert.True(made is 200 or 201, $"making '{member}': {made} {madeBody}");
+            string issued = JsonDocument.Parse(madeBody).RootElement.GetProperty("password").GetString()!;
+            string once = await SignInAsync(root, member, issued);
+            (HttpStatusCode changed, string why) = await RequestAsync(HttpMethod.Post, $"{root}/rest/auth/password", once,
+                JsonSerializer.Serialize(new { currentPassword = issued, newPassword = password }));
+            Assert.True(changed is HttpStatusCode.OK or HttpStatusCode.NoContent, $"changing the password: {changed} {why}");
+            string token = await SignInAsync(root, member, password);
+
+            string gp = $"{root}/rest/services/Tools/{toolbox}/GPServer";
+            using HttpRequestMessage halo = new(HttpMethod.Post, new Uri($"{gp}/Halo/submitJob"))
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["f"] = "json", ["in_features"] = Json(new { url = points }), ["metres"] = "5",
+                }),
+            };
+            halo.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage refused = await http.SendAsync(halo);
+            string said = await refused.Content.ReadAsStringAsync();
+            Assert.True((int)refused.StatusCode == 403, $"Halo as a user answered {(int)refused.StatusCode}: {said}");
+            Assert.Contains("a hosted layer", said, StringComparison.Ordinal);
+            Assert.Contains("content:publishFeatures", said, StringComparison.Ordinal);
+
+            JsonElement counted = await FinishedAsync(http, token, gp, "Count", new() { ["in_features"] = Json(new { url = points }) });
+            Assert.Equal("esriJobSucceeded", counted.GetProperty("jobStatus").GetString());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/content/toolboxes/{toolbox}");
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{member}?deleteOwned=true");
+        }
+    }
+
+    private static async Task<JsonElement> FinishedAsync(HttpClient http, string token, string gp, string tool, Dictionary<string, string> form)
+    {
+        form["f"] = "json";
+        using HttpRequestMessage submit = new(HttpMethod.Post, new Uri($"{gp}/{tool}/submitJob")) { Content = new FormUrlEncodedContent(form) };
+        submit.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage submitted = await http.SendAsync(submit);
+        JsonElement job = JsonDocument.Parse(await submitted.Content.ReadAsStringAsync()).RootElement.Clone();
+        Assert.True(job.TryGetProperty("jobId", out JsonElement id), $"{tool} was not submitted: {job}");
+
+        JsonElement status = default;
+
+        for (int i = 0; i < 240; i++)
+        {
+            status = await GetAsync(http, token, $"{gp}/{tool}/jobs/{id.GetString()}?f=json");
+
+            if (status.GetProperty("jobStatus").GetString() is "esriJobSucceeded" or "esriJobFailed" or "esriJobCancelled")
+            {
+                break;
+            }
+
+            await Task.Delay(500);
+        }
+
+        return status;
+    }
+
     private static string RepositoryRoot()
     {
         System.IO.DirectoryInfo? at = new(AppContext.BaseDirectory);

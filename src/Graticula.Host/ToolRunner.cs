@@ -62,6 +62,7 @@ internal sealed partial class ToolRunner : BackgroundService
     private readonly TimeProvider _clock;
     private readonly ILogger<ToolRunner> _log;
     private readonly IServiceProvider _services;
+    private readonly IAuditLog _audit;
     private readonly LeaseSweep _leases = new();
 
     public ToolRunner(
@@ -78,6 +79,7 @@ internal sealed partial class ToolRunner : BackgroundService
         TimeProvider clock,
         ILogger<ToolRunner> log,
         IServiceProvider services,
+        IAuditLog audit,
         ICoverageCatalog? coverages = null,
         Graticula.Coverages.ICoverageReaderFactory? readers = null)
     {
@@ -96,6 +98,7 @@ internal sealed partial class ToolRunner : BackgroundService
         _clock = clock;
         _log = log;
         _services = services;
+        _audit = audit;
     }
 
     [LoggerMessage(EventId = 2368, Level = LogLevel.Warning, Message = "A tool job could not be claimed: {Reason}")]
@@ -250,6 +253,11 @@ internal sealed partial class ToolRunner : BackgroundService
             JsonObject results = [];
             JsonObject layers = result["layers"] as JsonObject ?? [];
             JsonObject rasters = result["rasters"] as JsonObject ?? [];
+            Caller caller = new(plan["by"]?.GetValue<string>(), plan["from"]?.GetValue<string>());
+
+            // What this run has published so far, withdrawn if a later output fails: a run answers every output or
+            // leaves none of them behind (D-325 (d)).
+            List<Func<Task>> withdraw = [];
 
             try
             {
@@ -262,12 +270,12 @@ internal sealed partial class ToolRunner : BackgroundService
                     {
                         // The runner's own name for the file is not read: the result is written in the tool's process, so
                         // a path in it is the tool's to choose (D-324).
-                        results[name] = await PublishAsync(job, name, output["layerName"]?.GetValue<string>(), directory, publishing.Token)
+                        results[name] = await PublishAsync(job, name, output["layerName"]?.GetValue<string>(), directory, caller, withdraw, publishing.Token)
                             .ConfigureAwait(false);
                     }
                     else if (dataType == "GPRasterDataLayer" && rasters[name] is JsonObject)
                     {
-                        results[name] = await PublishRasterAsync(job, name, output["layerName"]?.GetValue<string>(), directory, publishing.Token)
+                        results[name] = await PublishRasterAsync(job, name, output["layerName"]?.GetValue<string>(), directory, caller, withdraw, publishing.Token)
                             .ConfigureAwait(false);
                     }
                     else
@@ -281,10 +289,27 @@ internal sealed partial class ToolRunner : BackgroundService
                     }
                 }
             }
-            catch (OperationCanceledException) when (publishing.IsCancellationRequested && !stop.IsCancellationRequested)
+            catch (Exception failed)
             {
-                throw new InvalidOperationException(
-                    $"Publishing the tool's outputs ran past {_settings.WallClock.TotalMinutes:0} minutes and was stopped.");
+                foreach (Func<Task> undo in Enumerable.Reverse(withdraw))
+                {
+                    try
+                    {
+                        await undo().ConfigureAwait(false);
+                    }
+                    catch (Exception left) when (left is not OutOfMemoryException)
+                    {
+                        RunFailed(task, $"an output published before the failure could not be withdrawn: {left.Message}");
+                    }
+                }
+
+                if (failed is OperationCanceledException && publishing.IsCancellationRequested && !stop.IsCancellationRequested)
+                {
+                    throw new InvalidOperationException(
+                        $"Publishing the tool's outputs ran past {_settings.WallClock.TotalMinutes:0} minutes and was stopped.");
+                }
+
+                throw;
             }
 
             double seconds = (_clock.GetUtcNow() - started).TotalSeconds;
@@ -415,7 +440,11 @@ internal sealed partial class ToolRunner : BackgroundService
     }
 
     /// <summary>A feature class the tool answered, as a hosted layer of the caller's, and its result parameter.</summary>
-    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, string directory, CancellationToken cancellation)
+    /// <summary>Who submitted the run and from where, as the audit log names them (D-325 (c)); null for a run queued before.</summary>
+    private readonly record struct Caller(string? Name, string? Address);
+
+    private async Task<JsonObject> PublishAsync(
+        JobRecord job, string parameter, string? named, string directory, Caller caller, List<Func<Task>> withdraw, CancellationToken cancellation)
     {
         JsonDocument document;
 
@@ -433,13 +462,13 @@ internal sealed partial class ToolRunner : BackgroundService
 
         using (document)
         {
-            return await PublishAsync(job, parameter, named, document, cancellation).ConfigureAwait(false);
+            return await PublishAsync(job, parameter, named, document, caller, withdraw, cancellation).ConfigureAwait(false);
         }
     }
 
-    private async Task<JsonObject> PublishAsync(JobRecord job, string parameter, string? named, JsonDocument document, CancellationToken cancellation)
+    private async Task<JsonObject> PublishAsync(
+        JobRecord job, string parameter, string? named, JsonDocument document, Caller caller, List<Func<Task>> withdraw, CancellationToken cancellation)
     {
-
         if (!GeoJsonFeatures.TryRead(document.RootElement, ImportLimits.Default, out ImportedDataset? dataset, out string? bad))
         {
             throw new InvalidOperationException($"The tool's {parameter} could not be read back: {bad}");
@@ -448,9 +477,29 @@ internal sealed partial class ToolRunner : BackgroundService
         // The name the caller gave the output, or the parameter's with the job's first digits.
         string name = named ?? OutputName(parameter, job);
         ImportResult imported = await _importer.ImportAsync(dataset!, name, cancellation).ConfigureAwait(false);
+        PublishedLayerAddress? address = null;
+
+        // Imported, then published: whatever of the two happened is undone if this output or a later one fails.
+        withdraw.Add(async () =>
+        {
+            if (address is { } made)
+            {
+                await _catalog.UnpublishLayerAsync(made.Id, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            await _importer.DropAsync(imported.SchemaName, imported.TableName, CancellationToken.None).ConfigureAwait(false);
+
+            if (address is not null)
+            {
+                await _catalog.DeleteServiceAsync(name, "hosted", CancellationToken.None).ConfigureAwait(false);
+                await AuditAsync(job, caller, "layer.tool-output-withdrawn", $"hosted/{name}", new { job = job.Id }, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+        });
+
         Guid datastore = await HostedDataEndpoints.DatastoreIdAsync(_catalog, cancellation).ConfigureAwait(false);
 
-        await _catalog.PublishLayerAsync(
+        address = await _catalog.PublishLayerAsync(
             new LayerPublication(
                 name,
                 datastore,
@@ -469,6 +518,12 @@ internal sealed partial class ToolRunner : BackgroundService
 
         PublishedService service = await _layers.FindServiceAsync("hosted", name, cancellation).ConfigureAwait(false)
             ?? throw new InvalidOperationException($"'{name}' was published and could not be found again.");
+
+        // A feature output is audited as the import door's layer is, under the person's name (D-325 (c)).
+        await AuditAsync(
+            job, caller, "layer.tool-output", service.QualifiedName,
+            new { job = job.Id, parameter, srid = imported.StoredSrid },
+            cancellation).ConfigureAwait(false);
 
         return new JsonObject
         {
@@ -491,19 +546,27 @@ internal sealed partial class ToolRunner : BackgroundService
     /// run's directory, which the tool could write to and so could have made anything; it is opened through no link
     /// (<see cref="RunOutputs"/>). What follows is the upload door's: <see cref="CoverageAdminEndpoints.PublishProducedAsync"/>.
     /// </remarks>
-    private async Task<JsonObject> PublishRasterAsync(JobRecord job, string parameter, string? named, string directory, CancellationToken cancellation)
+    private async Task<JsonObject> PublishRasterAsync(
+        JobRecord job, string parameter, string? named, string directory, Caller caller, List<Func<Task>> withdraw, CancellationToken cancellation)
     {
         await using FileStream file = RunOutputs.Open(directory, parameter, ".tif")
             ?? throw new InvalidOperationException($"The tool's {parameter} is not a plain file in its outputs, so it was not published.");
 
         string name = named ?? OutputName(parameter, job);
         (PublishedCoverage? published, string? refusal) = await CoverageAdminEndpoints.PublishProducedAsync(
-            _services, file, parameter, name, job.Owner, job.Id, cancellation).ConfigureAwait(false);
+            _services, file, parameter, name, job.Owner, job.Id, cancellation, caller.Name, caller.Address).ConfigureAwait(false);
 
         if (published is null)
         {
             throw new InvalidOperationException($"The tool's {parameter} was not published: {refusal}");
         }
+
+        withdraw.Add(async () =>
+        {
+            await CoverageAdminEndpoints.WithdrawProducedAsync(_services, published).ConfigureAwait(false);
+            await AuditAsync(job, caller, "coverage.tool-output-withdrawn", published.QualifiedName, new { job = job.Id }, CancellationToken.None)
+                .ConfigureAwait(false);
+        });
 
         return new JsonObject
         {
@@ -518,6 +581,11 @@ internal sealed partial class ToolRunner : BackgroundService
             },
         };
     }
+
+    private Task AuditAsync(JobRecord job, Caller caller, string action, string resource, object detail, CancellationToken cancellation) =>
+        _audit.RecordAsync(
+            new AuditEvent(job.Owner, caller.Name ?? $"tool job {job.Id:N}", caller.Address, action, resource, JsonSerializer.Serialize(detail), true),
+            cancellation);
 
     private async Task WatchForCancelAsync(Guid job, CancellationTokenSource stop, CancellationToken watching)
     {
