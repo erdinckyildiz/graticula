@@ -2135,8 +2135,23 @@ def _points(in_point_features, z_field, tool):
     columns, kind, _, _ = _schema(in_point_features)
     if kind not in ("Point", "Multipoint"):
         raise ValueError(f"{tool} takes points.")
-    if str(z_field).upper() in ("SHAPE", "SHAPE@Z"):
-        _refuse(tool, "z_field", z_field, "grapy's feature classes hold no z values yet; name a numeric field")
+    if str(z_field).upper() in ("SHAPE", "SHAPE@Z", "SHAPE.Z"):
+        # The points' own z, as documented ("the Shape field if the points contain z-values").
+        import shapely
+        xs, ys, zs = [], [], []
+        with da.SearchCursor(in_point_features, ["SHAPE@"]) as rows:
+            for (shape,) in rows:
+                if shape is None:
+                    continue
+                if not shapely.has_z(shape._shape):
+                    _refuse(tool, "z_field", z_field, "the points have no z-values")
+                for x, y, z in shapely.get_coordinates(shape._shape, include_z=True):
+                    xs.append(float(x))
+                    ys.append(float(y))
+                    zs.append(float(z))
+        if not xs:
+            raise ValueError(f"{tool} found no points with a value.")
+        return np.array(xs), np.array(ys), np.array(zs)
     names = {c.name.lower(): c for c in columns}
     if str(z_field).lower() not in names or names[str(z_field).lower()].type == "String":
         raise ValueError(f"'{z_field}' is not a numeric field of {in_point_features}.")
@@ -2827,7 +2842,6 @@ _REFUSED.update({
     "Sample": "the documentation does not name the fields it writes for each raster",
     "ReclassByASCIIFile": "the documentation does not specify the remap file's format",
     "CutFill": _NO_RAT + " — the VOLUME and AREA of each region",
-    "InterpolateShape": "it writes z values on features, and grapy's feature classes are two-dimensional today",
 })
 
 
@@ -4795,6 +4809,18 @@ _REFUSED.update({name: ("Fu and Rich's (2000) model is given only in part: the d
                               "TimeWholeYear", "TimeWithinDay")})
 _REFUSED["GeodesicFlowDirection"] = ("its D8 on the ellipsoid ties with Greenlee's unpublished lookup table, and no "
                                      "published source defines Esri's geodesic flat and tie handling")
+
+
+def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_distance=None, z_factor=1, method="BILINEAR",
+                     vertices_only="DENSIFY", pyramid_level_resolution=0, preserve_features="EXCLUDE",
+                     interpolate_m_value="NO_INTERPOLATE_M_VALUE"):
+    """arcpy.sa.InterpolateShape: the same tool as arcpy.ddd.InterpolateShape, which answers it; see its docstring."""
+    from . import ddd
+    return ddd.InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_distance, z_factor, method,
+                                vertices_only, pyramid_level_resolution, preserve_features, interpolate_m_value)
+
+
+_REFUSED.pop("InterpolateShape", None)
 
 
 def __getattr__(name):

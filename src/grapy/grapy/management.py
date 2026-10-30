@@ -28,16 +28,30 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
                        spatial_reference=None, *_, **__):
     """A new, empty feature class. Inside a feature dataset (``<file>.gpkg/<dataset>``, see CreateFeatureDataset) it
     takes the dataset's spatial reference when none is given, and one that differs is an error, as a feature dataset's
-    classes share one coordinate system."""
+    classes share one coordinate system. ``has_z`` and ``has_m`` — ENABLED, DISABLED or SAME_AS_TEMPLATE — set
+    whether its shapes carry z and m (the GeoPackage geometry column's flags)."""
     from ._reference import reference_of
     from ._runtime import ExecuteError
     shape = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon"}[geometry_type.upper()]
     reference = reference_of(spatial_reference)
     columns = []
+    template_z = template_m = False
     if template:
         connection, table = _gpkg.table_of(template)
         columns = _gpkg.describe(connection, table)[0]
+        template_z, template_m = _gpkg.dimensions(connection, table)
         connection.close()
+
+    def flag(value, own, name):
+        word = str(value or "DISABLED").upper()
+        if word == "SAME_AS_TEMPLATE":
+            return own
+        if word not in ("ENABLED", "DISABLED"):
+            from ._runtime import NotBuiltError
+            raise NotBuiltError(f"arcpy.management.CreateFeatureclass: {name} '{value}' is not built in grapy.")
+        return word == "ENABLED"
+
+    with_z, with_m = flag(has_z, template_z, "has_z"), flag(has_m, template_m, "has_m")
     path = _path(out_path, out_name)
     code = reference.factoryCode if reference else 0
     dataset = _feature_dataset_of(path)
@@ -46,7 +60,7 @@ def CreateFeatureclass(out_path, out_name, geometry_type="POLYGON", template=Non
             code = dataset
         elif dataset and code != dataset:
             raise ExecuteError(f"ERROR 000622: the feature dataset's spatial reference is EPSG:{dataset}, not EPSG:{code}.")
-    _gpkg.create(path, shape, code, columns)
+    _gpkg.create(path, shape, code, columns, with_z, with_m)
     return Result(path)
 
 
@@ -1897,21 +1911,21 @@ def _reference_code(value, default):
 def XYTableToPoint(in_table, out_feature_class, x_field, y_field, z_field=None, coordinate_system=None):
     """A point for each row at its x and y fields, carrying all its fields, in WGS 1984 unless a coordinate system is
     given, as documented. A row whose x or y is null keeps an empty point; in a geographic system a coordinate beyond
-    ±400 drops the row with a warning, as documented. A z field is not built."""
+    ±400 drops the row with a warning, as documented. A ``z_field`` makes a Z feature class, each point at its row's z
+    (0 where the z is null — INFERRED, as grapy writes a missing z)."""
     from shapely.geometry import Point as ShapelyPoint
     from . import da
     from ._reference import SpatialReference
     from ._runtime import AddWarning
-    if _given(z_field):
-        raise NotBuiltError("arcpy.management.XYTableToPoint: z_field is not built in grapy; shapes are 2D.")
     columns, _, rows = _table_rows(in_table)
     srid = _reference_code(coordinate_system, 4326)
     geographic = srid > 0 and SpatialReference(srid).type == "Geographic"
     names = [c.name for c in columns]
     at = {n.lower(): i for i, n in enumerate(names)}
     xi, yi = at[str(x_field).lower()], at[str(y_field).lower()]
+    zi = at[str(z_field).lower()] if _given(z_field) else None
     out = _path(out_feature_class)
-    _gpkg.create(out, "Point", srid, columns)
+    _gpkg.create(out, "Point", srid, columns, zi is not None)
     with da.InsertCursor(out, [*names, "SHAPE@"]) as written:
         for oid, values, _ in rows:
             x, y = values[xi], values[yi]
@@ -1922,8 +1936,57 @@ def XYTableToPoint(in_table, out_feature_class, x_field, y_field, z_field=None, 
             if geographic and not (-400 <= x <= 400 and -400 <= y <= 400):
                 AddWarning(f"WARNING 001003: row {oid} has a coordinate out of range and was not written.")
                 continue
-            written.insertRow((*values, ShapelyPoint(x, y)))
+            if zi is not None:
+                z = values[zi]
+                written.insertRow((*values, ShapelyPoint(x, y, float(z) if z is not None else 0.0)))
+            else:
+                written.insertRow((*values, ShapelyPoint(x, y)))
     return Result(out)
+
+
+_Z_UNITS = {"MILLIMETERS": 0.001, "CENTIMETERS": 0.01, "METERS": 1.0, "INCHES": 0.0254, "FEET": 0.3048,
+            "YARDS": 0.9144, "FATHOMS": 1.8288}
+
+
+def Adjust3DZ(in_features, reverse_sign="NO_REVERSE", adjust_value=None, from_units=None, to_units=None):
+    """Every vertex's z changed in place, as documented: ``REVERSE`` inverts its sign, ``adjust_value`` — a number or a
+    field — shifts it, and ``from_units``/``to_units`` convert it.
+
+    INFERRED: the order is sign, then shift, then units, the order the parameters come in; the units are the
+    international ones (a foot of 0.3048 m, a fathom of six feet); a null shift field leaves the feature unshifted.
+    Refused: a 2D feature class; units given one without the other."""
+    import shapely
+    from . import da
+    from ._runtime import ExecuteError
+    connection, table = _gpkg.table_of(in_features)
+    try:
+        columns = _gpkg.describe(connection, table)[0]
+        has_z, has_m = _gpkg.dimensions(connection, table)
+    finally:
+        connection.close()
+    if not has_z:
+        raise NotBuiltError(f"arcpy.management.Adjust3DZ: {in_features} is a 2D feature class; it has no z to adjust.")
+    if _given(from_units) != _given(to_units):
+        raise ExecuteError("ERROR 000800: from_units and to_units are given together.")
+    factor = 1.0
+    if _given(from_units):
+        try:
+            factor = _Z_UNITS[str(from_units).upper()] / _Z_UNITS[str(to_units).upper()]
+        except KeyError as missing:
+            raise NotBuiltError(f"arcpy.management.Adjust3DZ: the unit {missing} is not built in grapy.") from None
+    sign = -1.0 if str(reverse_sign or "NO_REVERSE").upper() == "REVERSE" else 1.0
+    names = {c.name.lower(): c.name for c in columns}
+    shift_field = names.get(str(adjust_value).lower()) if isinstance(adjust_value, str) else None
+    fields = ["SHAPE@"] + ([shift_field] if shift_field else [])
+    with da.UpdateCursor(in_features, fields) as rows:
+        for row in rows:
+            if row[0] is None:
+                continue
+            shift = row[1] if shift_field else (float(adjust_value) if _given(adjust_value) else 0.0)
+            shift = 0.0 if shift is None else float(shift)
+            changed = _gpkg.rebuild(row[0]._shape, True, has_m, None, lambda z, xy: (sign * z + shift) * factor)
+            rows.updateRow([changed, *row[1:]])
+    return Result(in_features)
 
 
 def _planar_only(tool, line_type, srid):
@@ -4867,11 +4930,11 @@ _GROUP_2_MODELS = {
 }
 
 _REASONS = {
-    "needs Z values or 3D data — LAS datasets, TINs, multipatches, voxels, scenes — which grapy's 2D shapes do not "
-    "hold": (
+    "needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet "
+    "(ADR-224 group 2)": (
         "Add3DFormats", "Remove3DFormats", "AddFilesToLasDataset", "RemoveFilesFromLasDataset", "BuildLasDatasetPyramid",
         "CreateLasDataset", "LasDatasetStatistics", "LasPointStatsAsRaster", "MakeLasDatasetLayer", "ProjectLAS",
-        "Adjust3DZ", "Export3DObjects", "Import3DObjects", "TINCompare", "MakeTinLayer", "CreateVoxelSceneLayerContent",
+        "Export3DObjects", "Import3DObjects", "TINCompare", "MakeTinLayer", "CreateVoxelSceneLayerContent",
         "GenerateLevelOfDetail", "MakeBuildingLayer", "MakeSceneLayer", "InterpolateFromPointCloud"),
     "needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or "
     "project — which a tool running on the server does not hold": (

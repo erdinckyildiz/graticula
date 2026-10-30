@@ -1057,7 +1057,8 @@ def GTFSShapesToFeatures(in_gtfs_shapes_file, out_feature_class):
 _REASONS = {
     "needs a data model this server does not hold yet (ADR-224 group 2): network datasets": (
         "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
-    "needs Z values or 3D data — LAS, point clouds, multipatches, meshes, BIM — which grapy's 2D shapes do not hold": (
+    "needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 "
+    "group 2)": (
         "ConvertLas", "LasDatasetToRaster", "PointCloudToRaster", "MeshToLAS", "MultipatchToCollada", "MultipatchToRaster",
         "BIMFileToGeodatabase", "ExtractBIMFileFloorplan"),
     "reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented": (

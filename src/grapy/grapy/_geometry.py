@@ -140,14 +140,24 @@ class Geometry:
         return Point(p.x, p.y)
 
     @property
+    def hasZ(self):
+        """Whether the geometry carries z-values."""
+        return bool(self._shape is not None and shapely.has_z(self._shape))
+
+    @property
+    def hasM(self):
+        """Whether the geometry carries m-values."""
+        return bool(self._shape is not None and shapely.has_m(self._shape))
+
+    @property
     def firstPoint(self):
-        coordinates = list(_coordinates(self._shape))
-        return Point(*coordinates[0][:2]) if coordinates else None
+        points = _points_zm(self._shape)
+        return points[0] if points else None
 
     @property
     def lastPoint(self):
-        coordinates = list(_coordinates(self._shape))
-        return Point(*coordinates[-1][:2]) if coordinates else None
+        points = _points_zm(self._shape)
+        return points[-1] if points else None
 
     @property
     def extent(self):
@@ -335,7 +345,12 @@ class Geometry:
         import numpy
         from pyproj import Transformer
         move = Transformer.from_crs(self.spatialReference.factoryCode, target.factoryCode, always_xy=True).transform
-        return _wrap(shapely.transform(self._shape, lambda xy: numpy.column_stack(move(xy[:, 0], xy[:, 1]))), target)
+        change = lambda xy: numpy.column_stack(move(xy[:, 0], xy[:, 1]))  # noqa: E731
+        if self.hasZ or self.hasM:
+            # z and m are carried unchanged: only x and y are projected, as a horizontal reference moves them.
+            from ._gpkg import rebuild
+            return _wrap(rebuild(self._shape, self.hasZ, self.hasM, change), target)
+        return _wrap(shapely.transform(self._shape, change), target)
 
     # -- parts, as arcpy reads them
 
@@ -345,12 +360,12 @@ class Geometry:
         part, which its page does not spell out."""
         def points(part):
             if isinstance(part, ShapelyPolygon):
-                out = Array(Point(*c[:2]) for c in part.exterior.coords)
+                out = Array(_points_zm(part.exterior))
                 for hole in part.interiors:
                     out.append(None)
-                    out.extend(Point(*c[:2]) for c in hole.coords)
+                    out.extend(_points_zm(hole))
                 return out
-            return Array(Point(*c[:2]) for c in part.coords)
+            return Array(_points_zm(part))
         parts = list(self._shape.geoms) if hasattr(self._shape, "geoms") else [self._shape]
         if index is None:
             return Array(points(p) for p in parts)
@@ -456,10 +471,17 @@ class Geometry:
     # -- affine changes
 
     def move(self, dx=0.0, dy=0.0, dz=0.0):
-        """The geometry moved by dx and dy. dz needs z-values, which grapy's geometries do not hold, and is refused."""
-        if dz:
+        """The geometry moved by dx, dy and, when it carries z-values, dz; m-values are kept. A dz on a geometry with no
+        z-values is refused."""
+        if dz and not self.hasZ:
             from ._runtime import NotBuiltError
-            raise NotBuiltError("Geometry.move: dz is not built in grapy; its geometries have no z-values.")
+            raise NotBuiltError("Geometry.move: dz needs a geometry with z-values.")
+        if self.hasZ or self.hasM:
+            import numpy
+            from ._gpkg import rebuild
+            shift = numpy.array([float(dx), float(dy)])
+            return _wrap(rebuild(self._shape, self.hasZ, self.hasM, lambda xy: xy + shift,
+                                 (lambda z, xy: z + float(dz)) if self.hasZ else None), self.spatialReference)
         from shapely import affinity
         return _wrap(affinity.translate(self._shape, float(dx), float(dy)), self.spatialReference)
 
@@ -539,7 +561,7 @@ class PointGeometry(Geometry):
 
     def __init__(self, inputs=None, spatial_reference=None, has_z=False, has_m=False):
         if isinstance(inputs, Point):
-            inputs = ShapelyPoint(inputs.X, inputs.Y)
+            inputs = _from_points("POINT", [[inputs]], has_z, has_m) if (has_z or has_m) else ShapelyPoint(inputs.X, inputs.Y)
         super().__init__(inputs, spatial_reference)
 
 
@@ -548,7 +570,8 @@ class Multipoint(Geometry):
 
     def __init__(self, inputs=None, spatial_reference=None, has_z=False, has_m=False):
         if isinstance(inputs, (Array, list)):
-            inputs = MultiPoint([(p.X, p.Y) for p in inputs])
+            inputs = _from_points("MULTIPOINT", [[p] for p in inputs], has_z, has_m) if (has_z or has_m) else \
+                MultiPoint([(p.X, p.Y) for p in inputs])
         super().__init__(inputs, spatial_reference)
 
 
@@ -558,7 +581,8 @@ class Polyline(Geometry):
     def __init__(self, inputs=None, spatial_reference=None, has_z=False, has_m=False):
         if isinstance(inputs, (Array, list)):
             parts = inputs if inputs and isinstance(inputs[0], (Array, list)) else [inputs]
-            inputs = MultiLineString([[(p.X, p.Y) for p in part] for part in parts])
+            inputs = _from_points("MULTILINESTRING", parts, has_z, has_m) if (has_z or has_m) else \
+                MultiLineString([[(p.X, p.Y) for p in part] for part in parts])
         super().__init__(inputs, spatial_reference)
 
 
@@ -568,8 +592,65 @@ class Polygon(Geometry):
     def __init__(self, inputs=None, spatial_reference=None, has_z=False, has_m=False):
         if isinstance(inputs, (Array, list)):
             parts = inputs if inputs and isinstance(inputs[0], (Array, list)) else [inputs]
-            inputs = shapely.make_valid(MultiPolygon([ShapelyPolygon([(p.X, p.Y) for p in part]) for part in parts]))
+            flat = MultiPolygon([ShapelyPolygon([(p.X, p.Y) for p in part]) for part in parts])
+            if (has_z or has_m) and flat.is_valid:
+                # A valid polygon keeps its own vertices with their z and m; make_valid works in two dimensions only.
+                closed = [list(part) + ([part[0]] if (part[0].X, part[0].Y) != (part[-1].X, part[-1].Y) else [])
+                          for part in parts]
+                inputs = _from_points("MULTIPOLYGON", closed, has_z, has_m)
+            elif has_z or has_m:
+                from ._runtime import NotBuiltError
+                raise NotBuiltError("Polygon: an invalid polygon with z or m values is not built in grapy; repairing it "
+                                    "would have to invent z and m for the vertices it adds.")
+            else:
+                inputs = shapely.make_valid(flat)
         super().__init__(inputs, spatial_reference)
+
+
+def _from_points(kind, parts, has_z, has_m):
+    """A shapely geometry from arcpy Points, carrying Z and M when asked. INFERRED: a Point with no Z gets 0 in a
+    geometry that has z-values, and one with no M gets NaN, arcpy's empty M."""
+    from ._gpkg import _number
+    tag = ("ZM" if has_m else "Z") if has_z else ("M" if has_m else "")
+
+    def coordinate(p):
+        values = [p.X, p.Y]
+        if has_z:
+            values.append(p.Z if p.Z is not None else 0.0)
+        if has_m:
+            values.append(p.M if p.M is not None else float("nan"))
+        return " ".join(_number(v) for v in values)
+
+    def ring(points):
+        return "(" + ", ".join(coordinate(p) for p in points if p is not None) + ")"
+
+    if kind == "POINT":
+        body = ring(parts[0])
+    elif kind in ("MULTIPOINT", "MULTILINESTRING"):
+        body = "(" + ", ".join(ring(part) for part in parts) + ")"
+    else:
+        def rings(part):
+            out, current = [], []
+            for p in part:
+                if p is None:
+                    out.append(current)
+                    current = []
+                else:
+                    current.append(p)
+            out.append(current)
+            return "(" + ", ".join(ring(r) for r in out if r) + ")"
+        body = "(" + ", ".join(rings(part) for part in parts) + ")"
+    return shapely.from_wkt(f"{kind} {tag} {body}".replace("  ", " "))
+
+
+def _points_zm(shape):
+    """The vertices of a shape as arcpy Points, with Z and M when it carries them."""
+    if shape is None or shape.is_empty:
+        return []
+    has_z, has_m = bool(shapely.has_z(shape)), bool(shapely.has_m(shape))
+    rows = shapely.get_coordinates(shape, include_z=has_z, include_m=has_m)
+    return [Point(float(r[0]), float(r[1]), float(r[2]) if has_z else None, float(r[-1]) if has_m else None)
+            for r in rows]
 
 
 def _shape_of(other):
