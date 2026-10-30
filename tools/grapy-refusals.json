@@ -92,7 +92,7 @@
   "unexamined": []
  },
  "arcpy.analysis": {
-  "built": 34,
+  "built": 35,
   "equivalents": {
    "RemoveOverlapMultiple": "each overlap shared by a Voronoi division — CENTER_LINE between the polygons' non-overlapping parts, THIESSEN between their centroids (Okabe, Boots, Sugihara and Chiu, Spatial Tessellations, 2nd ed., 2000)"
   },
@@ -102,8 +102,7 @@
    "EnrichLayer": "arcpy.analysis.EnrichLayer is not built in grapy: it answers from Esri's demographic data, which this server does not hold (ADR-224 group 3).",
    "GeographicallyWeightedRegression": "arcpy.analysis.GeographicallyWeightedRegression is not built in grapy: its page is no longer in Esri's documentation (404 on 2026-10-29); the documented regression is arcpy.stats.GWR.",
    "PairwiseIntegrate": "arcpy.analysis.PairwiseIntegrate is not built in grapy: the documentation does not say which coordinate a cluster of vertices within the tolerance takes.",
-   "SummarizeNearby": "arcpy.analysis.SummarizeNearby is not built in grapy: its driving, trucking and walking distances need Esri's network services (ADR-224 groups 2 and 3), and for straight-line distance the documentation does not name the fields it writes.",
-   "SummarizeWithin": "arcpy.analysis.SummarizeWithin is not built in grapy: the documentation does not name the fields it writes (the count, length, area and statistic fields), and a toolbox reads them by name; Graticula's own Summarize Within runs as a hosted analysis (ADR-222)."
+   "SummarizeNearby": "arcpy.analysis.SummarizeNearby is not built in grapy: its driving, trucking and walking distances need Esri's network services (ADR-224 groups 2 and 3), and for straight-line distance the documentation does not name the fields it writes."
   },
   "unexamined": []
  },
@@ -165,15 +164,18 @@
   "unexamined": []
  },
  "arcpy.conversion": {
-  "built": 24,
-  "equivalents": {},
+  "built": 27,
+  "equivalents": {
+   "FeatureClassToShapefile": "the ESRI Shapefile Technical Description (1998) and dBASE III, field names cut to ten characters (ESRI Shapefile Technical Description, July 1998)",
+   "TableToDBASE": "dBASE III tables, field names cut to ten characters (dBASE III file format)"
+  },
   "of": 64,
   "refused": {
    "AddCADFields": "arcpy.conversion.AddCADFields reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented.",
    "AddRasterToGeoPackage": "arcpy.conversion.AddRasterToGeoPackage writes a GeoPackage tile pyramid whose tile matrix set, tile size, image format and zoom levels the page does not define.",
    "BIMFileToGeodatabase": "arcpy.conversion.BIMFileToGeodatabase needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
    "CADToGeodatabase": "arcpy.conversion.CADToGeodatabase reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented.",
-   "ConnectNetworkDatasetTransitSourcesToStreets": "arcpy.conversion.ConnectNetworkDatasetTransitSourcesToStreets needs a data model this server does not hold yet (ADR-224 group 2): network datasets.",
+   "ConnectNetworkDatasetTransitSourcesToStreets": "arcpy.conversion.ConnectNetworkDatasetTransitSourcesToStreets builds public-transit sources into a network dataset; grapy's network datasets (ADR-226) have no transit evaluator, and the public transit evaluator's schedule rules are not published.",
    "ConvertLas": "arcpy.conversion.ConvertLas needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
    "ConvertPersonalGeodatabase": "arcpy.conversion.ConvertPersonalGeodatabase reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's workspace is a GeoPackage.",
    "DEMToRaster": "arcpy.conversion.DEMToRaster lays the profiles of a USGS DEM, which start at different rows, on an output grid whose extent and filling the page does not define.",
@@ -182,14 +184,13 @@
    "ExtractBIMFileFloorplan": "arcpy.conversion.ExtractBIMFileFloorplan needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
    "ExtractLocationsDocument": "arcpy.conversion.ExtractLocationsDocument uses Esri's undocumented text and document parsing to find locations.",
    "ExtractLocationsText": "arcpy.conversion.ExtractLocationsText uses Esri's undocumented text and document parsing to find locations.",
-   "ExtractScannedLines": "arcpy.conversion.ExtractScannedLines follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line takes — so any answer would be a guess under arcpy's name.",
-   "ExtractScannedPolygons": "arcpy.conversion.ExtractScannedPolygons follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line takes — so any answer would be a guess under arcpy's name.",
-   "FeatureClassToShapefile": "arcpy.conversion.FeatureClassToShapefile truncates field names to dBASE's ten characters by a rule the page does not give.",
+   "ExtractScannedLines": "arcpy.conversion.ExtractScannedLines vectorises scanned maps by Esri's undocumented recognition.",
+   "ExtractScannedPolygons": "arcpy.conversion.ExtractScannedPolygons vectorises scanned maps by Esri's undocumented recognition.",
    "FeaturesToGTFSShapes": "arcpy.conversion.FeaturesToGTFSShapes writes GTFS columns the page does not name, in an order it does not give.",
    "FeaturesToGTFSStops": "arcpy.conversion.FeaturesToGTFSStops writes GTFS columns the page does not name, in an order it does not give.",
    "FeaturesToGraphics": "arcpy.conversion.FeaturesToGraphics needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold.",
-   "GTFSToNetworkDatasetTransitSources": "arcpy.conversion.GTFSToNetworkDatasetTransitSources needs a data model this server does not hold yet (ADR-224 group 2): network datasets.",
-   "GenerateShapesFeaturesFromGTFS": "arcpy.conversion.GenerateShapesFeaturesFromGTFS needs a network dataset for its default modes 3, 5 and 11, a data model this server does not hold yet (ADR-224 group 2), and does not document how it names the shapes it draws as straight lines.",
+   "GTFSToNetworkDatasetTransitSources": "arcpy.conversion.GTFSToNetworkDatasetTransitSources builds public-transit sources into a network dataset; grapy's network datasets (ADR-226) have no transit evaluator, and the public transit evaluator's schedule rules are not published.",
+   "GenerateShapesFeaturesFromGTFS": "arcpy.conversion.GenerateShapesFeaturesFromGTFS routes its default modes 3, 5 and 11 along a network dataset by a travel mode the page does not give, and does not document how it names the shapes it draws as straight lines.",
    "GraphicsToFeatures": "arcpy.conversion.GraphicsToFeatures needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold.",
    "KMLToGeodatabase": "arcpy.conversion.KMLToGeodatabase uses a KML parser of its own whose output fields and feature class names the page does not define; KMLToLayer reads KML.",
    "LasDatasetToRaster": "arcpy.conversion.LasDatasetToRaster needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
@@ -201,12 +202,10 @@
    "MultipatchToRaster": "arcpy.conversion.MultipatchToRaster needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
    "PDFToTIFF": "arcpy.conversion.PDFToTIFF needs a PDF renderer, which grapy does not carry.",
    "PointCloudToRaster": "arcpy.conversion.PointCloudToRaster needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 group 2).",
-   "PolylineToRaster": "arcpy.conversion.PolylineToRaster follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line takes — so any answer would be a guess under arcpy's name.",
    "RasterToGeodatabase": "arcpy.conversion.RasterToGeodatabase writes a raster into a geodatabase or a format other than GeoTIFF; grapy's rasters are GeoTIFF files (ADR-224 §5.5).",
    "RasterToOtherFormat": "arcpy.conversion.RasterToOtherFormat writes a raster into a geodatabase or a format other than GeoTIFF; grapy's rasters are GeoTIFF files (ADR-224 §5.5).",
-   "RasterToPolyline": "arcpy.conversion.RasterToPolyline follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line takes — so any answer would be a guess under arcpy's name.",
+   "RasterToPolyline": "arcpy.conversion.RasterToPolyline thins and vectorises raster lines by an algorithm Esri does not document, and its output's vertices, dangles and weeding follow no published rule grapy could name.",
    "SASToTable": "arcpy.conversion.SASToTable needs SAS, a commercial runtime grapy does not carry.",
-   "TableToDBASE": "arcpy.conversion.TableToDBASE truncates field names to dBASE's ten characters by a rule the page does not give.",
    "TableToSAS": "arcpy.conversion.TableToSAS needs SAS, a commercial runtime grapy does not carry.",
    "WFSToFeatureClass": "arcpy.conversion.WFSToFeatureClass reaches a WFS service, and a fenced tool has no network (ADR-223 §5.3)."
   },
@@ -633,8 +632,18 @@
   "unexamined": []
  },
  "arcpy.management": {
-  "built": 138,
+  "built": 149,
   "equivalents": {
+   "ConvertCoordinateNotation": "the published grid definitions (NGA.SIG.0012 for MGRS and UTM, FGDC-STD-011-2001 for USNG, NGA's GARS and GEOREF) with fixed-precision strings (NGA and FGDC public specifications)",
+   "CreateRandomRaster": "NumPy's PCG64 generator seeded from env.randomGenerator (NumPy random Generator)",
+   "Dice": "recursive bisection across the envelope's longer side until each piece is within the vertex limit (a quadtree-style subdivision)",
+   "EncodeField": "one indicator field per category, named <field>_<category> (one-hot encoding)",
+   "GeodeticDensify": "geodesic interpolation at equal spacing no longer than the distance (Karney 2013, as pyproj.Geod computes it)",
+   "Integrate": "vertex clustering onto the best-ranked feature class's vertex, then cracking at intersections (ADR-225 §5.3's clustering rule)",
+   "ReclassifyField": "the documented classification methods, natural breaks by Fisher's exact dynamic programme (Fisher 1958; Jenks 1967)",
+   "SubsetFeatures": "a uniform random sample without replacement, NumPy's PCG64 seeded from env.randomGenerator (NumPy random Generator)",
+   "TableToEllipse": "a 360-vertex ellipse traced by geodesic distance from its centre (pyproj.Geod (Karney 2013))",
+   "TransformField": "the documented transformations, Box-Cox's power fitted by maximum likelihood (Box and Cox 1964, scipy.stats.boxcox)",
    "ValidateTopology": "vertices within the cluster tolerance snap to the best-ranked class's vertex (lowest xy rank, then class order, then object id) (ADR-225 §5.3)"
   },
   "of": 447,
@@ -708,7 +717,6 @@
    "ConsolidateMap": "arcpy.management.ConsolidateMap needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "ConsolidateProject": "arcpy.management.ConsolidateProject needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "ConsolidateToolbox": "arcpy.management.ConsolidateToolbox needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
-   "ConvertCoordinateNotation": "arcpy.management.ConvertCoordinateNotation follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "ConvertRasterFunctionTemplate": "arcpy.management.ConvertRasterFunctionTemplate reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "ConvertSchemaReport": "arcpy.management.ConvertSchemaReport reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "ConvertTimeZone": "arcpy.management.ConvertTimeZone converts between Windows time zone names, whose mapping to the IANA zones Python holds Esri does not publish.",
@@ -741,7 +749,6 @@
    "CreateParquetCache": "arcpy.management.CreateParquetCache reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
    "CreatePointCloudSceneLayerPackage": "arcpy.management.CreatePointCloudSceneLayerPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "CreatePointSceneLayerPackage": "arcpy.management.CreatePointSceneLayerPackage needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
-   "CreateRandomRaster": "arcpy.management.CreateRandomRaster follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "CreateRasterDataset": "arcpy.management.CreateRasterDataset resamples or transforms cells by a method or extent rule the page does not define exactly.",
    "CreateRasterType": "arcpy.management.CreateRasterType needs a data model this server does not hold yet (ADR-224 group 2): mosaic datasets, catalog datasets and raster collections.",
    "CreateReferencedMosaicDataset": "arcpy.management.CreateReferencedMosaicDataset needs a data model this server does not hold yet (ADR-224 group 2): mosaic datasets, catalog datasets and raster collections.",
@@ -771,7 +778,6 @@
    "DetectFeatureChanges": "arcpy.management.DetectFeatureChanges follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "DiagnoseVersionMetadata": "arcpy.management.DiagnoseVersionMetadata is traditional versioning's or enterprise geodatabase administration, which grapy's branch versions do not have (ADR-227 §5.4).",
    "DiagnoseVersionTables": "arcpy.management.DiagnoseVersionTables is traditional versioning's or enterprise geodatabase administration, which grapy's branch versions do not have (ADR-227 §5.4).",
-   "Dice": "arcpy.management.Dice follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "DisableAttachments": "arcpy.management.DisableAttachments needs a data model this server does not hold yet (ADR-224 group 2): geodatabase attachments.",
    "DisableAttributeRules": "arcpy.management.DisableAttributeRules needs a data model this server does not hold yet (ADR-224 group 2): attribute rules.",
    "DisableCOGO": "arcpy.management.DisableCOGO needs a data model this server does not hold yet (ADR-224 group 2): parcel fabrics.",
@@ -791,7 +797,6 @@
    "EnableFeatureBinning": "arcpy.management.EnableFeatureBinning needs a data model this server does not hold yet (ADR-224 group 2): geodatabase editing behaviours (editor tracking, global IDs, feature binning, split models).",
    "EnableLastEditTime": "arcpy.management.EnableLastEditTime needs a data model this server does not hold yet (ADR-224 group 2): geodatabase editing behaviours (editor tracking, global IDs, feature binning, split models).",
    "EnableReplicaTracking": "arcpy.management.EnableReplicaTracking needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
-   "EncodeField": "arcpy.management.EncodeField follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "EvaluateRules": "arcpy.management.EvaluateRules needs a data model this server does not hold yet (ADR-224 group 2): attribute rules.",
    "Export3DObjects": "arcpy.management.Export3DObjects needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
    "ExportAcknowledgementMessage": "arcpy.management.ExportAcknowledgementMessage needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
@@ -835,7 +840,6 @@
    "GenerateTileCacheTilingScheme": "arcpy.management.GenerateTileCacheTilingScheme needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "GenerateUpdateRelatedAttributeRule": "arcpy.management.GenerateUpdateRelatedAttributeRule needs a data model this server does not hold yet (ADR-224 group 2): attribute rules.",
    "GeoTaggedPhotosToPoints": "arcpy.management.GeoTaggedPhotosToPoints needs a data model this server does not hold yet (ADR-224 group 2): geodatabase attachments.",
-   "GeodeticDensify": "arcpy.management.GeodeticDensify follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "Import3DObjects": "arcpy.management.Import3DObjects needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
    "ImportAttributeRules": "arcpy.management.ImportAttributeRules needs a data model this server does not hold yet (ADR-224 group 2): attribute rules.",
    "ImportContingentValues": "arcpy.management.ImportContingentValues needs a data model this server does not hold yet (ADR-224 group 2): contingent values and field groups.",
@@ -845,7 +849,6 @@
    "ImportReplicaSchema": "arcpy.management.ImportReplicaSchema needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
    "ImportTileCache": "arcpy.management.ImportTileCache needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "ImportXMLWorkspaceDocument": "arcpy.management.ImportXMLWorkspaceDocument reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
-   "Integrate": "arcpy.management.Integrate follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "InterpolateFromPointCloud": "arcpy.management.InterpolateFromPointCloud needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
    "LasDatasetStatistics": "arcpy.management.LasDatasetStatistics needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
    "LasPointStatsAsRaster": "arcpy.management.LasPointStatsAsRaster needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
@@ -885,10 +888,8 @@
    "ProjectLAS": "arcpy.management.ProjectLAS needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
    "ProjectRaster": "arcpy.management.ProjectRaster resamples or transforms cells by a method or extent rule the page does not define exactly.",
    "RasterCompare": "arcpy.management.RasterCompare follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
-   "RasterToDTED": "arcpy.management.RasterToDTED writes DTED, a military elevation format grapy does not write.",
    "ReExportUnacknowledgedMessages": "arcpy.management.ReExportUnacknowledgedMessages needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
    "RebuildIndexes": "arcpy.management.RebuildIndexes needs a data model this server does not hold yet (ADR-224 group 2): enterprise geodatabase administration.",
-   "ReclassifyField": "arcpy.management.ReclassifyField follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "RecoverFileGDB": "arcpy.management.RecoverFileGDB is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "RefreshExcel": "arcpy.management.RefreshExcel needs an ArcGIS Pro application document — a map, layout, layer file, style, report, toolbox version, package or project — which a tool running on the server does not hold.",
    "RegisterRaster": "arcpy.management.RegisterRaster resamples or transforms cells by a method or extent rule the page does not define exactly.",
@@ -924,13 +925,10 @@
    "SplitRaster": "arcpy.management.SplitRaster resamples or transforms cells by a method or extent rule the page does not define exactly.",
    "StandardizeField": "arcpy.management.StandardizeField has no page grapy could read: doc.esri.com/en/arcgis-pro/latest/tool-reference/data-management/standardize-field.html answered 404, and pro.arcgis.com's .../data-management/standardize-field.htm redirects to it (checked 2026-10-29), so its formulas and field names are unknown.",
    "SubdividePolygon": "arcpy.management.SubdividePolygon follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
-   "SubsetFeatures": "arcpy.management.SubsetFeatures follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "SynchronizeChanges": "arcpy.management.SynchronizeChanges needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
    "SynchronizeMosaicDataset": "arcpy.management.SynchronizeMosaicDataset needs a data model this server does not hold yet (ADR-224 group 2): mosaic datasets, catalog datasets and raster collections.",
    "TINCompare": "arcpy.management.TINCompare needs 3D data models — LAS datasets, TINs, multipatches, voxels, scenes — which this server does not hold yet (ADR-224 group 2).",
-   "TableToEllipse": "arcpy.management.TableToEllipse follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "TransferFiles": "arcpy.management.TransferFiles reaches a database server, portal or cloud store, and a fenced tool has no network (ADR-223 §5.3).",
-   "TransformField": "arcpy.management.TransformField follows an algorithm or writes an output Esri does not document, so any answer would be a guess under arcpy's name.",
    "UncompressFileGeodatabaseData": "arcpy.management.UncompressFileGeodatabaseData is a storage property of file or mobile geodatabases with no counterpart in grapy's GeoPackages.",
    "UnregisterReplica": "arcpy.management.UnregisterReplica needs a data model this server does not hold yet (ADR-224 group 2): geodatabase replicas.",
    "UpdateDataLoadingWorkspace": "arcpy.management.UpdateDataLoadingWorkspace reads or writes an Esri format that is not publicly documented (XML workspace documents, schema reports, data loading workspaces, raster function templates, transformation files, parquet caches, spectral libraries).",
@@ -952,7 +950,7 @@
   "unexamined": []
  },
  "arcpy.na": {
-  "built": 22,
+  "built": 23,
   "equivalents": {
    "Solve": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)"
   },
@@ -977,8 +975,7 @@
    "LocationAllocationSolverProperties": "arcpy.na.LocationAllocationSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
    "MakeClosestFacilityLayer": "arcpy.na.MakeClosestFacilityLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeLastMileDeliveryAnalysisLayer": "arcpy.na.MakeLastMileDeliveryAnalysisLayer is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
-   "MakeLocationAllocationAnalysisLayer": "arcpy.na.MakeLocationAllocationAnalysisLayer is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
-   "MakeLocationAllocationLayer": "arcpy.na.MakeLocationAllocationLayer is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
+   "MakeLocationAllocationLayer": "arcpy.na.MakeLocationAllocationLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeODCostMatrixLayer": "arcpy.na.MakeODCostMatrixLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeRouteLayer": "arcpy.na.MakeRouteLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeServiceAreaLayer": "arcpy.na.MakeServiceAreaLayer is a deprecated layer tool; its Analysis Layer successor is built.",
@@ -1002,9 +999,10 @@
   "unexamined": []
  },
  "arcpy.nax": {
-  "built": 36,
+  "built": 41,
   "equivalents": {
    "ClosestFacility": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
+   "LocationAllocation": "Teitz–Bart vertex substitution for the p-median problem (Teitz and Bart 1968)",
    "ODCostMatrix": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
    "OriginDestinationCostMatrix": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
    "Route": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
@@ -1021,7 +1019,6 @@
    "CreateNetworkDatasetFromTemplate": "arcpy.nax.CreateNetworkDatasetFromTemplate reads or writes Esri's network dataset template XML, whose schema is not published.",
    "CreateTemplateFromNetworkDataset": "arcpy.nax.CreateTemplateFromNetworkDataset reads or writes Esri's network dataset template XML, whose schema is not published.",
    "CreateTurnFeatureClass": "arcpy.nax.CreateTurnFeatureClass needs turns, refused until they are defined (ADR-226 §5.3).",
-   "DecayFunctionType": "arcpy.nax.DecayFunctionType is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
    "DirectionPoint": "arcpy.nax.DirectionPoint writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "DirectionPointType": "arcpy.nax.DirectionPointType writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "DirectionsCustomizer": "arcpy.nax.DirectionsCustomizer writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
@@ -1041,10 +1038,6 @@
    "LastMileDeliveryInputDataType": "arcpy.nax.LastMileDeliveryInputDataType is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
    "LastMileDeliveryOutputDataType": "arcpy.nax.LastMileDeliveryOutputDataType is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
    "ListDirectionsLanguages": "arcpy.nax.ListDirectionsLanguages lists the languages of Esri's direction text, whose rules are not published.",
-   "LocationAllocation": "arcpy.nax.LocationAllocation is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
-   "LocationAllocationInputDataType": "arcpy.nax.LocationAllocationInputDataType is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
-   "LocationAllocationOutputDataType": "arcpy.nax.LocationAllocationOutputDataType is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
-   "LocationAllocationProblemType": "arcpy.nax.LocationAllocationProblemType is an NP-hard problem whose published heuristic is not chosen yet (ADR-226 §5.2).",
    "NameClass": "arcpy.nax.NameClass writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "NetworkElement": "arcpy.nax.NetworkElement belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
    "NetworkTimeUsage": "arcpy.nax.NetworkTimeUsage belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
