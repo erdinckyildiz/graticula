@@ -3411,9 +3411,12 @@ _REFUSED.update({
     "SummarizeCategoricalRaster": "it summarises multidimensional categorical rasters (ADR-224 group 2)",
     "Complex": "grapy's rasters hold no complex pixel types, and the page defers the magnitude formula",
     "Geometric": "it orthorectifies with a sensor model and RPCs, a data model this server does not hold (ADR-224 group 2)",
-    "DetectControlPoints": "it works on a mosaic dataset, a data model this server does not hold (ADR-224 group 2)",
-    "TransformImageShapes": "it needs image orientations from a mosaic dataset and the deep learning tools' image-space "
-                            "shapes (ADR-224 groups 2 and 3)",
+    "DetectControlPoints": "it matches control points between images by a method its page does not specify, on a "
+                           "mosaic dataset's sensor orientations, which grapy's mosaic datasets of Raster Dataset items "
+                           "do not hold (ADR-230 §5.3)",
+    "TransformImageShapes": "it needs image orientations from a mosaic dataset — sensor models grapy's mosaic datasets "
+                            "of Raster Dataset items do not hold (ADR-230 §5.3) — and the deep learning tools' "
+                            "image-space shapes (ADR-224 group 3)",
     "ApparentReflectance": "it needs sensor metadata and the page defers its formula to a raster function topic",
     "StatisticsHistogram": "it attaches statistics and histogram metadata, which grapy's rasters do not carry",
     "Merge": "the page does not give the output extent and cell size rules or how NoData enters MEAN and SUM",

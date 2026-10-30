@@ -210,16 +210,17 @@ class _DescribedWorkspace:
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
     object), a folder, a GeoPackage of several tables (a workspace), a topology, relationship class or network
-    dataset held in a GeoPackage (ADR-225, ADR-226), or a TIN or LAS dataset (ADR-229)."""
+    dataset held in a GeoPackage (ADR-225, ADR-226), a TIN or LAS dataset (ADR-229), or a mosaic dataset or mosaic
+    layer (ADR-230)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
     try:
         path = os.fspath(value)
     except TypeError:  # A layer object: described by its source.
         return _Described(value)
-    from . import _las, _tin
-    for model in (_tin, _las):  # a TIN may be a folder, and a .lasd is no raster (ADR-229)
-        described = model.describe(path)
+    from . import _las, _mosaic, _tin
+    for model in (_tin, _las, _mosaic):  # a TIN may be a folder, a .lasd is no raster (ADR-229), and a mosaic
+        described = model.describe(path)  # dataset's catalog is no feature class (ADR-230)
         if described is not None:
             return described
     if os.path.isdir(path):
@@ -326,18 +327,23 @@ def _matches(name, wild_card):
 
 
 def _contents(file):
-    """[(table, kind, shape)] of a GeoPackage: kind 'features', 'table' or 'raster'."""
+    """[(table, kind, shape)] of a GeoPackage: kind 'features', 'table', 'raster' or 'mosaic' — a mosaic dataset's
+    catalog, which is no feature class (ADR-230)."""
+    from . import _mosaic
     connection = _gpkg.connect(file)
     try:
         rows = connection.execute("select c.table_name, c.data_type, c.srs_id, g.geometry_type_name from gpkg_contents c "
                                   "left join gpkg_geometry_columns g on g.table_name = c.table_name").fetchall()
+        mosaics = set(_mosaic.names(connection))
     except Exception:  # Not a GeoPackage, or one without contents.
         return []
     finally:
         connection.close()
     out = []
     for table, data_type, srid, geometry in rows:
-        if data_type == "attributes" or (data_type == "features" and (geometry or "").upper() == "GEOMETRY" and not srid):
+        if table in mosaics:
+            out.append((table, "mosaic", None))
+        elif data_type == "attributes" or (data_type == "features" and (geometry or "").upper() == "GEOMETRY" and not srid):
             out.append((table, "table", "Geometry"))
         elif data_type == "features":
             out.append((table, "features", _gpkg._SHAPES.get((geometry or "GEOMETRY").upper(), "Geometry")))
@@ -359,7 +365,8 @@ def _entries(kind):
         stem = os.path.splitext(base)[0]
         for table, k, shape in contents:
             if k == kind:
-                found.append((base if table == stem or len(_own_tables(contents)) == 1 else f"{base}/{table}", shape))
+                alone = kind != "mosaic" and (table == stem or len(_own_tables(contents)) == 1)
+                found.append((base if alone else f"{base}/{table}", shape))
     return found
 
 
@@ -403,11 +410,14 @@ def ListRasters(wild_card=None, raster_type=None):
 
 
 def ListDatasets(wild_card=None, feature_type=None):
-    """The datasets of the current workspace. grapy holds no feature datasets, mosaics, networks, TINs or topologies,
-    so the datasets are raster datasets: All and Raster list them, any other type finds none (INFERRED)."""
-    if str(feature_type or "All").upper() not in ("ALL", "RASTER"):
-        return []
-    return ListRasters(wild_card)
+    """The datasets of the current workspace: raster datasets (All and Raster) and mosaic datasets (All and Mosaic,
+    ADR-230). INFERRED: the feature datasets, networks, TINs and topologies grapy holds are not listed here yet, so any
+    other type finds none."""
+    wanted = str(feature_type or "All").upper()
+    found = ListRasters(wild_card) if wanted in ("ALL", "RASTER") else []
+    if wanted in ("ALL", "MOSAIC"):
+        found += [name for name, _ in _entries("mosaic") if _matches(name, wild_card)]
+    return found
 
 
 def ListWorkspaces(wild_card=None, workspace_type=None):

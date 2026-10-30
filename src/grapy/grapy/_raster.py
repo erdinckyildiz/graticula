@@ -98,6 +98,12 @@ class Raster:
             raise ValueError("Raster needs a raster dataset.")
         if is_multidimensional:
             raise NotBuiltError("Raster: is_multidimensional is not built in grapy; its rasters are not multidimensional.")
+        from . import _mosaic
+        if isinstance(inRaster, (str, os.PathLike)) and _mosaic.exists(inRaster):
+            # A mosaic dataset or mosaic layer, read as one raster mosaicked by its method (ADR-230).
+            self._arrays, self._masks, self._grid, self._names = _mosaic.read(inRaster, "Raster")
+            self.catalogPath, self.isTemporary = _mosaic.catalog_path(inRaster), False
+            return
         import rasterio
         path = os.fspath(inRaster)
         if not os.path.isabs(path) and not os.path.exists(path):
