@@ -5,12 +5,18 @@ blob is the GeoPackage binary — a short header, then WKB — which shapely rea
 """
 from __future__ import annotations
 
+import datetime
 import os
 import sqlite3
 import struct
 from dataclasses import dataclass
 
 import shapely
+
+# Dates are written as the sqlite3 module's own default adapter wrote them (ISO 8601, a space before the time),
+# registered explicitly because Python 3.12 deprecated that default: the text grapy stores does not change.
+sqlite3.register_adapter(datetime.datetime, lambda value: value.isoformat(" "))
+sqlite3.register_adapter(datetime.date, lambda value: value.isoformat())
 
 GEOMETRY = "geom"
 OID = "fid"
