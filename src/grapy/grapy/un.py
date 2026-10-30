@@ -6,7 +6,8 @@ ExportSubnetwork, Validate's discovered subnetworks, Is connected) are ``grapy._
 ``grapy._unjson``. Trace is an *equivalent* (ADR-224 §5.6) for Upstream and Downstream, whose direction the pages define
 only as "away from" or "toward" the subnetwork controllers, and for Loops, Path and nearest filtering, which they
 describe by their result; CalculateClusterKeys is one too. The telecom domain network, the error resolution database and
-synthesized geometry are refused by name, each for its own reason.
+synthesized geometry are refused by name, each for its own reason. The network diagram tools are ``grapy.nd``'s, under
+the same names (ADR-232).
 """
 from __future__ import annotations
 
@@ -1504,11 +1505,10 @@ def SetSubnetworkDefinition(in_utility_network, domain_network, tier_name,
     fields, condition and function barriers, propagators and their propagated fields, and the update, container and
     Is dirty options. Disjoint subnetworks are supported by default in a hierarchical tier only, and Is dirty is managed
     by default unless the tier has no controllers. The edit modes are kept and change nothing: grapy writes subnetwork
-    names in place, as WITHOUT_EVENTING does (INFERRED, ADR-231 §5.9 (m)). A diagram template is refused: network
-    diagrams are a model grapy does not hold."""
-    if _rows(diagram_template):
-        raise NotBuiltError(f"arcpy.un.SetSubnetworkDefinition: diagram_template {_DIAGRAMS}.")
-    from . import _unsubnet
+    names in place, as WITHOUT_EVENTING does (INFERRED, ADR-231 §5.9 (m)). The diagram templates named are those
+    UpdateSubnetwork keeps the subnetwork system diagrams of (ADR-232 §5.6)."""
+    from . import _diagram, _unsubnet
+    templates = [str(t).strip("'\"") for t in _rows(diagram_template)]
     with _utility.Network(_path(in_utility_network)) as network:
         network.require_disabled("SetSubnetworkDefinition")
         domain = network.domain(domain_network)
@@ -1583,6 +1583,8 @@ def SetSubnetworkDefinition(in_utility_network, domain_network, tier_name,
                                          "lower(?)", network.name, tier[1]).fetchone())
         found["manage_subnetwork_isdirty"] = _boolean(manage_subnetwork_isdirty, "MANAGE", "NOT_MANAGE",
                                                       "MANAGE" if has_controllers else "NOT_MANAGE")
+        _diagram.ensure(network.connection)
+        found["diagram_template"] = [_diagram.template(network, t)["name"] for t in templates]
         network.q("insert or replace into grapy_un_subnetwork_definition values (?, ?, ?, ?)", network.name, domain[0],
                   tier[1], json.dumps(found))
     return Result(_path(in_utility_network))
@@ -1642,6 +1644,8 @@ def UpdateSubnetwork(in_utility_network, domain_network, tier, all_subnetworks_i
             if not keep_going:
                 raise ExecuteError(reason)
             AddWarning(reason)
+    from .nd import _system_diagrams
+    _system_diagrams(path, found_tier[1], names)
     return Result(path)
 
 
@@ -1994,34 +1998,11 @@ def _aggregate_class(path, shape_word, srid):
 
 # ---- refused by name -----------------------------------------------------------------------------------------------
 
-_DIAGRAMS = ("is a network diagram tool: network diagrams, the schematic views of a utility or trace network, are a "
-             "data model this server does not hold yet (ADR-224 group 2), as arcpy.nd says")
 _RESOLUTIONS = ("works on the error resolution database Analyze Network Data writes — a mobile geodatabase of error, "
                 "feature and candidate-rule tables and a layer file, whose layout the pages do not give beyond an "
                 "ErrorAction field — so grapy cannot write it nor read one without inventing Esri's schema; grapy's "
                 "topology errors are in <network>_DirtyAreas and the associations' ERRORCODE (ADR-231 §5.4)")
 _REASONS = {
-    _DIAGRAMS: (
-        "AddAngleDirectedLayout", "AddCollapseContainerByAttributeRule", "AddCollapseContainerRule",
-        "AddCompressionLayout", "AddConnectivityAssociationsRule", "AddDiagramFeatureCapabilityByAttributeRule",
-        "AddDiagramTemplate", "AddExpandContainerByAttributeRule", "AddExpandContainerRule", "AddForceDirectedLayout",
-        "AddGridLayout", "AddLinearDispatchLayout", "AddMainRingLayout", "AddMainlineTreeLayout",
-        "AddPartialOverlappingEdgesLayout", "AddRadialTreeLayout", "AddReduceEdgeByAttributeRule",
-        "AddReduceJunctionByAttributeRule", "AddReduceJunctionRule", "AddRelativeMainlineLayout",
-        "AddRemoveFeatureByAttributeRule", "AddRemoveFeatureRule", "AddReshapeDiagramEdgesLayout",
-        "AddSetRootJunctionByAttributeRule", "AddSetStartingPointByAttributeRule", "AddSmartTreeLayout",
-        "AddSpatialDispatchLayout", "AddSpatialQueryRule", "AddStartIterationRule", "AddStopIterationRule",
-        "AddStructuralAttachmentsRule",
-        "AddTraceRule", "AlterDiagramProperties", "AlterDiagramTemplate", "AppendToDiagram",
-        "ApplyAngleDirectedLayout", "ApplyCompressionLayout", "ApplyForceDirectedLayout", "ApplyGeoPositionsLayout",
-        "ApplyGridLayout", "ApplyLinearDispatchLayout", "ApplyMainRingLayout", "ApplyMainlineTreeLayout",
-        "ApplyPartialOverlappingEdgesLayout", "ApplyRadialTreeLayout", "ApplyRelativeMainlineLayout",
-        "ApplyRotateTreeLayout", "ApplySmartTreeLayout", "ApplySpatialDispatchLayout", "ApplyTemplateLayouts",
-        "ChangeDiagramsOwner", "CreateDiagram", "CreateDiagramLayerDefinition", "DeleteDiagram",
-        "DeleteDiagramTemplate", "ExportDiagramContent", "ExportDiagramLayerDefinition",
-        "ExportDiagramTemplateDefinitions", "ExtendDiagram", "GetDiagramTemplateNames",
-        "ImportDiagramTemplateDefinitions", "MakeDiagramLayer", "OverwriteDiagram", "PurgeTemporaryDiagrams",
-        "ReshapeDiagramEdgesLayout", "StoreDiagram", "UpdateDiagram"),
     _TELECOM: ("AddTelecomDomainNetwork", "AddColorScheme", "AddColorSet", "AddWavelengthScheme", "DeleteColorScheme",
                "ExportCircuitDefinitions", "ExportCircuits", "ImportCircuitDefinitions", "SetCircuitProperties",
                "SetTelecomObjectCombinePolicy", "SetTelecomObjectDividePolicy", "VerifyCircuits"),
@@ -2035,6 +2016,27 @@ _REASONS = {
     "update-utility-network-schema.html answered 404 (checked 2026-10-30)": ("UpdateUtilityNetworkSchema",),
 }
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
+
+# Network diagrams (ADR-232): arcpy.un holds arcpy.nd's diagram tools under the same names, and refuses the same ones.
+from .nd import REFUSED as _ND_REFUSED  # noqa: E402
+from .nd import (  # noqa: E402,F401 — arcpy.un's own names for them
+    AddAngleDirectedLayout, AddCollapseContainerByAttributeRule, AddCollapseContainerRule, AddCompressionLayout,
+    AddConnectivityAssociationsRule, AddDiagramFeatureCapabilityByAttributeRule, AddDiagramTemplate,
+    AddExpandContainerByAttributeRule, AddExpandContainerRule, AddForceDirectedLayout, AddGridLayout,
+    AddLinearDispatchLayout, AddMainRingLayout, AddMainlineTreeLayout, AddPartialOverlappingEdgesLayout,
+    AddRadialTreeLayout, AddReduceEdgeByAttributeRule, AddReduceJunctionByAttributeRule, AddReduceJunctionRule,
+    AddRemoveFeatureByAttributeRule, AddRemoveFeatureRule, AddReshapeDiagramEdgesLayout,
+    AddSetRootJunctionByAttributeRule, AddSetStartingPointByAttributeRule, AddSmartTreeLayout, AddSpatialDispatchLayout,
+    AddSpatialQueryRule, AddStartIterationRule, AddStopIterationRule, AddStructuralAttachmentsRule, AddTraceRule,
+    AlterDiagramProperties, AlterDiagramTemplate, AppendToDiagram, ApplyAngleDirectedLayout, ApplyCompressionLayout,
+    ApplyForceDirectedLayout, ApplyGeoPositionsLayout, ApplyGridLayout, ApplyLinearDispatchLayout, ApplyMainRingLayout,
+    ApplyMainlineTreeLayout, ApplyPartialOverlappingEdgesLayout, ApplyRadialTreeLayout, ApplySmartTreeLayout,
+    ApplySpatialDispatchLayout, ApplyTemplateLayouts, ChangeDiagramsOwner, CreateDiagram, DeleteDiagram,
+    DeleteDiagramTemplate, ExportDiagramContent, ExportDiagramTemplateDefinitions, ExtendDiagram,
+    GetDiagramTemplateNames, ImportDiagramTemplateDefinitions, MakeDiagramLayer, OverwriteDiagram,
+    PurgeTemporaryDiagrams, ReshapeDiagramEdgesLayout, StoreDiagram, UpdateDiagram)
+
+_REFUSED.update(_ND_REFUSED)
 
 
 def __getattr__(name):
