@@ -94,7 +94,7 @@ class FeatureClassesAndCursors(unittest.TestCase):
         self.assertIn("ADR-224 group 3", str(said.exception))
         self.assertIn("arcpy.ba.GenerateTradeAreaRings", str(said.exception))
         with self.assertRaises(NotImplementedError) as said:
-            arcpy.un.TraceNetwork("network")
+            arcpy.parcel.BuildParcelFabric("fabric")
         self.assertIn("ADR-224 group 2", str(said.exception))
 
     def test_hexagon_bins_count_every_feature(self):
