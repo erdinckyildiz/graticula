@@ -477,7 +477,7 @@ class ManagementMore(unittest.TestCase):
                 getattr(arcpy.management, name)()
             self.assertIn("needs a data model this server does not hold yet (ADR-224 group 2)", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            arcpy.management.ConvertCoordinateNotation()
+            arcpy.management.DetectFeatureChanges()
         self.assertIn("Esri does not document", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.management.StandardizeField()
