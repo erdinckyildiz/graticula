@@ -655,6 +655,8 @@ def Rename(in_data, out_data, data_type=None):
         # A class's attachments, global IDs and subtypes keep with it under its new name (ADR-228).
         _attachments.rename(connection, table, new)
         _subtypes.rename(connection, table, new)
+        from . import _rules
+        _rules.rename(connection, table, new)  # and its attribute rules and contingent values (ADR-235)
         connection.commit()
     finally:
         connection.close()
@@ -4432,9 +4434,10 @@ def _drop_models(connection, table):
     tables and Related Tables mappings) and its place, rules and errors in any topology (ADR-225); its attachment
     table, global IDs, subtypes and defaults go too (ADR-228); a mosaic dataset's rows in grapy's tables go with its
     catalog (ADR-230)."""
-    from . import _attachments, _mosaic, _relationships, _subtypes
+    from . import _attachments, _mosaic, _relationships, _rules, _subtypes
     _attachments.drop(connection, table)
     _subtypes.drop(connection, table)
+    _rules.drop(connection, table)  # its attribute rules, field groups and contingent values (ADR-235)
     _mosaic.drop(connection, table)
     for rc in _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table):
         for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
@@ -7347,3 +7350,70 @@ _REFUSED.update({
     "AddPortalItemsToCatalogDataset": "is not built in grapy: catalog datasets are not held (ADR-230 §5.1), and a fenced "
                                       "tool cannot reach a portal (ADR-223 §5.3)",
 })
+
+
+# ---- attribute rules, contingent values and database sequences (ADR-235) ----------------------------------------------
+#
+# Held in the GeoPackage the tool works on: see grapy._rules, grapy._sequences and grapy._ruletools, where the tools are
+# written. Immediate rules run on every edit made through grapy's cursors; replicas stay refused below.
+
+from . import _ruletools  # noqa: E402
+
+AddAttributeRule = _ruletools.AddAttributeRule
+AlterAttributeRule = _ruletools.AlterAttributeRule
+DeleteAttributeRule = _ruletools.DeleteAttributeRule
+DisableAttributeRules = _ruletools.DisableAttributeRules
+EnableAttributeRules = _ruletools.EnableAttributeRules
+ReorderAttributeRule = _ruletools.ReorderAttributeRule
+ExportAttributeRules = _ruletools.ExportAttributeRules
+ImportAttributeRules = _ruletools.ImportAttributeRules
+EvaluateRules = _ruletools.EvaluateRules
+CreateFieldGroup = _ruletools.CreateFieldGroup
+AlterFieldGroup = _ruletools.AlterFieldGroup
+DeleteFieldGroup = _ruletools.DeleteFieldGroup
+AddContingentValue = _ruletools.AddContingentValue
+RemoveContingentValue = _ruletools.RemoveContingentValue
+ExportContingentValues = _ruletools.ExportContingentValues
+ImportContingentValues = _ruletools.ImportContingentValues
+GenerateContingentValues = _ruletools.GenerateContingentValues
+CreateDatabaseSequence = _ruletools.CreateDatabaseSequence
+DeleteDatabaseSequence = _ruletools.DeleteDatabaseSequence
+for _built in ("AddAttributeRule", "AlterAttributeRule", "DeleteAttributeRule", "DisableAttributeRules",
+               "EnableAttributeRules", "ReorderAttributeRule", "ExportAttributeRules", "ImportAttributeRules",
+               "EvaluateRules", "CreateFieldGroup", "AlterFieldGroup", "DeleteFieldGroup", "AddContingentValue",
+               "RemoveContingentValue", "ExportContingentValues", "ImportContingentValues", "GenerateContingentValues",
+               "CreateDatabaseSequence", "DeleteDatabaseSequence"):
+    _REFUSED.pop(_built, None)
+
+_NO_REPLICA = ("works on a geodatabase replica, which grapy cannot make: CreateReplica replicates data registered as "
+               "traditionally versioned in an enterprise geodatabase and synchronises through its version states, and "
+               "grapy's GeoPackages hold branch versions only (ADR-227, ADR-235 §5.6)")
+_REFUSED.update({
+    "CreateReplica": "replicates data registered as traditionally versioned in an enterprise geodatabase, synchronising "
+                     "through its version states, as documented; grapy's GeoPackages hold branch versions only "
+                     "(ADR-227), and a two-way or child-to-parent replica's child must itself be an enterprise "
+                     "geodatabase (ADR-235 §5.6)",
+    "CreateReplicaFromServer": "makes a replica from a geodata or feature service, which a fenced tool cannot reach "
+                               "(ADR-223 §5.3, ADR-235 §5.6)",
+    "SynchronizeChanges": _NO_REPLICA,
+    "UnregisterReplica": _NO_REPLICA,
+    "CompareReplicaSchema": _NO_REPLICA,
+    "ExportReplicaSchema": _NO_REPLICA,
+    "ImportReplicaSchema": _NO_REPLICA,
+    "ExportAcknowledgementMessage": _NO_REPLICA + "; its message is Esri's replica XML, whose schema is not published",
+    "ExportDataChangeMessage": _NO_REPLICA + "; its message is Esri's replica XML, whose schema is not published",
+    "ImportMessage": _NO_REPLICA + "; its message is Esri's replica XML, whose schema is not published",
+    "ReExportUnacknowledgedMessages": _NO_REPLICA + "; its message is Esri's replica XML, whose schema is not published",
+    "EnableReplicaTracking": "tracks branch-versioned data in an enterprise geodatabase for a feature service's offline "
+                             "replicas, which a GeoPackage and a fenced tool do not have (ADR-235 §5.6)",
+    "DisableReplicaTracking": "tracks branch-versioned data in an enterprise geodatabase for a feature service's "
+                              "offline replicas, which a GeoPackage and a fenced tool do not have (ADR-235 §5.6)",
+    "ExtractDataFromGeodatabase": "writes a geodatabase or Esri's XML workspace document, neither of which grapy "
+                                  "writes; extracting into a GeoPackage is scheduled (ADR-235 §5.6)",
+})
+_GENERATED = ("writes a template rule whose Arcade script is Esri's own and not published; grapy will write a script of "
+              "its own with the behaviour the page documents, as an equivalent (ADR-224 §5.6), in a later batch "
+              "(ADR-235 §5.4)")
+_REFUSED.update({name: _GENERATED for name in (
+    "CalculateGeometryFieldsAttributeRule", "GenerateIDAttributeRule", "GenerateSpatialJoinAttributeRule",
+    "GenerateSymbolRotationAttributeRule", "GenerateUpdateRelatedAttributeRule")})

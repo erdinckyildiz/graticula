@@ -212,6 +212,20 @@ class _Cursor:
             self._plan = _subtypes.InsertPlan(self._connection, self._table)
         return self._plan.apply(values) if self._plan else values
 
+    def _rules(self):
+        """The table's immediate attribute rules and restrictive field groups (ADR-235), run on each edit; None when it
+        has neither."""
+        if not hasattr(self, "_engine"):
+            from . import _rules
+            found = _rules.engine(self._connection, self._table)
+            self._engine = found if found.active else None
+        return self._engine
+
+    def _full_row(self, oid):
+        cursor = self._connection.execute(f'select * from "{self._table}" where "{self._oid}" = ?', (oid,))
+        found = cursor.fetchone()
+        return dict(zip([d[0] for d in cursor.description], found)) if found is not None else None
+
     def _select(self):
         out = []
         for f in self.fields:
@@ -423,9 +437,14 @@ class InsertCursor(_Cursor):
             from . import _versions
             branch, _ = self._writable_version()
             object_id = _versions.reserve_id(self._connection, self._table)
-            _versions.write(self._connection, self._table, branch, object_id, self._defaults(self._row_values(row)))
+            written = self._defaults(self._row_values(row))
+            if self._rules() is not None:
+                written = self._rules().insert(written)
+            _versions.write(self._connection, self._table, branch, object_id, written)
             return object_id
         written = self._defaults(self._row_values(row))
+        if self._rules() is not None:
+            written = self._rules().insert(written)
         names, values = list(written), list(written.values())
         quoted = ", ".join('"' + n + '"' for n in names)
         marks = ", ".join("?" for _ in names)
@@ -461,7 +480,10 @@ class UpdateCursor(SearchCursor):
             from . import _versions
             branch, base = self._writable_version()
             current = _versions.current_row(self._connection, self._table, branch, base, oid)
+            original = dict(current)
             current.update(self._row_values(row))
+            if self._rules() is not None:
+                current = self._rules().update(original, current)
             _versions.write(self._connection, self._table, branch, oid, current)
             return
         names, values = [], []
@@ -487,6 +509,17 @@ class UpdateCursor(SearchCursor):
                 values.append(value)
         if not names:
             return
+        if self._rules() is not None and self._joined is None:
+            # Attribute rules see the whole row as it was and as it will be, and may change it (ADR-235).
+            original = self._full_row(oid)
+            proposed = dict(original)
+            for name, value in zip(names, values):
+                proposed[next((k for k in proposed if k.lower() == name.lower()), name)] = value
+            proposed = self._rules().update(original, proposed)
+            names = [k for k in proposed if k != self._oid and proposed[k] != original.get(k)]
+            values = [proposed[k] for k in names]
+            if not names:
+                return
         assignments = ", ".join(f'"{n}" = ?' for n in names)
         self._connection.execute(f'update "{self._table}" set {assignments} where "{self._oid}" = ?', [*values, oid])
 
@@ -496,8 +529,12 @@ class UpdateCursor(SearchCursor):
             branch, base = self._writable_version()
             oid = self._rows[self._at][0]
             current = _versions.current_row(self._connection, self._table, branch, base, oid)
+            if self._rules() is not None:
+                self._rules().delete(current)
             _versions.write(self._connection, self._table, branch, oid, current, deleted=True)
             return
+        if self._rules() is not None:
+            self._rules().delete(self._full_row(self._rows[self._at][0]))
         # A composite relationship class deletes the row's destination rows with it (ADR-225, grapy._relationships).
         from . import _relationships
         _relationships.cascade(self._connection, self._table, [self._rows[self._at][0]])
@@ -1029,7 +1066,7 @@ class Editor:
         return False
 
 
-_NO_MODEL = "a GeoPackage holds no replicas, contingent values or database sequences (ADR-224 group 2)"
+_NO_MODEL = "a GeoPackage holds no geodatabase replicas (ADR-235 §5.6)"
 _REFUSED = {name: _NO_MODEL for name in (
     "ListReplicas", "Replica", "SyncReplica", "ContingentFieldValue",
     "ContingentValue", "ListContingentValues", "DatabaseSequence", "ListDatabaseSequences",
@@ -1212,3 +1249,18 @@ def ListSubtypes(table):
     field, default_code = found
     return {code: {"Code": code, "Name": label, "Default": code == default_code, "SubtypeField": field,
                    "FieldValues": values(code)} for code, label in codes.items()}
+
+
+# ---- contingent values and database sequences (ADR-235) -----------------------------------------------------------
+
+from . import _ruletools  # noqa: E402
+
+ContingentFieldValue = _ruletools.ContingentFieldValue
+ContingentValue = _ruletools.ContingentValue
+ListContingentValues = _ruletools.ListContingentValues
+DatabaseSequence = _ruletools.DatabaseSequence
+ListDatabaseSequences = _ruletools.ListDatabaseSequences
+
+_NO_REPLICAS = ("a GeoPackage holds no geodatabase replicas: CreateReplica needs data registered as traditionally "
+                "versioned in an enterprise geodatabase, and grapy holds branch versions only (ADR-235 §5.6)")
+_REFUSED.update({name: _NO_REPLICAS for name in ("ListReplicas", "Replica", "SyncReplica")})

@@ -85,6 +85,8 @@ class _Described:
             joined = _joined_fields(path, connection, table, oid, geometry)
             has_z, has_m = _gpkg.dimensions(connection, table)
             model = _model_properties(connection, table)
+            from . import _rules
+            rules = _rules.rules(connection, table)  # Describe's attributeRules (ADR-235)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -112,6 +114,7 @@ class _Described:
         self.globalIDFieldName = global_id or ""
         self.hasGlobalID = bool(global_id)
         self.relationshipClassNames = relationships
+        self.attributeRules = rules
         if joined is not None:
             own = f"{table}.".lower()
             for field in joined:
