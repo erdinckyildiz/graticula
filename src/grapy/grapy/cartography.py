@@ -601,6 +601,65 @@ def CollapseDualLinesToCenterline(in_features, out_feature_class, maximum_width,
     return Result(out)
 
 
+@_equivalent("greedy graph colouring in Welsh and Powell's largest-degree-first order, each feature given the least-used "
+             "colour its neighbours leave free", "Welsh and Powell 1967")
+def CalculateColorTheoremField(in_features, field_name):
+    """EQUIVALENT: the documentation states the adjacency and that the tool "will attempt to equalize the number of
+    instances of each unique value", but not how values are chosen, so this is Welsh and Powell's (1967) greedy colouring.
+    Polygons are taken in descending order of their number of neighbours (ties by object id); each takes, among the
+    values 1, 2, … already in use that no neighbour holds, the one used least so far (the lowest on a tie), and a new
+    value only when none is free. The result has no two adjacent polygons with one value, as documented, but may use
+    more values than the fewest possible, and its values will differ from Pro's.
+
+    Adjacent, as documented: two polygons that share a border segment or overlap; touching at a single vertex is not.
+    The field is created as a short integer when missing; an existing field must be an integer field, and is overwritten.
+
+    INFERRED: "separated by a small amount of empty space" is not measured — no tolerance is given — so polygons that do
+    not touch are never adjacent. A multipart polygon is one feature and takes one value, as documented.
+    """
+    from shapely.strtree import STRtree
+    tool = "CalculateColorTheoremField"
+    columns, kind, _, _ = _schema(in_features)
+    if kind not in ("Polygon", "MultiPolygon"):
+        raise ValueError(f"arcpy.cartography.{tool} takes polygon features only.")
+    existing = {c.name.lower(): c for c in columns}
+    if field_name.lower() in existing:
+        if existing[field_name.lower()].type not in ("SmallInteger", "Integer", "BigInteger", "Short", "Long"):
+            raise ValueError(f"arcpy.cartography.{tool}: '{field_name}' must be a short, long or big integer field.")
+        field = existing[field_name.lower()].name
+    else:
+        _gpkg.add_column(in_features, _gpkg.Column(field_name, "SmallInteger"))
+        field = field_name
+    with da.SearchCursor(in_features, ["OID@", "SHAPE@"]) as rows:
+        features = [(row[0], row[1]._shape) for row in rows if row[1] is not None and not row[1]._shape.is_empty]
+    shapes = [s for _, s in features]
+    tree = STRtree(shapes)
+    neighbours = [set() for _ in features]
+    for i, shape in enumerate(shapes):
+        for j in tree.query(shape, predicate="intersects"):
+            j = int(j)
+            if j == i:
+                continue
+            shared = shape.intersection(shapes[j])
+            if shared.length > 0 or shared.area > 0:
+                neighbours[i].add(j)
+                neighbours[j].add(i)
+    order = sorted(range(len(features)), key=lambda i: (-len(neighbours[i]), features[i][0]))
+    value = [0] * len(features)
+    used: dict = {}
+    for i in order:
+        taken = {value[j] for j in neighbours[i] if value[j]}
+        free = [v for v in sorted(used) if v not in taken]
+        chosen = min(free, key=lambda v: (used[v], v)) if free else len(used) + 1
+        value[i] = chosen
+        used[chosen] = used.get(chosen, 0) + 1
+    by_oid = {features[i][0]: value[i] for i in range(len(features))}
+    with da.UpdateCursor(in_features, ["OID@", field]) as rows:
+        for row in rows:
+            rows.updateRow((row[0], by_oid.get(row[0])))
+    return Result(in_features)
+
+
 _REFUSED = {
     "SmoothLine": "PAEK's kernel is described by its paper, not specified, and Bezier interpolation writes true curves a "
                   "GeoPackage cannot hold",
@@ -628,7 +687,7 @@ _REFUSED.update({name: "control points are vertex flags of a geodatabase geometr
                                                 "SetControlPointByAngle")})
 _REFUSED.update({name: _OUTLINE for name in (
     "CollapseHydroPolygon", "CollapseRoadDetail", "MergeDividedRoads", "ThinRoadNetwork", "CreateCartographicPartitions",
-    "GenerateContiguousCartogram", "GenerateHachuresForDefinedSlopes", "CalculateColorTheoremField",
+    "GenerateContiguousCartogram", "GenerateHachuresForDefinedSlopes",
     "StripMapIndexFeatures")})
 _REFUSED.update({name: _PE_STRING for name in ("CalculateUTMZone", "CalculateCentralMeridianAndParallels")})
 _REFUSED.update({

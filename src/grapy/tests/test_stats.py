@@ -1008,6 +1008,55 @@ class Stats(unittest.TestCase):
         self.assertEqual(choose(statistic, {**everything, "LM_SARMA": 0.2}), "LAG")
         self.assertIn("Kelejian", stats.SAR.__grapy_equivalent__)
 
+    def test_dimension_reduction_by_principal_components(self):
+        # a = 1, 2, 3, 4 and b = 2, 4, 6, 8: scaled (sd √(5/3) and 2√(5/3)), both become z = (−1.5, −.5, .5, 1.5)/√(5/3).
+        # Their correlation matrix [[1, 1], [1, 1]] has eigenvalues 2 and 0; the first eigenvector (1, 1)/√2, so
+        # PC_1 = √2·z, and it keeps 100 percent of the variance.
+        path = self.table("dr", [("a", "DOUBLE"), ("b", "DOUBLE")], [(1.0, 2.0), (2.0, 4.0), (3.0, 6.0), (4.0, 8.0)])
+        result = stats.DimensionReduction(path, self.out("dr_out"), ["a", "b"], min_components=1,
+                                          output_eigenvalues_table=self.out("dr_values"),
+                                          output_eigenvectors_table=self.out("dr_vectors"))
+        sd = math.sqrt(5 / 3)
+        for (value,), z in zip(self.rows(result.getOutput(0), ["PC_1"]), [-1.5, -0.5, 0.5, 1.5]):
+            self.assertAlmostEqual(value, math.sqrt(2) * z / sd)
+        values = self.rows(result.getOutput(1), ["EIGENVALUE", "PCT_VAR"])
+        self.assertAlmostEqual(values[0][0], 2.0)
+        self.assertAlmostEqual(values[0][1], 100.0)
+        self.assertAlmostEqual(values[1][0], 0.0)
+        vectors = self.rows(result.getOutput(2), ["FIELD", "PC_1"])
+        self.assertAlmostEqual(vectors[0][1], 1 / math.sqrt(2))
+        # Unscaled, a = 1, 2, 3, 4 (variance 5/3) and b = 1, −1, −1, 1 (variance 4/3), whose deviations are orthogonal:
+        # the covariance is diag(5/3, 4/3), so the first component keeps 5/9 ≈ 56 percent — 50 percent needs one
+        # component and 90 percent both.
+        other = self.table("dr2", [("a", "DOUBLE"), ("b", "DOUBLE")], [(1.0, 1.0), (2.0, -1.0), (3.0, -1.0), (4.0, 1.0)])
+        two = stats.DimensionReduction(other, self.out("dr2_out"), "a;b", "PCA", "NO_SCALE_DATA", min_variance=90,
+                                       output_eigenvalues_table=self.out("dr2_v"))
+        self.assertEqual(len(self.rows(two.getOutput(0), ["PC_1", "PC_2"])[0]), 2)
+        self.assertAlmostEqual(self.rows(two.getOutput(1), ["EIGENVALUE"])[0][0], 5 / 3)
+        one = stats.DimensionReduction(other, self.out("dr3_out"), "a;b", "PCA", "NO_SCALE_DATA", min_variance=50)
+        self.assertNotIn("PC_2", [f.name for f in arcpy.ListFields(one.getOutput(0))])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "LDA"):
+            stats.DimensionReduction(other, self.out("x"), "a;b", "LDA", min_components=1)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "min_components"):
+            stats.DimensionReduction(other, self.out("x"), "a;b")
+
+    def test_decompose_spatial_structure_into_moran_eigenvectors(self):
+        # Two pairs far apart, (0,0)–(1,0) and (100,0)–(101,0); the default band, 1, joins each pair: W = A, the block
+        # matrix of two edges, S₀ = 4. Every row sums to 1, so HWH = A − J/4. (1, 1, −1, −1) is an eigenvector with
+        # eigenvalue 1 (J kills it); (1, −1, 0, 0) and (0, 0, 1, −1) have −1; the constant vector 0. One component
+        # has a positive Moran's I, (n/S₀)·1 = 1: (1, 1, −1, −1)/2, its first entry made positive.
+        path = self.points("mem", [(0, 0), (1, 0), (100, 0), (101, 0)])
+        from grapy import _runtime
+        _runtime.MESSAGES.clear()
+        out = stats.DecomposeSpatialStructure(path, self.out("mem_out"), "NO_APPEND")
+        rows = self.rows(out.getOutput(0), ["SPCOMP_1"])
+        for (value,), want in zip(rows, [0.5, 0.5, -0.5, -0.5]):
+            self.assertAlmostEqual(value, want)
+        self.assertNotIn("SPCOMP_2", [f.name for f in arcpy.ListFields(out.getOutput(0))])
+        self.assertAlmostEqual(float(_runtime.GetMessages().split("Moran's I ")[1].split(",")[0]), 1.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "out_swm"):
+            stats.DecomposeSpatialStructure(path, self.out("x"), out_swm="a.swm")
+
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):
             stats.GenerateSpatialWeightsMatrix("x")

@@ -152,6 +152,24 @@ class Cartography(unittest.TestCase):
                 rows.insertRow((arcpy.Polygon(arcpy.Array([arcpy.Point(*xy) for xy in ring]), 3857),))
         return path
 
+    def test_color_theorem_field_by_greedy_colouring(self):
+        # Four unit squares in a row, A B C D: degrees 1, 2, 2, 1. Welsh–Powell order, ties by object id: B, C, A, D.
+        # B takes 1; C (next to B) has none free, takes 2; A (next to B) takes the free 2; D (next to C) takes 1.
+        row = [[(x, 0), (x + 10, 0), (x + 10, 10), (x, 10)] for x in (0, 10, 20, 30)]
+        path = self.polygons("row", row)
+        cartography.CalculateColorTheoremField(path, "color")
+        with arcpy.da.SearchCursor(path, ["color"]) as rows:
+            self.assertEqual([r[0] for r in rows], [2, 1, 2, 1])
+        # A 2 × 2 grid: diagonal squares touch at one vertex only and are not adjacent, so two values suffice, the
+        # diagonals sharing one. All have degree 2; order by id: 1 → 1, 2 (next to 1) → 2, 3 (next to 1) → 2,
+        # 4 (next to 2 and 3) → 1.
+        grid = [[(x, y), (x + 10, y), (x + 10, y + 10), (x, y + 10)] for y in (0, 10) for x in (0, 10)]
+        path = self.polygons("grid", grid)
+        cartography.CalculateColorTheoremField(path, "color")
+        with arcpy.da.SearchCursor(path, ["color"]) as rows:
+            self.assertEqual([r[0] for r in rows], [1, 2, 2, 1])
+        self.assertIn("Welsh", cartography.CalculateColorTheoremField.__grapy_equivalent__)
+
     def test_aggregate_polygons_bridges_gaps_narrower_than_the_distance(self):
         # Squares [0,10]² and [14,24]×[0,10] are 4 apart: at 5 they join (the bridge holds (12, 5)), at 3 they do not.
         path = self.polygons("sq", [[(0, 0), (10, 0), (10, 10), (0, 10)], [(14, 0), (24, 0), (24, 10), (14, 10)]])

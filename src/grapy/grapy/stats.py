@@ -3591,6 +3591,209 @@ def SAR(in_features, dependent_variable, explanatory_variables, out_features, mo
     return Result(out)
 
 
+# ---- Utilities: Dimension Reduction -------------------------------------------------------------------------------
+
+@_equivalent("principal component analysis by the eigendecomposition of the sample covariance (or correlation) matrix",
+             "James, Witten, Hastie and Tibshirani, An Introduction to Statistical Learning, 2014, §10.2; Jolliffe, "
+             "Principal Component Analysis, 2nd ed., 2002")
+def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", scale="SCALE_DATA", categorical_field=None,
+                       min_variance=None, min_components=None, append_fields="NO_APPEND", output_eigenvalues_table=None,
+                       output_eigenvectors_table=None, number_of_permutations=0, append_to_input="NEW_OUTPUT"):
+    """EQUIVALENT: "How Dimension Reduction works" names PCA and refers to James et al. (2014) for it; its exact output
+    is not given, so this is the textbook's. Each field is centred and, with SCALE_DATA (the default), divided by its
+    standard deviation; the components are the eigenvectors of the resulting covariance matrix, in descending order of
+    eigenvalue, each of unit norm, and a record's component value is its centred (scaled) values times the eigenvector.
+    The percent of variance of component i is ``100·d_i/Σd``. The number of components is, as documented, the smallest
+    that reaches min_components, or min_variance percent, or the larger of the two when both are given.
+
+    Refused: LDA (the scaling of its eigenvalues, from which its percent variances are read, is not given); and neither
+    min_variance nor min_components (the tool then takes the largest of several stopping rules whose combination is
+    named but not specified), with which number_of_permutations does nothing.
+
+    INFERRED: the standard deviation and covariance divide by n − 1; an eigenvector's sign makes its largest-magnitude
+    loading positive; the components are PC_1, PC_2, …; the output holds the analysis fields (all fields with APPEND)
+    and the components; the eigenvalues table has COMPONENT, EIGENVALUE, PCT_VAR and CUM_VAR, and the eigenvectors
+    table FIELD and one column per component; records with a null analysis value get null components and are left out
+    of the fit.
+    """
+    import numpy as np
+    tool = "DimensionReduction"
+    if _keyword(method or "PCA") == "LDA":
+        _refuse(tool, "method", "LDA", "the scaling of its eigenvalues, from which its percent variances are read, is not "
+                "given")
+    if _keyword(method or "PCA") != "PCA":
+        raise ValueError(f"arcpy.stats.{tool}: method '{method}' is neither PCA nor LDA.")
+    if not _given(min_variance) and not _given(min_components):
+        _refuse(tool, "min_components", "(empty)", "with neither minimum the tool combines stopping rules whose "
+                "combination is named but not specified; give min_components or min_variance")
+    names = [f for f in _list(fields) if _given(f)]
+    if len(names) < 2:
+        raise ValueError(f"arcpy.stats.{tool}: fields needs two analysis fields or more.")
+    records, columns, kind, srid = _rows_with_oids(tool, in_table, names)
+    by_name = {c.name.lower(): c for c in columns}
+    complete = [r for r in records if all(r[1][f.lower()] is not None for f in names)]
+    if len(complete) <= len(names):
+        raise ValueError(f"arcpy.stats.{tool} needs more complete records than fields.")
+    data = np.array([[float(r[1][f.lower()]) for f in names] for r in complete])
+    centred = data - data.mean(axis=0)
+    if _keyword(scale or "SCALE_DATA") in ("SCALE_DATA", "TRUE") or scale is True:
+        deviation = data.std(axis=0, ddof=1)
+        if (deviation == 0).any():
+            raise ValueError(f"arcpy.stats.{tool}: a constant field cannot be scaled.")
+        centred = centred / deviation
+    covariance = centred.T @ centred / (len(complete) - 1)
+    values, vectors = np.linalg.eigh(covariance)
+    order = np.argsort(values)[::-1]
+    values, vectors = np.clip(values[order], 0, None), vectors[:, order]
+    for c in range(vectors.shape[1]):
+        if vectors[np.argmax(np.abs(vectors[:, c])), c] < 0:
+            vectors[:, c] = -vectors[:, c]
+    percent = 100 * values / values.sum()
+    cumulative = np.cumsum(percent)
+    wanted = int(min_components) if _given(min_components) else 1
+    if _given(min_variance):
+        reach = int(np.searchsorted(cumulative, float(min_variance) - 1e-9) + 1)
+        wanted = max(wanted, min(reach, len(names)))
+    if not 1 <= wanted <= len(names):
+        raise ValueError(f"arcpy.stats.{tool}: min_components must be between 1 and {len(names)}.")
+    scores = centred @ vectors[:, :wanted]
+    component_columns = [_gpkg.Column(f"PC_{c + 1}", "Double") for c in range(wanted)]
+    position = {r[0]: i for i, r in enumerate(complete)}
+    results = {r[0]: ([float(v) for v in scores[position[r[0]]]] if r[0] in position else [None] * wanted)
+               for r in records}
+    append = _wants_append(append_to_input, ("APPEND_TO_INPUT", "TRUE"))
+    if append:
+        target = _appended(tool, in_table, True, None, component_columns, results)
+    else:
+        if not _given(output_data):
+            raise ValueError(f"arcpy.stats.{tool}: output_data is needed when the components are not appended.")
+        everything = _keyword(append_fields) in ("APPEND", "TRUE") or append_fields is True
+        kept = list(columns) if everything else [by_name[f.lower()] for f in names]
+        target = _out(output_data)
+        shape_kind, shape_srid = (kind, srid) if not (kind == "Geometry" and srid == 0) else ("Geometry", 0)
+        _gpkg.create(target, shape_kind, shape_srid, [*kept, *component_columns])
+        kept_names = [c.name for c in kept]
+        with da.SearchCursor(in_table, ["OID@", *kept_names, "SHAPE@"]) as rows, \
+                da.InsertCursor(target, [*kept_names, *[c.name for c in component_columns], "SHAPE@"]) as written:
+            for row in rows:
+                written.insertRow((*row[1:-1], *results[row[0]], row[-1]))
+    outputs = [target]
+    if _given(output_eigenvalues_table):
+        outputs.append(_write_table(output_eigenvalues_table,
+                                    [_gpkg.Column("COMPONENT", "Integer"), _gpkg.Column("EIGENVALUE", "Double"),
+                                     _gpkg.Column("PCT_VAR", "Double"), _gpkg.Column("CUM_VAR", "Double")],
+                                    [(c + 1, float(values[c]), float(percent[c]), float(cumulative[c]))
+                                     for c in range(len(names))]))
+    if _given(output_eigenvectors_table):
+        outputs.append(_write_table(output_eigenvectors_table,
+                                    [_gpkg.Column("FIELD", "String"),
+                                     *[_gpkg.Column(f"PC_{c + 1}", "Double") for c in range(len(names))]],
+                                    [(by_name[f.lower()].name, *[float(v) for v in vectors[i]])
+                                     for i, f in enumerate(names)]))
+    return Result(*outputs)
+
+
+# ---- Spatial Component Utilities: Decompose Spatial Structure ------------------------------------------------------
+
+@_equivalent("Moran eigenvector maps: the eigenvectors of the doubly centred, symmetric spatial weights matrix",
+             "Griffith 1996; Dray, Legendre and Peres-Neto 2006")
+def DecomposeSpatialStructure(in_features, out_features, append_all_fields="APPEND_ALL", min_autocorrelation=0.25,
+                              max_components=15, neighborhood_type=None, distance_band=None, number_of_neighbors=None,
+                              weights_matrix_file=None, local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None,
+                              out_swm=None, id_field=None):
+    """EQUIVALENT: Esri's page on Moran eigenvectors answers 404, so the components are the literature's Moran eigenvector
+    maps (Griffith 1996; Dray, Legendre and Peres-Neto 2006). With W the weights made symmetric, ``(W + W')/2``, and
+    ``H = I − 11'/n``, the components are the eigenvectors of ``HWH`` of unit length, and component k's Moran's I is
+    ``(n/S₀)·λ_k``, S₀ the sum of the weights. As documented, they are ordered from the largest Moran's I down, and
+    included while there are fewer than max_components and the next one's Moran's I is at least min_autocorrelation
+    times the first's; a component with a Moran's I of 0 or less is never included. Each one's Moran's I and its
+    normal-approximation p-value (as Spatial Autocorrelation computes them) are written as messages.
+
+    Neighbourhoods as the Modeling Spatial Relationships tools build them (DISTANCE_BAND the default for points, at most
+    1,000 neighbours; NUMBER_OF_NEIGHBORS, 8 by default; the contiguities, CONTIGUITY_EDGES_CORNERS the default for
+    polygons; DELAUNAY_TRIANGULATION), with BISQUARE or GAUSSIAN kernels at kernel_bandwidth or, when not given, each
+    feature's farthest neighbour. Refused: GET_SPATIAL_WEIGHTS_FROM_FILE and out_swm (the .swm layout is not published);
+    an included component whose eigenvalue is repeated (it is then not unique, and any rotation of the pair would do).
+
+    INFERRED: the weights are not row standardized (Moran eigenvector maps are defined on the symmetric matrix); the
+    fields are SPCOMP_1, SPCOMP_2, …; a component's sign makes its first entry that is not zero positive.
+    """
+    import numpy as np
+    from ._runtime import AddMessage
+    tool = "DecomposeSpatialStructure"
+    if _given(out_swm):
+        _refuse(tool, "out_swm", out_swm, "the .swm layout is not published")
+    features, columns, kind, srid = _features(tool, in_features)
+    n = len(features)
+    if n < 3:
+        raise ValueError(f"arcpy.stats.{tool} needs three features or more.")
+    kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else (
+        "CONTIGUITY_EDGES_CORNERS" if kind == "Polygon" else "DISTANCE_BAND")
+    k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+    neighbours, d, _ = _neighbourhoods(tool, features, kind, srid, kind_of, distance_band, k, cap=1000)
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
+    if scheme not in ("UNWEIGHTED", "BISQUARE", "GAUSSIAN"):
+        raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme '{local_weighting_scheme}' is not one the tool "
+                         "takes.")
+    w = np.zeros((n, n))
+    for i in range(n):
+        if not neighbours[i]:
+            continue
+        b = _threshold(kernel_bandwidth, srid) if _given(kernel_bandwidth) else max(d[i, j] for j in neighbours[i])
+        if scheme == "BISQUARE" and any(d[i, j] > b for j in neighbours[i]):
+            _refuse(tool, "kernel_bandwidth", kernel_bandwidth, "a neighbour lies beyond it, where the bisquare formula "
+                    "as written turns positive again")
+        for j in neighbours[i]:
+            w[i, j] = _kernel(scheme, d[i, j], b)
+    w = (w + w.T) / 2
+    s0 = float(w.sum())
+    if s0 <= 0:
+        raise ValueError(f"arcpy.stats.{tool}: no feature has a neighbour.")
+    centring = np.eye(n) - np.full((n, n), 1 / n)
+    values, vectors = np.linalg.eigh(centring @ w @ centring)
+    order = np.argsort(values)[::-1]
+    values, vectors = values[order], vectors[:, order]
+    morans = n / s0 * values
+    limit = int(max_components) if _given(max_components) else 15
+    share = float(min_autocorrelation) if _given(min_autocorrelation) else 0.25
+    if not 0 <= share <= 1:
+        raise ValueError(f"arcpy.stats.{tool}: min_autocorrelation must be between 0 and 1.")
+    scale = max(1.0, float(np.abs(values).max()))
+    kept = []
+    for c in range(n):
+        if len(kept) >= limit or morans[c] <= 1e-12 * scale or morans[c] < share * morans[0] - 1e-12 * scale:
+            break
+        kept.append(c)
+    for c in kept:
+        if any(abs(values[c] - values[o]) <= 1e-9 * scale for o in range(n) if o != c):
+            _refuse(tool, "max_components", limit, f"component {c + 1}'s eigenvalue is repeated, so the component is not "
+                    "unique")
+        first = next(i for i in range(n) if abs(vectors[i, c]) > 1e-9)
+        if vectors[first, c] < 0:
+            vectors[:, c] = -vectors[:, c]
+    for position, c in enumerate(kept, start=1):
+        try:
+            _, _, _, z = _moran(vectors[:, c], w)
+            AddMessage(f"SPCOMP_{position}: Moran's I {float(morans[c])}, p-value {_p(z)}")
+        except ValueError:
+            AddMessage(f"SPCOMP_{position}: Moran's I {float(morans[c])}")
+    keep_all = append_all_fields is True or _keyword(append_all_fields) in ("APPEND_ALL", "TRUE")
+    kept_columns = list(columns) if keep_all else []
+    new_columns = [_gpkg.Column(f"SPCOMP_{p}", "Double") for p in range(1, len(kept) + 1)]
+    out = _out(out_features)
+    _gpkg.create(out, kind, srid, [*kept_columns, *new_columns])
+    names = [c.name for c in kept_columns]
+    position = {f[0]: i for i, f in enumerate(features)}
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*names, *[c.name for c in new_columns], "SHAPE@"]) as written:
+        for row in rows:
+            i = position.get(row[0])
+            if i is None:
+                continue
+            written.insertRow((*row[1:-1], *[float(vectors[i, c]) for c in kept], row[-1]))
+    return Result(out)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -3707,7 +3910,7 @@ _REFUSED.update({name: _RANDOM for name in (
     "AttributeUncertainty", "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData",
     "PresenceOnlyPrediction", "LocalBivariateRelationships", "BuildBalancedZones")})
 _REFUSED.update({name: _SWM for name in (
-    "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations", "DecomposeSpatialStructure",
+    "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations",
     "CreateSpatialComponentExplanatoryVariables", "FilterSpatialAutocorrelationFromField")})
 _REFUSED.update({name: _SSM for name in (
     "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
@@ -3720,7 +3923,6 @@ _REFUSED.update({
     "CalculateAreas": "its page is retired (404), so its output field cannot be checked; "
                       "management.CalculateGeometryAttributes does its work",
     "GroupingAnalysis": "it was retired for Multivariate Clustering, whose seeds are random",
-    "DimensionReduction": "its page answers 404, so its components and output fields cannot be checked",
     "EvaluateBinSizes": "its page answers 404, so its recommendation cannot be checked",
     "HotSpotAnalysisComparison": "its page answers 404, so its similarity measures cannot be checked",
 })
