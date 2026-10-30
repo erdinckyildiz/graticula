@@ -68,7 +68,7 @@ network too large for them fails by those limits, by name.
 4. Each solver is marked `_runtime.equivalent("Dijkstra's shortest path …", "Dijkstra 1959")` (ADR-224 §5.6).
 5. `arcpy.nax`'s object API (`nax.MakeNetworkDatasetLayer`, `nax.Route` …) is built over the same model as the
    `arcpy.na` tools.
-6. **INFERRED, for confirmation:** the table layout, Dijkstra as the equivalent for every path solver, and refusing
+6. ~~**INFERRED, for confirmation:**~~ **Confirmed 2026-10-30 by owner decision in Q-195** (*"Hepsi kalsın"*): the table layout, Dijkstra as the equivalent for every path solver, and refusing
    hierarchy and turns at first.
 
 ## 6. Consequences

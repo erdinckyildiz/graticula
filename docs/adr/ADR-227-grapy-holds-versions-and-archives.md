@@ -62,7 +62,7 @@ ReconcileVersions and PostVersion references). Conflict detection by object and 
 3. ReconcileVersions with the documented conflict definitions (by object, by attribute) and resolutions (favour
    edit version, favour target), then PostVersion.
 4. Traditional versioning, replicas and enterprise administration stay refused, by name.
-5. **INFERRED, for confirmation:** branch-only, the column names, and a version being a row in `grapy_versions`.
+5. ~~**INFERRED, for confirmation:**~~ **Confirmed 2026-10-30 by owner decision in Q-195** (*"Hepsi kalsın"*): branch-only, the column names, and a version being a row in `grapy_versions`.
 
 ## 6. Consequences
 

@@ -69,6 +69,8 @@ class ZM(unittest.TestCase):
         self.assertEqual(second.lastPoint.Z, 0.0)
         # The 2D length is unchanged by z: 50.
         self.assertEqual(first.length, 50.0)
+        described = arcpy.Describe(path)
+        self.assertEqual((described.hasZ, described.hasM), (True, False))
 
     def test_m_and_zm_points_and_the_tokens(self):
         path = self.make("pts", "POINT", has_z="ENABLED", has_m="ENABLED")

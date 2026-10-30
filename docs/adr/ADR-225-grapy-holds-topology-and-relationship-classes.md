@@ -71,7 +71,7 @@ published on the CreateRelationshipClass page. No benchmark is at stake: a user 
    lowest-ranked class's vertex, ties by object id. It is marked as an equivalent and says so in its run.
 4. Relationship classes honour cardinality, composite deletes, and `da.SearchRelatedRecords`. Attributed
    relationships keep their attributes in the many-to-many table.
-5. **INFERRED, for confirmation:** the table names and columns, writing to both stores, and the clustering rule.
+5. ~~**INFERRED, for confirmation:**~~ **Confirmed 2026-10-30 by owner decision in Q-195** (*"Hepsi kalsın"*): the table names and columns, writing to both stores, and the clustering rule.
 
 ## 6. Consequences
 
