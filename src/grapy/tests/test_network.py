@@ -237,6 +237,35 @@ class Network(unittest.TestCase):
         self.assertEqual(mappings["Name"].mappedFieldName, "Name")
         self.assertIsNone(mappings["RouteName"].mappedFieldName)
 
+    def test_describe_and_the_network_dataset_query_api(self):
+        na.BuildNetwork(self.network)
+        described = arcpy.Describe(self.network)
+        self.assertEqual((described.dataType, described.defaultTravelModeName, described.supportsTurns,
+                          described.trafficSupportType), ("NetworkDataset", "Length", False, "NONE"))
+        self.assertEqual([(s.name, s.sourceID, s.sourceType) for s in described.sources],
+                         [("roads", 1, "EdgeFeature"), ("streets_Junctions", 2, "SystemJunction")])
+        self.assertEqual([(a.name, a.usageType, a.units) for a in described.attributes], [("Length", "Cost", "Meters")])
+        network = nax.NetworkDataset(self.network)
+        self.assertEqual((network.edgeCount, network.junctionCount, network.turnCount, network.isBuilt), (6, 7, 0, True))
+        self.assertIsNotNone(network.buildTimestamp)
+        self.assertTrue(network.getDataSourceFromSourceID(1).endswith("transport/roads"))
+        # Junctions are numbered as the ends are met: AB gives 1 (0,0) and 2 (10,0); BC 3 (20,0); BD 4 (10,10) …
+        with network.edges(["EID", "SOURCEOID", "DIRECTION", "FROMJUNCTION", "TOJUNCTION", "COST"], eids=[1],
+                           travel_mode="Length") as edges:
+            self.assertEqual(list(edges), [(1, 1, True, 1, 2, 10.0), (1, 1, False, 2, 1, 10.0)])
+        self.assertEqual(list(network.edges("EID", "Length", eids=[3])), [(3, 10.0), (3, 10.0)])
+        self.assertEqual(list(network.junctions(["EID", "SOURCEID"], eids=[1, 4])), [(1, 2), (4, 2)])
+        with self.assertRaises(ValueError):
+            network.edges("COST")                                    # a cost needs a travel mode
+        with self.assertRaises(arcpy.NotBuiltError):
+            network.turns()
+        area = arcpy.management.CreateFeatureclass(self.directory, "area.gpkg", "POLYGON", spatial_reference=3857)[0]
+        with arcpy.da.InsertCursor(area, ["SHAPE@"]) as written:
+            written.insertRow(("POLYGON((0 -1,11 -1,11 1,0 1,0 -1))",))
+        # The strip meets AB, BC and BD (which starts at (10,0)): three source features.
+        self.assertTrue(network.checkIntersectingFeatures(area, 3))
+        self.assertFalse(network.checkIntersectingFeatures(area, 2))
+
     def test_refused_by_name(self):
         na.BuildNetwork(self.network)
         with self.assertRaises(arcpy.NotBuiltError):
@@ -257,7 +286,7 @@ class Network(unittest.TestCase):
             nax.LocationAllocation(self.network)
         self.assertIn("NP-hard", str(raised.exception))
         for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "RouteSolverProperties", "solver"),
-                                    (nax, "NetworkDataset", "query API"), (nax, "TraversedEdge", "traversed"),
+                                    (nax, "Edge", "custom evaluators"), (nax, "TraversedEdge", "traversed"),
                                     (nax, "DissolveNetwork", "dissolves")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(module, name)()

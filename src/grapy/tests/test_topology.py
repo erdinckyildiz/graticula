@@ -95,6 +95,12 @@ class Topology(unittest.TestCase):
             self.assertEqual([tuple(r) for r in rows], [(1, "parcels", 2, 20.0)])
         self.assertTrue(points.endswith("topoPointsErrors") and polygons.endswith("topoPolygonErrors"))
 
+    def test_describe_answers_the_topology_properties(self):
+        described = arcpy.Describe(self.topology())
+        self.assertEqual((described.dataType, described.clusterTolerance, described.featureClassNames),
+                         ("Topology", 0.001, ["parcels", "roads", "wells"]))
+        self.assertEqual(described.spatialReference.factoryCode, 3857)
+
     def test_rules_are_removed_by_name_and_with_their_class(self):
         topo = self.topology()
         arcpy.management.AddRuleToTopology(topo, "Must Not Overlap (Area)", self.parcels)

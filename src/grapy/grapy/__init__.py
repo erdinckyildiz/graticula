@@ -155,7 +155,8 @@ class _DescribedWorkspace:
 
 def Describe(value, datatype=None):
     """A description of a feature class or table, a raster dataset (a GeoTIFF or other raster file, or a Raster
-    object), a folder, or a GeoPackage of several tables (a workspace)."""
+    object), a folder, a GeoPackage of several tables (a workspace), or a topology, relationship class or network
+    dataset held in a GeoPackage (ADR-225, ADR-226)."""
     if isinstance(value, Raster):
         return _DescribedRaster(value)
     try:
@@ -168,6 +169,11 @@ def Describe(value, datatype=None):
         return _DescribedRaster(Raster(path))
     if path.lower().endswith(".gpkg") and os.path.exists(path) and len(_contents(path)) != 1:
         return _DescribedWorkspace(path)
+    from . import _network, _relationships, _topology
+    for model in (_network, _topology, _relationships):
+        described = model.describe(path)
+        if described is not None:
+            return described
     return _Described(value)
 
 
