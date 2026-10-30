@@ -4370,13 +4370,14 @@ def BuildPyramidsandStatistics(in_workspace, include_subdirectories="INCLUDE_SUB
                                pyramid_level=-1, SKIP_FIRST="NONE", resample_technique="NEAREST", compression_type="DEFAULT",
                                compression_quality=75, skip_existing="OVERWRITE", where_clause=None, sips_mode=None):
     """Pyramids and statistics for every GeoTIFF in a folder, and its subfolders unless ``NONE``. The parameters for
-    mosaic datasets (``BUILD_ON_SOURCE``, ``block_field``, ``estimate_statistics``, ``where_clause``) are refused when
-    set, grapy holding no mosaic datasets."""
+    a mosaic dataset as the workspace (``BUILD_ON_SOURCE``, ``block_field``, ``estimate_statistics``, ``where_clause``)
+    are refused when set: grapy reads a mosaic dataset's items at their own cell size and builds no pyramids or
+    estimated statistics for them (ADR-230 §5.5)."""
     for name, value in (("BUILD_ON_SOURCE", BUILD_ON_SOURCE), ("estimate_statistics", estimate_statistics),
                         ("block_field", block_field), ("where_clause", where_clause), ("sips_mode", sips_mode)):
         if _given(value) and str(value).upper() != "NONE":
-            raise NotBuiltError(f"arcpy.management.BuildPyramidsandStatistics: {name} is for mosaic datasets, which grapy "
-                                "does not hold.")
+            raise NotBuiltError(f"arcpy.management.BuildPyramidsandStatistics: {name} is for a mosaic dataset as the "
+                                "workspace, which is not built in grapy (ADR-230 §5.5).")
     folder = _text(in_workspace)
     deep = str(include_subdirectories or "INCLUDE_SUBDIRECTORIES").upper() != "NONE"
     found = []
@@ -4415,10 +4416,12 @@ def AlterCodedValueDescription(in_workspace, domain_name, code, new_description)
 def _drop_models(connection, table):
     """INFERRED: a table that is deleted takes with it the relationship classes it takes part in (their relationship
     tables and Related Tables mappings) and its place, rules and errors in any topology (ADR-225); its attachment
-    table, global IDs, subtypes and defaults go too (ADR-228)."""
-    from . import _attachments, _relationships, _subtypes
+    table, global IDs, subtypes and defaults go too (ADR-228); a mosaic dataset's rows in grapy's tables go with its
+    catalog (ADR-230)."""
+    from . import _attachments, _mosaic, _relationships, _subtypes
     _attachments.drop(connection, table)
     _subtypes.drop(connection, table)
+    _mosaic.drop(connection, table)
     for rc in _relationships.classes(connection, origin=table) + _relationships.classes(connection, destination=table):
         for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
             if extra:
@@ -5059,17 +5062,6 @@ _GROUP_2_MODELS = {
     "geodatabase editing behaviours (editor tracking, feature binning, split models)": (
         "EnableEditorTracking", "DisableEditorTracking", "EnableLastEditTime", "DisableLastEditTime",
         "EnableFeatureBinning", "DisableFeatureBinning", "ManageFeatureBinCache", "SetFeatureClassSplitModel"),
-    "mosaic datasets, catalog datasets and raster collections": (
-        "AddRastersToMosaicDataset", "AnalyzeMosaicDataset", "BuildBoundary", "BuildFootprints",
-        "BuildMosaicDatasetItemCache", "BuildOverviews", "BuildSeamlines", "CalculateCellSizeRanges",
-        "ColorBalanceMosaicDataset", "ComputeDirtyArea", "ComputeMosaicCandidates", "CreateMosaicDataset",
-        "CreateReferencedMosaicDataset", "DefineMosaicDatasetNoData", "DefineOverviews", "DeleteMosaicDataset",
-        "ExportMosaicDatasetGeometry", "ExportMosaicDatasetItems", "ExportMosaicDatasetPaths",
-        "ImportMosaicDatasetGeometry", "MergeMosaicDatasetItems", "RemoveRastersFromMosaicDataset",
-        "RepairMosaicDatasetPaths", "SetMosaicDatasetProperties", "SplitMosaicDatasetItems", "SynchronizeMosaicDataset",
-        "MosaicDatasetToMobileMosaicDataset", "AlterMosaicDatasetSchema", "CreateCatalogDataset",
-        "AddItemsToCatalogDataset", "AddPortalItemsToCatalogDataset", "MakeMosaicLayer", "CreateRasterType",
-        "GenerateRasterCollection", "ClearPixelCache"),
     "trajectory datasets": ("CreateTrajectoryDataset", "AddDataToTrajectoryDataset", "RepairTrajectoryDatasetPaths",
                             "MakeTrajectoryLayer"),
     "annotation feature classes": ("AppendAnnotation",),
@@ -7269,4 +7261,75 @@ _REFUSED.update({
     "ProjectLAS": "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its condition 4)",
     "InterpolateFromPointCloud": "is not built in grapy: not in ADR-229's first batch of LAS and TIN tools (its "
                                  "condition 4)",
+})
+
+
+# ---- mosaic datasets (ADR-230): built in _mosaic and _mosaictools, answered here under arcpy.management's names
+
+
+from . import _mosaictools as _mosaic_tools  # noqa: E402
+
+CreateMosaicDataset = _mosaic_tools.CreateMosaicDataset
+CreateReferencedMosaicDataset = _mosaic_tools.CreateReferencedMosaicDataset
+DeleteMosaicDataset = _mosaic_tools.DeleteMosaicDataset
+AddRastersToMosaicDataset = _mosaic_tools.AddRastersToMosaicDataset
+RemoveRastersFromMosaicDataset = _mosaic_tools.RemoveRastersFromMosaicDataset
+SynchronizeMosaicDataset = _mosaic_tools.SynchronizeMosaicDataset
+RepairMosaicDatasetPaths = _mosaic_tools.RepairMosaicDatasetPaths
+CalculateCellSizeRanges = _mosaic_tools.CalculateCellSizeRanges
+BuildFootprints = _mosaic_tools.BuildFootprints
+BuildBoundary = _mosaic_tools.BuildBoundary
+SetMosaicDatasetProperties = _mosaic_tools.SetMosaicDatasetProperties
+MakeMosaicLayer = _mosaic_tools.MakeMosaicLayer
+DefineMosaicDatasetNoData = _mosaic_tools.DefineMosaicDatasetNoData
+ExportMosaicDatasetPaths = _mosaic_tools.ExportMosaicDatasetPaths
+ExportMosaicDatasetItems = _mosaic_tools.ExportMosaicDatasetItems
+ExportMosaicDatasetGeometry = _mosaic_tools.ExportMosaicDatasetGeometry
+ImportMosaicDatasetGeometry = _mosaic_tools.ImportMosaicDatasetGeometry
+
+for _built in ("CreateMosaicDataset", "CreateReferencedMosaicDataset", "DeleteMosaicDataset", "AddRastersToMosaicDataset",
+               "RemoveRastersFromMosaicDataset", "SynchronizeMosaicDataset", "RepairMosaicDatasetPaths",
+               "CalculateCellSizeRanges", "BuildFootprints", "BuildBoundary", "SetMosaicDatasetProperties",
+               "MakeMosaicLayer", "DefineMosaicDatasetNoData", "ExportMosaicDatasetPaths", "ExportMosaicDatasetItems",
+               "ExportMosaicDatasetGeometry", "ImportMosaicDatasetGeometry"):
+    _REFUSED.pop(_built, None)
+_REFUSED.update({
+    "AnalyzeMosaicDataset": "is not built in grapy: its page describes its checks in a sentence or two each, without "
+                            "their rules or thresholds, and says where its results appear only for ArcGIS Pro's Analyze "
+                            "Mosaic Dataset pane (ADR-230 §5.5)",
+    "BuildOverviews": "is not built in grapy: overviews are resampled images whose file format the pages do not name, "
+                      "and grapy reads a mosaic dataset at its items' own cell size (ADR-230 §5.5)",
+    "DefineOverviews": "is not built in grapy: it lays out overviews whose file format is not named and whose number of "
+                       "levels is 'an optimal value' the page does not define (ADR-230 §5.5)",
+    "BuildSeamlines": "is not built in grapy: how ArcGIS generates seamlines is not documented, and grapy stores none — "
+                      "the Seamline method draws the halfway lines between item centres as a mosaic dataset is read, "
+                      "as this server's image services do (ADR-161, ADR-230 §5.4)",
+    "ColorBalanceMosaicDataset": "is not built in grapy: its dodging, histogram and standard deviation balancing are "
+                                 "named but not specified, nor is the colour correction it stores (ADR-230 §5.5)",
+    "ComputeDirtyArea": "is not built in grapy: its page does not say how a changed item is identified or what fields its "
+                        "output has (ADR-230 §5.5)",
+    "ComputeMosaicCandidates": "is not built in grapy: how candidates are chosen is not documented (ADR-230 §5.5)",
+    "MergeMosaicDatasetItems": "is not built in grapy: an item made of several rasters is Esri's item raster, whose "
+                               "pixels and footprint the page does not say how to form; grapy's items are one raster "
+                               "file each (ADR-230 §5.2)",
+    "SplitMosaicDatasetItems": "is not built in grapy: it splits items made of several rasters, which grapy's mosaic "
+                               "datasets do not hold (ADR-230 §5.2)",
+    "BuildMosaicDatasetItemCache": "is not built in grapy: an item cache is Esri's Cloud Raster Format (CRF), which grapy "
+                                   "does not write (ADR-230 §5.5)",
+    "ClearPixelCache": "is not built in grapy: the pixel cache is Esri's own cache, which grapy does not keep "
+                       "(ADR-230 §5.5)",
+    "MosaicDatasetToMobileMosaicDataset": "is not built in grapy: a mobile mosaic dataset is Esri's mobile geodatabase "
+                                          "format (ADR-230 §5.5)",
+    "AlterMosaicDatasetSchema": "is not built in grapy: it edits which raster types and processing templates a mosaic "
+                                "dataset accepts, and grapy's accept the Raster Dataset type and no templates "
+                                "(ADR-230 §5.3)",
+    "CreateRasterType": "is not built in grapy: it writes a raster type definition, Esri's own format (ADR-230 §5.3)",
+    "GenerateRasterCollection": "is not built in grapy: it builds a collection by a raster function template, Esri's own "
+                                "format (ADR-230 §5.5)",
+    "CreateCatalogDataset": "is not built in grapy: a catalog dataset is a collection of layers, scene layers and portal "
+                            "items, a model ADR-230 does not hold — no tool reads one as data, and a fenced tool cannot "
+                            "reach a portal (ADR-223 §5.3)",
+    "AddItemsToCatalogDataset": "is not built in grapy: catalog datasets are not held (ADR-230 §5.1)",
+    "AddPortalItemsToCatalogDataset": "is not built in grapy: catalog datasets are not held (ADR-230 §5.1), and a fenced "
+                                      "tool cannot reach a portal (ADR-223 §5.3)",
 })
