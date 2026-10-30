@@ -252,7 +252,7 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
         command.Parameters.AddWithValue("images", System.Text.Json.JsonSerializer.Serialize(new
         {
             next,
-            images = images.Select(i => new { id = i.Id, file = i.File, name = i.Name, acquired = i.Acquired, variable = i.Variable, dimensions = i.Dimensions }),
+            images = images.Select(i => new { id = i.Id, file = i.File, name = i.Name, acquired = i.Acquired, variable = i.Variable, dimensions = i.Dimensions, zorder = i.ZOrder }),
         }));
 
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
@@ -319,7 +319,9 @@ public sealed class PostgresCoverageCatalog : ICoverageCatalog
                 image.TryGetProperty("variable", out System.Text.Json.JsonElement variable) && variable.ValueKind == System.Text.Json.JsonValueKind.String
                     ? variable.GetString() : null,
                 image.TryGetProperty("dimensions", out System.Text.Json.JsonElement dimensions) && dimensions.ValueKind == System.Text.Json.JsonValueKind.Object
-                    ? dimensions.EnumerateObject().ToDictionary(d => d.Name, d => d.Value.GetDouble(), StringComparer.Ordinal) : null));
+                    ? dimensions.EnumerateObject().ToDictionary(d => d.Name, d => d.Value.GetDouble(), StringComparer.Ordinal) : null,
+                image.TryGetProperty("zorder", out System.Text.Json.JsonElement zorder) && zorder.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? zorder.GetInt32() : null));
         }
 
         return images;

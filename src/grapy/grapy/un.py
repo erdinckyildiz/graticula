@@ -1,8 +1,12 @@
 """arcpy.un — utility networks, by their documented names and parameters (ADR-231).
 
 The model is ``grapy._utility``: grapy's tables in the GeoPackage, beside the network's classes in its feature dataset.
-The traces are ``grapy._untrace``. Upstream and Downstream are *equivalents* (ADR-224 §5.6): the pages define their
-direction only as "away from" or "toward" the subnetwork controllers.
+The traces are ``grapy._untrace``, the one place a trace's flow is decided; subnetworks (definitions, UpdateSubnetwork,
+ExportSubnetwork, Validate's discovered subnetworks, Is connected) are ``grapy._unsubnet``, and the JSON results
+``grapy._unjson``. Trace is an *equivalent* (ADR-224 §5.6) for Upstream and Downstream, whose direction the pages define
+only as "away from" or "toward" the subnetwork controllers, and for Loops, Path and nearest filtering, which they
+describe by their result; CalculateClusterKeys is one too. The telecom domain network, the error resolution database and
+synthesized geometry are refused by name, each for its own reason.
 """
 from __future__ import annotations
 
@@ -13,9 +17,9 @@ import os
 
 import shapely
 
-from . import _gpkg, _untrace, _utility
+from . import _gpkg, _unjson, _untrace, _utility
 from ._result import Result
-from ._runtime import ExecuteError, NotBuiltError, equivalent
+from ._runtime import AddWarning, ExecuteError, NotBuiltError, equivalent
 
 _VERSIONS = {"COMPATIBLE": "8", "CURRENT": "8", "VERSION_8": "8", "VERSION_7": "7", "VERSION_6": "6", "VERSION_5": "5"}
 
@@ -309,8 +313,8 @@ def DeleteNetworkCategory(in_utility_network, category_name):
 def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, traversability_model,
                              terminals_directional=None, terminals_bidirectional=None, valid_paths=None,
                              default_path=None):
-    """A terminal configuration: two to eight terminals of at most 32 characters, numbered 1, 2 … in the order given
-    (INFERRED, ADR-231 §5.9 (b)); valid paths named, each All, None or terminal pairs ``A-B, A-C``; required for a
+    """A terminal configuration: two to eight terminals of at most 32 characters, numbered 2, 3 … in the order given,
+    1 being the Single Terminal of an asset type without a configuration (measured in Pro 3.7, ADR-231 §5.9 (b)); valid paths named, each All, None or terminal pairs ``A-B, A-C``; required for a
     bidirectional configuration of three or four terminals. A directional configuration needs an upstream terminal.
     The default path is a path's name, ALL or NONE, ALL when none is given."""
     model = _word(traversability_model, "")
@@ -372,7 +376,7 @@ def AddTerminalConfiguration(in_utility_network, terminal_configuration_name, tr
                            network.name).fetchone()[0]
         network.q("insert into grapy_un_terminal_config values (?, ?, ?, ?, ?, ?, ?)", network.name, new_id,
                   str(terminal_configuration_name), model,
-                  json.dumps([[i + 1, n, bool(up)] for i, (n, up) in enumerate(terminals)]), json.dumps(paths), default)
+                  json.dumps([[i + 2, n, bool(up)] for i, (n, up) in enumerate(terminals)]), json.dumps(paths), default)
     return Result(_path(in_utility_network))
 
 
@@ -841,13 +845,13 @@ def DisableNetworkTopology(in_utility_network):
     return Result(_path(in_utility_network))
 
 
-def _extent(value):
+def _extent(value, tool="ValidateNetworkTopology"):
     if not _given(value) or str(value).upper() in ("DEFAULT", "MAXOF"):
         return None
     if hasattr(value, "XMin"):
         return value.XMin, value.YMin, value.XMax, value.YMax
     if str(value).upper() in ("MINOF", "DISPLAY"):
-        raise NotBuiltError(f"arcpy.un.ValidateNetworkTopology: the extent '{value}' is not built in grapy: there is no "
+        raise NotBuiltError(f"arcpy.un.{tool}: the extent '{value}' is not built in grapy: there is no "
                             "display, and one input has no common minimum; give coordinates or an Extent.")
     parts = str(value).split()
     if len(parts) >= 4:
@@ -866,25 +870,70 @@ def _extent(value):
 def ValidateNetworkTopology(in_utility_network, extent=None):
     """The features and associations whose dirty areas intersect the extent (all of them with none) brought into the
     network topology, and the errors found again. INFERRED (ADR-231 §5.9 (d)): a feature is validated whole when its
-    dirty area meets the extent — dirty areas are not clipped. Outputs the network and the discovered subnetworks as
-    JSON, which stays empty until subnetworks are kept (UpdateSubnetwork, a later batch)."""
+    dirty area meets the extent — dirty areas are not clipped. Outputs the network and, as JSON, the discovered
+    subnetworks: those of a tier managing Is dirty whose controllers or extent changed since UpdateSubnetwork, now marked
+    dirty (INFERRED, ADR-231 §5.9 (m))."""
+    from . import _unsubnet
     with _utility.Network(_path(in_utility_network)) as network:
         network.require_enabled("ValidateNetworkTopology")
         _utility.refresh(network, extent=_extent(extent))
         _utility.write_dirty_areas(network)
-    return Result(_path(in_utility_network), json.dumps({"discoveredSubnetworks": []}))
+        discovered = _unsubnet.discover(network)
+    return Result(_path(in_utility_network), json.dumps({"discoveredSubnetworks": discovered}))
 
 
 # ---- tracing -------------------------------------------------------------------------------------------------------
 
-_TRACE_TYPES = ("CONNECTED", "SUBNETWORK", "SUBNETWORK_CONTROLLERS", "UPSTREAM", "DOWNSTREAM", "ISOLATION")
-_LATER = "is in a later batch of ADR-231 (§5.8)"
+_TRACE_TYPES = ("CONNECTED", "SUBNETWORK", "SUBNETWORK_CONTROLLERS", "UPSTREAM", "DOWNSTREAM", "ISOLATION", "LOOPS",
+                "SHORTEST_PATH", "PATH")
+_ALL_TRACE_TYPES = ("CONNECTED", "SUBNETWORK", "SUBNETWORK_CONTROLLERS", "UPSTREAM", "DOWNSTREAM", "LOOPS",
+                    "SHORTEST_PATH", "ISOLATION", "PATH", "CIRCUIT")
+_JSON_TYPES = ("ELEMENTS", "CONNECTIVITY", "FEATURES", "CONTAINMENT_AND_ATTACHMENT_ASSOCIATIONS", "RELATED_RECORDS")
+_TELECOM = ("needs a telecom domain network: the Add Telecom Domain Network page names the tool's parameters but not "
+            "the classes and tables a telecom domain network has — its circuits, sections, subcircuits, unit identifiers "
+            "and colour and wavelength schemes — and every telecom tool and the circuit trace read or write those, so "
+            "grapy cannot build them from the pages without inventing Esri's telecom schema")
+_SYNTHESIZE = ("synthesize_geometries is not built in grapy: the Trace page says geometry is created for associations "
+               "and edge objects but not how it is drawn, and grapy will not invent one")
+_FLAGS = {"include_containers": ("INCLUDE_CONTAINERS", "EXCLUDE_CONTAINERS"),
+          "include_content": ("INCLUDE_CONTENT", "EXCLUDE_CONTENT"),
+          "include_structures": ("INCLUDE_STRUCTURES", "EXCLUDE_STRUCTURES"),
+          "include_barriers": ("INCLUDE_BARRIERS", "EXCLUDE_BARRIERS"),
+          "validate_consistency": ("VALIDATE_CONSISTENCY", "DO_NOT_VALIDATE_CONSISTENCY"),
+          "filter_nearest": ("FILTER_BY_NEAREST", "DO_NOT_FILTER"),
+          "include_isolated_features": ("INCLUDE_ISOLATED_FEATURES", "EXCLUDE_ISOLATED_FEATURES"),
+          "ignore_barriers_at_starting_points": ("IGNORE_BARRIERS_AT_STARTING_POINTS",
+                                                 "DO_NOT_IGNORE_BARRIERS_AT_STARTING_POINTS"),
+          "include_up_to_first_spatial_container": ("INCLUDE_UP_TO_FIRST_SPATIAL_CONTAINER",
+                                                    "DO_NOT_INCLUDE_UP_TO_FIRST_SPATIAL_CONTAINER"),
+          "allow_indeterminate_flow": ("TRACE_INDETERMINATE_FLOW", "IGNORE_INDETERMINATE_FLOW"),
+          "validate_locatability": ("VALIDATE_LOCATABILITY", "DO_NOT_VALIDATE_LOCATABILITY"),
+          "use_digitized_direction": ("USE_DIGITIZED_DIRECTION", "IGNORE_DIGITIZED_DIRECTION"),
+          "synthesize_geometries": ("SYNTHESIZE_GEOMETRIES", "DO_NOT_SYNTHESIZE_GEOMETRIES"),
+          "infer_connectivity": ("INFER_CONNECTIVITY", "DO_NOT_INFER_CONNECTIVITY"),
+          "use_trace_config": ("USE_TRACE_CONFIGURATION", "DO_NOT_USE_TRACE_CONFIGURATION"),
+          "include_geometry": ("INCLUDE_GEOMETRY", "EXCLUDE_GEOMETRY"),
+          "include_domain_descriptions": ("INCLUDE_DOMAIN_DESCRIPTIONS", "EXCLUDE_DOMAIN_DESCRIPTIONS"),
+          "include_flow_directions": ("INCLUDE_FLOW_DIRECTIONS", "EXCLUDE_FLOW_DIRECTIONS"),
+          "include_propagated_values": ("INCLUDE_PROPAGATED_VALUES", "EXCLUDE_PROPAGATED_VALUES"),
+          "clear_all_previous_trace_results": ("CLEAR_ALL_PREVIOUS_TRACE_RESULTS",
+                                               "DO_NOT_CLEAR_ALL_PREVIOUS_TRACE_RESULTS")}
+_DEFAULT_ON = {"include_barriers", "allow_indeterminate_flow", "clear_all_previous_trace_results"}
+_TABLES = {"condition_barriers": 5, "filter_barriers": 5, "output_conditions": 5, "function_barriers": 5,
+           "filter_function_barriers": 5, "functions": 7, "propagators": 6, "result_fields": 2,
+           "related_record_fields": 2}
 
 
-def _locations(value):
-    """(FEATUREGLOBALID, TERMINALID, PERCENTALONG) rows of a starting point, barrier or stopping point class or table."""
+def _on(params, name):
+    yes, no = _FLAGS[name]
+    return _flag(params.get(name), yes, no, yes if name in _DEFAULT_ON else no)
+
+
+def _locations(value, split_filter=False):
+    """(FEATUREGLOBALID, TERMINALID, PERCENTALONG, filter barrier) rows of a starting point, barrier or stopping point
+    class or table; a class AddTraceLocations wrote marks its filter barriers in ISFILTERBARRIER."""
     if not _given(value):
-        return []
+        return ([], []) if split_filter else []
     from . import da
     from .management import _source
     path, _ = _source(value)
@@ -895,7 +944,7 @@ def _locations(value):
         connection.close()
     if "FEATUREGLOBALID" not in names:
         raise ExecuteError(f"ERROR 002077: '{value}' has no FEATUREGLOBALID field.")
-    fields = [names["FEATUREGLOBALID"], names.get("TERMINALID"), names.get("PERCENTALONG")]
+    fields = [names["FEATUREGLOBALID"], names.get("TERMINALID"), names.get("PERCENTALONG"), names.get("ISFILTERBARRIER")]
     wanted = [f for f in fields if f]
     out = []
     with da.SearchCursor(value, wanted) as read:
@@ -905,11 +954,17 @@ def _locations(value):
             percent = values.get(fields[2]) if fields[2] else None
             if percent is not None and not 0 <= float(percent) <= 1:
                 percent = None
-            out.append((values[fields[0]], None if terminal in (None, "") else int(terminal), percent))
+            filtered = bool(values.get(fields[3])) if fields[3] else False
+            out.append((values[fields[0]], None if terminal in (None, "") else int(terminal), percent, filtered))
+    if split_filter:
+        return [r for r in out if not r[3]], [r for r in out if r[3]]
     return out
 
 
-@equivalent(*_utility.FLOW)
+@equivalent(_utility.FLOW[0] + "; loops as biconnected components; paths of fewest hops by Yen's k shortest paths; "
+            "nearest by Dijkstra's shortest paths",
+            _utility.FLOW[1] + "; Hopcroft and Tarjan 1973, Algorithm 447; Yen 1971, Finding the k Shortest Loopless "
+            "Paths in a Network; Dijkstra 1959, A Note on Two Problems in Connexion with Graphs")
 def Trace(in_utility_network, trace_type="CONNECTED", starting_points=None, barriers=None, domain_network=None,
           tier=None, target_tier=None, subnetwork_name=None, shortest_path_network_attribute_name=None,
           include_containers="EXCLUDE_CONTAINERS", include_content="EXCLUDE_CONTENT",
@@ -932,104 +987,895 @@ def Trace(in_utility_network, trace_type="CONNECTED", starting_points=None, barr
           stopping_points=None, num_paths=None, max_hops=None, related_record_fields=None, circuit_name=None,
           infer_connectivity="DO_NOT_INFER_CONNECTIVITY", include_flow_directions="EXCLUDE_FLOW_DIRECTIONS",
           include_propagated_values="EXCLUDE_PROPAGATED_VALUES"):
-    """EQUIVALENT for Upstream and Downstream (ADR-224 §5.6): their flow direction is found as ``_utility.FLOW`` says.
+    """EQUIVALENT for Upstream and Downstream, Loops, Path and nearest filtering (ADR-224 §5.6): their flow, loops,
+    paths and nearness are found as the methods named say, where the pages describe the result and not the rule.
 
-    A trace over the network topology as last enabled or validated: CONNECTED, SUBNETWORK, SUBNETWORK_CONTROLLERS,
-    UPSTREAM, DOWNSTREAM and ISOLATION, with starting points and barriers from a class or table with FEATUREGLOBALID
-    (and TERMINALID, PERCENTALONG), condition and filter barriers on network attributes and categories, the
-    traversability and filter scopes, output asset types and conditions, containers, content and structures, and the
-    SELECTION and AGGREGATED_GEOMETRY results. A selection is made on a layer named after each class (``WaterDevice``),
-    made when there is none (INFERRED, ADR-231 §5.9 (g)). As the page says, a subnetwork-based trace run from Python
-    applies no tier's trace configuration of its own. What is not built is refused by name."""
-    kind = _word(trace_type, "CONNECTED")
-    if kind in ("LOOPS", "SHORTEST_PATH", "PATH"):
-        raise NotBuiltError(f"arcpy.un.Trace: the {kind} trace type {_LATER}.")
-    if kind == "CIRCUIT":
-        raise NotBuiltError("arcpy.un.Trace: the CIRCUIT trace type needs telecom domain networks, which are in a later "
-                            "batch of ADR-231 (§5.8).")
+    A trace over the network topology as last enabled or validated — every trace type of a traditional domain network —
+    with starting points, barriers and stopping points from a class or table with FEATUREGLOBALID (and TERMINALID,
+    PERCENTALONG; AddTraceLocations' ISFILTERBARRIER marks filter barriers), condition, function and filter barriers,
+    propagators, functions, nearest and bitset filtering, a target tier, digitized direction, the traversability and
+    filter scopes, output asset types and conditions, containers, content and structures, locatability, a named trace
+    configuration, and the SELECTION, AGGREGATED_GEOMETRY and JSON results (``_unjson``). A selection is made on a layer
+    named after each class (``WaterDevice``), made when there is none (INFERRED, ADR-231 §5.9 (g)). As the page says, a
+    subnetwork-based trace run from Python applies no tier's trace configuration of its own. The telecom circuit trace
+    and synthesized geometry are refused by name."""
+    params = dict(locals())
+    if _flag(use_trace_config, "USE_TRACE_CONFIGURATION", "DO_NOT_USE_TRACE_CONFIGURATION",
+             "DO_NOT_USE_TRACE_CONFIGURATION"):
+        if not _given(trace_config_name):
+            raise ExecuteError("ERROR 000735: trace_config_name is required to use a trace configuration.")
+        with _utility.Network(_path(in_utility_network)) as network:
+            row = network.q("select trace_type, configuration, result_types from grapy_un_trace_config where network = ? "
+                            "and lower(name) = lower(?)", network.name, str(trace_config_name)).fetchone()
+        if row is None:
+            raise ExecuteError(f"ERROR 000732: '{trace_config_name}' is not a trace configuration of the network.")
+        # INFERRED (ADR-231 §5.9 (n)): the configuration's settings replace the call's; the locations and the output
+        # paths stay the call's.
+        params["trace_type"] = row[0]
+        params.update(json.loads(row[1]))
+        if row[2] and json.loads(row[2]):
+            params["result_types"] = json.loads(row[2])
+    return _trace(params)
+
+
+def _trace(params):
+    p = params
+    kind = _word(p["trace_type"], "CONNECTED")
+    if kind == "CIRCUIT" or _word(p.get("circuit_name"), "") or _on(p, "infer_connectivity"):
+        raise NotBuiltError(f"arcpy.un.Trace: the circuit trace, circuit_name and infer_connectivity {_TELECOM}.")
     if kind not in _TRACE_TYPES:
-        raise ExecuteError(f"ERROR 000800: '{trace_type}' is not a trace type.")
-    refused = {"target_tier": target_tier, "shortest_path_network_attribute_name": shortest_path_network_attribute_name,
-               "function_barriers": function_barriers, "filter_function_barriers": filter_function_barriers,
-               "filter_bitset_network_attribute_name": filter_bitset_network_attribute_name,
-               "nearest_count": nearest_count, "nearest_cost_network_attribute": nearest_cost_network_attribute,
-               "nearest_categories": nearest_categories, "nearest_assets": nearest_assets, "functions": functions,
-               "propagators": propagators, "trace_config_name": trace_config_name, "out_json_file": out_json_file,
-               "result_network_attributes": result_network_attributes, "result_fields": result_fields,
-               "stopping_points": stopping_points, "num_paths": num_paths, "max_hops": max_hops,
-               "related_record_fields": related_record_fields, "circuit_name": circuit_name}
-    for name, value in refused.items():
-        if _given(value) and value != []:
-            raise NotBuiltError(f"arcpy.un.Trace: {name} {_LATER}.")
-    for name, value, default in (
-            ("filter_nearest", filter_nearest, "DO_NOT_FILTER"),
-            ("include_up_to_first_spatial_container", include_up_to_first_spatial_container,
-             "DO_NOT_INCLUDE_UP_TO_FIRST_SPATIAL_CONTAINER"),
-            ("validate_locatability", validate_locatability, "DO_NOT_VALIDATE_LOCATABILITY"),
-            ("use_trace_config", use_trace_config, "DO_NOT_USE_TRACE_CONFIGURATION"),
-            ("include_geometry", include_geometry, "EXCLUDE_GEOMETRY"),
-            ("include_domain_descriptions", include_domain_descriptions, "EXCLUDE_DOMAIN_DESCRIPTIONS"),
-            ("use_digitized_direction", use_digitized_direction, "IGNORE_DIGITIZED_DIRECTION"),
-            ("synthesize_geometries", synthesize_geometries, "DO_NOT_SYNTHESIZE_GEOMETRIES"),
-            ("infer_connectivity", infer_connectivity, "DO_NOT_INFER_CONNECTIVITY"),
-            ("include_flow_directions", include_flow_directions, "EXCLUDE_FLOW_DIRECTIONS"),
-            ("include_propagated_values", include_propagated_values, "EXCLUDE_PROPAGATED_VALUES")):
-        if value is True or (_given(value) and value is not False and _word(value, default) != default):
-            raise NotBuiltError(f"arcpy.un.Trace: {name} {_LATER}.")
-    if _word(run_async, "RUN_SYNCHRONOUSLY") not in ("RUN_SYNCHRONOUSLY", "RUN_ASYNCHRONOUSLY"):
+        raise ExecuteError(f"ERROR 000800: '{p['trace_type']}' is not a trace type.")
+    if _on(p, "synthesize_geometries"):
+        raise NotBuiltError(f"arcpy.un.Trace: {_SYNTHESIZE}.")
+    if _word(p.get("run_async"), "RUN_SYNCHRONOUSLY") not in ("RUN_SYNCHRONOUSLY", "RUN_ASYNCHRONOUSLY"):
         raise ExecuteError("ERROR 000800: run_async is RUN_SYNCHRONOUSLY or RUN_ASYNCHRONOUSLY.")
-    types = [_word(t, "") for t in _rows(result_types)] or ["SELECTION"]
+    types = [_word(t, "") for t in _rows(p.get("result_types"))] or ["SELECTION"]
     for t in types:
-        if t not in ("SELECTION", "AGGREGATED_GEOMETRY"):
-            raise NotBuiltError(f"arcpy.un.Trace: the {t} result type {_LATER}.")
+        if t == "CIRCUITS":
+            raise NotBuiltError(f"arcpy.un.Trace: the CIRCUITS result type {_TELECOM}.")
+        if t not in ("SELECTION", "AGGREGATED_GEOMETRY") + _JSON_TYPES:
+            raise ExecuteError(f"ERROR 000800: '{t}' is not a result type.")
+    json_types = [t for t in types if t in _JSON_TYPES]
+    if json_types and not _given(p.get("out_json_file")):
+        raise ExecuteError("ERROR 000735: out_json_file is required for the " + ", ".join(json_types) + " result types.")
+    tables = {name: _utility.value_table(p.get(name), width) for name, width in _TABLES.items()}
+    nearest = None
+    if _on(p, "filter_nearest"):
+        categories = [str(c).strip("'\"") for c in _rows(p.get("nearest_categories"))]
+        assets = [str(a).strip("'\"") for a in _rows(p.get("nearest_assets"))]
+        if not _given(p.get("nearest_count")) or not _given(p.get("nearest_cost_network_attribute")) or not (
+                categories or assets):
+            raise ExecuteError("ERROR 000735: filtering by nearest needs a count, a cost network attribute and "
+                               "categories or asset types.")
+        nearest = (int(p["nearest_count"]), str(p["nearest_cost_network_attribute"]), categories, assets)
+    barriers, filter_locations = _locations(p.get("barriers"), split_filter=True)
+    digitized = _on(p, "use_digitized_direction") and kind in ("UPSTREAM", "DOWNSTREAM")
     request = _untrace.Request(
-        trace_type=kind, starts=_locations(starting_points), barriers=_locations(barriers),
-        domain_network=str(domain_network) if _given(domain_network) else None,
-        tier=str(tier) if _given(tier) else None,
-        subnetwork_name=str(subnetwork_name) if _given(subnetwork_name) else None,
-        condition_barriers=_utility.value_table(condition_barriers, 5),
-        filter_barriers=_utility.value_table(filter_barriers, 5),
-        traversability_scope=_word(traversability_scope, "BOTH_JUNCTIONS_AND_EDGES"),
-        filter_scope=_word(filter_scope, "BOTH_JUNCTIONS_AND_EDGES"),
-        include_barriers=_flag(include_barriers, "INCLUDE_BARRIERS", "EXCLUDE_BARRIERS", "INCLUDE_BARRIERS"),
-        include_isolated_features=_flag(include_isolated_features, "INCLUDE_ISOLATED_FEATURES",
-                                        "EXCLUDE_ISOLATED_FEATURES", "EXCLUDE_ISOLATED_FEATURES"),
-        ignore_barriers_at_starting_points=_flag(ignore_barriers_at_starting_points,
-                                                 "IGNORE_BARRIERS_AT_STARTING_POINTS",
-                                                 "DO_NOT_IGNORE_BARRIERS_AT_STARTING_POINTS",
-                                                 "DO_NOT_IGNORE_BARRIERS_AT_STARTING_POINTS"),
-        allow_indeterminate_flow=_flag(allow_indeterminate_flow, "TRACE_INDETERMINATE_FLOW",
-                                       "IGNORE_INDETERMINATE_FLOW", "TRACE_INDETERMINATE_FLOW"))
-    with _utility.Network(_path(in_utility_network)) as network:
+        trace_type=kind, starts=_locations(p.get("starting_points")), barriers=barriers,
+        filter_locations=filter_locations, stops=_locations(p.get("stopping_points")),
+        domain_network=None if digitized or not _given(p.get("domain_network")) else str(p["domain_network"]),
+        tier=None if digitized or not _given(p.get("tier")) else str(p["tier"]),
+        target_tier=None if digitized or not _given(p.get("target_tier")) else str(p["target_tier"]),
+        subnetwork_name=str(p["subnetwork_name"]) if _given(p.get("subnetwork_name")) else None,
+        condition_barriers=tables["condition_barriers"], filter_barriers=tables["filter_barriers"],
+        function_barriers=tables["function_barriers"], filter_function_barriers=tables["filter_function_barriers"],
+        functions=tables["functions"], propagators=[] if digitized else tables["propagators"],
+        traversability_scope=_word(p.get("traversability_scope"), "BOTH_JUNCTIONS_AND_EDGES"),
+        filter_scope=_word(p.get("filter_scope"), "BOTH_JUNCTIONS_AND_EDGES"),
+        include_barriers=_on(p, "include_barriers"), include_isolated_features=_on(p, "include_isolated_features"),
+        ignore_barriers_at_starting_points=_on(p, "ignore_barriers_at_starting_points"),
+        allow_indeterminate_flow=_on(p, "allow_indeterminate_flow"),
+        shortest_path_attribute=str(p["shortest_path_network_attribute_name"])
+        if _given(p.get("shortest_path_network_attribute_name")) else None,
+        num_paths=int(p["num_paths"]) if _given(p.get("num_paths")) else None,
+        max_hops=int(p["max_hops"]) if _given(p.get("max_hops")) else None,
+        filter_bitset=str(p["filter_bitset_network_attribute_name"])
+        if _given(p.get("filter_bitset_network_attribute_name")) and kind in ("UPSTREAM", "DOWNSTREAM", "LOOPS") else None,
+        nearest=nearest, digitized=digitized)
+    path = _path(p["in_utility_network"])
+    with _utility.Network(path) as network:
         network.require_enabled("Trace")
         _utility.write_dirty_areas(network)
         graph = _utility.build(network)
-        ids = _untrace.run(network, graph, request)
-        ids = _untrace.filter_output(network, graph, ids, [str(r).strip("'\"") for r in _rows(output_assettypes)],
-                                     _utility.value_table(output_conditions, 5))
+        outcome = _untrace.run(network, graph, request)
+        ids = _untrace.filter_output(network, graph, outcome.ids,
+                                     [str(r).strip("'\"") for r in _rows(p.get("output_assettypes"))],
+                                     tables["output_conditions"])
         keys = _untrace.features(graph, ids)
-        keys = _untrace.related(graph, keys,
-                                _flag(include_containers, "INCLUDE_CONTAINERS", "EXCLUDE_CONTAINERS",
-                                      "EXCLUDE_CONTAINERS"),
-                                _flag(include_content, "INCLUDE_CONTENT", "EXCLUDE_CONTENT", "EXCLUDE_CONTENT"),
-                                _flag(include_structures, "INCLUDE_STRUCTURES", "EXCLUDE_STRUCTURES",
-                                      "EXCLUDE_STRUCTURES"))
-        if _flag(validate_consistency, "VALIDATE_CONSISTENCY", "DO_NOT_VALIDATE_CONSISTENCY",
-                 "DO_NOT_VALIDATE_CONSISTENCY"):
+        keys = _untrace.related(graph, keys, _on(p, "include_containers"), _on(p, "include_content"),
+                                _on(p, "include_structures"),
+                                _on(p, "include_containers") and _on(p, "include_up_to_first_spatial_container"))
+        if _on(p, "validate_consistency"):
             dirty = _utility.dirty_keys(network) & keys
             if dirty:
                 raise ExecuteError(f"ERROR 002087: the trace met {len(dirty)} feature(s) with dirty areas; validate the "
                                    "network topology.")
+        if _on(p, "validate_locatability"):
+            lost = _untrace.unlocatable(graph, keys)
+            if lost:
+                raise ExecuteError(f"ERROR 002104: the trace met {len(lost)} junction or edge object(s) that cannot be "
+                                   "located: they have no containment or attachment association.")
+        if json_types:
+            writer = _unjson.Writer(network, graph, outcome, ids, keys, _on(p, "include_geometry"),
+                                    _on(p, "include_domain_descriptions"),
+                                    [str(a).strip("'\"") for a in _rows(p.get("result_network_attributes"))],
+                                    tables["result_fields"], tables["related_record_fields"],
+                                    _on(p, "include_flow_directions"), _on(p, "include_propagated_values"))
+            _unjson.write(_path(p["out_json_file"]), writer.document(json_types))
         sources = network.sources()
         srid = int(network.q("select srs_id from grapy_feature_datasets where name = ?", network.dataset).fetchone()[0])
         file = network.file
     if "SELECTION" in types:
-        _select(file, sources, keys, _word(selection_type, "NEW_SELECTION"))
+        _select(file, sources, keys, _word(p.get("selection_type"), "NEW_SELECTION"))
     if "AGGREGATED_GEOMETRY" in types:
-        _aggregate(file, srid, graph, ids, keys, sources, str(trace_name) if _given(trace_name) else "",
-                   aggregated_points, aggregated_lines, aggregated_polygons,
-                   _flag(clear_all_previous_trace_results, "CLEAR_ALL_PREVIOUS_TRACE_RESULTS",
-                         "DO_NOT_CLEAR_ALL_PREVIOUS_TRACE_RESULTS", "CLEAR_ALL_PREVIOUS_TRACE_RESULTS"))
+        _aggregate(file, srid, graph, ids, keys, sources, str(p["trace_name"]) if _given(p.get("trace_name")) else "",
+                   p.get("aggregated_points"), p.get("aggregated_lines"), p.get("aggregated_polygons"),
+                   _on(p, "clear_all_previous_trace_results"))
+    outputs = [path]
+    if json_types:
+        outputs.append(_path(p["out_json_file"]))
+    return Result(*outputs)
+
+
+# ---- trace locations and trace configurations ----------------------------------------------------------------------
+
+def AddTraceLocations(in_utility_network, out_feature_class, load_selected_features="DO_NOT_LOAD_SELECTED_FEATURES",
+                      clear_trace_locations="KEEP_LOCATIONS", trace_locations=None,
+                      filter_barrier="TRAVERSABILITY_BARRIER"):
+    """Trace locations written to a point class in the schema Trace reads: FEATUREGLOBALID, TERMINALID, PERCENTALONG and
+    ISFILTERBARRIER (INFERRED, ADR-231 §5.9 (n): the page names no fields), from the selection of the network's layers or
+    from rows (Layer Name, Global ID, Terminal ID, Percent Along) — Percent Along 0.5 on a line or edge object when none
+    is given, as the page says. A junction's point is its shape, a line's the point at its percent along; an object's
+    location has no shape."""
+    load = _flag(load_selected_features, "LOAD_SELECTED_FEATURES", "DO_NOT_LOAD_SELECTED_FEATURES",
+                 "DO_NOT_LOAD_SELECTED_FEATURES")
+    clear = _word(clear_trace_locations, "KEEP_LOCATIONS")
+    if clear not in ("CLEAR_LOCATIONS", "KEEP_LOCATIONS"):
+        raise ExecuteError("ERROR 000800: clear_trace_locations is CLEAR_LOCATIONS or KEEP_LOCATIONS.")
+    is_filter = _flag(filter_barrier, "FILTER_BARRIER", "TRAVERSABILITY_BARRIER", "TRAVERSABILITY_BARRIER")
+    rows = _rows(trace_locations)
+    if load and rows:
+        raise ExecuteError("ERROR 000800: Load Selected Features and Trace Locations cannot be used together.")
+    from ._layers import LAYERS
+    with _utility.Network(_path(in_utility_network)) as network:
+        sources = network.sources()
+        srid = int(network.q("select srs_id from grapy_feature_datasets where name = ?", network.dataset).fetchone()[0])
+        wanted = []
+        if load:
+            for layer in LAYERS.values():
+                try:
+                    file, table = _gpkg.split(layer.source)
+                except ValueError:
+                    continue
+                if os.path.normcase(os.path.abspath(file)) != os.path.normcase(os.path.abspath(network.file)):
+                    continue
+                class_name = next((c for c, _, _ in sources.values() if c == table), None)
+                if class_name is None:
+                    continue
+                oid = network.oid(class_name)
+                for fid in sorted(layer.selection):
+                    found = network.q(f'select GLOBALID from "{class_name}" where "{oid}" = ?', fid).fetchone()
+                    if found:
+                        wanted.append((class_name, found[0], None, None))
+        for row in rows:
+            cells = _cells(row)
+            cells += [None] * (4 - len(cells))
+            name = str(cells[0])
+            layer = LAYERS.get(name)
+            class_name = network.table(_gpkg.split(layer.source)[1] if layer is not None else name)
+            terminal = cells[2] if _given(cells[2]) else None
+            percent = float(cells[3]) if _given(cells[3]) else None
+            wanted.append((class_name, str(cells[1]), terminal, percent))
+        out = []
+        for class_name, globalid, terminal, percent in wanted:
+            oid, group, kind = network.feature_by_globalid(class_name, globalid)
+            role = network.role(class_name)
+            terminal_id = network.terminal_id(class_name, group, kind, terminal) if terminal is not None else None
+            shape = None
+            if role in _utility.LINE_ROLES or role == "EdgeObject":
+                percent = 0.5 if percent is None else percent
+            else:
+                percent = None
+            if role not in _utility.OBJECT_ROLES:
+                blob = network.q(f'select geom from "{class_name}" where "{network.oid(class_name)}" = ?', oid).fetchone()[0]
+                geometry = _gpkg.decode(blob)
+                if geometry is not None and not geometry.is_empty:
+                    geometry = shapely.force_2d(geometry)
+                    shape = geometry if geometry.geom_type == "Point" else (
+                        shapely.line_merge(geometry) if geometry.geom_type == "MultiLineString" else geometry
+                    ).interpolate(percent or 0.0, normalized=True)
+            out.append((str(globalid).upper(), terminal_id, percent, int(is_filter), shape))
+    path = _path(out_feature_class)
+    _trace_location_class(path, srid)
+    connection, table = _gpkg.table_of(path)
+    try:
+        if clear == "CLEAR_LOCATIONS":
+            connection.execute(f'delete from "{table}"')
+        for globalid, terminal, percent, flag, shape in out:
+            connection.execute(f'insert into "{table}" (geom, FEATUREGLOBALID, TERMINALID, PERCENTALONG, ISFILTERBARRIER) '
+                               'values (?, ?, ?, ?, ?)', (_gpkg.encode(shape, srid) if shape is not None else None,
+                                                          globalid, terminal, percent, flag))
+        connection.commit()
+    finally:
+        connection.close()
+    return Result(path)
+
+
+def _trace_location_class(path, srid):
+    file, table = _gpkg.split(path)
+    if os.path.exists(file):
+        connection = _gpkg.connect(file)
+        try:
+            exists = connection.execute("select 1 from gpkg_contents where table_name = ?", (table,)).fetchone()
+            if exists:
+                fields = {c.name.upper() for c in _gpkg.describe(connection, table)[0]}
+                if not {"FEATUREGLOBALID", "TERMINALID", "PERCENTALONG"} <= fields:
+                    raise ExecuteError(f"ERROR 000800: '{path}' is not a trace locations class.")
+                if "ISFILTERBARRIER" not in fields:
+                    connection.execute(f'alter table "{table}" add column ISFILTERBARRIER SMALLINT')
+                    connection.commit()
+                return
+        finally:
+            connection.close()
+    _gpkg.create(path, "Point", srid, [_gpkg.Column("FEATUREGLOBALID", "String"), _gpkg.Column("TERMINALID", "Integer"),
+                                       _gpkg.Column("PERCENTALONG", "Double"),
+                                       _gpkg.Column("ISFILTERBARRIER", "SmallInteger")])
+
+
+# The AddTraceConfiguration parameters a configuration keeps, in the page's order after the network, name, type,
+# description and tags; and how each is written in an exported file. The file is the page's array of {creator, name,
+# description, traceType, configuration, resultTypes, tags}, the last three as JSON strings; the configuration's keys are
+# the REST API's traceConfiguration keys. INFERRED (ADR-231 §5.9 (n)): traceType's codes 1 … 10 in the order the
+# AddTraceConfiguration page lists the types, the keys of functions, propagators and output filters the REST page's
+# examples do not show, and SELECTION and ELEMENTS both written "elements" (read back as SELECTION).
+_CONFIG = ("domain_network", "tier", "target_tier", "subnetwork_name", "shortest_path_network_attribute_name",
+           "include_containers", "include_content", "include_structures", "include_barriers", "validate_consistency",
+           "condition_barriers", "function_barriers", "traversability_scope", "filter_barriers",
+           "filter_function_barriers", "filter_scope", "filter_bitset_network_attribute_name", "filter_nearest",
+           "nearest_count", "nearest_cost_network_attribute", "nearest_categories", "nearest_assets", "functions",
+           "propagators", "output_assettypes", "output_conditions", "include_isolated_features",
+           "ignore_barriers_at_starting_points", "include_up_to_first_spatial_container", "result_types",
+           "allow_indeterminate_flow", "validate_locatability", "use_digitized_direction", "synthesize_geometries",
+           "num_paths", "max_hops", "circuit_name", "infer_connectivity")
+_REST_TEXT = {"domain_network": "domainNetworkName", "tier": "tierName", "target_tier": "targetTierName",
+              "subnetwork_name": "subnetworkName", "shortest_path_network_attribute_name": "shortestPathNetworkAttributeName",
+              "filter_bitset_network_attribute_name": "filterBitsetNetworkAttributeName", "circuit_name": "circuitName",
+              "num_paths": "numPaths", "max_hops": "maxHops"}
+_REST_FLAGS = {"include_containers": "includeContainers", "include_content": "includeContent",
+               "include_structures": "includeStructures", "include_barriers": "includeBarriers",
+               "validate_consistency": "validateConsistency", "include_isolated_features": "includeIsolated",
+               "ignore_barriers_at_starting_points": "ignoreBarriersAtStartingPoints",
+               "include_up_to_first_spatial_container": "includeUpToFirstSpatialContainer",
+               "allow_indeterminate_flow": "allowIndeterminateFlow", "validate_locatability": "validateLocatability",
+               "use_digitized_direction": "useDigitizedDirection", "synthesize_geometries": "synthesizeGeometries",
+               "infer_connectivity": "inferConnectivity"}
+_REST_SCOPES = {"BOTH_JUNCTIONS_AND_EDGES": "junctionsAndEdges", "JUNCTIONS_ONLY": "junctions", "EDGES_ONLY": "edges"}
+_REST_OPERATORS = dict(zip(_utility._OPERATORS, ("equal", "notEqual", "greaterThan", "greaterThanEqual", "lessThan",
+                                                 "lessThanEqual", "includesTheValues", "doesNotIncludeTheValues",
+                                                 "includesAny", "doesNotIncludeAny")))
+_REST_RESULTS = {"SELECTION": "elements", "ELEMENTS": "elements", "AGGREGATED_GEOMETRY": "aggregatedGeometry",
+                 "CONNECTIVITY": "connectivity", "FEATURES": "features",
+                 "CONTAINMENT_AND_ATTACHMENT_ASSOCIATIONS": "associations", "RELATED_RECORDS": "relatedRecords",
+                 "CIRCUITS": "circuits"}
+_TRACE_CODES = {name: i + 1 for i, name in enumerate(_ALL_TRACE_TYPES)}
+
+
+def _back(mapping, value):
+    return next((k for k, v in mapping.items() if v == value), None)
+
+
+def _number(value):
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return value
+    return int(number) if number.is_integer() else number
+
+
+def _rest_condition(row):
+    return {"name": row[0], "type": "category" if str(row[0]).lower() == "category" else "networkAttribute",
+            "operator": _REST_OPERATORS.get(str(row[1]).upper(), row[1]), "value": _number(row[3]),
+            "combineUsingOr": str(row[4] or "OR").upper() != "AND",
+            "isSpecificValue": str(row[2] or "SPECIFIC_VALUE").upper() != "NETWORK_ATTRIBUTE"}
+
+
+def _condition_row(item):
+    return [item["name"], _back(_REST_OPERATORS, item["operator"]) or item["operator"],
+            "SPECIFIC_VALUE" if item.get("isSpecificValue", True) else "NETWORK_ATTRIBUTE", item.get("value"),
+            "OR" if item.get("combineUsingOr", True) else "AND"]
+
+
+def _to_rest(config):
+    """A stored configuration (arcpy's parameters) as the REST API's traceConfiguration object."""
+    out = {}
+    for name, key in _REST_TEXT.items():
+        if config.get(name) not in (None, ""):
+            out[key] = config[name]
+    for name, key in _REST_FLAGS.items():
+        out[key] = _on(config, name)
+    out["traversabilityScope"] = _REST_SCOPES[_word(config.get("traversability_scope"), "BOTH_JUNCTIONS_AND_EDGES")]
+    out["filterScope"] = _REST_SCOPES[_word(config.get("filter_scope"), "BOTH_JUNCTIONS_AND_EDGES")]
+    for name, key in (("condition_barriers", "conditionBarriers"), ("filter_barriers", "filterBarriers"),
+                      ("output_conditions", "outputConditions")):
+        out[key] = [_rest_condition(r) for r in _utility.value_table(config.get(name), 5)]
+    for name, key in (("function_barriers", "functionBarriers"), ("filter_function_barriers", "filterFunctionBarriers")):
+        out[key] = [{"functionType": str(r[0]).lower(), "networkAttributeName": r[1],
+                     "operator": _REST_OPERATORS.get(str(r[2]).upper(), r[2]), "value": _number(r[3]),
+                     "useLocalValues": _untrace._truthy(r[4])} for r in _utility.value_table(config.get(name), 5)]
+    out["functions"] = [{"functionType": str(r[0]).lower(), "networkAttributeName": r[1],
+                         "conditions": [_rest_condition([r[2], r[3], r[4], r[5], None])] if r[2] else [],
+                         "functionName": r[6] or ""} for r in _utility.value_table(config.get("functions"), 7)]
+    out["propagators"] = [{"networkAttributeName": r[0], "substitutionAttributeName": r[1] or "",
+                           "propagatorFunctionType": _untrace.PROPAGATORS.get(str(r[2]).upper(), r[2]),
+                           "operator": _REST_OPERATORS.get(str(r[3]).upper(), r[3]), "value": _number(r[4]),
+                           "propagatedAttributeName": r[5] or ""}
+                          for r in _utility.value_table(config.get("propagators"), 6)]
+    out["nearestNeighbor"] = {"count": int(config.get("nearest_count") or -1) if _on(config, "filter_nearest") else -1,
+                              "costNetworkAttributeName": config.get("nearest_cost_network_attribute") or "",
+                              "nearestCategories": [str(c) for c in _rows(config.get("nearest_categories"))],
+                              "nearestAssets": [str(a) for a in _rows(config.get("nearest_assets"))]}
+    out["outputFilters"] = [{"assetType": str(a)} for a in _rows(config.get("output_assettypes"))]
+    return out
+
+
+def _from_rest(rest):
+    """The REST API's traceConfiguration object as arcpy's parameters."""
+    config = {}
+    for name, key in _REST_TEXT.items():
+        if key in rest and rest[key] not in (None, ""):
+            config[name] = rest[key]
+    for name, key in _REST_FLAGS.items():
+        if key in rest:
+            config[name] = _FLAGS[name][0 if rest[key] else 1]
+    for name, key in (("traversability_scope", "traversabilityScope"), ("filter_scope", "filterScope")):
+        if key in rest:
+            config[name] = _back(_REST_SCOPES, rest[key]) or "BOTH_JUNCTIONS_AND_EDGES"
+    for name, key in (("condition_barriers", "conditionBarriers"), ("filter_barriers", "filterBarriers"),
+                      ("output_conditions", "outputConditions")):
+        if rest.get(key):
+            config[name] = [_condition_row(i) for i in rest[key]]
+    for name, key in (("function_barriers", "functionBarriers"), ("filter_function_barriers", "filterFunctionBarriers")):
+        if rest.get(key):
+            config[name] = [[i["functionType"].upper(), i["networkAttributeName"],
+                             _back(_REST_OPERATORS, i["operator"]) or i["operator"], i.get("value"),
+                             bool(i.get("useLocalValues"))] for i in rest[key]]
+    if rest.get("functions"):
+        rows = []
+        for i in rest["functions"]:
+            c = _condition_row(i["conditions"][0]) if i.get("conditions") else [None] * 5
+            rows.append([i["functionType"].upper(), i["networkAttributeName"], c[0], c[1], c[2], c[3],
+                         i.get("functionName") or None])
+        config["functions"] = rows
+    if rest.get("propagators"):
+        config["propagators"] = [[i["networkAttributeName"], i.get("substitutionAttributeName") or None,
+                                  _back(_untrace.PROPAGATORS, i["propagatorFunctionType"]) or i["propagatorFunctionType"],
+                                  _back(_REST_OPERATORS, i["operator"]) or i["operator"], i.get("value"),
+                                  i.get("propagatedAttributeName") or None] for i in rest["propagators"]]
+    nearest = rest.get("nearestNeighbor") or {}
+    if nearest.get("count", -1) not in (-1, None):
+        config.update({"filter_nearest": "FILTER_BY_NEAREST", "nearest_count": nearest["count"],
+                       "nearest_cost_network_attribute": nearest.get("costNetworkAttributeName"),
+                       "nearest_categories": nearest.get("nearestCategories") or [],
+                       "nearest_assets": nearest.get("nearestAssets") or []})
+    if rest.get("outputFilters"):
+        config["output_assettypes"] = [i["assetType"] for i in rest["outputFilters"] if i.get("assetType")]
+    return config
+
+
+def _store_config(network, name, trace_type, description, tags, config, result_types, creator=None):
+    if network.q("select 1 from grapy_un_trace_config where network = ? and lower(name) = lower(?)", network.name,
+                 name).fetchone():
+        raise ExecuteError(f"ERROR 000258: the trace configuration '{name}' exists already.")
+    network.q("insert into grapy_un_trace_config values (?, ?, ?, ?, ?, ?, ?, ?)", network.name, name,
+              creator or os.environ.get("USERNAME") or os.environ.get("USER") or "", description or "", trace_type,
+              json.dumps(config), json.dumps(result_types), json.dumps(tags))
+
+
+def AddTraceConfiguration(in_utility_network, trace_config_name, trace_type="CONNECTED", description=None, tags=None,
+                          domain_network=None, tier=None, target_tier=None, subnetwork_name=None,
+                          shortest_path_network_attribute_name=None, include_containers="EXCLUDE_CONTAINERS",
+                          include_content="EXCLUDE_CONTENT", include_structures="EXCLUDE_STRUCTURES",
+                          include_barriers="INCLUDE_BARRIERS", validate_consistency="DO_NOT_VALIDATE_CONSISTENCY",
+                          condition_barriers=None, function_barriers=None,
+                          traversability_scope="BOTH_JUNCTIONS_AND_EDGES", filter_barriers=None,
+                          filter_function_barriers=None, filter_scope="BOTH_JUNCTIONS_AND_EDGES",
+                          filter_bitset_network_attribute_name=None, filter_nearest="DO_NOT_FILTER", nearest_count=None,
+                          nearest_cost_network_attribute=None, nearest_categories=None, nearest_assets=None,
+                          functions=None, propagators=None, output_assettypes=None, output_conditions=None,
+                          include_isolated_features="EXCLUDE_ISOLATED_FEATURES",
+                          ignore_barriers_at_starting_points="DO_NOT_IGNORE_BARRIERS_AT_STARTING_POINTS",
+                          include_up_to_first_spatial_container="DO_NOT_INCLUDE_UP_TO_FIRST_SPATIAL_CONTAINER",
+                          result_types=None, allow_indeterminate_flow="TRACE_INDETERMINATE_FLOW",
+                          validate_locatability="DO_NOT_VALIDATE_LOCATABILITY",
+                          use_digitized_direction="IGNORE_DIGITIZED_DIRECTION",
+                          synthesize_geometries="DO_NOT_SYNTHESIZE_GEOMETRIES", num_paths=None, max_hops=None,
+                          circuit_name=None, infer_connectivity="DO_NOT_INFER_CONNECTIVITY"):
+    """A named trace configuration kept with the network (version 5 or later, as the page says), for Trace's
+    ``use_trace_config`` and the export and import tools. Its creator is the operating system user, as in a
+    single-user deployment. The page's rules are checked: the domain network for the subnetwork-based and circuit types
+    and the tier for the first four, a shortest path attribute for a shortest path trace, no subtract function in a
+    subnetwork controllers or loops trace; telecom settings are refused as Trace refuses them."""
+    given = dict(locals())
+    kind = _word(trace_type, "CONNECTED")
+    if kind not in _ALL_TRACE_TYPES:
+        raise ExecuteError(f"ERROR 000800: '{trace_type}' is not a trace type.")
+    if kind == "CIRCUIT" or _given(circuit_name) or _flag(infer_connectivity, "INFER_CONNECTIVITY",
+                                                          "DO_NOT_INFER_CONNECTIVITY", "DO_NOT_INFER_CONNECTIVITY"):
+        raise NotBuiltError(f"arcpy.un.AddTraceConfiguration: the circuit trace {_TELECOM}.")
+    if kind in ("SUBNETWORK", "SUBNETWORK_CONTROLLERS", "UPSTREAM", "DOWNSTREAM") and not _flag(
+            use_digitized_direction, "USE_DIGITIZED_DIRECTION", "IGNORE_DIGITIZED_DIRECTION",
+            "IGNORE_DIGITIZED_DIRECTION") and not (_given(domain_network) and _given(tier)):
+        raise ExecuteError(f"ERROR 000735: a {kind.lower()} trace configuration needs a domain network and a tier.")
+    if kind == "SHORTEST_PATH" and not _given(shortest_path_network_attribute_name):
+        raise ExecuteError("ERROR 000735: a shortest path trace configuration needs shortest_path_network_attribute_name.")
+    for name in ("functions", "function_barriers", "filter_function_barriers"):
+        for row in _utility.value_table(given[name], 7 if name == "functions" else 5):
+            _untrace._function_word(row[0], kind)
+    config = {k: given[k] for k in _CONFIG if k != "result_types" and given[k] is not None}
+    results = [_word(t, "") for t in _rows(result_types)] or ["SELECTION"]
+    with _utility.Network(_path(in_utility_network)) as network:
+        if int(network.version) < 5:
+            raise ExecuteError("ERROR 002090: trace configurations need utility network version 5 or later.")
+        if _given(domain_network):
+            network.domain(domain_network)
+        if _given(tier):
+            network.tier(tier)
+        _store_config(network, str(trace_config_name), kind, description, [str(t) for t in _rows(tags)], config, results)
+    return Result(_path(in_utility_network))
+
+
+def DeleteTraceConfiguration(in_utility_network, trace_config_name):
+    """Named trace configurations deleted, permanently."""
+    with _utility.Network(_path(in_utility_network)) as network:
+        for name in _rows(trace_config_name):
+            gone = network.q("delete from grapy_un_trace_config where network = ? and lower(name) = lower(?)",
+                             network.name, str(name).strip("'\"")).rowcount
+            if not gone:
+                raise ExecuteError(f"ERROR 000732: '{name}' is not a trace configuration of the network.")
+    return Result(_path(in_utility_network))
+
+
+def ExportTraceConfigurations(in_utility_network, trace_config_name, out_json_file):
+    """Named trace configurations written to a .json array of {creator, name, description, traceType, configuration,
+    resultTypes, tags}, as the page describes the file."""
+    out = []
+    with _utility.Network(_path(in_utility_network)) as network:
+        for name in _rows(trace_config_name):
+            row = network.q("select name, creator, description, trace_type, configuration, result_types, tags from "
+                            "grapy_un_trace_config where network = ? and lower(name) = lower(?)", network.name,
+                            str(name).strip("'\"")).fetchone()
+            if row is None:
+                raise ExecuteError(f"ERROR 000732: '{name}' is not a trace configuration of the network.")
+            config = json.loads(row[4])
+            results = [{"type": _REST_RESULTS[t], "includeGeometry": _on(config, "include_geometry"),
+                        "includePropagatedValues": False, "networkAttributeNames": [], "diagramTemplateName": "",
+                        "resultTypeFields": []} for t in json.loads(row[5] or "[]")]
+            out.append({"creator": row[1], "name": row[0], "description": row[2], "traceType": _TRACE_CODES[row[3]],
+                        "configuration": json.dumps(_to_rest(config)), "resultTypes": json.dumps(results),
+                        "tags": json.dumps(json.loads(row[6] or "[]"))})
+    _unjson.write(_path(out_json_file), out)
+    return Result(_path(out_json_file))
+
+
+def ImportTraceConfigurations(in_utility_network, in_json_file):
+    """Trace configurations read from a .json file of the exported layout; a name the network has is an error."""
+    with open(_path(in_json_file), encoding="utf-8-sig") as read:
+        items = json.load(read)
+    if not isinstance(items, list):
+        raise ExecuteError("ERROR 000800: a trace configuration file is a JSON array.")
+    codes = {v: k for k, v in _TRACE_CODES.items()}
+    with _utility.Network(_path(in_utility_network)) as network:
+        if int(network.version) < 5:
+            raise ExecuteError("ERROR 002090: trace configurations need utility network version 5 or later.")
+        for item in items:
+            def parsed(value):
+                return json.loads(value) if isinstance(value, str) else value
+            kind = codes.get(int(item["traceType"])) if str(item.get("traceType", "")).isdigit() else \
+                _word(item.get("traceType"), "CONNECTED")
+            if kind is None:
+                raise ExecuteError(f"ERROR 000800: '{item.get('traceType')}' is not a trace type.")
+            results = [_back(_REST_RESULTS, r["type"]) or "SELECTION" for r in parsed(item.get("resultTypes")) or []]
+            _store_config(network, item["name"], kind, item.get("description"), parsed(item.get("tags")) or [],
+                          _from_rest(parsed(item.get("configuration")) or {}), results, item.get("creator"))
+    return Result(_path(in_utility_network))
+
+
+# ---- subnetworks ---------------------------------------------------------------------------------------------------
+
+def _boolean(value, yes, no, default):
+    return _flag(value, yes, no, default)
+
+
+def SetSubnetworkDefinition(in_utility_network, domain_network, tier_name,
+                            support_disjoint_subnetwork=None, valid_devices=None, valid_subnetwork_controller=None,
+                            valid_lines=None, aggregated_line=None, diagram_template=None, summaries=None,
+                            condition_barriers=None, function_barriers=None, include_barriers="INCLUDE_BARRIERS",
+                            traversability_scope="BOTH_JUNCTIONS_AND_EDGES", propagators=None,
+                            update_structure_features="UPDATE", update_container_features="UPDATE",
+                            edit_mode_for_default_version="WITHOUT_EVENTING",
+                            edit_mode_for_named_version="WITHOUT_EVENTING", valid_junctions=None,
+                            valid_junction_objects=None, valid_junction_object_subnetwork_controller=None,
+                            valid_edge_objects=None, manage_subnetwork_isdirty=None,
+                            include_containers="EXCLUDE_CONTAINERS", include_content="EXCLUDE_CONTENT",
+                            include_structures="EXCLUDE_STRUCTURES",
+                            validate_locatability="DO_NOT_VALIDATE_LOCATABILITY"):
+    """A tier's subnetwork definition set or replaced, with the topology disabled, as the page says: the valid asset
+    types (``AssetGroup/AssetType``), the aggregated lines (a subset of the valid lines), summaries written to SubnetLine
+    fields, condition and function barriers, propagators and their propagated fields, and the update, container and
+    Is dirty options. Disjoint subnetworks are supported by default in a hierarchical tier only, and Is dirty is managed
+    by default unless the tier has no controllers. The edit modes are kept and change nothing: grapy writes subnetwork
+    names in place, as WITHOUT_EVENTING does (INFERRED, ADR-231 §5.9 (m)). A diagram template is refused: network
+    diagrams are a model grapy does not hold."""
+    if _rows(diagram_template):
+        raise NotBuiltError(f"arcpy.un.SetSubnetworkDefinition: diagram_template {_DIAGRAMS}.")
+    from . import _unsubnet
+    with _utility.Network(_path(in_utility_network)) as network:
+        network.require_disabled("SetSubnetworkDefinition")
+        domain = network.domain(domain_network)
+        if domain[2] != "Traditional":
+            raise ExecuteError(f"ERROR 000732: '{domain_network}' is not a traditional domain network.")
+        tier = network.tier(tier_name)
+        if tier[0] != domain[0]:
+            raise ExecuteError(f"ERROR 000732: the tier '{tier_name}' is not in '{domain[0]}'.")
+        version = int(network.version)
+        hierarchical = domain[3] == "HIERARCHICAL"
+        found = _unsubnet.default_definition()
+        found["support_disjoint_subnetwork"] = True if hierarchical else _boolean(
+            support_disjoint_subnetwork, "SUPPORT_DISJOINT", "NO_DISJOINT", "NO_DISJOINT")
+        given = {"valid_devices": valid_devices, "valid_subnetwork_controller": valid_subnetwork_controller,
+                 "valid_lines": valid_lines, "aggregated_line": aggregated_line, "valid_junctions": valid_junctions,
+                 "valid_junction_objects": valid_junction_objects,
+                 "valid_junction_object_subnetwork_controller": valid_junction_object_subnetwork_controller,
+                 "valid_edge_objects": valid_edge_objects}
+        for name, value in given.items():
+            if _rows(value) and version < 4 and name not in ("valid_devices", "valid_subnetwork_controller",
+                                                             "valid_lines", "aggregated_line"):
+                raise ExecuteError(f"ERROR 002090: {name} needs utility network version 4 or later.")
+            found[name] = _unsubnet.asset_list(network, domain[0], _unsubnet.VALID_LISTS[name], _rows(value))
+        if not {tuple(a) for a in found["aggregated_line"]} <= {tuple(a) for a in found["valid_lines"]}:
+            raise ExecuteError("ERROR 002105: the aggregated lines must be a subset of the valid lines.")
+        subnet_line = network.q("select class_name from grapy_un_source where network = ? and domain = ? and role = "
+                                "'SubnetLine'", network.name, domain[0]).fetchone()[0]
+        columns = {c.name.lower(): c for c in _gpkg.describe(network.connection, subnet_line)[0]}
+        found["summaries"] = []
+        for row in _utility.value_table(summaries, 7):
+            function = _untrace._function_word(row[0])
+            _untrace._attribute(network, row[1])
+            if not row[6] or str(row[6]).lower() not in columns:
+                raise ExecuteError(f"ERROR 000728: the summary attribute '{row[6]}' is not a field of "
+                                   f"{subnet_line.rsplit('/', 1)[-1]}.")
+            if function == "AVERAGE" and columns[str(row[6]).lower()].type not in ("Double", "Single"):
+                raise ExecuteError("ERROR 002105: an average is summarised into a double field.")
+            found["summaries"].append([function] + list(row[1:]))
+        found["condition_barriers"] = _utility.value_table(condition_barriers, 5)
+        for row in found["condition_barriers"]:
+            if str(row[0]).lower() == "category" and str(row[2] or "SPECIFIC_VALUE").upper() != "SPECIFIC_VALUE":
+                raise ExecuteError("ERROR 002105: a Category condition barrier's type is SPECIFIC_VALUE.")
+        found["function_barriers"] = _utility.value_table(function_barriers, 5)
+        for row in found["function_barriers"]:
+            _untrace._function_word(row[0])
+        found["include_barriers"] = _boolean(include_barriers, "INCLUDE_BARRIERS", "EXCLUDE_BARRIERS", "INCLUDE_BARRIERS")
+        found["traversability_scope"] = _word(traversability_scope, "BOTH_JUNCTIONS_AND_EDGES")
+        found["propagators"] = _utility.value_table(propagators, 6)
+        for row in found["propagators"]:
+            if str(row[2] or "").upper() not in _untrace.PROPAGATORS:
+                raise ExecuteError(f"ERROR 000800: '{row[2]}' is not a propagator function.")
+        options = (("update_structure_features", update_structure_features, "UPDATE", "NOT_UPDATE", "UPDATE", 4),
+                   ("update_container_features", update_container_features, "UPDATE", "NOT_UPDATE", "UPDATE", 4),
+                   ("include_containers", include_containers, "INCLUDE_CONTAINERS", "EXCLUDE_CONTAINERS",
+                    "EXCLUDE_CONTAINERS", 5),
+                   ("include_content", include_content, "INCLUDE_CONTENT", "EXCLUDE_CONTENT", "EXCLUDE_CONTENT", 5),
+                   ("include_structures", include_structures, "INCLUDE_STRUCTURES", "EXCLUDE_STRUCTURES",
+                    "EXCLUDE_STRUCTURES", 5),
+                   ("validate_locatability", validate_locatability, "VALIDATE_LOCATABILITY",
+                    "DO_NOT_VALIDATE_LOCATABILITY", "DO_NOT_VALIDATE_LOCATABILITY", 5))
+        for name, value, yes, no, default, needs in options:
+            found[name] = _boolean(value, yes, no, default)
+            if found[name] != (default == yes) and version < needs:
+                raise ExecuteError(f"ERROR 002090: {name} needs utility network version {needs} or later.")
+        for name, value in (("edit_mode_for_default_version", edit_mode_for_default_version),
+                            ("edit_mode_for_named_version", edit_mode_for_named_version)):
+            word = _word(value, "WITHOUT_EVENTING")
+            if word not in ("WITHOUT_EVENTING", "WITH_EVENTING"):
+                raise ExecuteError(f"ERROR 000800: {name} is WITHOUT_EVENTING or WITH_EVENTING.")
+            found[name] = word
+        has_controllers = bool(network.q("select 1 from grapy_un_controller where network = ? and lower(tier) = "
+                                         "lower(?)", network.name, tier[1]).fetchone())
+        found["manage_subnetwork_isdirty"] = _boolean(manage_subnetwork_isdirty, "MANAGE", "NOT_MANAGE",
+                                                      "MANAGE" if has_controllers else "NOT_MANAGE")
+        network.q("insert or replace into grapy_un_subnetwork_definition values (?, ?, ?, ?)", network.name, domain[0],
+                  tier[1], json.dumps(found))
+    return Result(_path(in_utility_network))
+
+
+def _extra(condition_barriers, function_barriers, include_barriers, traversability_scope, propagators):
+    extra = {"condition_barriers": _utility.value_table(condition_barriers, 5),
+             "function_barriers": _utility.value_table(function_barriers, 5),
+             "propagators": _utility.value_table(propagators, 6)}
+    if _given(include_barriers):
+        extra["include_barriers"] = _flag(include_barriers, "INCLUDE_BARRIERS", "EXCLUDE_BARRIERS", "INCLUDE_BARRIERS")
+    if _given(traversability_scope):
+        extra["traversability_scope"] = _word(traversability_scope, "BOTH_JUNCTIONS_AND_EDGES")
+    return extra
+
+
+def UpdateSubnetwork(in_utility_network, domain_network, tier, all_subnetworks_in_tier="SPECIFIC_SUBNETWORK",
+                     subnetwork_name=None, continue_on_failure="STOP_ON_FAILURE", condition_barriers=None,
+                     function_barriers=None, include_barriers=None, traversability_scope=None, propagators=None):
+    """Subnetworks of a tier updated, as the page says: each traced from its controllers with the tier's subnetwork
+    definition (and this tool's own barriers added to it), its name written to the subnetwork field of the features it
+    reaches and taken from those it no longer reaches, their Is connected set True (Unknown where the name is cleared),
+    propagated values written to their fields, containers and structures given its supported subnetwork name, and its
+    SubnetLine row made or replaced with the aggregated lines, the controllers' names and the summaries, ISDIRTY clean.
+    A subnetwork with no controller left is deleted. The topology must be enabled and no dirty area may meet the
+    subnetwork; a failing subnetwork is marked invalid, and stops the tool unless CONTINUE_ON_FAILURE."""
+    from . import _unsubnet
+    every = _word(all_subnetworks_in_tier, "SPECIFIC_SUBNETWORK")
+    if every not in ("ALL_SUBNETWORKS_IN_TIER", "SPECIFIC_SUBNETWORK"):
+        raise ExecuteError("ERROR 000800: all_subnetworks_in_tier is ALL_SUBNETWORKS_IN_TIER or SPECIFIC_SUBNETWORK.")
+    keep_going = _flag(continue_on_failure, "CONTINUE_ON_FAILURE", "STOP_ON_FAILURE", "STOP_ON_FAILURE")
+    extra = _extra(condition_barriers, function_barriers, include_barriers, traversability_scope, propagators)
+    path = _path(in_utility_network)
+    with _utility.Network(path) as network:
+        network.require_enabled("UpdateSubnetwork")
+        domain = network.domain(domain_network)
+        if domain[2] != "Traditional":
+            raise ExecuteError("ERROR 000732: Update Subnetwork is supported only for traditional domain networks.")
+        found_tier = network.tier(tier)
+        if found_tier[0] != domain[0]:
+            raise ExecuteError(f"ERROR 000732: the tier '{tier}' is not in '{domain[0]}'.")
+        if every == "ALL_SUBNETWORKS_IN_TIER":
+            names = sorted(_unsubnet.controller_names(network, found_tier[1]) |
+                           set(_unsubnet.rows(network, found_tier[1])), key=str.lower)
+        else:
+            if not _given(subnetwork_name):
+                raise ExecuteError("ERROR 000735: subnetwork_name is required to update a specific subnetwork.")
+            known = {n.lower(): n for n in _unsubnet.controller_names(network, found_tier[1]) |
+                     set(_unsubnet.rows(network, found_tier[1]))}
+            if str(subnetwork_name).lower() not in known:
+                raise ExecuteError(f"ERROR 002080: the tier '{found_tier[1]}' has no subnetwork '{subnetwork_name}'.")
+            names = [known[str(subnetwork_name).lower()]]
+    for name in names:
+        with _utility.Network(path) as network:
+            reason = _unsubnet.update(network, domain[0], found_tier[1], name, extra)
+        if reason:
+            if not keep_going:
+                raise ExecuteError(reason)
+            AddWarning(reason)
+    return Result(path)
+
+
+def ExportSubnetwork(in_utility_network, domain_network, tier, subnetwork_name, export_acknowledged="NO_ACKNOWLEDGE",
+                     out_json_file=None, condition_barriers=None, function_barriers=None, include_barriers=None,
+                     traversability_scope=None, propagators=None, include_geometry="EXCLUDE_GEOMETRY", result_types=None,
+                     result_network_attributes=None, result_fields=None,
+                     include_domain_descriptions="EXCLUDE_DOMAIN_DESCRIPTIONS", related_record_fields=None,
+                     include_flow_directions="EXCLUDE_FLOW_DIRECTIONS",
+                     include_propagated_values="EXCLUDE_PROPAGATED_VALUES"):
+    """A clean subnetwork written to a .json file: the subnetwork's identity and its ``controllers``, beside the
+    result types asked for in the layout of Trace's JSON (``_unjson``; INFERRED, ADR-231 §5.9 (l)). With no result type
+    only the controllers are written. ACKNOWLEDGE, with the topology enabled, stamps LASTACKEXPORTSUBNETWORK on its
+    Subnetworks row and SubnetLine, and removes the row of a deleted subnetwork, as the page says."""
+    from . import _unsubnet
+    acknowledge = _flag(export_acknowledged, "ACKNOWLEDGE", "NO_ACKNOWLEDGE", "NO_ACKNOWLEDGE")
+    if not _given(out_json_file):
+        raise ExecuteError("ERROR 000735: out_json_file is required.")
+    types = [_word(t, "") for t in _rows(result_types)]
+    for t in types:
+        if t not in ("CONNECTIVITY", "FEATURES", "CONTAINMENT_AND_ATTACHMENT_ASSOCIATIONS", "RELATED_RECORDS"):
+            raise ExecuteError(f"ERROR 000800: '{t}' is not a result type of Export Subnetwork.")
+    extra = _extra(condition_barriers, function_barriers, include_barriers, traversability_scope, propagators)
+    with _utility.Network(_path(in_utility_network)) as network:
+        if acknowledge:
+            network.require_enabled("ExportSubnetwork with ACKNOWLEDGE")
+        domain = network.domain(domain_network)
+        found_tier = network.tier(tier)
+        if found_tier[0] != domain[0]:
+            raise ExecuteError(f"ERROR 000732: the tier '{tier}' is not in '{domain[0]}'.")
+        row = network.q("select name, isdirty, isdeleted from grapy_un_subnetwork where network = ? and lower(tier) = "
+                        "lower(?) and lower(name) = lower(?)", network.name, found_tier[1], str(subnetwork_name)).fetchone()
+        if row is None or row[1] != _unsubnet.CLEAN:
+            raise ExecuteError(f"ERROR 002102: the subnetwork '{subnetwork_name}' is not clean; run UpdateSubnetwork "
+                               "first.")
+        name = row[0]
+        document = {"domainNetworkName": domain[0], "tierName": found_tier[1], "subnetworkName": name,
+                    "isDeleted": bool(row[2]), "controllers": []}
+        if not row[2]:
+            graph = _utility.build(network)
+            settings = _unsubnet.definition(network, found_tier[1])
+            outcome, keys = _unsubnet.trace(network, graph, domain[0], found_tier[1], name, settings, extra)
+            values = _utility.Values(graph)
+            controllers = []
+            for i in sorted(outcome.ids):
+                e = graph.elements[i]
+                found = values.controller(e)
+                if found and found[1].lower() == found_tier[1].lower() and found[2].lower() == name.lower():
+                    data = graph.features[e.feature][1]
+                    controllers.append({"networkSourceId": e.source, "globalId": e.globalid, "objectId": e.oid,
+                                        "terminalId": _utility.terminal_of(e), "assetGroupCode": data["group"],
+                                        "assetTypeCode": data["type"], "subnetworkControllerName": found[0]})
+            writer = _unjson.Writer(network, graph, outcome, outcome.ids, keys,
+                                    _flag(include_geometry, "INCLUDE_GEOMETRY", "EXCLUDE_GEOMETRY", "EXCLUDE_GEOMETRY"),
+                                    _flag(include_domain_descriptions, "INCLUDE_DOMAIN_DESCRIPTIONS",
+                                          "EXCLUDE_DOMAIN_DESCRIPTIONS", "EXCLUDE_DOMAIN_DESCRIPTIONS"),
+                                    [str(a).strip("'\"") for a in _rows(result_network_attributes)],
+                                    _utility.value_table(result_fields, 2), _utility.value_table(related_record_fields, 2),
+                                    _flag(include_flow_directions, "INCLUDE_FLOW_DIRECTIONS", "EXCLUDE_FLOW_DIRECTIONS",
+                                          "EXCLUDE_FLOW_DIRECTIONS"),
+                                    _flag(include_propagated_values, "INCLUDE_PROPAGATED_VALUES",
+                                          "EXCLUDE_PROPAGATED_VALUES", "EXCLUDE_PROPAGATED_VALUES"))
+            document["controllers"] = controllers
+            document = writer.document(types, document)
+        _unjson.write(_path(out_json_file), document)
+        if acknowledge:
+            stamp = _unsubnet.now()
+            table = network.q("select class_name from grapy_un_source where network = ? and domain = ? and role = "
+                              "'SubnetLine'", network.name, domain[0]).fetchone()[0]
+            network.q(f'update "{table}" set LASTACKEXPORTSUBNETWORK = ? where DOMAINNETWORKNAME = ? and TIERNAME = ? and '
+                      'SUBNETWORKNAME = ?', stamp, domain[0], found_tier[1], name)
+            if row[2]:
+                network.q("delete from grapy_un_subnetwork where network = ? and tier = ? and name = ?", network.name,
+                          found_tier[1], name)
+            else:
+                network.q("update grapy_un_subnetwork set last_ack_export = ? where network = ? and tier = ? and name = ?",
+                          stamp, network.name, found_tier[1], name)
+    return Result(_path(in_utility_network))
+
+
+def UpdateIsConnected(in_utility_network):
+    """ISCONNECTED written on every feature of each traditional domain network: 1 (True) where connectivity reaches a
+    subnetwork controller, 2 (False) where it does not (INFERRED codes, ADR-231 §5.9 (m)). The topology must be
+    enabled."""
+    from . import _unsubnet
+    with _utility.Network(_path(in_utility_network)) as network:
+        network.require_enabled("UpdateIsConnected")
+        _unsubnet.update_is_connected(network)
+    return Result(_path(in_utility_network))
+
+
+# ---- asset type settings and topology maintenance ------------------------------------------------------------------
+
+def SetEdgeConnectivity(in_utility_network, domain_network, line_featureclass, assetgroup, assettype,
+                        edge_connectivity):
+    """An asset type's edge connectivity policy: ANY_VERTEX (the default) connects at any vertex, END_VERTEX only at
+    the end vertices. A line or edge object asset type; the topology disabled."""
+    word = str(edge_connectivity or "").strip().upper().replace(" ", "")
+    word = {"ANYVERTEX": "ANY_VERTEX", "ENDVERTEX": "END_VERTEX"}.get(word.replace("_", ""), word)
+    if word not in ("ANY_VERTEX", "END_VERTEX"):
+        raise ExecuteError("ERROR 000800: edge_connectivity is ANY_VERTEX or END_VERTEX.")
+    with _utility.Network(_path(in_utility_network)) as network:
+        network.require_disabled("SetEdgeConnectivity")
+        domain = network.domain(domain_network)
+        class_name = network.table(line_featureclass)
+        if network.domain_of(class_name) != domain[0] or network.role(class_name) not in ("Line", "StructureLine",
+                                                                                          "EdgeObject"):
+            raise ExecuteError(f"ERROR 000732: '{line_featureclass}' is not a line class or edge object table of "
+                               f"'{domain[0]}'.")
+        group = network.asset_group(class_name, assetgroup)
+        network.set_setting(class_name, group, network.asset_type(class_name, group, assettype), "edge_connectivity",
+                            word)
+    return Result(_path(in_utility_network))
+
+
+def SetAssociationRole(in_utility_network, domain_network, featureclass, assetgroup, assettype, association_role_type,
+                       association_deletion_semantics=None, view_scale=None, split_content="DO_NOT_SPLIT"):
+    """An asset type's association role — CONTAINER, STRUCTURE or NONE — and deletion semantics (CASCADE,
+    SET_TO_NONE, RESTRICTED). The topology disabled; a role removed only before it is first enabled; a view scale not on
+    junction or edge objects; split content only for a container line. Once a role is set, only a container contains and
+    only a structure has attachments; the deletion semantics act when a utility network tool next finds the delete, and
+    the view scale and split content are kept for a map and an editor grapy does not have (INFERRED, ADR-231 §5.9 (k))."""
+    role = _word(association_role_type, "")
+    if role not in ("CONTAINER", "STRUCTURE", "NONE"):
+        raise ExecuteError("ERROR 000800: association_role_type is CONTAINER, STRUCTURE or NONE.")
+    deletion = _word(association_deletion_semantics, "CASCADE" if role != "NONE" else "")
+    if role != "NONE" and deletion not in ("CASCADE", "SET_TO_NONE", "RESTRICTED"):
+        raise ExecuteError("ERROR 000800: association_deletion_semantics is CASCADE, SET_TO_NONE or RESTRICTED.")
+    split = _flag(split_content, "SPLIT", "DO_NOT_SPLIT", "DO_NOT_SPLIT")
+    with _utility.Network(_path(in_utility_network)) as network:
+        network.require_disabled("SetAssociationRole")
+        domain = network.domain(domain_network)
+        class_name = network.table(featureclass)
+        if network.domain_of(class_name) != domain[0]:
+            raise ExecuteError(f"ERROR 000732: '{featureclass}' is not in '{domain[0]}'.")
+        kind_of = network.role(class_name)
+        group = network.asset_group(class_name, assetgroup)
+        kind = network.asset_type(class_name, group, assettype)
+        if role == "STRUCTURE" and domain[0] != _utility.STRUCTURE:
+            raise ExecuteError("ERROR 002092: the structure role is for asset types of the structure network.")
+        if _given(view_scale) and kind_of in _utility.OBJECT_ROLES:
+            raise ExecuteError("ERROR 000800: a view scale does not apply to junction or edge objects.")
+        if split and not (role == "CONTAINER" and kind_of in _utility.LINE_ROLES):
+            raise ExecuteError("ERROR 000800: split content applies only to container line features.")
+        before = network.setting(class_name, group, kind, "association_role")
+        if network.ever_enabled and before is not None and before["role"] != "NONE" and role != before["role"]:
+            raise ExecuteError("ERROR 002092: a container or structure role can be removed only before the network "
+                               "topology is first enabled.")
+        network.set_setting(class_name, group, kind, "association_role",
+                            {"role": role, "deletion": deletion or None,
+                             "view_scale": float(view_scale) if _given(view_scale) else None, "split_content": split})
+    return Result(_path(in_utility_network))
+
+
+def RebuildNetworkTopology(in_utility_network, extent=None):
+    """The network topology rebuilt in an extent: every feature in it taken into the record again whether its area is
+    dirty or not, and the errors found again. The topology must be enabled. Dirty areas are not clipped (INFERRED,
+    ADR-231 §5.9 (d))."""
+    with _utility.Network(_path(in_utility_network)) as network:
+        network.require_enabled("RebuildNetworkTopology")
+        _utility.refresh(network, extent=_extent(extent, "RebuildNetworkTopology"), everything=True)
+        _utility.write_dirty_areas(network)
+    return Result(_path(in_utility_network))
+
+
+def EnableClusterKeys(in_utility_network):
+    """A CLUSTERKEY field (long) added to every class and table of the network; its values are CalculateClusterKeys'."""
+    with _utility.Network(_path(in_utility_network)) as network:
+        for class_name, _, role in network.sources().values():
+            if "clusterkey" not in {c.name.lower() for c in _gpkg.describe(network.connection, class_name)[0]}:
+                network.q(f'alter table "{class_name}" add column CLUSTERKEY INTEGER')
+    return Result(_path(in_utility_network))
+
+
+_CLUSTERS = ("cluster keys as the connected components of the network topology, its connectivity and its containment "
+             "and attachment associations together, numbered from 1 in the order of each component's first feature",
+             "Hopcroft and Tarjan 1973, Algorithm 447: Efficient Algorithms for Graph Manipulation")
+
+
+@equivalent(*_CLUSTERS)
+def CalculateClusterKeys(in_utility_network, in_overwrite_values="DO_NOT_OVERWRITE_VALUES", in_extent=None):
+    """EQUIVALENT (ADR-224 §5.6): the page says cluster keys group features and objects for the topology but not how
+    they are computed; grapy groups what is connected — and an object with its container or structure, as the page's
+    "especially with nonspatial junction and edge objects" asks. Over the topology as last enabled, the topology
+    disabled, every class carrying CLUSTERKEY; features whose shape meets the extent, and only empty keys unless
+    OVERWRITE_VALUES."""
+    overwrite = _flag(in_overwrite_values, "OVERWRITE_VALUES", "DO_NOT_OVERWRITE_VALUES", "DO_NOT_OVERWRITE_VALUES")
+    with _utility.Network(_path(in_utility_network)) as network:
+        network.require_disabled("CalculateClusterKeys")
+        window = _extent(in_extent, "CalculateClusterKeys")
+        sources = network.sources()
+        for class_name, _, _ in sources.values():
+            if "clusterkey" not in {c.name.lower() for c in _gpkg.describe(network.connection, class_name)[0]}:
+                raise ExecuteError(f"ERROR 002106: {class_name.rsplit('/', 1)[-1]} has no CLUSTERKEY field; run "
+                                   "EnableClusterKeys first.")
+        graph = _utility.build(network)
+        links = graph.undirected()
+        by_globalid = {g: k for k, (g, _) in graph.features.items()}
+        joined = {}
+        for row in graph.associations:
+            a = by_globalid.get(str(row["from_globalid"]).upper())
+            b = by_globalid.get(str(row["to_globalid"]).upper())
+            if a and b:
+                joined.setdefault(a, set()).add(b)
+                joined.setdefault(b, set()).add(a)
+        feature_links = {}
+        for a, bs in links.items():
+            fa = graph.elements[a].feature or (0, a)
+            for b in bs:
+                fb = graph.elements[b].feature or (0, b)
+                if fa != fb:
+                    feature_links.setdefault(fa, set()).add(fb)
+        for a, bs in joined.items():
+            feature_links.setdefault(a, set()).update(bs)
+        key_of, number = {}, 0
+        for key in sorted(graph.features):
+            if key in key_of:
+                continue
+            number += 1
+            reached, _ = _utility.reach([key], feature_links, lambda k: False)
+            for k in reached:
+                key_of[k] = number
+        from shapely.geometry import box
+        area = box(*window) if window else None
+        for key, value in key_of.items():
+            if not isinstance(key[0], int) or key[0] not in sources:
+                continue
+            class_name = sources[key[0]][0]
+            data = graph.features[key][1]
+            if area is not None and (not data.get("wkt") or not shapely.from_wkt(data["wkt"]).intersects(area)):
+                continue
+            where = "" if overwrite else " and CLUSTERKEY is null"
+            network.q(f'update "{class_name}" set CLUSTERKEY = ? where "{network.oid(class_name)}" = ?{where}', value,
+                      key[1])
     return Result(_path(in_utility_network))
 
 
@@ -1150,8 +1996,10 @@ def _aggregate_class(path, shape_word, srid):
 
 _DIAGRAMS = ("is a network diagram tool: network diagrams, the schematic views of a utility or trace network, are a "
              "data model this server does not hold yet (ADR-224 group 2), as arcpy.nd says")
-_TELECOM = ("needs telecom domain networks — circuits, unit identifiers, colour and wavelength schemes — which are "
-            "in a later batch of ADR-231 (§5.8)")
+_RESOLUTIONS = ("works on the error resolution database Analyze Network Data writes — a mobile geodatabase of error, "
+                "feature and candidate-rule tables and a layer file, whose layout the pages do not give beyond an "
+                "ErrorAction field — so grapy cannot write it nor read one without inventing Esri's schema; grapy's "
+                "topology errors are in <network>_DirtyAreas and the associations' ERRORCODE (ADR-231 §5.4)")
 _REASONS = {
     _DIAGRAMS: (
         "AddAngleDirectedLayout", "AddCollapseContainerByAttributeRule", "AddCollapseContainerRule",
@@ -1177,10 +2025,7 @@ _REASONS = {
     _TELECOM: ("AddTelecomDomainNetwork", "AddColorScheme", "AddColorSet", "AddWavelengthScheme", "DeleteColorScheme",
                "ExportCircuitDefinitions", "ExportCircuits", "ImportCircuitDefinitions", "SetCircuitProperties",
                "SetTelecomObjectCombinePolicy", "SetTelecomObjectDividePolicy", "VerifyCircuits"),
-    _LATER: ("UpdateSubnetwork", "ExportSubnetwork", "SetSubnetworkDefinition", "AddTraceConfiguration",
-             "DeleteTraceConfiguration", "ImportTraceConfigurations", "ExportTraceConfigurations", "AddTraceLocations",
-             "UpdateIsConnected", "SetEdgeConnectivity", "SetAssociationRole", "AnalyzeNetworkData",
-             "RebuildNetworkTopology", "ApplyErrorResolutions", "EnableClusterKeys", "CalculateClusterKeys"),
+    _RESOLUTIONS: ("AnalyzeNetworkData", "ApplyErrorResolutions"),
     "checks or repairs the consistency of Esri's persisted network index, which grapy does not hold: grapy's "
     "topology is rebuilt from its record at every trace (ADR-231 §5.4)": ("VerifyNetworkTopology",
                                                                          "RepairNetworkTopology"),

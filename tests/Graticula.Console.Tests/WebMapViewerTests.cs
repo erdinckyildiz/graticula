@@ -1170,7 +1170,7 @@ public sealed class WebMapViewerTests : ConsoleTest
 
             await ClickAsync("#layerList button[data-act=remove][data-layer=one]");
 
-            await WaitForAsync("/was removed\\. This map has no layers yet\\./.test(document.getElementById('status').textContent)",
+            await WaitForAsync("/was removed\\. This map has no layers yet\\./.test(document.getElementById('status')?.textContent || '')",
                 "The header did not say the layer was removed and that the map now has none.");
             Assert.Equal("true", await Browser.EvaluateAsync<string>("document.getElementById('frameAll').getAttribute('aria-disabled')"));
         }
@@ -1332,7 +1332,7 @@ public sealed class WebMapViewerTests : ConsoleTest
                 """);
 
             await WaitForAsync(
-                "/Asking \\d+ layer|No feature or imagery layer/.test(document.getElementById('status').textContent)"
+                "/Asking \\d+ layer|No feature or imagery layer/.test(document.getElementById('status')?.textContent || '')"
                 + " || !document.getElementById('identify').hidden",
                 "Enter on the focused map asked nothing.");
         }

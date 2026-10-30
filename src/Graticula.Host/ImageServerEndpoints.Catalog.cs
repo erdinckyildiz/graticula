@@ -78,7 +78,7 @@ internal static partial class ImageServerEndpoints
         double pixel = info.Extent.Width / info.Width;
 
         return [.. placed.Select((p, position) => recorded.TryGetValue(Path.GetFileName(p.Path), out CoverageImageEntry? entry)
-            ? new CatalogImage(entry.Id, entry.Name, p.Extent, pixel, entry.Acquired, position, entry.Variable, entry.Dimensions)
+            ? new CatalogImage(entry.Id, entry.Name, p.Extent, pixel, entry.Acquired, position, entry.Variable, entry.Dimensions, entry.ZOrder)
             : new CatalogImage(position + 1, UnrecordedName(p.Path, position + 1), p.Extent, pixel, null, position))];
     }
 
@@ -116,7 +116,7 @@ internal static partial class ImageServerEndpoints
 
     /// <summary>The catalog as it is stored, from the rows, for writing back after a change.</summary>
     internal static List<CoverageImageEntry> Entries(PublishedCoverage coverage, IReadOnlyList<CatalogImage> images, IReadOnlyList<string> files) =>
-        [.. images.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions))];
+        [.. images.Select(i => new CoverageImageEntry(i.Id, Path.GetFileName(files[i.Position]), i.Name, i.Acquired, i.Variable, i.Dimensions, i.ZOrder))];
 
     /// <summary>Whether a service's images are slices of variables — a multidimensional file's, ADR-159.</summary>
     internal static bool IsMultidimensional(PublishedCoverage coverage) => (coverage.Images ?? []).Any(i => i.Variable is not null);
@@ -212,7 +212,7 @@ internal static partial class ImageServerEndpoints
             ["OBJECTID"] = i.Id,
             ["Name"] = i.Name,
             ["AcquisitionDate"] = i.Acquired,
-            ["ZOrder"] = i.Position,
+            ["ZOrder"] = i.ZOrder,
             ["Variable"] = i.Variable,
             ["Dimensions"] = DimensionsText(i),
             ["LowPS"] = i.PixelSize,
@@ -321,8 +321,9 @@ internal static partial class ImageServerEndpoints
                 + "image service's images have none.");
         }
 
-        // ADR-159: a multidimensional service always draws one slice — the one asked for, or its first.
-        if (rule is null && window is null && !multidimensional)
+        // ADR-159: a multidimensional service always draws one slice — the one asked for, or its first. ADR-230
+        // condition 5: an image given a ZOrder is drawn by it even without a rule, so the mosaic's own order is arranged.
+        if (rule is null && window is null && !multidimensional && (coverage.Images ?? []).All(i => i.ZOrder is null))
         {
             return (readers, null);
         }
@@ -365,9 +366,24 @@ internal static partial class ImageServerEndpoints
         }
 
         // An instant with no rule of its own puts the image taken nearest it on top.
-        rule ??= instant && window is { } at
-            ? new MosaicRule { Method = MosaicMethod.Attribute, SortField = "AcquisitionDate", SortValue = at.To.ToString(CultureInfo.InvariantCulture) }
-            : new MosaicRule { FirstOnTop = false };
+        if (rule is null && instant && window is { } at)
+        {
+            rule = new MosaicRule { Method = MosaicMethod.Attribute, SortField = "AcquisitionDate", SortValue = at.To.ToString(CultureInfo.InvariantCulture) };
+        }
+
+        if (rule is null)
+        {
+            // No rule: the mosaic's own order, the last image on top as Move left it, with ZOrder and cell size before it
+            // as under any rule (ADR-230 condition 5). A service whose images carry no ZOrder draws exactly as before.
+            MosaicRule plain = new() { FirstOnTop = false };
+            int[] drawn = [.. images
+                .OrderByDescending(i => i.Position)
+                .OrderBy(i => i.ZOrder ?? 0)
+                .ThenBy(i => Math.Round(i.PixelSize, 9))
+                .Reverse()
+                .Select(i => i.Position)];
+            return (new ArrangedReaders(readers, coverage.Path, drawn, plain.Operation), null);
+        }
 
         return (new ArrangedReaders(readers, coverage.Path, rule.DrawingOrder(images, view), rule.Operation), null);
     }
@@ -524,7 +540,7 @@ internal static partial class ImageServerEndpoints
                 ["OBJECTID"] = i.Id,
                 ["Name"] = i.Name,
                 ["AcquisitionDate"] = i.Acquired?.ToUnixTimeMilliseconds(),
-                ["ZOrder"] = i.Position,
+                ["ZOrder"] = i.ZOrder,
                 ["Variable"] = i.Variable,
                 ["Dimensions"] = DimensionsText(i),
                 ["LowPS"] = i.PixelSize,

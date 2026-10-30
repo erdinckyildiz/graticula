@@ -188,8 +188,9 @@ falls at x = 3, halfway between the centres. No performance claim is made.
 - **No new dependency**: rasterio, numpy, scipy and shapely, already in the image.
 - **Names.** `tools/grapy-refusals.json` before → after: `arcpy.management` built 173 → 190, refused 274 → 257; all
   modules built 901 → 918, refused 1149 → 1132, unexamined 0 → 0.
-- **One difference from the server remains**: grapy orders by ZOrder and pixel size before the method, as the
-  mosaicking rules page says; the server's `mosaicRule` orders by the method alone (condition 5).
+- ~~**One difference from the server remains**: grapy orders by ZOrder and pixel size before the method, as the
+  mosaicking rules page says; the server's `mosaicRule` orders by the method alone (condition 5).~~ None remains since
+  2026-10-30: the server has a real ZOrder and orders by it first (condition 5).
 
 ## 7. Assumptions this decision rests on
 
@@ -241,5 +242,15 @@ None recorded.
    recorded.
 5. **One ordering for the server and grapy**: the server's `mosaicRule` orders North-West, Closest to Center, By
    Attribute and Closest to Nadir by ZOrder and pixel size first, as the mosaicking rules page says and grapy does — or
-   the owner decides the server's order stands and grapy's follows it.
+   the owner decides the server's order stands and grapy's follows it. **DISCHARGED 2026-10-30, by owner decision (*"Gerçek ZOrder ekle"*).**
+   The premise was checked first: the server had no ZOrder at all — its catalogue showed each image's place in the mosaic
+   under that name, a different number for every image, so ordering by it first would have ended every method. The
+   owner chose a real one. An image's ZOrder is now its own, null until set, kept in the catalogue's JSON beside its name
+   and date (no migration), shown as itself in the catalogue, set or cleared through ArcGIS's `update` with
+   `attributes={"ZOrder":n}` and the admin image update, and kept through every other edit of the catalogue. It comes
+   before every method but Lock Raster — a lower value on top, a null one as 0, then the finer cell — and in the plain
+   view without a rule too, before the order Move left. A service whose images carry none draws exactly as before.
+   `MosaicRuleTests` checks the order by hand; `An_images_zorder_comes_before_the_mosaic_method_and_is_its_own` checks
+   it end to end, with and without a rule, through a rename and back to null. Studio has no control for it yet:
+   [D-326](../architecture-debt.md).
 6. **The owner confirms or changes §5.9** ([Q-198](../open-questions.md)).
