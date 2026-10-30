@@ -374,7 +374,7 @@ COLUMN = re.compile(r"(?<!\\)\|")
 
 
 def cells_of(line):
-    """One table row's cells, honouring \| as content rather than a break."""
+    r"""One table row's cells, honouring \| as content rather than a break."""
     return [c.strip() for c in COLUMN.split(line.strip().strip("|"))]
 
 
