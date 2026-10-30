@@ -1056,32 +1056,8 @@ def NeighborhoodSummaryStatistics(in_features, output_features, analysis_fields=
     focal = _keyword(include_focal_feature) not in ("EXCLUDE_FOCAL", "FALSE")
     skip_nulls = _keyword(ignore_nulls) not in ("INCLUDE_NULLS", "FALSE")
     scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
-    xy = [(f[2], f[3]) for f in features]
-    d = _distances(xy)
-    oids = [f[0] for f in features]
-    band = None
-    if kind_of == "DISTANCE_BAND":
-        band = _threshold(distance_band, srid) if _given(distance_band) else float(_nearest(d).max())
-        neighbours = []
-        for i in range(n):
-            near = sorted((j for j in range(n) if j != i and d[i, j] <= band), key=lambda j: (d[i, j], oids[j]))
-            neighbours.append(near[:1000])
-    elif kind_of == "NUMBER_OF_NEIGHBORS":
-        k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
-        if not 1 <= k < n:
-            raise ValueError(f"arcpy.stats.{tool}: number_of_neighbors must be between 1 and {n - 1}.")
-        neighbours = [sorted((j for j in range(n) if j != i), key=lambda j: (d[i, j], oids[j]))[:k] for i in range(n)]
-    elif kind_of.startswith("CONTIGUITY"):
-        w = _weights(tool, features, srid, kind_of, "EUCLIDEAN_DISTANCE", None, None)
-        neighbours = [[int(j) for j in np.nonzero(w[i])[0]] for i in range(n)]
-    elif kind_of == "DELAUNAY_TRIANGULATION":
-        if kind != "Point":
-            raise ValueError(f"arcpy.stats.{tool}: DELAUNAY_TRIANGULATION is for point features.")
-        neighbours = _delaunay_neighbours(tool, xy)
-    elif kind_of == "GET_SPATIAL_WEIGHTS_FROM_FILE":
-        _refuse(tool, "neighborhood_type", kind_of, "a spatial weights matrix file's .swm layout is not published")
-    else:
-        raise ValueError(f"arcpy.stats.{tool}: neighborhood_type '{neighborhood_type}' is not one the tool takes.")
+    k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+    neighbours, d, band = _neighbourhoods(tool, features, kind, srid, kind_of, distance_band, k, cap=1000)
     bandwidth = None
     if scheme != "UNWEIGHTED":
         if scheme not in ("BISQUARE", "GAUSSIAN"):
@@ -2515,6 +2491,1309 @@ def GeographicallyWeightedRegression(in_features, dependent_field, explanatory_f
     return Result(out, table)
 
 
+# ---- Neighbourhoods, kernels and appended fields, shared by the tools below ----------------------------------------
+
+def _neighbourhoods(tool, features, kind, srid, neighborhood_type, distance_band, number_of_neighbors, cap=None):
+    """Each feature's neighbours, itself left out, as (neighbours, d, band): DISTANCE_BAND (the default band the shortest
+    that gives every feature one other neighbour), K_NEAREST_NEIGHBORS or NUMBER_OF_NEIGHBORS, CONTIGUITY_EDGES_ONLY,
+    CONTIGUITY_EDGES_CORNERS and DELAUNAY_TRIANGULATION, as the Modeling Spatial Relationships tools describe them.
+    GET_SPATIAL_WEIGHTS_FROM_FILE is refused. INFERRED: a feature exactly at the band is inside it; neighbours tied at the
+    k-th distance are taken by object id."""
+    import numpy as np
+    n = len(features)
+    xy = [(f[2], f[3]) for f in features]
+    d = _distances(xy)
+    oids = [f[0] for f in features]
+    kind_of = _keyword(neighborhood_type)
+    band = None
+    if kind_of in ("DISTANCE_BAND", "FIXED_DISTANCE_BAND"):
+        band = _threshold(distance_band, srid) if _given(distance_band) else float(_nearest(d).max())
+        neighbours = []
+        for i in range(n):
+            near = sorted((j for j in range(n) if j != i and d[i, j] <= band), key=lambda j: (d[i, j], oids[j]))
+            neighbours.append(near[:cap] if cap else near)
+    elif kind_of in ("NUMBER_OF_NEIGHBORS", "K_NEAREST_NEIGHBORS"):
+        k = int(number_of_neighbors)
+        if not 1 <= k < n:
+            raise ValueError(f"arcpy.stats.{tool}: number_of_neighbors must be between 1 and {n - 1}.")
+        neighbours = [sorted((j for j in range(n) if j != i), key=lambda j: (d[i, j], oids[j]))[:k] for i in range(n)]
+    elif kind_of in ("CONTIGUITY_EDGES_ONLY", "CONTIGUITY_EDGES_CORNERS"):
+        w = _weights(tool, features, srid, kind_of, "EUCLIDEAN_DISTANCE", None, None)
+        neighbours = [[int(j) for j in np.nonzero(w[i])[0]] for i in range(n)]
+    elif kind_of == "DELAUNAY_TRIANGULATION":
+        if kind != "Point":
+            raise ValueError(f"arcpy.stats.{tool}: DELAUNAY_TRIANGULATION is for point features.")
+        neighbours = _delaunay_neighbours(tool, xy)
+    elif kind_of == "GET_SPATIAL_WEIGHTS_FROM_FILE":
+        _refuse(tool, "neighborhood_type", kind_of, "a spatial weights matrix file's .swm layout is not published")
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: neighborhood_type '{neighborhood_type}' is not one the tool takes.")
+    return neighbours, d, band
+
+
+def _kernel(scheme, distance, bandwidth):
+    """The documented kernels: bisquare ``(1 − (d/b)²)²`` and Gaussian ``exp(−½(d/b)²)``; 1 unweighted."""
+    if scheme in ("UNWEIGHTED", "NONE"):
+        return 1.0
+    ratio = (distance / bandwidth) ** 2 if bandwidth > 0 else 0.0
+    return (1 - ratio) ** 2 if scheme == "BISQUARE" else math.exp(-0.5 * ratio)
+
+
+def _two_sided_permutation(observed, draws):
+    """The documented permutation p-value: the permuted values at least as extreme as the observed one on the side with
+    fewer of them, plus one, over the permutations plus one, doubled. INFERRED: a tie counts as at least as extreme, and
+    the doubled value is capped at 1."""
+    import numpy as np
+    draws = np.asarray(draws)
+    larger = int((draws >= observed).sum())
+    smaller = int((draws <= observed).sum())
+    return min(1.0, 2 * (min(larger, smaller) + 1) / (len(draws) + 1))
+
+
+def _rows_with_oids(tool, path, fields):
+    """Every row, shape or none, as (oid, {field: value}); a missing field is a ValueError."""
+    columns, kind, srid, _ = _schema(path)
+    names = {c.name.lower(): c.name for c in columns}
+    wanted = []
+    for field in fields:
+        if field.lower() not in names:
+            raise ValueError(f"arcpy.stats.{tool}: the input has no field '{field}'.")
+        wanted.append(names[field.lower()])
+    with da.SearchCursor(path, ["OID@", *wanted]) as rows:
+        out = [(row[0], dict(zip([f.lower() for f in wanted], row[1:]))) for row in rows]
+    return out, columns, kind, srid
+
+
+def _appended(tool, in_table, append, out_table, new_columns, values_by_oid):
+    """The new fields written beside the input's own: on the input itself when ``append``, otherwise on a copy at
+    ``out_table`` (CopyFeatures for features, CopyRows for a table). ``values_by_oid`` maps an input object id to the
+    row of new values. INFERRED: a field already there of the same name is overwritten, and the copy's rows follow the
+    input's in object id order."""
+    from . import management
+    _, kind, srid, _ = _schema(in_table)
+    if append:
+        target = in_table
+        mapping = {oid: oid for oid in values_by_oid}
+    else:
+        if not _given(out_table):
+            raise ValueError(f"arcpy.stats.{tool}: an output is needed when the fields are not appended to the input.")
+        target = _out(out_table)
+        if kind == "Geometry" and srid == 0:
+            management.CopyRows(in_table, target)
+        else:
+            management.CopyFeatures(in_table, target)
+        with da.SearchCursor(in_table, ["OID@"]) as rows:
+            source = [r[0] for r in rows]
+        with da.SearchCursor(target, ["OID@"]) as rows:
+            copied = [r[0] for r in rows]
+        mapping = dict(zip(source, copied))
+    present = {c.name.lower() for c in _schema(target)[0]}
+    for column in new_columns:
+        if column.name.lower() not in present:
+            _gpkg.add_column(target, column)
+    by_target = {mapping[oid]: row for oid, row in values_by_oid.items() if oid in mapping}
+    with da.UpdateCursor(target, ["OID@", *[c.name for c in new_columns]]) as rows:
+        for row in rows:
+            values = by_target.get(row[0])
+            rows.updateRow((row[0], *(values if values is not None else [None] * len(new_columns))))
+    return target
+
+
+def _wants_append(value, yes=("APPEND", "APPEND_TO_INPUT", "TRUE")):
+    return value is True or _keyword(value) in yes
+
+
+def _pairs(value, width):
+    """A value table as rows of ``width``: a list of lists, or the text form ``"a b;c d"``."""
+    if not _given(value):
+        return []
+    if isinstance(value, str):
+        rows = [part.split() for part in value.split(";") if part.strip()]
+    else:
+        rows = [[item] if not isinstance(item, (list, tuple)) else list(item) for item in value]
+    for row in rows:
+        if len(row) < width:
+            row.extend([None] * (width - len(row)))
+    return rows
+
+
+# ---- Modeling Spatial Relationships: Bivariate Spatial Association (Lee's L) --------------------------------------
+
+_PERMUTATION_COUNTS = (99, 199, 499, 999, 4999, 9999)
+
+
+@_equivalent("Lee's L by its documented formulas, its permutations drawn with NumPy's PCG64 from env.randomGenerator",
+             "Lee 2001; Lee 2009; Esri's \"How Bivariate Spatial Association (Lee's L) works\"")
+def BivariateSpatialAssociation(in_features, analysis_field1, analysis_field2, out_features, neighborhood_type=None,
+                                distance_band=None, num_neighbors=None, weights_matrix_file=None,
+                                local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None, num_permutations=999):
+    """EQUIVALENT only in its draws: every statistic is the formula Esri's "How Bivariate Spatial Association (Lee's L)
+    works" gives, and the permutations are the ones it describes — all values of the two variables reassigned to new
+    locations together — but drawn with NumPy's PCG64 from env.randomGenerator's seed (0 when unset), so a run repeats
+    itself and its p-values differ from Pro's.
+
+    With x̃ and ỹ the neighbourhood weighted averages (each neighbourhood holding the feature itself at weight 1, the
+    weights row standardized): ``L = Σ(x̃ − x̄)(ỹ − ȳ) / (√Σ(x − x̄)² √Σ(y − ȳ)²)``, ``L_i = n(x̃_i − x̄)(ỹ_i − ȳ) / (same)``,
+    the spatial smoothing scalars ``SSS = Σ(x̃ − x̄)²/Σ(x − x̄)²`` and the correlation of the neighbourhood averages
+    (both written as messages). A p-value is the permuted values at least as extreme, on the side with fewer, plus one,
+    over the permutations plus one, doubled.
+
+    Neighbourhoods: DISTANCE_BAND (the default for points; at most 1,000 neighbours), K_NEAREST_NEIGHBORS (8 by default,
+    at least 2), CONTIGUITY_EDGES_ONLY, CONTIGUITY_EDGES_CORNERS (the default for polygons), DELAUNAY_TRIANGULATION.
+    BISQUARE weights ``(1 − (d/b)²)²``, b the kernel bandwidth, by default the band or, for k nearest neighbours, the
+    distance to the (k+1)-th neighbour. Refused: GET_SPATIAL_WEIGHTS_FROM_FILE; a given bisquare bandwidth short of a
+    neighbour (the formula as written turns positive again there).
+
+    Output fields, as documented: SOURCE_ID, the two analysis fields, LOCAL_L, NWA_VAR1, NWA_VAR2, P_VALUE, SIG_LEVEL,
+    ASSOC_CAT and NUM_NBRS. Derived outputs, in order: the output, Lee's L, its p-value, the Pearson correlation.
+    INFERRED: NWA_VAR1 and NWA_VAR2 are the field names as written, not the variables' names; significance is p < 0.10,
+    < 0.05, < 0.01; a neighbourhood average equal to the mean counts as Low; features with a null in either field are
+    left out.
+    """
+    import numpy as np
+    tool = "BivariateSpatialAssociation"
+    features, columns, kind, srid = _features(tool, in_features, [analysis_field1, analysis_field2])
+    k1, k2 = analysis_field1.lower(), analysis_field2.lower()
+    features = [f for f in features if f[1][k1] is not None and f[1][k2] is not None]
+    n = len(features)
+    if n < 3:
+        raise ValueError(f"arcpy.stats.{tool} needs three features or more.")
+    kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else (
+        "CONTIGUITY_EDGES_CORNERS" if kind == "Polygon" else "DISTANCE_BAND")
+    k = int(num_neighbors) if _given(num_neighbors) else 8
+    if kind_of == "K_NEAREST_NEIGHBORS" and k < 2:
+        raise ValueError(f"arcpy.stats.{tool}: num_neighbors must be at least 2.")
+    neighbours, d, band = _neighbourhoods(tool, features, kind, srid, kind_of, distance_band, k, cap=1000)
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
+    if scheme not in ("UNWEIGHTED", "BISQUARE"):
+        raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme '{local_weighting_scheme}' is neither UNWEIGHTED "
+                         "nor BISQUARE.")
+    w = np.zeros((n, n))
+    for i in range(n):
+        w[i, i] = 1.0
+        if scheme == "BISQUARE":
+            if kind_of not in ("DISTANCE_BAND", "K_NEAREST_NEIGHBORS"):
+                raise ValueError(f"arcpy.stats.{tool}: BISQUARE weights only DISTANCE_BAND and K_NEAREST_NEIGHBORS.")
+            if _given(kernel_bandwidth):
+                b = _threshold(kernel_bandwidth, srid)
+                if any(d[i, j] > b for j in neighbours[i]):
+                    _refuse(tool, "kernel_bandwidth", kernel_bandwidth, "a neighbour lies beyond it, where the bisquare "
+                            "formula as written turns positive again")
+            elif kind_of == "DISTANCE_BAND":
+                b = band
+            else:
+                others = np.sort(np.delete(d[i], i))
+                if len(others) <= k:
+                    raise ValueError(f"arcpy.stats.{tool}: the adaptive bandwidth needs more than k + 1 features.")
+                b = float(others[k])
+        for j in neighbours[i]:
+            w[i, j] = _kernel(scheme, d[i, j], b) if scheme == "BISQUARE" else 1.0
+    w = _standardized(w, "ROW")
+    x = np.array([float(f[1][k1]) for f in features])
+    y = np.array([float(f[1][k2]) for f in features])
+    dx, dy = x - x.mean(), y - y.mean()
+    denominator = math.sqrt(float(dx @ dx)) * math.sqrt(float(dy @ dy))
+    if denominator == 0:
+        raise ValueError(f"arcpy.stats.{tool}: an analysis field is constant.")
+
+    def local(xs, ys):
+        return n * (w @ xs - xs.mean()) * (w @ ys - ys.mean()) / denominator
+
+    observed = local(x, y)
+    lee = float(observed.mean())
+    count = int(num_permutations) if _given(num_permutations) else 999
+    if count not in _PERMUTATION_COUNTS:
+        raise ValueError(f"arcpy.stats.{tool}: num_permutations must be one of {_PERMUTATION_COUNTS}.")
+    random = np.random.default_rng(_seed())
+    drawn = np.empty((count, n))
+    for r in range(count):
+        order = random.permutation(n)
+        drawn[r] = local(x[order], y[order])
+    p_global = _two_sided_permutation(lee, drawn.mean(axis=1))
+    p_local = [_two_sided_permutation(observed[i], drawn[:, i]) for i in range(n)]
+    xt, yt = w @ x, w @ y
+    sss_x = float(((xt - x.mean()) ** 2).sum() / (dx @ dx))
+    sss_y = float(((yt - y.mean()) ** 2).sum() / (dy @ dy))
+    pearson = float(dx @ dy) / denominator
+    averages = float(np.corrcoef(xt, yt)[0, 1]) if np.ptp(xt) > 0 and np.ptp(yt) > 0 else None
+    from ._runtime import AddMessage
+    AddMessage(f"Global Lee's L: {lee}")
+    AddMessage(f"Global P-value: {p_global}")
+    AddMessage(f"Spatial Smoothing Scalar ({analysis_field1}): {sss_x}")
+    AddMessage(f"Spatial Smoothing Scalar ({analysis_field2}): {sss_y}")
+    AddMessage(f"Pearson Correlation (raw): {pearson}")
+    AddMessage(f"Pearson Correlation (neighborhood averages): {averages}")
+    levels, categories = [], []
+    for i in range(n):
+        p = p_local[i]
+        level = "99% Significant" if p < 0.01 else "95% Significant" if p < 0.05 else "90% Significant" if p < 0.10 \
+            else "Not Significant"
+        levels.append(level)
+        if level == "Not Significant":
+            categories.append("Not Significant")
+        else:
+            categories.append(("High" if xt[i] > x.mean() else "Low") + "-" + ("High" if yt[i] > y.mean() else "Low"))
+    by_name = {c.name.lower(): c for c in columns}
+    out = _out(out_features)
+    out_columns = [_gpkg.Column("SOURCE_ID", "Integer"), by_name[k1], by_name[k2], _gpkg.Column("LOCAL_L", "Double"),
+                   _gpkg.Column("NWA_VAR1", "Double"), _gpkg.Column("NWA_VAR2", "Double"),
+                   _gpkg.Column("P_VALUE", "Double"), _gpkg.Column("SIG_LEVEL", "String"),
+                   _gpkg.Column("ASSOC_CAT", "String"), _gpkg.Column("NUM_NBRS", "Integer")]
+    _gpkg.create(out, kind, srid, out_columns)
+    with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as rows:
+        for i, f in enumerate(features):
+            rows.insertRow((f[0], f[1][k1], f[1][k2], float(observed[i]), float(xt[i]), float(yt[i]), p_local[i],
+                            levels[i], categories[i], int((w[i] > 0).sum()), f[4]))
+    return Result(out, _text(lee), _text(p_global), _text(pearson))
+
+
+# ---- Analyzing Patterns: Colocation Analysis ----------------------------------------------------------------------
+
+@_equivalent("the local colocation quotient with a Gaussian, bisquare or box kernel and conditional permutation "
+             "pseudo p-values with a stated seed; the global colocation quotient as their mean",
+             "Leslie and Kronenfeld 2011; Wang, Hu, Wang and Li 2017")
+def ColocationAnalysis(input_type, in_features_of_interest, output_features, field_of_interest=None,
+                       time_field_of_interest=None, category_of_interest=None, input_feature_for_comparison=None,
+                       field_for_comparison=None, time_field_for_comparison=None, category_for_comparison=None,
+                       neighborhood_type="K_NEAREST_NEIGHBORS", number_of_neighbors=None, distance_band=None,
+                       weights_matrix_file=None, temporal_relationship_type=None, time_step_interval=None,
+                       number_of_permutations=99, local_weighting_scheme="GAUSSIAN", output_table=None):
+    """EQUIVALENT: Esri's "How Colocation Analysis works" page answers 404, so the statistic is the literature's. For a
+    point A_i of the category of interest A and the neighbouring category B, among N points of which N_B are B, the
+    local colocation quotient (Wang et al. 2017, after Leslie and Kronenfeld 2011) is
+    ``LCLQ_i = (Σ_j w_ij f_j / Σ_j w_ij) / (N'_B / (N − 1))`` over A_i's neighbours j (A_i itself left out), f_j = 1
+    when j is B, N'_B = N_B − 1 when A and B are one category and N_B otherwise. Kernels, b the distance to the farthest
+    neighbour (k nearest) or the band: GAUSSIAN ``exp(−½(d/b)²)`` (the default), BISQUARE ``(1 − (d/b)²)²``, NONE 1.
+
+    Pseudo p-values by conditional permutation (Anselin 1995's scheme): A_i held, the other N − 1 points' categories
+    shuffled ``number_of_permutations`` times by NumPy's PCG64 from env.randomGenerator's seed (0 when unset); the
+    permuted LCLQs at least as extreme on the side with fewer, plus one, over the permutations plus one, doubled — which
+    gives the documented smallest p-value, 0.02 for 99 permutations. The global table holds, for every category pair,
+    the mean LCLQ of the first's points — with one unweighted nearest neighbour, Leslie and Kronenfeld's CLQ.
+
+    Input types: SINGLE_DATASET (both categories from field_of_interest), TWO_DATASETS (the comparison dataset's
+    categories from field_for_comparison, both datasets' points counted together), DATASETS_WITHOUT_CATEGORIES (each
+    dataset one category, named by its table). Refused: time fields and space-time windows; GET_SPATIAL_WEIGHTS_FROM_FILE.
+    Neighbourhoods: K_NEAREST_NEIGHBORS (8 by default) or DISTANCE_BAND (by default the mean distance to each point's
+    eighth neighbour, "the average distance at which each feature has at least eight neighbors").
+
+    INFERRED: the output carries every feature of interest with LCLQ, P_VALUE, LCLQ_BIN and LCLQ_TYPE, null for the
+    points not of category A; LCLQ_TYPE is "Colocated - Significant" (p < 0.05, LCLQ > 1), "Isolated - Significant"
+    (p < 0.05, LCLQ < 1) or "Not Significant", and LCLQ_BIN 1, −1 or 0 with it; the global table has CATEGORY_OF_INTEREST,
+    NEIGHBORING_CATEGORY and GLOBAL_CLQ; a point with no weight among its neighbours has a null LCLQ.
+    """
+    import os
+    import numpy as np
+    tool = "ColocationAnalysis"
+    if _given(time_field_of_interest) or _given(time_field_for_comparison):
+        _refuse(tool, "time_field_of_interest", time_field_of_interest or time_field_for_comparison,
+                "space-time windows are not built")
+    mode = _keyword(input_type)
+    if mode not in ("SINGLE_DATASET", "TWO_DATASETS", "DATASETS_WITHOUT_CATEGORIES"):
+        raise ValueError(f"arcpy.stats.{tool}: input_type '{input_type}' is not one the tool takes.")
+    first_fields = [field_of_interest] if mode != "DATASETS_WITHOUT_CATEGORIES" else []
+    interest, columns, kind, srid = _features(tool, in_features_of_interest, first_fields)
+    if kind != "Point":
+        raise ValueError(f"arcpy.stats.{tool} takes point features only.")
+
+    def label(path):
+        from ._gpkg import split
+        file, table = split(_out(path))
+        return table or os.path.splitext(os.path.basename(file))[0]
+
+    if mode == "SINGLE_DATASET":
+        if not _given(field_of_interest):
+            raise ValueError(f"arcpy.stats.{tool}: SINGLE_DATASET needs field_of_interest.")
+        points = [(f, f[1][field_of_interest.lower()]) for f in interest]
+        own = [True] * len(points)
+    else:
+        if not _given(input_feature_for_comparison):
+            raise ValueError(f"arcpy.stats.{tool}: {mode} needs input_feature_for_comparison.")
+        second_fields = [field_for_comparison] if mode == "TWO_DATASETS" else []
+        if mode == "TWO_DATASETS" and not (_given(field_of_interest) and _given(field_for_comparison)):
+            raise ValueError(f"arcpy.stats.{tool}: TWO_DATASETS needs field_of_interest and field_for_comparison.")
+        other, _, other_kind, other_srid = _features(tool, input_feature_for_comparison, second_fields)
+        if other_kind != "Point" or other_srid != srid:
+            raise ValueError(f"arcpy.stats.{tool}: the comparison features must be points in the same reference.")
+        if mode == "TWO_DATASETS":
+            points = [(f, ("interest", f[1][field_of_interest.lower()])) for f in interest] + \
+                     [(f, ("comparison", f[1][field_for_comparison.lower()])) for f in other]
+            category_a, category_b = ("interest", category_of_interest), ("comparison", category_for_comparison)
+        else:
+            category_a, category_b = label(in_features_of_interest), label(input_feature_for_comparison)
+            points = [(f, category_a) for f in interest] + [(f, category_b) for f in other]
+        own = [True] * len(interest) + [False] * (len(points) - len(interest))
+    if mode == "SINGLE_DATASET":
+        category_a, category_b = category_of_interest, category_for_comparison
+    if mode != "DATASETS_WITHOUT_CATEGORIES" and not (_given(category_of_interest) and _given(category_for_comparison)):
+        raise ValueError(f"arcpy.stats.{tool}: category_of_interest and category_for_comparison are needed.")
+
+    def same(value, wanted):
+        if isinstance(value, tuple):
+            return value[0] == wanted[0] and value[1] is not None and str(value[1]) == str(wanted[1])
+        return value is not None and str(value) == str(wanted)
+
+    kept = [i for i, (_, c) in enumerate(points) if c is not None and not (isinstance(c, tuple) and c[1] is None)]
+    points = [points[i] for i in kept]
+    own = [own[i] for i in kept]
+    n = len(points)
+    if n < 3:
+        raise ValueError(f"arcpy.stats.{tool} needs three points or more.")
+    xy = np.array([(f[2], f[3]) for f, _ in points])
+    d = _distances(xy)
+    oids = list(range(n))
+    kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else "K_NEAREST_NEIGHBORS"
+    if kind_of == "GET_SPATIAL_WEIGHTS_FROM_FILE":
+        _refuse(tool, "neighborhood_type", kind_of, "a spatial weights matrix file's .swm layout is not published")
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "GAUSSIAN"
+    if scheme not in ("GAUSSIAN", "BISQUARE", "NONE"):
+        raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme '{local_weighting_scheme}' is not one of "
+                         "GAUSSIAN, BISQUARE, NONE.")
+    neighbours, bandwidths = [], []
+    if kind_of == "K_NEAREST_NEIGHBORS":
+        k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+        if not 1 <= k < n:
+            raise ValueError(f"arcpy.stats.{tool}: number_of_neighbors must be between 1 and {n - 1}.")
+        for i in range(n):
+            near = sorted((j for j in range(n) if j != i), key=lambda j: (d[i, j], oids[j]))[:k]
+            neighbours.append(near)
+            bandwidths.append(float(d[i, near[-1]]))
+    elif kind_of == "DISTANCE_BAND":
+        if _given(distance_band):
+            band = _threshold(distance_band, srid)
+        else:
+            if n <= 8:
+                raise ValueError(f"arcpy.stats.{tool}: the default distance band needs more than eight points.")
+            band = float(np.sort(d + np.diag(np.full(n, np.inf)), axis=1)[:, 7].mean())
+        for i in range(n):
+            neighbours.append([j for j in range(n) if j != i and d[i, j] <= band])
+            bandwidths.append(band)
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: neighborhood_type '{neighborhood_type}' is not one the tool takes.")
+    weights = [np.array([_kernel(scheme, d[i, j], bandwidths[i]) for j in neighbours[i]]) for i in range(n)]
+    categories = [c for _, c in points]
+
+    def quotient(i, is_b, share):
+        total = float(weights[i].sum())
+        if total <= 0 or share <= 0:
+            return None
+        return float(weights[i] @ is_b[neighbours[i]]) / total / share
+
+    def lclq(a_value, b_value, i, is_b):
+        n_b = int(is_b.sum()) - (1 if same(categories[i], b_value) else 0)
+        return quotient(i, is_b, n_b / (n - 1))
+
+    is_b = np.array([1.0 if same(c, category_b) else 0.0 for c in categories])
+    count = int(number_of_permutations) if _given(number_of_permutations) else 99
+    if count not in (99, 199, 499, 999, 9999):
+        raise ValueError(f"arcpy.stats.{tool}: number_of_permutations must be one of 99, 199, 499, 999, 9999.")
+    random = np.random.default_rng(_seed())
+    values, p_values = [None] * n, [None] * n
+    for i in range(n):
+        if not own[i] or not same(categories[i], category_a):
+            continue
+        observed = lclq(category_a, category_b, i, is_b)
+        values[i] = observed
+        if observed is None:
+            continue
+        others = np.delete(is_b, i)
+        n_b = int(is_b.sum()) - int(is_b[i])
+        share = n_b / (n - 1)
+        draws = []
+        for _ in range(count):
+            shuffled = np.insert(random.permutation(others), i, is_b[i])
+            draws.append(quotient(i, shuffled, share))
+        p_values[i] = _two_sided_permutation(observed, draws)
+    out = _out(output_features)
+    out_columns = [*columns, _gpkg.Column("LCLQ", "Double"), _gpkg.Column("P_VALUE", "Double"),
+                   _gpkg.Column("LCLQ_BIN", "Integer"), _gpkg.Column("LCLQ_TYPE", "String")]
+    _gpkg.create(out, "Point", srid, out_columns)
+    names = [c.name for c in columns]
+    position = {points[i][0][0]: i for i in range(n) if own[i]}
+    with da.SearchCursor(in_features_of_interest, ["OID@", *names, "SHAPE@"]) as source, \
+            da.InsertCursor(out, [*names, "LCLQ", "P_VALUE", "LCLQ_BIN", "LCLQ_TYPE", "SHAPE@"]) as written:
+        for row in source:
+            i = position.get(row[0])
+            value = values[i] if i is not None else None
+            p = p_values[i] if i is not None else None
+            if value is None or p is None:
+                kind_of_result, bin_ = (None, None) if value is None else ("Not Significant", 0)
+            elif p < 0.05 and value > 1:
+                kind_of_result, bin_ = "Colocated - Significant", 1
+            elif p < 0.05 and value < 1:
+                kind_of_result, bin_ = "Isolated - Significant", -1
+            else:
+                kind_of_result, bin_ = "Not Significant", 0
+            written.insertRow((*row[1:-1], value, p, bin_, kind_of_result, row[-1]))
+    table = None
+    if _given(output_table):
+        firsts = sorted({c for c, o in zip(categories, own) if o}, key=str)
+        seconds = sorted({c for c, o in zip(categories, own) if not o} if mode != "SINGLE_DATASET" else set(categories),
+                         key=str)
+        if mode == "DATASETS_WITHOUT_CATEGORIES":
+            firsts = seconds = [category_a, category_b]
+        rows = []
+        for a in firsts:
+            for b in seconds:
+                b_flags = np.array([1.0 if c == b else 0.0 for c in categories])
+                local = [lclq(a, b, i, b_flags) for i in range(n) if categories[i] == a]
+                local = [v for v in local if v is not None]
+                shown = (lambda c: c[1] if isinstance(c, tuple) else c)
+                rows.append((str(shown(a)), str(shown(b)), sum(local) / len(local) if local else None))
+        table = _write_table(output_table, [_gpkg.Column("CATEGORY_OF_INTEREST", "String"),
+                                            _gpkg.Column("NEIGHBORING_CATEGORY", "String"),
+                                            _gpkg.Column("GLOBAL_CLQ", "Double")], rows)
+    return Result(out, table) if table else Result(out)
+
+
+# ---- Mapping Clusters: Calculate Rates ----------------------------------------------------------------------------
+
+_RATE_METHODS = ("CRUDE_RATE", "GLOBAL_EMPIRICAL_BAYES", "LOCAL_EMPIRICAL_BAYES", "LOCALLY_WEIGHTED_AVERAGE",
+                 "LOCALLY_WEIGHTED_MEDIAN")
+
+
+def _empirical_bayes(counts, populations):
+    """Marshall's (1991) moment estimator for Poisson counts: b = Σy/Σn, s² = Σn(r − b)²/Σn, a = s² − b/n̄ (0 when
+    negative); each rate shrunk to b by C = a/(a + b/n)."""
+    total = sum(populations)
+    b = sum(counts) / total
+    mean_n = total / len(populations)
+    s2 = sum(n * (y / n - b) ** 2 for y, n in zip(counts, populations)) / total
+    a = max(0.0, s2 - b / mean_n)
+    return b, a
+
+
+@_equivalent("crude rates; empirical Bayes smoothing by Marshall's moment estimator, global and local; the spatial "
+             "rate smoother Σy/Σn and the population-weighted median of the neighbourhood's rates",
+             "Marshall 1991; Clayton and Kaldor 1987; Kafadar 1996")
+def CalculateRates(in_table, rate_fields, append_to_input="NO_APPEND", out_table=None, rate_method="CRUDE_RATE",
+                   probability_distribution="POISSON", neighborhood_type=None, distance_band=None,
+                   number_of_neighbors=None, weights_matrix_file=None, local_weighting_scheme="UNWEIGHTED",
+                   kernel_bandwidth=None, rate_multiplier=None):
+    """EQUIVALENT: the page giving Calculate Rates' formulas answers 404, so the smoothing is the literature's.
+    CRUDE_RATE is ``y/n``, null where n is 0. GLOBAL_EMPIRICAL_BAYES shrinks each crude rate r toward the global rate
+    b = Σy/Σn by Marshall's (1991) moment estimator for Poisson counts (after Clayton and Kaldor 1987):
+    ``s² = Σn(r − b)²/Σn``, ``a = max(0, s² − b/n̄)``, ``EB = b + a/(a + b/n)·(r − b)``. LOCAL_EMPIRICAL_BAYES does the
+    same within each feature's neighbourhood, the feature included. LOCALLY_WEIGHTED_AVERAGE is the spatial rate
+    smoother Σy/Σn over the neighbourhood; LOCALLY_WEIGHTED_MEDIAN the population-weighted median of its crude rates
+    (Kafadar 1996), by Neighborhood Summary Statistics' weighted quantile. Every rate is multiplied by rate_multiplier.
+
+    A count or population that is null or negative leaves the feature out of every estimate; its own rate is null,
+    except that the two locally weighted methods fill it from its neighbours (FILLED_ = 1). Neighbourhoods as the
+    Modeling Spatial Relationships tools build them, DISTANCE_BAND the default for points and lines and
+    CONTIGUITY_EDGES_CORNERS for polygons; a table takes only CRUDE_RATE and GLOBAL_EMPIRICAL_BAYES, as documented.
+
+    Refused: BINOMIAL for the empirical Bayes methods (Marshall's estimator is for Poisson counts); BISQUARE and
+    GAUSSIAN (how a kernel weights a rate is not documented); GET_SPATIAL_WEIGHTS_FROM_FILE.
+
+    INFERRED: the new fields are RATE_<count field>, and for the local methods NBRS_<count field> (the neighbourhood's
+    features with valid values, the feature included) and, for the locally weighted ones, FILLED_<count field>;
+    number_of_neighbors is 8 when not given; the default band is the shortest that gives every feature a neighbour.
+    """
+    tool = "CalculateRates"
+    pairs = [(row[0], row[1]) for row in _pairs(rate_fields, 2)]
+    if not pairs or any(not _given(c) or not _given(p) for c, p in pairs):
+        raise ValueError(f"arcpy.stats.{tool}: rate_fields needs a count field and a population field in each row.")
+    if not _given(rate_multiplier):
+        raise ValueError(f"arcpy.stats.{tool}: rate_multiplier is required.")
+    multiplier = float(rate_multiplier)
+    method = _keyword(rate_method) if _given(rate_method) else "CRUDE_RATE"
+    if method not in _RATE_METHODS:
+        raise ValueError(f"arcpy.stats.{tool}: rate_method '{rate_method}' is not one of {', '.join(_RATE_METHODS)}.")
+    distribution = _keyword(probability_distribution) if _given(probability_distribution) else "POISSON"
+    if distribution not in ("POISSON", "BINOMIAL"):
+        raise ValueError(f"arcpy.stats.{tool}: probability_distribution '{probability_distribution}' is neither POISSON "
+                         "nor BINOMIAL.")
+    if distribution == "BINOMIAL" and "EMPIRICAL_BAYES" in method:
+        _refuse(tool, "probability_distribution", "BINOMIAL", "Marshall's empirical Bayes estimator is for Poisson "
+                "counts, and the binomial one the tool uses is not documented")
+    local = method not in ("CRUDE_RATE", "GLOBAL_EMPIRICAL_BAYES")
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
+    if local and scheme != "UNWEIGHTED":
+        _refuse(tool, "local_weighting_scheme", scheme, "how a kernel weights a neighbourhood's rate is not documented")
+    fields = [f for pair in pairs for f in pair]
+    columns, kind, srid, _ = _schema(in_table)
+    if local:
+        if kind == "Geometry" and srid == 0:
+            raise ValueError(f"arcpy.stats.{tool}: {method} needs features; a table takes CRUDE_RATE or "
+                             "GLOBAL_EMPIRICAL_BAYES.")
+        records, _, kind, srid = _features(tool, in_table, fields)
+        kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else (
+            "CONTIGUITY_EDGES_CORNERS" if kind == "Polygon" else "DISTANCE_BAND")
+        k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+        neighbours, _, _ = _neighbourhoods(tool, records, kind, srid, kind_of, distance_band, k)
+        records = [(f[0], f[1]) for f in records]
+    else:
+        records, _, _, _ = _rows_with_oids(tool, in_table, fields)
+
+    def valid(record, count, population):
+        y, n = record[1][count.lower()], record[1][population.lower()]
+        return y is not None and n is not None and y >= 0 and n >= 0
+
+    new_columns, results = [], {oid: [] for oid, _ in records}
+    for count, population in pairs:
+        new_columns.append(_gpkg.Column(f"RATE_{count}", "Double"))
+        if local:
+            new_columns.append(_gpkg.Column(f"NBRS_{count}", "Integer"))
+        if method in ("LOCALLY_WEIGHTED_AVERAGE", "LOCALLY_WEIGHTED_MEDIAN"):
+            new_columns.append(_gpkg.Column(f"FILLED_{count}", "Integer"))
+        ok = [valid(r, count, population) for r in records]
+        ys = [float(r[1][count.lower()]) if ok[i] else None for i, r in enumerate(records)]
+        ns = [float(r[1][population.lower()]) if ok[i] else None for i, r in enumerate(records)]
+        if method == "GLOBAL_EMPIRICAL_BAYES":
+            usable = [i for i in range(len(records)) if ok[i] and ns[i] > 0]
+            b, a = _empirical_bayes([ys[i] for i in usable], [ns[i] for i in usable]) if usable else (None, None)
+        for i, (oid, _) in enumerate(records):
+            members = [i, *neighbours[i]] if local else []
+            usable = [j for j in members if ok[j] and ns[j] > 0]
+            rate = ys[i] / ns[i] if ok[i] and ns[i] > 0 else None
+            row = []
+            if method == "CRUDE_RATE":
+                row.append(rate * multiplier if rate is not None else None)
+            elif method == "GLOBAL_EMPIRICAL_BAYES":
+                if rate is None or b is None:
+                    row.append(None)
+                else:
+                    shrink = a / (a + b / ns[i]) if a + b / ns[i] > 0 else 0.0
+                    row.append((b + shrink * (rate - b)) * multiplier)
+            elif method == "LOCAL_EMPIRICAL_BAYES":
+                if rate is None or not usable:
+                    row.append(None)
+                else:
+                    bi, ai = _empirical_bayes([ys[j] for j in usable], [ns[j] for j in usable])
+                    shrink = ai / (ai + bi / ns[i]) if ai + bi / ns[i] > 0 else 0.0
+                    row.append((bi + shrink * (rate - bi)) * multiplier)
+                row.append(len([j for j in members if ok[j]]))
+            else:
+                if not usable or sum(ns[j] for j in usable) == 0:
+                    row.append(None)
+                elif method == "LOCALLY_WEIGHTED_AVERAGE":
+                    row.append(sum(ys[j] for j in usable) / sum(ns[j] for j in usable) * multiplier)
+                else:
+                    order = sorted(usable, key=lambda j: ys[j] / ns[j])
+                    total = sum(ns[j] for j in order)
+                    row.append(_quantile([ys[j] / ns[j] for j in order], [ns[j] / total for j in order], 0.5)
+                               * multiplier)
+                row.append(len([j for j in members if ok[j]]))
+                row.append(0 if ok[i] else 1)
+            results[oid].extend(row)
+    target = _appended(tool, in_table, _wants_append(append_to_input), out_table, new_columns, results)
+    return Result(target)
+
+
+# ---- Mapping Clusters: Calculate Composite Index ------------------------------------------------------------------
+
+_PRESETS = {"MEAN_SCALED": ("MINMAX", "MEAN"), "MEAN_PCTL": ("PERCENTILE", "MEAN"),
+            "GEOMEAN_SCALED": ("MINMAX", "GEOMETRIC_MEAN"), "SUM_FLAGSPCTL": ("BINARY", "SUM")}
+
+
+def _percentiles(values):
+    """The documented percentile ``(R − 1)/(N − 1)``, R the minimum rank among ties."""
+    ordered = sorted(values)
+    first = {}
+    for position, value in enumerate(ordered, start=1):
+        first.setdefault(value, position)
+    n = len(values)
+    return [(first[v] - 1) / (n - 1) if n > 1 else 0.0 for v in values]
+
+
+def _ranks(values):
+    """Ranks from 1, ties given the mean of their ranks."""
+    ordered = sorted(values)
+    positions = {}
+    for position, value in enumerate(ordered, start=1):
+        positions.setdefault(value, []).append(position)
+    return [sum(positions[v]) / len(positions[v]) for v in values]
+
+
+def _scaled(tool, method, values, field, custom_min_max, custom_z):
+    import statistics
+    if method in ("MINMAX", "THRESHOLD_MINMAX"):
+        low, high = min(values), max(values)
+        if high == low:
+            raise ValueError(f"arcpy.stats.{tool}: '{field}' is constant and cannot be scaled between 0 and 1.")
+        return [(v - low) / (high - low) for v in values]
+    if method in ("CUST_MINMAX", "THRESHOLD_CUST_MINMAX"):
+        if field.lower() not in custom_min_max:
+            raise ValueError(f"arcpy.stats.{tool}: pre_min_max has no row for '{field}'.")
+        low, high = custom_min_max[field.lower()]
+        return [(v - low) / (high - low) for v in values]
+    if method in ("PERCENTILE", "THRESHOLD_PERCENTILE"):
+        return _percentiles(values)
+    if method == "RANK":
+        return _ranks(values)
+    if method in ("ZSCORE", "THRESHOLD_ZSCORE"):
+        mean, deviation = statistics.fmean(values), statistics.pstdev(values)
+        if deviation == 0:
+            raise ValueError(f"arcpy.stats.{tool}: '{field}' is constant and has no z-score.")
+        return [(v - mean) / deviation for v in values]
+    if method in ("CUST_ZSCORE", "THRESHOLD_CUST_ZSCORE"):
+        if field.lower() not in custom_z:
+            raise ValueError(f"arcpy.stats.{tool}: pre_custom_zscore has no row for '{field}'.")
+        mean, deviation = custom_z[field.lower()]
+        return [(v - mean) / deviation for v in values]
+    if method in ("RAW", "THRESHOLD_RAW"):
+        return list(values)
+    raise ValueError(f"arcpy.stats.{tool}: '{method}' is not a scaling method the tool takes.")
+
+
+@_equivalent("the documented scaling, combination and post-processing steps, with the OECD handbook's weighted "
+             "arithmetic and geometric aggregation", "Esri's \"How Calculate Composite Index works\"; OECD/JRC, "
+             "Handbook on Constructing Composite Indicators, 2008, §6")
+def CalculateCompositeIndex(in_table, in_variables, append_to_input="NEW_FEATURES", out_table=None,
+                            index_preset="MEAN_SCALED", preprocessing=None, pre_threshold_scaling="THRESHOLD_RAW",
+                            pre_custom_zscore=None, pre_min_max=None, pre_thresholds=None, index_method=None,
+                            index_weights=None, out_index_name=None, out_index_reverse="NO_REVERSE", post_min_max=None,
+                            post_reclass=None, post_num_classes=None, post_custom_classes=None):
+    """EQUIVALENT where the page stops: the steps are the ones "How Calculate Composite Index works" states — each
+    variable scaled (MINMAX ``(x − min)/(max − min)``, CUST_MINMAX, PERCENTILE ``(R − 1)/(N − 1)`` with the minimum rank
+    among ties, RANK with mean ranks for ties, ZSCORE, CUST_ZSCORE, BINARY flags ``≥`` (GREATERTHAN) or ``<`` (LESSTHAN)
+    a threshold after the threshold scaling, RAW); a reversed variable becomes ``max + min − x`` of its scaled values,
+    reversed after scaling; then combined. The combinations are the OECD handbook's weighted ones, since the page gives
+    only that "weights are applied by multiplying" (additive) or "by raising each variable to the power" (multiplicative):
+    SUM ``Σwx``, MEAN ``Σwx/Σw``, PRODUCT ``Πx^w``, GEOMETRIC_MEAN ``(Πx^w)^(1/Σw)``. The index is then reversed
+    (``max + min − x``) if asked, rescaled to post_min_max by the documented formula, and classified.
+
+    Presets: MEAN_SCALED (MINMAX, MEAN), MEAN_PCTL (PERCENTILE, MEAN), GEOMEAN_SCALED (MINMAX, GEOMETRIC_MEAN),
+    SUM_FLAGSPCTL (BINARY at the 90th percentile, GREATERTHAN, SUM); CUSTOM takes preprocessing and index_method.
+    Classes: EQINTERVAL and CUST. Refused: QUANTILE and STDDEV (how a value on a class edge is placed is not documented).
+    A record with a null in any variable gets a null index and is left out of the scaling.
+
+    INFERRED: the new fields are <field>_SCALED for each variable, COMP_INDEX, COMP_PCTL (the index's percentile, which
+    the page's percentile layer shows), COMP_EQINT and COMP_CUST; ZSCORE divides by the population standard deviation;
+    an equal interval class is ``min(k, ⌊(x − min)/((max − min)/k)⌋ + 1)`` with k = 5 when not given; a custom class is
+    the value of the first upper bound at or above x, null above the last.
+    """
+    import numpy as np
+    tool = "CalculateCompositeIndex"
+    variables = []
+    for row in _pairs(in_variables, 2):
+        variables.append((row[0], _keyword(row[1]) in ("REVERSE", "TRUE") if row[1] is not None else False))
+    if not variables:
+        raise ValueError(f"arcpy.stats.{tool}: in_variables names no field.")
+    preset = _keyword(index_preset) if _given(index_preset) else "MEAN_SCALED"
+    if preset == "CUSTOM":
+        scaling = _keyword(preprocessing) if _given(preprocessing) else "MINMAX"
+        combine = _keyword(index_method) if _given(index_method) else "MEAN"
+        thresholds = {r[0].lower(): (_keyword(r[1] or "GREATERTHAN"), float(r[2])) for r in _pairs(pre_thresholds, 3)}
+        threshold_scaling = _keyword(pre_threshold_scaling) if _given(pre_threshold_scaling) else "THRESHOLD_RAW"
+    elif preset in _PRESETS:
+        scaling, combine = _PRESETS[preset]
+        threshold_scaling = "THRESHOLD_PERCENTILE"
+        thresholds = {f.lower(): ("GREATERTHAN", 0.9) for f, _ in variables}
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: index_preset '{index_preset}' is not one the tool takes.")
+    if combine not in ("SUM", "MEAN", "PRODUCT", "GEOMETRIC_MEAN"):
+        raise ValueError(f"arcpy.stats.{tool}: index_method '{index_method}' is not one of SUM, MEAN, PRODUCT, "
+                         "GEOMETRIC_MEAN.")
+    multiplicative = combine in ("PRODUCT", "GEOMETRIC_MEAN")
+    if multiplicative and (scaling in ("ZSCORE", "CUST_ZSCORE")):
+        raise ValueError(f"arcpy.stats.{tool}: z-scores cannot be multiplied or combined by a geometric mean.")
+    custom_min_max = {r[0].lower(): (float(r[1]), float(r[2])) for r in _pairs(pre_min_max, 3)}
+    custom_z = {r[0].lower(): (float(r[1]), float(r[2])) for r in _pairs(pre_custom_zscore, 3)}
+    weights = {f.lower(): 1.0 for f, _ in variables}
+    for row in _pairs(index_weights, 2):
+        weights[row[0].lower()] = float(row[1])
+    classes = [_keyword(c) for c in _list(post_reclass) if _given(c)]
+    for c in classes:
+        if c in ("QUANTILE", "STDDEV"):
+            _refuse(tool, "post_reclass", c, "how a value on a class edge is placed is not documented")
+        if c not in ("EQINTERVAL", "CUST"):
+            raise ValueError(f"arcpy.stats.{tool}: post_reclass '{c}' is not one of EQINTERVAL, QUANTILE, STDDEV, CUST.")
+    records, columns, _, _ = _rows_with_oids(tool, in_table, [f for f, _ in variables])
+    by_name = {c.name.lower(): c.name for c in columns}
+    complete = [r for r in records if all(r[1][f.lower()] is not None for f, _ in variables)]
+    if len(complete) < 2:
+        raise ValueError(f"arcpy.stats.{tool} needs two records with every variable present.")
+    scaled_by_field = {}
+    for field, reverse in variables:
+        values = [float(r[1][field.lower()]) for r in complete]
+        if scaling == "BINARY":
+            if field.lower() not in thresholds:
+                raise ValueError(f"arcpy.stats.{tool}: pre_thresholds has no row for '{field}'.")
+            direction, threshold = thresholds[field.lower()]
+            base = _scaled(tool, threshold_scaling, values, field, custom_min_max, custom_z)
+            scaled = [1.0 if (v >= threshold if direction == "GREATERTHAN" else v < threshold) else 0.0 for v in base]
+        else:
+            scaled = _scaled(tool, scaling, values, field, custom_min_max, custom_z)
+        if reverse:
+            low, high = min(scaled), max(scaled)
+            scaled = [high + low - v for v in scaled]
+        if multiplicative and min(scaled) < 0:
+            raise ValueError(f"arcpy.stats.{tool}: {combine} needs every scaled value at or above zero.")
+        scaled_by_field[field.lower()] = scaled
+    index = []
+    for i in range(len(complete)):
+        parts = [(scaled_by_field[f.lower()][i], weights[f.lower()]) for f, _ in variables]
+        total_weight = sum(w for _, w in parts)
+        if combine == "SUM":
+            index.append(sum(w * v for v, w in parts))
+        elif combine == "MEAN":
+            index.append(sum(w * v for v, w in parts) / total_weight)
+        else:
+            product = float(np.prod([v ** w for v, w in parts]))
+            index.append(product if combine == "PRODUCT" else product ** (1 / total_weight))
+    if _keyword(out_index_reverse) in ("REVERSE", "TRUE") or out_index_reverse is True:
+        low, high = min(index), max(index)
+        index = [high + low - v for v in index]
+    bounds = _pairs(post_min_max, 2)
+    if bounds:
+        a, b = float(bounds[0][0]), float(bounds[0][1])
+        low, high = min(index), max(index)
+        index = [a + (v - low) * (b - a) / (high - low) if high > low else a for v in index]
+    percentile = _percentiles(index)
+    new_columns = [_gpkg.Column(f"{by_name[f.lower()]}_SCALED", "Double") for f, _ in variables]
+    new_columns += [_gpkg.Column("COMP_INDEX", "Double"), _gpkg.Column("COMP_PCTL", "Double")]
+    k = int(post_num_classes) if _given(post_num_classes) else 5
+    custom = sorted(((float(r[0]), r[1]) for r in _pairs(post_custom_classes, 2)), key=lambda r: r[0])
+    if "EQINTERVAL" in classes:
+        new_columns.append(_gpkg.Column("COMP_EQINT", "Integer"))
+    if "CUST" in classes:
+        if not custom:
+            raise ValueError(f"arcpy.stats.{tool}: CUST needs post_custom_classes.")
+        numeric = all(isinstance(v, (int, float)) or str(v).lstrip("-").replace(".", "", 1).isdigit() for _, v in custom)
+        new_columns.append(_gpkg.Column("COMP_CUST", "Double" if numeric else "String"))
+    low, high = min(index), max(index)
+    results = {r[0]: [None] * len(new_columns) for r in records}
+    for i, record in enumerate(complete):
+        row = [scaled_by_field[f.lower()][i] for f, _ in variables] + [index[i], percentile[i]]
+        if "EQINTERVAL" in classes:
+            row.append(min(k, int((index[i] - low) // ((high - low) / k)) + 1) if high > low else 1)
+        if "CUST" in classes:
+            value = next((v for upper, v in custom if index[i] <= upper), None)
+            row.append(float(value) if value is not None and numeric else value)
+        results[record[0]] = row
+    target = _appended(tool, in_table, _wants_append(append_to_input), out_table, new_columns, results)
+    return Result(target)
+
+
+# ---- Time Series: Time Series Smoothing ---------------------------------------------------------------------------
+
+_TIME_UNITS = {"SECOND": 1, "MINUTE": 60, "HOUR": 3600, "DAY": 86400, "WEEK": 604800}
+
+
+def _when(value):
+    import datetime
+    if value is None or isinstance(value, datetime.datetime):
+        return value
+    if isinstance(value, datetime.date):
+        return datetime.datetime(value.year, value.month, value.day)
+    return datetime.datetime.fromisoformat(str(value).replace("Z", ""))
+
+
+def _shift(moment, amount, unit):
+    """``moment`` moved by ``amount`` of ``unit``. Months and years are calendar steps. INFERRED: a day past the end of
+    the target month is clamped to its last day (31 January plus one month is 28 or 29 February)."""
+    import calendar
+    import datetime
+    if unit in _TIME_UNITS:
+        return moment + datetime.timedelta(seconds=amount * _TIME_UNITS[unit])
+    months = int(amount) * (12 if unit == "YEAR" else 1)
+    month = moment.month - 1 + months
+    year, month = moment.year + month // 12, month % 12 + 1
+    return moment.replace(year=year, month=month, day=min(moment.day, calendar.monthrange(year, month)[1]))
+
+
+@_equivalent("backward, forward and centered moving averages over a closed time window",
+             "Esri's \"How Time Series Smoothing works\"; Hyndman and Athanasopoulos, Forecasting: Principles and "
+             "Practice, 3rd ed., §3.3")
+def TimeSeriesSmoothing(in_features, time_field, analysis_field, group_method="LOCATION", method="BACKWARD",
+                        time_window=None, append_to_input="NEW_OUTPUT", output_features=None, id_field=None,
+                        apply_shorter_window="NOT_APPLY_SHORTER_WINDOW", enable_time_series_popups=None):
+    """EQUIVALENT in its field names: the moving averages are the documented ones — the mean of the non-null values whose
+    times lie in ``[t − W, t]`` (BACKWARD), ``[t, t + W]`` (FORWARD) or ``[t − W/2, t + W/2]`` (CENTERED), the borders
+    included ("with a time window of four days, five values will be included"). Without a shorter window a record whose
+    window reaches before its series' first time or past its last is null; with APPLY_SHORTER_WINDOW the window is cut
+    at the ends. Months and years are calendar steps and must be whole numbers, and a centered window in them an even
+    one, as documented. Series: LOCATION (features at one centroid), ID_FIELD, or NONE; two values at one time in a
+    series are an error, as documented.
+
+    Refused: ADAPTIVE — Friedman's (1984) variable span smoother is named, but grapy has not built it.
+    enable_time_series_popups is accepted and does nothing: a server has no pop-ups.
+
+    INFERRED: the new fields are SMOOTH_<analysis field> (Double), NUM_NBRS (the non-null values averaged, the record's
+    own included) and TIME_WINDOW (the window as given); a record with no non-null value in its window is null.
+    """
+    tool = "TimeSeriesSmoothing"
+    smoothing = _keyword(method) if _given(method) else "BACKWARD"
+    if smoothing == "ADAPTIVE":
+        _refuse(tool, "method", "ADAPTIVE", "Friedman's (1984) variable span smoother is named but not built")
+    if smoothing not in ("BACKWARD", "FORWARD", "CENTERED"):
+        raise ValueError(f"arcpy.stats.{tool}: method '{method}' is not one of BACKWARD, CENTERED, FORWARD, ADAPTIVE.")
+    if not _given(time_window):
+        raise ValueError(f"arcpy.stats.{tool}: a moving average needs time_window.")
+    parts = str(time_window).split()
+    amount = float(parts[0])
+    unit = (parts[1] if len(parts) > 1 else "DAYS").upper().rstrip("S")
+    if unit not in _TIME_UNITS and unit not in ("MONTH", "YEAR"):
+        raise ValueError(f"arcpy.stats.{tool}: time_window unit '{parts[1]}' is not seconds, minutes, hours, days, "
+                         "weeks, months or years.")
+    if amount <= 0:
+        raise ValueError(f"arcpy.stats.{tool}: time_window must be positive.")
+    if unit in ("MONTH", "YEAR"):
+        if amount != int(amount):
+            raise ValueError(f"arcpy.stats.{tool}: a window in months or years must be a whole number.")
+        if smoothing == "CENTERED" and int(amount) % 2:
+            raise ValueError(f"arcpy.stats.{tool}: a centered window in months or years must be an even number.")
+    grouping = _keyword(group_method) if _given(group_method) else "LOCATION"
+    fields = [time_field, analysis_field] + ([id_field] if grouping == "ID_FIELD" else [])
+    if grouping == "ID_FIELD" and not _given(id_field):
+        raise ValueError(f"arcpy.stats.{tool}: ID_FIELD needs id_field.")
+    if grouping == "LOCATION":
+        columns, kind, srid, _ = _schema(in_features)
+        if kind == "Geometry" and srid == 0:
+            raise ValueError(f"arcpy.stats.{tool}: a table cannot be grouped by LOCATION.")
+        features, _, _, _ = _features(tool, in_features, fields)
+        records = [(f[0], f[1], (f[2], f[3])) for f in features]
+    elif grouping in ("ID_FIELD", "NONE"):
+        rows, _, _, _ = _rows_with_oids(tool, in_features, fields)
+        records = [(r[0], r[1], r[1][id_field.lower()] if grouping == "ID_FIELD" else None) for r in rows]
+    else:
+        raise ValueError(f"arcpy.stats.{tool}: group_method '{group_method}' is not LOCATION, ID_FIELD or NONE.")
+    shorter = _keyword(apply_shorter_window) in ("APPLY_SHORTER_WINDOW", "TRUE") or apply_shorter_window is True
+    series: dict = {}
+    for oid, values, key in records:
+        moment = _when(values[time_field.lower()])
+        if moment is None:
+            continue
+        series.setdefault(key, []).append((moment, oid, values[analysis_field.lower()]))
+    name = f"SMOOTH_{analysis_field}"
+    new_columns = [_gpkg.Column(name, "Double"), _gpkg.Column("NUM_NBRS", "Integer"),
+                   _gpkg.Column("TIME_WINDOW", "String")]
+    results = {oid: [None, None, str(time_window)] for oid, _, _ in records}
+    half = amount / 2
+    for key, members in series.items():
+        members.sort()
+        times = [m[0] for m in members]
+        if len(set(times)) != len(times):
+            raise ValueError(f"arcpy.stats.{tool}: a time series holds two values at one time.")
+        first, last = times[0], times[-1]
+        for moment, oid, _ in members:
+            if smoothing == "BACKWARD":
+                start, end = _shift(moment, -amount, unit), moment
+            elif smoothing == "FORWARD":
+                start, end = moment, _shift(moment, amount, unit)
+            else:
+                start, end = _shift(moment, -half, unit), _shift(moment, half, unit)
+            if not shorter and (start < first or end > last):
+                results[oid][:2] = [None, 0]
+                continue
+            inside = [v for t, _, v in members if start <= t <= end and v is not None]
+            results[oid][:2] = [sum(float(v) for v in inside) / len(inside) if inside else None, len(inside)]
+    target = _appended(tool, in_features, _wants_append(append_to_input, ("APPEND_TO_INPUT", "TRUE")),
+                       output_features, new_columns, results)
+    return Result(target)
+
+
+# ---- Modeling Spatial Relationships: Spatial Autoregression -------------------------------------------------------
+
+def _lm_tests(w, x, y):
+    """Anselin's (1988) Lagrange multiplier tests on the OLS residuals and their robust forms (Anselin, Bera, Florax and
+    Yoon 1996): with e the residuals, σ² = e'e/n, T = tr(W'W + W²), M = I − X(X'X)⁻¹X' and
+    D = (WXβ)'M(WXβ)/σ² + T — LM_err = (e'We/σ²)²/T, LM_lag = (e'Wy/σ²)²/D,
+    RLM_lag = (e'Wy/σ² − e'We/σ²)²/(D − T), RLM_err = (e'We/σ² − T/D · e'Wy/σ²)²/(T − T²/D) and
+    LM_SARMA = RLM_err + LM_lag, each χ² with one degree of freedom (two for SARMA)."""
+    import numpy as np
+    from scipy import stats as distributions
+    n = len(y)
+    beta, fitted, e, inverse = _ols_fit(x, y)
+    s2 = float(e @ e) / n
+    t = float(np.trace(w.T @ w + w @ w))
+    m = np.eye(n) - x @ inverse @ x.T
+    wxb = w @ fitted
+    d = float(wxb @ m @ wxb) / s2 + t
+    err = float(e @ w @ e) / s2
+    lag = float(e @ w @ y) / s2
+    out = {"LM_ERROR": err ** 2 / t, "LM_LAG": lag ** 2 / d}
+    out["ROBUST_LM_LAG"] = (lag - err) ** 2 / (d - t) if d - t > 1e-12 * d else None
+    denominator = t - t * t / d
+    out["ROBUST_LM_ERROR"] = (err - t / d * lag) ** 2 / denominator if denominator > 1e-12 * t else None
+    out["LM_SARMA"] = out["ROBUST_LM_ERROR"] + out["LM_LAG"] if out["ROBUST_LM_ERROR"] is not None else None
+    p = {name: (float(distributions.chi2.sf(value, 2 if name == "LM_SARMA" else 1)) if value is not None else None)
+         for name, value in out.items()}
+    return out, p
+
+
+def _choose_model(statistic, p, alpha=0.05):
+    """The documented choice: OLS when neither LM test is significant; the one that is when only one is; between the
+    robust tests likewise when both are; when both robust tests are, SAC if LM SARMA is significant and has the largest
+    statistic, otherwise the model whose robust statistic is larger; SAC when neither robust test is significant.
+    INFERRED: "the model with the largest test statistic" compares the robust lag, robust error and SARMA statistics."""
+    def significant(name):
+        return p.get(name) is not None and p[name] < alpha
+    lag, error = significant("LM_LAG"), significant("LM_ERROR")
+    if not lag and not error:
+        return "OLS"
+    if lag != error:
+        return "LAG" if lag else "ERROR"
+    robust_lag, robust_error = significant("ROBUST_LM_LAG"), significant("ROBUST_LM_ERROR")
+    if robust_lag != robust_error:
+        return "LAG" if robust_lag else "ERROR"
+    if not robust_lag:
+        return "COMBINED"
+    candidates = {"LAG": statistic["ROBUST_LM_LAG"], "ERROR": statistic["ROBUST_LM_ERROR"]}
+    if significant("LM_SARMA"):
+        candidates["COMBINED"] = statistic["LM_SARMA"]
+    return max(candidates, key=candidates.get)
+
+
+def _gm_lambda(w, u):
+    """Kelejian and Prucha's (1999) generalized moments estimate of λ from residuals u: with ū = Wu, ū̄ = W²u, the three
+    sample moments of ε = u − λū — ε'ε/n = σ², ε̄'ε̄/n = σ² tr(W'W)/n, ε̄'ε/n = 0 — solved for (λ, σ²) by nonlinear
+    least squares, λ kept within (−0.99, 0.99)."""
+    import numpy as np
+    from scipy.optimize import least_squares
+    n = len(u)
+    ub = w @ u
+    ubb = w @ ub
+    trace = float(np.trace(w.T @ w)) / n
+
+    def moments(theta):
+        lam, s2 = theta
+        e = u - lam * ub
+        eb = ub - lam * ubb
+        return [e @ e / n - s2, eb @ eb / n - s2 * trace, eb @ e / n]
+
+    start = [0.0, float(u @ u) / n]
+    fit = least_squares(moments, start, bounds=([-0.99, 0.0], [0.99, np.inf]), xtol=1e-15, ftol=1e-15, gtol=1e-15)
+    return float(fit.x[0]), float(fit.x[1])
+
+
+def _two_stage(z, h, y):
+    """Two-stage least squares of y on z with instruments h: δ = (Ẑ'Z)⁻¹Ẑ'y, Ẑ = H(H'H)⁺H'Z; with White's
+    heteroskedasticity-robust covariance (Ẑ'Ẑ)⁻¹Ẑ' diag(e²) Ẑ(Ẑ'Ẑ)⁻¹."""
+    import numpy as np
+    projected = h @ np.linalg.pinv(h.T @ h) @ h.T @ z
+    inverse = np.linalg.inv(projected.T @ z)
+    delta = inverse @ projected.T @ y
+    e = y - z @ delta
+    covariance = inverse @ (projected.T * e ** 2) @ projected @ inverse.T
+    return delta, e, covariance
+
+
+@_equivalent("Anselin's LM tests and the documented model choice; the spatial lag model by spatial two-stage least "
+             "squares, the error model by Kelejian and Prucha's generalized moments and feasible GLS, the combined "
+             "model by generalized spatial two-stage least squares",
+             "Anselin 1988; Anselin, Bera, Florax and Yoon 1996; Kelejian and Prucha 1998, 1999")
+def SAR(in_features, dependent_variable, explanatory_variables, out_features, model_type="AUTO",
+        neighborhood_type=None, distance_band=None, number_of_neighbors=None, weights_matrix_file=None,
+        local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None):
+    """EQUIVALENT: the documentation names the estimators — S2SLS for the lag model, GMM for the error model and
+    GS2SLS for the combined one — and the LM tests, but not every step, so they are the literature's homoskedastic
+    forms. LAG: y on [X, Wy] with instruments [X, WX, W²X] (Kelejian and Prucha 1998), White-robust standard errors.
+    ERROR: λ by Kelejian and Prucha's (1999) generalized moments from the OLS residuals, then β by least squares of
+    y − λWy on X − λWX. COMBINED: the lag model's S2SLS, λ by generalized moments from its residuals, then S2SLS of the
+    spatially filtered y and [X, Wy] (Kelejian and Prucha 1998's GS2SLS). AUTO chooses by the documented flow chart at
+    p < 0.05; the LM statistics are Anselin's (1988) and their robust forms (Anselin et al. 1996).
+
+    Weights: the neighbourhoods of the Modeling Spatial Relationships tools (DISTANCE_BAND, K_NEAREST_NEIGHBORS — 8 by
+    default — the contiguities and DELAUNAY_TRIANGULATION, the default for points; CONTIGUITY_EDGES_CORNERS for
+    polygons), BISQUARE or GAUSSIAN kernels with the given bandwidth or, adaptively, each feature's farthest neighbour,
+    always row standardized; a matrix over 30 percent connected is refused, as documented.
+
+    Not done, and so refused or left out: the Anselin–Kelejian test and HAC standard errors, the spatial pseudo
+    R-squared, and GET_SPATIAL_WEIGHTS_FROM_FILE. Coefficients, standard errors, λ, ρ and the LM tests are written as
+    messages. INFERRED: the output fields are the dependent and explanatory variables, PREDICTED, RESIDUAL, STD_RESID
+    (the residual over its standard deviation), LAG_RESID (W times STD_RESID) and NUM_NBRS; PREDICTED is Xβ + ρWy for
+    the lag models and Xβ for the error model; features with a null variable are left out.
+    """
+    import numpy as np
+    from ._runtime import AddMessage
+    tool = "SAR"
+    explanatory = [e for e in _list(explanatory_variables) if _given(e)]
+    kept, y, x, xy, columns, kind, srid = _regression_data(tool, in_features, dependent_variable, explanatory)
+    n = len(kept)
+    if kind not in ("Point", "Polygon"):
+        raise ValueError(f"arcpy.stats.{tool} takes point and polygon features only.")
+    kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else (
+        "CONTIGUITY_EDGES_CORNERS" if kind == "Polygon" else "DELAUNAY_TRIANGULATION")
+    k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+    neighbours, d, band = _neighbourhoods(tool, kept, kind, srid, kind_of, distance_band, k)
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
+    if scheme not in ("UNWEIGHTED", "BISQUARE", "GAUSSIAN"):
+        raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme '{local_weighting_scheme}' is not one the tool "
+                         "takes.")
+    w = np.zeros((n, n))
+    for i in range(n):
+        if not neighbours[i]:
+            raise ValueError(f"arcpy.stats.{tool}: a feature has no neighbours.")
+        b = _threshold(kernel_bandwidth, srid) if _given(kernel_bandwidth) else max(d[i, j] for j in neighbours[i])
+        if scheme == "BISQUARE" and any(d[i, j] > b for j in neighbours[i]):
+            _refuse(tool, "kernel_bandwidth", kernel_bandwidth, "a neighbour lies beyond it, where the bisquare formula "
+                    "as written turns positive again")
+        for j in neighbours[i]:
+            w[i, j] = _kernel(scheme, d[i, j], b)
+    if (w > 0).sum() / (n * n) >= 0.30:
+        raise ValueError(f"arcpy.stats.{tool}: the spatial weights are 30 percent connected or more, which biases the "
+                         "estimates (Smith 2009); choose fewer neighbours.")
+    w = _standardized(w, "ROW")
+    statistic, p = _lm_tests(w, x, y)
+    for name in ("LM_LAG", "LM_ERROR", "ROBUST_LM_LAG", "ROBUST_LM_ERROR", "LM_SARMA"):
+        AddMessage(f"{name}: statistic {statistic[name]}, p-value {p[name]}")
+    wanted = _keyword(model_type) if _given(model_type) else "AUTO"
+    if wanted not in ("AUTO", "ERROR", "LAG", "COMBINED"):
+        raise ValueError(f"arcpy.stats.{tool}: model_type '{model_type}' is not AUTO, ERROR, LAG or COMBINED.")
+    chosen = _choose_model(statistic, p) if wanted == "AUTO" else wanted
+    AddMessage(f"Model: {chosen}")
+    names = ["Intercept", *explanatory]
+    wy = w @ y
+    instruments = np.column_stack([x, w @ x[:, 1:], w @ w @ x[:, 1:]])
+    rho = lam = None
+    if chosen == "OLS":
+        beta, fitted, residual, inverse = _ols_fit(x, y)
+        se = np.sqrt(np.diag(inverse) * float(residual @ residual) / (n - x.shape[1]))
+        predicted = fitted
+    elif chosen == "LAG":
+        z = np.column_stack([x, wy])
+        delta, residual, covariance = _two_stage(z, instruments, y)
+        beta, rho, se = delta[:-1], float(delta[-1]), np.sqrt(np.diag(covariance))
+        predicted = z @ delta
+    elif chosen == "ERROR":
+        _, _, u, _ = _ols_fit(x, y)
+        lam, _ = _gm_lambda(w, u)
+        xs, ys = x - lam * (w @ x), y - lam * wy
+        beta, _, filtered, inverse = _ols_fit(xs, ys)
+        se = np.sqrt(np.diag(inverse) * float(filtered @ filtered) / n)
+        predicted = x @ beta
+        residual = y - predicted
+    else:
+        z = np.column_stack([x, wy])
+        first, u, _ = _two_stage(z, instruments, y)
+        lam, _ = _gm_lambda(w, u)
+        delta, _, covariance = _two_stage(z - lam * (w @ z), instruments, y - lam * wy)
+        beta, rho, se = delta[:-1], float(delta[-1]), np.sqrt(np.diag(covariance))
+        predicted = z @ delta
+        residual = y - predicted
+    for i, name in enumerate(names):
+        AddMessage(f"Coefficient {name}: {float(beta[i])}, standard error {float(se[i])}")
+    if rho is not None:
+        AddMessage(f"Lag Y (rho): {rho}, standard error {float(se[-1])}")
+        for i, name in enumerate(names[1:], start=1):
+            total = float(beta[i]) / (1 - rho)
+            AddMessage(f"Impacts {name}: direct {float(beta[i])}, indirect {total - float(beta[i])}, total {total}")
+    if lam is not None:
+        AddMessage(f"Lag Residual (lambda): {lam}")
+    spread = float(np.std(residual))
+    standardized = residual / spread if spread > 0 else np.zeros(n)
+    lagged = w @ standardized
+    by_name = {c.name.lower(): c for c in columns}
+    out_columns = [by_name[dependent_variable.lower()], *[by_name[e.lower()] for e in explanatory],
+                   _gpkg.Column("PREDICTED", "Double"), _gpkg.Column("RESIDUAL", "Double"),
+                   _gpkg.Column("STD_RESID", "Double"), _gpkg.Column("LAG_RESID", "Double"),
+                   _gpkg.Column("NUM_NBRS", "Integer")]
+    out = _out(out_features)
+    _gpkg.create(out, kind, srid, out_columns)
+    with da.InsertCursor(out, [*[c.name for c in out_columns], "SHAPE@"]) as rows:
+        for i, f in enumerate(kept):
+            rows.insertRow((f[1][dependent_variable.lower()], *[f[1][e.lower()] for e in explanatory],
+                            float(predicted[i]), float(residual[i]), float(standardized[i]), float(lagged[i]),
+                            len(neighbours[i]), f[4]))
+    return Result(out)
+
+
+# ---- Utilities: Dimension Reduction -------------------------------------------------------------------------------
+
+@_equivalent("principal component analysis by the eigendecomposition of the sample covariance (or correlation) matrix",
+             "James, Witten, Hastie and Tibshirani, An Introduction to Statistical Learning, 2014, §10.2; Jolliffe, "
+             "Principal Component Analysis, 2nd ed., 2002")
+def DimensionReduction(in_table, output_data=None, fields=None, method="PCA", scale="SCALE_DATA", categorical_field=None,
+                       min_variance=None, min_components=None, append_fields="NO_APPEND", output_eigenvalues_table=None,
+                       output_eigenvectors_table=None, number_of_permutations=0, append_to_input="NEW_OUTPUT"):
+    """EQUIVALENT: "How Dimension Reduction works" names PCA and refers to James et al. (2014) for it; its exact output
+    is not given, so this is the textbook's. Each field is centred and, with SCALE_DATA (the default), divided by its
+    standard deviation; the components are the eigenvectors of the resulting covariance matrix, in descending order of
+    eigenvalue, each of unit norm, and a record's component value is its centred (scaled) values times the eigenvector.
+    The percent of variance of component i is ``100·d_i/Σd``. The number of components is, as documented, the smallest
+    that reaches min_components, or min_variance percent, or the larger of the two when both are given.
+
+    Refused: LDA (the scaling of its eigenvalues, from which its percent variances are read, is not given); and neither
+    min_variance nor min_components (the tool then takes the largest of several stopping rules whose combination is
+    named but not specified), with which number_of_permutations does nothing.
+
+    INFERRED: the standard deviation and covariance divide by n − 1; an eigenvector's sign makes its largest-magnitude
+    loading positive; the components are PC_1, PC_2, …; the output holds the analysis fields (all fields with APPEND)
+    and the components; the eigenvalues table has COMPONENT, EIGENVALUE, PCT_VAR and CUM_VAR, and the eigenvectors
+    table FIELD and one column per component; records with a null analysis value get null components and are left out
+    of the fit.
+    """
+    import numpy as np
+    tool = "DimensionReduction"
+    if _keyword(method or "PCA") == "LDA":
+        _refuse(tool, "method", "LDA", "the scaling of its eigenvalues, from which its percent variances are read, is not "
+                "given")
+    if _keyword(method or "PCA") != "PCA":
+        raise ValueError(f"arcpy.stats.{tool}: method '{method}' is neither PCA nor LDA.")
+    if not _given(min_variance) and not _given(min_components):
+        _refuse(tool, "min_components", "(empty)", "with neither minimum the tool combines stopping rules whose "
+                "combination is named but not specified; give min_components or min_variance")
+    names = [f for f in _list(fields) if _given(f)]
+    if len(names) < 2:
+        raise ValueError(f"arcpy.stats.{tool}: fields needs two analysis fields or more.")
+    records, columns, kind, srid = _rows_with_oids(tool, in_table, names)
+    by_name = {c.name.lower(): c for c in columns}
+    complete = [r for r in records if all(r[1][f.lower()] is not None for f in names)]
+    if len(complete) <= len(names):
+        raise ValueError(f"arcpy.stats.{tool} needs more complete records than fields.")
+    data = np.array([[float(r[1][f.lower()]) for f in names] for r in complete])
+    centred = data - data.mean(axis=0)
+    if _keyword(scale or "SCALE_DATA") in ("SCALE_DATA", "TRUE") or scale is True:
+        deviation = data.std(axis=0, ddof=1)
+        if (deviation == 0).any():
+            raise ValueError(f"arcpy.stats.{tool}: a constant field cannot be scaled.")
+        centred = centred / deviation
+    covariance = centred.T @ centred / (len(complete) - 1)
+    values, vectors = np.linalg.eigh(covariance)
+    order = np.argsort(values)[::-1]
+    values, vectors = np.clip(values[order], 0, None), vectors[:, order]
+    for c in range(vectors.shape[1]):
+        if vectors[np.argmax(np.abs(vectors[:, c])), c] < 0:
+            vectors[:, c] = -vectors[:, c]
+    percent = 100 * values / values.sum()
+    cumulative = np.cumsum(percent)
+    wanted = int(min_components) if _given(min_components) else 1
+    if _given(min_variance):
+        reach = int(np.searchsorted(cumulative, float(min_variance) - 1e-9) + 1)
+        wanted = max(wanted, min(reach, len(names)))
+    if not 1 <= wanted <= len(names):
+        raise ValueError(f"arcpy.stats.{tool}: min_components must be between 1 and {len(names)}.")
+    scores = centred @ vectors[:, :wanted]
+    component_columns = [_gpkg.Column(f"PC_{c + 1}", "Double") for c in range(wanted)]
+    position = {r[0]: i for i, r in enumerate(complete)}
+    results = {r[0]: ([float(v) for v in scores[position[r[0]]]] if r[0] in position else [None] * wanted)
+               for r in records}
+    append = _wants_append(append_to_input, ("APPEND_TO_INPUT", "TRUE"))
+    if append:
+        target = _appended(tool, in_table, True, None, component_columns, results)
+    else:
+        if not _given(output_data):
+            raise ValueError(f"arcpy.stats.{tool}: output_data is needed when the components are not appended.")
+        everything = _keyword(append_fields) in ("APPEND", "TRUE") or append_fields is True
+        kept = list(columns) if everything else [by_name[f.lower()] for f in names]
+        target = _out(output_data)
+        shape_kind, shape_srid = (kind, srid) if not (kind == "Geometry" and srid == 0) else ("Geometry", 0)
+        _gpkg.create(target, shape_kind, shape_srid, [*kept, *component_columns])
+        kept_names = [c.name for c in kept]
+        with da.SearchCursor(in_table, ["OID@", *kept_names, "SHAPE@"]) as rows, \
+                da.InsertCursor(target, [*kept_names, *[c.name for c in component_columns], "SHAPE@"]) as written:
+            for row in rows:
+                written.insertRow((*row[1:-1], *results[row[0]], row[-1]))
+    outputs = [target]
+    if _given(output_eigenvalues_table):
+        outputs.append(_write_table(output_eigenvalues_table,
+                                    [_gpkg.Column("COMPONENT", "Integer"), _gpkg.Column("EIGENVALUE", "Double"),
+                                     _gpkg.Column("PCT_VAR", "Double"), _gpkg.Column("CUM_VAR", "Double")],
+                                    [(c + 1, float(values[c]), float(percent[c]), float(cumulative[c]))
+                                     for c in range(len(names))]))
+    if _given(output_eigenvectors_table):
+        outputs.append(_write_table(output_eigenvectors_table,
+                                    [_gpkg.Column("FIELD", "String"),
+                                     *[_gpkg.Column(f"PC_{c + 1}", "Double") for c in range(len(names))]],
+                                    [(by_name[f.lower()].name, *[float(v) for v in vectors[i]])
+                                     for i, f in enumerate(names)]))
+    return Result(*outputs)
+
+
+# ---- Spatial Component Utilities: Decompose Spatial Structure ------------------------------------------------------
+
+@_equivalent("Moran eigenvector maps: the eigenvectors of the doubly centred, symmetric spatial weights matrix",
+             "Griffith 1996; Dray, Legendre and Peres-Neto 2006")
+def DecomposeSpatialStructure(in_features, out_features, append_all_fields="APPEND_ALL", min_autocorrelation=0.25,
+                              max_components=15, neighborhood_type=None, distance_band=None, number_of_neighbors=None,
+                              weights_matrix_file=None, local_weighting_scheme="UNWEIGHTED", kernel_bandwidth=None,
+                              out_swm=None, id_field=None):
+    """EQUIVALENT: Esri's page on Moran eigenvectors answers 404, so the components are the literature's Moran eigenvector
+    maps (Griffith 1996; Dray, Legendre and Peres-Neto 2006). With W the weights made symmetric, ``(W + W')/2``, and
+    ``H = I − 11'/n``, the components are the eigenvectors of ``HWH`` of unit length, and component k's Moran's I is
+    ``(n/S₀)·λ_k``, S₀ the sum of the weights. As documented, they are ordered from the largest Moran's I down, and
+    included while there are fewer than max_components and the next one's Moran's I is at least min_autocorrelation
+    times the first's; a component with a Moran's I of 0 or less is never included. Each one's Moran's I and its
+    normal-approximation p-value (as Spatial Autocorrelation computes them) are written as messages.
+
+    Neighbourhoods as the Modeling Spatial Relationships tools build them (DISTANCE_BAND the default for points, at most
+    1,000 neighbours; NUMBER_OF_NEIGHBORS, 8 by default; the contiguities, CONTIGUITY_EDGES_CORNERS the default for
+    polygons; DELAUNAY_TRIANGULATION), with BISQUARE or GAUSSIAN kernels at kernel_bandwidth or, when not given, each
+    feature's farthest neighbour. Refused: GET_SPATIAL_WEIGHTS_FROM_FILE and out_swm (the .swm layout is not published);
+    an included component whose eigenvalue is repeated (it is then not unique, and any rotation of the pair would do).
+
+    INFERRED: the weights are not row standardized (Moran eigenvector maps are defined on the symmetric matrix); the
+    fields are SPCOMP_1, SPCOMP_2, …; a component's sign makes its first entry that is not zero positive.
+    """
+    import numpy as np
+    from ._runtime import AddMessage
+    tool = "DecomposeSpatialStructure"
+    if _given(out_swm):
+        _refuse(tool, "out_swm", out_swm, "the .swm layout is not published")
+    features, columns, kind, srid = _features(tool, in_features)
+    n = len(features)
+    if n < 3:
+        raise ValueError(f"arcpy.stats.{tool} needs three features or more.")
+    kind_of = _keyword(neighborhood_type) if _given(neighborhood_type) else (
+        "CONTIGUITY_EDGES_CORNERS" if kind == "Polygon" else "DISTANCE_BAND")
+    k = int(number_of_neighbors) if _given(number_of_neighbors) else 8
+    neighbours, d, _ = _neighbourhoods(tool, features, kind, srid, kind_of, distance_band, k, cap=1000)
+    scheme = _keyword(local_weighting_scheme) if _given(local_weighting_scheme) else "UNWEIGHTED"
+    if scheme not in ("UNWEIGHTED", "BISQUARE", "GAUSSIAN"):
+        raise ValueError(f"arcpy.stats.{tool}: local_weighting_scheme '{local_weighting_scheme}' is not one the tool "
+                         "takes.")
+    w = np.zeros((n, n))
+    for i in range(n):
+        if not neighbours[i]:
+            continue
+        b = _threshold(kernel_bandwidth, srid) if _given(kernel_bandwidth) else max(d[i, j] for j in neighbours[i])
+        if scheme == "BISQUARE" and any(d[i, j] > b for j in neighbours[i]):
+            _refuse(tool, "kernel_bandwidth", kernel_bandwidth, "a neighbour lies beyond it, where the bisquare formula "
+                    "as written turns positive again")
+        for j in neighbours[i]:
+            w[i, j] = _kernel(scheme, d[i, j], b)
+    w = (w + w.T) / 2
+    s0 = float(w.sum())
+    if s0 <= 0:
+        raise ValueError(f"arcpy.stats.{tool}: no feature has a neighbour.")
+    centring = np.eye(n) - np.full((n, n), 1 / n)
+    values, vectors = np.linalg.eigh(centring @ w @ centring)
+    order = np.argsort(values)[::-1]
+    values, vectors = values[order], vectors[:, order]
+    morans = n / s0 * values
+    limit = int(max_components) if _given(max_components) else 15
+    share = float(min_autocorrelation) if _given(min_autocorrelation) else 0.25
+    if not 0 <= share <= 1:
+        raise ValueError(f"arcpy.stats.{tool}: min_autocorrelation must be between 0 and 1.")
+    scale = max(1.0, float(np.abs(values).max()))
+    kept = []
+    for c in range(n):
+        if len(kept) >= limit or morans[c] <= 1e-12 * scale or morans[c] < share * morans[0] - 1e-12 * scale:
+            break
+        kept.append(c)
+    for c in kept:
+        if any(abs(values[c] - values[o]) <= 1e-9 * scale for o in range(n) if o != c):
+            _refuse(tool, "max_components", limit, f"component {c + 1}'s eigenvalue is repeated, so the component is not "
+                    "unique")
+        first = next(i for i in range(n) if abs(vectors[i, c]) > 1e-9)
+        if vectors[first, c] < 0:
+            vectors[:, c] = -vectors[:, c]
+    for position, c in enumerate(kept, start=1):
+        try:
+            _, _, _, z = _moran(vectors[:, c], w)
+            AddMessage(f"SPCOMP_{position}: Moran's I {float(morans[c])}, p-value {_p(z)}")
+        except ValueError:
+            AddMessage(f"SPCOMP_{position}: Moran's I {float(morans[c])}")
+    keep_all = append_all_fields is True or _keyword(append_all_fields) in ("APPEND_ALL", "TRUE")
+    kept_columns = list(columns) if keep_all else []
+    new_columns = [_gpkg.Column(f"SPCOMP_{p}", "Double") for p in range(1, len(kept) + 1)]
+    out = _out(out_features)
+    _gpkg.create(out, kind, srid, [*kept_columns, *new_columns])
+    names = [c.name for c in kept_columns]
+    position = {f[0]: i for i, f in enumerate(features)}
+    with da.SearchCursor(in_features, ["OID@", *names, "SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*names, *[c.name for c in new_columns], "SHAPE@"]) as written:
+        for row in rows:
+            i = position.get(row[0])
+            if i is None:
+                continue
+            written.insertRow((*row[1:-1], *[float(vectors[i, c]) for c in kept], row[-1]))
+    return Result(out)
+
+
 # ---- Utilities ----------------------------------------------------------------------------------------------------
 
 def CalculateDistanceBand(Input_Features, Neighbors, Distance_Method="EUCLIDEAN_DISTANCE"):
@@ -2554,6 +3833,67 @@ def CollectEvents(Input_Incident_Features, Output_Weighted_Point_Feature_Class):
     return Result(out, "ICOUNT", _text(max(counts.values()) if counts else 0))
 
 
+_DELIMITERS = {"SPACE": " ", "COMMA": ",", "SEMI-COLON": ";", "SEMICOLON": ";", "TAB": "\t"}
+
+
+def ExportXYv(Input_Feature_Class, Value_Field, Delimiter="SPACE", Output_ASCII_File=None,
+              Add_Field_Names_to_Output="NO_FIELD_NAMES"):
+    """Each feature's x, y and values written as one delimited line of an ASCII text file. As documented: x and y with
+    eight significant digits, floating-point values with six, a null as ``NULL``, the delimiter SPACE (the default),
+    COMMA, SEMI-COLON or TAB, and the field names as the first line with ADD_FIELD_NAMES.
+
+    The format chosen where the documentation is silent — INFERRED, each of it:
+
+    - x and y are the feature's centroid (a point is itself), as the other Spatial Statistics tools locate a feature;
+    - "significant digits" is Python's ``g`` format (``format(v, ".8g")`` and ``".6g"``), which drops trailing zeros
+      and writes an exponent below 1e-4 or from 1e8 (x, y) and 1e6 (values) up;
+    - the header line is ``XCoord``, ``YCoord`` and the value fields' names as stored;
+    - integers are written whole, text as it is (no quotes), a date as the cursor reads it (``YYYY-MM-DD HH:MM:SS``);
+    - lines end with a line feed and the file is UTF-8; features without a shape are skipped.
+    """
+    tool = "ExportXYv"
+    fields = [f for f in _list(Value_Field) if _given(f)]
+    if not fields:
+        raise ValueError(f"arcpy.stats.{tool}: Value_Field names no field.")
+    if not _given(Output_ASCII_File):
+        raise ValueError(f"arcpy.stats.{tool}: Output_ASCII_File is required.")
+    separator = _DELIMITERS.get(_keyword(Delimiter) if _given(Delimiter) else "SPACE")
+    if separator is None:
+        raise ValueError(f"arcpy.stats.{tool}: Delimiter '{Delimiter}' is not SPACE, COMMA, SEMI-COLON or TAB.")
+    header = Add_Field_Names_to_Output is True or _keyword(Add_Field_Names_to_Output) in ("ADD_FIELD_NAMES", "TRUE")
+    columns, _, _, _ = _schema(Input_Feature_Class)
+    names = {c.name.lower(): c.name for c in columns}
+    for field in fields:
+        if field.lower() not in names:
+            raise ValueError(f"arcpy.stats.{tool}: the input has no field '{field}'.")
+    stored = [names[f.lower()] for f in fields]
+
+    def written(value):
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return str(int(value))
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            return format(value, ".6g")
+        return str(value)
+
+    lines = []
+    if header:
+        lines.append(separator.join(["XCoord", "YCoord", *stored]))
+    with da.SearchCursor(Input_Feature_Class, [*stored, "SHAPE@"]) as rows:
+        for row in rows:
+            shape = row[-1]._shape if row[-1] is not None else None
+            if shape is None or shape.is_empty:
+                continue
+            c = shape if shape.geom_type == "Point" else shape.centroid
+            lines.append(separator.join([format(c.x, ".8g"), format(c.y, ".8g"), *[written(v) for v in row[:-1]]]))
+    with open(Output_ASCII_File, "w", encoding="utf-8", newline="\n") as out:
+        out.write("".join(line + "\n" for line in lines))
+    return Result(Output_ASCII_File)
+
+
 _REFUSED = {
     "GenerateSpatialWeightsMatrix": "its output, an .swm file, has no published layout",
     "GenerateNetworkSpatialWeights": "it needs a network dataset and writes an .swm file",
@@ -2567,29 +3907,22 @@ _SSM = "it reads or writes a spatial statistics model (.ssm) file, whose layout 
 _FIT = "its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not " \
        "specified closely enough to reproduce"
 _REFUSED.update({name: _RANDOM for name in (
-    "AttributeUncertainty", "BivariateSpatialAssociation",
-    "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData", "PresenceOnlyPrediction",
-    "ColocationAnalysis", "LocalBivariateRelationships", "BuildBalancedZones")})
+    "AttributeUncertainty", "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData",
+    "PresenceOnlyPrediction", "LocalBivariateRelationships", "BuildBalancedZones")})
 _REFUSED.update({name: _SWM for name in (
-    "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations", "DecomposeSpatialStructure",
+    "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations",
     "CreateSpatialComponentExplanatoryVariables", "FilterSpatialAutocorrelationFromField")})
 _REFUSED.update({name: _SSM for name in (
     "DescribeSSMFile", "PredictUsingSSMFile", "SetSSMFileProperties", "EvaluateVariableInfluence")})
 _REFUSED.update({name: _FIT for name in (
-    "SAR", "CausalInferenceAnalysis", "ExploratoryRegression",
+    "CausalInferenceAnalysis", "ExploratoryRegression",
     "EstimateTimeToEvent")})
 _REFUSED.update({
     "DirectionalTrend": "its output is a chart on a layer in the active map, and the tool cannot run without one",
     "ConvertSSPopup": "it saves ArcGIS Pro pop-up charts as images, and a run on this server has no Pro charts",
-    "TimeSeriesSmoothing": "its output field names are not documented, nor how a month or year window is counted",
-    "ExportXYv": "its header names and number formatting are not documented closely enough to write the same file",
-    "CalculateCompositeIndex": "its output field names are not documented",
-    "CalculateRates": "the page giving its empirical Bayes smoothing formulas answers 404, so the rates cannot be "
-                      "checked against them",
     "CalculateAreas": "its page is retired (404), so its output field cannot be checked; "
                       "management.CalculateGeometryAttributes does its work",
     "GroupingAnalysis": "it was retired for Multivariate Clustering, whose seeds are random",
-    "DimensionReduction": "its page answers 404, so its components and output fields cannot be checked",
     "EvaluateBinSizes": "its page answers 404, so its recommendation cannot be checked",
     "HotSpotAnalysisComparison": "its page answers 404, so its similarity measures cannot be checked",
 })

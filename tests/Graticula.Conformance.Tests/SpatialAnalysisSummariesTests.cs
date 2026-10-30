@@ -443,6 +443,71 @@ public sealed class SpatialAnalysisSummariesTests : ArcGisClient
         Assert.Contains(said, body, StringComparison.Ordinal);
     }
 
+    /// <summary>The area around both squares of the null-weight test.</summary>
+    private static readonly string[] Summaries = ["v Mean", "v Sum"];
+
+    private static readonly double[][][] Around = [[[-0.01, -0.01], [-0.01, 0.02], [0.04, 0.02], [0.04, -0.01], [-0.01, -0.01]]];
+
+    /// <summary>
+    /// A feature whose value is null takes no part in a weighted statistic, its weight included. Two squares of equal
+    /// area lie wholly inside one area: one holds 10, the other null. ArcGIS documents nulls as excluded from every
+    /// statistic, so the mean is 10. The weighted mean used to divide by both squares' parts and answered 5. Found
+    /// 2026-10-30, when grapy's SummarizeWithin was built to these names and checked against the documentation.
+    /// </summary>
+    [Fact]
+    public async Task A_null_value_is_left_out_of_a_weighted_mean_with_its_weight()
+    {
+        string root = await RequireServerAsync();
+        string token = (await TokenAsync(root))!;
+        using HttpClient http = Unverified();
+
+        static object Square(double x, double size) => new
+        {
+            rings = new[] { new[] { new[] { x, 0.0 }, new[] { x, size }, new[] { x + size, size }, new[] { x + size, 0.0 }, new[] { x, 0.0 } } },
+        };
+
+        JsonElement summary = await ResultAsync(http, root, token, "SummarizeWithin", "resultLayer", new()
+        {
+            ["sumWithinLayer"] = Json(new
+            {
+                layerDefinition = new { geometryType = "esriGeometryPolygon", fields = new object[] { new { name = "zone", type = "esriFieldTypeString" } } },
+                featureSet = new
+                {
+                    geometryType = "esriGeometryPolygon",
+                    spatialReference = new { wkid = 4326 },
+                    features = new object[]
+                    {
+                        new
+                        {
+                            attributes = new { zone = "all" },
+                            geometry = new { rings = Around },
+                        },
+                    },
+                },
+            }),
+            ["summaryLayer"] = Json(new
+            {
+                layerDefinition = new { geometryType = "esriGeometryPolygon", fields = new object[] { new { name = "v", type = "esriFieldTypeDouble" } } },
+                featureSet = new
+                {
+                    geometryType = "esriGeometryPolygon",
+                    spatialReference = new { wkid = 4326 },
+                    features = new object[]
+                    {
+                        new { attributes = new Dictionary<string, object?> { ["v"] = 10.0 }, geometry = Square(0.0, 0.01) },
+                        new { attributes = new Dictionary<string, object?> { ["v"] = null }, geometry = Square(0.02, 0.01) },
+                    },
+                },
+            }),
+            ["summaryFields"] = Json(Summaries),
+        });
+
+        JsonElement area = Assert.Single(Features(summary));
+        Assert.Equal(10.0, Attribute(area, "mean_v").GetDouble(), 9);
+        Assert.Equal(10.0, Attribute(area, "sum_v").GetDouble(), 9);
+        Assert.Equal(2, Attribute(area, "count").GetInt32());
+    }
+
     private static JsonElement[] Features(JsonElement result) =>
         [.. result.GetProperty("value").GetProperty("featureSet").GetProperty("features").EnumerateArray()];
 

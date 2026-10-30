@@ -190,8 +190,6 @@ def RasterToPolygon(in_raster, out_polygon_features, simplify="SIMPLIFY", raster
     _refuse_environment("RasterToPolygon")
     if str(simplify).upper() != "NO_SIMPLIFY":
         raise NotBuiltError("RasterToPolygon: simplify 'SIMPLIFY' is not built in grapy yet; pass 'NO_SIMPLIFY'.")
-    if str(raster_field).upper() not in ("VALUE", "VALUES"):
-        raise NotBuiltError(f"RasterToPolygon: raster_field '{raster_field}' needs an attribute table, which is not built in grapy yet.")
     if max_vertices_per_feature not in (None, "", "#"):
         raise NotBuiltError("RasterToPolygon: max_vertices_per_feature is not built in grapy yet.")
     raster = _raster_of(in_raster, "RasterToPolygon")
@@ -201,40 +199,63 @@ def RasterToPolygon(in_raster, out_polygon_features, simplify="SIMPLIFY", raster
     import numpy as np
     from shapely import union_all
     found = list(shapes(raster._array.astype(np.int32), mask=~raster._mask, connectivity=4, transform=raster._grid.transform()))
+    field, extra = _rat_field(raster, raster_field, "RasterToPolygon")
     out = _out(out_polygon_features)
-    _gpkg.create(out, "Polygon", raster._grid.srid, [_gpkg.Column("Id", "Integer"), _gpkg.Column("gridcode", "Integer")])
+    _gpkg.create(out, "Polygon", raster._grid.srid,
+                 [_gpkg.Column("Id", "Integer"), _gpkg.Column("gridcode", "Integer"), *([extra] if extra else [])])
     multipart = str(create_multipart_features).upper() == "MULTIPLE_OUTER_PART"
-    with da.InsertCursor(out, ["Id", "gridcode", "SHAPE@"]) as written:
+    names = ["Id", "gridcode", *([extra.name] if extra else []), "SHAPE@"]
+    with da.InsertCursor(out, names) as written:
         if multipart:
             by_value: dict = {}
             for geometry, value in found:
                 by_value.setdefault(int(value), []).append(as_shape(geometry))
             for i, (value, parts) in enumerate(sorted(by_value.items()), start=1):
-                written.insertRow((i, value, union_all(parts)))
+                written.insertRow((i, value, *([field(value)] if extra else []), union_all(parts)))
         else:
             for i, (geometry, value) in enumerate(found, start=1):
-                written.insertRow((i, int(value), as_shape(geometry)))
+                written.insertRow((i, int(value), *([field(int(value))] if extra else []), as_shape(geometry)))
     return Result(out)
 
 
+def _rat_field(raster, raster_field, tool):
+    """For a raster_field other than Value: a lookup from a cell value to that field of the raster's attribute table,
+    and the output column carrying it, named and typed as the field. INFERRED: the page says the field "will become
+    an attribute in the output feature class" without naming the column; a value with no row is null."""
+    if str(raster_field or "Value").upper() in ("VALUE", "VALUES"):
+        return None, None
+    from ._raster import _read_rat
+    rat = raster._rat if getattr(raster, "_rat", None) is not None else _read_rat(raster.catalogPath or "")
+    if rat is None:
+        raise ValueError(f"{tool}: '{raster_field}' is read from the raster's attribute table, and the raster has none.")
+    try:
+        at, value_at = rat.index(raster_field), rat.index("Value")
+    except KeyError:
+        raise ValueError(f"{tool}: the raster's attribute table has no field '{raster_field}' (or no Value field).") from None
+    lookup = {row[value_at]: row[at] for row in rat.rows}
+    name, kind, _ = rat.fields[at]
+    return (lambda value: lookup.get(int(value))), _gpkg.Column(name, kind)
+
+
 def RasterToPoint(in_raster, out_point_features, raster_field="Value"):
-    """A point at the centre of each cell that is not NoData, with ``pointid`` and ``grid_code``."""
+    """A point at the centre of each cell that is not NoData, with ``pointid`` and ``grid_code`` — or, with a
+    ``raster_field`` of the attribute table, that field in place of ``grid_code``, as the page writes grid_code only
+    when no field is chosen (INFERRED: the column takes the field's name and type)."""
     from shapely.geometry import Point
-    if str(raster_field).upper() not in ("VALUE", "VALUES"):
-        from ._runtime import NotBuiltError
-        raise NotBuiltError(f"RasterToPoint: raster_field '{raster_field}' needs an attribute table, which is not built in grapy yet.")
     raster = _raster_of(in_raster, "RasterToPoint")
+    field, extra = _rat_field(raster, raster_field, "RasterToPoint")
     xs, ys = raster._grid.centres()
     out = _out(out_point_features)
-    _gpkg.create(out, "Point", raster._grid.srid, [_gpkg.Column("pointid", "Integer"),
-                                                     _gpkg.Column("grid_code", "Integer" if raster.isInteger else "Double")])
-    with da.InsertCursor(out, ["pointid", "grid_code", "SHAPE@"]) as written:
+    value_column = extra or _gpkg.Column("grid_code", "Integer" if raster.isInteger else "Double")
+    _gpkg.create(out, "Point", raster._grid.srid, [_gpkg.Column("pointid", "Integer"), value_column])
+    with da.InsertCursor(out, ["pointid", value_column.name, "SHAPE@"]) as written:
         n = 0
         for r in range(raster.height):
             for c in range(raster.width):
                 if not raster._mask[r, c]:
                     n += 1
-                    written.insertRow((n, raster._array[r, c].item(), Point(xs[c], ys[r])))
+                    value = raster._array[r, c].item()
+                    written.insertRow((n, field(value) if extra else value, Point(xs[c], ys[r])))
     return Result(out)
 
 
@@ -260,8 +281,15 @@ def _value_raster(in_features, value_field, grid, assignment, tool):
     shape = (grid.rows, grid.columns)
     rule = str(assignment).upper()
     numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for _, v in pairs)
+    texts = None
     if not numeric:
-        raise NotBuiltError(f"{tool}: a text value field needs an attribute table, which is not built in grapy yet.")
+        # A text field: "the output raster will contain an integer value field and a string field", as documented.
+        # INFERRED, the page not saying how the integers are made: the distinct texts in ascending order take 1, 2 ….
+        if str(assignment).upper() not in ("CELL_CENTER", "MOST_FREQUENT", "MAXIMUM_AREA", "MAXIMUM_LENGTH"):
+            raise NotBuiltError(f"{tool}: cell_assignment '{assignment}' on a text field is not built in grapy.")
+        texts = sorted({str(v) for _, v in pairs})
+        code = {t: i for i, t in enumerate(texts, start=1)}
+        pairs = [(s, code[str(v)]) for s, v in pairs]
     integer = all(isinstance(v, int) for _, v in pairs)
     if rule == "CELL_CENTER":
         # Later features are drawn over earlier ones (INFERRED: arcpy documents no order without a priority field).
@@ -294,7 +322,13 @@ def _value_raster(in_features, value_field, grid, assignment, tool):
             array[cell] = value
             mask[cell] = False
         integer = integer and rule in ("MOST_FREQUENT", "SUM", "MAXIMUM", "MINIMUM", "RANGE", "COUNT")
-    return Raster._of(np.where(mask, 0, array).astype(np.int32 if integer else np.float64), mask, grid)
+    made = Raster._of(np.where(mask, 0, array).astype(np.int32 if integer else np.float64), mask, grid)
+    if texts is not None:
+        from ._raster import _Rat
+        values, counts = np.unique(made._array[~made._mask], return_counts=True)
+        made._rat = _Rat([("Value", "Integer", 5), ("Count", "Integer", 1), (str(value_field), "String", 0)],
+                         [[int(v), int(c), texts[int(v) - 1]] for v, c in zip(values, counts)])
+    return made
 
 
 def PolygonToRaster(in_features, value_field, out_rasterdataset, cell_assignment="CELL_CENTER", priority_field="NONE",
@@ -1050,12 +1084,263 @@ def GTFSShapesToFeatures(in_gtfs_shapes_file, out_feature_class):
     return Result(out)
 
 
+# ---- shapefiles and dBASE tables (ESRI Shapefile Technical Description, 1998; dBASE III) --------------------------------
+
+from ._runtime import equivalent as _equivalent  # noqa: E402
+
+
+def _dbf_names(names):
+    """Field names cut to dBASE's ten characters; a name a cut makes twice ends ``_1``, ``_2`` … within the ten."""
+    out, taken = [], set()
+    for name in names:
+        cut = name[:10]
+        n = 0
+        while cut.upper() in taken:
+            n += 1
+            suffix = f"_{n}"
+            cut = name[:10 - len(suffix)] + suffix
+        taken.add(cut.upper())
+        out.append(cut)
+    return out
+
+
+def _dbf_layout(columns, rows):
+    """Each field's dBASE type, width and decimals. Text is as wide as its longest value (1 to 254); whole numbers are
+    N(10,0) for 32-bit, N(5,0) for 16-bit, N(19,0) for 64-bit; reals N(19,11); dates D(8)."""
+    layout = []
+    for i, column in enumerate(columns):
+        kind = column.type
+        if kind == "String":
+            longest = max([len(str(r[i]).encode("utf-8")) for r in rows if r[i] is not None] or [1])
+            layout.append(("C", min(254, max(1, longest)), 0))
+        elif kind == "SmallInteger":
+            layout.append(("N", 5, 0))
+        elif kind in ("Integer",):
+            layout.append(("N", 10, 0))
+        elif kind == "BigInteger":
+            layout.append(("N", 19, 0))
+        elif kind == "Date":
+            layout.append(("D", 8, 0))
+        else:
+            layout.append(("N", 19, 11))
+    return layout
+
+
+def _write_dbf(path, names, layout, rows):
+    import datetime
+    import struct
+    today = datetime.date.today()
+    record_length = 1 + sum(width for _, width, _ in layout)
+    header_length = 32 + 32 * len(names) + 1
+    with open(path, "wb") as out:
+        out.write(struct.pack("<BBBBIHH20x", 3, today.year - 1900, today.month, today.day, len(rows), header_length,
+                              record_length))
+        for name, (kind, width, decimals) in zip(names, layout):
+            out.write(struct.pack("<11sc4xBB14x", name.encode("ascii", "replace"), kind.encode(), width, decimals))
+        out.write(b"\r")
+        for row in rows:
+            out.write(b" ")
+            for value, (kind, width, decimals) in zip(row, layout):
+                if kind == "C":
+                    text = ("" if value is None else str(value)).encode("utf-8")[:width]
+                    out.write(text.ljust(width, b" "))
+                elif kind == "D":
+                    text = "" if value is None else str(value).replace("-", "")[:8]
+                    out.write(text.encode("ascii").ljust(width, b" "))
+                else:
+                    number = 0 if value is None else value
+                    text = f"{float(number):.{decimals}f}" if decimals else f"{int(number)}"
+                    out.write(text.encode("ascii")[:width].rjust(width, b" "))
+        out.write(b"\x1a")
+
+
+def _shape_record(shape, kind):
+    """A shape's record content: its type and coordinates, as the Technical Description lays them out."""
+    import struct
+    import shapely
+    from shapely.geometry.polygon import orient
+    if shape is None or shape.is_empty:
+        return struct.pack("<i", 0)
+    if kind == 1:
+        return struct.pack("<idd", 1, shape.x, shape.y)
+    x0, y0, x1, y1 = shape.bounds
+    if kind == 8:
+        points = shapely.get_coordinates(shape).tolist()
+        return struct.pack("<i4di", 8, x0, y0, x1, y1, len(points)) + b"".join(struct.pack("<dd", *p) for p in points)
+    if kind == 3:
+        parts = [list(p.coords) for p in getattr(shape, "geoms", [shape])]
+    else:
+        parts = []
+        for polygon in getattr(shape, "geoms", [shape]):
+            # Outer rings clockwise, holes counter-clockwise, as the Technical Description orders them.
+            oriented = orient(polygon, -1.0)
+            parts.append(list(oriented.exterior.coords))
+            parts.extend(list(r.coords) for r in oriented.interiors)
+    starts, total = [], 0
+    for part in parts:
+        starts.append(total)
+        total += len(part)
+    content = struct.pack("<i4dii", kind, x0, y0, x1, y1, len(parts), total)
+    content += b"".join(struct.pack("<i", s) for s in starts)
+    content += b"".join(struct.pack("<dd", c[0], c[1]) for part in parts for c in part)
+    return content
+
+
+def _write_shapefile(stem, kind, records, srid):
+    """The .shp, .shx and .prj of a shapefile; records are shapes (or None)."""
+    import struct
+    import shapely
+    contents = [_shape_record(s, kind) for s in records]
+    present = [s for s in records if s is not None and not s.is_empty]
+    bounds = shapely.union_all(present).bounds if present else (0.0, 0.0, 0.0, 0.0)
+
+    def header(length_words):
+        return struct.pack(">7i", 9994, 0, 0, 0, 0, 0, length_words) + struct.pack("<2i4d4d", 1000, kind, *bounds, 0, 0, 0, 0)
+
+    shp_length = 50 + sum(4 + len(c) // 2 for c in contents)
+    with open(stem + ".shp", "wb") as shp, open(stem + ".shx", "wb") as shx:
+        shp.write(header(shp_length))
+        shx.write(header(50 + 4 * len(contents)))
+        offset = 50
+        for number, content in enumerate(contents, start=1):
+            shp.write(struct.pack(">2i", number, len(content) // 2) + content)
+            shx.write(struct.pack(">2i", offset, len(content) // 2))
+            offset += 4 + len(content) // 2
+    if srid > 0:
+        from pyproj import CRS
+        with open(stem + ".prj", "w", encoding="ascii") as prj:
+            prj.write(CRS.from_epsg(srid).to_wkt("WKT1_ESRI"))
+
+
+def _unique_stem(folder, name, extension):
+    stem, n = os.path.join(folder, name), 0
+    while os.path.exists(stem + extension):
+        n += 1
+        stem = os.path.join(folder, f"{name}_{n}")
+    return stem
+
+
+def _export_dbase(in_table, folder, with_shapes):
+    from .management import _schema, _source, _stem_of
+    from ._runtime import env
+    path, where = _source(in_table)
+    columns, kind, srid, _ = _schema(path)
+    names = [c.name for c in columns]
+    with da.SearchCursor(path, [*names, "SHAPE@"], where) as rows:
+        read = [list(r) for r in rows]
+    values = [r[:-1] for r in read]
+    stem_name = _stem_of(path).rsplit("/", 1)[-1]
+    extension = ".shp" if with_shapes else ".dbf"
+    stem = os.path.join(str(folder), stem_name) if env.overwriteOutput else _unique_stem(str(folder), stem_name, extension)
+    layout = _dbf_layout(columns, values)
+    _write_dbf(stem + ".dbf", _dbf_names(names), layout, values)
+    with open(stem + ".cpg", "w", encoding="ascii") as cpg:
+        cpg.write("UTF-8")
+    if with_shapes:
+        code = {"Point": 1, "Multipoint": 8, "Polyline": 3, "Polygon": 5}.get(kind)
+        if code is None:
+            raise NotBuiltError(f"arcpy.conversion.FeatureClassToShapefile: '{kind}' shapes have no shapefile type.")
+        _write_shapefile(stem, code, [r[-1]._shape if r[-1] is not None else None for r in read], srid)
+    return stem + extension
+
+
+@_equivalent("the ESRI Shapefile Technical Description (1998) and dBASE III, field names cut to ten characters",
+             "ESRI Shapefile Technical Description, July 1998")
+def FeatureClassToShapefile(Input_Features, Output_Folder):
+    """EQUIVALENT: each feature class written as a shapefile named after it in the folder — .shp, .shx, .dbf, .prj and
+    a .cpg saying UTF-8 — as the Technical Description lays the files out; with overwriteOutput off, a name taken gets
+    ``_1``, ``_2`` …, as documented. INFERRED, the page giving no rule: a field name is cut to its first ten
+    characters, and a cut that repeats one already made ends ``_1``, ``_2`` … within the ten; nulls, which dBASE cannot
+    hold, are written as blanks for text and dates and 0 for numbers; widths as ``_dbf_layout`` gives them."""
+    from .management import _list
+    for each in _list(Input_Features):
+        _export_dbase(each, Output_Folder, True)
+    return Result(str(Output_Folder))
+
+
+@_equivalent("dBASE III tables, field names cut to ten characters", "dBASE III file format")
+def TableToDBASE(Input_Table, Output_Folder):
+    """EQUIVALENT: each table written as a dBASE table named after it in the folder, as FeatureClassToShapefile writes
+    a shapefile's .dbf (the same INFERRED name, width and null rules)."""
+    from .management import _list
+    for each in _list(Input_Table):
+        _export_dbase(each, Output_Folder, False)
+    return Result(str(Output_Folder))
+
+
+def PolylineToRaster(in_features, value_field, out_rasterdataset, cell_assignment="MAXIMUM_LENGTH", priority_field=None,
+                     cellsize=None, build_rat="BUILD"):
+    """Lines onto a grid over their extent: each cell takes the value of the line with the greatest length inside it
+    (``MAXIMUM_LENGTH``), or of the value whose lines' lengths inside it sum greatest (``MAXIMUM_COMBINED_LENGTH``); with
+    a priority field, the line of largest positive priority, as documented. With no cell size, the extent's shorter side
+    over 250, as documented. INFERRED: a line takes a cell when some length of it lies inside; ties go to the lower
+    object id, or the lower value; a text value field is numbered as PolygonToRaster numbers one."""
+    import numpy as np
+    import shapely
+    from ._raster import Raster, _Rat, _value_count
+    from .sa import _grid_over
+    from .management import _features, _schema, _source
+    rule = str(cell_assignment or "MAXIMUM_LENGTH").upper()
+    if rule not in ("MAXIMUM_LENGTH", "MAXIMUM_COMBINED_LENGTH"):
+        raise NotBuiltError(f"PolylineToRaster: cell_assignment '{cell_assignment}' is not built in grapy.")
+    path = _source(in_features)[0]
+    columns = {c.name.lower(): c.name for c in _schema(path)[0]}
+    lines = []
+    for oid, values, shape in _features(in_features):
+        if shape is None:
+            continue
+        row = dict(zip([c.name for c in _schema(path)[0]], values))
+        field = str(value_field)
+        value = oid if field.upper() in ("OBJECTID", "OID", "FID") else row[columns[field.lower()]]
+        priority = row[columns[str(priority_field).lower()]] if priority_field not in (None, "", "#", "NONE") else None
+        if value is not None:
+            lines.append((oid, value, priority, shape))
+    texts = None
+    if any(isinstance(v, str) for _, v, _, _ in lines):
+        texts = sorted({str(v) for _, v, _, _ in lines})
+        lines = [(o, texts.index(str(v)) + 1, p, s) for o, v, p, s in lines]
+    if cellsize in (None, "", "#"):
+        x0, y0, x1, y1 = shapely.union_all([s for _, _, _, s in lines]).bounds
+        cellsize = min(x1 - x0, y1 - y0) / 250 or max(x1 - x0, y1 - y0) / 250
+    grid = _grid_over(path, float(cellsize))
+    array, mask = np.zeros((grid.rows, grid.columns)), np.ones((grid.rows, grid.columns), bool)
+    for r in range(grid.rows):
+        for c in range(grid.columns):
+            left, top = grid.left + c * grid.width, grid.top - r * grid.height
+            cell = shapely.box(left, top - grid.height, left + grid.width, top)
+            inside = [(oid, value, priority, shape.intersection(cell).length) for oid, value, priority, shape in lines
+                      if shape.intersects(cell)]
+            inside = [i for i in inside if i[3] > 0]
+            if not inside:
+                continue
+            with_priority = [i for i in inside if i[2] is not None and i[2] > 0]
+            if with_priority:
+                chosen = max(with_priority, key=lambda i: (i[2], -i[0]))[1]
+            elif rule == "MAXIMUM_LENGTH":
+                chosen = max(inside, key=lambda i: (i[3], -i[0]))[1]
+            else:
+                sums: dict = {}
+                for _, value, _, length in inside:
+                    sums[value] = sums.get(value, 0.0) + length
+                chosen = max(sums.items(), key=lambda kv: (kv[1], -kv[0]))[0]
+            array[r, c], mask[r, c] = chosen, False
+    integer = all(isinstance(v, int) for _, v, _, _ in lines)
+    raster = Raster._of(array.astype(np.int32 if integer else np.float64), mask, grid)
+    if integer and str(build_rat or "BUILD").upper() == "BUILD":
+        raster._rat = _value_count(raster._array, raster._mask)
+        if texts is not None:
+            raster._rat = _Rat([*raster._rat.fields, (str(value_field), "String", 0)],
+                               [[*row, texts[row[0] - 1]] for row in raster._rat.rows])
+    return Result(raster.save(out_rasterdataset))
+
+
 # ---- refused by name ----------------------------------------------------------------------------------------------------
 #
 # Every arcpy.conversion name grapy does not build is refused with its own reason (ADR-224).
 
 _REASONS = {
-    "needs a data model this server does not hold yet (ADR-224 group 2): network datasets": (
+    "builds public-transit sources into a network dataset; grapy's network datasets (ADR-226) have no transit "
+    "evaluator, and the public transit evaluator's schedule rules are not published": (
         "ConnectNetworkDatasetTransitSourcesToStreets", "GTFSToNetworkDatasetTransitSources"),
     "needs 3D data models — LAS, point clouds, multipatches, meshes, BIM — which this server does not hold yet (ADR-224 "
     "group 2)": (
@@ -1068,11 +1353,9 @@ _REASONS = {
     "needs a Parquet writer (pyarrow), which grapy's build of these tools does not carry": ("ExportToParquet",),
     "uses Esri's undocumented text and document parsing to find locations": (
         "ExtractLocationsDocument", "ExtractLocationsText"),
-    "follows an algorithm Esri does not document — the vectorising of scanned maps or rasters, the cells a line "
-    "takes — so any answer would be a guess under arcpy's name": (
-        "ExtractScannedLines", "ExtractScannedPolygons", "RasterToPolyline", "PolylineToRaster"),
-    "truncates field names to dBASE's ten characters by a rule the page does not give": (
-        "FeatureClassToShapefile", "TableToDBASE"),
+    "vectorises scanned maps by Esri's undocumented recognition": ("ExtractScannedLines", "ExtractScannedPolygons"),
+    "thins and vectorises raster lines by an algorithm Esri does not document, and its output's vertices, dangles and "
+    "weeding follow no published rule grapy could name": ("RasterToPolyline",),
     "needs an ArcGIS Pro map, graphics layer or symbology, which a tool running on the server does not hold": (
         "FeaturesToGraphics", "GraphicsToFeatures", "MapToKML"),
     "writes placemarks, pop-ups and styles whose content the page does not document": ("LayerToKML",),
@@ -1082,8 +1365,8 @@ _REASONS = {
     "needs SAS, a commercial runtime grapy does not carry": ("SASToTable", "TableToSAS"),
     "reaches a WFS service, and a fenced tool has no network (ADR-223 §5.3)": ("WFSToFeatureClass",),
     "writes GTFS columns the page does not name, in an order it does not give": ("FeaturesToGTFSStops", "FeaturesToGTFSShapes"),
-    "needs a network dataset for its default modes 3, 5 and 11, a data model this server does not hold yet (ADR-224 "
-    "group 2), and does not document how it names the shapes it draws as straight lines": ("GenerateShapesFeaturesFromGTFS",),
+    "routes its default modes 3, 5 and 11 along a network dataset by a travel mode the page does not give, and does not "
+    "document how it names the shapes it draws as straight lines": ("GenerateShapesFeaturesFromGTFS",),
     "writes a GeoPackage tile pyramid whose tile matrix set, tile size, image format and zoom levels the page does not "
     "define": ("AddRasterToGeoPackage",),
     "lays the profiles of a USGS DEM, which start at different rows, on an output grid whose extent and filling the page "

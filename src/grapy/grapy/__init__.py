@@ -13,7 +13,7 @@ from ._geometry import (Array, ArealUnitConversionFactor, AsShape, FromCoordStri
 from ._parameter import Field, FieldInfo, Filter, Index, Parameter, ValueTable
 from ._reference import Extent, SpatialReference
 from ._result import Result
-from ._raster import NumPyArrayToRaster, Raster, RasterToNumPyArray
+from ._raster import NumPyArrayToRaster, Raster, RasterInfo, RasterToNumPyArray
 from ._runtime import (AddError, AddIDMessage, AddMessage, AddReturnMessage, AddWarning, ClearEnvironment, EnvManager,
                        ExecuteError, ExecuteWarning, GetAllMessages, GetArgumentCount, GetMaxSeverity, GetMessage,
                        GetMessageCount, GetMessages, GetParameter, GetParameterAsText, GetParameterCount, GetReturnCode,
@@ -120,6 +120,16 @@ class _Described:
             self.dataType = self.datasetType = "Table"
 
 
+def _raster_fields(path):
+    """A raster's attribute table as Fields: the object id, then each field, Integer, Double or String; none with no
+    table."""
+    from ._raster import _read_rat
+    rat = _read_rat(path) if path else None
+    if rat is None:
+        return []
+    return [Field("OID", "OID", False), *[Field(name, kind) for name, kind, _ in rat.fields]]
+
+
 class _DescribedRaster:
     """What Describe answers for a raster dataset: its size, cells, extent, reference and type."""
 
@@ -138,6 +148,17 @@ class _DescribedRaster:
         self.pixelType = raster.pixelType
         self.noDataValue = raster.noDataValue
         self.isInteger = raster.isInteger
+        # The Table group, which the Raster Band group supports for a single-band raster: its attribute table's fields.
+        # INFERRED: the table's object id is "OID" (its rows' positions, as the cursors read them), it has no indexes,
+        # primaryField is the index of its Value field (-1 with no table) and tableType is GDAL's table type.
+        fields = _raster_fields(self.catalogPath) if raster.bandCount == 1 else []
+        self.fields = fields
+        self.hasOID = bool(fields)
+        self.OIDFieldName = "OID" if fields else ""
+        self.indexes = []
+        names = [f.name.lower() for f in fields[1:]]
+        self.primaryField = names.index("value") if "value" in names else -1
+        self.tableType = "Thematic" if fields else ""
 
 
 class _DescribedWorkspace:
@@ -179,8 +200,10 @@ def Describe(value, datatype=None):
 
 
 def ListFields(dataset, wild_card=None, field_type=None):
+    """The fields of a table, a feature class or a layer — or of a raster's attribute table (none without one)."""
     import fnmatch
-    fields = _Described(dataset).fields
+    from ._raster import _is_raster_path
+    fields = _raster_fields(os.fspath(dataset)) if _is_raster_path(dataset) else _Described(dataset).fields
     return [f for f in fields
             if (wild_card is None or fnmatch.fnmatch(f.name.lower(), wild_card.lower()))
             and (field_type in (None, "All") or f.type == field_type)]

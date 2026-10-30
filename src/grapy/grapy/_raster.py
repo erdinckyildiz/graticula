@@ -73,33 +73,65 @@ def _refuse_environment(tool):
 
 
 class Raster:
-    """arcpy.Raster: ``Raster(path)`` opens a GeoTIFF; map algebra answers new, temporary rasters; ``save`` writes one."""
+    """arcpy.Raster: ``Raster(path)`` opens a GeoTIFF of one band or several, ``Raster("<path>/Band_2")`` one band of
+    it, as Describe's raster band properties page writes a band's path, and ``Raster(RasterInfo)`` a new, empty raster;
+    map algebra answers new, temporary rasters; ``save`` writes one.
+
+    A raster of several bands holds them on one grid. The tools whose pages say how a multiband input is processed take
+    it — the local mathematics, comparisons and logic, Con, SetNull, IsNull and Test, band by band, as documented — and
+    every other tool refuses it by name rather than read one band as if it were the raster."""
+
+    _rat = None  # its raster attribute table (_Rat), or None
+    _names = None  # its band names, or None for Band_1, Band_2 …
+    readOnly = True
 
     def __init__(self, inRaster=None, is_multidimensional=False, *_, **__):
         if isinstance(inRaster, Raster):
-            self._array, self._mask, self._grid = inRaster._array, inRaster._mask, inRaster._grid
+            self._arrays, self._masks, self._grid = list(inRaster._arrays), list(inRaster._masks), inRaster._grid
             self.catalogPath, self.isTemporary = inRaster.catalogPath, inRaster.isTemporary
+            self._rat, self._names = inRaster._rat, inRaster._names
+            return
+        if isinstance(inRaster, RasterInfo):
+            self._from_info(inRaster)
             return
         if inRaster is None:
             raise ValueError("Raster needs a raster dataset.")
+        if is_multidimensional:
+            raise NotBuiltError("Raster: is_multidimensional is not built in grapy; its rasters are not multidimensional.")
         import rasterio
         path = os.fspath(inRaster)
         if not os.path.isabs(path) and not os.path.exists(path):
             path = os.path.join(env.workspace, path)
-        with rasterio.open(path) as source:
-            if source.count != 1:
-                raise NotBuiltError(f"Raster: '{path}' has {source.count} bands; multiband rasters are not built in grapy yet.")
+        dataset, band_name = path, None
+        if not os.path.exists(path) and os.path.isfile(os.path.dirname(path)):
+            dataset, band_name = os.path.dirname(path), os.path.basename(path)
+        with rasterio.open(dataset) as source:
             if source.transform.b != 0 or source.transform.d != 0 or source.transform.e >= 0:
                 raise NotBuiltError(f"Raster: '{path}' is rotated or south-up; only north-up grids are built in grapy yet.")
-            band = source.read(1)
-            mask = np.zeros(band.shape, bool) if source.nodata is None else (
-                np.isnan(band) if np.issubdtype(band.dtype, np.floating) and np.isnan(source.nodata) else band == source.nodata)
-            if np.issubdtype(band.dtype, np.floating):
-                mask |= np.isnan(band)
+            names = _band_names(source)
+            numbers = range(1, source.count + 1)
+            if band_name is not None:
+                numbers = [_band_number(band_name, names, path)]
+            arrays, masks = [], []
+            for i in numbers:
+                band = source.read(i)
+                mask = np.zeros(band.shape, bool) if source.nodata is None else (
+                    np.isnan(band) if np.issubdtype(band.dtype, np.floating) and np.isnan(source.nodata)
+                    else band == source.nodata)
+                if np.issubdtype(band.dtype, np.floating):
+                    mask |= np.isnan(band)
+                arrays.append(band)
+                masks.append(mask)
             t = source.transform
             self._grid = _Grid(t.c, t.f, t.a, -t.e, source.height, source.width, source.crs.to_epsg() if source.crs else 0)
-        self._array, self._mask = band, mask
+            self._block = source.block_shapes[0] if source.block_shapes else None
+        self._arrays, self._masks = arrays, masks
+        self._names = [names[i - 1] for i in numbers] if band_name is not None or len(arrays) > 1 else None
+        if self._names is not None and all(n == f"Band_{k}" for k, n in enumerate(self._names, 1)):
+            self._names = None
         self.catalogPath, self.isTemporary = path, False
+        # INFERRED: an attribute table is read for a single-band dataset only; GDAL keeps one per band.
+        self._rat = _read_rat(path) if band_name is None and len(arrays) == 1 else None
 
     @classmethod
     def _of(cls, array, mask, grid):
@@ -107,6 +139,48 @@ class Raster:
         raster._array, raster._mask, raster._grid = array, mask, grid
         raster.catalogPath, raster.isTemporary = None, True
         return raster
+
+    @classmethod
+    def _of_bands(cls, arrays, masks, grid, names=None):
+        raster = cls.__new__(cls)
+        raster._arrays, raster._masks, raster._grid = list(arrays), list(masks), grid
+        raster.catalogPath, raster.isTemporary = None, True
+        raster._names = list(names) if names is not None else None
+        return raster
+
+    # ---- one band's cells. Every single-band tool reads these; on a raster of several bands they refuse, so no tool
+    # reads band 1 as if it were the raster.
+
+    @property
+    def _array(self):
+        if len(self._arrays) != 1:
+            raise NotBuiltError(f"This tool reads a raster of one band, and {self!r} has {len(self._arrays)}; its page "
+                                "does not say how a multiband raster is processed (take a band with getRasterBands).")
+        return self._arrays[0]
+
+    @_array.setter
+    def _array(self, value):
+        self._arrays = [value]
+
+    @property
+    def _mask(self):
+        if len(self._masks) != 1:
+            raise NotBuiltError(f"This tool reads a raster of one band, and {self!r} has {len(self._masks)}; its page "
+                                "does not say how a multiband raster is processed (take a band with getRasterBands).")
+        return self._masks[0]
+
+    @_mask.setter
+    def _mask(self, value):
+        self._masks = [value]
+
+    def _band(self, number):
+        """Band ``number`` (one-based) as a single-band Raster."""
+        if not 1 <= int(number) <= len(self._arrays):
+            raise ValueError(f"The raster has {len(self._arrays)} bands; there is no band {number}.")
+        band = Raster._of(self._arrays[int(number) - 1], self._masks[int(number) - 1], self._grid)
+        if self.catalogPath and len(self._arrays) > 1:
+            band.catalogPath, band.isTemporary = os.path.join(self.catalogPath, self.bandNames[int(number) - 1]), False
+        return band
 
     # ---- what arcpy's Raster says about itself
 
@@ -120,7 +194,34 @@ class Raster:
 
     @property
     def bandCount(self):
-        return 1
+        return len(self._arrays)
+
+    @property
+    def bandNames(self):
+        """The bands' names: a GeoTIFF band's description where it has one, else Band_1, Band_2 … (INFERRED: the
+        name Describe's raster band page uses in a band's path)."""
+        return list(self._names) if self._names is not None else [f"Band_{k}" for k in range(1, len(self._arrays) + 1)]
+
+    @property
+    def noDataValues(self):
+        """The NoData value of each band, as a tuple (INFERRED: a tuple of one, its noDataValue, for a single-band
+        raster); several bands share the one value a GeoTIFF holds."""
+        return (self.noDataValue,) * len(self._arrays)
+
+    @property
+    def isMultidimensional(self):
+        return False
+
+    def getRasterBands(self, band_ids_or_names=None):
+        """The bands named, as rasters: one band answers a Raster, several a list, and none named every band, as
+        documented. Bands are named by one-based index or by name (INFERRED: names match without regard to case)."""
+        if band_ids_or_names is None:
+            wanted = list(range(1, len(self._arrays) + 1))
+        else:
+            items = band_ids_or_names if isinstance(band_ids_or_names, (list, tuple)) else [band_ids_or_names]
+            wanted = [_band_number(i, self.bandNames, repr(self)) for i in items]
+        bands = [self._band(i) for i in wanted]
+        return bands[0] if len(bands) == 1 else bands
 
     @property
     def meanCellWidth(self):
@@ -142,11 +243,11 @@ class Raster:
 
     @property
     def isInteger(self):
-        return bool(np.issubdtype(self._array.dtype, np.integer))
+        return all(bool(np.issubdtype(a.dtype, np.integer)) for a in self._arrays)
 
     @property
     def pixelType(self):
-        kind = self._array.dtype
+        kind = np.result_type(*[a.dtype for a in self._arrays])
         if kind == np.float32:
             return "F32"
         if kind == np.float64:
@@ -156,9 +257,16 @@ class Raster:
 
     @property
     def noDataValue(self):
+        if len(self._arrays) > 1:
+            # A GeoTIFF has one NoData value for every band; several bands are saved in one cell type.
+            return _nodata_for(_saved_dtype(np.result_type(*[a.dtype for a in self._arrays])))
         return _nodata_for(self._array.dtype)
 
     def _values(self):
+        if len(self._arrays) > 1:
+            raise NotBuiltError(f"The statistics of {self!r}, a raster of {len(self._arrays)} bands, are not built in "
+                                "grapy: the Raster page does not say what they are for several bands (take a band with "
+                                "getRasterBands).")
         return self._array[~self._mask]
 
     @property
@@ -183,7 +291,8 @@ class Raster:
 
     @property
     def hasRAT(self):
-        return False
+        """Whether the raster carries an attribute table (its .aux.xml's GDALRasterAttributeTable)."""
+        return self._rat is not None
 
     @property
     def name(self):
@@ -201,6 +310,8 @@ class Raster:
             path = os.path.join(env.workspace, path)
         if not os.path.splitext(path)[1]:
             path += ".tif"
+        if len(self._arrays) > 1:
+            return self._save_bands(path)
         array = self._array
         if array.dtype == np.bool_:
             array = array.astype(np.uint8)
@@ -220,12 +331,169 @@ class Raster:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with rasterio.open(path, "w", **profile) as out:
             out.write(written, 1)
+        # Its attribute table goes into the .aux.xml beside it, as GDAL keeps one; a stale one there is removed.
+        _write_rat(path, self._rat)
         self.catalogPath, self.isTemporary = path, False
         return path
 
-    def read(self, *_, **__):
-        """The cells as a NumPy array, NoData as NaN."""
-        return np.where(self._mask, np.nan, self._array.astype(float))
+    def _save_bands(self, path):
+        import rasterio
+        dtype = _saved_dtype(np.result_type(*[a.dtype for a in self._arrays]))
+        nodata = _nodata_for(dtype)
+        g = self._grid
+        profile = {"driver": "GTiff", "height": g.rows, "width": g.columns, "count": len(self._arrays),
+                   "dtype": dtype.name, "transform": g.transform(), "nodata": nodata}
+        if g.srid:
+            profile["crs"] = f"EPSG:{g.srid}"
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with rasterio.open(path, "w", **profile) as out:
+            for i, (a, m) in enumerate(zip(self._arrays, self._masks), 1):
+                out.write(np.where(m, nodata, a).astype(dtype), i)
+                if self._names is not None:
+                    out.set_band_description(i, self._names[i - 1])
+        _write_rat(path, None)
+        self.catalogPath, self.isTemporary = path, False
+        return path
+
+    def read(self, upper_left_corner=None, origin_coordinate=None, ncols=None, nrows=None, nodata_to_value=None,
+             cell_size=None):
+        """The cells as a NumPy array of rows, columns and bands, as documented — a single-band raster too has a band
+        axis, of one. ``upper_left_corner`` offsets the window from ``origin_coordinate`` (the raster's own corner by
+        default); ``ncols`` and ``nrows`` default to the raster's; NoData cells are ``nodata_to_value``, by default the
+        raster's NoData value.
+
+        INFERRED: ``upper_left_corner`` is (column, row), the order of x and y; ``origin_coordinate`` must be a cell
+        corner. Refused: a ``cell_size`` other than the raster's (the page resamples bilinearly without saying how
+        cell edges are treated) and a window reaching outside the raster."""
+        from ._runtime import NotBuiltError as _Refused
+        column0, row0 = self._window_origin(upper_left_corner, origin_coordinate, "read")
+        if cell_size is not None:
+            size = cell_size if isinstance(cell_size, (list, tuple)) else (cell_size, cell_size)
+            if not (np.isclose(float(size[0]), self._grid.width) and np.isclose(float(size[-1]), self._grid.height)):
+                raise _Refused("Raster.read: a cell_size other than the raster's resamples, which is not built in grapy.")
+        columns = self._grid.columns - column0 if ncols is None else int(ncols)
+        rows = self._grid.rows - row0 if nrows is None else int(nrows)
+        if rows <= 0 or columns <= 0 or row0 + rows > self._grid.rows or column0 + columns > self._grid.columns:
+            raise _Refused("Raster.read: a window reaching outside the raster is not built in grapy.")
+        fill = self.noDataValue if nodata_to_value is None else nodata_to_value
+        kind = np.result_type(*[a.dtype for a in self._arrays], np.min_scalar_type(fill))
+        window = (slice(row0, row0 + rows), slice(column0, column0 + columns))
+        return np.stack([np.where(m[window], np.asarray(fill).astype(kind), a[window].astype(kind))
+                         for a, m in zip(self._arrays, self._masks)], axis=-1)
+
+    def write(self, array, upper_left_corner=None, origin_coordinate=None, value_to_nodata=None):
+        """A NumPy array of rows, columns and bands written into the raster's cells, as documented: the band axis is
+        the raster's band count; cells holding ``value_to_nodata`` (the raster's NoData value by default) become NoData.
+
+        INFERRED: the values take the raster's cell type, and one that does not fit it is refused; ``upper_left_corner``
+        is (column, row). Refused: writing into a raster opened from a dataset on disk (the page does not say whether
+        the dataset changes) — write into a new one, from a RasterInfo, and save it."""
+        from ._runtime import NotBuiltError as _Refused
+        if not self.isTemporary:
+            raise _Refused("Raster.write into a dataset on disk is not built in grapy; the page does not say whether the "
+                           "dataset changes. Write into Raster(RasterInfo) and save it.")
+        values = np.asarray(array)
+        if values.ndim != 3 or values.shape[2] != len(self._arrays):
+            raise ValueError(f"Raster.write takes an array of rows, columns and {len(self._arrays)} band(s); got "
+                             f"shape {values.shape}.")
+        column0, row0 = self._window_origin(upper_left_corner, origin_coordinate, "write")
+        rows, columns = values.shape[0], values.shape[1]
+        if row0 + rows > self._grid.rows or column0 + columns > self._grid.columns:
+            raise _Refused("Raster.write: a window reaching outside the raster is not built in grapy.")
+        fill = self.noDataValue if value_to_nodata is None else value_to_nodata
+        window = (slice(row0, row0 + rows), slice(column0, column0 + columns))
+        arrays, masks = [], []
+        for b, (a, m) in enumerate(zip(self._arrays, self._masks)):
+            part = values[:, :, b]
+            empty = part == fill
+            if np.issubdtype(part.dtype, np.floating):
+                empty |= np.isnan(part)
+            data = part[~empty]
+            if np.issubdtype(a.dtype, np.integer) and data.size and (
+                    not np.all(np.mod(data, 1) == 0) or data.min() < np.iinfo(a.dtype).min or
+                    data.max() > np.iinfo(a.dtype).max):
+                raise _Refused(f"Raster.write: values that do not fit the raster's {self.pixelType} cells are not built "
+                               "in grapy.")
+            a, m = a.copy(), m.copy()
+            a[window] = np.where(empty, 0, part).astype(a.dtype)
+            m[window] = empty
+            arrays.append(a)
+            masks.append(m)
+        self._arrays, self._masks = arrays, masks
+
+    def _window_origin(self, upper_left_corner, origin_coordinate, what):
+        from ._runtime import NotBuiltError as _Refused
+        g = self._grid
+        column0 = row0 = 0
+        if origin_coordinate is not None:
+            fx, fy = (origin_coordinate.X - g.left) / g.width, (g.top - origin_coordinate.Y) / g.height
+            if not (np.isclose(fx, round(fx)) and np.isclose(fy, round(fy))) or round(fx) < 0 or round(fy) < 0:
+                raise _Refused(f"Raster.{what}: an origin_coordinate that is not a cell corner inside the raster is not "
+                               "built in grapy.")
+            column0, row0 = int(round(fx)), int(round(fy))
+        if upper_left_corner is not None:
+            column0, row0 = column0 + int(upper_left_corner[0]), row0 + int(upper_left_corner[1])
+        if column0 < 0 or row0 < 0:
+            raise _Refused(f"Raster.{what}: a window reaching outside the raster is not built in grapy.")
+        return column0, row0
+
+    def __getitem__(self, index):
+        """One cell, ``raster[row, column]``: its value, NaN where it is NoData (INFERRED, the page does not say)."""
+        row, column = index
+        value = self._array[row, column]
+        return float("nan") if self._mask[row, column] else value.item()
+
+    def __setitem__(self, index, value):
+        """One cell set, ``raster[row, column] = value``, where ``readOnly`` is False, as documented; NaN makes it
+        NoData (INFERRED)."""
+        if self.readOnly:
+            raise RuntimeError("The raster is read-only; set readOnly to False to write cells with [row, column].")
+        row, column = index
+        array, mask = self._array.copy(), self._mask.copy()
+        if value is None or (isinstance(value, float) and np.isnan(value)):
+            mask[row, column] = True
+        else:
+            if np.issubdtype(array.dtype, np.integer) and float(value) != int(value):
+                raise NotBuiltError("A fractional value in an integer raster's cell is not built in grapy.")
+            array[row, column], mask[row, column] = value, False
+        self._array, self._mask = array, mask
+
+    def getRasterInfo(self):
+        """A RasterInfo holding this raster's band count, cell size, extent, pixel type, NoData values and reference."""
+        info = RasterInfo()
+        info.setBandCount(len(self._arrays))
+        info.setCellSize((self._grid.width, self._grid.height))
+        info.setExtent(self.extent)
+        info.setPixelType(self.pixelType)
+        info.setNoDataValues(self.noDataValue if len(self._arrays) == 1 else self.noDataValues)
+        if self.spatialReference is not None:
+            info.setSpatialReference(self.spatialReference)
+        block = getattr(self, "_block", None)
+        if block:
+            info.setBlockHeight(int(block[0]))
+            info.setBlockWidth(int(block[1]))
+        return info
+
+    def _from_info(self, info):
+        """A new raster of the RasterInfo's shape. INFERRED: every cell starts as NoData (the page says only that its
+        cells are then assigned); it is temporary until saved, and not read-only, as documented."""
+        extent, size, kind = info.getExtent(), info.getCellSize(), info.getPixelType()
+        missing = [n for n, v in (("extent", extent), ("cell size", size), ("pixel type", kind)) if v is None]
+        if missing:
+            raise ValueError("Raster(RasterInfo) needs the RasterInfo's " + ", ".join(missing) + ".")
+        if kind not in _PIXEL_DTYPES:
+            raise NotBuiltError(f"Raster(RasterInfo): pixel type {kind} is not built in grapy; numpy has no such cell type.")
+        width, height = float(size[0]), float(size[1])
+        columns = int(round((extent.XMax - extent.XMin) / width))
+        rows = int(round((extent.YMax - extent.YMin) / height))
+        reference = info.getSpatialReference() or getattr(extent, "spatialReference", None)
+        srid = getattr(reference, "factoryCode", 0) or 0
+        self._grid = _Grid(extent.XMin, extent.YMax, width, height, rows, columns, srid)
+        dtype = np.dtype(_PIXEL_DTYPES[kind])
+        count = info.getBandCount() or 1
+        self._arrays = [np.zeros((rows, columns), dtype) for _ in range(count)]
+        self._masks = [np.ones((rows, columns), bool) for _ in range(count)]
+        self.catalogPath, self.isTemporary, self.readOnly = None, True, False
 
     def __repr__(self):
         return self.catalogPath or "<temporary Raster>"
@@ -252,9 +520,9 @@ class Raster:
     def __rmod__(self, o): return _combine([o, self], _modulo)
     def __pow__(self, o): return _combine([self, o], lambda a, b: np.power(a.astype(float), b), keep_integer=False)
     def __rpow__(self, o): return _combine([o, self], lambda a, b: np.power(a.astype(float), b), keep_integer=False)
-    def __neg__(self): return Raster._of(-self._array, self._mask.copy(), self._grid)
+    def __neg__(self): return _combine([self], np.negative)
     def __pos__(self): return self
-    def __abs__(self): return Raster._of(np.abs(self._array), self._mask.copy(), self._grid)
+    def __abs__(self): return _combine([self], np.abs)
     def __lt__(self, o): return _compare(self, o, np.less)
     def __le__(self, o): return _compare(self, o, np.less_equal)
     def __gt__(self, o): return _compare(self, o, np.greater)
@@ -267,7 +535,7 @@ class Raster:
     def __ror__(self, o): return _boolean(o, self, np.logical_or)
     def __xor__(self, o): return _boolean(self, o, np.logical_xor)
     def __rxor__(self, o): return _boolean(o, self, np.logical_xor)
-    def __invert__(self): return Raster._of((self._array == 0).astype(np.int32), self._mask.copy(), self._grid)
+    def __invert__(self): return _combine([self], lambda a: (np.asarray(a) == 0).astype(np.int32))
     __hash__ = object.__hash__
 
 
@@ -282,13 +550,65 @@ def _nodata_for(dtype):
     return int(np.iinfo(dtype).min)
 
 
-def as_raster(value, tool="arcpy.sa"):
-    """A raster from a Raster, a path, or None for a constant (answered by the caller)."""
+def _saved_dtype(dtype):
+    """The cell type several bands are written in: booleans and 64-bit integers as 32-bit integers."""
+    dtype = np.dtype(dtype)
+    return np.dtype(np.int32) if dtype == np.bool_ or dtype == np.int64 else dtype
+
+
+_PIXEL_DTYPES = {"U8": "uint8", "S8": "int8", "U16": "uint16", "S16": "int16", "U32": "uint32", "S32": "int32",
+                 "F32": "float32", "F64": "float64"}
+
+
+def _band_names(source):
+    return [d if d else f"Band_{k}" for k, d in enumerate(source.descriptions or [None] * source.count, 1)]
+
+
+def _band_number(band, names, where):
+    """A band's one-based number from its index or name (INFERRED: a name matches without regard to case)."""
+    if isinstance(band, (int, np.integer)) or (isinstance(band, str) and band.isdigit()):
+        number = int(band)
+        if not 1 <= number <= len(names):
+            raise ValueError(f"{where} has {len(names)} bands; there is no band {band}.")
+        return number
+    lower = [n.lower() for n in names]
+    if str(band).lower() not in lower:
+        raise ValueError(f"{where} has no band named '{band}'; its bands are {', '.join(names)}.")
+    return lower.index(str(band).lower()) + 1
+
+
+def as_raster(value, tool="arcpy.sa", bands=False):
+    """A raster from a Raster, a path, or None for a constant (answered by the caller). A raster of several bands is
+    refused by name unless the tool takes one (``bands``)."""
     if isinstance(value, Raster):
-        return value
-    if isinstance(value, (str, os.PathLike)):
-        return Raster(value)
-    raise TypeError(f"{tool}: expected a raster, got {type(value).__name__}.")
+        raster = value
+    elif isinstance(value, (str, os.PathLike)):
+        raster = Raster(value)
+    else:
+        raise TypeError(f"{tool}: expected a raster, got {type(value).__name__}.")
+    if not bands and raster.bandCount > 1:
+        raise NotBuiltError(f"{tool}: '{raster!r}' has {raster.bandCount} bands; this tool is built for a single band "
+                            "in grapy (take one with getRasterBands, or the '<path>/Band_n' path).")
+    return raster
+
+
+def _band_wise(values, function, tool):
+    """Multiband inputs processed band by band, as the local tools' pages document: every raster input multiband with
+    the same number of bands, or a multiband raster with constants. A multiband raster with a single-band one, on which
+    the pages are silent, is refused. Answers None when no input has several bands."""
+    from ._runtime import ExecuteError
+    rasters = [v for v in values if isinstance(v, Raster)]
+    counts = {r.bandCount for r in rasters}
+    if counts <= {1}:
+        return None
+    if 1 in counts:
+        raise NotBuiltError(f"{tool}: a multiband raster with a single-band raster is not built in grapy; the page "
+                            "documents multiband inputs together, or a multiband input with constants.")
+    if len(counts) > 1:
+        raise ExecuteError(f"{tool}: the number of bands in each multiband input must be the same.")
+    outputs = [function(*[v._band(b) if isinstance(v, Raster) else v for v in values])
+               for b in range(1, counts.pop() + 1)]
+    return Raster._of_bands([o._array for o in outputs], [o._mask for o in outputs], outputs[0]._grid)
 
 
 def _align(rasters, tool="arcpy.sa"):
@@ -325,10 +645,13 @@ def _align(rasters, tool="arcpy.sa"):
 
 def _combine(values, operation, keep_integer=True, tool="arcpy.sa"):
     """An operator over rasters and constants: NoData where any raster input is NoData."""
-    rasters = [v for v in values if isinstance(v, Raster) or isinstance(v, (str, os.PathLike))]
+    values = [as_raster(v, tool, bands=True) if isinstance(v, (Raster, str, os.PathLike)) else v for v in values]
+    multiband = _band_wise(values, lambda *vs: _combine(list(vs), operation, keep_integer, tool), tool)
+    if multiband is not None:
+        return multiband
+    rasters = [v for v in values if isinstance(v, Raster)]
     if not rasters:
         raise TypeError(f"{tool}: at least one input must be a raster.")
-    rasters = [as_raster(r, tool) for r in rasters]
     arrays, masks, grid = _align(rasters, tool)
     it = iter(arrays)
     operands = [next(it) if isinstance(v, (Raster, str, os.PathLike)) else v for v in values]
@@ -407,110 +730,245 @@ def RasterToNumPyArray(in_raster, lower_left_corner=None, ncols=None, nrows=None
     return np.where(raster._mask, np.asarray(fill).astype(kind), array.astype(kind))
 
 
-# ---- several bands (ADR-224, arcpy.ia). A Raster stays single-band, as before; a raster of several bands is this
-# separate holder, which only the band tools take, so no single-band tool can read the wrong band by accident.
+# ---- several bands (ADR-224, arcpy.ia): a Raster of several bands, which the band tools build and read.
 
 
-class _Bands:
-    """A raster of several bands on one grid: what CompositeBand answers and the band tools read. Opening a GeoTIFF
-    of several bands with ``Raster`` is still refused; the band tools open it as this."""
-
-    def __init__(self, arrays, masks, grid):
-        self._arrays, self._masks, self._grid = list(arrays), list(masks), grid
-        self.catalogPath, self.isTemporary = None, True
-
-    @property
-    def bandCount(self):
-        return len(self._arrays)
-
-    @property
-    def width(self):
-        return self._grid.columns
-
-    @property
-    def height(self):
-        return self._grid.rows
-
-    @property
-    def meanCellWidth(self):
-        return self._grid.width
-
-    @property
-    def meanCellHeight(self):
-        return self._grid.height
-
-    @property
-    def spatialReference(self):
-        return SpatialReference(self._grid.srid) if self._grid.srid else None
-
-    @property
-    def extent(self):
-        from ._reference import Extent
-        g = self._grid
-        return Extent(g.left, g.bottom, g.right, g.top, self.spatialReference)
-
-    def _band(self, number):
-        """Band ``number`` (one-based) as a single-band Raster."""
-        if not 1 <= int(number) <= len(self._arrays):
-            raise ValueError(f"The raster has {len(self._arrays)} bands; there is no band {number}.")
-        return Raster._of(self._arrays[int(number) - 1], self._masks[int(number) - 1], self._grid)
-
-    def save(self, name=None):
-        """Writes the bands as one GeoTIFF; NoData cells of each band are written with the type's NoData value."""
-        import rasterio
-        if name is None:
-            raise ValueError("A temporary raster needs a name to be saved under.")
-        path = os.fspath(name)
-        if not os.path.isabs(path):
-            path = os.path.join(env.workspace, path)
-        if not os.path.splitext(path)[1]:
-            path += ".tif"
-        dtype = np.result_type(*[a.dtype for a in self._arrays])
-        if dtype == np.bool_ or dtype == np.int64:
-            dtype = np.dtype(np.int32)
-        nodata = _nodata_for(dtype)
-        g = self._grid
-        profile = {"driver": "GTiff", "height": g.rows, "width": g.columns, "count": len(self._arrays),
-                   "dtype": dtype.name, "transform": g.transform(), "nodata": nodata}
-        if g.srid:
-            profile["crs"] = f"EPSG:{g.srid}"
-        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        with rasterio.open(path, "w", **profile) as out:
-            for i, (a, m) in enumerate(zip(self._arrays, self._masks), 1):
-                out.write(np.where(m, nodata, a).astype(dtype), i)
-        self.catalogPath, self.isTemporary = path, False
-        return path
-
-    def __repr__(self):
-        return self.catalogPath or "<temporary multiband Raster>"
+def _Bands(arrays, masks, grid, names=None):
+    """A Raster of several bands on one grid (once a separate holder; kept as the band tools' constructor)."""
+    return Raster._of_bands(arrays, masks, grid, names)
 
 
 def _open_bands(value, tool="arcpy.ia"):
-    """Any raster as bands: a Raster is one band, a _Bands is itself, and a GeoTIFF path is read whole."""
-    if isinstance(value, _Bands):
-        return value
+    """Any raster, of one band or several, for the band tools."""
     if isinstance(value, Raster):
-        return _Bands([value._array], [value._mask], value._grid)
+        return value
     if not isinstance(value, (str, os.PathLike)):
         raise TypeError(f"{tool}: expected a raster, got {type(value).__name__}.")
-    import rasterio
-    path = os.fspath(value)
-    if not os.path.isabs(path) and not os.path.exists(path):
-        path = os.path.join(env.workspace, path)
-    with rasterio.open(path) as source:
-        if source.transform.b != 0 or source.transform.d != 0 or source.transform.e >= 0:
-            raise NotBuiltError(f"{tool}: '{path}' is rotated or south-up; only north-up grids are built in grapy yet.")
-        arrays, masks = [], []
-        for i in range(1, source.count + 1):
-            band = source.read(i)
-            mask = np.zeros(band.shape, bool) if source.nodata is None else (
-                np.isnan(band) if np.issubdtype(band.dtype, np.floating) and np.isnan(source.nodata) else band == source.nodata)
-            if np.issubdtype(band.dtype, np.floating):
-                mask |= np.isnan(band)
-            arrays.append(band)
-            masks.append(mask)
-        t = source.transform
-        grid = _Grid(t.c, t.f, t.a, -t.e, source.height, source.width, source.crs.to_epsg() if source.crs else 0)
-    bands = _Bands(arrays, masks, grid)
-    bands.catalogPath, bands.isTemporary = path, False
-    return bands
+    return Raster(value)
+
+
+# ---- raster attribute tables (RAT), stored as GDAL stores them: a ``GDALRasterAttributeTable`` in the dataset's
+# ``.aux.xml`` PAM file. Field types are GDAL's GFT codes (0 integer, 1 real, 2 string) and usages its GFU codes
+# (0 generic, 1 pixel count, 5 min-max, the value column).
+
+_GFT = {"Integer": 0, "Double": 1, "String": 2}
+_GFT_BACK = {0: "Integer", 1: "Double", 2: "String"}
+
+
+class _Rat:
+    """A raster attribute table: its fields — (name, type word, GDAL usage) — and its rows, a list of lists."""
+
+    def __init__(self, fields, rows):
+        self.fields = [tuple(f) for f in fields]
+        self.rows = [list(r) for r in rows]
+
+    def names(self):
+        return [f[0] for f in self.fields]
+
+    def index(self, name):
+        lower = [f[0].lower() for f in self.fields]
+        if str(name).lower() not in lower:
+            raise KeyError(name)
+        return lower.index(str(name).lower())
+
+    def column(self, name):
+        i = self.index(name)
+        return [r[i] for r in self.rows]
+
+    def copy(self):
+        return _Rat(self.fields, self.rows)
+
+
+def _aux_path(path):
+    return os.fspath(path) + ".aux.xml"
+
+
+def _read_rat(path):
+    """The RAT of a GeoTIFF's first band from its .aux.xml, or None."""
+    import xml.etree.ElementTree as ET
+    aux = _aux_path(path)
+    if not os.path.exists(aux):
+        return None
+    root = ET.parse(aux).getroot()
+    for band in root.iter("PAMRasterBand"):
+        if band.get("band", "1") != "1":
+            continue
+        table = band.find("GDALRasterAttributeTable")
+        if table is None:
+            return None
+        fields = []
+        for defn in sorted(table.findall("FieldDefn"), key=lambda d: int(d.get("index", 0))):
+            fields.append((defn.findtext("Name", ""), _GFT_BACK.get(int(defn.findtext("Type", "2")), "String"),
+                           int(defn.findtext("Usage", "0"))))
+        rows = []
+        for row in sorted(table.findall("Row"), key=lambda r: int(r.get("index", 0))):
+            values = []
+            for (name, kind, _), cell in zip(fields, row.findall("F")):
+                text = cell.text
+                if text is None or text == "":
+                    values.append(None if kind != "String" else "")
+                elif kind == "Integer":
+                    values.append(int(float(text)))
+                elif kind == "Double":
+                    values.append(float(text))
+                else:
+                    values.append(text)
+            rows.append(values)
+        return _Rat(fields, rows)
+    return None
+
+
+def _write_rat(path, rat):
+    """The RAT written into the dataset's .aux.xml as GDAL's PAM writes it; with None, a RAT already there is removed
+    (and the file with it when it holds nothing else)."""
+    import xml.etree.ElementTree as ET
+    aux = _aux_path(path)
+    root = ET.parse(aux).getroot() if os.path.exists(aux) else ET.Element("PAMDataset")
+    band = next((b for b in root.iter("PAMRasterBand") if b.get("band", "1") == "1"), None)
+    if band is None:
+        if rat is None:
+            return
+        band = ET.SubElement(root, "PAMRasterBand", band="1")
+    for old in band.findall("GDALRasterAttributeTable"):
+        band.remove(old)
+    if rat is not None:
+        table = ET.SubElement(band, "GDALRasterAttributeTable", tableType="thematic")
+        for i, (name, kind, usage) in enumerate(rat.fields):
+            defn = ET.SubElement(table, "FieldDefn", index=str(i))
+            ET.SubElement(defn, "Name").text = name
+            ET.SubElement(defn, "Type").text = str(_GFT.get(kind, 2))
+            ET.SubElement(defn, "Usage").text = str(usage)
+        for i, row in enumerate(rat.rows):
+            element = ET.SubElement(table, "Row", index=str(i))
+            for value in row:
+                ET.SubElement(element, "F").text = "" if value is None else (
+                    repr(float(value)) if isinstance(value, float) else str(value))
+    if len(band) == 0:
+        root.remove(band)
+    if len(root) == 0:
+        if os.path.exists(aux):
+            os.remove(aux)
+        return
+    ET.ElementTree(root).write(aux, encoding="utf-8", xml_declaration=False)
+
+
+def _value_count(array, mask):
+    """The Value and Count table of an integer raster: each value present, ascending, with how many cells hold it."""
+    values, counts = np.unique(np.asarray(array)[~mask], return_counts=True)
+    return _Rat([("Value", "Integer", 5), ("Count", "Integer", 1)],
+                [[int(v), int(c)] for v, c in zip(values, counts)])
+
+
+def _is_raster_path(value):
+    return isinstance(value, (str, os.PathLike)) and os.fspath(value).lower().endswith((".tif", ".tiff"))
+
+
+# ---- arcpy.RasterInfo: the properties a new raster is made from
+
+
+class RasterInfo:
+    """arcpy.RasterInfo: band count, block size, cell size, extent, NoData values, pixel type and reference, with the
+    documented getters and setters and their JSON form. INFERRED: a new RasterInfo has one band and no other property;
+    the block size, which grapy does not use, is kept as given."""
+
+    def __init__(self):
+        self._band_count, self._block_width, self._block_height = 1, None, None
+        self._cell_size, self._extent, self._nodata, self._pixel_type, self._reference = None, None, None, None, None
+
+    def getBandCount(self): return self._band_count
+    def setBandCount(self, band_count): self._band_count = int(band_count)
+    def getBlockWidth(self): return self._block_width
+    def setBlockWidth(self, block_width): self._block_width = int(block_width)
+    def getBlockHeight(self): return self._block_height
+    def setBlockHeight(self, block_height): self._block_height = int(block_height)
+    def getCellSize(self): return self._cell_size
+    def getExtent(self): return self._extent
+    def setExtent(self, extent): self._extent = extent
+    def getSpatialReference(self): return self._reference
+    def setSpatialReference(self, spatial_reference):
+        self._reference = SpatialReference(spatial_reference) if isinstance(spatial_reference, (int, str)) else spatial_reference
+    def getPixelType(self): return self._pixel_type
+
+    def setCellSize(self, cell_size):
+        """A (width, height) tuple, as documented."""
+        width, height = cell_size
+        self._cell_size = (float(width), float(height))
+
+    def setPixelType(self, pixel_type):
+        kind = str(pixel_type).upper()
+        if kind not in ("U1", "U2", "U4", "S8", "U8", "S16", "U16", "S32", "U32", "F32", "F64"):
+            raise ValueError(f"RasterInfo.setPixelType: '{pixel_type}' is not one of the documented pixel types.")
+        self._pixel_type = kind
+
+    def getNoDataValues(self):
+        """One number for one band; a tuple, a value per band, for several, as documented."""
+        if self._nodata is None or self._band_count == 1 or isinstance(self._nodata, tuple):
+            return self._nodata
+        return (self._nodata,) * self._band_count
+
+    def setNoDataValues(self, nodata_values):
+        """A number for every band, or a tuple of one per band, which must match the band count, as documented."""
+        if isinstance(nodata_values, (list, tuple)):
+            if len(nodata_values) != self._band_count:
+                raise ValueError("RasterInfo.setNoDataValues: a value per band, and the band count is "
+                                 f"{self._band_count}.")
+            self._nodata = tuple(nodata_values)
+        else:
+            self._nodata = nodata_values
+
+    def toJSONString(self):
+        """The JSON form the page's sample shows: extent, geodataXform, blockWidth, blockHeight, bandCount, pixelType,
+        noData, pixelSizeX and pixelSizeY. INFERRED: a reference is written as wkid and latestWkid, both its code; a
+        property not set is left out."""
+        import json
+        reference = None
+        if self._reference is not None and getattr(self._reference, "factoryCode", 0):
+            reference = {"wkid": self._reference.factoryCode, "latestWkid": self._reference.factoryCode}
+        out = {}
+        if self._extent is not None:
+            e = self._extent
+            out["extent"] = {"xmin": e.XMin, "ymin": e.YMin, "xmax": e.XMax, "ymax": e.YMax}
+            if reference:
+                out["extent"]["spatialReference"] = reference
+        if reference:
+            out["geodataXform"] = {"spatialReference": reference, "type": "IdentityXform"}
+        if self._block_width is not None:
+            out["blockWidth"] = self._block_width
+        if self._block_height is not None:
+            out["blockHeight"] = self._block_height
+        out["bandCount"] = self._band_count
+        if self._pixel_type is not None:
+            out["pixelType"] = self._pixel_type
+        if self._nodata is not None:
+            out["noData"] = list(self._nodata) if isinstance(self._nodata, tuple) else self._nodata
+        if self._cell_size is not None:
+            out["pixelSizeX"], out["pixelSizeY"] = self._cell_size
+        return json.dumps(out)
+
+    def fromJSONString(self, json_string):
+        """Properties read from that JSON form; a key not given leaves its property as it was. A geodataXform other
+        than IdentityXform is refused."""
+        import json
+        from ._reference import Extent
+        data = json.loads(json_string)
+        xform = data.get("geodataXform")
+        if xform and xform.get("type", "IdentityXform") != "IdentityXform":
+            raise NotBuiltError(f"RasterInfo.fromJSONString: geodataXform '{xform.get('type')}' is not built in grapy.")
+        reference = (data.get("extent") or {}).get("spatialReference") or (xform or {}).get("spatialReference")
+        if reference:
+            self.setSpatialReference(int(reference.get("latestWkid") or reference["wkid"]))
+        if "bandCount" in data:
+            self.setBandCount(data["bandCount"])
+        if "extent" in data:
+            e = data["extent"]
+            self._extent = Extent(e["xmin"], e["ymin"], e["xmax"], e["ymax"], self._reference)
+        if "blockWidth" in data:
+            self.setBlockWidth(data["blockWidth"])
+        if "blockHeight" in data:
+            self.setBlockHeight(data["blockHeight"])
+        if "pixelType" in data:
+            self.setPixelType(data["pixelType"])
+        if "noData" in data:
+            self.setNoDataValues(tuple(data["noData"]) if isinstance(data["noData"], list) else data["noData"])
+        if "pixelSizeX" in data or "pixelSizeY" in data:
+            self.setCellSize((data.get("pixelSizeX"), data.get("pixelSizeY", data.get("pixelSizeX"))))

@@ -177,7 +177,7 @@ class Ddd(unittest.TestCase):
 
     def test_tools_not_built_say_why(self):
         for name, words in (("CreateTin", "ADR-224 group 2"), ("RasterDomain", "corner"),
-                            ("TopoToRaster", "not specified"), ("CutFill", "attribute table")):
+                            ("TopoToRaster", "not specified")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(ddd, name)("a", "b", "c")
             self.assertIn(words, str(raised.exception))

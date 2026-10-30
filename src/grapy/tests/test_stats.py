@@ -683,6 +683,380 @@ class Stats(unittest.TestCase):
         diag = dict(self.rows(result[1], ["Diag_Name", "Diag_Value"]))
         self.assertAlmostEqual(diag["R2"], 1 - 1.9 / 46, places=6)
 
+    # ---- Round 9: the equivalents of Calculate Rates, Composite Index, Time Series Smoothing, Lee's L, colocation,
+    # spatial autoregression, and Export Feature Attribute to ASCII
+
+    def table(self, name, fields, rows):
+        path = os.path.join(self.directory, f"{name}.gpkg")
+        arcpy.management.CreateTable(self.directory, f"{name}.gpkg")
+        for field, kind in fields:
+            arcpy.management.AddField(path, field, kind)
+        with arcpy.da.InsertCursor(path, [f for f, _ in fields]) as written:
+            for row in rows:
+                written.insertRow(row)
+        return path
+
+    def test_export_xyv_writes_the_documented_digits_and_its_stated_format(self):
+        path = self.points("xyv", [(1.5, 2.25), (123456789.123, 0.000012345678)],
+                           [[3.14159265, None], [7, 8], ["abc", None]], more=[("n", "LONG"), ("s", "TEXT")])
+        text = os.path.join(self.directory, "xyv.txt")
+        stats.ExportXYv(path, ["v", "n", "s"], "COMMA", text, "ADD_FIELD_NAMES")
+        with open(text, encoding="utf-8") as read:
+            lines = read.read().split("\n")
+        # Eight significant digits for x and y (123456789.123 → 1.2345679e+08 in the g form), six for a double
+        # (3.14159265 → 3.14159), integers whole, text as it is, a null as NULL.
+        self.assertEqual(lines[0], "XCoord,YCoord,v,n,s")
+        self.assertEqual(lines[1], "1.5,2.25,3.14159,7,abc")
+        self.assertEqual(lines[2], "1.2345679e+08,1.2345678e-05,NULL,8,NULL")
+        self.assertEqual(lines[3], "")
+        stats.ExportXYv(path, "v", "SPACE", text, "NO_FIELD_NAMES")
+        with open(text, encoding="utf-8") as read:
+            self.assertEqual(read.readline(), "1.5 2.25 3.14159\n")
+        self.assertNotIn("__grapy_equivalent__", dir(stats.ExportXYv))
+
+    def test_time_series_smoothing_moving_averages_with_a_closed_window(self):
+        import datetime
+        days = [datetime.datetime(2020, 1, d) for d in range(1, 6)]
+        path = self.table("ts", [("t", "DATE"), ("v", "DOUBLE")], [(d, float(i + 1)) for i, d in enumerate(days)])
+
+        def smoothed(**kwargs):
+            out = stats.TimeSeriesSmoothing(path, "t", "v", "NONE", output_features=self.out("ts_out"), **kwargs)
+            return [r[0] for r in self.rows(out.getOutput(0), ["SMOOTH_v"])]
+
+        # Values 1..5 on five days. Backward, two days: [t − 2, t] — the first two days reach before the start (null);
+        # day 3 averages 1, 2, 3 = 2; day 4 → 3; day 5 → 4. Shortened: day 1 → 1, day 2 → 1.5.
+        self.assertEqual(smoothed(method="BACKWARD", time_window="2 Days"), [None, None, 2.0, 3.0, 4.0])
+        self.assertEqual(smoothed(method="BACKWARD", time_window="2 Days", apply_shorter_window="APPLY_SHORTER_WINDOW"),
+                         [1.0, 1.5, 2.0, 3.0, 4.0])
+        # Centered, two days: one day each side — 2, 3, 4 in the middle, the ends null. Forward, one day: 1.5 .. 4.5.
+        self.assertEqual(smoothed(method="CENTERED", time_window="2 Days"), [None, 2.0, 3.0, 4.0, None])
+        self.assertEqual(smoothed(method="FORWARD", time_window="1 Days"), [1.5, 2.5, 3.5, 4.5, None])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "ADAPTIVE"):
+            smoothed(method="ADAPTIVE")
+        # Months are calendar steps: 31 March less one month is 29 February 2020 (clamped), which is in the series, so
+        # March averages February's 2 and March's 3; February less one month is 29 January, before the first time.
+        months = self.table("tm", [("t", "DATE"), ("v", "DOUBLE")],
+                            [(datetime.datetime(2020, 1, 31), 1.0), (datetime.datetime(2020, 2, 29), 2.0),
+                             (datetime.datetime(2020, 3, 31), 3.0)])
+        out = stats.TimeSeriesSmoothing(months, "t", "v", "NONE", "BACKWARD", "1 Months",
+                                        output_features=self.out("tm_out"))
+        self.assertEqual([r[0] for r in self.rows(out.getOutput(0), ["SMOOTH_v"])], [None, None, 2.5])
+        with self.assertRaisesRegex(ValueError, "even"):
+            stats.TimeSeriesSmoothing(months, "t", "v", "NONE", "CENTERED", "1 Months", output_features=self.out("x"))
+
+    def test_time_series_smoothing_by_id_and_appended_to_the_input(self):
+        import datetime
+        rows = [(datetime.datetime(2021, 5, d), float(v), key) for d, v, key in
+                [(1, 10, "a"), (2, 20, "a"), (3, 30, "a"), (1, 1, "b"), (2, 3, "b")]]
+        path = self.table("ids", [("t", "DATE"), ("v", "DOUBLE"), ("k", "TEXT")], rows)
+        stats.TimeSeriesSmoothing(path, "t", "v", "ID_FIELD", "BACKWARD", "1 Days", "APPEND_TO_INPUT", None, "k",
+                                  "APPLY_SHORTER_WINDOW")
+        # Series a: 10, 15, 25; series b: 1, 2 — each series on its own.
+        self.assertEqual(self.rows(path, ["SMOOTH_v", "NUM_NBRS"]), [(10.0, 1), (15.0, 2), (25.0, 2), (1.0, 1), (2.0, 2)])
+
+    def test_calculate_rates_crude_and_global_empirical_bayes(self):
+        # Counts 0, 10, 2 over populations 10, 20, 10: crude rates 0, .5, .2. Marshall: b = 12/40 = .3; n̄ = 40/3;
+        # s² = (10·.09 + 20·.04 + 10·.01)/40 = .045; a = .045 − .3/(40/3) = .0225. C = a/(a + b/n): 3/7, .6, 3/7.
+        # EB = b + C(r − b): .3 − 3/7·.3 = 1.2/7; .3 + .6·.2 = .42; .3 − 3/7·.1 = 1.8/7. Per 1,000.
+        path = self.table("rt", [("y", "DOUBLE"), ("n", "DOUBLE")], [(0.0, 10.0), (10.0, 20.0), (2.0, 10.0), (1.0, 0.0)])
+        crude = stats.CalculateRates(path, [["y", "n"]], "NO_APPEND", self.out("crude"), "CRUDE_RATE", "POISSON",
+                                     rate_multiplier=1000).getOutput(0)
+        self.assertEqual([r[0] for r in self.rows(crude, ["RATE_y"])], [0.0, 500.0, 200.0, None])
+        smoothed = stats.CalculateRates(path, "y n", False, self.out("geb"), "GLOBAL_EMPIRICAL_BAYES",
+                                        rate_multiplier=1000).getOutput(0)
+        got = [r[0] for r in self.rows(smoothed, ["RATE_y"])]
+        for value, want in zip(got, [1200 / 7, 420.0, 1800 / 7]):
+            self.assertAlmostEqual(value, want)
+        self.assertIsNone(got[3])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "BINOMIAL"):
+            stats.CalculateRates(path, "y n", False, self.out("bin"), "GLOBAL_EMPIRICAL_BAYES", "BINOMIAL",
+                                 rate_multiplier=1)
+        with self.assertRaisesRegex(ValueError, "needs features"):
+            stats.CalculateRates(path, "y n", False, self.out("loc"), "LOCAL_EMPIRICAL_BAYES", rate_multiplier=1)
+
+    def test_calculate_rates_local_smoothers(self):
+        # The same three features on a line 10 apart, band 10: neighbourhoods {0,1}, {0,1,2}, {1,2}, each feature in
+        # its own. Locally weighted average Σy/Σn: 10/30, 12/40, 12/30.
+        # Local EB at 0: b = 1/3, rates 0 and .5, n̄ = 15, s² = (10/9 + 20/36)/30 = 1/18, a = 1/18 − 1/45 = 1/30,
+        # C = (1/30)/(1/30 + 1/30) = .5, EB = 1/3 − .5/3 = 1/6. At 1 the neighbourhood is everything: .42, as globally.
+        # Weighted median at 1: rates 0, .2, .5 weighing 1/4, 1/4, 1/2 — the cumulative weight reaches .5 exactly at .2,
+        # so the median is (.2 + .5)/2 = .35. At 0: 0 weighs 1/3 and .5 weighs 2/3, so .5.
+        path = self.points("rp", [(0, 0), (10, 0), (20, 0)], [[0.0, 0, 0], [0.0, 10, 2], [10.0, 20, 10]],
+                           more=[("y", "DOUBLE"), ("n", "DOUBLE")])
+
+        def rates(method, name):
+            out = stats.CalculateRates(path, "y n", False, self.out(name), method, "POISSON", "DISTANCE_BAND", 10,
+                                       rate_multiplier=1).getOutput(0)
+            return self.rows(out, ["RATE_y", "NBRS_y"])
+
+        lwa = rates("LOCALLY_WEIGHTED_AVERAGE", "lwa")
+        for (value, count), want, size in zip(lwa, [1 / 3, 0.3, 0.4], [2, 3, 2]):
+            self.assertAlmostEqual(value, want)
+            self.assertEqual(count, size)
+        leb = rates("LOCAL_EMPIRICAL_BAYES", "leb")
+        self.assertAlmostEqual(leb[0][0], 1 / 6)
+        self.assertAlmostEqual(leb[1][0], 0.42)
+        lwm = rates("LOCALLY_WEIGHTED_MEDIAN", "lwm")
+        self.assertAlmostEqual(lwm[0][0], 0.5)
+        self.assertAlmostEqual(lwm[1][0], 0.35)
+        # A null count is filled from its neighbours by the locally weighted methods: feature 2 alone with feature 1,
+        # 10/20 = .5, FILLED = 1, one valid member.
+        holed = self.points("rh", [(0, 0), (10, 0), (20, 0)], [[0.0, 0, 0], [0.0, 10, None], [10.0, 20, 10]],
+                            more=[("y", "DOUBLE"), ("n", "DOUBLE")])
+        out = stats.CalculateRates(holed, "y n", "APPEND", None, "LOCALLY_WEIGHTED_AVERAGE", "POISSON", "DISTANCE_BAND",
+                                   10, rate_multiplier=1).getOutput(0)
+        self.assertEqual(out, holed)
+        self.assertEqual(self.rows(holed, ["RATE_y", "NBRS_y", "FILLED_y"])[2], (0.5, 1, 1))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "local_weighting_scheme"):
+            stats.CalculateRates(path, "y n", False, self.out("k"), "LOCALLY_WEIGHTED_AVERAGE", "POISSON",
+                                 "DISTANCE_BAND", 10, local_weighting_scheme="GAUSSIAN", rate_multiplier=1)
+
+    def test_calculate_composite_index_presets(self):
+        # a = 1, 2, 3, 5 and b = 10, 30, 20, 40, and a fifth record with a null.
+        path = self.table("ci", [("a", "DOUBLE"), ("b", "DOUBLE")],
+                          [(1.0, 10.0), (2.0, 30.0), (3.0, 20.0), (5.0, 40.0), (None, 5.0)])
+        # MEAN_SCALED: a scales to 0, .25, .5, 1 and b to 0, 2/3, 1/3, 1; the index is their mean: 0, 11/24, 5/12, 1.
+        # Its percentile (R − 1)/(N − 1), ranks 1, 3, 2, 4: 0, 2/3, 1/3, 1.
+        out = stats.CalculateCompositeIndex(path, ["a", "b"], out_table=self.out("ci_mean")).getOutput(0)
+        got = self.rows(out, ["a_SCALED", "b_SCALED", "COMP_INDEX", "COMP_PCTL"])
+        for row, want in zip(got, [(0, 0, 0, 0), (0.25, 2 / 3, 11 / 24, 2 / 3), (0.5, 1 / 3, 5 / 12, 1 / 3),
+                                   (1, 1, 1, 1)]):
+            for value, expected in zip(row, want):
+                self.assertAlmostEqual(value, expected)
+        self.assertEqual(got[4], (None, None, None, None))
+        # GEOMEAN_SCALED: √(.25·2/3) = √(1/6) and √(.5·1/3) = √(1/6); 0 where a variable is 0.
+        out = stats.CalculateCompositeIndex(path, ["a", "b"], out_table=self.out("ci_geo"),
+                                            index_preset="GEOMEAN_SCALED").getOutput(0)
+        for value, want in zip([r[0] for r in self.rows(out, ["COMP_INDEX"])][:4],
+                               [0, math.sqrt(1 / 6), math.sqrt(1 / 6), 1]):
+            self.assertAlmostEqual(value, want)
+        # SUM_FLAGSPCTL: percentiles of a 0, 1/3, 2/3, 1 and of b 0, 2/3, 1/3, 1; only the last reaches .9 in each.
+        out = stats.CalculateCompositeIndex(path, ["a", "b"], out_table=self.out("ci_flag"),
+                                            index_preset="SUM_FLAGSPCTL").getOutput(0)
+        self.assertEqual([r[0] for r in self.rows(out, ["COMP_INDEX"])], [0.0, 0.0, 0.0, 2.0, None])
+
+    def test_calculate_composite_index_custom_weights_reversal_and_classes(self):
+        path = self.table("cc", [("a", "DOUBLE"), ("b", "DOUBLE")],
+                          [(1.0, 10.0), (2.0, 30.0), (3.0, 20.0), (5.0, 40.0)])
+        # b reversed after scaling: max + min − x = 1, 1/3, 2/3, 0. SUM with a weighted 2: 2·a' + b'' =
+        # 1, .5 + 1/3, 1 + 2/3, 2. Rescaled to 0–100 over [5/6, 2]: (1 − 5/6)/(7/6)·100 = 100/7, 0, (5/6)/(7/6)·100 =
+        # 500/7, 100. Two equal intervals of 50: classes 1, 1, 2, 2. Custom: up to 50 → "low", up to 100 → "high".
+        out = stats.CalculateCompositeIndex(
+            path, [["a", "NO_REVERSE"], ["b", "REVERSE"]], "NEW_FEATURES", self.out("cc_out"), "CUSTOM", "MINMAX",
+            index_method="SUM", index_weights=[["a", 2], ["b", 1]], post_min_max="0 100",
+            post_reclass=["EQINTERVAL", "CUST"], post_num_classes=2,
+            post_custom_classes=[[50, "low"], [100, "high"]]).getOutput(0)
+        got = self.rows(out, ["COMP_INDEX", "COMP_EQINT", "COMP_CUST"])
+        for (value, interval, custom), want, cls, label in zip(got, [100 / 7, 0, 500 / 7, 100], [1, 1, 2, 2],
+                                                               ["low", "low", "high", "high"]):
+            self.assertAlmostEqual(value, want)
+            self.assertEqual((interval, custom), (cls, label))
+        # RANK: ties take the mean of their ranks — 1, 1, 3 gives 1.5, 1.5, 3. ZSCORE divides by the population
+        # standard deviation: 1, 1, 3 has mean 5/3 and σ = √(8/9), so 3 → (4/3)/√(8/9) = √2.
+        ties = self.table("tie", [("a", "DOUBLE")], [(1.0,), (1.0,), (3.0,)])
+        out = stats.CalculateCompositeIndex(ties, "a", out_table=self.out("tie_r"), index_preset="CUSTOM",
+                                            preprocessing="RANK", index_method="MEAN").getOutput(0)
+        self.assertEqual([r[0] for r in self.rows(out, ["COMP_INDEX"])], [1.5, 1.5, 3.0])
+        out = stats.CalculateCompositeIndex(ties, "a", out_table=self.out("tie_z"), index_preset="CUSTOM",
+                                            preprocessing="ZSCORE", index_method="MEAN").getOutput(0)
+        self.assertAlmostEqual(self.rows(out, ["COMP_INDEX"])[2][0], math.sqrt(2))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "QUANTILE"):
+            stats.CalculateCompositeIndex(path, "a;b", out_table=self.out("q"), post_reclass="QUANTILE")
+        with self.assertRaisesRegex(ValueError, "z-scores"):
+            stats.CalculateCompositeIndex(path, "a;b", out_table=self.out("q"), index_preset="CUSTOM",
+                                          preprocessing="ZSCORE", index_method="PRODUCT")
+
+    def test_bivariate_spatial_association_by_lees_formulas(self):
+        # x = 1, 2, 3, 4 and y = 2, 1, 4, 3 on a line 10 apart, band 10: neighbourhoods (the feature included)
+        # {0,1}, {0,1,2}, {1,2,3}, {2,3}, row standardized. x̃ = 1.5, 2, 3, 3.5 (x̄ = 2.5); ỹ = 1.5, 7/3, 8/3, 3.5
+        # (ȳ = 2.5). Σ(x − x̄)² = Σ(y − ȳ)² = 5. Σ(x̃ − x̄)(ỹ − ȳ) = 1 + 1/12 + 1/12 + 1 = 13/6, so L = 13/30.
+        # L_i = 4·(x̃_i − x̄)(ỹ_i − ȳ)/5 = .8, 1/15, 1/15, .8. Pearson: Σ(x − x̄)(y − ȳ) = 3, r = 3/5.
+        path = self.points("lee", [(0, 0), (10, 0), (20, 0), (30, 0)], [[1.0, 2, 3, 4], [2.0, 1, 4, 3]],
+                           more=[("w", "DOUBLE")])
+        arcpy.env.randomGenerator = "7 ACM599"
+        try:
+            result = stats.BivariateSpatialAssociation(path, "v", "w", self.out("lee_out"), "DISTANCE_BAND", 10,
+                                                       num_permutations=99)
+            again = stats.BivariateSpatialAssociation(path, "v", "w", self.out("lee_again"), "DISTANCE_BAND", 10,
+                                                      num_permutations=99)
+        finally:
+            arcpy.env.randomGenerator = None
+        self.assertAlmostEqual(float(result[1]), 13 / 30)
+        self.assertAlmostEqual(float(result[3]), 0.6)
+        got = self.rows(result.getOutput(0), ["SOURCE_ID", "LOCAL_L", "NWA_VAR1", "NWA_VAR2", "NUM_NBRS", "P_VALUE"])
+        for row, want in zip(got, [(1, 0.8, 1.5, 1.5, 2), (2, 1 / 15, 2, 7 / 3, 3), (3, 1 / 15, 3, 8 / 3, 3),
+                                   (4, 0.8, 3.5, 3.5, 2)]):
+            self.assertEqual(row[0], want[0])
+            for value, expected in zip(row[1:4], want[1:4]):
+                self.assertAlmostEqual(value, expected)
+            self.assertEqual(row[4], want[4])
+            # With 99 permutations every p-value is a multiple of 2/100, at least .02 and at most 1.
+            self.assertAlmostEqual(row[5] * 50, round(row[5] * 50))
+            self.assertTrue(0.02 <= row[5] <= 1)
+        self.assertEqual(result[2], again[2])
+        # A bisquare kernel whose bandwidth is the band weighs a neighbour at the band (1 − 1)² = 0: each feature keeps
+        # only itself, x̃ = x, and L is Pearson's r, 3/5.
+        bisquare = stats.BivariateSpatialAssociation(path, "v", "w", self.out("lee_b"), "DISTANCE_BAND", 10,
+                                                     local_weighting_scheme="BISQUARE", num_permutations=99)
+        self.assertAlmostEqual(float(bisquare[1]), 0.6)
+
+    def test_colocation_quotients_local_and_global(self):
+        # A at 0, B at 1, A at 10, A at 11: N = 4, N_B = 1, so N_B/(N − 1) = 1/3. One unweighted nearest neighbour:
+        # A₀'s is B → LCLQ 1/(1/3) = 3; A₁₀'s and A₁₁'s are A → 0. Globally A→B is their mean, 1 — Leslie and
+        # Kronenfeld's (C/N_A)/(N_B/(N − 1)) = (1/3)/(1/3). A→A: N'_A = 2, share 2/3; A₀ → 0, A₁₀ and A₁₁ → 1.5;
+        # mean 1. B→A: B's nearest is A₀, N_A/(N − 1) = 1 → 1. B→B has no other B: null.
+        path = self.points("col", [(0, 0), (1, 0), (10, 0), (11, 0)], [[0.0] * 4, ["A", "B", "A", "A"]],
+                           more=[("cat", "TEXT")])
+        result = stats.ColocationAnalysis("SINGLE_DATASET", path, self.out("col_out"), "cat", None, "A", None, None,
+                                          None, "B", "K_NEAREST_NEIGHBORS", 1, local_weighting_scheme="NONE",
+                                          output_table=self.out("col_global"))
+        got = self.rows(result.getOutput(0), ["cat", "LCLQ"])
+        self.assertEqual(got, [("A", 3.0), ("B", None), ("A", 0.0), ("A", 0.0)])
+        table = {(a, b): v for a, b, v in self.rows(result.getOutput(1), ["CATEGORY_OF_INTEREST",
+                                                                          "NEIGHBORING_CATEGORY", "GLOBAL_CLQ"])}
+        self.assertAlmostEqual(table[("A", "B")], 1.0)
+        self.assertAlmostEqual(table[("A", "A")], 1.0)
+        self.assertAlmostEqual(table[("B", "A")], 1.0)
+        self.assertIsNone(table[("B", "B")])
+        # Gaussian, two neighbours: A₀'s are B at 1 and A at 10, the bandwidth 10; weights exp(−½·(1/10)²) and
+        # exp(−½); LCLQ = 3·w_B/(w_B + w_A).
+        gauss = stats.ColocationAnalysis("SINGLE_DATASET", path, self.out("col_g"), "cat", None, "A", None, None, None,
+                                         "B", "K_NEAREST_NEIGHBORS", 2)
+        w_b, w_a = math.exp(-0.5 * 0.01), math.exp(-0.5)
+        self.assertAlmostEqual(self.rows(gauss.getOutput(0), ["LCLQ"])[0][0], 3 * w_b / (w_b + w_a))
+        # Two datasets without categories: the same points split into an A dataset and a B dataset give the same LCLQs.
+        a = self.points("only_a", [(0, 0), (10, 0), (11, 0)])
+        b = self.points("only_b", [(1, 0)])
+        split = stats.ColocationAnalysis("DATASETS_WITHOUT_CATEGORIES", a, self.out("col_ab"),
+                                         input_feature_for_comparison=b, neighborhood_type="K_NEAREST_NEIGHBORS",
+                                         number_of_neighbors=1, local_weighting_scheme="NONE")
+        self.assertEqual([r[0] for r in self.rows(split.getOutput(0), ["LCLQ"])], [3.0, 0.0, 0.0])
+        p = [r[0] for r in self.rows(split.getOutput(0), ["P_VALUE"])]
+        self.assertTrue(all(0.02 <= v <= 1 for v in p))
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "space-time"):
+            stats.ColocationAnalysis("SINGLE_DATASET", path, self.out("t"), "cat", "when", "A", category_for_comparison="B")
+
+    def octagon(self, name, values):
+        xys = [(10 * math.cos(math.pi * j / 4), 10 * math.sin(math.pi * j / 4)) for j in range(8)]
+        return self.points(name, xys, values, more=[("x", "DOUBLE")])
+
+    def test_spatial_lag_model_recovers_an_exact_process(self):
+        # Eight points on a circle, two nearest neighbours each: W is the ring, ½ to each side, and the cosines
+        # f_m(j) = cos(2πmj/8) are its eigenvectors with eigenvalues cos(2πm/8). With x = f₁ + f₂ and no noise,
+        # y = (I − ½W)⁻¹(2 + 3x) = 2/(1 − ½) + 3(f₁/(1 − ½·cos 45°) + f₂/(1 − 0)). Every regressor lies in the span of
+        # the instruments [1, x, Wx, W²x] = span(1, f₁, f₂), so S2SLS returns the process exactly: ρ = ½, β = (2, 3).
+        f1 = [math.cos(math.pi * j / 4) for j in range(8)]
+        f2 = [math.cos(math.pi * j / 2) for j in range(8)]
+        x = [a + b for a, b in zip(f1, f2)]
+        c1 = math.cos(math.pi / 4)
+        y = [4 + 3 * (a / (1 - 0.5 * c1) + b) for a, b in zip(f1, f2)]
+        path = self.octagon("slm", [y, x])
+        from grapy import _runtime
+        _runtime.MESSAGES.clear()
+        out = stats.SAR(path, "v", "x", self.out("slm_out"), "LAG", "K_NEAREST_NEIGHBORS", number_of_neighbors=2)
+        said = _runtime.GetMessages()
+        self.assertAlmostEqual(float(said.split("Lag Y (rho): ")[1].split(",")[0]), 0.5)
+        self.assertAlmostEqual(float(said.split("Coefficient Intercept: ")[1].split(",")[0]), 2.0)
+        self.assertAlmostEqual(float(said.split("Coefficient x: ")[1].split(",")[0]), 3.0)
+        # The direct impact is β, the total β/(1 − ρ) = 6.
+        self.assertAlmostEqual(float(said.split("Impacts x: ")[1].split("total ")[1]), 6.0)
+        for predicted, residual, count in self.rows(out.getOutput(0), ["PREDICTED", "RESIDUAL", "NUM_NBRS"]):
+            self.assertAlmostEqual(residual, 0.0)
+            self.assertEqual(count, 2)
+
+    def test_spatial_error_model_and_the_lm_tests(self):
+        # The same ring. x = f₂ (eigenvalue 0, so Wx = 0) and ε = f₁ + f₃ (eigenvalues ±cos 45°, equal norms 4):
+        # then ε̄'ε = Σ eigenvalue·‖component‖² = 0 and ε̄'ε̄ = ½ε'ε = σ²·tr(W'W)/n, tr(W'W)/n being ½ — Kelejian and
+        # Prucha's three moments hold exactly at the true λ. u = (I − .4W)⁻¹ε = f₁/(1 − .4c) + f₃/(1 + .4c), y = 2 + 3x + u.
+        # u is orthogonal to 1 and x, so OLS is exact and e = u, λ = .4 and β = (2, 3).
+        c = math.cos(math.pi / 4)
+        f1 = [math.cos(math.pi * j / 4) for j in range(8)]
+        f2 = [math.cos(math.pi * j / 2) for j in range(8)]
+        f3 = [math.cos(3 * math.pi * j / 4) for j in range(8)]
+        u = [a / (1 - 0.4 * c) + b / (1 + 0.4 * c) for a, b in zip(f1, f3)]
+        y = [2 + 3 * x + e for x, e in zip(f2, u)]
+        path = self.octagon("sem", [y, f2])
+        from grapy import _runtime
+        _runtime.MESSAGES.clear()
+        stats.SAR(path, "v", "x", self.out("sem_out"), "ERROR", "K_NEAREST_NEIGHBORS", number_of_neighbors=2)
+        said = _runtime.GetMessages()
+        self.assertAlmostEqual(float(said.split("Lag Residual (lambda): ")[1].split("\n")[0]), 0.4, places=6)
+        self.assertAlmostEqual(float(said.split("Coefficient Intercept: ")[1].split(",")[0]), 2.0, places=6)
+        self.assertAlmostEqual(float(said.split("Coefficient x: ")[1].split(",")[0]), 3.0, places=6)
+        # LM tests on e = u: e'We = 4c/(1 − .4c)² − 4c/(1 + .4c)², e'e = 4/(1 − .4c)² + 4/(1 + .4c)², σ² = e'e/8,
+        # T = tr(W'W) + tr(W²) = 4 + 4. LM_err = (e'We/σ²)²/T. Since e ⊥ 1 and Wx = 0, e'Wy = e'We and WXβ = 2·1,
+        # which M annihilates: D = T, so LM_lag = LM_err and the robust forms divide by D − T = 0 — not defined.
+        ewe = 4 * c / (1 - 0.4 * c) ** 2 - 4 * c / (1 + 0.4 * c) ** 2
+        s2 = (4 / (1 - 0.4 * c) ** 2 + 4 / (1 + 0.4 * c) ** 2) / 8
+        lm = (ewe / s2) ** 2 / 8
+        self.assertAlmostEqual(float(said.split("LM_ERROR: statistic ")[1].split(",")[0]), lm)
+        self.assertAlmostEqual(float(said.split("LM_LAG: statistic ")[1].split(",")[0]), lm)
+        self.assertIn("ROBUST_LM_LAG: statistic None", said)
+
+    def test_spatial_autoregression_chooses_its_model_by_the_documented_flow_chart(self):
+        choose = stats._choose_model
+        none = {"LM_LAG": 0.5, "LM_ERROR": 0.5}
+        self.assertEqual(choose({}, none), "OLS")
+        self.assertEqual(choose({}, {"LM_LAG": 0.01, "LM_ERROR": 0.2}), "LAG")
+        self.assertEqual(choose({}, {"LM_LAG": 0.2, "LM_ERROR": 0.01}), "ERROR")
+        both = {"LM_LAG": 0.01, "LM_ERROR": 0.01}
+        self.assertEqual(choose({}, {**both, "ROBUST_LM_LAG": 0.2, "ROBUST_LM_ERROR": 0.01}), "ERROR")
+        self.assertEqual(choose({}, {**both, "ROBUST_LM_LAG": 0.2, "ROBUST_LM_ERROR": 0.3}), "COMBINED")
+        statistic = {"ROBUST_LM_LAG": 9.0, "ROBUST_LM_ERROR": 7.0, "LM_SARMA": 12.0}
+        everything = {**both, "ROBUST_LM_LAG": 0.001, "ROBUST_LM_ERROR": 0.001, "LM_SARMA": 0.001}
+        self.assertEqual(choose(statistic, everything), "COMBINED")
+        self.assertEqual(choose(statistic, {**everything, "LM_SARMA": 0.2}), "LAG")
+        self.assertIn("Kelejian", stats.SAR.__grapy_equivalent__)
+
+    def test_dimension_reduction_by_principal_components(self):
+        # a = 1, 2, 3, 4 and b = 2, 4, 6, 8: scaled (sd √(5/3) and 2√(5/3)), both become z = (−1.5, −.5, .5, 1.5)/√(5/3).
+        # Their correlation matrix [[1, 1], [1, 1]] has eigenvalues 2 and 0; the first eigenvector (1, 1)/√2, so
+        # PC_1 = √2·z, and it keeps 100 percent of the variance.
+        path = self.table("dr", [("a", "DOUBLE"), ("b", "DOUBLE")], [(1.0, 2.0), (2.0, 4.0), (3.0, 6.0), (4.0, 8.0)])
+        result = stats.DimensionReduction(path, self.out("dr_out"), ["a", "b"], min_components=1,
+                                          output_eigenvalues_table=self.out("dr_values"),
+                                          output_eigenvectors_table=self.out("dr_vectors"))
+        sd = math.sqrt(5 / 3)
+        for (value,), z in zip(self.rows(result.getOutput(0), ["PC_1"]), [-1.5, -0.5, 0.5, 1.5]):
+            self.assertAlmostEqual(value, math.sqrt(2) * z / sd)
+        values = self.rows(result.getOutput(1), ["EIGENVALUE", "PCT_VAR"])
+        self.assertAlmostEqual(values[0][0], 2.0)
+        self.assertAlmostEqual(values[0][1], 100.0)
+        self.assertAlmostEqual(values[1][0], 0.0)
+        vectors = self.rows(result.getOutput(2), ["FIELD", "PC_1"])
+        self.assertAlmostEqual(vectors[0][1], 1 / math.sqrt(2))
+        # Unscaled, a = 1, 2, 3, 4 (variance 5/3) and b = 1, −1, −1, 1 (variance 4/3), whose deviations are orthogonal:
+        # the covariance is diag(5/3, 4/3), so the first component keeps 5/9 ≈ 56 percent — 50 percent needs one
+        # component and 90 percent both.
+        other = self.table("dr2", [("a", "DOUBLE"), ("b", "DOUBLE")], [(1.0, 1.0), (2.0, -1.0), (3.0, -1.0), (4.0, 1.0)])
+        two = stats.DimensionReduction(other, self.out("dr2_out"), "a;b", "PCA", "NO_SCALE_DATA", min_variance=90,
+                                       output_eigenvalues_table=self.out("dr2_v"))
+        self.assertEqual(len(self.rows(two.getOutput(0), ["PC_1", "PC_2"])[0]), 2)
+        self.assertAlmostEqual(self.rows(two.getOutput(1), ["EIGENVALUE"])[0][0], 5 / 3)
+        one = stats.DimensionReduction(other, self.out("dr3_out"), "a;b", "PCA", "NO_SCALE_DATA", min_variance=50)
+        self.assertNotIn("PC_2", [f.name for f in arcpy.ListFields(one.getOutput(0))])
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "LDA"):
+            stats.DimensionReduction(other, self.out("x"), "a;b", "LDA", min_components=1)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "min_components"):
+            stats.DimensionReduction(other, self.out("x"), "a;b")
+
+    def test_decompose_spatial_structure_into_moran_eigenvectors(self):
+        # Two pairs far apart, (0,0)–(1,0) and (100,0)–(101,0); the default band, 1, joins each pair: W = A, the block
+        # matrix of two edges, S₀ = 4. Every row sums to 1, so HWH = A − J/4. (1, 1, −1, −1) is an eigenvector with
+        # eigenvalue 1 (J kills it); (1, −1, 0, 0) and (0, 0, 1, −1) have −1; the constant vector 0. One component
+        # has a positive Moran's I, (n/S₀)·1 = 1: (1, 1, −1, −1)/2, its first entry made positive.
+        path = self.points("mem", [(0, 0), (1, 0), (100, 0), (101, 0)])
+        from grapy import _runtime
+        _runtime.MESSAGES.clear()
+        out = stats.DecomposeSpatialStructure(path, self.out("mem_out"), "NO_APPEND")
+        rows = self.rows(out.getOutput(0), ["SPCOMP_1"])
+        for (value,), want in zip(rows, [0.5, 0.5, -0.5, -0.5]):
+            self.assertAlmostEqual(value, want)
+        self.assertNotIn("SPCOMP_2", [f.name for f in arcpy.ListFields(out.getOutput(0))])
+        self.assertAlmostEqual(float(_runtime.GetMessages().split("Moran's I ")[1].split(",")[0]), 1.0)
+        with self.assertRaisesRegex(arcpy.NotBuiltError, "out_swm"):
+            stats.DecomposeSpatialStructure(path, self.out("x"), out_swm="a.swm")
+
     def test_a_tool_not_built_is_refused_by_name(self):
         with self.assertRaisesRegex(arcpy.NotBuiltError, "GenerateSpatialWeightsMatrix"):
             stats.GenerateSpatialWeightsMatrix("x")

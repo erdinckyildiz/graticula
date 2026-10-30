@@ -398,8 +398,8 @@ class LegacyAndScriptTools(_Folder):
                            ("NetCDFFileProperties", "netCDF"), ("Render", "symbology")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy, name)
-        for name, said in (("SAR", "estimation"), ("BuildBalancedZones", "random"),
-                           ("GenerateSpatialWeightsMatrix", ".swm"), ("TimeSeriesSmoothing", "field names")):
+        for name, said in (("CausalInferenceAnalysis", "estimation"), ("BuildBalancedZones", "random"),
+                           ("GenerateSpatialWeightsMatrix", ".swm"), ("DirectionalTrend", "active map")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy.stats, name)()
         for name, said in (("CreateOverpass", "symbolized"), ("SetControlPointByAngle", "control points"),

@@ -25,7 +25,7 @@ from ._runtime import NotBuiltError
 def _unary(name, function, keep_integer=False):
     def tool(in_raster_or_constant):
         _refuse_environment(f"arcpy.sa.{name}")
-        return _combine([as_raster(in_raster_or_constant, name)], function, keep_integer=keep_integer, tool=name)
+        return _combine([as_raster(in_raster_or_constant, name, bands=True)], function, keep_integer=keep_integer, tool=name)
     tool.__name__ = name
     tool.__doc__ = f"arcpy.sa.{name}, cell by cell."
     return tool
@@ -70,7 +70,7 @@ BooleanNot = _unary("BooleanNot", lambda a: (np.asarray(a) == 0).astype(np.int32
 def _binary(name, function, keep_integer=True):
     def tool(in_raster_or_constant1, in_raster_or_constant2):
         _refuse_environment(f"arcpy.sa.{name}")
-        values = [as_raster(v, name) if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
+        values = [as_raster(v, name, bands=True) if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
         return _combine(values, function, keep_integer=keep_integer, tool=name)
     tool.__name__ = name
     tool.__doc__ = f"arcpy.sa.{name}, cell by cell; NoData where either input is."
@@ -93,7 +93,7 @@ def Divide(in_raster_or_constant1, in_raster_or_constant2):
     divisor is zero."""
     from ._raster import _divide
     _refuse_environment("arcpy.sa.Divide")
-    values = [as_raster(v, "Divide") if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
+    values = [as_raster(v, "Divide", bands=True) if isinstance(v, str) else v for v in (in_raster_or_constant1, in_raster_or_constant2)]
     return _divide(*values)
 Mod = _binary("Mod", _zero_is_nodata(np.fmod))
 Power = _binary("Power", lambda x, y: np.power(np.asarray(x, float), y), keep_integer=False)
@@ -117,8 +117,13 @@ _WHERE = re.compile(r"^\s*value\s*(<=|>=|<>|!=|=|==|<|>)\s*(-?\d+(?:\.\d+)?(?:e-
 
 
 def _where(raster, where_clause, tool):
-    """A where clause on the cell value, ``VALUE > 5``, as a 0/1 array. Clauses on other fields need an attribute
-    table, which grapy's rasters do not carry, and are refused."""
+    """A where clause on the cell value, ``VALUE > 5``, as a 0/1 array. A clause that names other fields is SQL on the
+    raster's attribute table, as documented: the cells whose Value's row satisfies it.
+
+    INFERRED: the clause is run by SQLite on a copy of the table, so its SQL dialect is SQLite's."""
+    if raster._rat is not None and not all(_WHERE.match(part) or part.upper() in ("AND", "OR") for part in
+                                           re.split(r"\s+(AND|OR)\s+", where_clause.strip(), flags=re.IGNORECASE)):
+        return _where_on_table(raster, where_clause, tool)
     clauses = re.split(r"\s+(AND|OR)\s+", where_clause.strip(), flags=re.IGNORECASE)
     result, joiner = None, None
     for part in clauses:
@@ -128,7 +133,8 @@ def _where(raster, where_clause, tool):
         found = _WHERE.match(part)
         if not found:
             raise NotBuiltError(f"{tool}: the where clause '{where_clause}' is not built in grapy yet; "
-                                "only comparisons of VALUE with a number, joined by AND or OR, are.")
+                                "only comparisons of VALUE with a number, joined by AND or OR, are, unless the raster has "
+                                "an attribute table for the clause to run on.")
         op, number = found.group(1), float(found.group(2))
         a = raster._array
         test = {"<": a < number, ">": a > number, "<=": a <= number, ">=": a >= number, "=": a == number,
@@ -137,10 +143,39 @@ def _where(raster, where_clause, tool):
     return result
 
 
+def _where_on_table(raster, where_clause, tool):
+    import sqlite3
+    rat = raster._rat
+    kinds = {"Integer": "INTEGER", "Double": "REAL", "String": "TEXT"}
+    connection = sqlite3.connect(":memory:")
+    try:
+        connection.execute("create table rat (" + ", ".join(f'"{n}" {kinds[k]}' for n, k, _ in rat.fields) + ")")
+        connection.executemany(f"insert into rat values ({', '.join('?' for _ in rat.fields)})", rat.rows)
+        value = rat.fields[rat.index("Value")][0]
+        try:
+            chosen = [row[0] for row in connection.execute(f'select "{value}" from rat where {where_clause}')]
+        except sqlite3.Error as error:
+            raise ValueError(f"{tool}: the where clause '{where_clause}' is not valid on the attribute table: {error}.") from None
+    finally:
+        connection.close()
+    return np.isin(raster._array, np.array(chosen, dtype=np.float64))
+
+
+def _band_wise(values, function, tool):
+    from ._raster import _band_wise as _wise
+    opened = [as_raster(v, tool, bands=True) if isinstance(v, (str, Raster)) else v for v in values]
+    return _wise(opened, function, tool)
+
+
 def Con(in_conditional_raster, in_true_raster_or_constant, in_false_raster_or_constant=None, where_clause=None):
     """The true value where the condition holds (non-zero, or the where clause is true), the false value elsewhere, and
-    NoData where there is no false value."""
+    NoData where there is no false value. Multiband inputs are processed band by band, as documented: all of them
+    multiband with the same number of bands, or a multiband condition with constants."""
     _refuse_environment("arcpy.sa.Con")
+    multiband = _band_wise([in_conditional_raster, in_true_raster_or_constant, in_false_raster_or_constant],
+                           lambda c, t, f: Con(c, t, f, where_clause), "Con")
+    if multiband is not None:
+        return multiband
     condition = as_raster(in_conditional_raster, "Con")
     if where_clause:
         test = _where(condition, where_clause, "Con").astype(np.int32)
@@ -168,8 +203,12 @@ def Con(in_conditional_raster, in_true_raster_or_constant, in_false_raster_or_co
 
 
 def SetNull(in_conditional_raster, in_false_raster_or_constant, where_clause=None):
-    """NoData where the condition holds, the false value elsewhere."""
+    """NoData where the condition holds, the false value elsewhere; band by band for multiband inputs, as Con."""
     _refuse_environment("arcpy.sa.SetNull")
+    multiband = _band_wise([in_conditional_raster, in_false_raster_or_constant],
+                           lambda c, f: SetNull(c, f, where_clause), "SetNull")
+    if multiband is not None:
+        return multiband
     condition = as_raster(in_conditional_raster, "SetNull")
     test = _where(condition, where_clause, "SetNull") if where_clause else condition._array != 0
     flipped = Raster._of((~test).astype(np.int32), condition._mask.copy(), condition._grid)
@@ -177,13 +216,20 @@ def SetNull(in_conditional_raster, in_false_raster_or_constant, where_clause=Non
 
 
 def IsNull(in_raster):
-    """1 where the input is NoData, 0 elsewhere; never NoData itself."""
+    """1 where the input is NoData, 0 elsewhere; never NoData itself. Band by band for a multiband input."""
+    multiband = _band_wise([in_raster], IsNull, "IsNull")
+    if multiband is not None:
+        return multiband
     raster = as_raster(in_raster, "IsNull")
     return Raster._of(raster._mask.astype(np.int32), np.zeros(raster._mask.shape, bool), raster._grid)
 
 
 def Test(in_raster, where_clause):
-    """1 where the where clause is true, 0 where it is false, NoData where the input is."""
+    """1 where the where clause is true, 0 where it is false, NoData where the input is. Band by band for a multiband
+    input."""
+    multiband = _band_wise([in_raster], lambda r: Test(r, where_clause), "Test")
+    if multiband is not None:
+        return multiband
     raster = as_raster(in_raster, "Test")
     return Raster._of(_where(raster, where_clause, "Test").astype(np.int32), raster._mask.copy(), raster._grid)
 
@@ -440,9 +486,31 @@ _CELL = {"MEAN": np.nanmean, "SUM": np.nansum, "MINIMUM": np.nanmin, "MAXIMUM": 
 
 def CellStatistics(in_rasters_or_constants, statistics_type="MEAN", ignore_nodata="DATA", process_as_multiband=None,
                    percentile_value=90, percentile_interpolation_type="AUTO_DETECT"):
-    """A statistic of the inputs, cell by cell. ``DATA`` leaves NoData inputs out of each cell's statistic."""
+    """A statistic of the inputs, cell by cell. ``DATA`` leaves NoData inputs out of each cell's statistic.
+
+    Multiband inputs as documented: under ``SINGLE_BAND`` (the default) each band of a multiband input is an input of
+    its own and the output has one band; under ``MULTI_BAND`` the statistic is taken band by band over the inputs'
+    corresponding bands — every raster input multiband with the same number of bands, or multiband with constants —
+    and the output has as many bands. A multiband raster with a single-band one under MULTI_BAND is refused (the page
+    does not say how the single band pairs with the bands)."""
     _refuse_environment("arcpy.sa.CellStatistics")
-    inputs = [as_raster(v, "CellStatistics") if isinstance(v, str) else v for v in in_rasters_or_constants]
+    mode = str(process_as_multiband or "SINGLE_BAND").upper()
+    if mode in ("TRUE", "MULTI_BAND"):
+        mode = "MULTI_BAND"
+    elif mode in ("FALSE", "SINGLE_BAND"):
+        mode = "SINGLE_BAND"
+    else:
+        _refuse("CellStatistics", "process_as_multiband", process_as_multiband)
+    opened = [as_raster(v, "CellStatistics", bands=True) if isinstance(v, (str, Raster)) else v for v in in_rasters_or_constants]
+    if any(isinstance(v, Raster) and v.bandCount > 1 for v in opened):
+        if mode == "SINGLE_BAND":
+            expanded = []
+            for v in opened:
+                expanded.extend([v._band(b) for b in range(1, v.bandCount + 1)] if isinstance(v, Raster) else [v])
+            return CellStatistics(expanded, statistics_type, ignore_nodata)
+        return _band_wise(opened, lambda *band: CellStatistics(list(band), statistics_type, ignore_nodata),
+                          "CellStatistics")
+    inputs = opened
     rasters = [v for v in inputs if isinstance(v, Raster)]
     from ._raster import _align
     arrays, masks, grid = _align(rasters, "CellStatistics")
@@ -516,11 +584,11 @@ def Reclassify(in_raster, reclass_field, remap, missing_values="DATA"):
     INFERRED: in a RemapRange a range includes both ends, and a value on the boundary of two ranges takes the
     earlier row — the order the table is written in."""
     _refuse_environment("arcpy.sa.Reclassify")
-    if str(reclass_field).upper() not in ("VALUE", "VALUES"):
-        raise NotBuiltError(f"Reclassify: reclass_field '{reclass_field}' needs an attribute table, which is not built in grapy yet.")
     raster = as_raster(in_raster, "Reclassify")
     if isinstance(remap, str):
         remap = _parse_remap(remap)
+    if str(reclass_field).upper() not in ("VALUE", "VALUES"):
+        return _reclassify_by_field(raster, reclass_field, remap, missing_values)
     a = raster._array.astype(np.float64)
     out = np.full(a.shape, np.nan)
     done = np.zeros(a.shape, bool)
@@ -609,10 +677,18 @@ def _zones(in_zone_data, zone_field, value, tool):
     """The zone of each cell of the value raster, a NoData mask and the names of coded text zones."""
     if isinstance(in_zone_data, Raster) or str(in_zone_data).lower().endswith((".tif", ".tiff")):
         zones = as_raster(in_zone_data, tool)
-        if str(zone_field).upper() not in ("VALUE", "VALUES"):
-            raise NotBuiltError(f"{tool}: zone_field '{zone_field}' needs an attribute table, which is not built in grapy yet.")
         from ._raster import _align
         (z, v), (zm, vm), grid = _align([zones, value], tool)
+        if str(zone_field).upper() not in ("VALUE", "VALUES"):
+            # A field of the zone raster's attribute table: each cell's zone is its row's value in that field; text
+            # zones are coded 1, 2 … in sorted order and named back, as a feature zone's text field is.
+            looked, missing = _rat_values(zones, zone_field, tool, z)
+            present = [v for v in looked.ravel()[~(missing | zm).ravel()]]
+            if all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in present):
+                return np.where(missing, 0, looked).astype(np.float64), zm | missing, {}, (v, vm, grid)
+            codes = {value_: i + 1 for i, value_ in enumerate(sorted({str(p) for p in present}))}
+            coded = np.array([codes.get(str(x), 0) for x in looked.ravel()], dtype=np.float64).reshape(z.shape)
+            return coded, zm | missing, {c: n for n, c in codes.items()}, (v, vm, grid)
         return z.astype(np.float64), zm, {}, (v, vm, grid)
     burnt, empty, names = _rasterize(in_zone_data, zone_field, value._grid, tool)
     return burnt, empty, names, (value._array, value._mask, value._grid)
@@ -818,23 +894,52 @@ def _sample(raster, x, y, bilinear):
 
 def ExtractValuesToPoints(in_point_features, in_raster, out_point_features, interpolate_values="NONE",
                           add_attributes="VALUE_ONLY"):
-    """The points copied with ``RASTERVALU``, the cell value under each; -9999 where it is NoData, as documented."""
+    """The points copied with ``RASTERVALU``, the cell value under each; -9999 where it is NoData, as documented. With
+    ``ALL`` every field of the raster's attribute table except Count is added too, the row of the cell each point is in
+    (the cell's own value, not an interpolated one)."""
     from . import _gpkg, da
     from .analysis import _out, _schema
     from ._result import Result
-    if str(add_attributes).upper() != "VALUE_ONLY":
-        raise NotBuiltError("ExtractValuesToPoints: add_attributes 'ALL' needs an attribute table, which is not built in grapy yet.")
+    every = str(add_attributes or "VALUE_ONLY").upper() == "ALL"
     raster = as_raster(in_raster, "ExtractValuesToPoints")
+    if every and raster._rat is None:
+        raise ValueError("ExtractValuesToPoints: ALL needs the raster's attribute table; build one first.")
     columns, shape, srid, _ = _schema(in_point_features)
-    out = _out(out_point_features)
-    _gpkg.create(out, shape, srid, [*columns, _gpkg.Column("RASTERVALU", "Double")])
     names = [c.name for c in columns]
+    if "rastervalu" in [n.lower() for n in names]:
+        raise ValueError("ExtractValuesToPoints: the input already has a RASTERVALU field, which the tool adds.")
+    # ALL: every field of the attribute table but Count, as documented, after RASTERVALU (INFERRED: a name the input
+    # already has is given _1, _2 …).
+    extra, taken = [], {n.lower() for n in names} | {"rastervalu"}
+    if every:
+        for name, kind, _ in raster._rat.fields:
+            if name.lower() == "count":
+                continue
+            label, i = name, 0
+            while label.lower() in taken:
+                i += 1
+                label = f"{name}_{i}"
+            taken.add(label.lower())
+            extra.append((name, label, {"Integer": "Integer", "Double": "Double"}.get(kind, "String")))
+    out = _out(out_point_features)
+    _gpkg.create(out, shape, srid, [*columns, _gpkg.Column("RASTERVALU", "Double"),
+                                    *[_gpkg.Column(label, kind) for _, label, kind in extra]])
     bilinear = str(interpolate_values).upper() == "INTERPOLATE"
-    with da.SearchCursor(in_point_features, [*names, "SHAPE@"]) as rows, da.InsertCursor(out, [*names, "RASTERVALU", "SHAPE@"]) as written:
+    rows_by_value = {}
+    if every:
+        at = raster._rat.index("Value")
+        rows_by_value = {row[at]: row for row in raster._rat.rows}
+    with da.SearchCursor(in_point_features, [*names, "SHAPE@"]) as rows, \
+            da.InsertCursor(out, [*names, "RASTERVALU", *[label for _, label, _ in extra], "SHAPE@"]) as written:
         for row in rows:
             point = row[-1]._shape if row[-1] is not None else None
             value = _sample(raster, point.x, point.y, bilinear) if point is not None else None
-            written.insertRow((*row[:-1], -9999.0 if value is None else float(value), row[-1]))
+            attributes = []
+            if every:
+                cell = _sample(raster, point.x, point.y, False) if point is not None else None
+                match = rows_by_value.get(cell)
+                attributes = [match[raster._rat.index(name)] if match is not None else None for name, _, _ in extra]
+            written.insertRow((*row[:-1], -9999.0 if value is None else float(value), *attributes, row[-1]))
     return Result(out)
 
 
@@ -1079,16 +1184,21 @@ class WSTable:
 def WeightedSum(in_rasters):
     """Each raster times its weight, summed, as a floating-point raster.
 
-    The field must be ``VALUE``: another field needs an attribute table, which grapy's rasters do not carry.
+    A field other than ``VALUE`` is read from the raster's attribute table: each cell takes its row's value.
     INFERRED: NoData in any input is NoData, arcpy's general rule; the page is silent."""
     _refuse_environment("arcpy.sa.WeightedSum")
     rows = in_rasters.weightedSumTable if isinstance(in_rasters, WSTable) else in_rasters
     if not rows:
         raise ValueError("WeightedSum needs at least one row.")
+    rasters = []
     for row in rows:
+        raster = as_raster(row[0], "WeightedSum") if not isinstance(row[0], Raster) else row[0]
         if str(row[1]).upper() not in ("VALUE", "VALUES"):
-            _refuse("WeightedSum", "field", row[1], "it needs a raster attribute table")
-    arrays, mask, grid = _many([row[0] for row in rows], "WeightedSum")
+            looked, missing = _rat_values(raster, row[1], "WeightedSum")
+            values = np.array([0.0 if v is None else float(v) for v in looked.ravel()]).reshape(looked.shape)
+            raster = Raster._of(values, raster._mask | missing, raster._grid)
+        rasters.append(raster)
+    arrays, mask, grid = _many(rasters, "WeightedSum")
     total = sum(a.astype(np.float64) * float(row[2]) for a, row in zip(arrays, rows))
     return Raster._of(np.where(mask, 0, total), mask, grid)
 
@@ -1209,13 +1319,13 @@ def RegionGroup(in_raster, number_neighbors="FOUR", zone_connectivity="WITHIN", 
     first meets it. ``WITHIN`` connects only cells of one value; ``CROSS`` connects any cells that have data. Cells of
     ``excluded_value`` are 0 and take part in no region; NoData stays NoData.
 
-    ``ADD_LINK`` — the default — is refused: it writes the original value into a LINK field of the raster attribute
-    table, which grapy's rasters do not carry. Pass ``NO_LINK``."""
+    The output's attribute table has Value and Count, and under ``ADD_LINK`` (the default; ignored for CROSS, as
+    documented) a LINK field holding the value of the input zone each region came from.
+
+    INFERRED: excluded cells (0) have no row in the table."""
     from scipy.ndimage import label
     _refuse_environment("arcpy.sa.RegionGroup")
-    if str(add_link or "ADD_LINK").upper() != "NO_LINK":
-        _refuse("RegionGroup", "add_link", add_link, "the LINK field belongs to a raster attribute table, which grapy's "
-                "rasters do not carry; pass NO_LINK")
+    link = str(add_link or "ADD_LINK").upper() == "ADD_LINK"
     raster = as_raster(in_raster, "RegionGroup")
     if not raster.isInteger:
         raise ValueError("RegionGroup takes an integer raster.")
@@ -1241,7 +1351,22 @@ def RegionGroup(in_raster, number_neighbors="FOUR", zone_connectivity="WITHIN", 
             order[key] = len(order) + 1
     for key, number in order.items():
         out[pieces == key] = number
-    return Raster._of(out, mask.copy(), raster._grid)
+    result = Raster._of(out, mask.copy(), raster._grid)
+    from ._raster import _Rat
+    cross = str(zone_connectivity or "WITHIN").upper() == "CROSS"
+    numbers, counts = np.unique(out[~mask & (out > 0)], return_counts=True)
+    fields = [("Value", "Integer", 5), ("Count", "Integer", 1)]
+    rows = [[int(n), int(c)] for n, c in zip(numbers, counts)]
+    if link and not cross:
+        fields.append(("LINK", "Integer", 0))
+        first = {}
+        flat_out, flat_in = out.ravel(), a.ravel()
+        for flat in np.flatnonzero(flat_out > 0):
+            first.setdefault(int(flat_out[flat]), int(flat_in[flat]))
+        for row in rows:
+            row.append(first[row[0]])
+    result._rat = _Rat(fields, rows)
+    return result
 
 
 # ---- density
@@ -2704,12 +2829,25 @@ def ExtractBand(raster, band_ids=None, band_names=None, band_wavelengths=None, m
                 wavelength_match_tolerance=None):
     """The bands ``band_ids`` names, in that order: one band answers a Raster, several a raster of several bands.
 
-    Refused: ``band_names`` and ``band_wavelengths``, which need band metadata grapy's rasters do not carry; a band id
-    the raster does not have, since BestMatch's choice of a substitute is not specified.
+    ``band_names`` names bands by the raster's bandNames, in that order.
 
-    INFERRED: band ids are one-based, as every other arcpy.ia band id is; the page's example passes [1, 2]."""
+    Refused: ``band_wavelengths``, which needs band metadata grapy's rasters do not carry; a band id or name the raster
+    does not have, since BestMatch's choice of a substitute is not specified.
+
+    INFERRED: band ids are one-based, as every other arcpy.ia band id is; the page's example passes [1, 2].
+    ``band_names`` is a list of names, or one name (the page gives no format); names match without regard to case; the
+    output keeps the names of a raster whose bands are named."""
+    if _given(band_names) and _given(band_ids):
+        raise ValueError("ExtractBand takes band_ids or band_names, not both.")
     if _given(band_names):
-        _refuse("ExtractBand", "band_names", band_names, "band names are metadata grapy's rasters do not carry")
+        from ._raster import _band_number
+        source = _open_bands(raster, "ExtractBand")
+        names = band_names if isinstance(band_names, (list, tuple)) else [band_names]
+        try:
+            band_ids = [_band_number(str(n), source.bandNames, "ExtractBand's raster") for n in names]
+        except ValueError as error:
+            _refuse("ExtractBand", "band_names", band_names, f"{error} BestMatch's substitute is not specified")
+        raster = source
     if _given(band_wavelengths):
         _refuse("ExtractBand", "band_wavelengths", band_wavelengths, "wavelengths are metadata grapy's rasters do not carry")
     bands = _open_bands(raster, "ExtractBand")
@@ -2722,7 +2860,8 @@ def ExtractBand(raster, band_ids=None, band_names=None, band_wavelengths=None, m
                     "not specified")
     if len(ids) == 1:
         return bands._band(int(ids[0]))
-    return _Bands([bands._arrays[int(i) - 1] for i in ids], [bands._masks[int(i) - 1] for i in ids], bands._grid)
+    return _Bands([bands._arrays[int(i) - 1] for i in ids], [bands._masks[int(i) - 1] for i in ids], bands._grid,
+                  [bands.bandNames[int(i) - 1] for i in ids] if bands._names else None)
 
 
 # ---- local statistics across rasters, answered by arcpy.sa.CellStatistics
@@ -3149,13 +3288,15 @@ def SubsetBands(raster, method="BY_IDS", bands=None, missing_band_action="BestMa
     """The bands named by their one-based ids — ``"1 3"``, or ranges such as ``"2-4 6"`` — kept in the input's band
     order, as the page says the output keeps it.
 
-    Refused: ``BY_NAMES`` and ``BY_WAVELENGTHS`` and ``exclude_bad_bands`` (band metadata grapy's rasters do not carry);
+    Refused: ``BY_NAMES``, whose way of writing several names in ``bands`` the page does not give; ``BY_WAVELENGTHS``
+    and ``exclude_bad_bands`` (band metadata grapy's rasters do not carry);
     an id the raster does not have (BestMatch's substitute is chosen by wavelength, which is not held); and an empty
     ``bands``, whose meaning the page does not give.
 
     INFERRED: a range includes both its ends."""
     if str(method or "BY_IDS").upper() != "BY_IDS":
-        _refuse("SubsetBands", "method", method, "band names and wavelengths are metadata grapy's rasters do not carry")
+        _refuse("SubsetBands", "method", method, "how several names are written in bands is not documented, and "
+                "wavelengths are metadata grapy's rasters do not carry")
     if exclude_bad_bands:
         _refuse("SubsetBands", "exclude_bad_bands", exclude_bad_bands, "bad-band flags are metadata grapy's rasters do not carry")
     if not _given(bands):
@@ -3171,7 +3312,8 @@ def SubsetBands(raster, method="BY_IDS", bands=None, missing_band_action="BestMa
     chosen = sorted(wanted)
     if len(chosen) == 1:
         return source._band(chosen[0])
-    return _Bands([source._arrays[i - 1] for i in chosen], [source._masks[i - 1] for i in chosen], source._grid)
+    return _Bands([source._arrays[i - 1] for i in chosen], [source._masks[i - 1] for i in chosen], source._grid,
+                  [source.bandNames[i - 1] for i in chosen] if source._names else None)
 
 
 _REFUSED.update({
@@ -4821,6 +4963,194 @@ def InterpolateShape(in_surface, in_feature_class, out_feature_class, sample_dis
 
 
 _REFUSED.pop("InterpolateShape", None)
+
+
+# ---- raster attribute tables (ADR-224): the tools that read or write them
+
+
+def _rat_values(raster, field, tool, array=None):
+    """Each cell's value in a field of the raster's attribute table, looked up by the cell's value in the table's Value
+    field, as an object array, and a mask of the cells with no row or no value there."""
+    if raster._rat is None:
+        raise ValueError(f"{tool}: '{field}' is read from the raster's attribute table, and the raster has none; build "
+                         "one first (management.BuildRasterAttributeTable).")
+    try:
+        at, value_at = raster._rat.index(field), raster._rat.index("Value")
+    except KeyError:
+        raise ValueError(f"{tool}: the raster's attribute table has no field '{field}' (or no Value field).") from None
+    lookup = {row[value_at]: row[at] for row in raster._rat.rows}
+    cells = np.asarray(raster._array if array is None else array)
+    flat = [lookup.get(int(v)) if float(v).is_integer() else None for v in cells.ravel()]
+    looked = np.empty(cells.size, dtype=object)
+    looked[:] = flat
+    looked = looked.reshape(cells.shape)
+    missing = np.array([v is None for v in flat], dtype=bool).reshape(cells.shape)
+    return looked, missing
+
+
+def _reclassify_by_field(raster, reclass_field, remap, missing_values):
+    """Reclassify on a field of the attribute table: each cell's row's value in that field is matched against the
+    remap — a RemapValue's old values may be text — and the cell takes the new value. A cell whose field value the
+    remap does not name keeps its own value under DATA and is NoData under NODATA, as for the Value field.
+
+    INFERRED: a cell with no row in the table, or no value in the field, counts as unmapped."""
+    looked, _ = _rat_values(raster, reclass_field, "Reclassify")
+    keep = str(missing_values or "DATA").upper() == "DATA"
+    out = np.where(raster._mask, 0, raster._array).astype(np.float64)
+    mask = raster._mask.copy()
+    done = np.zeros(out.shape, bool)
+    cells = looked.ravel()
+    ranged = isinstance(remap, RemapRange)
+    for row in remap.remapTable:
+        new = row[-1]
+        if ranged:
+            low, high = sorted((float(row[0]), float(row[1])))
+            hit = [v is not None and not isinstance(v, str) and low <= float(v) <= high for v in cells]
+        else:
+            old = row[0]
+            hit = [v is not None and (str(v) == str(old) if isinstance(v, str) or isinstance(old, str)
+                                      else float(v) == float(old)) for v in cells]
+        hit = np.array(hit, dtype=bool).reshape(out.shape) & ~raster._mask & ~done
+        if str(new).upper() == "NODATA":
+            mask |= hit
+        else:
+            out[hit] = float(new)
+        done |= hit
+    if not keep:
+        mask |= ~done
+    integer = raster.isInteger and all(str(r[-1]).upper() == "NODATA" or float(r[-1]).is_integer()
+                                       for r in remap.remapTable)
+    return Raster._of(np.where(mask, 0, out).astype(np.int32 if integer else np.float64), mask, raster._grid)
+
+
+def Lookup(in_raster, lookup_field):
+    """A raster of the values of a field of the input's attribute table. As documented: an integer field gives an
+    integer raster, with a table of its values; another numeric field gives a floating-point raster; a text field
+    keeps the input's values and carries the field into the output's table, beside Value and Count.
+
+    INFERRED: a cell with no row, or no value in the field, is NoData; the output table's Count counts the cells of
+    each value."""
+    from ._raster import _Rat, _value_count
+    _refuse_environment("arcpy.sa.Lookup")
+    raster = as_raster(in_raster, "Lookup")
+    looked, missing = _rat_values(raster, lookup_field, "Lookup")
+    name, kind, _ = raster._rat.fields[raster._rat.index(lookup_field)]
+    mask = raster._mask | missing
+    if kind == "String":
+        counts = _value_count(raster._array, mask)
+        texts = {v: t for v, t in zip(raster._rat.column("Value"), raster._rat.column(name))}
+        result = Raster._of(np.where(mask, 0, raster._array), mask, raster._grid)
+        result._rat = _Rat([*counts.fields, (name, "String", 0)], [[v, c, texts.get(v)] for v, c in counts.rows])
+        return result
+    values = np.array([0.0 if v is None else float(v) for v in looked.ravel()]).reshape(looked.shape)
+    if kind == "Integer":
+        out = np.where(mask, 0, values).astype(np.int32)
+        result = Raster._of(out, mask, raster._grid)
+        result._rat = _value_count(out, mask)
+        return result
+    return Raster._of(np.where(mask, 0, values), mask, raster._grid)
+
+
+def _dataset_name(raster, i, taken):
+    """A raster's name as Combine names its field: its dataset's base name, characters other than letters, digits and
+    the underscore replaced by underscores, a name already taken given an index.
+
+    INFERRED: a temporary raster, which has no name, is called raster1, raster2 … by its position; the index is
+    appended as _1, _2 …"""
+    import os
+    base = os.path.splitext(os.path.basename(raster.catalogPath))[0] if raster.catalogPath else f"raster{i + 1}"
+    name = re.sub(r"[^0-9A-Za-z_]", "_", base)
+    label, k = name, 0
+    while label.lower() in taken:
+        k += 1
+        label = f"{name}_{k}"
+    taken.add(label.lower())
+    return label
+
+
+@_equivalent("unique combinations numbered from 1 in the order a row-major scan first meets them",
+             "the scan order the Region Group page documents for numbering its regions")
+def Combine(in_rasters):
+    """EQUIVALENT: unique combinations numbered in scan order (the method), after Region Group's documented numbering.
+
+    Each unique combination of the inputs' values, cell by cell, gets a unique integer; the output's attribute table
+    has Value, Count and a field per input holding that input's value, named after the input as documented.
+    Floating-point inputs are truncated to integers, as documented. The page does not say which combination gets which
+    number; here they are numbered from 1 in the order a scan, left to right and top to bottom, first meets them.
+
+    INFERRED: a cell NoData in any input is NoData."""
+    from ._raster import _Rat, _align
+    _refuse_environment("arcpy.sa.Combine")
+    rasters = in_rasters if isinstance(in_rasters, (list, tuple)) else [in_rasters]
+    opened = [as_raster(r, "Combine") if not isinstance(r, Raster) else r for r in rasters]
+    arrays, masks, grid = _align(opened, "Combine")
+    mask = np.logical_or.reduce(masks)
+    stack = np.stack([np.trunc(np.asarray(a, dtype=np.float64)).astype(np.int64) for a in arrays], axis=-1)
+    numbers, counts = {}, {}
+    out = np.zeros(mask.shape, np.int32)
+    for r in range(mask.shape[0]):
+        for c in range(mask.shape[1]):
+            if mask[r, c]:
+                continue
+            key = tuple(int(v) for v in stack[r, c])
+            if key not in numbers:
+                numbers[key] = len(numbers) + 1
+            out[r, c] = numbers[key]
+            counts[key] = counts.get(key, 0) + 1
+    taken = {"value", "count"}
+    names = [_dataset_name(raster, i, taken) for i, raster in enumerate(opened)]
+    result = Raster._of(out, mask, grid)
+    result._rat = _Rat([("Value", "Integer", 5), ("Count", "Integer", 1), *[(n, "Integer", 0) for n in names]],
+                       [[number, counts[key], *key] for key, number in numbers.items()])
+    return result
+
+
+def CutFill(in_before_surface, in_after_surface, z_factor=1):
+    """The regions of cut, fill and no change between two surfaces, as *How Cut Fill works* documents. The change is
+    Z before less Z after, times ``z_factor``: positive where material was cut, negative where it was filled, zero
+    where nothing changed. Each edge-connected area of one kind is a region with its own value, and the output's
+    attribute table holds Value, Count, Volume — the change times the cell area, summed over the region — and Area,
+    the region's cell count times the cell area.
+
+    INFERRED: edge-connected is four-connected; regions are numbered from 1 in scan order, left to right and top to
+    bottom, as Region Group documents; a cell NoData in either surface is NoData."""
+    from scipy.ndimage import label
+    from ._raster import _Rat, _align
+    _refuse_environment("arcpy.sa.CutFill")
+    before = in_before_surface if isinstance(in_before_surface, Raster) else as_raster(in_before_surface, "CutFill")
+    after = in_after_surface if isinstance(in_after_surface, Raster) else as_raster(in_after_surface, "CutFill")
+    (b, a), (bm, am), grid = _align([before, after], "CutFill")
+    mask = bm | am
+    change = (b.astype(np.float64) - a.astype(np.float64)) * float(z_factor)
+    kind = np.sign(change)
+    four = np.array([[0, 1, 0], [1, 1, 1], [0, 1, 0]])
+    pieces = np.zeros(change.shape, np.int64)
+    offset = 0
+    for k in (-1.0, 0.0, 1.0):
+        labelled, count = label((kind == k) & ~mask, four)
+        pieces = np.where(labelled > 0, labelled + offset, pieces)
+        offset += count
+    order = {}
+    flat_pieces = pieces.ravel()
+    for flat in np.flatnonzero(flat_pieces):
+        order.setdefault(int(flat_pieces[flat]), len(order) + 1)
+    out = np.zeros(change.shape, np.int32)
+    area = abs(grid.width * grid.height)
+    rows = []
+    for key, number in order.items():
+        inside = pieces == key
+        out[inside] = number
+        count = int(inside.sum())
+        rows.append([number, count, float(change[inside].sum() * area), float(count * area)])
+    result = Raster._of(out, mask, grid)
+    result._rat = _Rat([("Value", "Integer", 5), ("Count", "Integer", 1), ("Volume", "Double", 0),
+                        ("Area", "Double", 0)], rows)
+    return result
+
+
+for _built in ("Lookup", "Combine", "CutFill"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
 
 
 def __getattr__(name):

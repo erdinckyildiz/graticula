@@ -542,12 +542,18 @@ public sealed partial class PostGisImporter
         string w = Part;
         string fraction = $"({w} / nullif({Whole}, 0))";
 
+        // <b>The weight of a feature whose value is null is left out too.</b> ArcGIS documents that nulls are excluded
+        // from every statistic; summing every feature's part in the denominator while its null value drops out of the
+        // numerator pulled the mean towards zero. Found 2026-10-30 when grapy's SummarizeWithin was built to the same
+        // names and checked against the documentation.
+        string valued = $"(case when {column} is not null then {w} end)";
+
         return statistic switch
         {
             "sum" => $"sum({column} * {fraction})",
-            "avg" => $"sum({column} * {w}) / nullif(sum({w}), 0)",
+            "avg" => $"sum({column} * {w}) / nullif(sum({valued}), 0)",
             "stddev_samp" =>
-                $"sqrt(greatest(sum({w} * {column} * {column}) / nullif(sum({w}), 0) - power(sum({w} * {column}) / nullif(sum({w}), 0), 2), 0))",
+                $"sqrt(greatest(sum({w} * {column} * {column}) / nullif(sum({valued}), 0) - power(sum({w} * {column}) / nullif(sum({valued}), 0), 2), 0))",
             _ => $"{statistic}({column})",
         };
     }

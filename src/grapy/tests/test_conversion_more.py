@@ -173,8 +173,8 @@ class ConversionMore(unittest.TestCase):
         made = arcpy.Raster(arcpy.conversion.ASCIIToRaster(hand, self.out("hand.tif"))[0])
         self.assertEqual((made.extent.XMin, made.extent.YMin, made.extent.YMax), (0.0, 100.0, 120.0))
         self.assertEqual(made.pixelType, "S32")
-        self.assertEqual(made.read().tolist()[0][:2], [1.0, 2.0])
-        self.assertTrue(np.isnan(made.read()[0][2]))
+        # Raster.read is rows, columns and bands, NoData as the raster's own NoData value, as its page documents.
+        self.assertEqual(made.read(nodata_to_value=-1)[:, :, 0].tolist()[0], [1, 2, -1])
         with open(hand, "w", encoding="ascii") as written:
             written.write("NCOLS 1\nNROWS 1\nXLLCORNER 0\nYLLCORNER 0\nCELLSIZE 1\n2.5\n")
         with self.assertRaises(arcpy.NotBuiltError):
@@ -192,7 +192,7 @@ class ConversionMore(unittest.TestCase):
             written.write("ncols 3\nnrows 1\nxllcorner 100\nyllcorner 0\ncellsize 2\nnodata_value -5\nbyteorder MSBFIRST\n")
         made = arcpy.Raster(arcpy.conversion.FloatToRaster(self.out("hand.flt"), self.out("hand.tif"))[0])
         self.assertEqual((made.extent.XMin, made.extent.XMax, made.minimum, made.maximum), (100.0, 106.0, 1.25, 7.0))
-        self.assertTrue(np.isnan(made.read()[0][1]))
+        self.assertTrue(np.isnan(made.read(nodata_to_value=np.nan)[0][1][0]))
 
 
 if __name__ == "__main__":
