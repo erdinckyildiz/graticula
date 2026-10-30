@@ -190,8 +190,6 @@ def RasterToPolygon(in_raster, out_polygon_features, simplify="SIMPLIFY", raster
     _refuse_environment("RasterToPolygon")
     if str(simplify).upper() != "NO_SIMPLIFY":
         raise NotBuiltError("RasterToPolygon: simplify 'SIMPLIFY' is not built in grapy yet; pass 'NO_SIMPLIFY'.")
-    if str(raster_field).upper() not in ("VALUE", "VALUES"):
-        raise NotBuiltError(f"RasterToPolygon: raster_field '{raster_field}' needs an attribute table, which is not built in grapy yet.")
     if max_vertices_per_feature not in (None, "", "#"):
         raise NotBuiltError("RasterToPolygon: max_vertices_per_feature is not built in grapy yet.")
     raster = _raster_of(in_raster, "RasterToPolygon")
@@ -201,40 +199,63 @@ def RasterToPolygon(in_raster, out_polygon_features, simplify="SIMPLIFY", raster
     import numpy as np
     from shapely import union_all
     found = list(shapes(raster._array.astype(np.int32), mask=~raster._mask, connectivity=4, transform=raster._grid.transform()))
+    field, extra = _rat_field(raster, raster_field, "RasterToPolygon")
     out = _out(out_polygon_features)
-    _gpkg.create(out, "Polygon", raster._grid.srid, [_gpkg.Column("Id", "Integer"), _gpkg.Column("gridcode", "Integer")])
+    _gpkg.create(out, "Polygon", raster._grid.srid,
+                 [_gpkg.Column("Id", "Integer"), _gpkg.Column("gridcode", "Integer"), *([extra] if extra else [])])
     multipart = str(create_multipart_features).upper() == "MULTIPLE_OUTER_PART"
-    with da.InsertCursor(out, ["Id", "gridcode", "SHAPE@"]) as written:
+    names = ["Id", "gridcode", *([extra.name] if extra else []), "SHAPE@"]
+    with da.InsertCursor(out, names) as written:
         if multipart:
             by_value: dict = {}
             for geometry, value in found:
                 by_value.setdefault(int(value), []).append(as_shape(geometry))
             for i, (value, parts) in enumerate(sorted(by_value.items()), start=1):
-                written.insertRow((i, value, union_all(parts)))
+                written.insertRow((i, value, *([field(value)] if extra else []), union_all(parts)))
         else:
             for i, (geometry, value) in enumerate(found, start=1):
-                written.insertRow((i, int(value), as_shape(geometry)))
+                written.insertRow((i, int(value), *([field(int(value))] if extra else []), as_shape(geometry)))
     return Result(out)
 
 
+def _rat_field(raster, raster_field, tool):
+    """For a raster_field other than Value: a lookup from a cell value to that field of the raster's attribute table,
+    and the output column carrying it, named and typed as the field. INFERRED: the page says the field "will become
+    an attribute in the output feature class" without naming the column; a value with no row is null."""
+    if str(raster_field or "Value").upper() in ("VALUE", "VALUES"):
+        return None, None
+    from ._raster import _read_rat
+    rat = raster._rat if getattr(raster, "_rat", None) is not None else _read_rat(raster.catalogPath or "")
+    if rat is None:
+        raise ValueError(f"{tool}: '{raster_field}' is read from the raster's attribute table, and the raster has none.")
+    try:
+        at, value_at = rat.index(raster_field), rat.index("Value")
+    except KeyError:
+        raise ValueError(f"{tool}: the raster's attribute table has no field '{raster_field}' (or no Value field).") from None
+    lookup = {row[value_at]: row[at] for row in rat.rows}
+    name, kind, _ = rat.fields[at]
+    return (lambda value: lookup.get(int(value))), _gpkg.Column(name, kind)
+
+
 def RasterToPoint(in_raster, out_point_features, raster_field="Value"):
-    """A point at the centre of each cell that is not NoData, with ``pointid`` and ``grid_code``."""
+    """A point at the centre of each cell that is not NoData, with ``pointid`` and ``grid_code`` — or, with a
+    ``raster_field`` of the attribute table, that field in place of ``grid_code``, as the page writes grid_code only
+    when no field is chosen (INFERRED: the column takes the field's name and type)."""
     from shapely.geometry import Point
-    if str(raster_field).upper() not in ("VALUE", "VALUES"):
-        from ._runtime import NotBuiltError
-        raise NotBuiltError(f"RasterToPoint: raster_field '{raster_field}' needs an attribute table, which is not built in grapy yet.")
     raster = _raster_of(in_raster, "RasterToPoint")
+    field, extra = _rat_field(raster, raster_field, "RasterToPoint")
     xs, ys = raster._grid.centres()
     out = _out(out_point_features)
-    _gpkg.create(out, "Point", raster._grid.srid, [_gpkg.Column("pointid", "Integer"),
-                                                     _gpkg.Column("grid_code", "Integer" if raster.isInteger else "Double")])
-    with da.InsertCursor(out, ["pointid", "grid_code", "SHAPE@"]) as written:
+    value_column = extra or _gpkg.Column("grid_code", "Integer" if raster.isInteger else "Double")
+    _gpkg.create(out, "Point", raster._grid.srid, [_gpkg.Column("pointid", "Integer"), value_column])
+    with da.InsertCursor(out, ["pointid", value_column.name, "SHAPE@"]) as written:
         n = 0
         for r in range(raster.height):
             for c in range(raster.width):
                 if not raster._mask[r, c]:
                     n += 1
-                    written.insertRow((n, raster._array[r, c].item(), Point(xs[c], ys[r])))
+                    value = raster._array[r, c].item()
+                    written.insertRow((n, field(value) if extra else value, Point(xs[c], ys[r])))
     return Result(out)
 
 
@@ -260,8 +281,15 @@ def _value_raster(in_features, value_field, grid, assignment, tool):
     shape = (grid.rows, grid.columns)
     rule = str(assignment).upper()
     numeric = all(isinstance(v, (int, float)) and not isinstance(v, bool) for _, v in pairs)
+    texts = None
     if not numeric:
-        raise NotBuiltError(f"{tool}: a text value field needs an attribute table, which is not built in grapy yet.")
+        # A text field: "the output raster will contain an integer value field and a string field", as documented.
+        # INFERRED, the page not saying how the integers are made: the distinct texts in ascending order take 1, 2 ….
+        if str(assignment).upper() not in ("CELL_CENTER", "MOST_FREQUENT", "MAXIMUM_AREA", "MAXIMUM_LENGTH"):
+            raise NotBuiltError(f"{tool}: cell_assignment '{assignment}' on a text field is not built in grapy.")
+        texts = sorted({str(v) for _, v in pairs})
+        code = {t: i for i, t in enumerate(texts, start=1)}
+        pairs = [(s, code[str(v)]) for s, v in pairs]
     integer = all(isinstance(v, int) for _, v in pairs)
     if rule == "CELL_CENTER":
         # Later features are drawn over earlier ones (INFERRED: arcpy documents no order without a priority field).
@@ -294,7 +322,13 @@ def _value_raster(in_features, value_field, grid, assignment, tool):
             array[cell] = value
             mask[cell] = False
         integer = integer and rule in ("MOST_FREQUENT", "SUM", "MAXIMUM", "MINIMUM", "RANGE", "COUNT")
-    return Raster._of(np.where(mask, 0, array).astype(np.int32 if integer else np.float64), mask, grid)
+    made = Raster._of(np.where(mask, 0, array).astype(np.int32 if integer else np.float64), mask, grid)
+    if texts is not None:
+        from ._raster import _Rat
+        values, counts = np.unique(made._array[~made._mask], return_counts=True)
+        made._rat = _Rat([("Value", "Integer", 5), ("Count", "Integer", 1), (str(value_field), "String", 0)],
+                         [[int(v), int(c), texts[int(v) - 1]] for v, c in zip(values, counts)])
+    return made
 
 
 def PolygonToRaster(in_features, value_field, out_rasterdataset, cell_assignment="CELL_CENTER", priority_field="NONE",

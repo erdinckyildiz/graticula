@@ -198,10 +198,20 @@ def _calculate(in_table, field, expression, code_block, where_clause, field_type
     from . import da
     if _joined_layer(in_table) is not None:
         return _calculate_joined(in_table, field, expression, code_block, where_clause, field_type, scope)
-    path, where = _source(in_table)
-    if where_clause:
-        where = f"({where}) and ({where_clause})" if where else where_clause
-    names = [c.name for c in _schema(path)[0]]
+    from ._raster import _is_raster_path, _read_rat
+    if _is_raster_path(in_table):
+        # A raster's attribute table, read and written through da's cursor on it, as AddField adds to it.
+        path, where = _text(in_table), where_clause
+        rat = _read_rat(path)
+        if rat is None:
+            from ._runtime import ExecuteError
+            raise ExecuteError(f"ERROR 000732: {path} has no attribute table; build one first (BuildRasterAttributeTable).")
+        names = rat.names()
+    else:
+        path, where = _source(in_table)
+        if where_clause:
+            where = f"({where}) and ({where_clause})" if where else where_clause
+        names = [c.name for c in _schema(path)[0]]
     if field.lower() not in (n.lower() for n in names):
         AddField(path, field, field_type or "TEXT")
         names.append(field)
@@ -554,7 +564,11 @@ def Append(inputs, target, schema_type="TEST", field_mapping=None, subtype="", e
 
 
 def DeleteField(in_table, drop_field, method="DELETE_FIELDS"):
-    """Fields dropped — or, with ``KEEP_FIELDS``, every field but those named."""
+    """Fields dropped — or, with ``KEEP_FIELDS``, every field but those named. On a raster, from its attribute table;
+    INFERRED: its ``Value`` field stays, as the table's key, and ``KEEP_FIELDS`` keeps it too."""
+    from ._raster import _is_raster_path
+    if _is_raster_path(in_table):
+        return _delete_rat_fields(in_table, drop_field, method)
     connection, table = _gpkg.table_of(in_table)
     try:
         columns = [c.name for c in _gpkg.describe(connection, table)[0]]
@@ -565,6 +579,24 @@ def DeleteField(in_table, drop_field, method="DELETE_FIELDS"):
         connection.commit()
     finally:
         connection.close()
+    return Result(in_table)
+
+
+def _delete_rat_fields(in_table, drop_field, method):
+    from ._raster import _read_rat, _write_rat
+    from ._runtime import ExecuteError
+    rat = _read_rat(_text(in_table))
+    if rat is None:
+        raise ExecuteError(f"ERROR 000732: {in_table} has no attribute table.")
+    named = {n.lower() for n in _list(drop_field)}
+    keep = str(method).upper() == "KEEP_FIELDS"
+    if not keep and "value" in named:
+        raise ExecuteError("ERROR 000800: the Value field is the attribute table's key and cannot be deleted.")
+    wanted = [i for i, (name, _, _) in enumerate(rat.fields)
+              if name.lower() == "value" or ((name.lower() in named) == keep)]
+    rat.fields = [rat.fields[i] for i in wanted]
+    rat.rows = [[row[i] for i in wanted] for row in rat.rows]
+    _write_rat(_text(in_table), rat)
     return Result(in_table)
 
 
@@ -5034,8 +5066,8 @@ _REASONS = {
         "GenerateLicensedFgdb", "UpgradeDataset", "MigrateObjectIDTo64Bit", "MigrateDateFieldToHighPrecision",
         "MigrateTextField", "AlterGeometryIndexPreference", "CalculateDefaultGridIndex",
         "CalculateDefaultClusterTolerance", "AddFullTextIndex", "AssignDefaultToField"),
-    "needs multiband, multidimensional, colormapped or attribute-table rasters; grapy's rasters are single-band grids "
-    "(ADR-224 §5.5)": (
+    "needs multidimensional, colormapped or composited multiband rasters, which grapy's rasters — grids with an "
+    "attribute table — do not hold (ADR-224 §5.5)": (
         "CompositeBands", "CreateColorComposite", "ExtractSubDataset", "BuildMultidimensionalInfo",
         "BuildMultidimensionalTranspose", "AddColormap", "DeleteColormap", "SetRasterProperties", "ComputePansharpenWeights", "CreatePansharpenedRasterDataset"),
     "resamples or transforms cells by a method or extent rule the page does not define exactly": (
