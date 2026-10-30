@@ -173,7 +173,7 @@ No performance claim is made.
    after the diagram) or MakeDiagramLayer, or a diagram path `<file>.gpkg/<dataset>/<network>/<diagram>`. The *map*
    AppendToDiagram, OverwriteDiagram and CreateDiagram without features read is grapy's layers: their selections stand
    for the map's (§5.9 (g)).
-9. **INFERRED, for confirmation** ([Q-200](../open-questions.md)):
+9. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-200** (*"Hepsini onayla"*) ([Q-200](../open-questions.md)):
    - (a) the storage of §2 A and §5.2 — `grapy_nd_template`, `grapy_nd_diagram`, `grapy_nd_feature` and the three
      `<network>_Diagram*` classes — because Esri's diagram storage is not published;
    - (b) what a diagram feature is (§5.3): one junction per junction feature with all its terminals, one edge per edge

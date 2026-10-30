@@ -176,7 +176,7 @@ No benchmark is at stake: a rule runs on the rows a user tool edits.
    every edit through grapy's cursors — grapy is the application the help topic says enforces them. (No tool named
    AlterContingentValue or AddFieldConflictFilter belongs here: the first does not exist in arcpy 3.7's surface, and
    the second is ADR-227's.)
-8. **INFERRED, for the owner's confirmation** ([Q-203](../open-questions.md)):
+8. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-203** (*"Hepsini onayla"*) ([Q-203](../open-questions.md)):
    - (a) the five tables above and their columns, since no GeoPackage or GDAL convention holds rules, field groups,
      contingent values or sequences;
    - (b) operator precedence and associativity are JavaScript's; a half rounds toward +∞ (Round(2.5) = 3,

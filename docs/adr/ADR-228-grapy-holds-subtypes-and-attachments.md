@@ -108,7 +108,7 @@ No benchmark is at stake: a user tool works on the data it was given.
    the cursor does the same. A field that is named keeps its value, `None` included.
 5. **The photo tools** read Exif with the standard library, from the public standard. HEIF (`.heic`) photos are not
    read: each one is listed as invalid, with a warning.
-6. **INFERRED, for the owner's confirmation:**
+6. ~~**INFERRED, for confirmation:**~~ **Confirmed 2026-10-31 by owner decision in Q-197** (*"Hepsini onayla"*):
    - (a) the four `grapy_subtype*`/`grapy_field_default` tables and their columns, and `grapy_global_id`. No GeoPackage
      or GDAL convention stores subtypes or defaults;
    - (b) a subtype that sets no default or domain for a field answers the field's own (read-time fallback);

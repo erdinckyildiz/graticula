@@ -161,7 +161,7 @@ of its neighbourhood, a user tool runs under ADR-223's limits, and a grid too la
    sets that are not given, and include EBK); ArealInterpolationLayerToPolygons (areal kriging's fitting is not given);
    and those refused before for reasons unchanged — the barrier interpolators, IDW3D and NearestNeighbor3D,
    GenerateSubsetPolygons, ExtractValuesToTable, DirectionalTrend. **None is refused for a schedule.**
-9. **INFERRED, for confirmation** ([Q-201](../open-questions.md)):
+9. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-201** (*"Hepsini onayla"*) ([Q-201](../open-questions.md)):
    - (a) the layer is grapy's JSON of §5.2, holding a copy of its points; a bare name lives for the process, a path is
      a file;
    - (b) angles — a neighbourhood's and an anisotropy's direction — are the major axis' direction in degrees clockwise

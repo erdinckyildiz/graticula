@@ -284,7 +284,7 @@ grapy also accepts as null (§5.9 (b)).
    diagram tools (network diagrams are a model of their own, as `arcpy.nd` already says), MigrateToUtilityNetwork (an
    asset package is Esri's layout), Verify and Repair Network Topology (Esri's persisted index), and
    UpdateUtilityNetworkSchema (its page answered 404).
-9. **INFERRED, for confirmation** ([Q-199](../open-questions.md)):
+9. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-199** (*"Hepsini onayla"*) ([Q-199](../open-questions.md)):
    - (a) the storage of §5.2: the classes in the feature dataset under ArcGIS's names; `<network>_Associations` and
      `<network>_DirtyAreas` beside them; grapy's sixteen `grapy_un*` tables; COMPATIBLE and CURRENT make version 8;
    - (b) ~~terminal IDs 1, 2 … in the order a configuration names its terminals; an asset type with no configuration has

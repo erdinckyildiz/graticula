@@ -124,7 +124,7 @@ fails by name past it (segments meeting at very small angles are the known case)
    marked and counted apart, with the method's slope for STANDARD, CONSERVATIVE and AGGRESSIVE INFERRED.
 8. **`arcpy.ListLasDatasetFiles` is refused as undocumented**: it is in `dir(arcpy)` but absent from ArcPy's function
    list, so its parameters and answer are unknown.
-9. **INFERRED, for confirmation** ([Q-196](../open-questions.md)):
+9. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-196** (*"Hepsini onayla"*) ([Q-196](../open-questions.md)):
    - (a) the TIN tables, the folder path form, and the JSON .lasd of §5.2;
    - (b) densification at segment midpoints, and of two inputs at one x,y the later one's z kept — so a LAS
      dataset's TIN keeps the last-written of two returns at one position;

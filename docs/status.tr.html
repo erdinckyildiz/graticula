@@ -110,12 +110,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>4f683dc0</code> · 2026-10-30 23:36</p>
+<p class="stamp">Şu commit’ten üretildi: <code>60d461f2</code> · 2026-10-31 00:24</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">233</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
 <div class="kpi good"><div class="kpi-v">520/616</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">86 canlı · 10 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">8</div><div class="kpi-l">açık soru</div><div class="kpi-n">202 yanıtlandı</div></div>
+<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">210 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">305 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
@@ -124,7 +124,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">8 açık</span></div><p><b>Q-203</b> — [OWNER] How grapy stores attribute rules, contingent values and sequences, and the Arcade answers the pages leave open, INFERRED 2026-10-30 (ADR-235 §5.8): (a) grapy&#x27;s own tables grapyattributerule, grapyfieldgroup, grapycontingentvalue and grapysequence,…</p><p><b>Q-201</b> — [OWNER] How grapy holds geostatistical layers and the fitting rules the pages leave open, INFERRED 2026-10-30 (ADR-233 §5.9): (a) a geostatistical layer is grapy&#x27;s own JSON (grapy-geostatistical-layer, version 1: method, parameters, neighbourhood, spatial…</p><p><b>Q-200</b> — [OWNER] How grapy stores network diagrams and the rule and layout cases the pages leave open, INFERRED 2026-10-30 (ADR-232 §5.9): (a) a template is grapy&#x27;s grapyndtemplate row with its ordered steps (rules, layouts, feature selections) and each Add tool&#x27;s…</p><p><b>Q-202</b> — [OWNER] How grapy stores terrain datasets and reads frame cameras, and the choices the terrain and ortho mapping pages leave open, INFERRED 2026-10-30 (ADR-234 §5.9): (a) a terrain is grapy&#x27;s six grapyterrain tables in the feature dataset&#x27;s GeoPackage and a…</p><p><b>Q-199</b> — [OWNER] How grapy stores utility networks and the trace rules the pages leave open, INFERRED 2026-10-30 (ADR-231 §5.9): (a) the network&#x27;s classes are ordinary grapy classes in its feature dataset under ArcGIS&#x27;s names (WaterDevice … StructureEdgeObject), with…</p><p><b>Q-198</b> — [OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p><p><b>Q-197</b> — [OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p><p><b>Q-196</b> — [OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
 <article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">101 madde</span></div><p><b>86 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
@@ -441,14 +441,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
-<article class="card"><div class="card-h"><span class="id">Q-196</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-197</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-198</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-199</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores utility networks and the trace rules the pages leave open, INFERRED 2026-10-30 (ADR-231 §5.9): (a) the network&#x27;s classes are ordinary grapy classes in its feature dataset under ArcGIS&#x27;s names (WaterDevice … StructureEdgeObject), with…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-200</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores network diagrams and the rule and layout cases the pages leave open, INFERRED 2026-10-30 (ADR-232 §5.9): (a) a template is grapy&#x27;s grapyndtemplate row with its ordered steps (rules, layouts, feature selections) and each Add tool&#x27;s…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-201</span><span class="owner">Owner</span></div><p>[OWNER] How grapy holds geostatistical layers and the fitting rules the pages leave open, INFERRED 2026-10-30 (ADR-233 §5.9): (a) a geostatistical layer is grapy&#x27;s own JSON (grapy-geostatistical-layer, version 1: method, parameters, neighbourhood, spatial…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-202</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores terrain datasets and reads frame cameras, and the choices the terrain and ortho mapping pages leave open, INFERRED 2026-10-30 (ADR-234 §5.9): (a) a terrain is grapy&#x27;s six grapyterrain tables in the feature dataset&#x27;s GeoPackage and a…</p></article>
-<article class="card"><div class="card-h"><span class="id">Q-203</span><span class="owner">Owner</span></div><p>[OWNER] How grapy stores attribute rules, contingent values and sequences, and the Arcade answers the pages leave open, INFERRED 2026-10-30 (ADR-235 §5.8): (a) grapy&#x27;s own tables grapyattributerule, grapyfieldgroup, grapycontingentvalue and grapysequence,…</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -626,9 +618,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>60d461f2</code><time>2026-10-31</time><span>D-314&#x27;s fourth occurrence: the Oracle history test&#x27;s delete of object 2 answers no such feature, in its own container</span></li>
+<li><code>7c41796d</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>4f683dc0</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
 <li><code>033a63a2</code><time>2026-10-30</time><span>A cokriging test compares a variance that is zero up to round-off to 1e-6, not to 8 places</span></li>
 <li><code>50ed49b6</code><time>2026-10-30</time><span>grapy builds every documented Arcade function except 26 refused for their own reasons, and the five template-rule generators as equivalents; nothing in ADR-235 is refused as a schedule</span></li>
+<li><code>cc278627</code><time>2026-10-30</time><span>grapy holds terrain datasets and the ortho mapping of Frame Camera mosaic datasets (ADR-234)</span></li>
 <li><code>d4476427</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-surface&#x27; into grapy-d</span></li>
 <li><code>2b4b5d52</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>78127b61</code><time>2026-10-30</time><span>grapy runs attribute rules in its own Arcade interpreter, holds field groups, contingent values and database sequences, and refuses replicas with their reasons (ADR-235)</span></li>
@@ -637,9 +632,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>42de040d</code><time>2026-10-30</time><span>grapy holds geostatistical layers: kriging, semivariograms and cross-validation (ADR-233)</span></li>
 <li><code>de2da71b</code><time>2026-10-30</time><span>grapy builds ADR-229&#x27;s second batch of LAS tools, and no name is refused as a batch any more (ADR-229 condition 4)</span></li>
 <li><code>360efb15</code><time>2026-10-30</time><span>grapy&#x27;s utility network traces answer as ArcGIS Pro 3.7 was measured answering: barriers in the flow, terminal ids from 2, isolation around a controller (ADR-231 condition 5)</span></li>
-<li><code>8b921dde</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>bf799ee6</code><time>2026-10-30</time><span>grapy builds the rest of arcpy.un&#x27;s utility network: subnetworks, trace configurations and every traditional trace type, and refuses telecom for its own reason (ADR-231 second batch)</span></li>
-<li><code>d13a221d</code><time>2026-10-30</time><span>An image&#x27;s ZOrder is its own, and it comes before the mosaic method, as ArcGIS&#x27;s mosaicking rules say (ADR-230 condition 5)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>
