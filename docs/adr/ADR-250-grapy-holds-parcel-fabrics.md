@@ -331,10 +331,7 @@ None recorded.
    (n), (p), (s) of §5.8, as §5.9 lists. What remains is the adjustment on the ellipsoid rather than the grid
    ([D-355](../architecture-debt.md)), the relationship classes, Z and attribute-rule domains Pro makes, the weighted
    points' geodetic rows, and the order Pro gives a shared line's direction and a shared point's record, which one
-<<<<<<< HEAD
    fabric does not pin. *(2026-10-31: the owner's decision* "Kabul et, borçta izle" *covers the differences of this condition whose method Pro's outputs do not reveal — the order Pro gives a shared line's direction and a shared point's record. The ellipsoid adjustment is [D-355](../architecture-debt.md), which is being built, and this condition's state is left to that work rather than settled here.)*
-=======
-   fabric does not pin.
    **DISCHARGED 2026-11-01**: the adjustment on the ellipsoid, measured and followed. Pro 3.7 and grapy on the tests'
    square in UTM 32N, Web Mercator at 0° and 60° N, WGS 84 geographic, DHDN Gauss-Krüger zone 3 and LAEA (§5.9;
    `tools/pro-compare/adr250-parcel.py` with `ADR250_SRID`, `ADR250_OFFSET`, `ADR250_SCALE`): Pro adjusts a Distance as
@@ -348,7 +345,6 @@ None recorded.
    line's direction and shared point's record, COGO-ground and feet-unit lines on the ellipsoid, and Pro's own
    failures at the equator and at 60° N — is [D-373](../architecture-debt.md), tracked by the owner's decision of
    2026-10-31 (*"Kabul et, borçta izle"*).
->>>>>>> grapy-b
 3. **A large fabric measured**: building and adjusting a fabric of some thousands of parcels, whose time the Arcade
    rules on points and the pure-Python node search in building bear on (ADR-224 §5.4 asks nothing of speed, but a
    toolbox will).
