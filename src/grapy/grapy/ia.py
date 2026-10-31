@@ -177,3 +177,24 @@ GNDVI = _sa.GNDVI
 PixelBlock = _image_fns.PixelBlock
 PixelBlockCollection = _image_fns.PixelBlockCollection
 Mensuration = _image_fns.Mensuration
+
+
+# ---- ADR-248: deep learning, built on PyTorch and torchvision (owner decision 2026-10-31, "Tam aç"); torch is imported
+# only when a tool runs, so `import grapy` stays fast and works without it.
+from . import _dlchips as _dl_chips, _dltools as _dl_tools  # noqa: E402
+
+ExportTrainingDataForDeepLearning = _sa.ExportTrainingDataForDeepLearning
+DeepLearningModelToEcd = _sa.DeepLearningModelToEcd
+NonMaximumSuppression = _dl_chips.NonMaximumSuppression
+ComputeAccuracyForObjectDetection = _equivalent(*_dl_chips.ACCURACY_OBJECTS)(_dl_chips.ComputeAccuracyForObjectDetection)
+ComputeAccuracyForPixelClassification = _equivalent(*_dl_chips.ACCURACY_PIXELS)(
+    _dl_chips.ComputeAccuracyForPixelClassification)
+TrainDeepLearningModel = _equivalent(*_dl_tools.TRAIN_METHOD)(_dl_tools.TrainDeepLearningModel)
+TrainUsingAutoDL = _equivalent(*_dl_tools.AUTODL_METHOD)(_dl_tools.TrainUsingAutoDL)
+ExtractFeaturesUsingAIModels = _equivalent(*_dl_tools.EXTRACT_METHOD)(_dl_tools.ExtractFeaturesUsingAIModels)
+ClassifyPixelsUsingDeepLearning = _dl_tools.ClassifyPixelsUsingDeepLearning
+ClassifyObjectsUsingDeepLearning = _dl_tools.ClassifyObjectsUsingDeepLearning
+DetectObjectsUsingDeepLearning = _dl_tools.DetectObjectsUsingDeepLearning
+DetectChangeUsingDeepLearning = _dl_tools.DetectChangeUsingDeepLearning
+TranslatePixelsUsingDeepLearning = _dl_tools.TranslatePixelsUsingDeepLearning
+TransformImageShapes = _dl_tools.TransformImageShapes

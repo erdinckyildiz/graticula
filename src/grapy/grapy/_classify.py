@@ -478,7 +478,10 @@ def _classify(data, mask, grid, document, tool):
     x = data[~mask]
     values = [c["value"] for c in document["classes"]]
     kind = document["classifier"]
-    if kind == "MaximumLikelihood":
+    if kind == "DeepLearning":  # DeepLearningModelToEcd's definition (ADR-248): the model classifies the whole grid
+        from ._dltools import classify_with_ecd
+        index = np.searchsorted(values, classify_with_ecd(data, mask, document, tool)[~mask])
+    elif kind == "MaximumLikelihood":
         index = np.argmax(_gaussian_scores(x, document["means"], document["covariances"])[0], axis=-1)
     elif kind == "IsoCluster":
         index = _nearest_mean(x, [np.asarray(m) for m in document["means"]])
