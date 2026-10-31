@@ -570,6 +570,8 @@ class Model:
                             turn["restrictions"].add(attribute)
                 elif amount is not None:
                     turn["costs"][attribute] = turn["costs"].get(attribute, 0.0) + float(amount)
+        from . import _evaluators
+        _evaluators.apply_to_turns(self, graph)                    # custom evaluators' turn values (ADR-246)
         self.policy = policy(graph.mode.get("uTurns"))
         self.degree: dict = {}
         for edge in graph.edges:
@@ -674,7 +676,10 @@ class Solver:
                     if not graph.passable(i, forward):
                         continue
                     a, b, t0, t1 = (na, nb, ta, tb) if forward else (nb, na, tb, ta)
-                    cost = graph.cost(impedance, i, forward, t0, t1)
+                    head = self.junction_of.get(b)
+                    if head in graph.blocked_junctions:            # a junction a custom evaluator restricts (ADR-246)
+                        continue
+                    cost = graph.cost(impedance, i, forward, t0, t1) + graph.junction_cost(impedance, head)
                     k = len(self.arcs)
                     self.arcs.append((i, t0, t1, a, b, forward, cost))
                     self.leaving.setdefault(a, []).append(k)
@@ -814,7 +819,7 @@ class Solver:
                 out += self.model.cost(attribute, arc)
             else:
                 i, t0, t1 = arc
-                out += self.graph.cost(attribute, i, t1 > t0, t0, t1)
+                out += self.graph.cost(attribute, i, t1 > t0, t0, t1) +                     self.graph.junction_cost(attribute, self.graph.head_junction(i, t0, t1))
         return out
 
     def shape(self, arcs):

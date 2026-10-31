@@ -60,8 +60,10 @@ network too large for them fails by those limits, by name.
 ## 5. Decision
 
 1. A network dataset is grapy tables in the GeoPackage: source classes, connectivity groups and policy, cost and
-   restriction attributes (field or constant evaluators; script evaluators refused), and travel modes. Building it
-   writes edge and junction tables.
+   restriction attributes (field or constant evaluators; ~~script evaluators refused~~ — **custom evaluators, Python
+   classes, built on 2026-10-31 by [ADR-246](ADR-246-grapy-runs-custom-evaluators-keeps-traversals-and-builds-solver-properties.md)**,
+   which also built the traversed elements and the solver property objects this ADR's condition 3 had refused), and
+   travel modes. Building it writes edge and junction tables.
 2. Solvers: Route, Closest Facility, Service Area, OD Cost Matrix, with the documented outputs and field names.
    ~~Location-Allocation and Vehicle Routing come later, with a named heuristic, or are refused.~~ Location-Allocation
    was built with Teitz and Bart's vertex substitution; **vehicle routing, last mile delivery, waste collection and

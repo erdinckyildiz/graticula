@@ -66,7 +66,8 @@ def SetNetworkConnectivity(in_network_dataset, source, policy):
 def AddNetworkAttribute(in_network_dataset, name, usage, units=None, evaluators=(), use_by_default=False):
     """A ``Cost`` or ``Restriction`` attribute and its evaluators, ``[(source, direction, kind, value)]``: direction
     ``FROM_TO``, ``TO_FROM`` or ``BOTH``; kind ``LENGTH`` (a cost in the linear unit ``units``), ``FIELD`` (a field's
-    value; a restriction holds where it is true) or ``CONSTANT``. Script evaluators are refused."""
+    value; a restriction holds where it is true) or ``CONSTANT``. A script is given as a custom evaluator, a subclass
+    of ``arcpy.nax.AttributeEvaluator`` (ADR-246)."""
     from . import _network
     _network.add_attribute(str(in_network_dataset), name, usage, units, evaluators, use_by_default)
     return Result(str(in_network_dataset))
@@ -101,3 +102,24 @@ def SetNetworkDrivingSide(in_network_dataset, driving_side):
         raise ExecuteError(f"ERROR 030000: '{driving_side}' is not RightSide or LeftSide.")
     _turns.set_property(str(in_network_dataset), "driving_side", side)
     return Result(str(in_network_dataset))
+
+
+def AddNetworkAttributeParameter(in_network_dataset, attribute, name, default_value=None, usage="General"):
+    """A parameter of a network attribute, with its default value and usage (``General`` or ``Restriction``,
+    arcpy.nax.AttributeParameterUsage's names) — ArcGIS Pro sets them in the network's properties dialog, not with a
+    documented tool (ADR-246). A travel mode's ``attributeParameters``, an analysis layer's solver properties and
+    UpdateAnalysisLayerAttributeParameter give it another value for a solve; custom evaluators read it through
+    ``networkQuery.attributeParameters``."""
+    from . import _evaluators
+    _evaluators.add_parameter(str(in_network_dataset), attribute, name, default_value, usage)
+    return Result(str(in_network_dataset))
+
+
+def TraversedElements(result, route_id=None):
+    """A nax route or closest facility result's traversal as arcpy.nax.TraversedJunction, TraversedEdge and
+    TraversedTurn objects, in travel order — the route given by its Routes ObjectID, or every route (ADR-246).
+    ArcGIS Pro hands these objects only to a directions customizer's DirectionsQuery, which grapy refuses (Esri's
+    direction rules are not published); this reads the same objects from the RouteEdges, RouteJunctions and RouteTurns
+    the solve kept."""
+    from . import _traversal
+    return _traversal.elements(result, route_id)

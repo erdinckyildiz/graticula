@@ -693,7 +693,7 @@
   "unexamined": []
  },
  "arcpy.na": {
-  "built": 37,
+  "built": 46,
   "equivalents": {
    "Solve": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
    "UpdateFleetRoutingAssignments": "Or-opt moves of each collection unit within its own route, traversal directions by dynamic programming (Or 1976; Beullens et al. 2003)",
@@ -701,36 +701,27 @@
   },
   "of": 62,
   "refused": {
-   "ClosestFacilitySolverProperties": "arcpy.na.ClosestFacilitySolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
-   "CopyTraversedSourceFeatures": "arcpy.na.CopyTraversedSourceFeatures copies the network elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
    "CreateNetworkDatasetFromTemplate": "arcpy.na.CreateNetworkDatasetFromTemplate reads or writes Esri's network dataset template XML, whose schema is not published.",
    "CreateTemplateFromNetworkDataset": "arcpy.na.CreateTemplateFromNetworkDataset reads or writes Esri's network dataset template XML, whose schema is not published.",
    "Directions": "arcpy.na.Directions writes turn-by-turn directions by Esri's direction rules, which are not published.",
    "DissolveNetwork": "arcpy.na.DissolveNetwork dissolves network edges by Esri's rules, which are not published.",
    "GenerateDirectionsFeatures": "arcpy.na.GenerateDirectionsFeatures writes or lists Esri's direction text and styles, whose rules are not published.",
-   "GetSolverProperties": "arcpy.na.GetSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
    "GetWebToolInfo": "arcpy.na.GetWebToolInfo reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3).",
    "ListDirectionsLanguages": "arcpy.na.ListDirectionsLanguages writes or lists Esri's direction text and styles, whose rules are not published.",
    "ListDirectionsStyleNames": "arcpy.na.ListDirectionsStyleNames writes or lists Esri's direction text and styles, whose rules are not published.",
-   "LocationAllocationSolverProperties": "arcpy.na.LocationAllocationSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
    "MakeClosestFacilityLayer": "arcpy.na.MakeClosestFacilityLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeLocationAllocationLayer": "arcpy.na.MakeLocationAllocationLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeODCostMatrixLayer": "arcpy.na.MakeODCostMatrixLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeRouteLayer": "arcpy.na.MakeRouteLayer is a deprecated layer tool; its Analysis Layer successor is built.",
    "MakeServiceAreaLayer": "arcpy.na.MakeServiceAreaLayer is a deprecated layer tool; its Analysis Layer successor is built.",
-   "ODCostMatrixSolverProperties": "arcpy.na.ODCostMatrixSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
-   "RouteSolverProperties": "arcpy.na.RouteSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
-   "ServiceAreaSolverProperties": "arcpy.na.ServiceAreaSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools.",
    "ShareAsRouteLayers": "arcpy.na.ShareAsRouteLayers shares route layers to a portal, and a fenced tool has no network (ADR-223 §5.3).",
    "SolveVehicleRoutingProblem": "arcpy.na.SolveVehicleRoutingProblem solves through ArcGIS Online's routing service, and a fenced tool has no network (ADR-223 §5.3).",
-   "StreetDirectionsProperties": "arcpy.na.StreetDirectionsProperties writes or lists Esri's direction text and styles, whose rules are not published.",
-   "UpdateAnalysisLayerAttributeParameter": "arcpy.na.UpdateAnalysisLayerAttributeParameter sets an attribute parameter, and grapy's evaluators take none.",
-   "VehicleRoutingProblemSolverProperties": "arcpy.na.VehicleRoutingProblemSolverProperties edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools."
+   "StreetDirectionsProperties": "arcpy.na.StreetDirectionsProperties writes or lists Esri's direction text and styles, whose rules are not published."
   },
   "unexamined": []
  },
  "arcpy.nax": {
-  "built": 61,
+  "built": 77,
   "equivalents": {
    "ClosestFacility": "Dijkstra's shortest path over the network's impedance (Dijkstra 1959)",
    "LastMileDelivery": "Solomon's insertion heuristic I1, then ruin and recreate with threshold accepting (Solomon 1987; Schrimpf et al. 2000; Dueck and Scheuer 1990)",
@@ -744,12 +735,6 @@
   },
   "of": 95,
   "refused": {
-   "AdjacentEdge": "arcpy.nax.AdjacentEdge belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
-   "Attribute": "arcpy.nax.Attribute belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
-   "AttributeEvaluator": "arcpy.nax.AttributeEvaluator belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
-   "AttributeParameter": "arcpy.nax.AttributeParameter belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
-   "AttributeParameterUsage": "arcpy.nax.AttributeParameterUsage belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
-   "AttributeUsage": "arcpy.nax.AttributeUsage belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
    "CreateNetworkDatasetFromTemplate": "arcpy.nax.CreateNetworkDatasetFromTemplate reads or writes Esri's network dataset template XML, whose schema is not published.",
    "CreateTemplateFromNetworkDataset": "arcpy.nax.CreateTemplateFromNetworkDataset reads or writes Esri's network dataset template XML, whose schema is not published.",
    "DirectionPoint": "arcpy.nax.DirectionPoint writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
@@ -760,24 +745,14 @@
    "DirectionsQuery": "arcpy.nax.DirectionsQuery writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "DirectionsStyle": "arcpy.nax.DirectionsStyle writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "DissolveNetwork": "arcpy.nax.DissolveNetwork dissolves network edges by Esri's rules, which are not published.",
-   "Edge": "arcpy.nax.Edge belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
    "GetWebToolInfo": "arcpy.nax.GetWebToolInfo reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3).",
-   "Junction": "arcpy.nax.Junction belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
    "LandmarkSide": "arcpy.nax.LandmarkSide writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "ListDirectionsLanguages": "arcpy.nax.ListDirectionsLanguages lists the languages of Esri's direction text, whose rules are not published.",
    "NameClass": "arcpy.nax.NameClass writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
-   "NetworkElement": "arcpy.nax.NetworkElement belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
-   "NetworkTimeUsage": "arcpy.nax.NetworkTimeUsage belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements.",
    "ReferenceLandmark": "arcpy.nax.ReferenceLandmark writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "ReferenceLandmarkType": "arcpy.nax.ReferenceLandmarkType writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
    "ShareAsRouteLayers": "arcpy.nax.ShareAsRouteLayers shares route layers to a portal, and a fenced tool has no network (ADR-223 §5.3).",
-   "SpatialLandmark": "arcpy.nax.SpatialLandmark writes or customises Esri's direction text, landmarks and street names, whose rules are not published.",
-   "TraversedEdge": "arcpy.nax.TraversedEdge is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
-   "TraversedElement": "arcpy.nax.TraversedElement is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
-   "TraversedElementType": "arcpy.nax.TraversedElementType is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
-   "TraversedJunction": "arcpy.nax.TraversedJunction is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
-   "TraversedTurn": "arcpy.nax.TraversedTurn is the elements a solve traversed, and grapy's solvers keep routes, not their traversed elements.",
-   "Turn": "arcpy.nax.Turn belongs to custom evaluators — Python code computing an attribute's value for each element during a solve — which are script evaluators, refused (ADR-226 §5.1); NetworkDataset's edges() and junctions() read the elements."
+   "SpatialLandmark": "arcpy.nax.SpatialLandmark writes or customises Esri's direction text, landmarks and street names, whose rules are not published."
   },
   "unexamined": []
  },
