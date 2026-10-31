@@ -139,7 +139,15 @@ internal static class ErrorResponse
     };
 
     /// <summary>Maps an exception to a status and a message for the caller.</summary>
-    public static async Task WriteAsync(HttpContext context, Exception exception, ILogger logger)
+    /// <param name="context">The request.</param>
+    /// <param name="exception">What went wrong.</param>
+    /// <param name="logger">Where a failure is logged.</param>
+    /// <param name="log">
+    /// False for an admission refusal answered on arrival (ADR-046's store gate): the request log records it as the
+    /// 503 it is, and a flood's refusals are most of what it is answered — an error line with a stack for each would
+    /// be the server's busiest work during the one event it exists to shed.
+    /// </param>
+    public static async Task WriteAsync(HttpContext context, Exception exception, ILogger logger, bool log = true)
     {
         // <b>A request that ran out of time and a client that hung up throw the same
         // exception, and they deserve opposite answers.</b> 499 exists so the access log
@@ -181,7 +189,10 @@ internal static class ErrorResponse
             return;
         }
 
-        Log.RequestFailed(logger, status, context.Request.Path, exception);
+        if (log)
+        {
+            Log.RequestFailed(logger, status, context.Request.Path, exception);
+        }
 
         context.Response.Clear();
         context.Response.StatusCode = status;

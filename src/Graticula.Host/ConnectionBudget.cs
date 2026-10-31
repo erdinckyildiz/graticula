@@ -276,7 +276,17 @@ internal sealed class ConnectionBudget : IDisposable
     /// <exception cref="ConnectionBudgetFullException">
     /// The wait expired, which means this worker is at its bound.
     /// </exception>
-    public ValueTask<Lease> EnterAsync(string source, CancellationToken cancellationToken) =>
+    public ValueTask<Lease> EnterAsync(string source, CancellationToken cancellationToken)
+    {
+        // <b>The request leaves the store phase here, before it waits for this source — ADR-046, 2026-11-01.</b> Its
+        // permit in <see cref="StoreGate"/> goes back now rather than when the request ends, so a request queued
+        // behind a slow database holds nothing that every other service needs to resolve its callers.
+        StoreGate.Leave();
+
+        return EnterPatientlyOrOnceAsync(source, cancellationToken);
+    }
+
+    private ValueTask<Lease> EnterPatientlyOrOnceAsync(string source, CancellationToken cancellationToken) =>
 
         // <b>Patient inside a job's <see cref="Patiently"/> scope, here rather than at each caller — Q-172,
         // 2026-10-15.</b> Only the importer's seam asked for <see cref="EnterOrWaitAsync"/>; an export reads through

@@ -139,6 +139,11 @@ const qWorker = new Trend('q_worker');
 const qNonEmpty = new Rate('q_nonempty');
 const qAtDepth = new Rate('q_at_depth');
 const qSamples = new Counter('q_samples');
+// The platform store's gate (ADR-046, 2026-11-01): requests waiting for a store permit, sampled the same way. Absent
+// on a server older than the gate, and then simply not reported.
+const qStore = new Trend('q_store');
+const qStoreAtDepth = new Rate('q_store_at_depth');
+const qStoreInside = new Trend('q_store_inside');
 const healthMs = new Trend('health_ms', true);
 
 // The server's own counters, cumulative, sampled beside the queue. The difference
@@ -350,6 +355,12 @@ export function sample(data) {
 
   qSamples.add(1);
   qSource.add(waiting);
+
+  if (admission.store) {
+    qStore.add(admission.store.waiting);
+    qStoreInside.add(admission.store.inside);
+    qStoreAtDepth.add(admission.store.queueDepth > 0 && admission.store.waiting >= admission.store.queueDepth);
+  }
   qWorker.add(admission.waitingForWorker);
   qNonEmpty.add(waiting > 0);
   qAtDepth.add(depth > 0 && waiting >= depth);
@@ -489,6 +500,10 @@ export function handleSummary(data) {
       workerMedian: num(m, 'q_worker', 'med'),
       workerMax: num(m, 'q_worker', 'max'),
       healthMedianMs: num(m, 'health_ms', 'med'),
+      storeMedian: num(m, 'q_store', 'med'),
+      storeMax: num(m, 'q_store', 'max'),
+      storeAtDepthShare: num(m, 'q_store_at_depth', 'rate'),
+      storeInsideMedian: num(m, 'q_store_inside', 'med'),
     },
     // Little's law, from the client's side: throughput x mean latency is how many
     // requests were outstanding on average. It is the number the old measurement could
@@ -537,6 +552,11 @@ export function handleSummary(data) {
              `max ${f(report.queue.max, 0)}, non-empty in ` +
              `${f(100 * (report.queue.nonEmptyShare || 0))}% of samples, at depth in ` +
              `${f(100 * (report.queue.atDepthShare || 0))}%`);
+  if (report.queue.storeMax !== null) {
+    lines.push(`    store gate: waiting median ${f(report.queue.storeMedian, 0)}, max ${f(report.queue.storeMax, 0)}, ` +
+               `at depth in ${f(100 * (report.queue.storeAtDepthShare || 0))}%, inside median ` +
+               `${f(report.queue.storeInsideMedian, 0)}`);
+  }
   lines.push(`    control /rest/info median ${f(report.controlPath.medianMs)} ms, ` +
              `p95 ${f(report.controlPath.p95Ms)} ms`);
   lines.push(`    in flight (Little's law): ${f(report.inFlight.estimate)} ` +

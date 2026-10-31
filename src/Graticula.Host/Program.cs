@@ -490,6 +490,9 @@ public static class Program
         // <b>ADR-007 §4.8's connection cap, which the ADR has required since 2026-08-12.</b>
         // Registered before `LayerConnections` because that is what consumes it: every read path
         // gets its source from there, so one wrapper bounds them all. Q-04 has the numbers.
+        // ADR-046 at the platform store: as many permits as its pool has connections (D-196), the same queue per permit.
+        builder.Services.AddSingleton(new StoreGate(PlatformStorePool, settings.QueueWaitersPerPermit));
+
         builder.Services.AddSingleton(new ConnectionBudget(
             settings.ConnectionBudget,
             settings.PerSourceConcurrency,
@@ -1670,6 +1673,43 @@ public static class Program
         // request open with nothing bounding it. Owner requirement 2026-08-18: every
         // service needs a timeout — see RequestDeadline for why it is two stages.
         app.UseRequestDeadline(settings.RequestDeadline);
+
+        // <b>ADR-046's queue bound where the wait is — before authentication, which is the first read of the platform
+        // store (2026-11-01).</b> A serving request takes one of the store pool's permits here, or waits for one, or is
+        // refused on arrival with the 503 a data-source refusal answers; it gives the permit back when it asks for a
+        // data-source permit, or when it ends. The re-runs of condition 1 found its queue here, unbounded, at the
+        // store's pool — see StoreGate.
+        StoreGate storeGate = app.Services.GetRequiredService<StoreGate>();
+        app.Use(async (context, next) =>
+        {
+            if (storeGate.Permits == 0
+                || !context.Request.Path.StartsWithSegments("/rest/services", StringComparison.OrdinalIgnoreCase))
+            {
+                await next(context).ConfigureAwait(false);
+                return;
+            }
+
+            IDisposable lease;
+
+            try
+            {
+                lease = await storeGate.EnterAsync(context.RequestAborted).ConfigureAwait(false);
+            }
+            catch (ConnectionBudgetFullException refused)
+            {
+                // Written here rather than thrown to the handler: a flood's refusals are most of what it is answered,
+                // and unwinding the pipeline for each costs what the refusal exists to save. The request log above
+                // records it as the 503 it is (ADR-046 condition 3).
+                await ErrorResponse.WriteAsync(context, refused, logger, log: false).ConfigureAwait(false);
+                return;
+            }
+
+            using (lease)
+            {
+                StoreGate.Bind(lease);
+                await next(context).ConfigureAwait(false);
+            }
+        });
 
         app.Use(async (context, next) =>
         {
