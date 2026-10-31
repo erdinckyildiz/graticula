@@ -264,8 +264,8 @@ class RoundFour(_Fixture):
         self.assertIs(sa.Extent, arcpy.Extent)
         # TopoLake (ADR-242) and VfBinary (ADR-241) are built now; AreaSolarRadiation below still says why it is refused.
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            sa.AreaSolarRadiation("a")
-        self.assertIn("hemispherical viewshed", str(raised.exception))
+            sa.FeatureSolarRadiation("a")
+        self.assertIn("names none of those fields", str(raised.exception))
 
     def test_buffered_and_an_irregular_neighbourhood(self):
         values = grid([[1, 2, 3], [4, 5, 6], [7, 8, 9]])

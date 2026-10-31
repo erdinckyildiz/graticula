@@ -59,6 +59,22 @@ AnalyzeChangesUsingLandTrendr = _change_tools.AnalyzeChangesUsingLandTrendr
 DetectChangeUsingChangeAnalysis = _change_tools.DetectChangeUsingChangeAnalysis
 DetectChangeUsingChangeAnalysisRaster = _change_tools.DetectChangeUsingChangeAnalysisRaster
 from . import _mdmore as _md_more  # noqa: E402 — D-329's sweep
+from . import _classify as _cls, _solartools as _solar_tools  # noqa: E402 — ADR-243
+
+TrainIsoClusterClassifier = _cls.TrainIsoClusterClassifier
+TrainKNearestNeighborClassifier = _cls.TrainKNearestNeighborClassifier
+TrainMaximumLikelihoodClassifier = _cls.TrainMaximumLikelihoodClassifier
+TrainSupportVectorMachineClassifier = _cls.TrainSupportVectorMachineClassifier
+ClassifyRaster = _cls.ClassifyRaster
+Classify = _cls.Classify
+MLClassify = _cls.MLClassifyFunction
+Pansharpen = _cls.Pansharpen
+RegionGrow = _cls.RegionGrow
+TimeWithinDay = _solar_tools.TimeWithinDay
+TimeMultipleDays = _solar_tools.TimeMultipleDays
+TimeSpecialDays = _solar_tools.TimeSpecialDays
+TimeWholeYear = _solar_tools.TimeWholeYear
+InspectTrainingSamples = _cls.InspectTrainingSamples
 
 Foreach = _md_more.Foreach
 Subset = _md_more.Subset

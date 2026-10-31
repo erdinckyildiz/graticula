@@ -5294,6 +5294,47 @@ _REFUSED["InterpolateRasterByDimension"] = (
     "arcpy documents no Python signature for it: there is no arcpy reference page, and the raster function page gives "
     "only its display labels, so its parameter names and order are unknown (ADR-236)")
 
+# ---- ADR-243: the classifiers, pansharpening, segmentation and surface tools (cited equivalents), and the solar
+# radiation tools on Fu and Rich's model
+from . import _classify, _solartools  # noqa: E402
+
+for _built in ("TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+               "TrainSupportVectorMachineClassifier", "ClassifyRaster", "Classify", "MLClassify", "Pansharpen",
+               "RegionGrow"):
+    globals()[_built] = getattr(_classify, _built)
+# SegmentMeanShift and SegMeanShift are ADR-242's, and SurfaceParameters, ObserverPoints, Viewshed2, ZonalFill and
+# SplineWithBarriers ADR-244's: built in parallel, merged first, and kept (ADR-243 §5.5).
+AreaSolarRadiation = _solartools.AreaSolarRadiation
+PointsSolarRadiation = _solartools.PointsSolarRadiation
+SolarRadiationGraphics = _solartools.SolarRadiationGraphics
+RasterSolarRadiation = _solartools.RasterSolarRadiation
+TimeWithinDay = _solartools.TimeWithinDay
+TimeMultipleDays = _solartools.TimeMultipleDays
+TimeSpecialDays = _solartools.TimeSpecialDays
+TimeWholeYear = _solartools.TimeWholeYear
+for _built in ("TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+               "TrainSupportVectorMachineClassifier", "ClassifyRaster", "Classify", "MLClassify", "Pansharpen",
+               "RegionGrow", "AreaSolarRadiation", "PointsSolarRadiation",
+               "SolarRadiationGraphics", "RasterSolarRadiation", "TimeWithinDay", "TimeMultipleDays",
+               "TimeSpecialDays", "TimeWholeYear"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED.update({_k: _v for _k, _v in _classify.REFUSED.items() if _k not in globals()})
+from . import _signatures  # noqa: E402
+
+CreateSignatures = _signatures.CreateSignatures
+EditSignatures = _signatures.EditSignatures
+ClassProbability = _signatures.ClassProbability
+InspectTrainingSamples = _classify.InspectTrainingSamples
+for _built in ("CreateSignatures", "EditSignatures", "ClassProbability", "InspectTrainingSamples"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED.update({_k: _v for _k, _v in _signatures.REFUSED.items() if _k not in globals()})
+_REFUSED["FeatureSolarRadiation"] = (
+    "its output table holds each feature's total and per-area insolation, direct, diffuse and duration, and the page "
+    "names none of those fields: they are shown only in a picture of an example table (How Feature Solar Radiation "
+    "works); RasterSolarRadiation computes the same model for cells")
+
 
 # ---- ADR-245: the pages that answered 404 on 2026-10-29, read again at their new addresses on 2026-10-31
 from . import _imagefns as _image_fns  # noqa: E402
