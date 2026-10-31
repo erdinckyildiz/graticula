@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(113);
+    public static SchemaVersion ComponentSchemaVersion => new(115);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -148,7 +148,36 @@ public static class PlatformMigrations
         ADenseTileIsNotedV111,
         AToolboxIsAnItemV112,
         AServiceAccountHoldsClientSecretsV113,
+        ABuiltInAppIsEveryOrganisationsV115,
     ]);
+
+    /// <summary>
+    /// ArcGIS Pro, the ArcGIS API for Python and Field Maps are apps of every organisation, not of the first one —
+    /// ADR-204 condition 3.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found 2026-10-31 by signing in at a second organisation's host.</b> Migration 100 floored <c>oauth_app</c>
+    /// with every other organisation table, and the three built-in apps that migrations 84, 86 and 88 had inserted were
+    /// the default organisation's rows. At any other organisation's host <c>/sharing/rest/oauth2/authorize?client_id=
+    /// arcgisprodesktop</c> answered 400, <i>Sign-in could not start</i>: Pro, the Python API and Field Maps could not
+    /// sign in to any organisation but the first.
+    /// </para>
+    /// <para>
+    /// <b>A second, permissive policy for reading only.</b> A built-in app is read by every organisation; it is changed
+    /// and removed by none but the one whose row it is, because <c>tenant_floor</c> still governs every write — a
+    /// <c>for select</c> policy grants nothing to <c>update</c> or <c>delete</c>. An organisation's own app stays its
+    /// own. Not named <c>tenant_floor</c>, which marks the policy a purge walks (condition 2).
+    /// </para>
+    /// <para><b>Expand.</b> A policy; a build before this one ignores it and is as it was.</para>
+    /// </remarks>
+    private static Migration ABuiltInAppIsEveryOrganisationsV115 => Migration.Expand(
+        new SchemaVersion(115),
+        "A built-in OAuth app is read by every organisation (ADR-204 condition 3).",
+
+        "drop policy if exists builtin_apps_are_everyones on oauth_app",
+
+        "create policy builtin_apps_are_everyones on oauth_app for select using (builtin)");
 
     /// <summary>
     /// A service account holds client secrets beside its keys, and a token issued for one remembers which — ADR-200

@@ -326,11 +326,26 @@ public sealed partial class OAuthConformanceTests : ArcGisClient
     }
 
     /// <summary>The <c>oAuthInfo</c> a page carries, as the Python API finds it.</summary>
+    /// <remarks>
+    /// <b>By the API's own expression, not by the assignment's name</b>: arcgis 2.4.3 takes the first <c>{</c> in the
+    /// page to the last <c>}</c> on that line — <c>re.search(r"\{.*\}", page, re.MULTILINE)</c> — and parses it. Read by
+    /// name, as this did until 2026-10-31, the test passed while every password sign-in through the API failed,
+    /// because the page's inline style came first on the same line (ADR-204 condition 3).
+    /// </remarks>
     private static JsonElement Info(string page)
     {
-        Match found = Regex.Match(page, "var oAuthInfo = ({.*?});", RegexOptions.Singleline);
+        Match found = Regex.Match(page, @"\{.*\}");
         Assert.True(found.Success, $"The page carries no oAuthInfo: {page}");
-        return JsonDocument.Parse(found.Groups[1].Value).RootElement.Clone();
+
+        try
+        {
+            return JsonDocument.Parse(found.Value).RootElement.Clone();
+        }
+        catch (JsonException)
+        {
+            Assert.Fail($"The first braces of the page are not oAuthInfo, so the ArcGIS API for Python cannot read it: {found.Value[..Math.Min(200, found.Value.Length)]}");
+            throw;
+        }
     }
 
     private static string Authorize(string root, string clientId, string redirect, string challenge) =>

@@ -646,6 +646,39 @@ own.
 3. **Every absolute address is checked under a second tenant's host**, the seven of §1b and the literal `/studio`
    links first; and what Pro, the JavaScript SDK and the ArcGIS API for Python do with `portalMode = "multitenant"` is
    measured rather than assumed.
+   **PARTLY DISCHARGED 2026-10-31.** *The addresses:* `EveryAbsoluteAddressIsTheOrganisationsHostTests` makes a second
+   organisation and reads 26 documents at its host — `/rest/info`, the portal's self, servers, search and item, the
+   pro-admin `info`, the OGC landing pages, collections and API, WFS, WMS and WMTS capabilities, the services directory
+   in JSON and HTML, the FeatureServer, MapServer and VectorTileServer documents and style — scanning every
+   `http(s)://authority` in each: none is the main organisation's, and the sixteen that carry this server's own address
+   carry the organisation's host; at the main host the same documents carry the main host (the control). The token
+   exchange takes `serverUrl` at the organisation's origin and refuses the main one's (400). All seven of §1b's pinned
+   addresses are built from the request's host, so they were right per host, as §5a reasoned; the literal `/studio`
+   links are root-relative and stay on the host they were served from. *`portalMode`:* the question as written is gone —
+   since §5e item 12 no organisation is ever told `multitenant` — so what was measured is what each client does with a
+   second organisation's portal. **Two defects were found that way, and a third on the way:**
+   - **Pro, the Python API and Field Maps could not sign in at any organisation but the first.** Their built-in OAuth
+     apps were the default organisation's rows under the floor, and `oauth2/authorize?client_id=arcgisprodesktop`
+     answered 400 at a second host. Migration 115 adds a `for select` policy that shows a built-in app to every
+     organisation; writes stay `tenant_floor`'s.
+   - **The Python API's password sign-in did not work at all, at any organisation.** arcgis 2.4.3 takes the first `{`
+     of the sign-in page to the last `}` on that line and parses it as `oAuthInfo`; the page's inline style came first
+     on the same line. And under `/studio` — the portal address ADR-191 gives Pro — the form's cookie was scoped to
+     `/sharing` and never returned to `/studio/sharing/oauth2/signin`. The element now opens the page on a line of its
+     own, the cookie is scoped under the path base, and `OAuthConformanceTests` reads the page as the API does — it read
+     it by the assignment's name and passed throughout.
+   - **`gis.content.search` returned two items five times** (found on the second organisation, true of every one):
+     the search answered `num` as the count of results sent, the API adds `num` up to `max_items` and kept asking.
+     ArcGIS Online answers the page size asked for — measured 2026-10-31, eight results with `"num": 10` — and so does
+     this server now (`PortalPage`).
+   Measured after the repairs at `https://<org>.localhost:18571/studio`: the Python API signs in by password, reads its
+   own organisation's id, `singletenant` and the organisation's host, and finds its layer twice (feature and tile
+   service); the JavaScript SDK 4.30 (`tools/sdk-probe/organisation.html`) loads the portal with its id, `singletenant`
+   and the user, searches it, loads the item's layer from the organisation's host and counts its feature. **What
+   remains:** ArcGIS Pro itself. Its sign-in page now opens at a second organisation (the 400 above), but adding a portal
+   to Pro is a change to Pro's portal list, which this work may not make — the owner's, with
+   `https://<org-host>/studio`. And the SDK did not send its token to an organisation-shared hosted service under
+   `/studio` at either organisation — [D-347](../architecture-debt.md), not a tenancy difference.
 4. **A token from one tenant opens another's host as an outsider and nothing more**, tested on every face that
    `LayerAccess` guards — not on the portal alone. *(Partly, 2026-10-22: the portal, FeatureServer, its query, MapServer,
    VectorTileServer and the administration API in `TenantsAreKeptApartTests`; by hand the same with warm caches both

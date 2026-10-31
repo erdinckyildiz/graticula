@@ -1,0 +1,60 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>organisation probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body,#v{margin:0;height:100%;width:100%}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div>
+<script>
+// ADR-204 condition 3: what the Maps SDK does with a second organisation's portal — its own host, /studio. Loads the
+// portal signed in with a token the caller made at that host, reads what it says it is, searches its content, and
+// loads, draws and counts the layer item it finds. ?portal=<https://host:port/studio>&token=<…>&q=<item title>.
+var params = new URLSearchParams(location.search);
+var portalUrl = params.get("portal");
+require(["esri/identity/IdentityManager", "esri/portal/Portal", "esri/portal/PortalQueryParams", "esri/Map",
+         "esri/views/MapView", "esri/layers/Layer"],
+function (IdentityManager, Portal, PortalQueryParams, Map, MapView, Layer) {
+  var out = {};
+  var server = portalUrl.replace(/\/studio$/, "");
+  IdentityManager.registerToken({ server: portalUrl + "/sharing/rest", token: params.get("token"), ssl: true });
+  // A hosted item's url is under the portal's path base (/studio/rest/services/…), and the token is the caller's
+  // for both; an app would be asked once by the identity manager, a probe registers it.
+  IdentityManager.registerToken({ server: server + "/rest/services", token: params.get("token"), ssl: true });
+  IdentityManager.registerToken({ server: portalUrl + "/rest/services", token: params.get("token"), ssl: true });
+  IdentityManager.registerToken({ server: portalUrl, token: params.get("token"), ssl: true });
+  var portal = new Portal({ url: portalUrl, authMode: "immediate" });
+  portal.load().then(function () {
+    out.id = portal.id;
+    out.name = portal.name;
+    out.portalMode = portal.portalMode;
+    out.isPortal = portal.isPortal;
+    out.user = portal.user && portal.user.username;
+    out.restUrl = portal.restUrl;
+    return portal.queryItems(new PortalQueryParams({ query: params.get("q"), num: 10 }));
+  }).then(function (r) {
+    out.found = r.results.map(function (i) { return i.type; });
+    var item = r.results.filter(function (i) { return i.type === "Feature Service"; })[0];
+    out.itemUrl = item && item.url;
+    return Layer.fromPortalItem({ portalItem: { id: item.id, portal: portal } });
+  }).then(function (layer) {
+    var view = new MapView({ container: "v", map: new Map({ layers: [layer] }), center: [30.5, 39.5], zoom: 6 });
+    return layer.load().then(function () {
+      out.layerUrl = layer.url;
+      out.layerType = layer.type;
+      return layer.queryFeatureCount({ where: "1=1" });
+    }).then(function (count) {
+      out.counted = count;
+      return Promise.race([
+        view.whenLayerView(layer).then(function (lv) {
+          return new Promise(function (done) {
+            var watch = setInterval(function () { if (!lv.updating) { clearInterval(watch); done(lv); } }, 300);
+          });
+        }).then(function (lv) { return lv.queryFeatureCount(); }),
+        new Promise(function (done) { setTimeout(function () { done("view not ready in 30 s"); }, 30000); }),
+      ]);
+    });
+  }).then(function (drawn) {
+    out.drawn = drawn;
+    window.__result = JSON.stringify(out);
+  }).catch(function (e) { out.error = String(e && e.message || e); window.__result = JSON.stringify(out); });
+});
+</script></body></html>

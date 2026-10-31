@@ -25,6 +25,13 @@ namespace Graticula.Host;
 /// it now, and <c>nextStart</c> says where the rest begins.
 /// </para>
 /// <para>
+/// <b><c>num</c> is the page size asked for, not the number of results sent</b> — measured on ArcGIS Online
+/// 2026-10-31: a search of eight results asked with <c>num=10</c> answers <c>"num": 10</c>. The ArcGIS API for Python
+/// counts pages by it — <c>count += res["num"]</c> until it reaches <c>max_items</c> — so while this said 2 for a page
+/// of two, <c>gis.content.search</c> asked again from <c>nextStart</c> = -1, which ArcGIS reads as 1, and returned the
+/// same two items five times (found running the API against a second organisation, ADR-204 condition 3).
+/// </para>
+/// <para>
 /// <b>Paged after filtering, in memory.</b> The listings are built from objects the item filter reads by reflection
 /// (<c>PortalQuery</c>), so the page is cut from those; the size of what is built is unchanged. A deployment with
 /// enough items for that to matter is the trigger for doing it in SQL.
@@ -58,7 +65,7 @@ internal static class PortalPage
         List<object> results = [.. sorted.Skip(start - 1).Take(num)];
         int next = start - 1 + results.Count < all.Count && results.Count > 0 ? start + results.Count : -1;
 
-        return new Page(results, all.Count, start, results.Count, next);
+        return new Page(results, all.Count, start, num, next);
     }
 
     /// <summary>
