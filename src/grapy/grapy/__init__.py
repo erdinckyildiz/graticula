@@ -1003,10 +1003,15 @@ _REFUSED_NAMES.update({
     "GenerateOptimalCoordinateSystem": "how it chooses a projection and its parameters is not documented",
     "Render": "it applies display symbology — band combinations, stretches and colour maps — for a notebook's view, "
               "and the stretches' rules and the rendered raster it saves are not specified closely enough to reproduce",
-    **{name: "its documentation could not be found (looked under the arcpy functions and classes alphabetical lists, "
-             "its pro.arcgis.com address, and the arcpy.mp, arcpy.ia and arcpy.sharing sections)"
-       for name in ("GetUTMFromLocation", "GetPCSFromDataSource", "Guide", "Mensuration", "TimeBinningProperties",
-                    "ViewContext")},
+    **{name: "it is a class of arcpy.charts, documented at doc.esri.com's arcpy/charts/" + page + ", which configures "
+             "a chart, and charts are drawn by ArcGIS Pro's application — arcpy.Chart is refused for that reason"
+       for name, page in (("Guide", "guide.html"), ("TimeBinningProperties", "timebinningproperties.html"))},
+    **{name: "it has no documentation: no page at doc.esri.com/en/arcgis-pro/latest/arcpy/" + path + ".html, at "
+             "pro.arcgis.com (latest and 3.3), or at desktop.arcgis.com's arcpy reference, and neither arcpy's table of "
+             "contents (arcpy/toc.json) nor a web search names it (checked 2026-10-31), so its parameters and answer "
+             "are unknown"
+       for name, path in (("GetPCSFromDataSource", "functions/getpcsfromdatasource"),
+                          ("ViewContext", "mapping/viewcontext-class"))},
     "RandomNumberGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same answer",
     "CreateRandomValueGenerator": "its generators' streams are Esri's, and a seeded stream must match to be the same "
                                   "answer",
@@ -1053,3 +1058,7 @@ def __getattr__(name):
     if name in _REFUSED_NAMES:
         raise NotBuiltError(f"arcpy.{name} is not built in grapy — {_REFUSED_NAMES[name]}.")
     raise NotBuiltError(f"arcpy.{name} is not built in grapy yet.")
+
+
+# ---- ADR-245: GetUTMFromLocation from ArcMap's arcpy page, and arcpy.ia's Mensuration, which arcpy also answers
+from ._imagefns import GetUTMFromLocation, Mensuration  # noqa: E402,F401

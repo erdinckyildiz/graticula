@@ -1719,6 +1719,45 @@ def CostAllocation(in_source_data, in_cost_raster, maximum_distance=None, in_val
     return Raster._of(np.where(mask, 0, allocated), mask, g)
 
 
+# ---- path distance, distance accumulation and least-cost paths (ADR-241), built in _pathdist
+from . import _pathdist  # noqa: E402
+from ._runtime import equivalent as _equivalent_distance  # noqa: E402
+
+HfBinary = _pathdist.HfBinary
+HfForward = _pathdist.HfForward
+HfLinear = _pathdist.HfLinear
+HfInverseLinear = _pathdist.HfInverseLinear
+HfTable = _pathdist.HfTable
+VfBinary = _pathdist.VfBinary
+VfLinear = _pathdist.VfLinear
+VfSymLinear = _pathdist.VfSymLinear
+VfInverseLinear = _pathdist.VfInverseLinear
+VfSymInverseLinear = _pathdist.VfSymInverseLinear
+VfCos = _pathdist.VfCos
+VfSec = _pathdist.VfSec
+VfCosSec = _pathdist.VfCosSec
+VfSecCos = _pathdist.VfSecCos
+VfHikingTime = _pathdist.VfHikingTime
+VfBidirHikingTime = _pathdist.VfBidirHikingTime
+VfTable = _pathdist.VfTable
+PathDistance = _pathdist.PathDistance
+PathAllocation = _pathdist.PathAllocation
+PathBackLink = _pathdist.PathBackLink
+CostPath = _pathdist.CostPath
+CostPathAsPolyline = _pathdist.CostPathAsPolyline
+_SURFACE_RECONSTRUCTION = (
+    "fast marching surface reconstruction, eight network estimates and four Eikonal steps per cell, the "
+    "direction-dependent slope solved again along each step's own gradient",
+    "Sethian 1999, Level Set Methods and Fast Marching Methods, as Distance accumulation algorithm cites it")
+DistanceAccumulation = _equivalent_distance(*_SURFACE_RECONSTRUCTION)(_pathdist.DistanceAccumulation)
+DistanceAllocation = _equivalent_distance(*_SURFACE_RECONSTRUCTION)(_pathdist.DistanceAllocation)
+_SLOPELINE = ("slopeline tracing down the back-direction raster across the lattice through the cell centres, as "
+              "Distance accumulation algorithm draws it",
+              "Douglas 1994, Least-cost Path in GIS Using an Accumulated Cost Surface and Slopelines")
+OptimalPathAsRaster = _equivalent_distance(*_SLOPELINE)(_pathdist.OptimalPathAsRaster)
+OptimalPathAsLine = _equivalent_distance(*_SLOPELINE)(_pathdist.OptimalPathAsLine)
+
+
 # ---- hydrology (D8)
 
 _D8 = {1: (0, 1), 2: (1, 1), 4: (1, 0), 8: (1, -1), 16: (0, -1), 32: (-1, -1), 64: (-1, 0), 128: (-1, 1)}
@@ -3222,11 +3261,7 @@ _RESCALE = ("it is a transformation function of RescaleByFunction, which is refu
             "when not given, are not specified")
 _FUZZY = ("the Fuzzy Membership pages give the membership functions only as images (checked: the tool page and "
           "FuzzyGaussian's class page)")
-_PATH = ("it is a factor or tool of path distance; How the path distance tools work names the surface distance and the "
-         "horizontal and vertical factors without defining them")
 _TOPO = "it is an input class of TopoToRaster, which is refused (its algorithm is not specified)"
-_TRACE = ("it traces paths over backlink or back-direction rasters; Cost Path's page does not map the codes to "
-          "neighbours, define path numbering or settle ties")
 _404 = "its reference page could not be read (404 on 2026-10-29)"
 _SEGMENT = "it works on the segmented rasters of SegmentMeanShift, which is refused (its algorithm is not specified)"
 _REFUSED.update({name: _RESCALE for name in (
@@ -3235,14 +3270,9 @@ _REFUSED.update({name: _RESCALE for name in (
 _REFUSED.update({name: _FUZZY for name in (
     "FuzzyMembership", "FuzzyGaussian", "FuzzyLarge", "FuzzyLinear", "FuzzyMSLarge", "FuzzyMSSmall", "FuzzyNear",
     "FuzzySmall")})
-_REFUSED.update({name: _PATH for name in (
-    "PathDistance", "PathAllocation", "PathBackLink", "DistanceAccumulation", "DistanceAllocation", "HfBinary",
-    "HfForward", "HfInverseLinear", "HfLinear", "HfTable", "VfBidirHikingTime", "VfBinary", "VfCos", "VfCosSec",
-    "VfHikingTime", "VfInverseLinear", "VfLinear", "VfSec", "VfSecCos", "VfSymInverseLinear", "VfSymLinear", "VfTable")})
 _REFUSED.update({name: _TOPO for name in (
     "TopoBoundary", "TopoCliff", "TopoCoast", "TopoContour", "TopoExclusion", "TopoLake", "TopoPointElevation",
     "TopoSink", "TopoStream")})
-_REFUSED.update({name: _TRACE for name in ("CostPath", "CostPathAsPolyline", "OptimalPathAsRaster", "OptimalPathAsLine")})
 _REFUSED.update({name: _SEGMENT for name in ("ComputeSegmentAttributes", "RemoveRasterSegmentTilingArtifacts")})
 _REFUSED.update({name: _404 for name in ("HeatIndex", "WindChill", "UnitConversion", "Resample", "Speckle")})
 _REFUSED.update({
@@ -5185,9 +5215,198 @@ Complex = _md_more.Complex  # on ADR-237's complex rasters
 for _built in ("Subset", "Foreach", "SummarizeCategoricalRaster", "Complex"):
     _REFUSED.pop(_built, None)
     _NOT_YET.pop(_built, None)
+# ---- Topo to Raster, Segment Mean Shift and the combinatorial tools (ADR-242)
+from . import _combinatorial, _segment, _topo  # noqa: E402
+
+CombinatorialAnd = _combinatorial.CombinatorialAnd
+CombinatorialOr = _combinatorial.CombinatorialOr
+CombinatorialXOr = _combinatorial.CombinatorialXOr
+SegmentMeanShift = _equivalent(*_segment.SEGMENT_MEAN_SHIFT)(_segment.SegmentMeanShift)
+SegMeanShift = _equivalent(*_segment.SEGMENT_MEAN_SHIFT)(_segment.SegMeanShift)
+ComputeSegmentAttributes = _equivalent(*_segment.SEGMENT_ATTRIBUTES)(_segment.ComputeSegmentAttributes)
+RemoveRasterSegmentTilingArtifacts = _equivalent(*_segment.TILING_ARTIFACTS)(
+    _segment.RemoveRasterSegmentTilingArtifacts)
+TopoPointElevation = _topo.TopoPointElevation
+TopoContour = _topo.TopoContour
+TopoStream = _topo.TopoStream
+TopoSink = _topo.TopoSink
+TopoBoundary = _topo.TopoBoundary
+TopoLake = _topo.TopoLake
+TopoCliff = _topo.TopoCliff
+TopoExclusion = _topo.TopoExclusion
+TopoCoast = _topo.TopoCoast
+
+
+@_equivalent(*_topo.METHOD)
+def TopoToRaster(in_topo_features, cell_size=None, extent=None, margin=20, minimum_z_value=None, maximum_z_value=None,
+                 enforce="ENFORCE", data_type="CONTOUR", maximum_iterations=20, roughness_penalty=None,
+                 discrete_error_factor=1, vertical_standard_error=0, tolerance_1=None, tolerance_2=None,
+                 out_stream_features=None, out_sink_features=None, out_diagnostic_file=None, out_parameter_file=None,
+                 profile_penalty=0, out_residual_feature=None, out_stream_cliff_error_feature=None,
+                 out_contour_error_feature=None):
+    """EQUIVALENT: ANUDEM after Hutchinson's published descriptions (1989; 2009; 2011); see grapy._topo's docstring
+    for the method. Every parameter is the page's, with its defaults: margin 20 cells; z limits 20 percent below and
+    above the data; ENFORCE; CONTOUR; 20 iterations; roughness 0 for CONTOUR and 0.5 for SPOT; discretisation error
+    factor 1; vertical standard error 0; tolerances 2.5 and 100 for CONTOUR, 0 and 200 for SPOT; profile penalty 0.
+    The cell size, when not given, is the extent's shorter side over 250.
+
+    The outputs: the stream polylines with ``Code`` 1 (input stream not over a cliff), 2 (over a cliff, one cell
+    long) and 3 (a chain that cleared a sink), as the page numbers them; the remaining sinks with their
+    ``Elevation``; the diagnostic file (grapy's own layout: inputs, parameters, and per resolution and iteration the
+    sinks found, cleared and remaining); the parameter file, in Topo to Raster by File's documented syntax; the
+    residuals with ``Elevation``, ``Residual`` and ``Scaled`` (by the local discretisation error); stream and cliff
+    errors with ``Code`` 1, 4, 5 and 8; contour errors with ``ErrorValue`` 1 (contours of different heights meeting,
+    as documented) and 2 with ``Bias`` (a contour biased by more than five standard deviations).
+
+    INFERRED (ADR-242 §5.4): the roughness functional's form and the λ rule; the resolutions; the first grid's slopes;
+    the chain's shape; data in lakes, exclusions and outside the z limits unused; the special coast value, the z limit
+    less 1; the output field names; residuals written when their scaled value exceeds 1; codes 4, 5, 6, 7, 9 and
+    10–13 of the polylines and points never written, the equivalent not deriving lines from contour corners nor
+    meeting those conditions; no failure at 8,000 sinks or at more points than cells, which are Pro's limits."""
+    plan = _topo.plan_of(in_topo_features, cell_size, extent, margin, minimum_z_value, maximum_z_value, enforce,
+                         data_type, maximum_iterations, roughness_penalty, discrete_error_factor,
+                         vertical_standard_error, tolerance_1, tolerance_2, out_diagnostic_file, out_parameter_file,
+                         profile_penalty)
+    return _topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                     out_stream_cliff_error_feature, out_contour_error_feature)
+
+
+@_equivalent(*_topo.METHOD)
+def TopoToRasterByFile(in_parameter_file, out_stream_features=None, out_sink_features=None, out_residual_feature=None,
+                       out_stream_cliff_error_feature=None, out_contour_error_feature=None):
+    """EQUIVALENT: TopoToRaster run from a parameter file in the syntax the page documents (``Contour <Path> <Item>``,
+    ``ENFORCE ON``, ``TOLERANCES 2.5 100.0`` …); see TopoToRaster.
+
+    INFERRED: a coastal polygon's line is ``Coast <Path>`` (the page's table writes ``Boundary <Path>`` for it, which
+    would read back as a boundary); a path with spaces in double quotes; output keywords without paths ignored."""
+    plan = _topo.read_parameter_file(in_parameter_file)
+    return _topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                     out_stream_cliff_error_feature, out_contour_error_feature, tool="TopoToRasterByFile")
+
+
+for _built in ("CombinatorialAnd", "CombinatorialOr", "CombinatorialXOr", "SegmentMeanShift", "SegMeanShift",
+               "ComputeSegmentAttributes", "RemoveRasterSegmentTilingArtifacts", "TopoToRaster", "TopoToRasterByFile",
+               "TopoPointElevation", "TopoContour", "TopoStream", "TopoSink", "TopoBoundary", "TopoLake", "TopoCliff",
+               "TopoExclusion", "TopoCoast"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
 _REFUSED["InterpolateRasterByDimension"] = (
     "arcpy documents no Python signature for it: there is no arcpy reference page, and the raster function page gives "
     "only its display labels, so its parameter names and order are unknown (ADR-236)")
+
+# ---- ADR-243: the classifiers, pansharpening, segmentation and surface tools (cited equivalents), and the solar
+# radiation tools on Fu and Rich's model
+from . import _classify, _solartools  # noqa: E402
+
+for _built in ("TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+               "TrainSupportVectorMachineClassifier", "ClassifyRaster", "Classify", "MLClassify", "Pansharpen",
+               "RegionGrow"):
+    globals()[_built] = getattr(_classify, _built)
+# SegmentMeanShift and SegMeanShift are ADR-242's, and SurfaceParameters, ObserverPoints, Viewshed2, ZonalFill and
+# SplineWithBarriers ADR-244's: built in parallel, merged first, and kept (ADR-243 §5.5).
+AreaSolarRadiation = _solartools.AreaSolarRadiation
+PointsSolarRadiation = _solartools.PointsSolarRadiation
+SolarRadiationGraphics = _solartools.SolarRadiationGraphics
+RasterSolarRadiation = _solartools.RasterSolarRadiation
+TimeWithinDay = _solartools.TimeWithinDay
+TimeMultipleDays = _solartools.TimeMultipleDays
+TimeSpecialDays = _solartools.TimeSpecialDays
+TimeWholeYear = _solartools.TimeWholeYear
+for _built in ("TrainIsoClusterClassifier", "TrainKNearestNeighborClassifier", "TrainMaximumLikelihoodClassifier",
+               "TrainSupportVectorMachineClassifier", "ClassifyRaster", "Classify", "MLClassify", "Pansharpen",
+               "RegionGrow", "AreaSolarRadiation", "PointsSolarRadiation",
+               "SolarRadiationGraphics", "RasterSolarRadiation", "TimeWithinDay", "TimeMultipleDays",
+               "TimeSpecialDays", "TimeWholeYear"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED.update({_k: _v for _k, _v in _classify.REFUSED.items() if _k not in globals()})
+from . import _signatures  # noqa: E402
+
+CreateSignatures = _signatures.CreateSignatures
+EditSignatures = _signatures.EditSignatures
+ClassProbability = _signatures.ClassProbability
+InspectTrainingSamples = _classify.InspectTrainingSamples
+for _built in ("CreateSignatures", "EditSignatures", "ClassProbability", "InspectTrainingSamples"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED.update({_k: _v for _k, _v in _signatures.REFUSED.items() if _k not in globals()})
+_REFUSED["FeatureSolarRadiation"] = (
+    "its output table holds each feature's total and per-area insolation, direct, diffuse and duration, and the page "
+    "names none of those fields: they are shown only in a picture of an example table (How Feature Solar Radiation "
+    "works); RasterSolarRadiation computes the same model for cells")
+
+
+# ---- ADR-245: the pages that answered 404 on 2026-10-29, read again at their new addresses on 2026-10-31
+from . import _imagefns as _image_fns  # noqa: E402
+from ._raster import RasterInfo as _RasterInfo  # noqa: E402
+
+RasterInfo = _RasterInfo  # arcpy.sa.RasterInfo is arcpy.RasterInfo (arcpy/classes/rasterinfo-class.html)
+UnitConversion = _image_fns.UnitConversion
+HeatIndex = _image_fns.HeatIndex
+WindChill = _image_fns.WindChill
+SpectralConversion = _image_fns.SpectralConversion
+VectorField = _image_fns.VectorField
+InList = _image_fns.InList
+ZonalRemap = _image_fns.ZonalRemap
+ColormapToRGB = _image_fns.ColormapToRGB
+ApplyEnvironment = _image_fns.ApplyEnvironment
+RasterCellIterator = _image_fns.RasterCellIterator
+ColorspaceConversion = _equivalent(*_image_fns.HSV)(_image_fns.ColorspaceConversion)
+Speckle = _equivalent(*_image_fns.SPECKLE)(_image_fns.Speckle)
+ElevationVoidFill = _equivalent(*_image_fns.VOID_FILL)(_image_fns.ElevationVoidFill)
+LinearUnmixing = _equivalent(*_image_fns.UNMIXING)(_image_fns.LinearUnmixing)
+Resample = _equivalent(*_image_fns.RESAMPLE)(_image_fns.Resample)
+GNDVI = _index("GNDVI", ["nir_band_id", "green_band_id"], {"nir_band_id": 5, "green_band_id": 2},
+               lambda nir, green: (nir - green) / (nir + green),
+               "(NIR − Green) / (NIR + Green); the defaults are the page's (arcpy/image-analyst/gnvdi.html), bands 5 and 2.")
+for _built in ("RasterInfo", "UnitConversion", "HeatIndex", "WindChill", "SpectralConversion", "VectorField", "InList",
+               "ZonalRemap", "ColormapToRGB", "ApplyEnvironment", "RasterCellIterator", "ColorspaceConversion",
+               "Speckle", "ElevationVoidFill", "LinearUnmixing", "Resample", "GNDVI"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+
+_REFUSED.update({
+    "MNDWI": "it has no reference page: arcpy/image-analyst/mndwi.html and arcpy/spatial-analyst/mndwi.html answered 404 "
+             "at doc.esri.com and pro.arcgis.com (latest and 3.3), and neither arcpy's table of contents nor the "
+             "Band Arithmetic raster function names an arcpy MNDWI function (checked 2026-10-31), so its parameter "
+             "names, order and default band ids are unknown",
+    "FloatDivide": "it has no reference page: tool-reference/spatial-analyst/float-divide and arcpy/spatial-analyst/"
+                   "floatdivide answered 404 at doc.esri.com, at pro.arcgis.com for 2.9 to 3.5 and latest, and at "
+                   "desktop.arcgis.com, and no table of contents names it (checked 2026-10-31); arcpy documents the / "
+                   "(Division) operator, which grapy's Raster answers",
+    "FloorDivide": "it has no reference page: tool-reference/spatial-analyst/floor-divide answered 404 at doc.esri.com, "
+                   "at pro.arcgis.com for 2.9 to 3.5 and latest, and at desktop.arcgis.com, and no table of contents "
+                   "names it (checked 2026-10-31); arcpy documents the // (Integer Division) operator, which grapy's "
+                   "Raster answers",
+    "VectorFieldRenderer": "its output is a raster \"displayed according to your rendering parameters\" — arrows, wind "
+                           "barbs or ocean-current symbols drawn over thinned tiles — and its page "
+                           "(arcpy/image-analyst/vector-field-renderer.html) does not say what pixel values that "
+                           "rendering holds; VectorField builds the U-V and magnitude-direction bands",
+    "ExportRasterFunctionTemplate": "it exports the raster function chain a Raster carries in its functions property, "
+                                    "and grapy's rasters are computed when they are made and carry no function chain; "
+                                    "the .rft.xml layout it can write is not published",
+    "LabelBadBands": "its only effect is the IsBadBand band property (arcpy/image-analyst/labelbadbands.html), and "
+                     "grapy's rasters carry no band properties to hold it — SubsetBands refuses exclude_bad_bands for "
+                     "the same reason — while how ArcGIS stores the property in a saved raster is not documented",
+    "Colormap": "its answer is the input's values with a colour map attached for display, and grapy's rasters carry no "
+                "colour map (BuildRasterAttributeTable's convert_colormap is refused for the same reason); its named "
+                "maps — Elevation, NDVI, NDVI2, NDVI3 — are described only in words, and its colour ramps by Pro's "
+                "names (arcpy/image-analyst/colormap.html, help/analysis/raster-functions/colormap-function.html, "
+                "read 2026-10-31)",
+    "Render": "it attaches a rendering rule or colour map to a raster for a notebook's display; its page "
+              "(arcpy/image-analyst/render.html) does not say what pixel values a saved rendered raster holds — "
+              "whether stretched to 0–255, how gamma is applied — and its colour schemes are given by name in a PDF of "
+              "swatches",
+    "ShadedRelief": "it merges an elevation-coloured image with a hillshade into RGB, and neither its page nor the Shaded "
+                    "Relief raster function says how the two are merged, nor gives the default colour ramp (Elevation #1) "
+                    "or the SCALED z-factor equation that ps_power and psz_factor enter (read 2026-10-31)",
+    "AspectSlope": "the Aspect-Slope raster function gives only the output's classes — below 20 flat, 21–30, 31–40, 41 "
+                   "and above for low, moderate and high slope — and not how aspect and slope are coded into one value "
+                   "nor the slope breaks (read 2026-10-31)",
+    "ContrastBrightness": "its page and the Contrast And Brightness raster function (Pro's and ArcMap's, read "
+                          "2026-10-31) give the offsets' range, −100 to 100, and no formula mapping an offset to pixel "
+                          "values",
+})
 
 
 def __getattr__(name):
@@ -5202,3 +5421,17 @@ def __getattr__(name):
         raise NotBuiltError(f"arcpy.sa.{name} is not built in grapy yet" + (f": {later}." if later else "."))
 
     return missing
+
+
+# ---- ADR-244: the visibility, surface and barrier tools built as equivalents (TopoToRaster is ADR-242's)
+from . import _surfaces3d  # noqa: E402
+
+ObserverPoints = _surfaces3d.ObserverPoints
+Viewshed2 = _surfaces3d.Viewshed2
+ZonalFill = _surfaces3d.ZonalFill
+SurfaceParameters = _surfaces3d.SurfaceParameters
+SplineWithBarriers = _surfaces3d.SplineWithBarriers
+ContourWithBarriers = _surfaces3d.ContourWithBarriers
+for _built in ("ObserverPoints", "Viewshed2", "ZonalFill", "SurfaceParameters", "SplineWithBarriers",
+               "ContourWithBarriers"):
+    _REFUSED.pop(_built, None)

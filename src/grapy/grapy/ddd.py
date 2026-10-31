@@ -299,6 +299,40 @@ for _built in ("Kriging", "NaturalNeighbor", "Viewshed", "Visibility", "Spline")
     _REFUSED.pop(_built, None)
 
 
+# ---- Topo to Raster (ADR-242): arcpy.sa's equivalent, saved, with 3D Analyst's value table of inputs
+
+
+@_equivalent(*sa._topo.METHOD)
+def TopoToRaster(in_topo_features, out_surface_raster, cell_size=None, extent=None, margin=20, minimum_z_value=None,
+                 maximum_z_value=None, enforce="ENFORCE", data_type="CONTOUR", maximum_iterations=20,
+                 roughness_penalty=None, discrete_error_factor=1, vertical_standard_error=0, tolerance_1=None,
+                 tolerance_2=None, out_stream_features=None, out_sink_features=None, out_diagnostic_file=None,
+                 out_parameter_file=None, profile_penalty=0, out_residual_feature=None,
+                 out_stream_cliff_error_feature=None, out_contour_error_feature=None):
+    """EQUIVALENT: arcpy.sa.TopoToRaster, saved; ``in_topo_features`` is the page's value table, ``"path field Type;
+    …"`` with ``#`` for no field, or Topo objects. See arcpy.sa.TopoToRaster's docstring."""
+    plan = sa._topo.plan_of(in_topo_features, cell_size, extent, margin, minimum_z_value, maximum_z_value, enforce,
+                            data_type, maximum_iterations, roughness_penalty, discrete_error_factor,
+                            vertical_standard_error, tolerance_1, tolerance_2, out_diagnostic_file, out_parameter_file,
+                            profile_penalty)
+    return _saved(sa._topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                               out_stream_cliff_error_feature, out_contour_error_feature), out_surface_raster)
+
+
+@_equivalent(*sa._topo.METHOD)
+def TopoToRasterByFile(in_parameter_file, out_surface_raster, out_stream_features=None, out_sink_features=None,
+                       out_residual_feature=None, out_stream_cliff_error_feature=None, out_contour_error_feature=None):
+    """EQUIVALENT: arcpy.sa.TopoToRasterByFile, saved; see its docstring."""
+    plan = sa._topo.read_parameter_file(in_parameter_file)
+    return _saved(sa._topo.run(plan, out_stream_features, out_sink_features, out_residual_feature,
+                               out_stream_cliff_error_feature, out_contour_error_feature, tool="TopoToRasterByFile"),
+                  out_surface_raster)
+
+
+for _built in ("TopoToRaster", "TopoToRasterByFile"):
+    _REFUSED.pop(_built, None)
+
+
 # ---- Z on features (grapy's feature classes carry z and m since the GeoPackage Z/M support)
 
 import math as _math  # noqa: E402
@@ -1263,3 +1297,66 @@ def __getattr__(name):
 from . import _mpmore  # noqa: E402
 
 SkylineBarrier = _mpmore.SkylineBarrier
+
+
+# ---- SurfaceLength and SurfaceSpot from ArcMap's pages, the legacy tools Pro's arcpy still answers (ADR-245)
+from . import _surfacelegacy  # noqa: E402
+
+SurfaceLength = _surfacelegacy.SurfaceLength
+SurfaceSpot = _surfacelegacy.SurfaceSpot
+for _built in ("SurfaceLength", "SurfaceSpot"):
+    _REFUSED.pop(_built, None)
+
+# ---- ADR-244: the visibility, surface, barrier, footprint and profile tools built as equivalents
+from . import _surfaces3d  # noqa: E402
+
+
+@_equivalent(*_surfaces3d.ObserverPoints.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def ObserverPoints(in_raster, in_observer_point_features, out_raster, z_factor=1, curvature_correction="FLAT_EARTH",
+                   refractivity_coefficient=0.13, out_agl_raster=None):
+    """EQUIVALENT: arcpy.sa.ObserverPoints, saved; see its docstring."""
+    return _saved(sa.ObserverPoints(in_raster, in_observer_point_features, z_factor, curvature_correction,
+                                    refractivity_coefficient, out_agl_raster), out_raster)
+
+
+@_equivalent(*_surfaces3d.Viewshed2.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def Viewshed2(in_raster, in_observer_features, out_raster, out_agl_raster=None, analysis_type="FREQUENCY",
+              vertical_error=0, out_observer_region_relationship_table=None, refractivity_coefficient=0.13,
+              surface_offset=0, observer_elevation=None, observer_offset=1, inner_radius=0, inner_radius_is_3d="GROUND",
+              outer_radius=None, outer_radius_is_3d="GROUND", horizontal_start_angle=0, horizontal_end_angle=360,
+              vertical_upper_angle=90, vertical_lower_angle=-90, analysis_method="ALL_SIGHTLINES",
+              analysis_target_device="GPU_THEN_CPU"):
+    """EQUIVALENT: arcpy.sa.Viewshed2, saved; see its docstring."""
+    return _saved(sa.Viewshed2(in_raster, in_observer_features, out_agl_raster, analysis_type, vertical_error,
+                               out_observer_region_relationship_table, refractivity_coefficient, surface_offset,
+                               observer_elevation, observer_offset, inner_radius, inner_radius_is_3d, outer_radius,
+                               outer_radius_is_3d, horizontal_start_angle, horizontal_end_angle, vertical_upper_angle,
+                               vertical_lower_angle, analysis_method, analysis_target_device), out_raster)
+
+
+@_equivalent(*_surfaces3d.SurfaceParameters.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def SurfaceParameters(in_raster, out_raster, parameter_type="SLOPE", local_surface_type="QUADRATIC",
+                      neighborhood_distance=None, use_adaptive_neighborhood="FIXED_NEIGHBORHOOD", z_unit="METER",
+                      output_slope_measurement="DEGREE", project_geodesic_azimuths="GEODESIC_AZIMUTHS",
+                      use_equatorial_aspect="NORTH_POLE_ASPECT", in_analysis_mask=None):
+    """EQUIVALENT: arcpy.sa.SurfaceParameters, saved; see its docstring."""
+    return _saved(sa.SurfaceParameters(in_raster, parameter_type, local_surface_type, neighborhood_distance,
+                                       use_adaptive_neighborhood, z_unit, output_slope_measurement,
+                                       project_geodesic_azimuths, use_equatorial_aspect, in_analysis_mask), out_raster)
+
+
+@_equivalent(*_surfaces3d.SplineWithBarriers.__grapy_equivalent__[:-1].rsplit(" (", 1))
+def SplineWithBarriers(Input_point_features, Z_value_field, Input_barrier_features=None, Output_cell_size=None,
+                       Output_raster=None, Smoothing_Factor=0.0):
+    """EQUIVALENT: arcpy.sa.SplineWithBarriers, saved; see its docstring."""
+    return _saved(sa.SplineWithBarriers(Input_point_features, Z_value_field, Input_barrier_features, Output_cell_size,
+                                        Smoothing_Factor), Output_raster)
+
+
+ContourWithBarriers = _surfaces3d.ContourWithBarriers
+RegularizeBuildingFootprint = _surfaces3d.RegularizeBuildingFootprint
+RegularizeAdjacentBuildingFootprint = _surfaces3d.RegularizeAdjacentBuildingFootprint
+StackProfile = _surfaces3d.StackProfile
+for _built in ("ObserverPoints", "Viewshed2", "SurfaceParameters", "SplineWithBarriers", "ContourWithBarriers",
+               "RegularizeBuildingFootprint", "RegularizeAdjacentBuildingFootprint", "StackProfile"):
+    _REFUSED.pop(_built, None)

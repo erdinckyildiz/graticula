@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>129090dd</code> · 2026-10-31 03:42</p>
+<p class="stamp">Şu commit’ten üretildi: <code>8d036008</code> · 2026-10-31 05:11</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">238</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">529/634</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">95 canlı · 10 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">6</div><div class="kpi-l">açık soru</div><div class="kpi-n">210 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">11</div><div class="kpi-l">açık borç</div><div class="kpi-n">308 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">243</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">531/647</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">106 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">11</div><div class="kpi-l">açık soru</div><div class="kpi-n">210 yanıtlandı</div></div>
+<div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">açık borç</div><div class="kpi-n">308 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">test</div><div class="kpi-n">606 kaynak dosya, 269,912 satır</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">6 açık</span></div><p><b>Q-209</b> — [OWNER] The choices D-329&#x27;s sweep made where the pages of the names it built leave them open, INFERRED 2026-10-31 (ADR-238 §12.6): (a) Subset: a dimension is named as grapy names it or by time (StdTime) and any other name for StdZ, as the reader renames a CF…</p><p><b>Q-208</b> — [OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p><p><b>Q-204</b> — [OWNER] How grapy holds multidimensional rasters and the choices the multidimensional and change pages leave open, INFERRED 2026-10-31 (ADR-236 §5.10): (a) a multidimensional raster is netCDF following CF 1.8 — written as netCDF-3 through scipy, read through…</p><p><b>Q-206</b> — [OWNER] How grapy stores multipatch features and the rules the 3D tool pages leave open, INFERRED 2026-10-31 (ADR-238 §5.2): (a) a multipatch class is a GeoPackage MultiPolygon Z feature table marked grapymultipatch in gpkgextensions, one polygon per planar…</p><p><b>Q-205</b> — [OWNER] How grapy holds SAR data and the choices the SAR, ocean and motion imagery pages leave open, INFERRED 2026-10-31 (ADR-237 §5.8): (a) a SAR dataset is a GeoTIFF of polarization-named bands (complex64 or float32, NoData NaN) beside grapy&#x27;s own…</p><p><b>Q-207</b> — [OWNER] How grapy holds turns and solves fleet routing, INFERRED 2026-10-31 (ADR-239 §5.8): (a) turns in grapy&#x27;s tables grapynetworkturnsource, grapynetworkturn and grapynetworkproperty, Edge#FCID holding the network&#x27;s source id; (b) a turn&#x27;s rotation from…</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">11 açık</span></div><p><b>Q-210</b> — [OWNER] The choices the path distance, distance accumulation and least-cost path pages leave open, INFERRED 2026-10-31 (ADR-241 §5.6): (a) a factor raster given without its factor takes the Binary graph with its defaults; (b) a factor exactly at a cut angle…</p><p><b>Q-214</b> — [OWNER] The choices the raster function pages leave open for the names ADR-245 built after their pages were found again, INFERRED 2026-10-31 (ADR-245 §5.8): (a) ColorspaceConversion&#x27;s hue is degrees × 240/359, the one factor that reproduces all six hues the…</p><p><b>Q-211</b> — [OWNER] The choices the Topo to Raster, Segment Mean Shift, segment and combinatorial pages leave open, INFERRED 2026-10-31 (ADR-242 §5.4): (a) the combinatorial parentage fields named after the inputs as Combine&#x27;s are, constant1/constant2 for a number, a row…</p><p><b>Q-213</b> — [OWNER] The choices grapy&#x27;s round-2 equivalents made where the surface, cartography and statistics pages leave them open, INFERRED 2026-10-31 (ADR-244 §5.4): (a) ObserverPoints&#x27; Value is the bitwise OR of 2^(i−1) over the observers that see a cell, in…</p><p><b>Q-212</b> — [OWNER] The choices ADR-243 made where the classifier, pansharpening, segmentation, surface and solar radiation pages leave them open, INFERRED 2026-10-31 (ADR-243 §5.4): (a) the classifier definition is grapy&#x27;s own documented JSON (grapy-ecd) under the .ecd…</p><p><b>Q-209</b> — [OWNER] The choices D-329&#x27;s sweep made where the pages of the names it built leave them open, INFERRED 2026-10-31 (ADR-238 §12.6): (a) Subset: a dimension is named as grapy names it or by time (StdTime) and any other name for StdZ, as the reader renames a CF…</p><p><b>Q-208</b> — [OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p><p><b>Q-204</b> — [OWNER] How grapy holds multidimensional rasters and the choices the multidimensional and change pages leave open, INFERRED 2026-10-31 (ADR-236 §5.10): (a) a multidimensional raster is netCDF following CF 1.8 — written as netCDF-3 through scipy, read through…</p><p><b>Q-206</b> — [OWNER] How grapy stores multipatch features and the rules the 3D tool pages leave open, INFERRED 2026-10-31 (ADR-238 §5.2): (a) a multipatch class is a GeoPackage MultiPolygon Z feature table marked grapymultipatch in gpkgextensions, one polygon per planar…</p><p><b>Q-205</b> — [OWNER] How grapy holds SAR data and the choices the SAR, ocean and motion imagery pages leave open, INFERRED 2026-10-31 (ADR-237 §5.8): (a) a SAR dataset is a GeoTIFF of polarization-named bands (complex64 or float32, NoData NaN) beside grapy&#x27;s own…</p><p><b>Q-207</b> — [OWNER] How grapy holds turns and solves fleet routing, INFERRED 2026-10-31 (ADR-239 §5.8): (a) turns in grapy&#x27;s tables grapynetworkturnsource, grapynetworkturn and grapynetworkproperty, Edge#FCID holding the network&#x27;s source id; (b) a turn&#x27;s rotation from…</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">110 madde</span></div><p><b>95 ADR conditions</b> outstanding across 60 decisions — the largest commitment on this page.</p><p><b>11 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">124 madde</span></div><p><b>106 ADR conditions</b> outstanding across 65 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -137,6 +137,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-229 · grapy holds LAS datasets and TINs</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-234 · grapy holds terrain datasets and o</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
+<div class="bar"><div class="bar-l">ADR-243 · grapy builds the image classifiers</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -152,6 +153,10 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-239 · grapy solves fleet routing with pu</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-240 · grapy holds editor tracking, last </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-241 · grapy builds path distance, its fa</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-242 · grapy builds Topo to Raster, Segme</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-244 · grapy builds the described-but-uns</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
+<div class="bar"><div class="bar-l">ADR-245 · grapy builds the raster functions </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-006 · Plugin Model</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-013 · Feature Service Data Model: Identi</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-023 · The REST Services Directory: an HT</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
@@ -447,6 +452,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">238</td><td>grapy holds multipatch features</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the measurements, each exact on planar faces (areas, volumes by the divergence…</td><td class="num">2/3</td></tr>
 <tr><td class="id">239</td><td>grapy solves fleet routing with published heuristics, and its networks hold turns</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the heuristics · LOW for agreement with Pro&#x27;s routes, which this…</td><td class="num">3/5</td></tr>
 <tr><td class="id">240</td><td>grapy holds editor tracking, last edit time, COGO, unregistered tables and registration, and refuses enterprise geodatabase administration by name</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
+<tr><td class="id">241</td><td>grapy builds path distance, its factor graphs, distance accumulation and least-cost paths</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
+<tr><td class="id">242</td><td>grapy builds Topo to Raster, Segment Mean Shift and the combinatorial tools</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the combinatorial tools, which follow a worked example Esri publishes · MEDIUM…</td><td class="num">2/4</td></tr>
+<tr><td class="id">243</td><td>grapy builds the image classifiers, pansharpening, segmentation and Fu and Rich&#x27;s solar radiation as cited equivalents</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/3</td></tr>
+<tr><td class="id">244</td><td>grapy builds the described-but-unspecified surface, cartography and seeded statistics tools as equivalents, and refuses the rest by name</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
+<tr><td class="id">245</td><td>grapy builds the raster functions whose pages answered 404, from the pages at their new addresses, and refuses the display renderings by what each page leaves out</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/2</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
@@ -457,6 +467,11 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <article class="card"><div class="card-h"><span class="id">Q-207</span><span class="owner">Owner</span></div><p>[OWNER] How grapy holds turns and solves fleet routing, INFERRED 2026-10-31 (ADR-239 §5.8): (a) turns in grapy&#x27;s tables grapynetworkturnsource, grapynetworkturn and grapynetworkproperty, Edge#FCID holding the network&#x27;s source id; (b) a turn&#x27;s rotation from…</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-208</span><span class="owner">Owner</span></div><p>[OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p></article>
 <article class="card"><div class="card-h"><span class="id">Q-209</span><span class="owner">Owner</span></div><p>[OWNER] The choices D-329&#x27;s sweep made where the pages of the names it built leave them open, INFERRED 2026-10-31 (ADR-238 §12.6): (a) Subset: a dimension is named as grapy names it or by time (StdTime) and any other name for StdZ, as the reader renames a CF…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-210</span><span class="owner">Owner</span></div><p>[OWNER] The choices the path distance, distance accumulation and least-cost path pages leave open, INFERRED 2026-10-31 (ADR-241 §5.6): (a) a factor raster given without its factor takes the Binary graph with its defaults; (b) a factor exactly at a cut angle…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-211</span><span class="owner">Owner</span></div><p>[OWNER] The choices the Topo to Raster, Segment Mean Shift, segment and combinatorial pages leave open, INFERRED 2026-10-31 (ADR-242 §5.4): (a) the combinatorial parentage fields named after the inputs as Combine&#x27;s are, constant1/constant2 for a number, a row…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-212</span><span class="owner">Owner</span></div><p>[OWNER] The choices ADR-243 made where the classifier, pansharpening, segmentation, surface and solar radiation pages leave them open, INFERRED 2026-10-31 (ADR-243 §5.4): (a) the classifier definition is grapy&#x27;s own documented JSON (grapy-ecd) under the .ecd…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-213</span><span class="owner">Owner</span></div><p>[OWNER] The choices grapy&#x27;s round-2 equivalents made where the surface, cartography and statistics pages leave them open, INFERRED 2026-10-31 (ADR-244 §5.4): (a) ObserverPoints&#x27; Value is the bitwise OR of 2^(i−1) over the observers that see a cell, in…</p></article>
+<article class="card"><div class="card-h"><span class="id">Q-214</span><span class="owner">Owner</span></div><p>[OWNER] The choices the raster function pages leave open for the names ADR-245 built after their pages were found again, INFERRED 2026-10-31 (ADR-245 §5.8): (a) ColorspaceConversion&#x27;s hue is degrees × 240/359, the one factor that reproduces all six hues the…</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -477,6 +492,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-322</td><td>The Analyze dialog reads up to a hundred layer documents to open, and offers nothing past them.</td><td class="muted-t">A reader with more than a hundred services, or an open slower than a second.</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-328</td><td>grapy&#x27;s SAR tools have run only on synthetic scenes.</td><td class="muted-t">ADR-237 condition 3: the first real product run through the chain, or a user tool that fails on one</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-330</td><td>grapy&#x27;s fleet routing is unmeasured and pure Python.</td><td class="muted-t">A user tool&#x27;s fleet solve reaching ADR-223&#x27;s time limit, or a Pro run of one of testfleet.py&#x27;s instances (ADR-239…</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-332</td><td>grapy&#x27;s path distance tools refuse the legacy source characteristics, and none is measured.</td><td class="muted-t">A user tool that passes one of the refused parameters, or one whose distance run reaches ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-333</td><td>grapy&#x27;s Topo to Raster and Segment Mean Shift are unmeasured beyond small grids.</td><td class="muted-t">ADR-242 condition 3, or a user tool reaching ADR-223&#x27;s time or memory limit in either</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-334</td><td>grapy&#x27;s insolation is unmeasured against Pro and slow on a real DEM.</td><td class="muted-t">ADR-243 condition 1 (a Pro run of one DEM), or a user tool&#x27;s insolation run reaching ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">308 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -597,7 +615,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </div></section>
 <section><h2>grapy ve arcpy</h2>
 <p class="sub">arcpy 3.7 her modülde herkese açık bir ad listesi sunar; grapy’nin bunlardan kaçını kurduğu. tools/grapy_surface.py grapy’nin kaynağından sayar; grapy’nin reddettiği ad sayılmaz.</p><div class="bars">
-<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:55.7%"></div></div><div class="bar-n">102 / 183</div></div>
+<div class="bar"><div class="bar-l">arcpy</div><div class="bar-t"><div class="bar-f" style="width:56.8%"></div></div><div class="bar-n">104 / 183</div></div>
 <div class="bar"><div class="bar-l">arcpy.da</div><div class="bar-t"><div class="bar-f" style="width:82.8%"></div></div><div class="bar-n">24 / 29</div></div>
 <div class="bar"><div class="bar-l">arcpy.management</div><div class="bar-t"><div class="bar-f" style="width:54.6%"></div></div><div class="bar-n">244 / 447</div></div>
 <div class="bar"><div class="bar-l">arcpy.analysis</div><div class="bar-t"><div class="bar-f" style="width:87.5%"></div></div><div class="bar-n">35 / 40</div></div>
@@ -605,9 +623,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:12.2%"></div></div><div class="bar-n">6 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">16 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:56.9%"></div></div><div class="bar-n">37 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:55.0%"></div></div><div class="bar-n">208 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:59.4%"></div></div><div class="bar-n">206 / 347</div></div>
-<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:66.7%"></div></div><div class="bar-n">104 / 156</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:75.9%"></div></div><div class="bar-n">287 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:78.4%"></div></div><div class="bar-n">272 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:74.4%"></div></div><div class="bar-n">116 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:59.5%"></div></div><div class="bar-n">25 / 42</div></div>
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:58.1%"></div></div><div class="bar-n">36 / 62</div></div>
 <div class="bar"><div class="bar-l">arcpy.nax</div><div class="bar-t"><div class="bar-f" style="width:64.2%"></div></div><div class="bar-n">61 / 95</div></div>
@@ -615,39 +633,39 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.un</div><div class="bar-t"><div class="bar-f" style="width:81.5%"></div></div><div class="bar-n">101 / 124</div></div>
 </div>
 <div class="scroll" style="margin-top:18px"><table><thead><tr><th>Modül</th><th class="num">Kurulan</th><th class="num">bunların eşdeğer olanı (ADR-224 §5.6)</th><th class="num">Gerekçesiyle reddedilen</th><th class="num">Henüz bakılmayan</th></tr></thead><tbody>
-<tr><td class="id">arcpy</td><td class="num">102</td><td class="num">0</td><td class="num">81</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy</td><td class="num">104</td><td class="num">0</td><td class="num">79</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.analysis</td><td class="num">35</td><td class="num">1</td><td class="num">5</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.cartography</td><td class="num">6</td><td class="num">5</td><td class="num">43</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.cartography</td><td class="num">6</td><td class="num">8</td><td class="num">40</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.conversion</td><td class="num">31</td><td class="num">2</td><td class="num">33</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.da</td><td class="num">24</td><td class="num">0</td><td class="num">5</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ddd</td><td class="num">104</td><td class="num">8</td><td class="num">52</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ddd</td><td class="num">116</td><td class="num">17</td><td class="num">40</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">16</td><td class="num">6</td><td class="num">3</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">25</td><td class="num">4</td><td class="num">17</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">206</td><td class="num">29</td><td class="num">141</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">272</td><td class="num">48</td><td class="num">75</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">244</td><td class="num">20</td><td class="num">203</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.na</td><td class="num">36</td><td class="num">3</td><td class="num">26</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nax</td><td class="num">61</td><td class="num">9</td><td class="num">34</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">68</td><td class="num">14</td><td class="num">6</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">208</td><td class="num">21</td><td class="num">170</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.stats</td><td class="num">37</td><td class="num">18</td><td class="num">28</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">287</td><td class="num">58</td><td class="num">82</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.stats</td><td class="num">37</td><td class="num">21</td><td class="num">25</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.un</td><td class="num">101</td><td class="num">16</td><td class="num">23</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>8d036008</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
+<li><code>c247ed59</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
+<li><code>1f2cb79c</code><time>2026-10-31</time><span>Twenty of the 33 grapy names refused as unspecified, outlined or random now run as cited equivalents, and the other 13 say what their pages leave out (ADR-244)</span></li>
+<li><code>17b94745</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
+<li><code>bfa519c3</code><time>2026-10-31</time><span>grapy builds Topo to Raster, Segment Mean Shift, its segment tools and the combinatorial tools (ADR-242)</span></li>
+<li><code>560a53b2</code><time>2026-10-31</time><span>No grapy refusal says a page answered 404 or could not be found: the raster function pages are read at their new addresses (ADR-245)</span></li>
+<li><code>114db156</code><time>2026-10-31</time><span>grapy builds path distance, its seventeen factor graphs, distance accumulation and least-cost paths (ADR-241)</span></li>
+<li><code>e56366f7</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
+<li><code>7dfc5ed2</code><time>2026-10-31</time><span>No grapy refusal says a model is missing that ADR-236, 237, 238 or 240 now holds (D-329 closed)</span></li>
 <li><code>129090dd</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
 <li><code>823873d6</code><time>2026-10-31</time><span>grapy solves vehicle routing, last mile delivery and waste collection, and its networks hold turns (ADR-239)</span></li>
 <li><code>db4761e1</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>c8259b94</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>1163531c</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>61a593ec</code><time>2026-10-31</time><span>grapy holds multipatch features, and the 3D tools on them are built (ADR-238)</span></li>
-<li><code>ed996b51</code><time>2026-10-31</time><span>grapy holds SAR data: arcpy.ia&#x27;s radar, ocean and video-metadata names are built, equivalents, or refused with their own reason (ADR-237)</span></li>
-<li><code>c7ba7719</code><time>2026-10-31</time><span>grapy holds multidimensional rasters, and arcpy.ia&#x27;s multidimensional and change tools run on them (ADR-236)</span></li>
-<li><code>2638614c</code><time>2026-10-31</time><span>An image&#x27;s ZOrder is set in Studio&#x27;s Settings › Images, and Raise and Lower swap within a ZOrder (D-326)</span></li>
-<li><code>7cc0831b</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
-<li><code>e1e7082f</code><time>2026-10-31</time><span>grapy holds editor tracking, last edit time, COGO, unregistered tables, registration, views and statistics, and refuses enterprise geodatabase administration name by name (ADR-240)</span></li>
-<li><code>be238dbf</code><time>2026-10-31</time><span>The Oracle history test reads the ids its identity gave instead of assuming 1 and 2 (D-314)</span></li>
-<li><code>773840af</code><time>2026-10-31</time><span>A tool&#x27;s outputs are bounded per organisation, asked a privilege, audited under the person and withdrawn whole (D-325, ADR-223 §5.12)</span></li>
-<li><code>e8faa394</code><time>2026-10-31</time><span>The owner confirms the eight group-2 models as built: Q-196 to Q-203 are answered (ADR-228 to ADR-235)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

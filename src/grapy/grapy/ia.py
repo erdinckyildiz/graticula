@@ -21,6 +21,15 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
     TransposeBits, VARI, Variety, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
 )
 from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
+from .sa import (  # noqa: E402,F401 — the path distance factor classes, arcpy.ia's as well (ADR-241)
+    HfBinary, HfForward, HfInverseLinear, HfLinear, HfTable, VfBidirHikingTime, VfBinary, VfCos, VfCosSec,
+    VfHikingTime, VfInverseLinear, VfLinear, VfSec, VfSecCos, VfSymInverseLinear, VfSymLinear, VfTable,
+)
+from .sa import (  # noqa: E402,F401 — ADR-242, shared with arcpy.sa
+    CombinatorialAnd, CombinatorialOr, CombinatorialXOr, ComputeSegmentAttributes, RemoveRasterSegmentTilingArtifacts,
+    SegMeanShift, SegmentMeanShift, TopoBoundary, TopoCliff, TopoCoast, TopoContour, TopoExclusion, TopoLake,
+    TopoPointElevation, TopoSink, TopoStream,
+)
 
 
 # ---- multidimensional rasters (ADR-236)
@@ -50,6 +59,22 @@ AnalyzeChangesUsingLandTrendr = _change_tools.AnalyzeChangesUsingLandTrendr
 DetectChangeUsingChangeAnalysis = _change_tools.DetectChangeUsingChangeAnalysis
 DetectChangeUsingChangeAnalysisRaster = _change_tools.DetectChangeUsingChangeAnalysisRaster
 from . import _mdmore as _md_more  # noqa: E402 — D-329's sweep
+from . import _classify as _cls, _solartools as _solar_tools  # noqa: E402 — ADR-243
+
+TrainIsoClusterClassifier = _cls.TrainIsoClusterClassifier
+TrainKNearestNeighborClassifier = _cls.TrainKNearestNeighborClassifier
+TrainMaximumLikelihoodClassifier = _cls.TrainMaximumLikelihoodClassifier
+TrainSupportVectorMachineClassifier = _cls.TrainSupportVectorMachineClassifier
+ClassifyRaster = _cls.ClassifyRaster
+Classify = _cls.Classify
+MLClassify = _cls.MLClassifyFunction
+Pansharpen = _cls.Pansharpen
+RegionGrow = _cls.RegionGrow
+TimeWithinDay = _solar_tools.TimeWithinDay
+TimeMultipleDays = _solar_tools.TimeMultipleDays
+TimeSpecialDays = _solar_tools.TimeSpecialDays
+TimeWholeYear = _solar_tools.TimeWholeYear
+InspectTrainingSamples = _cls.InspectTrainingSamples
 
 Foreach = _md_more.Foreach
 Subset = _md_more.Subset
@@ -129,3 +154,27 @@ _REFUSED.update({
     "VideoMultiplexer": "it writes a .ts video file, its input's video stream multiplexed with KLV metadata, from "
                         "containers as varied as .mp4, .avi and .wmv, " + _NO_VIDEO,
 })
+
+
+# ---- ADR-245: the raster functions whose pages answered 404 on 2026-10-29, read again on 2026-10-31
+from . import _imagefns as _image_fns, sa as _sa  # noqa: E402
+
+RasterInfo = _sa.RasterInfo
+UnitConversion = _sa.UnitConversion
+HeatIndex = _sa.HeatIndex
+WindChill = _sa.WindChill
+SpectralConversion = _sa.SpectralConversion
+VectorField = _sa.VectorField
+InList = _sa.InList
+ZonalRemap = _sa.ZonalRemap
+ColormapToRGB = _sa.ColormapToRGB
+ApplyEnvironment = _sa.ApplyEnvironment
+ColorspaceConversion = _sa.ColorspaceConversion
+Speckle = _sa.Speckle
+ElevationVoidFill = _sa.ElevationVoidFill
+LinearUnmixing = _sa.LinearUnmixing
+Resample = _sa.Resample
+GNDVI = _sa.GNDVI
+PixelBlock = _image_fns.PixelBlock
+PixelBlockCollection = _image_fns.PixelBlockCollection
+Mensuration = _image_fns.Mensuration

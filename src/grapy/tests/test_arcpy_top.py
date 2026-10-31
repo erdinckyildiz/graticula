@@ -396,11 +396,11 @@ class LegacyAndScriptTools(_Folder):
     def test_each_refused_name_says_why(self):
         for name, said in (("GetInstallInfo", "not ArcGIS"), ("ListTools", "toolbox catalogue"),
                            ("AIO", "network"), ("ListTransformations", "catalogue"), ("Multipatch", "documents no Multipatch class"),
-                           ("Annotation", "Element BLOB field"), ("Chart", "application"), ("ViewContext", "could not be found"),
+                           ("Annotation", "Element BLOB field"), ("Chart", "application"), ("ViewContext", "has no documentation"),
                            ("Render", "symbology")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy, name)
-        for name, said in (("CausalInferenceAnalysis", "estimation"), ("BuildBalancedZones", "random"),
+        for name, said in (("CausalInferenceAnalysis", "estimation"), ("BuildBalancedZones", "genetic growth"),
                            ("GenerateSpatialWeightsMatrix", ".swm"), ("DirectionalTrend", "active map")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy.stats, name)()
