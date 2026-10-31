@@ -336,9 +336,8 @@ class Network(unittest.TestCase):
         self.assertIn("direction", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError):
             _network.add_attribute(self.network, "Script", "Cost", "Meters", [("roads", "BOTH", "SCRIPT", "x")])
-        for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "RouteSolverProperties", "solver"),
-                                    (nax, "Edge", "custom evaluators"), (nax, "TraversedEdge", "traversed"),
-                                    (nax, "DissolveNetwork", "dissolves")):
+        for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "Directions", "direction"),
+                                    (nax, "DirectionsQuery", "direction"), (nax, "DissolveNetwork", "dissolves")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(module, name)()
             self.assertIn(words, str(raised.exception))

@@ -7,7 +7,8 @@ grapy's own tables, registered in ``gpkg_extensions`` as the ``grapy_network`` e
 - ``grapy_network_source``: each edge source and its connectivity policy, ``END_POINT`` or ``ANY_VERTEX``.
 - ``grapy_network_attribute``: cost and restriction attributes, their units and use by default.
 - ``grapy_network_evaluator``: how an attribute is read for a source and direction: the shape's ``LENGTH`` in the
-  attribute's units, a ``FIELD``'s value, or a ``CONSTANT``. Script evaluators are refused.
+  attribute's units, a ``FIELD``'s value, or a ``CONSTANT``. A script evaluator is a custom evaluator, a Python class
+  (``grapy._evaluators``, ADR-246), not a row of this table.
 - ``grapy_network_travel_mode``: travel modes: an impedance, time and distance attributes, the restrictions used.
 - ``grapy_network_edge`` and ``grapy_network_junction``: what BuildNetwork writes.
 
@@ -163,7 +164,8 @@ def _source_name(connection, name, dataset, source):
 def add_attribute(network, attribute, usage, units=None, evaluators=(), use_by_default=False):
     """A cost or restriction attribute with its evaluators — ``(source, direction, kind, value)``, direction
     ``FROM_TO``, ``TO_FROM`` or ``BOTH``, kind ``LENGTH`` (costs in a linear unit), ``FIELD`` (a field's value; a
-    restriction is restricted where it is true) or ``CONSTANT``. A script evaluator is refused. The network must be
+    restriction is restricted where it is true) or ``CONSTANT``. A script is no row here: it is a custom evaluator,
+    ``arcpy.nax.AttributeEvaluator`` (ADR-246). The network must be
     built again."""
     usage = str(usage).title()
     if usage not in ("Cost", "Restriction"):
@@ -177,8 +179,8 @@ def add_attribute(network, attribute, usage, units=None, evaluators=(), use_by_d
         for source, direction, kind, value in evaluators:
             kind = str(kind).upper()
             if kind not in ("LENGTH", "FIELD", "CONSTANT", "TURN_CATEGORY"):
-                raise NotBuiltError(f"A network evaluator of kind '{kind}' is not built in grapy: script evaluators are "
-                                    "refused (ADR-226 §5.1).")
+                raise NotBuiltError(f"A network evaluator of kind '{kind}' is not built in grapy: a script is given as a "
+                                    "custom evaluator, a subclass of arcpy.nax.AttributeEvaluator (ADR-246).")
             if kind == "LENGTH" and (usage != "Cost" or str(units).upper().replace(" ", "") not in _LINEAR):
                 raise ExecuteError("ERROR 030000: a LENGTH evaluator gives a cost in a linear unit.")
             value = _turn_evaluator(connection, name, dataset, source, kind, usage, units, value)   # ADR-239
@@ -336,8 +338,9 @@ class Graph:
     """The built network under one travel mode: each edge's cost along and against its digitised direction in every
     cost attribute, and whether it is traversable each way."""
 
-    def __init__(self, network, travel_mode=None):
+    def __init__(self, network, travel_mode=None, evaluators=None, parameters=None):
         from . import da
+        custom = list(evaluators or [])
         connection, file, dataset, name = open_network(network)
         try:
             built = connection.execute("select built from grapy_network where name = ?", (name,)).fetchone()[0]
@@ -369,7 +372,8 @@ class Graph:
             mode = {"name": travel_mode.name, "impedance": travel_mode.impedance,
                     "restrictions": list(travel_mode.restrictions), "timeAttributeName": travel_mode.timeAttributeName,
                     "distanceAttributeName": travel_mode.distanceAttributeName,
-                    "uTurns": getattr(travel_mode, "uTurns", None)}
+                    "uTurns": getattr(travel_mode, "uTurns", None),
+                    "attributeParameters": dict(getattr(travel_mode, "attributeParameters", None) or {})}
         elif str(travel_mode).strip().startswith("{"):
             mode = json.loads(str(travel_mode))
         elif str(travel_mode) in modes:
@@ -424,6 +428,8 @@ class Graph:
         for (attribute, i, forward), amount in self.costs.items():
             if attribute == self.impedance and amount < 0:
                 self.blocked.add((i, forward))
+        from . import _evaluators
+        _evaluators.prepare(self, custom, parameters)             # custom evaluators and parameters (ADR-246)
 
     def cost(self, attribute, i, forward, t0=0.0, t1=1.0):
         """The cost of travelling an edge, or the part of it between fractions t0 and t1 (INFERRED: in proportion)."""
@@ -431,6 +437,19 @@ class Graph:
 
     def passable(self, i, forward):
         return (i, forward) not in self.blocked
+
+    def head_junction(self, i, t0, t1):
+        """The junction a piece of edge ends at in its direction of travel, or None when it ends part-way along."""
+        edge = self.edges[i]
+        if t1 > t0 and t1 >= 1.0 - 1e-12:
+            return edge["v"]
+        if t1 < t0 and t1 <= 1e-12:
+            return edge["u"]
+        return None
+
+    def junction_cost(self, attribute, junction):
+        """A custom evaluator's cost of passing through a junction (ADR-246); grapy's own junctions cost nothing."""
+        return self.junction_costs.get((attribute, junction), 0.0) if junction is not None else 0.0
 
     # ---- locating
 
@@ -522,8 +541,13 @@ class _Solver:
             self.location_node[key] = len(self.node) + len(self.location_node)
         arcs = {}
 
+        junction_of = {k: j for j, k in self.node.items()}
+
         def add(a, b, i, forward, t0, t1):
-            cost = graph.cost(graph.impedance, i, forward, t0, t1)
+            head = junction_of.get(b)
+            if head in graph.blocked_junctions:
+                return
+            cost = graph.cost(graph.impedance, i, forward, t0, t1) + graph.junction_cost(graph.impedance, head)
             pair = (b, a) if reverse else (a, b)
             if pair not in arcs or cost < arcs[pair][0]:
                 arcs[pair] = (cost, i, t0, t1)
@@ -579,7 +603,9 @@ class _Solver:
         return list(reversed(arcs)) if self.reverse else arcs
 
     def total(self, arcs, attribute):
-        return sum(self.graph.cost(attribute, i, t1 > t0, t0, t1) for i, t0, t1 in arcs)
+        graph = self.graph
+        return sum(graph.cost(attribute, i, t1 > t0, t0, t1) + graph.junction_cost(attribute, graph.head_junction(i, t0, t1))
+                   for i, t0, t1 in arcs)
 
     def via(self, distances, predecessors, node, i, forward, t0, t1):
         """The cost at a node of going on along an edge piece — the node's own, with no turns to pay (ADR-239)."""
@@ -651,7 +677,7 @@ def solve_route(graph, stops, accumulate, line_shape, sequence="USE_CURRENT_ORDE
             results[stop["key"]] = {"Sequence": n, "Status": _status(stop), f"Cumul_{impedance}": None, "_cumul": {}}
         if not located or len(members) < 2:
             continue
-        all_arcs, cumulative, reached = [], 0.0, True
+        all_arcs, cumulative, reached, kept = [], 0.0, True, []
         results[members[0]["key"]][f"Cumul_{impedance}"] = 0.0
         results[members[0]["key"]]["_cumul"] = {a: 0.0 for a in costs}
         legs = list(zip(members, members[1:])) + ([(members[-1], members[0])] if return_to_start else [])
@@ -664,6 +690,7 @@ def solve_route(graph, stops, accumulate, line_shape, sequence="USE_CURRENT_ORDE
                 break
             cumulative += solver.total(arcs, impedance)
             all_arcs.extend(arcs)
+            kept.append((a, b, arcs))                           # what the leg traversed (ADR-246)
             if b is not members[0]:
                 results[b["key"]][f"Cumul_{impedance}"] = cumulative
                 results[b["key"]]["_cumul"] = {a: solver.total(all_arcs, a) for a in costs}
@@ -677,6 +704,7 @@ def solve_route(graph, stops, accumulate, line_shape, sequence="USE_CURRENT_ORDE
             row[f"Total_{attribute}"] = solver.total(all_arcs, attribute)
         row["SHAPE"] = _line(solver, all_arcs, [m["point"] for m in members], line_shape)
         row["_totals"] = {a: solver.total(all_arcs, a) for a in costs}
+        row["_legs"], row["_solver"] = kept, solver
         routes.append(row)
     return routes, results
 
@@ -783,6 +811,8 @@ def solve_closest_facility(graph, facilities, incidents, direction, cutoff, coun
                 row[f"Total_{attribute}"] = solver.total(arcs, attribute)
             row["SHAPE"] = _line(solver, arcs, ends, line_shape)
             row["_totals"] = {a: solver.total(arcs, a) for a, (usage, _) in graph.attributes.items() if usage == "Cost"}
+            first, second = (facility, incident) if away else (incident, facility)
+            row["_legs"], row["_solver"] = [(first, second, arcs)], solver          # what it traversed (ADR-246)
             routes.append(row)
     return routes
 
@@ -898,7 +928,8 @@ def solve_service_area(graph, facilities, breaks, direction, rings, trim):
                     piece, q0, q1, k0, k1 = LineString(list(piece.coords)[::-1]), q1, q0, k1, k0
                 row = {"FacilityID": facility["oid"], f"FromCumul_{impedance}": k0, f"ToCumul_{impedance}": k1,
                        "SourceID": graph.sources.index(edge["source"]) + 1, "SourceOID": edge["oid"],
-                       "FromPosition": position(q0), "ToPosition": position(q1), "SHAPE": piece}
+                       "FromPosition": position(q0), "ToPosition": position(q1), "SHAPE": piece,
+                       "_edge": i, "_t": (q0, q1)}
                 lines.append(row)
                 mine.append((k, piece))
         previous = None

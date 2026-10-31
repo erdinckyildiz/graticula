@@ -103,8 +103,9 @@ No performance claim is made.
 4. **The travelling salesman order** of a route — `FIND_BEST_ORDER`, `PRESERVE_FIRST`, `PRESERVE_LAST`,
    `PRESERVE_BOTH`, and nax.Route's `findBestSequence`, `preserveFirstStop`, `preserveLastStop`, `returnToStart` — by
    Held and Karp's exact programme (1962) up to ten stops and nearest neighbour then 2-opt (Croes 1958) beyond.
-5. **Refused, with its own reason:** `nax.Turn`, as the network element class custom evaluators receive (INFERRED,
-   §5.8 d), with Edge and Junction under ADR-226 §5.1's script-evaluator reason. Directions, barriers on the fleet
+5. **Refused, with its own reason:** ~~`nax.Turn`, as the network element class custom evaluators receive (INFERRED,
+   §5.8 d), with Edge and Junction under ADR-226 §5.1's script-evaluator reason.~~ **`nax.Turn` was built on 2026-10-31
+   with the custom evaluators, by [ADR-246](ADR-246-grapy-runs-custom-evaluators-keeps-traversals-and-builds-solver-properties.md).** Directions, barriers on the fleet
    solvers, curb approaches other than either side, and preassigned renewal visits keep their refusals.
 6. Every enumeration of the three solvers is built: the input and output data types (both VRP schemas),
    VehicleRoutingProblemSchemaVersion, StopCollectionMode, DrivingSide and Importance (which was listed among the

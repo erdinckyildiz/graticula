@@ -100,7 +100,9 @@ class TravelMode:
         self.timeAttributeName = source.get("timeAttributeName")
         self.distanceAttributeName = source.get("distanceAttributeName")
         self.restrictions = list(source.get("restrictions") or source.get("restrictionAttributeNames") or [])
-        self.attributeParameters = dict(source.get("attributeParameters") or {})
+        from ._evaluators import parameter_values
+        self.attributeParameters = parameter_values(source.get("attributeParameters") or
+                                                    source.get("attributeParameterValues"))
         self.uTurns = source.get("uTurns", "ALLOW_UTURNS")
         self.useHierarchy = bool(source.get("useHierarchy", False))
         self.simplificationTolerance = source.get("simplificationTolerance")
@@ -110,7 +112,9 @@ class TravelMode:
     def __str__(self):
         return json.dumps({"name": self.name, "impedanceAttributeName": self.impedance,
                            "timeAttributeName": self.timeAttributeName, "distanceAttributeName": self.distanceAttributeName,
-                           "restrictionAttributeNames": self.restrictions, "attributeParameters": self.attributeParameters,
+                           "restrictionAttributeNames": self.restrictions,
+                           "attributeParameterValues": [{"attributeName": a, "parameterName": p, "value": v}
+                                                        for (a, p), v in self.attributeParameters.items()],
                            "uTurns": self.uTurns, "useHierarchy": self.useHierarchy,
                            "simplificationTolerance": self.simplificationTolerance, "type": self.type,
                            "description": self.description})
@@ -122,7 +126,8 @@ def GetTravelModes(network_dataset):
 
 
 def _refuse_mode(mode):
-    """A travel mode grapy honours: no hierarchy, U-turns allowed everywhere, no parameters, no simplification."""
+    """A travel mode grapy honours: no hierarchy; every U-turn policy; attribute parameters, which reach custom
+    evaluators (ADR-246)."""
     if mode is None or isinstance(mode, str) and not mode.strip().startswith("{"):
         return
     travel = TravelMode(mode)
@@ -130,8 +135,6 @@ def _refuse_mode(mode):
         raise NotBuiltError("Hierarchy is refused until it is defined (ADR-226 §5.3).")
     from ._turns import policy
     policy(travel.uTurns)                     # every documented U-turn policy is honoured at junctions (ADR-239)
-    if travel.attributeParameters:
-        raise NotBuiltError("Travel mode attribute parameters are not built in grapy: no evaluator takes parameters.")
 
 
 # ---- analysis layers ----------------------------------------------------------------------------------------------
@@ -143,6 +146,7 @@ class _AnalysisLayer:
         self.settings, self.workspace, self.classes = settings, workspace, classes
         self.isNetworkAnalystLayer = True
         self.isNetworkDatasetLayer = False
+        self.traversal = None                 # what the last solve traversed (ADR-246)
 
     def __str__(self):
         return self.name
@@ -224,6 +228,7 @@ def _make(solver, network_data_source, layer_name, travel_mode, settings, analys
         _gpkg.create(path, shape, graph.srid, [_gpkg.Column(f, t) for f, t in fields + extra])
         classes[key] = path
     ANALYSIS_LAYERS[name] = _AnalysisLayer(name, solver, source, travel_mode, settings, workspace, classes)
+    ANALYSIS_LAYERS[name].evaluators = list(getattr(network_data_source, "_evaluators", None) or [])   # ADR-246
     return Result(ANALYSIS_LAYERS[name])
 
 
@@ -657,7 +662,9 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
     layer = _layer(in_network_analysis_layer)
     if _given(simplification_tolerance):
         raise NotBuiltError("arcpy.na.Solve: simplification_tolerance is not built in grapy.")
-    graph = _network.Graph(layer.network, layer.travel_mode)
+    graph = _network.Graph(layer.network, layer.travel_mode, getattr(layer, "evaluators", None),
+                           layer.settings.get("attribute_parameters"))
+    layer.traversal = None
     if layer.solver in _FLEET_INPUTS:                                                     # ADR-239
         try:
             succeeded = _fleet_solve(layer, graph)
@@ -678,6 +685,7 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
             routes, results = _network.solve_route(graph, inputs["Stops"], s["accumulate"], s["line_shape"],
                                                    s.get("sequence", "USE_CURRENT_ORDER"))
             _write(layer.classes["Routes"], routes)
+            layer.traversal = _traversed(graph, layer.classes["Routes"], routes)              # ADR-246
             _update(layer.classes["Stops"], {k[1]: {f: x for f, x in v.items() if not f.startswith("_")}
                                              for k, v in results.items()})
             succeeded = bool(routes)
@@ -685,6 +693,7 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
             routes = _network.solve_closest_facility(graph, inputs["Facilities"], inputs["Incidents"], s["direction"],
                                                      s["cutoff"], s["count"], s["accumulate"], s["line_shape"])
             _write(layer.classes["CFRoutes"], routes)
+            layer.traversal = _traversed(graph, layer.classes["CFRoutes"], routes)            # ADR-246
             succeeded = bool(routes)
         elif layer.solver == "OD Cost Matrix":
             lines = _network.solve_od_cost_matrix(graph, inputs["Origins"], inputs["Destinations"], s["cutoff"], s["count"],
@@ -699,6 +708,8 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
                                                           s["rings"], trim)
             _write(layer.classes["SALines"], lines if s["output"] in ("LINES", "POLYGONS_AND_LINES") else [])
             _write(layer.classes["SAPolygons"], polygons if s["output"] in ("POLYGONS", "POLYGONS_AND_LINES") else [])
+            from . import _traversal
+            layer.traversal = _traversal.service_area(graph, inputs["Facilities"], lines)       # ADR-246
             succeeded = bool(polygons)
     except ExecuteError:
         if str(terminate_on_solve_error or "TERMINATE").upper() == "TERMINATE":
@@ -707,6 +718,108 @@ def Solve(in_network_analysis_layer, ignore_invalids=None, terminate_on_solve_er
     if not succeeded and str(terminate_on_solve_error or "TERMINATE").upper() == "TERMINATE":
         raise ExecuteError("ERROR 030024: Solve returned a failure: no solution was found.")
     return Result(layer, "true" if succeeded else "false")
+
+
+def _traversed(graph, path, rows):
+    """The traversal of the routes just written to ``path``, each with the ObjectID it was written under."""
+    from . import da, _traversal
+    with da.SearchCursor(path, ["OID@"]) as cursor:
+        ids = sorted(oid for (oid,) in cursor)
+    for row, oid in zip(rows, ids):
+        row["ObjectID"] = oid
+    return _traversal.of_routes(graph, rows)
+
+
+# ---- what a solve traversed, its solver properties and attribute parameters (ADR-246) -------------------------------
+
+def CopyTraversedSourceFeatures(input_network_analysis_layer, output_location, edge_feature_class_name,
+                                junction_feature_class_name, turn_table_name):
+    """The network elements the layer's solve traversed, copied to an edge and a junction feature class and a turn
+    table with the documented fields (``grapy._traversal``): SourceName, SourceOID, SourceType, EID, the positions and
+    junction ids, RouteID (FacilityID for a service area), ``Attr_`` and ``Cumul_`` for each cost attribute, and
+    ``Attr_`` for each restriction. A layer with no traversal is solved first, as documented. Route, closest
+    facility, service area, vehicle routing problem and last mile delivery layers are supported; OD cost matrix,
+    location-allocation and waste collection layers are not, as documented. The outputs are the three and the layer."""
+    from . import _traversal
+    layer = _layer(input_network_analysis_layer)
+    if layer.solver not in ("Route", "Closest Facility", "Service Area", "Vehicle Routing Problem",
+                            "Last Mile Delivery"):
+        raise ExecuteError(f"ERROR 030000: CopyTraversedSourceFeatures does not support a {layer.solver.lower()} layer, "
+                           "as documented.")
+    if getattr(layer, "traversal", None) is None:
+        Solve(layer)
+    rows = _traversal.copy_rows(layer.traversal)
+    owner = layer.traversal.owner
+    location = str(output_location).rstrip("/\\")
+    graph = layer.traversal.graph
+    costs = [(f"{p}_{a}", _DOUBLE) for a in layer.traversal.costs for p in ("Attr", "Cumul")]
+    restrictions = [(f"Attr_{r}", _LONG) for r in layer.traversal.restrictions]
+    common = [("SourceName", _TEXT), ("SourceOID", _LONG), ("SourceType", _TEXT), ("EID", _LONG)]
+    outputs = []
+    for name, shape, kind, fields in (
+            (edge_feature_class_name, "Polyline", "edges",
+             [*common, ("FromPosition", _DOUBLE), ("ToPosition", _DOUBLE), ("FromJunctionID", _LONG),
+              ("ToJunctionID", _LONG), (owner, _LONG)]),
+            (junction_feature_class_name, "Point", "junctions", [*common, (owner, _LONG)]),
+            (turn_table_name, None, "turns", [*common, ("FromEdgeID", _LONG), ("ToEdgeID", _LONG), (owner, _LONG)])):
+        path = f"{location}/{name}"
+        columns = [_gpkg.Column(f, t) for f, t in [*fields, *costs, *restrictions]]
+        if shape is None:
+            from .management import CreateTable
+            CreateTable(location, str(name))
+            for column in columns:
+                _gpkg.add_column(path, column)
+        else:
+            _gpkg.create(path, shape, graph.srid, columns)
+        _write_table(path, rows[kind], shape is not None)
+        outputs.append(path)
+    return Result(*outputs, layer)
+
+
+def _write_table(path, rows, has_shape):
+    from . import da
+    from .management import _schema
+    fields = [c.name for c in _schema(path)[0]]
+    with da.InsertCursor(path, [*fields, *(["SHAPE@"] if has_shape else [])]) as written:
+        for row in rows:
+            written.insertRow((*[row.get(f) for f in fields], *([row.get("SHAPE")] if has_shape else [])))
+
+
+def GetSolverProperties(network_analyst_layer):
+    """The solver properties object of the layer's kind (``grapy._solverprops``), whose properties read and write the
+    layer's settings; last mile delivery and waste collection layers are not supported, as documented."""
+    from . import _solverprops
+    return _solverprops.of(_layer(network_analyst_layer))
+
+
+from . import _solverprops as _sp  # noqa: E402
+
+RouteSolverProperties = _sp.RouteSolverProperties
+ClosestFacilitySolverProperties = _sp.ClosestFacilitySolverProperties
+ServiceAreaSolverProperties = _sp.ServiceAreaSolverProperties
+ODCostMatrixSolverProperties = _sp.ODCostMatrixSolverProperties
+LocationAllocationSolverProperties = _sp.LocationAllocationSolverProperties
+VehicleRoutingProblemSolverProperties = _sp.VehicleRoutingProblemSolverProperties
+
+
+def UpdateAnalysisLayerAttributeParameter(in_network_analysis_layer, parameterized_attribute, attribute_parameter_name,
+                                          attribute_parameter_value=None):
+    """One attribute parameter's value for the layer's solves, as documented; the network's default when no value is
+    given (INFERRED). Parameters are defined with ``arcpy.graticula.AddNetworkAttributeParameter`` and read by custom
+    evaluators (ADR-246)."""
+    from . import _evaluators
+    layer = _layer(in_network_analysis_layer)
+    defined = _evaluators.parameters(layer.network)
+    key = (str(parameterized_attribute), str(attribute_parameter_name))
+    if key not in defined:
+        raise ExecuteError(f"ERROR 030000: the network attribute '{key[0]}' has no parameter '{key[1]}'.")
+    values = dict(layer.settings.get("attribute_parameters") or {})
+    if attribute_parameter_value is None or str(attribute_parameter_value).strip() in ("", "#"):
+        values.pop(key, None)
+    else:
+        values[key] = attribute_parameter_value
+    layer.settings["attribute_parameters"] = values
+    return Result(layer)
 
 
 # ---- more network tools --------------------------------------------------------------------------------------------
@@ -1255,6 +1368,8 @@ def _fleet_solve(layer, graph):
     problem.solve()
     out = _fleet.fleet_outputs(problem, s.get("line_shape"), "LMD" if kind == "LMD" else "Two",
                                s.get("sequence_gap", 1))
+    from . import _traversal
+    layer.traversal = _traversal.of_fleet(problem, out["Routes"])                            # ADR-246
     for key in ("Orders", "Depots", "Routes"):
         _rewrite(layer.classes[key], out[key])
     if "Breaks" in out:
@@ -1612,18 +1727,11 @@ _REASONS = {
         "MakeRouteLayer", "MakeClosestFacilityLayer", "MakeServiceAreaLayer", "MakeODCostMatrixLayer",
         "MakeLocationAllocationLayer", "MakeVehicleRoutingProblemLayer"),
     "shares route layers to a portal, and a fenced tool has no network (ADR-223 §5.3)": ("ShareAsRouteLayers",),
-    "sets an attribute parameter, and grapy's evaluators take none": ("UpdateAnalysisLayerAttributeParameter",),
-    "edits a layer through Esri's solver property objects; grapy's layers take their settings from the Make tools": (
-        "GetSolverProperties", "ClosestFacilitySolverProperties", "LocationAllocationSolverProperties",
-        "ODCostMatrixSolverProperties", "RouteSolverProperties", "ServiceAreaSolverProperties",
-        "VehicleRoutingProblemSolverProperties"),
     "writes or lists Esri's direction text and styles, whose rules are not published": (
         "GenerateDirectionsFeatures", "ListDirectionsLanguages", "ListDirectionsStyleNames", "StreetDirectionsProperties"),
     "reaches a portal for a web tool's settings, and a fenced tool has no network (ADR-223 §5.3)": ("GetWebToolInfo",),
     "solves through ArcGIS Online's routing service, and a fenced tool has no network (ADR-223 §5.3)": (
         "SolveVehicleRoutingProblem",),
-    "copies the network elements a solve traversed, and grapy's solvers keep routes, not their traversed elements": (
-        "CopyTraversedSourceFeatures",),
 }
 _REFUSED = {name: reason for reason, names in _REASONS.items() for name in names}
 
