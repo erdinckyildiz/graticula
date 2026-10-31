@@ -94,4 +94,26 @@ public sealed class HtmlTests
         Assert.DoesNotContain("<svg onload", page, System.StringComparison.Ordinal);
         Assert.Contains("&lt;script&gt;x&lt;/script&gt;", page, System.StringComparison.Ordinal);
     }
+    /// <summary>
+    /// The OAuth pages' door escapes as <c>System.Text.Encodings.Web</c> does — non-ASCII as numeric references — and
+    /// keeps markup holes, as the other door does (ADR-023 condition 3, 2026-10-31).
+    /// </summary>
+    [Fact]
+    public void The_referenced_door_writes_what_the_sign_in_pages_encoder_wrote_and_keeps_markup()
+    {
+        string title = "Şehir & <Harita> \"İğne\" – ğüşıöç";
+
+        Assert.Equal(System.Text.Encodings.Web.HtmlEncoder.Default.Encode(title), Html.Referenced(title).ToString());
+        Assert.Equal(
+            "Sign in to &#x15E;ehir &amp; &lt;Harita&gt; &quot;&#x130;&#x11F;ne&quot; &#x2013; &#x11F;&#xFC;&#x15F;&#x131;&#xF6;&#xE7;",
+            Html.Referenced("Sign in to " + title).ToString());
+
+        Html kept = Html.Markup("<b>x</b>");
+        Assert.Equal(
+            "<p>&#x15F; &lt;i&gt; <b>x</b> 1.5</p>",
+            Html.OfReferenced($"<p>{"ş <i>"} {kept} {1.5}</p>").ToString());
+
+        // The two doors differ only outside Basic Latin; that difference is why the sign-in pages have their own.
+        Assert.Equal("ş &amp;", Html.Text("ş &").ToString());
+    }
 }
