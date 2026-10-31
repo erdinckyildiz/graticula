@@ -115,15 +115,22 @@ def nets():
     F = torch.nn.functional
 
     def knn(query, support, k):
-        """Indexes (B, M, k) and distances of each query point's k nearest support points, in chunks of queries."""
+        """Indexes (B, M, k) and distances of each query point's k nearest support points, by a k-d tree of each
+        sample's support (scipy). Measured on 8,192-point blocks of real lidar (D-341), the brute-force distances
+        and top-k this replaced were seven tenths of RandLA-Net's forward pass. The neighbours are the same; among
+        points at exactly equal distance either may be taken, which a network that pools over its neighbours does
+        not see."""
+        from scipy.spatial import cKDTree
         k = min(int(k), support.shape[1])
-        found, far = [], []
-        for start in range(0, query.shape[1], 2048):
-            d = torch.cdist(query[:, start:start + 2048], support)
-            dd, ii = d.topk(k, dim=-1, largest=False)
-            found.append(ii)
-            far.append(dd)
-        return torch.cat(found, 1), torch.cat(far, 1)
+        q = query.detach().cpu().numpy()
+        s = support.detach().cpu().numpy()
+        found = np.empty((q.shape[0], q.shape[1], k), np.int64)
+        far = np.empty((q.shape[0], q.shape[1], k), np.float64)
+        for b in range(q.shape[0]):
+            d, i = cKDTree(s[b]).query(q[b], k=k)
+            found[b], far[b] = i.reshape(q.shape[1], k), d.reshape(q.shape[1], k)
+        return (torch.from_numpy(found).to(query.device),
+                torch.from_numpy(far).to(device=query.device, dtype=query.dtype))
 
     def gather(x, idx):
         """x (B, N, C) at idx (B, M, k) → (B, M, k, C)."""
@@ -353,12 +360,40 @@ def nets():
             self.weight = nn.Parameter(torch.randn(len(grid), c_in, c_out) * math.sqrt(2.0 / (c_in * len(grid))))
             self.bias = nn.Parameter(torch.zeros(c_out)) if bias else None
 
+        def pairs(self, sparse):
+            """(output voxel, source voxel x offsets + offset) of every occupied neighbour, kept as ``neighbours``
+            is."""
+            cache = sparse.__dict__.setdefault("_cache", {})
+            name = ("pairs", tuple(tuple(int(v) for v in o) for o in self.offsets))
+            if name not in cache:
+                k, rows, sources = len(self.offsets), [], []
+                for o in range(k):
+                    j, found = sparse.neighbours(self.offsets[o])
+                    if j is not None:
+                        rows.append(torch.nonzero(found).reshape(-1))
+                        sources.append(j * k + o)
+                cache[name] = ((torch.cat(rows), torch.cat(sources)) if rows else
+                               (torch.zeros(0, dtype=torch.long), torch.zeros(0, dtype=torch.long)))
+            return cache[name]
+
         def forward(self, f, sparse):
-            out = f.new_zeros(f.shape[0], self.weight.shape[-1])
-            for o in range(len(self.offsets)):
-                j, found = sparse.neighbours(self.offsets[o])
-                if j is not None:
-                    out[found] += f[j] @ self.weight[o]
+            # Every voxel through every offset's weights in one product, then each output summing its occupied
+            # neighbours' terms in one index_add: the same sum as offset by offset with masked scatters, whose
+            # backward filled and scattered a tensor of the input's size per offset — 40 % of Point Transformer
+            # V3's training step on 8,192-point blocks of real lidar (D-341).
+            # A layer whose product would pass 64 MB (the 125-offset stem) keeps the offset-by-offset sum, which
+            # holds less.
+            k, c_in, c_out = self.weight.shape
+            if f.shape[0] * k * c_out * f.element_size() > 64 * 2 ** 20:
+                out = f.new_zeros(f.shape[0], c_out)
+                for o in range(k):
+                    j, found = sparse.neighbours(self.offsets[o])
+                    if j is not None:
+                        out[found] += f[j] @ self.weight[o]
+            else:
+                rows, sources = self.pairs(sparse)
+                every = (f @ self.weight.permute(1, 0, 2).reshape(c_in, k * c_out)).reshape(-1, c_out)
+                out = f.new_zeros(f.shape[0], c_out).index_add_(0, rows, every.index_select(0, sources))
             return out + self.bias if self.bias is not None else out
 
     class Block(nn.Module):
