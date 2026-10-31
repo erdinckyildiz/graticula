@@ -110,23 +110,23 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f66305be</code> · 2026-10-31 19:46</p>
+<p class="stamp">Generated from commit <code>1287cb4e</code> · 2026-10-31 19:47</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">250</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">585/668</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">73 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">586/668</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">72 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">4</div><div class="kpi-l">open questions</div><div class="kpi-n">226 answered</div></div>
 <div class="kpi warn"><div class="kpi-v">18</div><div class="kpi-l">open debts</div><div class="kpi-n">312 repaid · 6 waiting on a trigger · 8 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
-<div class="kpi good"><div class="kpi-v">5635</div><div class="kpi-l">tests</div><div class="kpi-n">610 source files, 272,301 lines</div></div>
+<div class="kpi good"><div class="kpi-v">5644</div><div class="kpi-l">tests</div><div class="kpi-n">610 source files, 272,365 lines</div></div>
 </div></section>
 <section><h2>What is left</h2>
 <p class="sub">Three buckets, sorted by who can move them. The sort is derived: an item is the owner's when the question register names them, and an outside reviewer's when the gate says in its own words that it needs somebody who did not write this. Everything else is ours, and it is the only bucket that shrinks by working.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">4 open</span></div><p><b>Q-223</b> — [OWNER] The choices made after Q-196 and Q-197 were answered, the ones D-332 and D-340 made, and Arrow&#x27;s and Parquet&#x27;s, INFERRED 2026-10-31 (ADR-229 §5.9 (s)–(t), ADR-228 condition 6, D-332, D-340): (a) LandXMLToTin: each TIN is &lt;basename&lt;surface name…</p><p><b>Q-222</b> — [OWNER] How a GeoPackage holds a linear referencing system, and the rules the Location Referencing pages leave open, INFERRED 2026-10-31 (ADR-252 §5.9): (a) the user classes under the data model&#x27;s names and fields, and the registration in grapy&#x27;s own tables…</p><p><b>Q-221</b> — [OWNER] How grapy holds topographic production, and the rules the Topographic Production pages leave open, INFERRED 2026-10-31 (ADR-251 §5.8): (a) the six cross-reference tables as GeoPackage attributes tables under their documented names, Id an integer…</p><p><b>Q-220</b> — [OWNER] How a GeoPackage holds a parcel fabric, and what grapy chose where the parcel pages leave it open, INFERRED 2026-10-31 (ADR-250 §5.8): (a) the classes are &lt;fabricRecords, &lt;fabricPoints, &lt;fabricConnections, &lt;fabricAdjustmentLines/Points/Vectors, &lt;type…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">95 items</span></div><p><b>73 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">94 items</span></div><p><b>72 ADR conditions</b> outstanding across 51 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -137,7 +137,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-250 · grapy holds parcel fabrics</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-251 · grapy holds topographic production</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
-<div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-079 · A web map is a saved document, and</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-177 · OGC API Records is a searchable ca</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -149,6 +148,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-032 · The product is named Graticula</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-046 · Admission control bounds the queue</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-048 · CI does not run the real-data suit</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
+<div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-059 · Quiescing a data source</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-074 · Z and M are read, said out loud, a</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-077 · Z and M ride beside x and y, and a</div><div class="bar-t"><div class="bar-f" style="width:17%"></div></div><div class="bar-n">1</div></div>
@@ -254,7 +254,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">052</td><td>The canonical symbology document is CIM</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
 <tr><td class="id">053</td><td>The symbology editor is three columns, and the item page has a head</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">054</td><td>The symbology document is not bounded</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — MEDIUM on what replaces the bound until 2026-09-05, when condition 1 was measured</td><td class="num">2/2</td></tr>
-<tr><td class="id">055</td><td>A connection is fields, and this server assembles it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">0/2</td></tr>
+<tr><td class="id">055</td><td>A connection is fields, and this server assembles it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num">1/2</td></tr>
 <tr><td class="id">056</td><td>An item is its own thing, and a service is one kind of it</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH — MEDIUM on the field layout until 2026-09-05, when condition 1 was answered</td><td class="num">2/2</td></tr>
 <tr><td class="id">057</td><td>Composing and publishing a service</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH for the composition and the publish rules · MEDIUM for the faces</td><td class="num">7/7</td></tr>
 <tr><td class="id">058</td><td>The datastore&#x27;s schema is edited from the screen</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the rule and the refusals · HIGH for the dependency list — MEDIUM until…</td><td class="num">4/4</td></tr>
@@ -587,21 +587,21 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>What is verified</h2>
 <p class="sub">Counted from <code>[Fact]</code> and <code>[Theory]</code> attributes in the test sources, so this number cannot drift from the suite that produces it.</p>
 <div class="bars">
-<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1560</div></div>
-<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:60.5%"></div></div><div class="bar-n">944</div></div>
-<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.4%"></div></div><div class="bar-n">896</div></div>
-<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.3%"></div></div><div class="bar-n">566</div></div>
-<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.1%"></div></div><div class="bar-n">423</div></div>
-<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">375</div></div>
-<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.6%"></div></div><div class="bar-n">243</div></div>
+<div class="bar"><div class="bar-l">Host</div><div class="bar-t"><div class="bar-f" style="width:100.0%"></div></div><div class="bar-n">1568</div></div>
+<div class="bar"><div class="bar-l">Core</div><div class="bar-t"><div class="bar-f" style="width:60.2%"></div></div><div class="bar-n">944</div></div>
+<div class="bar"><div class="bar-l">Conformance</div><div class="bar-t"><div class="bar-f" style="width:57.1%"></div></div><div class="bar-n">896</div></div>
+<div class="bar"><div class="bar-l">Platform.Postgres</div><div class="bar-t"><div class="bar-f" style="width:36.1%"></div></div><div class="bar-n">566</div></div>
+<div class="bar"><div class="bar-l">Api.ArcGis</div><div class="bar-t"><div class="bar-f" style="width:27.0%"></div></div><div class="bar-n">423</div></div>
+<div class="bar"><div class="bar-l">Console</div><div class="bar-t"><div class="bar-f" style="width:24.0%"></div></div><div class="bar-n">376</div></div>
+<div class="bar"><div class="bar-l">Platform</div><div class="bar-t"><div class="bar-f" style="width:15.5%"></div></div><div class="bar-n">243</div></div>
 <div class="bar"><div class="bar-l">Providers.DuckDb</div><div class="bar-t"><div class="bar-f" style="width:8.4%"></div></div><div class="bar-n">131</div></div>
 <div class="bar"><div class="bar-l">Api.Wfs</div><div class="bar-t"><div class="bar-f" style="width:7.9%"></div></div><div class="bar-n">124</div></div>
 <div class="bar"><div class="bar-l">Providers.Oracle</div><div class="bar-t"><div class="bar-f" style="width:6.8%"></div></div><div class="bar-n">106</div></div>
 <div class="bar"><div class="bar-l">Providers.MySql</div><div class="bar-t"><div class="bar-f" style="width:4.5%"></div></div><div class="bar-n">70</div></div>
 <div class="bar"><div class="bar-l">Architecture</div><div class="bar-t"><div class="bar-f" style="width:3.3%"></div></div><div class="bar-n">51</div></div>
 <div class="bar"><div class="bar-l">Render.Skia</div><div class="bar-t"><div class="bar-f" style="width:3.2%"></div></div><div class="bar-n">50</div></div>
-<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.8%"></div></div><div class="bar-n">43</div></div>
-<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.9%"></div></div><div class="bar-n">29</div></div>
+<div class="bar"><div class="bar-l">Raster.Tiff</div><div class="bar-t"><div class="bar-f" style="width:2.7%"></div></div><div class="bar-n">43</div></div>
+<div class="bar"><div class="bar-l">Providers.SqlServer</div><div class="bar-t"><div class="bar-f" style="width:1.8%"></div></div><div class="bar-n">29</div></div>
 <div class="bar"><div class="bar-l">Security.Argon2</div><div class="bar-t"><div class="bar-f" style="width:1.5%"></div></div><div class="bar-n">24</div></div>
 </div></section>
 <section><h2>grapy against arcpy</h2>
@@ -649,6 +649,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>1287cb4e</code><time>2026-10-31</time><span>Status pages regenerated after merging the register sweep</span></li>
 <li><code>f66305be</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>877223c8</code><time>2026-10-31</time><span>Point cloud tests run in CI (ADR-249 condition 2 discharged), and a dispatch-only workflow measures RandLA-Net and PTv3 training inside the Linux fence for condition 1</span></li>
 <li><code>dbc174b4</code><time>2026-10-31</time><span>ADR-251 condition 3 is recorded as a publication date rather than work, with the refusal past 2030.0 held by a test</span></li>
@@ -662,7 +663,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>e7f274a2</code><time>2026-10-31</time><span>D-04 is partly repaid, not parked: each organisation&#x27;s share of admission is built and tested, and the HTTP-level pools are what is left; ADR-087 condition 2 has no real store left to discharge it</span></li>
 <li><code>60c868e3</code><time>2026-10-31</time><span>D-262 stays parked on its trigger alone: 1.0.490 is published for amd64 and arm64 and runs the showcase from the quickstart&#x27;s compose file on arm64</span></li>
 <li><code>1a42e052</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
-<li><code>611f7e50</code><time>2026-10-31</time><span>Every group-2 data model has its ADR, and no grapy module is refused with a schedule any more (ADR-224 condition 5 discharged)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

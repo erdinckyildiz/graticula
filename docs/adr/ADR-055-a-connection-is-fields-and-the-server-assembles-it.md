@@ -100,6 +100,8 @@ otherwise *that database does not exist* names one the operator never typed.
 
 The three omissions are the design rather than a shortfall. *Database Platform* is a combo
 with one entry, because v1 is PostGIS and nothing else. *Authentication Type* is the same.
+*(Both stopped being true, and condition 1 fired — see §7: there are eight platforms now, and
+four ways a source signs in.)*
 *Save User/Password* cannot be unticked: this server reads the source long after whoever
 registered it went home, so the sealed credential is what makes it a registration rather
 than a session. ADR-034 §2: a control is not drawn for a feature that does not exist.
@@ -153,6 +155,30 @@ The password is masked, is never filled in on either path, and is required to sa
    *Authentication Type* are undrawn because each has one value; the day either has two,
    this dialog owes the control and this ADR owes the reasoning for what the second one
    does to a stored source.
+   **DISCHARGED 2026-10-31 — the trigger fired, and was acted on.** *Fired*: ADR-066 added GeoParquet folders,
+   ADR-067 remote GeoParquet, DuckDB files and MotherDuck, ADR-205 Oracle, ADR-208 MySQL and MariaDB, ADR-210 SQL
+   Server — eight platforms (`DataSourceKinds`), and a source now signs in as a database user, with a token, with an
+   access key, anonymously, or not at all (files on this server's disk). *The platform control* was drawn when the
+   second platform came: since ADR-066 a new source chooses it first, in the dialog's *What it is* group. What was
+   still owed is acted on now: the server's listing names each source's `platform` and `authentication`
+   (`AdminEndpoints.Describe`), the Data sources row says them in place of the kind's code (`postgis`,
+   `geoparquet-remote`), and a correction opens on *Platform: … · Authentication: …*, said and not offered — the
+   dialog describes itself by it for a screen reader. *What a second platform does to a stored source*: the platform
+   is stored twice, as `data_source.kind` and as the sealed locator's own prefix (`geoparquet:`, the SQL locators'
+   JSON), and is fixed for the source's life — a correction that would change it is refused, so repointing data at
+   another engine is a new registration, which is what the dialog now tells the operator. A source registered before
+   any second platform reads as PostGIS, the kind's default. *Authentication Type* is read from what is stored, never
+   from what was asked for: within one platform only S3 has two values (an access key, or anonymous), and that choice
+   is drawn as the optional key fields since ADR-067; every database engine has one, *Database authentication* —
+   Pro's second value for SQL Server and Oracle, *Operating system authentication*, is not built, because the identity
+   that would sign in is the server process's and not the operator's who registered the source, which is the same
+   reason *Save User/Password* cannot be unticked. Were it built, it would be a second value for those platforms and
+   the combo would be owed there. Evidence: `ASourceNamesItsPlatformAndItsSignInTests` (8: every kind, and a bucket's
+   key or none, the key never named) and `DataSourceScreenTests.A_source_names_its_platform_and_its_sign_in_on_its_row_and_in_its_correction`
+   against a running server, which fails on the earlier console (the row read `postgis`; a correction had no platform
+   line). Reviewed by the ux-designer agent the same day: contrast 6.18:1 light and 7.31:1 dark; its copy and markup
+   findings (no colon inside a value, the line described to a screen reader, the separator the console's own,
+   "fixed for a source") were applied.
 2. **The listing's reach is re-argued if the privilege ever splits.** The security
    argument in §3 rests entirely on `content:registerDataStore` already being able to make
    this server connect anywhere. A narrower privilege that can register but not test —

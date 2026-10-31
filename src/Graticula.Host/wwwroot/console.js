@@ -24721,6 +24721,25 @@ function breakAtSeparators(text) {
     .join("<wbr>");
 }
 
+/**
+ * A source's platform and how it signs in, in the words of Pro's *Database Connection* dialog — ADR-055 condition 1.
+ *
+ * <b>Named by the server</b> (`platform`, `authentication` in the listing), so this screen and an API client say the
+ * same thing; the kind's code is the fallback for a listing from a server older than the condition.
+ *
+ * @param {object} d a listed source
+ * @returns {string} HTML for the row's second line
+ */
+function sourcePlatformSays(d) {
+  // Each half kept whole and the line broken only at the separator (a design review: at 390 px it broke inside
+  // "Database authentication"); the dot is the console's own `.sep`, hidden from a screen reader.
+  const platform = `<span class="seg">${h(d.platform || d.kind || "")}</span>`;
+
+  return d.authentication
+    ? `${platform} <span class="sep" aria-hidden="true">·</span> <span class="seg">${h(d.authentication)}</span>`
+    : platform;
+}
+
 async function loadSources() {
   const { dataSources, geoParquetRoot: root, remoteGeoParquet: remote, motherDuck } = await api("/admin/datasources");
   geoParquetRoot = root ?? null;
@@ -24737,7 +24756,7 @@ async function loadSources() {
             ? ` <span class="pill p-hosted" tabindex="0"
                   title="This server's own hosted store: its connection comes from the Graticula:PlatformStore setting on every start, so it is neither edited here nor removed.">built-in</span>`
             : ""}
-          <div class="rowmeta">${h(d.kind)}</div>
+          <div class="rowmeta">${sourcePlatformSays(d)}</div>
           ${d.quiesced ? sourceHeldSays(d.quiesced, d.sharesWith) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
@@ -24765,6 +24784,8 @@ async function loadSources() {
                   : ` <span class="managed">set by Graticula:PlatformStore</span>`
               : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-kind="${h(d.kind)}"
+                    data-source-platform="${h(d.platform || "")}"
+                    data-source-authentication="${h(d.authentication || "")}"
                     data-source-summary="${h(d.summary || "")}"
                     data-source-layers="${num(d.layerCount)}">Edit…</button>
                   <button class="tiny danger" data-source-remove="${h(d.id)}"
@@ -25705,7 +25726,15 @@ async function openDbConnection(source) {
   ].filter(Boolean);
   const offNote = off.length ? 'aria-describedby="dcKindOff"' : "";
 
-  const kindChoice = source ? "" : `
+  // <b>A correction names the platform and the sign-in it keeps — ADR-055 condition 1.</b> Registering chooses the
+  // platform below; a source keeps it for good (the server refuses a correction that would change it), so here it is
+  // said, not offered, as Pro's dialog shows its Database Platform greyed for an existing connection.
+  const kindFixed = source && source.platform ? `
+      <p class="hint" id="dcPlatform">Platform: <b>${h(source.platform)}</b>${source.authentication
+        ? ` · Authentication: <b>${h(source.authentication)}</b>` : ""}. These are fixed for a source. To change them,
+        register the data as a new source.</p>` : "";
+
+  const kindChoice = source ? kindFixed : `
       <fieldset class="dckind">
         <legend>What it is</legend>
         <div class="dcgroup" role="group" aria-labelledby="dcKindServers">
@@ -25948,6 +25977,9 @@ async function openDbConnection(source) {
 
   dbconnOverride();
   dbconnServerKind(dbconnKind() in DBCONN_PORTS ? dbconnKind() : "postgis");
+  // The platform line describes the whole dialog, which opens on the password: without this a screen reader never
+  // hears it (a design review, ADR-055 condition 1).
+  if ($("dcPlatform")) dialog.setAttribute("aria-describedby", "dcPlatform"); else dialog.removeAttribute("aria-describedby");
   dialog.showModal();
 
   if (!source) {
@@ -32111,6 +32143,8 @@ async function handleClick(event) {
       id: d.sourceEdit,
       name: d.sourceName,
       kind: d.sourceKind,
+      platform: d.sourcePlatform,
+      authentication: d.sourceAuthentication,
       summary: d.sourceSummary,
       layers: Number(d.sourceLayers) || 0,
     });

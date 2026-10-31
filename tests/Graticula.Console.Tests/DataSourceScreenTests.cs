@@ -96,6 +96,41 @@ public sealed class DataSourceScreenTests : ConsoleTest
     }
 
     /// <summary>
+    /// ADR-055 condition 1: every source says its platform and how it signs in, on its row and in its correction.
+    /// </summary>
+    /// <remarks>
+    /// <b>Left out while each had one value.</b> The dialog drew neither of Pro's <i>Database Platform</i> and
+    /// <i>Authentication Type</i> when v1 held PostGIS alone; eight kinds later, the row said <c>postgis</c> or
+    /// <c>geoparquet-remote</c> — a code — and a correction did not say which platform it was correcting at all, the
+    /// platform choice being offered only to a new source. The words are the server's, read from the listing.
+    /// </remarks>
+    [Fact]
+    public async Task A_source_names_its_platform_and_its_sign_in_on_its_row_and_in_its_correction()
+    {
+        await OpenSourcesAsync();
+
+        await WaitForAsync(
+            "document.querySelectorAll('#sources button[data-source-edit]').length > 0",
+            "No source offers an Edit button, so there is nothing to open.");
+
+        string row = await Browser.EvaluateAsync<string>(
+            "document.querySelector('#sources button[data-source-edit]').closest('tr').querySelector('div.rowmeta').textContent.replace(/\\s+/g, ' ')")
+            ?? string.Empty;
+        Assert.Contains("PostgreSQL with PostGIS · Database authentication", row, StringComparison.Ordinal);
+
+        await ClickAsync("#sources button[data-source-edit]");
+        await WaitForAsync("document.getElementById('dcPlatform') !== null",
+            "A correction does not say which platform it is correcting.");
+
+        string said = await Browser.EvaluateAsync<string>(
+            "document.getElementById('dcPlatform').textContent.replace(/\\s+/g, ' ')") ?? string.Empty;
+        Assert.Contains("Platform: PostgreSQL with PostGIS", said, StringComparison.Ordinal);
+        Assert.Contains("Authentication: Database authentication", said, StringComparison.Ordinal);
+        Assert.Equal(0, await Browser.EvaluateAsync<int>("document.querySelectorAll('input[name=\"dcKind\"]').length"));
+        Assert.Equal("dcPlatform", await Browser.EvaluateAsync<string>("document.getElementById('dbconn').getAttribute('aria-describedby')"));
+    }
+
+    /// <summary>
     /// The dialog registers an Oracle or a MySQL database, in the fields a PostGIS one uses — D-310.
     /// </summary>
     /// <remarks>
