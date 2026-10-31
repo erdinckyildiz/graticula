@@ -22,7 +22,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
         + "d.created_at, d.modified_at, "
         + "coalesce((select array_agg(gm.group_id) from item_group gm where gm.item_id = i.id), '{}'::uuid[]), "
         + "coalesce((select array_agg(g.name order by g.name) from item_group gm join sharing_group g on g.id = gm.group_id where gm.item_id = i.id), '{}'::text[]), "
-        + "i.delete_protected, i.tags, i.content_folder_id, i.description";
+        + "i.delete_protected, i.tags, i.content_folder_id, i.description, d.thumbnail is not null";
 
     private const string From =
         "from item i join document d on d.item_id = i.id join principal p on p.id = i.owner_principal_id "
@@ -271,6 +271,39 @@ public sealed class PostgresDocumentStore : IDocumentStore
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
     }
 
+    /// <inheritdoc/>
+    public async Task<bool> SetThumbnailAsync(string id, byte[]? picture, CancellationToken cancellationToken)
+    {
+        if (!WebMaps.IsId(id))
+        {
+            return false;
+        }
+
+        // The item's modified time moves with it, as a file's replacement moves it: a portal client caches a picture by it.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "update document set thumbnail = @picture, modified_at = now() "
+            + "where item_id = @id::uuid and exists (select 1 from item i where i.id = item_id and i.kind = 'document')");
+        command.Parameters.AddWithValue("id", id);
+        command.Parameters.Add(new NpgsqlParameter("picture", NpgsqlTypes.NpgsqlDbType.Bytea) { Value = (object?)picture ?? DBNull.Value });
+
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<byte[]?> ThumbnailAsync(string id, CancellationToken cancellationToken)
+    {
+        if (!WebMaps.IsId(id))
+        {
+            return null;
+        }
+
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            "select d.thumbnail from document d join item i on i.id = d.item_id where i.kind = 'document' and d.item_id = @id::uuid");
+        command.Parameters.AddWithValue("id", id);
+
+        return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as byte[];
+    }
+
     /// <summary>A row, or null for a kind this build does not know — a later build's, read by an earlier one.</summary>
     private static Document? Read(NpgsqlDataReader reader)
     {
@@ -296,6 +329,7 @@ public sealed class PostgresDocumentStore : IDocumentStore
             reader.GetBoolean(13),
             reader.IsDBNull(14) ? null : reader.GetFieldValue<string[]>(14),
             reader.IsDBNull(15) ? null : reader.GetGuid(15),
-            reader.IsDBNull(16) ? null : reader.GetString(16));
+            reader.IsDBNull(16) ? null : reader.GetString(16),
+            reader.GetBoolean(17));
     }
 }

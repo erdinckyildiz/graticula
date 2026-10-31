@@ -33,6 +33,9 @@ internal static partial class AdminEndpoints
         app.MapDelete("/content/documents/{id}", DeleteDocumentAsync);
         app.MapGet("/content/documents/{id}/data", DocumentDataAsync);
         app.MapPut("/content/documents/{id}/data", ReplaceDocumentAsync).DisableAntiforgery();
+        app.MapGet("/content/documents/{id}/thumbnail", DocumentThumbnailAsync);
+        app.MapPut("/content/documents/{id}/thumbnail", SetDocumentThumbnailAsync).DisableAntiforgery();
+        app.MapDelete("/content/documents/{id}/thumbnail", RemoveDocumentThumbnailAsync);
         app.MapPut("/content/documents/{id}/protection", SetDocumentProtectionAsync);
         app.MapPut("/content/documents/{id}/description", SetDocumentDescriptionAsync);
         app.MapPut("/content/documents/{id}/tags", SetDocumentTagsAsync);
@@ -118,6 +121,121 @@ internal static partial class AdminEndpoints
 
         await DocumentDownload.WriteAsync(context, document, content, cancellation).ConfigureAwait(false);
     }
+
+    /// <summary>A document's thumbnail, to whoever may open the document — D-321.</summary>
+    internal static async Task DocumentThumbnailAsync(
+        HttpContext context, string id, IDocumentStore documents, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await documents.FindAsync(id, cancellation).ConfigureAwait(false) is not { } document || !Readable(current, document))
+        {
+            await Refuse(context, 404, NoDocument(id)).ConfigureAwait(false);
+            return;
+        }
+
+        if (await documents.ThumbnailAsync(id, cancellation).ConfigureAwait(false) is not { } picture
+            || Documents.RecognisePicture(picture) is not { } kind)
+        {
+            await Refuse(context, 404, $"'{document.Title}' has no thumbnail of its own.").ConfigureAwait(false);
+            return;
+        }
+
+        await WritePictureAsync(context, picture, kind, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes a kept picture with the type its own bytes say, and nothing a browser could take for a page.</summary>
+    internal static async Task WritePictureAsync(HttpContext context, byte[] picture, DocumentKind kind, CancellationToken cancellation)
+    {
+        context.Response.ContentType = kind.MediaType;
+        context.Response.ContentLength = picture.Length;
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers.CacheControl = "private, no-cache";
+        await context.Response.Body.WriteAsync(picture, cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Keeps the picture a multipart <c>file</c> carries as a document's thumbnail — a PNG, JPEG, GIF or WebP of at most
+    /// 1 MB, as an ArcGIS item's is. D-321: a document had only its kind's tile, or itself when it is a picture.
+    /// </summary>
+    private static async Task SetDocumentThumbnailAsync(
+        HttpContext context, string id, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await ManagedDocumentAsync(context, current, id, "change the thumbnail of", documents, audit, cancellation)
+            .ConfigureAwait(false) is not { } before)
+        {
+            return;
+        }
+
+        if (!context.Request.HasFormContentType)
+        {
+            await Refuse(context, 400, "Upload the picture as multipart/form-data with a 'file' part.").ConfigureAwait(false);
+            return;
+        }
+
+        IFormCollection form = await context.Request.ReadFormAsync(cancellation).ConfigureAwait(false);
+
+        if (form.Files.GetFile("file") is not { Length: > 0 } file)
+        {
+            await Refuse(context, 400, "Choose a picture to use as the thumbnail.").ConfigureAwait(false);
+            return;
+        }
+
+        if (file.Length > Documents.MaximumThumbnailBytes)
+        {
+            await Refuse(context, 413,
+                $"The picture is {DocumentSize(file.Length)} and a thumbnail is at most 1 MB. A picture 600 by 400 pixels is plenty.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        byte[] picture = new byte[file.Length];
+
+        await using (System.IO.Stream stream = file.OpenReadStream())
+        {
+            await stream.ReadExactlyAsync(picture, cancellation).ConfigureAwait(false);
+        }
+
+        if (Documents.RecognisePicture(picture) is not { } kind)
+        {
+            await Refuse(context, 415, "A thumbnail is a PNG, JPEG, GIF or WebP picture, and this file is none of these.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await documents.SetThumbnailAsync(id, picture, cancellation).ConfigureAwait(false);
+        await AuditAsync(context, audit, "document.thumbnail", id, Detail(new { kind = kind.Name, bytes = picture.Length }),
+            succeeded: true, cancellation).ConfigureAwait(false);
+
+        await Results.Json(Describe(current, before with { HasThumbnail = true })).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>Forgets a document's own thumbnail, so it shows its kind's tile — or itself, when it is a picture — again.</summary>
+    private static async Task RemoveDocumentThumbnailAsync(
+        HttpContext context, string id, IDocumentStore documents, IAuditLog audit, CancellationToken cancellation)
+    {
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+
+        if (await ManagedDocumentAsync(context, current, id, "change the thumbnail of", documents, audit, cancellation)
+            .ConfigureAwait(false) is not { } before)
+        {
+            return;
+        }
+
+        await documents.SetThumbnailAsync(id, null, cancellation).ConfigureAwait(false);
+        await AuditAsync(context, audit, "document.thumbnail", id, Detail(new { removed = true }), succeeded: true, cancellation)
+            .ConfigureAwait(false);
+
+        await Results.Json(Describe(current, before with { HasThumbnail = false })).ExecuteAsync(context).ConfigureAwait(false);
+    }
+
+    /// <summary>A size as a person reads it.</summary>
+    private static string DocumentSize(long bytes) =>
+        bytes >= 1 << 20
+            ? $"{bytes / (double)(1 << 20):0.0} MB"
+            : $"{Math.Max(1, bytes / 1024):0} KB";
 
     /// <summary>Files a new document, owned by whoever uploads it.</summary>
     /// <remarks>
@@ -497,6 +615,7 @@ internal static partial class AdminEndpoints
             contentFolder = document.ContentFolder,
             description = document.Description,
             data = $"/content/documents/{document.Id}/data",
+            thumbnail = document.HasThumbnail ? $"/content/documents/{document.Id}/thumbnail" : null,
             groups = manages ? document.SharedWithNames ?? [] : null,
         };
     }

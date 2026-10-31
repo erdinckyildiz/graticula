@@ -5786,6 +5786,9 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover,
 #mapActions .itemmore[open] > summary, #mapActions .itemmore > summary:hover, #docActions .itemmore[open] > summary, #docActions .itemmore > summary:hover { background: var(--surface-2); }
 #itemActions .itemmore .sheet, #mapActions .itemmore .sheet, #docActions .itemmore .sheet { min-width: 200px; }
+/* The document page's status line keeps its height, so a sentence arriving does not push the page down (design review
+   2026-10-31). */
+#docSays { min-height: 1.5em; }
 #itemActions .itemmore .sheet button { display: block; width: 100%; text-align: left; }
 
 /* Logs: the head sits over the log, beside its sources, as on every other page with a left column (2026-10-17);

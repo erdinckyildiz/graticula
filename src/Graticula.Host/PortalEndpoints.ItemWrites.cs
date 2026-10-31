@@ -205,19 +205,21 @@ internal static partial class PortalEndpoints
             ? new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "accessInformation", "licenseInfo", "categories" }
             : item.Map is not null
                 ? new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "text", "thumbnail" }
-                : new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "file" };
+                : new(StringComparer.OrdinalIgnoreCase) { "title", "snippet", "description", "tags", "licenseInfo", "categories", "file", "thumbnail" };
 
         string[] refused = [.. sent.Keys.Where(k => !kept.Contains(k) && !EchoedFields.Contains(k)).Order(StringComparer.Ordinal)];
 
-        // A picture is a file, not a field; for a service it is drawn from its layers, never kept. A document's one file
-        // is the document itself.
+        // A picture is a file, not a field; for a service it is drawn from its layers, never kept. A document keeps its
+        // file and, since D-321, a picture of its own.
         if (item.Service is not null && form.Files.Count > 0)
         {
             refused = [.. refused, .. form.Files.Select(f => f.Name)];
         }
         else if (item.Document is not null)
         {
-            refused = [.. refused, .. form.Files.Where(f => f.Name != "file").Select(f => f.Name)];
+            refused = [.. refused, .. form.Files
+                .Where(f => f.Name != "file" && !f.Name.StartsWith("thumbnail", StringComparison.OrdinalIgnoreCase))
+                .Select(f => f.Name)];
         }
 
         if (refused.Length > 0)
@@ -458,6 +460,31 @@ internal static partial class PortalEndpoints
             replacement = (Documents.CleanFileName(file.FileName, kind), kind, content);
         }
 
+        // D-321: the picture ArcGIS's update takes as the file 'thumbnail', checked with the rest before anything is written.
+        byte[]? picture = null;
+
+        if ((form.Files.GetFile("thumbnail")
+                ?? form.Files.FirstOrDefault(f => f.Name.StartsWith("thumbnail", StringComparison.OrdinalIgnoreCase))) is { } pictured)
+        {
+            if (pictured.Length is 0 or > Documents.MaximumThumbnailBytes)
+            {
+                return PortalError(pictured.Length == 0 ? 400 : 413,
+                    $"'{document.Title}' was not changed: a thumbnail is a picture of at most 1 MB.");
+            }
+
+            picture = new byte[pictured.Length];
+
+            await using (Stream stream = pictured.OpenReadStream())
+            {
+                await stream.ReadExactlyAsync(picture, cancellation).ConfigureAwait(false);
+            }
+
+            if (Documents.RecognisePicture(picture) is null)
+            {
+                return PortalError(415, $"'{document.Title}' was not changed: a thumbnail is a PNG, JPEG, GIF or WebP picture.");
+            }
+        }
+
         if (title != document.Title || snippet != document.Snippet)
         {
             await documents.UpdateAsync(document.Id, title, snippet, document.Sharing, cancellation).ConfigureAwait(false);
@@ -478,6 +505,11 @@ internal static partial class PortalEndpoints
         {
             await documents.ReplaceAsync(document.Id, replaced.FileName, replaced.Kind, replaced.Content, cancellation)
                 .ConfigureAwait(false);
+        }
+
+        if (picture is not null)
+        {
+            await documents.SetThumbnailAsync(document.Id, picture, cancellation).ConfigureAwait(false);
         }
 
         return null;

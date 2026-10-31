@@ -783,7 +783,7 @@ async function drawLegend() {
     box.innerHTML = `<b>Drawn here</b>
       <span class="row"><span class="swatch" style="background:${ACCENT}"></span>
         <span>${escape($("title")?.textContent || SERVICE || "the layer")}</span></span>
-      <span class="said">One colour for every feature, chosen in this viewer. The layer's own
+      <span class="said">One color for every feature, chosen in this viewer. The layer's own
         symbology is what the map image face draws.</span>`;
 
     return;

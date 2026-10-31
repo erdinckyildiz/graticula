@@ -1915,6 +1915,16 @@ internal static partial class PortalEndpoints
             return;
         }
 
+        // D-321: a document's picture its owner gave it, to whoever may open the document.
+        if (string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
+            && WebMaps.IsId(id)
+            && context.RequestServices.GetService(typeof(IDocumentStore)) is IDocumentStore documents
+            && await documents.FindAsync(id, cancellation).ConfigureAwait(false) is { HasThumbnail: true })
+        {
+            await AdminEndpoints.DocumentThumbnailAsync(context, id, documents, cancellation).ConfigureAwait(false);
+            return;
+        }
+
         // ADR-126: an image service's picture is the image itself, drawn whole as it is styled.
         if (string.Equals(file, ThumbnailFile, StringComparison.OrdinalIgnoreCase)
             && context.RequestServices.GetService(typeof(ICoverageCatalog)) is ICoverageCatalog coverages
@@ -2361,7 +2371,7 @@ internal static partial class PortalEndpoints
             type = document.Kind.ArcGisType,
             typeKeywords = new[] { "Data", "Document" },
             description = document.Description ?? document.Snippet,
-            thumbnail = (string?)null,
+            thumbnail = document.HasThumbnail ? $"thumbnail/{ThumbnailFile}" : null,
             snippet = document.Snippet,
             tags = document.Tags ?? [],
             categories = Annotations(context).CategoriesOf(Guid.Parse(document.Id)),

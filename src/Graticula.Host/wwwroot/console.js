@@ -3785,6 +3785,7 @@ document.addEventListener("toggle", event => {
     sheet.style.top = "";
     sheet.style.right = "";
     sheet.style.left = "";
+    sheet.style.bottom = "";
     return;
   }
 
@@ -3805,6 +3806,18 @@ document.addEventListener("toggle", event => {
     sheet.style.top = "";
     sheet.style.right = "";
     sheet.style.left = "";
+    // <b>But never over its own summary</b> (design review 2026-10-31): a More low on the screen sat under the
+    // sheet, so the tap meant to close it landed on *Move to folder…*. The page scrolls the summary clear first.
+    const summary = menu.querySelector("summary");
+    const top = sheet.getBoundingClientRect().top;
+    const under = summary ? summary.getBoundingClientRect().bottom + 8 - top : 0;
+    if (under > 0) window.scrollBy({ top: under, behavior: "instant" });
+    // A page too short to scroll that far keeps the sheet under the summary instead, still across the screen.
+    const still = summary ? summary.getBoundingClientRect().bottom + 8 - sheet.getBoundingClientRect().top : 0;
+    if (still > 0 && summary) {
+      sheet.style.top = `${Math.round(summary.getBoundingClientRect().bottom + 4)}px`;
+      sheet.style.bottom = "auto";
+    }
     return;
   }
 
@@ -4170,7 +4183,18 @@ function openScreen(surface, screen, folder) {
   }
 
   if (screen === "content") {
-    section("your content", loadMyContent, "contentRows").then(paintPreviews);
+    // <b>A folder in the address</b> — an item page's breadcrumb links here (D-321), so a new tab, a copied link and Back
+    // open the same folder a click does. Read once and taken out, so a chip chosen afterwards is not undone by a reload.
+    const askedFolder = hashQuery.get("folder");
+    if (askedFolder) {
+      contentFolderPick = askedFolder;
+      if (contentScope !== "all" && contentScope !== "mine") contentScope = "mine";
+      history.replaceState(null, "", pathOf("#/content"));
+    }
+    section("your content", loadMyContent, "contentRows").then(() => {
+      paintPreviews();
+      if (askedFolder) focusFolderPick();
+    });
   }
   if (screen === "members") {
     memberFilterFromAddress();
@@ -6153,7 +6177,9 @@ async function showWebMapItem(id) {
   const open = `/studio/webmap.html?id=${encodeURIComponent(map.id)}`;
   const plural = (n, word) => `${num(n)} ${word}${n === 1 ? "" : "s"}`;
 
-  $("mapCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(map.title)}</b>`;
+  await folderOfItem(map);
+  if (mapOpen !== map) return;
+  $("mapCrumb").innerHTML = contentCrumb(map, map.title);
   $("mapTitle").innerHTML = nameWithBreaks(map.title);
   $("mapSub").textContent = [
     "Web map",
@@ -34228,7 +34254,12 @@ function docRow(i) {
 
   return `<tr class="mediarow">
     ${pickCell(i, `document:${d.id}`)}
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${docTile(d)}</a></td>
+    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${d.thumbnail
+      ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(docThumbAddress(d))}">`
+      // The page's rule, so a picture is the same picture in its row and on its page (design review 2026-10-31).
+      : DOC_KINDS[d.kind] === "Picture" && d.size <= DOC_PICTURE_THUMB_BYTES
+      ? `<img class="thumb" alt="" loading="lazy" data-thumb="/content/documents/${encodeURIComponent(d.id)}/data">`
+      : docTile(d)}</a></td>
     <td class="name">
       <div class="svctitle"><a href="${open}">${h(i.name)}</a>
         <span class="svctype type">${h(DOC_KINDS[d.kind] || d.type || "Document")}</span></div>
@@ -34280,12 +34311,18 @@ async function showDocumentItem(id) {
 
   docOpen = doc;
   const kind = DOC_KINDS[doc.kind] || doc.type || "Document";
-  $("docCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(doc.title)}</b>`;
+  await folderOfItem(doc);
+  if (docOpen !== doc) return;
+  $("docCrumb").innerHTML = contentCrumb(doc, doc.title);
   $("docTitle").innerHTML = nameWithBreaks(doc.title);
   $("docSub").textContent = [kind, fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""].filter(Boolean).join(" · ");
   // D-321: a picture is its own thumbnail, as Portal shows one; a file of another kind keeps its kind's tile. Read with the
   // session's credential through the preview queue, and only below a size a thumbnail is worth fetching whole.
-  $("docThumb").innerHTML = DOC_KINDS[doc.kind] === "Picture" && doc.size <= DOC_PICTURE_THUMB_BYTES
+  // A picture its owner gave it comes first (D-321, as Portal's *Edit thumbnail*); its address carries the item's time, so a
+  // new picture is fetched rather than the one the preview queue already holds.
+  $("docThumb").innerHTML = doc.thumbnail
+    ? `<img class="thumb mapitemthumb" data-thumb="${h(docThumbAddress(doc))}" alt="">`
+    : DOC_KINDS[doc.kind] === "Picture" && doc.size <= DOC_PICTURE_THUMB_BYTES
     ? `<img class="thumb mapitemthumb" data-thumb="/content/documents/${encodeURIComponent(doc.id)}/data"
          alt="">`
     : docTile(doc, "mapitemthumb");
@@ -34295,6 +34332,8 @@ async function showDocumentItem(id) {
     doc.mine ? `<button type="button" data-move-document="${h(doc.id)}" data-move-folder="${h(doc.contentFolder || "")}"
       data-move-title="${h(doc.title)}">Move to folder…</button>` : "",
     doc.manages ? `<button type="button" id="docEditMore">Edit details</button>` : "",
+    doc.manages ? `<button type="button" id="docThumbChange">${doc.thumbnail ? "Change thumbnail…" : "Set thumbnail…"}</button>` : "",
+    doc.manages && doc.thumbnail ? `<button type="button" id="docThumbRemove">Remove thumbnail</button>` : "",
   ].filter(Boolean).join("");
 
   // Redrawing the actions drops focus; the control that had it gets it back.
@@ -34328,6 +34367,43 @@ async function showDocumentItem(id) {
 
 /** The largest picture shown as its own thumbnail; past it the page would fetch megabytes to draw a box. */
 const DOC_PICTURE_THUMB_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A refusal on the document page, put where it is read: the line in view, and the focus on More, where a retry is one
+ * key away (design review 2026-10-31 — on a phone the line sat half below the fold with the focus on the title above).
+ */
+function docRefusalSeen(line) {
+  document.querySelector("#docActions details.itemmore summary")?.focus();
+  line.scrollIntoView({ block: "nearest" });
+}
+
+/** The largest thumbnail the server keeps — 1 MB, as an ArcGIS item's (D-321). */
+const DOC_THUMB_BYTES = 1024 * 1024;
+
+/** A document's own thumbnail, addressed by when it last changed so a replaced picture is not the cached one. */
+const docThumbAddress = d => `${d.thumbnail}?v=${encodeURIComponent(d.modified || "")}`;
+
+/**
+ * The reader's folders, read once when an item of theirs is in one and the list is not here yet — an item page opened
+ * from its address has not passed through Content, which is where they are otherwise read (D-321).
+ */
+async function folderOfItem(item) {
+  if (!item?.mine || !item.contentFolder || myFolders.some(f => f.id === item.contentFolder)) return;
+  myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+}
+
+/**
+ * An item page's breadcrumb: Content, the reader's folder the item is in, and the item — as Portal's item page names
+ * the folder (D-321). The folder step opens Content on that folder.
+ */
+function contentCrumb(item, title) {
+  const folder = item?.mine && item.contentFolder ? myFolders.find(f => f.id === item.contentFolder) : null;
+  return `<a href="#/content">Content</a> › ${folder
+    ? `<a href="#/content?folder=${encodeURIComponent(folder.id)}" data-crumb-folder="${h(folder.id)}"
+        title="Your items in this folder">${h(folder.title)}</a> › `
+    : ""}<b>${h(title)}</b>`;
+}
+
 
 /**
  * A document's terms of use and the reader's favourite (D-321), from its portal item and the reader's list, as a web
@@ -34534,6 +34610,30 @@ document.addEventListener("click", async event => {
 
   if (t.id === "docReplace") { $("docReplaceFile").click(); return; }
 
+  // <b>The summary takes the focus before its menu closes</b> (design review 2026-10-31): closing first left the focus on
+  // a button inside a closed menu, so cancelling the picker dropped it to the page.
+  if (t.id === "docThumbChange") {
+    t.closest("details")?.querySelector("summary")?.focus();
+    t.closest("details")?.removeAttribute("open");
+    $("docThumbFile").click();
+    return;
+  }
+
+  if (t.id === "docThumbRemove") {
+    t.closest("details")?.querySelector("summary")?.focus();
+    t.closest("details")?.removeAttribute("open");
+    try {
+      await api(`/content/documents/${encodeURIComponent(docOpen.id)}/thumbnail`, { method: "DELETE" });
+      docSayNext = DOC_KINDS[docOpen.kind] === "Picture"
+        ? "Thumbnail removed. The page shows the picture itself again."
+        : "Thumbnail removed. The page shows the file's kind again.";
+      await showDocumentItem(docOpen.id);
+    } catch (e) {
+      $("docSays").textContent = `Not removed: ${lowerFirst(e.message || String(e))}`;
+    }
+    return;
+  }
+
   if (t.id === "docEditMore") {
     t.closest("details")?.removeAttribute("open");
     docTab = "overview";
@@ -34687,6 +34787,37 @@ document.addEventListener("click", async event => {
     } catch (e) {
       $("docSays").textContent = `Not deleted: ${lowerFirst(e.message || String(e))}`;
     }
+  }
+});
+
+document.addEventListener("change", async event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.id !== "docThumbFile" || !docOpen) return;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const says = $("docSays");
+  // Said before sending, as the file's own limits are: the server would refuse both, a megabyte later.
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
+    says.textContent = `Not changed: ${file.name} is not a PNG, JPEG, GIF or WebP picture.`;
+    docRefusalSeen(says);
+    return;
+  }
+  if (file.size > DOC_THUMB_BYTES) {
+    says.textContent = `Not changed: ${file.name} is ${fileSize(file.size)}, and a thumbnail is at most 1 MB. A picture 600 by 400 pixels is plenty.`;
+    docRefusalSeen(says);
+    return;
+  }
+  says.textContent = `Sending ${file.name}…`;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    await sendDocument("PUT", `/content/documents/${encodeURIComponent(docOpen.id)}/thumbnail`, form, null);
+    docSayNext = `${file.name} is the thumbnail now — here, in Content and in ArcGIS clients.`;
+    await showDocumentItem(docOpen.id);
+  } catch (e) {
+    says.textContent = `Not changed: ${lowerFirst(e.message || String(e))}`;
+    docRefusalSeen(says);
   }
 });
 
@@ -35412,6 +35543,22 @@ function openFolderDialog(title, body, go, label) {
 }
 
 /** Where focus goes when the list is redrawn under it. */
+document.addEventListener("DOMContentLoaded", () => {
+  // <b>Cancel keeps the reader where they were</b> (design review 2026-10-31): Move… is opened from a menu that closes
+  // behind the dialog, so the browser's own return of focus landed on the page. An item page gives it to its More.
+  // Checked a task later: when `close` fires the focus is still on the dialog's own button, and it reaches the page after.
+  $("contentFolderDialog")?.addEventListener("close", () => setTimeout(() => {
+    // Lost is the page itself, or the closed menu's own Move… button, where the browser's return of focus can leave it.
+    const at = document.activeElement;
+    const lost = !at || at === document.body || !!at.closest("details:not([open])") || $("contentFolderDialog").contains(at);
+    if (!lost) return;
+    const more = $("view-document")?.classList.contains("on") ? "#docActions details.itemmore summary"
+      : $("view-map")?.classList.contains("on") ? "#mapActions details.itemmore summary"
+      : null;
+    if (more) document.querySelector(more)?.focus();
+  }, 0));
+});
+
 function focusFolderPick() {
   document.querySelector(`[data-folder-pick="${CSS.escape(contentFolderPick)}"]`)?.focus();
 }
@@ -35456,6 +35603,16 @@ async function folderGo(go) {
       // A moved row has left the list, so focus goes to the list's first row rather than to a chip far above.
       if (go === "move") (document.querySelector("#contentRows td.name a") || $("contentCount"))?.focus();
       else focusFolderPick();
+    } else if (go === "move" && docOpen && $("view-document")?.classList.contains("on")) {
+      // <b>The page the item was moved from, redrawn</b> (design review 2026-10-31): the breadcrumb, the Folder fact and
+      // the menu's own idea of where it is stayed as they were, so a second Move could not take it back out.
+      myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+      await showDocumentItem(docOpen.id);
+      document.querySelector("#docActions details.itemmore summary")?.focus();
+    } else if (go === "move" && mapOpen && $("view-map")?.classList.contains("on")) {
+      myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+      await showWebMapItem(mapOpen.id);
+      document.querySelector("#mapActions details summary")?.focus();
     } else if (serviceItem) {
       myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
       if (go === "move") {
