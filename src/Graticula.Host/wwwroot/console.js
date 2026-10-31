@@ -2414,6 +2414,17 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
     <p class="hint" id="idpMetadataFileHint" aria-live="polite">${samlHeld(p)}</p>
     <p class="bad-inline" id="idpMetadataMissing" hidden>Give the provider's metadata URL, or its metadata file.</p>
     <p class="hint">Groups are read from Entra ID's groups attribute; for AD FS, change it under Advanced.</p>
+
+    <h5>3. Encryption</h5>
+    <label class="check"><input type="checkbox" id="idpEncrypt" ${p && p.saml && p.saml.encryptAssertions ? "checked" : ""}
+      aria-describedby="idpEncryptHint"> Require encrypted assertions</label>
+    <p class="hint" id="idpEncryptHint">The provider then encrypts what it says about each person to a key this server
+      makes for it, and a response sent unencrypted is refused. The key's certificate is in this server's metadata:
+      give the provider the metadata again after turning this on, or upload the certificate there.${samlKeyHeld(p)}</p>
+    ${p && p.saml && p.saml.encryptionKey ? `<button type="button" class="ghost tiny" id="idpRotateKey"
+      aria-describedby="idpRotateKeyHint">Make a new key</button>
+    <p class="hint" id="idpRotateKeyHint">The new key's certificate replaces this one in the metadata at once. The
+      current key keeps opening assertions until the next new key, so there is time to update the provider.</p>` : ""}
 ` : kind === "ldap" ? `    <h5>The directory</h5>
     <label for="idpIssuer">Address</label>
     <input id="idpIssuer" type="text" required spellcheck="false" value="${h(p ? p.issuer : "")}"
@@ -2586,6 +2597,15 @@ document.addEventListener("input", e => {
 const SAML_GROUPS = "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups";
 
 /** What the form says about a SAML provider's metadata held — ADR-090: whose, from where, and until when it holds. */
+/** What a SAML provider's encryption key is: when it was made and how long its certificate says it is good for. */
+function samlKeyHeld(p) {
+  const key = p && p.saml && p.saml.encryptionKey;
+  if (!key) return "";
+  const previous = p.saml.previousEncryptionKey;
+  return ` This server's key was made ${h(day(key.created))}; its certificate says it is good until ${h(day(key.notAfter))}.`
+    + (previous ? ` The key before it, made ${h(day(previous.created))}, still opens assertions.` : "");
+}
+
 function samlHeld(p) {
   if (idpMetadataText) return `Read ${h(idpMetadataText.name)}; it is checked when you save.`;
   const s = p && p.saml;
@@ -2786,6 +2806,7 @@ async function saveIdp() {
     trustedCertificate: $("idpTrusted") ? $("idpTrusted").value : null,
     // ADR-090
     metadataUrl: $("idpMetadataUrl")?.value.trim() || null,
+    encryptAssertions: $("idpEncrypt") ? $("idpEncrypt").checked : null,
     metadata: idpMetadataText ? idpMetadataText.text : null,
   };
 
@@ -31242,6 +31263,24 @@ async function handleClick(event) {
     field.select();
     try { await navigator.clipboard.writeText(field.value); toast("The map's link is on the clipboard.", true); copiedHere(t); }
     catch { toast("This browser would not let the page write to the clipboard. The link is selected — copy it with the keyboard."); }
+    return;
+  }
+
+  // ADR-090 condition 3: a new key for a SAML provider's encrypted assertions, published in the metadata at once.
+  if (t.id === "idpRotateKey") {
+    const p = idpList.find(x => x.id === idpEditing);
+    if (!p || !confirm(`Make a new encryption key for ${p.name}? Its certificate replaces the current one in this `
+      + "server's metadata at once; give the provider the new metadata. The current key keeps working until the next new key.")) return;
+    t.disabled = true;
+    try {
+      await api(`/admin/identity-providers/${p.id}/saml/encryption-key`, { method: "POST" });
+      await loadSignin();
+      idpSay(`${p.name} has a new encryption key. Give the provider this server's metadata again so it encrypts to it.`);
+      ($("idpRotateKey") || $("idpEncrypt"))?.focus();
+    } catch (e) {
+      t.disabled = false;
+      idpSay(e.message, true);
+    }
     return;
   }
 

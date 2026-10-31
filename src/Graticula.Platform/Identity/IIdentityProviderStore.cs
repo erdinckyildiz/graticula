@@ -182,7 +182,24 @@ public sealed record IdentityProviderSettings(
 /// signing certificates.</param>
 /// <param name="FetchedAt">When the metadata was last read from <paramref name="MetadataUrl"/>, or null.</param>
 /// <param name="DisplayAttribute">The attribute that holds a name to show, or empty for the usual ones.</param>
-public sealed record SamlSettings(string MetadataUrl, string Metadata, DateTimeOffset? FetchedAt, string DisplayAttribute);
+/// <param name="EncryptAssertions">Whether an assertion must arrive encrypted to this server's key, which its SP
+/// metadata then publishes — ADR-090 condition 3. An unencrypted one is refused.</param>
+/// <param name="EncryptionKeys">This server's keys for the provider, the one published first and at most one before
+/// it, kept so assertions encrypted to it still open while the provider picks up the new metadata.</param>
+public sealed record SamlSettings(
+    string MetadataUrl,
+    string Metadata,
+    DateTimeOffset? FetchedAt,
+    string DisplayAttribute,
+    bool EncryptAssertions = false,
+    IReadOnlyList<SamlEncryptionKey>? EncryptionKeys = null);
+
+/// <summary>A key this server decrypts a SAML provider's assertions with — ADR-090 condition 3.</summary>
+/// <param name="Certificate">Its self-signed certificate, PEM: what the SP metadata publishes.</param>
+/// <param name="SealedKey">Its RSA private key as PKCS#8 PEM, sealed with the server's secret key, base64.</param>
+/// <param name="KeyVersion">The server key version that sealed it.</param>
+/// <param name="Created">When it was made.</param>
+public sealed record SamlEncryptionKey(string Certificate, string SealedKey, int KeyVersion, DateTimeOffset Created);
 
 /// <summary>How a directory is searched for a person — ADR-089.</summary>
 /// <param name="UserBase">Where people are found, as in <c>ou=people,dc=example,dc=org</c>.</param>

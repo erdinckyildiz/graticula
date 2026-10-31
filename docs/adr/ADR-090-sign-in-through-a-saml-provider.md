@@ -107,14 +107,29 @@ this server's own session.
 URL first, then the provider's metadata URL or file — and says whose metadata is held and when its signing
 certificate expires, with a warning inside thirty days.
 
+5.7 **Encrypted assertions — added 2026-10-31, condition 3.** A provider may **require encrypted assertions**
+(`encryptAssertions`). Turning it on makes **a key for that provider**: RSA-3072 and a self-signed certificate for it,
+good for five years, the private key sealed with the server's secret key as a client secret is, and kept in the
+provider's `saml` settings — no migration. The SP metadata then carries the certificate as a `KeyDescriptor
+use="encryption"` with the algorithms measured opening: AES-256-GCM under XML Encryption 1.1's RSA-OAEP, and AES-256-CBC
+under RSA-OAEP-MGF1P. **An assertion sent in the clear to a provider that requires encryption is refused**, which is
+what requiring it means. **Rotation** is `POST /admin/identity-providers/{id}/saml/encryption-key`: a new key is
+published at once and the one before it is kept to open assertions still encrypted to it, until the next rotation drops
+it — so a provider that reads the new metadata later does not break sign-in in between. The keys are never shown: the
+admin surface says each one's certificate subject, SHA-256, when it was made and its certificate's end. The console's
+SAML form has *Require encrypted assertions*, what the key is, and *Make a new key*. A key an organisation brings from
+its own PKI is not taken; nothing asked has needed one, and the providers named take whatever certificate the SP
+metadata gives them.
+
 ## 6. Consequences
 
 **Positive.** AD FS and Entra ID enterprise applications sign people in to this server; groups follow the
 organisation as a directory's do.
 
 **Negative.** Five new packages, recorded in [DEPENDENCY-LICENSES.md](../../DEPENDENCY-LICENSES.md), all permissive. A third outbound file in the air-gap
-check. Encrypted assertions are not read: this server has no key to decrypt them with — condition 3. Single logout is
-not done: signing out here ends this server's session only.
+check. ~~Encrypted assertions are not read: this server has no key to decrypt them with — condition 3.~~ They are,
+since 2026-10-31 (§5.7), with a key the server makes per provider. Single logout is not done: signing out here ends
+this server's session only.
 
 **Ports created.** None; SAML is a host concern behind `IIdentityProviderStore`.
 
@@ -168,3 +183,19 @@ None recorded.
    scrolling in its own box; the held-metadata sentence; and, from the reviewer's opinions, a certificate within
    thirty days of expiring said under the provider's name, and AD FS's groups attribute named outside Advanced.
 3. **Encrypted assertions** — whether an organisation asked requires them, and if one does, a key for this server.
+   **DISCHARGED 2026-10-31 — built rather than waiting to be asked** (the owner's *"Tamamını bitirelim artık"*), §5.7.
+   **Against a real provider**: Keycloak 26.4 on the VPS's loopback through a tunnel, against the local fixture
+   ([tools/keycloak-probe/saml.py](../../tools/keycloak-probe/saml.py), [saml-client.sh](../../tools/keycloak-probe/saml-client.sh)).
+   The provider was registered with encryption required; Keycloak's own converter, given this server's SP metadata,
+   turned *Encrypt assertions* on and took the encryption certificate from it with nothing set by hand. `kc.alice`
+   signed in through Keycloak's form, the response's assertion arrived **encrypted — AES-256-GCM, the key under
+   RSA-OAEP** — and `/rest/whoami` answered `kc.alice`. With Keycloak's *Encrypt assertions* then turned off for the
+   client, the same sign-in sent the assertion in the clear and **this server refused it `401`**, its log saying why.
+   After *Make a new key*, the SP metadata published the new certificate, the client was made again from it, and the
+   encrypted sign-in succeeded with the new key. Regression: `SamlSignInConformanceTests.An_assertion_encrypted_to_this_servers_key_signs_in_and_one_in_the_clear_is_refused`
+   — the suite's provider encrypts with the base library (AES-256-CBC, RSA-OAEP-MGF1P) to the certificate read from the
+   SP metadata: off, nothing is published; on, the encrypted assertion signs in, one in the clear and one encrypted to
+   another key are refused, the private key never appears in the admin answer; rotated, the new key opens and the one
+   before it still does; rotated again, the first no longer does; a form that does not send the flag keeps it. It fails
+   without §5.7, which published no key and refused nothing. And on screen, `SignInProvidersScreenTests.A_saml_provider_requiring_encryption_says_its_key_and_offers_a_new_one`.
+   **Not measured here**: AD FS and Entra ID encrypting to it, which are the owner's (condition 1).

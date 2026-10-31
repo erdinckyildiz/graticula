@@ -372,6 +372,47 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         NothingWentWrong(await PageErrorsAsync());
     }
 
+    /// <summary>
+    /// ADR-090 condition 3 on screen: a SAML provider set to require encrypted assertions says when this server's key was
+    /// made and until when its certificate says it is good, offers a new key, and Save sends the setting as it stands.
+    /// </summary>
+    [Fact]
+    public async Task A_saml_provider_requiring_encryption_says_its_key_and_offers_a_new_one()
+    {
+        (string token, _) = await SignInAsync();
+        string name = "zz SAML enc " + Guid.NewGuid().ToString("N")[..8];
+
+        (int status, string body) = await AdminAsync(HttpMethod.Post, "/admin/identity-providers",
+            JsonSerializer.Serialize(new { name, kind = "saml", metadata = SamlMetadata(), encryptAssertions = true }));
+        Assert.True(status == 201, $"Adding a SAML provider answered {status}: {body}");
+        string id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+
+        try
+        {
+            await OpenAsync("/studio/#/signin", token);
+            string row = $"[...document.querySelectorAll('#idpRows tr')].find(r => r.textContent.includes({JsonSerializer.Serialize(name)}))";
+            await WaitForAsync($"!!({row})", "Organization › Security does not list the SAML provider just added.");
+            await Browser.EvaluateAsync<bool>($"(() => {{ ({row}).querySelector('[data-idp-edit]').click(); return true; }})()");
+
+            await WaitForAsync(Shown("#idpEncrypt"), "Editing the SAML provider offers no encryption setting.");
+            Assert.True(await Browser.EvaluateAsync<bool>("document.getElementById('idpEncrypt').checked"), "Require encrypted assertions is not shown on.");
+            await WaitForAsync("(document.getElementById('idpEncryptHint')?.textContent || '').includes('good until')",
+                "The encryption hint does not say until when the key's certificate is good.");
+            await WaitForAsync(Shown("#idpRotateKey"), "A provider with a key offers no new key.");
+
+            await Browser.EvaluateAsync<bool>(KeepBodies);
+            await ClickAsync("#idpSave");
+            await WaitForAsync("window.__bodies.some(b => b.includes('\\\"encryptAssertions\\\":true'))",
+                "Saving did not send the encryption setting as it stands.");
+
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/identity-providers/{id}");
+        }
+    }
+
     [Fact]
     public async Task A_saml_provider_is_listed_as_saml_and_offered_on_the_sign_in_panel_at_its_own_start()
     {

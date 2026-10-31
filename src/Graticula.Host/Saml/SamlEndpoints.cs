@@ -46,6 +46,11 @@ namespace Graticula.Host.Saml;
 /// <b>What ends the sign-in is <see cref="OidcEndpoints.FinishAsync"/></b>, the door an OpenID Connect sign-in leaves
 /// by: the same account rules, the same group mapping, the same session.
 /// </para>
+/// <para>
+/// <b>An encrypted assertion is opened with this server's key for the provider</b> (ADR-090 condition 3,
+/// <see cref="SamlEncryption"/>), whichever of the keys held it was encrypted to; and a provider set to encrypt has an
+/// assertion sent in the clear refused, since requiring it is the point.
+/// </para>
 /// </remarks>
 internal static class SamlEndpoints
 {
@@ -103,6 +108,7 @@ internal static class SamlEndpoints
             + $"entityID=\"{SecurityElement.Escape(provider.Settings.ClientId)}\">"
             + "<md:SPSSODescriptor AuthnRequestsSigned=\"false\" WantAssertionsSigned=\"true\" "
             + "protocolSupportEnumeration=\"urn:oasis:names:tc:SAML:2.0:protocol\">"
+            + SamlEncryption.KeyDescriptor(provider.Settings.Saml)
             + $"<md:AssertionConsumerService Binding=\"{PostBinding}\" Location=\"{SecurityElement.Escape(AcsUrl(context))}\" "
             + "index=\"0\" isDefault=\"true\"/>"
             + "</md:SPSSODescriptor></md:EntityDescriptor>";
@@ -228,10 +234,14 @@ internal static class SamlEndpoints
             {
                 refusal = "The response is not a SAML response.";
             }
+            else if (provider.Settings.Saml is { EncryptAssertions: true } && SamlEncryption.Unencrypted(xml) is { } clear)
+            {
+                refusal = clear;
+            }
             else
             {
                 Saml2PostBinding binding = new();
-                Saml2AuthnResponse response = new(Configuration(provider, idp));
+                Saml2AuthnResponse response = new(Configuration(provider, idp, protector));
                 ITfoxtec.Identity.Saml2.Http.HttpRequest request = new()
                 {
                     Method = "POST",
@@ -341,8 +351,11 @@ internal static class SamlEndpoints
         return until is { } at ? new DateTimeOffset(at.ToUniversalTime()).AddMinutes(5) : DateTimeOffset.UtcNow.AddHours(1);
     }
 
-    /// <summary>The library's configuration for one provider: whose signatures, which issuer, which audience.</summary>
-    private static Saml2Configuration Configuration(IdentityProvider provider, SamlMetadata.Described idp)
+    /// <summary>
+    /// The library's configuration for one provider: whose signatures, which issuer, which audience — and, to read a
+    /// response, this server's keys for an encrypted assertion.
+    /// </summary>
+    private static Saml2Configuration Configuration(IdentityProvider provider, SamlMetadata.Described idp, SecretProtector? decrypting = null)
     {
         Saml2Configuration configuration = new()
         {
@@ -361,6 +374,12 @@ internal static class SamlEndpoints
 
         configuration.AllowedAudienceUris.Add(provider.Settings.ClientId);
         configuration.SignatureValidationCertificates.AddRange(idp.Certificates);
+
+        if (decrypting is not null)
+        {
+            configuration.DecryptionCertificates.AddRange(SamlEncryption.DecryptionCertificates(provider.Settings.Saml, decrypting));
+        }
+
         return configuration;
     }
 

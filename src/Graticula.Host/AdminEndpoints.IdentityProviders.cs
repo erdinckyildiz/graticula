@@ -9,6 +9,7 @@ using Graticula.Platform.Identity;
 using Graticula.Platform.Secrets;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Graticula.Host;
 
@@ -40,6 +41,8 @@ namespace Graticula.Host;
 /// the user base's domain.</param>
 /// <param name="TrustedCertificate">A certificate authority, in PEM, a directory's TLS certificate is also checked
 /// against — ADR-089 condition 1; kept when absent, removed when empty.</param>
+/// <param name="EncryptAssertions">Whether a SAML provider's assertions must arrive encrypted to this server's key —
+/// ADR-090 condition 3; kept when absent. Turning it on makes the key when there is none.</param>
 internal sealed record IdentityProviderRequest(
     string? Name,
     string? Issuer,
@@ -64,7 +67,8 @@ internal sealed record IdentityProviderRequest(
     string? Metadata = null,
     bool? NestedGroups = null,
     string? GroupBase = null,
-    string? TrustedCertificate = null);
+    string? TrustedCertificate = null,
+    bool? EncryptAssertions = null);
 
 /// <summary>A provider's group mappings as the admin surface takes them — ADR-089.</summary>
 /// <param name="Mappings">Each: the directory's or provider's group, and the role and group here it gives.</param>
@@ -94,6 +98,42 @@ internal static partial class AdminEndpoints
         app.MapPost("/admin/identity-providers/{id:guid}/check", CheckIdentityProviderAsync);
         app.MapGet("/admin/identity-providers/{id:guid}/groups", GroupMappingsAsync);
         app.MapPut("/admin/identity-providers/{id:guid}/groups", SetGroupMappingsAsync);
+        app.MapPost("/admin/identity-providers/{id:guid}/saml/encryption-key", RotateSamlKeyAsync);
+    }
+
+    /// <summary>
+    /// A new key for a SAML provider's encrypted assertions — ADR-090 condition 3: published in the SP metadata at once,
+    /// the one before it kept to open assertions still encrypted to it, and any older one dropped.
+    /// </summary>
+    private static async Task RotateSamlKeyAsync(
+        HttpContext context, Guid id, IIdentityProviderStore store, SecretProtector protector, IAuditLog audit,
+        CancellationToken cancellation)
+    {
+        if (!await Authorize.RequireAsync(context, Privilege.AdminManageSecurity).ConfigureAwait(false))
+        {
+            return;
+        }
+
+        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings.Saml: { } saml } provider)
+        {
+            await Refuse(context, 404, "No SAML provider by that id: only a SAML provider has an encryption key.").ConfigureAwait(false);
+            return;
+        }
+
+        IReadOnlyList<SamlEncryptionKey> keys = Graticula.Host.Saml.SamlEncryption.Rotate(saml.EncryptionKeys, protector, DateTimeOffset.UtcNow);
+        IdentityProviderSettings settings = provider.Settings with { Saml = saml with { EncryptionKeys = keys } };
+
+        if (!await store.UpdateAsync(id, settings, null, cancellation).ConfigureAwait(false))
+        {
+            await Refuse(context, 409, "The provider changed while its key was being made; nothing was changed.").ConfigureAwait(false);
+            return;
+        }
+
+        await AuditAsync(context, audit, "identityProvider.samlKey", provider.Settings.Name,
+            Detail(new { kept = keys.Count, encrypt = saml.EncryptAssertions }), succeeded: true, cancellation).ConfigureAwait(false);
+
+        IdentityProvider now = await store.FindAsync(id, cancellation).ConfigureAwait(false) ?? provider;
+        await Results.Json(DescribeProvider(now)).ExecuteAsync(context).ConfigureAwait(false);
     }
 
     private static async Task GroupMappingsAsync(
@@ -558,6 +598,22 @@ internal static partial class AdminEndpoints
         {
             (samlSettings, samlRefusal) = await SamlSettingsAsync(request, before, cancellation).ConfigureAwait(false);
 
+            // ADR-090 condition 3: what a form that does not show it leaves as it was, and a key made when encryption is
+            // turned on with none held.
+            if (samlSettings is not null)
+            {
+                bool encrypt = request.EncryptAssertions ?? before?.Settings.Saml?.EncryptAssertions ?? false;
+                IReadOnlyList<SamlEncryptionKey>? keys = before?.Settings.Saml?.EncryptionKeys;
+
+                if (encrypt && keys is not { Count: > 0 })
+                {
+                    keys = [Graticula.Host.Saml.SamlEncryption.Make(
+                        context.RequestServices.GetRequiredService<SecretProtector>(), DateTimeOffset.UtcNow)];
+                }
+
+                samlSettings = samlSettings with { EncryptAssertions = encrypt, EncryptionKeys = keys };
+            }
+
             if (samlSettings is not null)
             {
                 issuer = samlSettings.MetadataUrl.Length > 0
@@ -746,6 +802,9 @@ internal static partial class AdminEndpoints
             signOn = idp?.SignOn.OriginalString,
             certificateExpires = idp?.Expires,
             spMetadata = $"/rest/auth/saml/{provider.Id}/metadata",
+            encryptAssertions = saml.EncryptAssertions,
+            encryptionKey = saml.EncryptionKeys is [{ } current, ..] ? Graticula.Host.Saml.SamlEncryption.Describe(current, withPem: true) : null,
+            previousEncryptionKey = saml.EncryptionKeys is [_, { } previous, ..] ? Graticula.Host.Saml.SamlEncryption.Describe(previous, withPem: false) : null,
         };
     }
 }
