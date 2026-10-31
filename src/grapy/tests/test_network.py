@@ -318,8 +318,7 @@ class Network(unittest.TestCase):
         self.assertEqual(list(network.junctions(["EID", "SOURCEID"], eids=[1, 4])), [(1, 2), (4, 2)])
         with self.assertRaises(ValueError):
             network.edges("COST")                                    # a cost needs a travel mode
-        with self.assertRaises(arcpy.NotBuiltError):
-            network.turns()
+        self.assertEqual(list(network.turns(["EID"])), [])                # no turn source: no turns (ADR-239)
         area = arcpy.management.CreateFeatureclass(self.directory, "area.gpkg", "POLYGON", spatial_reference=3857)[0]
         with arcpy.da.InsertCursor(area, ["SHAPE@"]) as written:
             written.insertRow(("POLYGON((0 -1,11 -1,11 1,0 1,0 -1))",))
@@ -330,22 +329,13 @@ class Network(unittest.TestCase):
     def test_refused_by_name(self):
         na.BuildNetwork(self.network)
         with self.assertRaises(arcpy.NotBuiltError):
-            na.MakeRouteAnalysisLayer(self.network, "best", sequence="FIND_BEST_ORDER")
-        with self.assertRaises(arcpy.NotBuiltError):
             na.MakeRouteAnalysisLayer(self.network, "timed", time_of_day="1/1/1900 8:00 AM",
                                       generate_directions_on_solve="NO_DIRECTIONS")
         with self.assertRaises(arcpy.NotBuiltError) as raised:
-            na.MakeVehicleRoutingProblemAnalysisLayer(self.network)
-        self.assertIn("NP-hard", str(raised.exception))
+            na.MakeVehicleRoutingProblemAnalysisLayer(self.network)            # DIRECTIONS by default
+        self.assertIn("direction", str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError):
             _network.add_attribute(self.network, "Script", "Cost", "Meters", [("roads", "BOTH", "SCRIPT", "x")])
-        route = nax.Route(self.network)
-        route.findBestSequence = True
-        with self.assertRaises(arcpy.NotBuiltError):
-            route.solve()
-        with self.assertRaises(arcpy.NotBuiltError) as raised:
-            nax.VehicleRoutingProblem(self.network)
-        self.assertIn("NP-hard", str(raised.exception))
         for module, name, words in ((na, "GenerateDirectionsFeatures", "direction"), (na, "RouteSolverProperties", "solver"),
                                     (nax, "Edge", "custom evaluators"), (nax, "TraversedEdge", "traversed"),
                                     (nax, "DissolveNetwork", "dissolves")):

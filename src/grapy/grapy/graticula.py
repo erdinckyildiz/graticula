@@ -72,9 +72,32 @@ def AddNetworkAttribute(in_network_dataset, name, usage, units=None, evaluators=
     return Result(str(in_network_dataset))
 
 
-def AddNetworkTravelMode(in_network_dataset, name, impedance, restrictions=(), time_attribute=None, distance_attribute=None):
-    """A travel mode: the cost attribute it minimises, the restrictions it honours, and its time and distance
-    attributes."""
+def AddNetworkTravelMode(in_network_dataset, name, impedance, restrictions=(), time_attribute=None, distance_attribute=None,
+                         u_turns=None):
+    """A travel mode: the cost attribute it minimises, the restrictions it honours, its time and distance attributes,
+    and its U-turn policy (ADR-239): ``ALLOW_UTURNS`` (the default), ``NO_UTURNS``, ``ALLOW_DEAD_ENDS_ONLY`` or
+    ``ALLOW_DEAD_ENDS_AND_INTERSECTIONS_ONLY``."""
     from . import _network
-    _network.add_travel_mode(str(in_network_dataset), name, impedance, restrictions, time_attribute, distance_attribute)
+    _network.add_travel_mode(str(in_network_dataset), name, impedance, restrictions, time_attribute, distance_attribute,
+                             u_turns)
+    return Result(str(in_network_dataset))
+
+
+def AddNetworkTurnSource(in_network_dataset, turn_feature_class):
+    """A turn feature class (CreateTurnFeatureClass) made a turn source of the network (ADR-239); build the network
+    again after."""
+    from . import _turns
+    _turns.add_turn_source(str(in_network_dataset), str(turn_feature_class))
+    return Result(str(in_network_dataset))
+
+
+def SetNetworkDrivingSide(in_network_dataset, driving_side):
+    """The side of the road the network's vehicles drive on, ``RightSide`` or ``LeftSide`` (arcpy.nax.DrivingSide's
+    names): the curb side a waste collection route collects on one-side passes (ADR-239)."""
+    from . import _turns
+    side = getattr(driving_side, "name", str(driving_side))
+    if side not in ("RightSide", "LeftSide"):
+        from ._runtime import ExecuteError
+        raise ExecuteError(f"ERROR 030000: '{driving_side}' is not RightSide or LeftSide.")
+    _turns.set_property(str(in_network_dataset), "driving_side", side)
     return Result(str(in_network_dataset))
