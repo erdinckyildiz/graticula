@@ -67,6 +67,12 @@ def _datatype(datatype):
     return name
 
 
+# A field's length by type, as ArcGIS Pro 3.7's ListFields answers on a file geodatabase (measured 2026-10-31, ADR-240):
+# the bytes it stores, 255 for a text field given none, 0 for geometry and blobs.
+_LENGTHS = {"OID": 4, "SmallInteger": 2, "Integer": 4, "BigInteger": 8, "Single": 4, "Double": 8, "String": 255,
+            "Date": 8, "DateOnly": 8, "TimeOnly": 8, "TimestampOffset": 10, "Guid": 38, "GlobalID": 38}
+
+
 class Field:
     """A field as Describe and ListFields answer it."""
 
@@ -76,7 +82,7 @@ class Field:
         self.baseName = name
         self.type = type
         self.isNullable = nullable
-        self.length = length or (255 if type == "String" else 0)
+        self.length = length or _LENGTHS.get(type, 0)
         self.editable = type not in ("OID", "Geometry")
         self.required = type in ("OID", "Geometry")
         self.precision = 0

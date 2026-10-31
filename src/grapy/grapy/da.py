@@ -60,6 +60,17 @@ def _model_tokens(connection, table, fields):
     return out
 
 
+def _date_value(text):
+    """A Date field's stored text as the naive datetime.datetime arcpy.da reads; text that is no date stays text."""
+    import datetime
+    try:
+        found = datetime.datetime.fromisoformat(text.strip())
+    except ValueError:
+        return text
+    return found.replace(tzinfo=None) if found.tzinfo is None or found.utcoffset() == datetime.timedelta(0) else \
+        found.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+
+
 def _shape_token(token, shape, reference):
     token = token.upper()
     if shape is None:
@@ -264,7 +275,17 @@ class _Cursor:
         return _layers.combined(_layers.find(in_table), self._oid, where_clause)
 
     def _value(self, field, raw):
-        return _shape_token(field, _gpkg.decode(raw), self._reference) if field.upper().startswith("SHAPE@") else raw
+        if field.upper().startswith("SHAPE@"):
+            return _shape_token(field, _gpkg.decode(raw), self._reference)
+        if isinstance(raw, str) and field.lower() in self._date_names():
+            return _date_value(raw)
+        return raw
+
+    def _date_names(self):
+        """The Date fields, whose GeoPackage text arcpy.da answers as datetime.datetime (Pro 3.7 measured, ADR-240)."""
+        if not hasattr(self, "_dates"):
+            self._dates = {c.name.lower() for c in getattr(self, "_described", None) or () if c.type == "Date"}
+        return self._dates
 
     def __enter__(self):
         return self

@@ -184,7 +184,8 @@ No performance claim is made.
      junction of its only incoming edge — and kept when there is no single one, hierarchical and partitioned tiers
      alike; a reduction edge runs from the neighbour its first incoming edge came from; a reduction junction aggregates
      the line and its end junctions but never another reduction junction, and stands at the centre of what it
-     aggregates; a container holding content is not reduced; a collapsed linear container drops the edges leading out
+     aggregates; a container holding content is not reduced, nor — measured in Pro 3.7, 2026-10-31 — a junction that
+     is a container's content in the diagram; a collapsed linear container drops the edges leading out
      of its content; a hidden expanded container is removed, its content no longer contained; a Start/Stop Iteration
      sequence runs at most 100 times; a Trace rule's result *replaces* the content, its starting points the diagram's
      features (a junction at every terminal, an edge at its middle) unless a Set Starting Point rule or the diagram's
@@ -193,7 +194,8 @@ No performance claim is made.
    - (d) a connectivity association or structural attachment drawn as an edge has source id −1, written `Associations`
      in the JSON's `sourceMapping`; a reflexive one is a circle of the reflexive edge radius, 0.5 more per level;
    - (e) the layouts' open cases: the average junction size proportional units are counted in is 1 unit; the first
-     root keeps its place and connected parts stand side by side across the tree direction; roots, when none is set,
+     root keeps its place (but a smart tree is centred where the diagram's junctions were, as Pro 3.7 places it,
+     measured 2026-10-31) and connected parts stand side by side across the tree direction; roots, when none is set,
      are each part's lowest diagram feature id (for "the smallest network topology index"); children are ordered by
      their current place across the tree direction; orthogonal breaks at 50 % unless set, curved edges a cubic Bézier
      of sixteen segments; the radial levels' radii grow by the initial radius times the factor to the level's power;
@@ -267,5 +269,15 @@ None recorded.
    **DISCHARGED 2026-10-30**: `tools/grapy-refusals.json` holds six refused `arcpy.nd` names and five `arcpy.un` ones,
    each with the reason of §5.7, and none unexamined.
 5. **The rules and layouts are compared with Pro** on the network of §4, using the owner's Pro install — or the owner
-   accepts §5.9 (c) and (e) as grapy's reading.
+   accepts §5.9 (c) and (e) as grapy's reading. **PARTLY DISCHARGED 2026-10-31**: §4's network built in Pro 3.7 (a file
+   geodatabase) and in grapy, ten diagrams read through ExportDiagramContent, by `tools/pro-compare/adr232-diagrams.py`
+   — 40 parts (junctions, containers, edges with their aggregations, counts), 27 identical before and **33 after**.
+   Identical: the diagram of every feature; reducing the valves to one reduction edge S→T aggregating L1, L2 and V1;
+   grid and geo positions; and the smart tree from top to bottom at 5 m and 4 m, to the coordinate. Changed to Pro's
+   answer: a junction that is a container's content is not reduced (Pro kept V2 in its vault under
+   REDUCE_JCT_TO_1JCT), and a smart tree is centred where the junctions were rather than on its first root (§5.9 (c),
+   (e)). Not followed — [D-338](../architecture-debt.md): the smart tree's relative units, which Pro spaced 10 m apart
+   on this diagram where grapy's unit of 1 gives 2, one diagram not saying what Pro's average junction size is; and the
+   radial tree, mainline tree and linear dispatch, which Pro answered with success while moving nothing, run headless
+   on a diagram layer, so nothing of theirs was compared.
 6. **The owner confirms or changes §5.9** ([Q-200](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-200 (*"Hepsini onayla"*).

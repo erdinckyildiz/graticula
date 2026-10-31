@@ -714,7 +714,8 @@ def smart_tree(view, p, margin):
     """EQUIVALENT (Reingold–Tilford): from the root junctions — or, where a connected part has none, its lowest
     feature id (INFERRED for "the smallest network topology index") — each part a tidy tree in the tree direction,
     levels ``along`` apart, siblings ``perpendicular`` apart and neighbouring subtrees ``subtree`` apart; several roots
-    of one part side by side as subtrees; parts ``disjoined`` apart; the first root keeps its place."""
+    of one part side by side as subtrees; parts ``disjoined`` apart; the whole centred where the diagram's junctions
+    were, as Pro 3.7 places it (measured 2026-10-31)."""
     frame = FRAMES[p.get("direction", "FROM_LEFT_TO_RIGHT")]
     along, perp = _spacing(p, "along", 2.0), _spacing(p, "perpendicular", 2.0)
     sub = _spacing(p, "subtree", 2.0)
@@ -736,10 +737,22 @@ def smart_tree(view, p, margin):
         first = roots[0]
         coords = {first: coords[first], **{n: c for n, c in coords.items() if n != first}}
         laid.append(coords)
-    new = _place_components(view, laid, _spacing(p, "disjoined", 4.0), frame)
+    new = _centred(view, _place_components(view, laid, _spacing(p, "disjoined", 4.0), frame))
     shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 50.0), offset,
                     frame)
     view.commit(new, shapes, margin=margin)
+
+
+def _centred(view, new):
+    """``new`` moved so that its extent has the centre the same junctions had before: ArcGIS Pro 3.7 lays a smart tree
+    out round the diagram's centre, measured 2026-10-31 left to right and top to bottom (ADR-232 condition 5)."""
+    if not new:
+        return new
+    def centre(points):
+        xs, ys = [x for x, _ in points], [y for _, y in points]
+        return (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    (bx, by), (ax, ay) = centre([view.pos[n] for n in new]), centre(list(new.values()))
+    return {n: (x + bx - ax, y + by - ay) for n, (x, y) in new.items()}
 
 
 def radial_tree(view, p, margin):

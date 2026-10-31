@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>f8d08ba9</code> · 2026-10-31 12:04</p>
+<p class="stamp">Generated from commit <code>9de084f2</code> · 2026-10-31 12:29</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">246</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
-<div class="kpi good"><div class="kpi-v">558/655</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">87 live · 10 deferred with their decision</div></div>
+<div class="kpi good"><div class="kpi-v">560/655</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">85 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">open questions</div><div class="kpi-n">224 answered</div></div>
-<div class="kpi warn"><div class="kpi-v">18</div><div class="kpi-l">open debts</div><div class="kpi-n">308 repaid · 5 waiting on a trigger · 5 partly</div></div>
+<div class="kpi warn"><div class="kpi-v">19</div><div class="kpi-l">open debts</div><div class="kpi-n">308 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,912 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">1 open</span></div><p><b>Q-218</b> — [OWNER] The choices ADR-248 made where the deep learning pages leave them open, INFERRED 2026-10-31 (ADR-248 §5.2–§5.6): (a) the model definition is the documented .emd keys with Framework PyTorch, ModelConfiguration grapy, no InferenceFunction, the weights a…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">109 items</span></div><p><b>87 ADR conditions</b> outstanding across 60 decisions — the largest commitment on this page.</p><p><b>18 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">108 items</span></div><p><b>85 ADR conditions</b> outstanding across 58 decisions — the largest commitment on this page.</p><p><b>19 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -187,8 +187,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-232 · grapy holds network diagrams</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-234 · grapy holds terrain datasets and o</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-237 · grapy holds SAR data and motion im</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-239 · grapy solves fleet routing with pu</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
-<div class="bar"><div class="bar-l">ADR-240 · grapy holds editor tracking, last </div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-241 · grapy builds path distance, its fa</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 <div class="bar"><div class="bar-l">ADR-242 · grapy builds Topo to Raster, Segme</div><div class="bar-t"><div class="bar-f" style="width:14%"></div></div><div class="bar-n">1</div></div>
 </div>
@@ -445,8 +443,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">236</td><td>grapy holds multidimensional rasters</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and its netCDF form · HIGH for the tools whose pages give the answer…</td><td class="num">4/4</td></tr>
 <tr><td class="id">237</td><td>grapy holds SAR data and motion imagery metadata</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the Sentinel-1 calibration and thermal noise removal, the unit conversions and…</td><td class="num">3/4</td></tr>
 <tr><td class="id">238</td><td>grapy holds multipatch features</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the measurements, each exact on planar faces (areas, volumes by the divergence…</td><td class="num">3/3</td></tr>
-<tr><td class="id">239</td><td>grapy solves fleet routing with published heuristics, and its networks hold turns</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the heuristics · LOW for agreement with Pro&#x27;s routes, which this…</td><td class="num">4/5</td></tr>
-<tr><td class="id">240</td><td>grapy holds editor tracking, last edit time, COGO, unregistered tables and registration, and refuses enterprise geodatabase administration by name</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
+<tr><td class="id">239</td><td>grapy solves fleet routing with published heuristics, and its networks hold turns</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the model and the heuristics · LOW for agreement with Pro&#x27;s routes, which this…</td><td class="num">5/5</td></tr>
+<tr><td class="id">240</td><td>grapy holds editor tracking, last edit time, COGO, unregistered tables and registration, and refuses enterprise geodatabase administration by name</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/2</td></tr>
 <tr><td class="id">241</td><td>grapy builds path distance, its factor graphs, distance accumulation and least-cost paths</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
 <tr><td class="id">242</td><td>grapy builds Topo to Raster, Segment Mean Shift and the combinatorial tools</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH for the combinatorial tools, which follow a worked example Esri publishes · MEDIUM…</td><td class="num">3/4</td></tr>
 <tr><td class="id">243</td><td>grapy builds the image classifiers, pansharpening, segmentation and Fu and Rich&#x27;s solar radiation as cited equivalents</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/3</td></tr>
@@ -483,6 +481,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-332</td><td>grapy&#x27;s path distance tools refuse the legacy source characteristics, and none is measured.</td><td class="muted-t">A user tool that passes one of the refused parameters, or one whose distance run reaches ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-333</td><td>grapy&#x27;s Topo to Raster and Segment Mean Shift are unmeasured beyond small grids.</td><td class="muted-t">ADR-242 condition 3, or a user tool reaching ADR-223&#x27;s time or memory limit in either</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-334</td><td>grapy&#x27;s insolation is unmeasured against Pro and slow on a real DEM.</td><td class="muted-t">ADR-243 condition 1 (a Pro run of one DEM), or a user tool&#x27;s insolation run reaching ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-338</td><td>grapy&#x27;s utility network traces and diagram layouts differ from Pro&#x27;s where five measurements do not say Pro&#x27;s rule.</td><td class="muted-t">A toolbox whose answer turns on one of these, or a Pro session with a mesh where the propagated attribute is on the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-339</td><td>grapy&#x27;s terrain windows start at a different corner from Pro&#x27;s.</td><td class="muted-t">A rule that predicts the corner from the domain and the spacing, found by more runs of Pro, or a user tool that counts…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-335</td><td>grapy&#x27;s deep learning trains from random weights and is unmeasured on real imagery.</td><td class="muted-t">ADR-248 condition 2 run in CI, or a user tool training on real imagery reaching ADR-223&#x27;s time or memory limit, or the…</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-337</td><td>grapy&#x27;s insolation duration and support vector machine still differ from Pro&#x27;s.</td><td class="muted-t">Insolation durations or an SVM classification compared with Pro&#x27;s by a user, or a fourth classifier comparison</td><td><span class="pill warn">OPEN</span></td></tr>
@@ -644,10 +643,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>9de084f2</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
+<li><code>e0fe3d70</code><time>2026-10-31</time><span>grapy&#x27;s Sentinel-1 radiometry agrees with ArcGIS Pro 3.7 on a real IW GRD, and grapy now reads that scene&#x27;s geometry (ADR-237 condition 3 partly)</span></li>
 <li><code>f8d08ba9</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 <li><code>4033ebc8</code><time>2026-10-31</time><span>grapy trains and runs deep learning models on PyTorch, and exports their training data (ADR-248)</span></li>
 <li><code>c7969666</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 <li><code>b2aea76f</code><time>2026-10-31</time><span>grapy answers as ArcGIS Pro 3.7 does where four ADRs&#x27; comparisons pinned the rule, and records what is left (ADR-233, 236, 243, 247)</span></li>
+<li><code>5096308b</code><time>2026-10-31</time><span>grapy&#x27;s frame cameras answer as ArcGIS Pro 3.7 does, and its terrain levels choose as Pro&#x27;s do (ADR-234 conditions 5 and 4 partly)</span></li>
 <li><code>c0087787</code><time>2026-10-31</time><span>grapy answers as ArcGIS Pro 3.7 does where four ADRs&#x27; Pro comparisons pinned a rule down, and records where they did not</span></li>
 <li><code>efb322dc</code><time>2026-10-31</time><span>Owner decision of 2026-10-31: the choices rounds 2-4 inferred are confirmed as built (Q-204 to Q-217)</span></li>
 <li><code>a51d001a</code><time>2026-10-31</time><span>grapy&#x27;s count holds the names that are built but bound where the source scan does not look: 1,525 built, not 1,508</span></li>
@@ -655,9 +657,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>cb6342f4</code><time>2026-10-31</time><span>grapy runs custom evaluators, keeps what its solvers traversed, and builds the solver property objects (ADR-246)</span></li>
 <li><code>079fb201</code><time>2026-10-31</time><span>grapy builds full-text indexes, the default cluster tolerance, the random number generators and Python toolboxes in a session, and refuses only what needs Esri&#x27;s formats, licensing or catalogue (ADR-247)</span></li>
 <li><code>68652828</code><time>2026-10-31</time><span>grapy&#x27;s / is always floating point, a Raster passed as an optional argument counts as given, and seven names whose pages were found again are built</span></li>
-<li><code>ed8ab8ea</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
-<li><code>7cf59c3b</code><time>2026-10-31</time><span>grapy builds the image classifiers, pansharpening, segmentation, surface tools and Fu and Rich&#x27;s solar radiation as cited equivalents (ADR-243)</span></li>
-<li><code>8d036008</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-d&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>

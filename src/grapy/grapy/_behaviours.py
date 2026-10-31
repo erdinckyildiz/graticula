@@ -75,9 +75,10 @@ def set_tracking(connection, table, fields, utc):
 
 def user():
     """The operating system's login name — what the help topic says a file or mobile geodatabase records — or empty
-    where there is none (a container without one)."""
+    where there is none (a container without one). In capitals: Pro 3.7 stamped the login "Erdinc" as "ERDINC" on a
+    file geodatabase (measured 2026-10-31, ADR-240 §5.6 b)."""
     try:
-        return getpass.getuser()
+        return getpass.getuser().upper()
     except Exception:  # noqa: BLE001 — no login name is no user, not a failed edit
         return ""
 

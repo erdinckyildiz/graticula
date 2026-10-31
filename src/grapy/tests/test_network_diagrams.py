@@ -10,7 +10,8 @@
 Worked by hand: a diagram of every feature has five junctions — S, V1, T, V2, E — four edges and the vault as a
 container round V2 (a margin of 0.5: 29.5 … 30.5); reducing the valves turns V1 and its two lines into one reduction
 edge from S to T and, reducing junctions with one connection too, folds V2 and L3 into T; the smart tree from S runs
-S (0, 0), V1 (2, 0), T (4, 0), then E above at (6, 1) and V2 below at (6, −1), since E is higher on the map; linear
+S, V1, T two apart, then E above and V2 below, since E is higher on the map — the whole centred at (15, 5), where the
+junctions were, as Pro 3.7 places it; linear
 dispatch puts V1 midway between S and T, at (10, 0).
 """
 import csv
@@ -223,9 +224,9 @@ class Diagrams(unittest.TestCase):
                                        one_connected_junction="REDUCE_JCT_TO_1JCT")
         found = self.content(self.create("One"))
         # In feature id order: S (one connection) is reduced onto V1, which then has one connection and is reduced
-        # onto T, and V2 onto T.
-        self.assertEqual(set(found["J"]), {"T", "VA", "E"})
-        self.assertEqual(found["C"], {})  # the vault lost its content and is a point again
+        # onto T; V2, the vault's content, stays in it — as ArcGIS Pro 3.7 answered on this network (2026-10-31).
+        self.assertEqual(set(found["J"]), {"T", "V2", "E"})
+        self.assertEqual(found["C"], {"VA": (29.5, -0.5, 30.5, 0.5)})
 
     def test_the_valence_count_and_edge_attributes_hold_a_reduction_back(self):
         self.template()
@@ -330,7 +331,8 @@ class Diagrams(unittest.TestCase):
 
     def test_iteration_reduces_again_what_a_reduction_made_reducible(self):
         # Tees first, then devices: T (three connections) is passed over, E is folded into T, S into V1, V1 — now with
-        # one connection — into T, and V2 into T. Only a second pass finds T unconnected and removes it.
+        # one connection — into T; V2 stays in its vault. Only a second pass finds T with one connection and folds it
+        # into V2.
         for name, loop in (("Once", False), ("Loop", True)):
             self.template(name)
             if loop:
@@ -340,8 +342,8 @@ class Diagrams(unittest.TestCase):
                                            "REDUCE_UNCONNECTED_JCT", "REDUCE_JCT_TO_1JCT", "KEEP_JCT_TO_2JCTS")
             if loop:
                 arcpy.nd.AddStopIterationRule(self.un, name)
-        self.assertEqual(set(self.content(self.create("Once"))["J"]), {"T", "VA"})
-        self.assertEqual(set(self.content(self.create("Loop"))["J"]), {"VA"})
+        self.assertEqual(set(self.content(self.create("Once"))["J"]), {"T", "V2"})
+        self.assertEqual(set(self.content(self.create("Loop"))["J"]), {"V2"})
 
     # -- layouts --
 
@@ -351,14 +353,16 @@ class Diagrams(unittest.TestCase):
         name = self.create()
         arcpy.nd.ApplySmartTreeLayout(name)
         found = self.content(name)
-        self.assertEqual(found["J"], {"S": (0, 0), "V1": (2, 0), "T": (4, 0), "E": (6, 1), "V2": (6, -1)})
-        self.assertEqual(found["C"]["VA"], (5.5, -1.5, 6.5, -0.5))
+        # The tree is centred where the junctions were — (15, 5) — as ArcGIS Pro 3.7 places it (2026-10-31).
+        self.assertEqual(found["J"], {"S": (12, 5), "V1": (14, 5), "T": (16, 5), "E": (18, 6), "V2": (18, 4)})
+        self.assertEqual(found["C"]["VA"], (17.5, 3.5, 18.5, 4.5))
         arcpy.nd.ApplySmartTreeLayout(name, tree_direction="FROM_TOP_TO_BOTTOM", is_unit_absolute="ABSOLUTE_UNIT",
                                       along_absolute="5 Meters", perpendicular_absolute="4 Meters")
         found = self.content(name)
-        # Top to bottom from S, which keeps its place: levels 5 apart downward, E and V2 4 apart across, centred on T.
-        self.assertEqual(found["J"]["T"], (0, -10))
-        self.assertEqual(sorted([found["J"]["E"], found["J"]["V2"]]), [(-2, -15), (2, -15)])
+        # Top to bottom from S: levels 5 apart downward, E and V2 4 apart across, centred on T, the whole round (15, 5)
+        # — Pro 3.7's answer to the coordinate: S (15, 12.5), V1 (15, 7.5), T (15, 2.5), E (13, -2.5), V2 (17, -2.5).
+        self.assertEqual([found["J"][n] for n in ("S", "V1", "T")], [(15, 12.5), (15, 7.5), (15, 2.5)])
+        self.assertEqual(sorted([found["J"]["E"], found["J"]["V2"]]), [(13, -2.5), (17, -2.5)])  # tied across here
 
     def test_orthogonal_edges_break_where_the_breakpoint_says(self):
         self.template()
@@ -366,7 +370,7 @@ class Diagrams(unittest.TestCase):
         name = self.create()
         arcpy.nd.ApplySmartTreeLayout(name, edge_display_type="ORTHOGONAL_EDGES", breakpoint_position=0)
         edges = {e[0]: e[3] for e in self.content(name)["E"]}
-        self.assertEqual(edges["L4"], [(4, 0), (4, 1), (6, 1)])
+        self.assertEqual(edges["L4"], [(16, 5), (16, 6), (18, 6)])
 
     def test_the_radial_tree_puts_each_level_on_its_circle(self):
         self.template()
@@ -456,10 +460,10 @@ class Diagrams(unittest.TestCase):
         arcpy.nd.AddSetRootJunctionByAttributeRule(self.un, "Basic", "ACTIVE", self.device, "NAME = 'S'")
         arcpy.nd.AddSmartTreeLayout(self.un, "Basic")
         name = self.create()
-        self.assertEqual(self.content(name)["J"]["T"], (4, 0))
+        self.assertEqual(self.content(name)["J"]["T"], (16, 5))
         arcpy.nd.ApplyGeoPositionsLayout(name)
         arcpy.nd.ApplyTemplateLayouts(name)
-        self.assertEqual(self.content(name)["J"]["T"], (4, 0))
+        self.assertEqual(self.content(name)["J"]["T"], (16, 5))
 
     def test_a_feature_selection_limits_the_next_layout(self):
         self.template()

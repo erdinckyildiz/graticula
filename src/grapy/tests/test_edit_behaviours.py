@@ -66,7 +66,12 @@ class EditorTracking(_Base):
         fields = ["name", "made_by", "made_on", "changed_by", "changed_on"]
         self.assertEqual(self.rows(self.roads, fields), [
             ("before", None, None, None, None),  # a row there before stays null, as the help topic says
-            ("high", "alice", "2026-10-31 09:00:00", "bob", "2026-10-31 10:30:00")])
+            ("high", "alice", T1, "bob", T2)])  # read back as datetimes, as Pro 3.7 reads them
+
+    def test_the_login_is_recorded_in_capitals_as_pro_records_it(self):
+        # Pro 3.7 on a file geodatabase, measured 2026-10-31: the login "Erdinc" was stamped "ERDINC".
+        with mock.patch("getpass.getuser", return_value="Erdinc"):
+            self.assertEqual(_behaviours.user(), "ERDINC")
 
     def test_a_value_the_edit_gives_a_tracked_field_is_replaced(self):
         arcpy.management.EnableEditorTracking(self.roads, "made_by", add_fields="ADD_FIELDS")

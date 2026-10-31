@@ -24,10 +24,13 @@ MaxTransitTime), breaks of the three documented kinds (at most five a route), re
 
 The objective, INFERRED where the pages give none: serving as many orders as possible comes first; then the routes'
 TotalCost (FixedCost, RegularTimeCost, OvertimeCost and DistanceCost as the pages define them), plus lateness weighted
-by Time Window Importance (High 10, Medium 1, Low 0.1 times CostPerUnitTime per unit of violation time), excess transit
-time of order pairs weighted the same way by Excess Transit Importance, and a soft zone's straight-line distance from
+by Time Window Importance (High 10, Medium 1, Low 0.0001 times CostPerUnitTime per unit of violation time — measured
+against ArcGIS Pro 3.7 on 2026-10-31: High between 7.5 and 10, Medium between 0.91 and 1.11, and Low above zero, since
+it breaks a tie toward the order on time, but below 0.001), excess transit time of order pairs weighted by Excess
+Transit Importance as High 10, Medium 1, Low 0.1 (not measured), and a soft zone's straight-line distance from
 an order times the route's CostPerUnitDistance (or CostPerUnitTime when that is zero), less the Revenue of the orders
-served. Waste collection minimises the number of routes used, then their total time, as its page says it does.
+served; of two plans of equal cost, the one with less travel time (Pro 3.7 chose so when waiting for a break absorbed
+the difference). Waste collection minimises the number of routes used, then their total time, as its page says it does.
 """
 from __future__ import annotations
 
@@ -41,8 +44,11 @@ EPOCH = datetime.datetime(1899, 12, 30)
 SEED = 20261031
 BIG = 1e9
 ROUTE_WEIGHT = 1e6
+TRAVEL_TIE = 1e-6       # of two plans of equal cost, the one that travels less, as Pro 3.7 chose (measured 2026-10-31)
 _TO_MINUTES = {"SECONDS": 1 / 60, "MINUTES": 1.0, "HOURS": 60.0, "DAYS": 1440.0}
 _IMPORTANCE = {"HIGH": 10.0, "MEDIUM": 1.0, "LOW": 0.1}
+# Time Window Importance as Pro 3.7 weighs it (measured 2026-10-31, ADR-239 §5.8 f): Low is a tie-breaker, not 0.1.
+_WINDOW_IMPORTANCE = {**_IMPORTANCE, "LOW": 0.0001}
 CONSTRUCTION = ("Solomon's insertion heuristic I1", "Solomon 1987")
 IMPROVEMENT = ("ruin and recreate with threshold accepting", "Schrimpf et al. 2000; Dueck and Scheuer 1990")
 ARC_ROUTING = ("collection units as capacitated arc routing tasks, traversal directions by dynamic programming",
@@ -117,11 +123,12 @@ def time_factor(units):
     return _TO_MINUTES[word]
 
 
-def importance(value):
+def importance(value, table=None):
+    table = table or _IMPORTANCE
     word = str(getattr(value, "name", value) or "Medium").upper()
-    if word not in _IMPORTANCE:
+    if word not in table:
         raise ExecuteError(f"ERROR 030000: '{value}' is not High, Medium or Low.")
-    return _IMPORTANCE[word]
+    return table[word]
 
 
 # ---- the network costs between places ---------------------------------------------------------------------------------
@@ -328,7 +335,7 @@ class Fleet:
             raise ExecuteError(f"ERROR 030000: '{distance_units}' is not a distance unit.")
         self.per_distance_unit = _network._LINEAR[self.distance_word]
         self.default_date = default_date or datetime.date.today()
-        self.window_weight = importance(time_window_factor)
+        self.window_weight = importance(time_window_factor, _WINDOW_IMPORTANCE)
         self.transit_weight = importance(excess_transit_factor)
         self.metres_per_map_unit = _network._per_unit(graph.srid) or 1.0
         orders = inputs.get("Orders", [])
@@ -784,6 +791,7 @@ class Fleet:
         travel_total = distance_total = wait_total = violation_total = 0.0
         order_service = break_service = renewal_service = unpaid = 0.0
         since_break = 0.0
+        last_travel_limit = None        # the limit of the last travel time break taken, which bounds the rest too
         work = route["start_service"]
         first_wait = None
         place = route["start"]
@@ -830,7 +838,9 @@ class Fleet:
                     if time >= (brk["start"] or -math.inf):
                         taken = (time, 0.0)
                     elif kind == "end" or brk["end"] is not None and time + remaining + service > brk["end"]:
-                        taken = (brk["start"], 0.0)
+                        # Driven toward the next stop until the window opens, waited for at the leg's end if it opens
+                        # later (Pro 3.7, measured 2026-10-31): never waited for where the last service ended.
+                        taken = (brk["start"], min(remaining, brk["start"] - time))
                 elif brk["kind"] == "travel":
                     if since_break + remaining > brk["limit"] + 1e-9:
                         part = max(0.0, brk["limit"] - since_break)
@@ -844,19 +854,17 @@ class Fleet:
                     break
                 pending.pop(0)
                 at, part = taken
-                if at is not None:                       # taken where the vehicle is, after its last service
-                    wait = max(0.0, at - time)
-                    begin = time + wait
-                    fraction = 0.0
-                else:                                    # taken part-way along the leg
+                fraction = 0.0
+                if part:                                 # taken part-way along the leg
                     travel_total += part
                     cumulative_travel += part
                     work += part
                     since_break += part
                     time += part
-                    fraction = part / leg_time if leg_time > 0 else (1.0 if part else 0.0)
+                    fraction = part / leg_time if leg_time > 0 else 1.0
                     remaining -= part
-                    wait, begin = 0.0, time
+                wait = max(0.0, at - time) if at is not None else 0.0     # a window not yet open is waited for
+                begin = time + wait
                 violation = 0.0
                 if brk["kind"] == "window" and brk["end"] is not None and begin > brk["end"]:
                     violation = begin - brk["end"]
@@ -867,7 +875,7 @@ class Fleet:
                                    "depart": end, "wait": wait, "violation": violation, "leg": (leg_from, target),
                                    "cumul_travel": cumulative_travel, "cumul_distance": cumulative_distance +
                                    (leg_distance or 0) * fraction if m.distance_attribute else None,
-                                   "from_prev_travel": (leg_time * fraction) if at is None else 0.0})
+                                   "from_prev_travel": leg_time * fraction})
                 wait_total += wait
                 violation_total += violation
                 break_service += brk["service"]
@@ -876,12 +884,18 @@ class Fleet:
                 else:
                     work += brk["service"]
                 since_break = 0.0
+                if brk["kind"] == "travel":
+                    last_travel_limit = brk["limit"]
                 time = end
             if pending and pending[0]["kind"] == "travel" and remaining > pending[0]["limit"] + 1e-9:
                 codes.add(BREAK_TRAVEL)
             travel_total += remaining
             cumulative_travel += remaining
             since_break += remaining
+            # The final travel time break's limit also bounds the travel from it to the end depot, as its page says.
+            if (last_travel_limit is not None and not any(b["kind"] == "travel" for b in pending)
+                    and since_break > last_travel_limit + 1e-9):
+                codes.add(BREAK_TRAVEL)
             work += remaining
             if m.distance_attribute and leg_distance is not None:
                 distance_total += leg_distance
@@ -963,7 +977,7 @@ class Fleet:
         distance_cost = route["per_distance"] * distance_total if m.distance_attribute else 0.0
         cost = route["fixed"] + regular + overtime + distance_cost
         objective = cost + self.window_weight * route["per_time"] * violation_total + \
-            self.transit_weight * route["per_time"] * excess
+            self.transit_weight * route["per_time"] * excess + TRAVEL_TIE * travel_total
         zone = route["zone"]
         if zone is not None and not zone[1]:
             factor = (route["per_distance"] if route["per_distance"] else route["per_time"] * self.per_unit /
