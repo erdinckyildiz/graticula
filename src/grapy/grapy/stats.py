@@ -3900,15 +3900,26 @@ _REFUSED = {
     "GenerateNetworkSWM": "it needs a network dataset and writes an .swm file",
     "Forest": "random forests are random by definition",
 }
-_RANDOM = "its answer depends on random draws — permutations, simulations, seeds or random splits — so the same call " \
-          "would not give arcpy's answer"
 _SWM = "it reads or writes spatial weights matrix (.swm) files, whose layout is not published"
 _SSM = "it reads or writes a spatial statistics model (.ssm) file, whose layout is not published"
 _FIT = "its estimation — the optimisation, its stopping rules and the diagnostics it writes — is named but not " \
        "specified closely enough to reproduce"
-_REFUSED.update({name: _RANDOM for name in (
-    "AttributeUncertainty", "SpatiallyConstrainedMultivariateClustering", "CrossValidate", "PrepareData",
-    "PresenceOnlyPrediction", "LocalBivariateRelationships", "BuildBalancedZones")})
+_REFUSED.update({  # re-read 2026-10-31 (ADR-244); the other three of this group are built in _statsmore.py
+    "AttributeUncertainty": "it reruns the analysis that made its input, which it identifies — tool and parameters — "
+                            "from the geoprocessing history ArcGIS Pro writes into the result layer's metadata, and "
+                            "grapy's outputs carry none; its pages also leave unstated the spread a margin of error at "
+                            "a confidence level gives, the bounds of its uniform and triangular draws and the fields it "
+                            "writes",
+    "CrossValidate": "it refits the model behind a Forest-based and Boosted, Generalized Linear Regression or "
+                     "Presence-only Prediction result with that run's own parameters, which grapy's result features do "
+                     "not record, and its page names neither the fields nor the metrics it writes",
+    "PresenceOnlyPrediction": "its MaxEnt fit is named but not specified: its pages give neither the regularization "
+                              "penalty nor its values, nor the hinge function's linear segment, nor how background "
+                              "points are sampled or the entropy term H of its link functions is found",
+    "BuildBalancedZones": "its genetic growth algorithm leaves open which neighbour a growing zone adds next and how "
+                          "crossover combines two parents (shown only as a diagram), and does not say how equal area "
+                          "or compactness is measured",
+})
 _REFUSED.update({name: _SWM for name in (
     "ConvertSpatialWeightsMatrixtoTable", "CompareNeighborhoodConceptualizations",
     "CreateSpatialComponentExplanatoryVariables", "FilterSpatialAutocorrelationFromField")})
@@ -3926,6 +3937,10 @@ _REFUSED.update({
     "EvaluateBinSizes": "its page answers 404, so its recommendation cannot be checked",
     "HotSpotAnalysisComparison": "its page answers 404, so its similarity measures cannot be checked",
 })
+
+
+from ._statsmore import (  # noqa: E402,F401 — ADR-244: built with a seeded generator
+    LocalBivariateRelationships, PrepareData, SpatiallyConstrainedMultivariateClustering)
 
 
 def __getattr__(name):
