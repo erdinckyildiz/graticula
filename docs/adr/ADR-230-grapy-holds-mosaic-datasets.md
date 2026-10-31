@@ -138,7 +138,7 @@ falls at x = 3, halfway between the centres. No performance claim is made.
    group-2 entry gives its own reason; `arcpy.ia.DetectControlPoints` and `TransformImageShapes` now name what they
    still lack — sensor orientations — rather than the mosaic dataset. *(Since ADR-234 grapy holds Frame Camera
    orientations, and the two name what they lack now: Esri's deep learning models, and the deep learning tools'
-   undocumented iShape field.)*
+   undocumented iShape field. Since [ADR-248](ADR-248-grapy-carries-deep-learning-on-pytorch.md) TransformImageShapes is built on the iShape grapy's own detector writes, and DetectControlPoints is refused for Esri's models alone.)*
 8. **What a parameter's page leaves undefined is refused, not guessed**: BuildFootprints' `approx_num_vertices` other
    than -1 (how vertices are reduced is not said), `request_size`, `MAINTAIN_EDGES` and their tolerances;
    ExportMosaicDatasetItems' formats other than TIFF, image space and band selection; a `.dbf` paths table.

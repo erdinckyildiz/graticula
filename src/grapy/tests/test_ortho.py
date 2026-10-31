@@ -391,7 +391,7 @@ class Ortho(unittest.TestCase):
             with self.assertRaises(NotBuiltError) as caught:
                 getattr(arcpy.management, name)()
             self.assertNotIn("does not hold yet", str(caught.exception))
-        for name in ("DetectControlPoints", "Geometric", "TransformImageShapes"):
+        for name in ("DetectControlPoints", "Geometric"):  # TransformImageShapes is built (ADR-248)
             with self.assertRaises(NotBuiltError) as caught:
                 getattr(arcpy.ia, name)()
             self.assertIn("ADR-234", str(caught.exception))

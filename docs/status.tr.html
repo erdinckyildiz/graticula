@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>a51d001a</code> · 2026-10-31 06:47</p>
+<p class="stamp">Şu commit’ten üretildi: <code>efb322dc</code> · 2026-10-31 10:58</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
-<div class="kpi "><div class="kpi-v">245</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">552/651</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">89 canlı · 10 kararıyla birlikte ertelendi</div></div>
-<div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">224 yanıtlandı</div></div>
-<div class="kpi warn"><div class="kpi-v">14</div><div class="kpi-l">açık borç</div><div class="kpi-n">308 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
+<div class="kpi "><div class="kpi-v">246</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
+<div class="kpi good"><div class="kpi-v">552/655</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">93 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi "><div class="kpi-v">1</div><div class="kpi-l">açık soru</div><div class="kpi-n">224 yanıtlandı</div></div>
+<div class="kpi warn"><div class="kpi-v">15</div><div class="kpi-l">açık borç</div><div class="kpi-n">308 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
 <div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">test</div><div class="kpi-n">606 kaynak dosya, 269,912 satır</div></div>
@@ -124,9 +124,9 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
-<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
+<article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">1 açık</span></div><p><b>Q-218</b> — [OWNER] The choices ADR-248 made where the deep learning pages leave them open, INFERRED 2026-10-31 (ADR-248 §5.2–§5.6): (a) the model definition is the documented .emd keys with Framework PyTorch, ModelConfiguration grapy, no InferenceFunction, the weights a…</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">107 madde</span></div><p><b>89 ADR conditions</b> outstanding across 64 decisions — the largest commitment on this page.</p><p><b>14 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">112 madde</span></div><p><b>93 ADR conditions</b> outstanding across 65 decisions — the largest commitment on this page.</p><p><b>15 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
@@ -134,6 +134,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">7</div></div>
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:86%"></div></div><div class="bar-n">6</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
+<div class="bar"><div class="bar-l">ADR-248 · grapy carries deep learning on PyT</div><div class="bar-t"><div class="bar-f" style="width:57%"></div></div><div class="bar-n">4</div></div>
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:43%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
 <div class="bar"><div class="bar-l">ADR-076 · OAuth 2.0 authorization code with </div><div class="bar-t"><div class="bar-f" style="width:29%"></div></div><div class="bar-n">2</div></div>
@@ -458,10 +459,12 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">245</td><td>grapy builds the raster functions whose pages answered 404, from the pages at their new addresses, and refuses the display renderings by what each page leaves out</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
 <tr><td class="id">246</td><td>grapy runs custom evaluators, keeps what its solvers traversed, and builds the solver property objects</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">HIGH that the three groups are buildable · MEDIUM for the choices the pages leave open…</td><td class="num">2/2</td></tr>
 <tr><td class="id">247</td><td>grapy builds the storage properties a GeoPackage has, the random number generators, and toolboxes in a session, and refuses only what needs Esri&#x27;s format, licensing or catalogue</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">1/2</td></tr>
+<tr><td class="id">248</td><td>grapy carries deep learning on PyTorch: training data, training, inference and accuracy for imagery</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">0/4</td></tr>
 </tbody></table></div></section>
 <section><h2>Açık sorular</h2>
 <p class="sub">Belirsizlik gizlenmiyor, kayda geçiyor. Buranın boş olması belirsizliğin değil, kaydın bittiği anlamına gelirdi.</p>
 <div class="cards">
+<article class="card"><div class="card-h"><span class="id">Q-218</span><span class="owner">Owner</span></div><p>[OWNER] The choices ADR-248 made where the deep learning pages leave them open, INFERRED 2026-10-31 (ADR-248 §5.2–§5.6): (a) the model definition is the documented .emd keys with Framework PyTorch, ModelConfiguration grapy, no InferenceFunction, the weights a…</p></article>
 </div></section>
 <section><h2>Mimari borç</h2>
 <p class="sub">Geçici uzlaşmalar, her biri kendini ödeyen tetikle birlikte. Tetiksiz bir uzlaşma, geçici etiketi takmış kalıcı bir karardır.</p>
@@ -485,6 +488,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-332</td><td>grapy&#x27;s path distance tools refuse the legacy source characteristics, and none is measured.</td><td class="muted-t">A user tool that passes one of the refused parameters, or one whose distance run reaches ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-333</td><td>grapy&#x27;s Topo to Raster and Segment Mean Shift are unmeasured beyond small grids.</td><td class="muted-t">ADR-242 condition 3, or a user tool reaching ADR-223&#x27;s time or memory limit in either</td><td><span class="pill warn">OPEN</span></td></tr>
 <tr class=""><td class="id">D-334</td><td>grapy&#x27;s insolation is unmeasured against Pro and slow on a real DEM.</td><td class="muted-t">ADR-243 condition 1 (a Pro run of one DEM), or a user tool&#x27;s insolation run reaching ADR-223&#x27;s time limit</td><td><span class="pill warn">OPEN</span></td></tr>
+<tr class=""><td class="id">D-335</td><td>grapy&#x27;s deep learning trains from random weights and is unmeasured on real imagery.</td><td class="muted-t">ADR-248 condition 2 run in CI, or a user tool training on real imagery reaching ADR-223&#x27;s time or memory limit, or the…</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
 <p class="sub">308 ödendi — hepsi neye mal olduğuyla birlikte defterde duruyor, çünkü ödenmiş borç kanıttır ve bu sayfa yalnızca iştir</p>
 </section>
@@ -613,8 +617,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="bar"><div class="bar-l">arcpy.cartography</div><div class="bar-t"><div class="bar-f" style="width:12.2%"></div></div><div class="bar-n">6 / 49</div></div>
 <div class="bar"><div class="bar-l">arcpy.edit</div><div class="bar-t"><div class="bar-f" style="width:84.2%"></div></div><div class="bar-n">16 / 19</div></div>
 <div class="bar"><div class="bar-l">arcpy.stats</div><div class="bar-t"><div class="bar-f" style="width:58.5%"></div></div><div class="bar-n">38 / 65</div></div>
-<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:75.9%"></div></div><div class="bar-n">287 / 378</div></div>
-<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:79.0%"></div></div><div class="bar-n">274 / 347</div></div>
+<div class="bar"><div class="bar-l">arcpy.sa</div><div class="bar-t"><div class="bar-f" style="width:76.5%"></div></div><div class="bar-n">289 / 378</div></div>
+<div class="bar"><div class="bar-l">arcpy.ia</div><div class="bar-t"><div class="bar-f" style="width:83.0%"></div></div><div class="bar-n">288 / 347</div></div>
 <div class="bar"><div class="bar-l">arcpy.ddd</div><div class="bar-t"><div class="bar-f" style="width:74.4%"></div></div><div class="bar-n">116 / 156</div></div>
 <div class="bar"><div class="bar-l">arcpy.ga</div><div class="bar-t"><div class="bar-f" style="width:59.5%"></div></div><div class="bar-n">25 / 42</div></div>
 <div class="bar"><div class="bar-l">arcpy.na</div><div class="bar-t"><div class="bar-f" style="width:74.2%"></div></div><div class="bar-n">46 / 62</div></div>
@@ -631,17 +635,18 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">arcpy.ddd</td><td class="num">116</td><td class="num">17</td><td class="num">40</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.edit</td><td class="num">16</td><td class="num">6</td><td class="num">3</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.ga</td><td class="num">25</td><td class="num">4</td><td class="num">17</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.ia</td><td class="num">274</td><td class="num">50</td><td class="num">73</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.ia</td><td class="num">288</td><td class="num">55</td><td class="num">59</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.management</td><td class="num">249</td><td class="num">20</td><td class="num">198</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.na</td><td class="num">46</td><td class="num">3</td><td class="num">16</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nax</td><td class="num">77</td><td class="num">9</td><td class="num">18</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.nd</td><td class="num">68</td><td class="num">14</td><td class="num">6</td><td class="num">0</td></tr>
-<tr><td class="id">arcpy.sa</td><td class="num">296</td><td class="num">58</td><td class="num">82</td><td class="num">0</td></tr>
+<tr><td class="id">arcpy.sa</td><td class="num">298</td><td class="num">58</td><td class="num">80</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.stats</td><td class="num">43</td><td class="num">23</td><td class="num">22</td><td class="num">0</td></tr>
 <tr><td class="id">arcpy.un</td><td class="num">101</td><td class="num">16</td><td class="num">23</td><td class="num">0</td></tr>
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>efb322dc</code><time>2026-10-31</time><span>Owner decision of 2026-10-31: the choices rounds 2-4 inferred are confirmed as built (Q-204 to Q-217)</span></li>
 <li><code>a51d001a</code><time>2026-10-31</time><span>grapy&#x27;s count holds the names that are built but bound where the source scan does not look: 1,525 built, not 1,508</span></li>
 <li><code>66231460</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>cb6342f4</code><time>2026-10-31</time><span>grapy runs custom evaluators, keeps what its solvers traversed, and builds the solver property objects (ADR-246)</span></li>
@@ -655,7 +660,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>17b94745</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>bfa519c3</code><time>2026-10-31</time><span>grapy builds Topo to Raster, Segment Mean Shift, its segment tools and the combinatorial tools (ADR-242)</span></li>
 <li><code>560a53b2</code><time>2026-10-31</time><span>No grapy refusal says a page answered 404 or could not be found: the raster function pages are read at their new addresses (ADR-245)</span></li>
-<li><code>114db156</code><time>2026-10-31</time><span>grapy builds path distance, its seventeen factor graphs, distance accumulation and least-cost paths (ADR-241)</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

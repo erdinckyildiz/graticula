@@ -151,7 +151,7 @@ limits.
    raster type); CalibrateP and CalibrateK (the distortion terms' sign convention is not given), ComputeAntennaOffset,
    ComputeShift, rigCamera; PDF reports; PIX4D export; the Geoid correction (no EGM96 grid in the image). `arcpy.ia`:
    Geometric (its Polynomial or Projective approximation of the sensor model is not defined), DetectControlPoints
-   (Esri's deep learning models), TransformImageShapes (the deep learning tools' undocumented iShape field).
+   (Esri's deep learning models), TransformImageShapes (the deep learning tools' undocumented iShape field) — *the last built since [ADR-248](ADR-248-grapy-carries-deep-learning-on-pytorch.md) §5.6, on the iShape grapy's own detector writes in pixel space.*
 6. **Equivalents (ADR-224 §5.6)**, marked, counted apart and announced in their runs:
    - **BuildTerrain's z-tolerance levels**: greedy insertion to the vertical tolerance (Garland and Heckbert 1995;
      Heller 1990) from the convex hull and the anchor points, measured against full resolution. BuildTerrain is counted
