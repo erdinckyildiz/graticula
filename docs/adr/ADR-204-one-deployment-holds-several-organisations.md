@@ -761,6 +761,21 @@ own.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's
     plan as a floored role over a catalogue at the scale target and fails on a sequential scan of a floored table.
     `FindServiceAsync` failed exactly that way in the prototype, and nothing about it looked wrong from outside.
+    **DISCHARGED 2026-10-31** — `EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests` (Postgres suite): a catalogue
+    at the scale target — 1,000 services with three layers each, 950 the default organisation's and 50 a second's,
+    1,100 members with a session each, 70 groups, every item shared into one — two roles the test makes, one the floor
+    binds and one `BYPASSRLS`, and PostgreSQL's `auto_explain` (`log_analyze`, nested statements) loaded for both and sent
+    to the client, so the plans read are the plans of the stores' own calls: `FindServiceAsync`, a layer by id,
+    `FindSessionAsync` (on the root pool, as the product runs it), `GrantsOfAsync` and `ListServicesAsync`, for each
+    organisation. It fails on a sequential scan, in a node that ran, of a floored table of at least a thousand rows that
+    the same call made without the floor did not scan; a table of a few dozen rows is reported, not failed. **The
+    control** — `lower(s.name) = lower(@name)` as the prototype wrote it — is caught each run. **And it found the
+    prototype's trap still in the product**: `FindServiceAsync` compared `lower(s.name)`, §5b's stored key had never
+    been built, and every request any face answered scanned every service — for the default organisation as well,
+    since the policy is there for both. Migration 116 keeps `service.lookup_key` by trigger, indexes it, and the lookup
+    compares it with `=`; the test failed before (service scanned for both organisations) and passes after. What it
+    reports and does not fail: `data_source` scanned under the floor (three rows here). Not covered: writes, and the
+    administrative reads, `FindAsync` by layer name among them — it scans `layer` without the floor too.
 12. **Plans are kept — Npgsql's automatic preparation on the platform pool — or the planning cost of the floor is
     accepted by name.** Measured: kept plans make the floored lookup faster than today's. Not measured: what a
     migration does to plans a running server holds, which is the reason this is a condition and not a line in

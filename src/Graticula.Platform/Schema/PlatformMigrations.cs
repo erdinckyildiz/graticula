@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(115);
+    public static SchemaVersion ComponentSchemaVersion => new(116);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -149,6 +149,7 @@ public static class PlatformMigrations
         AToolboxIsAnItemV112,
         AServiceAccountHoldsClientSecretsV113,
         ABuiltInAppIsEveryOrganisationsV115,
+        AServiceIsFoundByAStoredKeyV116,
     ]);
 
     /// <summary>
@@ -178,6 +179,54 @@ public static class PlatformMigrations
         "drop policy if exists builtin_apps_are_everyones on oauth_app",
 
         "create policy builtin_apps_are_everyones on oauth_app for select using (builtin)");
+
+    /// <summary>
+    /// A service is found by a stored key, so the lookup every request makes keeps its index under the tenant floor —
+    /// ADR-204 §5b and condition 11.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by <c>EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests</c>, 2026-10-31</b> — the trap ADR-204's
+    /// prototype found on 2026-10-19 and §5b wrote down, which the build of 2026-10-22 did not take: under a row-level
+    /// policy PostgreSQL may not evaluate <c>lower(s.name)</c>, which is not leakproof, before the policy has filtered the
+    /// row, so <c>FindServiceAsync</c>'s <c>lower(s.name) = lower(@name)</c> could not use migration 15's expression
+    /// index and read every service of the catalogue on every request any face answered — for the default organisation
+    /// and for a second alike, since the policy is there for both.
+    /// </para>
+    /// <para>
+    /// <b>A plain column kept by a trigger, not a generated one</b>, because the recycle bin and the catalogue manifest
+    /// write a service row back from its JSON with every column it had; the trigger recomputes the key from the name and
+    /// folder on every write, so a stale key in such a row is corrected rather than refused.
+    /// </para>
+    /// <para><b>Expand.</b> A column, a trigger and an index; a build before this one never reads the column, and its
+    /// writes go through the same trigger.</para>
+    /// </remarks>
+    private static Migration AServiceIsFoundByAStoredKeyV116 => Migration.Expand(
+        new SchemaVersion(116),
+        "A service is found by a stored key, so the per-request lookup keeps its index under the tenant floor (ADR-204 condition 11).",
+
+        "alter table service add column if not exists lookup_key text",
+
+        """
+        create or replace function graticula_service_lookup_key() returns trigger
+        language plpgsql as $f$
+        begin
+            new.lookup_key := coalesce(lower(new.folder), '') || chr(31) || lower(new.name);
+            return new;
+        end
+        $f$
+        """,
+
+        "drop trigger if exists service_lookup_key on service",
+
+        """
+        create trigger service_lookup_key before insert or update on service
+            for each row execute function graticula_service_lookup_key()
+        """,
+
+        "update service set lookup_key = coalesce(lower(folder), '') || chr(31) || lower(name)",
+
+        "create index if not exists service_lookup on service (lookup_key)");
 
     /// <summary>
     /// A service account holds client secrets beside its keys, and a token issued for one remembers which — ADR-200

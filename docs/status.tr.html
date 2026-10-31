@@ -110,29 +110,29 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Faz 1 — Uygulama</div>
 <h1>Kontrol Odası</h1>
 <p class="lede">Buradaki her şey depodan okunuyor: ADR başlıkları, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> ve git. Hiçbir sayı elle yazılmıyor — elle yazılan iki sürüm bir gün içinde bayatladı. <b>Kayıtların kendisi İngilizce kalıyor</b> (CLAUDE.md §8): proje bağışlanıyor ve gerekçesinin onu devralacak kişi tarafından okunabilmesi gerekiyor.</p>
-<p class="stamp">Şu commit’ten üretildi: <code>f6764560</code> · 2026-10-31 17:08</p>
+<p class="stamp">Şu commit’ten üretildi: <code>6686ee8d</code> · 2026-10-31 17:51</p>
 </header>
 <section><h2>Durum</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">247</div><div class="kpi-l">ADR</div><div class="kpi-n">81 koşulsuz kabul</div></div>
-<div class="kpi good"><div class="kpi-v">570/658</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">78 canlı · 10 kararıyla birlikte ertelendi</div></div>
+<div class="kpi good"><div class="kpi-v">571/658</div><div class="kpi-l">kapatılan ADR koşulu</div><div class="kpi-n">77 canlı · 10 kararıyla birlikte ertelendi</div></div>
 <div class="kpi "><div class="kpi-v">0</div><div class="kpi-l">açık soru</div><div class="kpi-n">226 yanıtlandı</div></div>
 <div class="kpi warn"><div class="kpi-v">22</div><div class="kpi-l">açık borç</div><div class="kpi-n">308 ödendi · 5 tetiğini bekliyor · 5 kısmen</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">koşulan kapı</div><div class="kpi-n">1 tanesi dışarıdan bir incelemeci istiyor</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">doğrulanan varsayım</div><div class="kpi-n">geri kalanı kanıtlanmadı</div></div>
-<div class="kpi good"><div class="kpi-v">5609</div><div class="kpi-l">test</div><div class="kpi-n">607 kaynak dosya, 271,356 satır</div></div>
+<div class="kpi good"><div class="kpi-v">5609</div><div class="kpi-l">test</div><div class="kpi-n">607 kaynak dosya, 271,409 satır</div></div>
 </div></section>
 <section><h2>Ne kaldı</h2>
 <p class="sub">Üç kısım, kimin ilerletebileceğine göre ayrılmış. Ayrım türetilmiş: bir madde, soru defteri sahibi işaret ediyorsa <em>sahibin</em>; kapı kendi cümleleriyle “bunu yazmamış biri gerekiyor” diyorsa <em>dışarıdan bir incelemecinin</em>. Geri kalan bizim — ve çalışarak küçülen tek kısım o.</p>
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Sahibi</span><span class="owner blocking-tag">0 açık</span></div><p>Sahibini bekleyen bir şey yok.</p></article>
 <article class="card"><div class="card-h"><span class="id">Dışarıdan bir incelemeci</span><span class="owner">1 kapı</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">104 madde</span></div><p><b>78 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Bizim</span><span class="owner">103 madde</span></div><p><b>77 ADR conditions</b> outstanding across 55 decisions — the largest commitment on this page.</p><p><b>22 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Açık koşullar, karara göre</h2>
 <p class="sub">Bir koşul, ADR’nin kendi metninde işaretlendiğinde kapanmış sayılır. Bu sayfa hiçbir şeyi kendisi kapatmıyor — sadece sözü veren karardan okuyor.</p>
 <div class="bars">
 <div class="bar"><div class="bar-l">ADR-191 · ArcGIS Pro publishes hosted featur</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">6</div></div>
-<div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:100%"></div></div><div class="bar-n">6</div></div>
+<div class="bar"><div class="bar-l">ADR-204 · One deployment holds several organ</div><div class="bar-t"><div class="bar-f" style="width:83%"></div></div><div class="bar-n">5</div></div>
 <div class="bar"><div class="bar-l">ADR-012 · Clustering</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-224 · grapy aims at arcpy&#x27;s whole builda</div><div class="bar-t"><div class="bar-f" style="width:50%"></div></div><div class="bar-n">3</div></div>
 <div class="bar"><div class="bar-l">ADR-055 · A connection is fields, and this s</div><div class="bar-t"><div class="bar-f" style="width:33%"></div></div><div class="bar-n">2</div></div>
@@ -405,7 +405,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr><td class="id">201</td><td>A member with a password here may have a second factor at sign-in</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
 <tr><td class="id">202</td><td>An item has terms of use and categories, and a member keeps favourites</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">4/4</td></tr>
 <tr><td class="id">203</td><td>A deleted item waits in the recycle bin, whole, with its ids</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">2/3</td></tr>
-<tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">10/16</td></tr>
+<tr><td class="id">204</td><td>One deployment holds several organisations, each at its own host name</td><td><span class="pill warn">ACCEPTED WITH CONDITIONS (was REQUIRES…</span><div class="muted-t">ACCEPTED WITH CONDITIONS (was REQUIRES PROTOTYPE until 2026-10-19, when condition 1 ran)</div></td><td class="muted-t">MEDIUM for the shape · MEDIUM for the floor of §5b since 2026-10-19, measured at or under…</td><td class="num">11/16</td></tr>
 <tr><td class="id">205</td><td>A registered Oracle database is served as a registered PostGIS database is</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM for the shape · LOW for the driver&#x27;s licence until condition 1 runs</td><td class="num">7/8</td></tr>
 <tr><td class="id">206</td><td>Vector tiles are served from the datastore only</td><td><span class="pill good">ACCEPTED</span></td><td class="muted-t">HIGH</td><td class="num"></td></tr>
 <tr><td class="id">207</td><td>Attachments and history on registered layers</td><td><span class="pill cond">ACCEPTED WITH CONDITIONS</span></td><td class="muted-t">MEDIUM</td><td class="num">5/5</td></tr>
@@ -643,6 +643,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Son çalışma</h2><ol class="log">
+<li><code>6686ee8d</code><time>2026-10-31</time><span>Every address a second organisation&#x27;s documents carry is its own host, and Pro, the Python API and Field Maps can sign in there (ADR-204 condition 3 partly, migration 115)</span></li>
 <li><code>f6764560</code><time>2026-10-31</time><span>A server will not start over a store of several organisations reached as a role the floor does not bind, and compose.yaml takes the serving role from two variables (ADR-204 condition 9)</span></li>
 <li><code>0f5ab8ed</code><time>2026-10-31</time><span>A SQL Server layer keeps a history and follows relationships, as MySQL and Oracle layers do (ADR-210 condition 5, ADR-212 condition 2)</span></li>
 <li><code>31bddd5c</code><time>2026-10-31</time><span>A service account signs in with OAuth client_credentials, and its client secrets are made, shown once and revoked on the Security screen (ADR-200 condition 2, migration 113)</span></li>
@@ -656,7 +657,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>9d812d95</code><time>2026-10-31</time><span>grapy answers as ArcGIS Pro 3.7 was measured answering on editor tracking, fleet routing, utility network traces and network diagrams (ADR-240 c1, ADR-239 c5 discharged; ADR-231 c5, ADR-232 c5 partly)</span></li>
 <li><code>9de084f2</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
 <li><code>e0fe3d70</code><time>2026-10-31</time><span>grapy&#x27;s Sentinel-1 radiometry agrees with ArcGIS Pro 3.7 on a real IW GRD, and grapy now reads that scene&#x27;s geometry (ADR-237 condition 3 partly)</span></li>
-<li><code>f8d08ba9</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-a&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · üreten: <code>tools/status-page.py</code></p></footer>
 </main>

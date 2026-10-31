@@ -806,9 +806,13 @@ public sealed class PostgresLayerCatalog
             // lookup scanned every service on every request.
             // `NotImagery` opens the clause, so these are `and`. This resolver answers for
             // the faces that serve layers, which is the caller the filter was written for.
+            //
+            // <b>And then to a stored key, because the index above stopped being usable (migration 116).</b> Under
+            // ADR-204's floor PostgreSQL may not evaluate `lower(s.name)` — not leakproof — before the policy, so the
+            // expression index could not serve the lookup and every request scanned every service. `lookup_key` is
+            // the same expression kept by a trigger, compared with `=`, and `lower` now applies to the parameters only.
             + NotImagery
-            + "  and coalesce(lower(s.folder), '') = coalesce(lower(@folder), '') "
-            + "  and lower(s.name) = lower(@name) "
+            + "  and s.lookup_key = coalesce(lower(@folder), '') || chr(31) || lower(@name) "
             + "order by l.layer_index");
 
         command.Parameters.AddWithValue("name", name);
