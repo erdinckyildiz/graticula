@@ -99,6 +99,8 @@
        <base>/grapy/grapy (Graticula:Tools:Grapy). Python source, copied as it is. -->
   <ItemGroup>
     <None Include="..\grapy\grapy\**\*.py" LinkBase="grapy\grapy" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- ADR-251: the World Magnetic Model coefficients the magnetic tools read, NOAA's .COF files as published. -->
+    <None Include="..\grapy\grapy\_topo_prod_data\*.COF" LinkBase="grapy\grapy\_topo_prod_data" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

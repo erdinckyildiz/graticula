@@ -663,6 +663,7 @@ _REFUSED_NAMES.update({name: _NO_APPLICATION for name in ("ListPrinterNames", "P
 
 
 from . import analysis, cartography, conversion, da, ddd, edit, ga, graticula, ia, management, na, nax, nd, sa, stats, un  # noqa: E402 — they import the names above
+from . import locref, parcel, topographic  # noqa: E402 — ADR-250 to ADR-252
 from .management import AlterAliasName, FieldMap, FieldMappings  # noqa: E402,F401 — arcpy's own names
 
 
@@ -1012,13 +1013,10 @@ _REFUSED_NAMES.update({
 })
 
 
-# ADR-224 §5.1: modules that answer from an Esri data model this server does not hold (group 2), and modules that
-# answer from Esri's own data or cloud services (group 3). Both are refused with the reason, not merely "not built".
-_DATA_MODEL = "needs a data model this server does not hold yet (ADR-224 group 2)"
+# ADR-224 §5.1: modules that answer from Esri's own data or cloud services (group 3), refused with the reason. Group 2's
+# modules all have their data model now (the last three, parcel, topographic and locref, by ADR-250 to ADR-252).
 _ESRI_SERVICE = "answers from Esri's own data or cloud services, which grapy cannot reproduce (ADR-224 group 3)"
 _REFUSED_MODULES = {
-    "parcel": f"the parcel fabric {_DATA_MODEL}",
-    "topographic": f"the topographic production model {_DATA_MODEL}", "locref": f"linear referencing networks {_DATA_MODEL}",
     "ba": f"Business Analyst {_ESRI_SERVICE}: its demographics are Esri's data",
     "agolservices": f"ArcGIS Online's analysis services {_ESRI_SERVICE}",
     "geoai": f"GeoAI's pretrained models {_ESRI_SERVICE}",

@@ -5,6 +5,7 @@ single returns — except under a 4 m × 4 m roof over 8–12, where each cell h
 z 6. The point at (0.5, 0.5) is withheld. 384 ground points and 32 roof points, 416 in all.
 """
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -354,6 +355,31 @@ class Refused(unittest.TestCase):
     def test_no_name_is_refused_as_a_batch(self):
         for module in (arcpy.ddd, arcpy.management, arcpy.conversion):
             self.assertFalse([k for k, v in module._REFUSED.items() if "batch" in str(v)])
+
+    # A schedule is not a reason (ADR-224): "not held yet", "until defined", "today", "later". The words are looked for
+    # in what every refused name of every module of arcpy-surface.json answers, as tools/grapy_refusals.py asks it,
+    # and in the whole-module refusals — the dictionaries above missed "with today" in arcpy.da.
+    SCHEDULE = re.compile(r"\b(yet|today|until|later|for now|not chosen|currently|at present|eventually|so far|"
+                          r"at the moment|in a later|batch)\b", re.IGNORECASE)
+
+    def test_no_refusal_anywhere_reads_as_a_schedule(self):
+        tools = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tools")
+        sys.path.insert(0, os.path.abspath(tools))
+        try:
+            import grapy_refusals
+        finally:
+            sys.path.pop(0)
+        scheduled = [f"{module}.{name}: {reason}" for module, row in grapy_refusals.survey().items()
+                     for name, reason in row["refused"].items() if self.SCHEDULE.search(reason)]
+        scheduled += [f"arcpy.{name}: {reason}" for name, reason in arcpy._REFUSED_MODULES.items()
+                      if self.SCHEDULE.search(reason)]
+        self.assertEqual(scheduled, [])
+
+    def test_the_schedule_words_are_caught(self):
+        for said in ("pyarrow is not among the wheels a user tool runs with today",
+                     "needs a data model this server does not hold yet (ADR-224 group 2)",
+                     "refused until its rules are defined", "left for later"):
+            self.assertTrue(self.SCHEDULE.search(said), said)
 
 
 if __name__ == "__main__":
