@@ -90,7 +90,11 @@ def describe(connection: sqlite3.Connection, table: str) -> tuple[list[Column], 
         if pk or name == geometry or name == oid:
             continue
         columns.append(Column(name, _BACK.get((declared or "TEXT").split("(")[0].upper(), "String"), not notnull))
-    return columns, _SHAPES.get((shape or "GEOMETRY").upper(), "Geometry"), int(srid or 0), geometry
+    kind = _SHAPES.get((shape or "GEOMETRY").upper(), "Geometry")
+    if kind == "Polygon":  # a multipatch class is a MultiPolygon Z table its extension row marks (ADR-238)
+        from ._multipatch import is_registered
+        kind = "MultiPatch" if is_registered(connection, table) else kind
+    return columns, kind, int(srid or 0), geometry
 
 
 def oid_column(connection: sqlite3.Connection, table: str) -> str:

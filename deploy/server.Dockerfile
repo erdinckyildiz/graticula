@@ -226,7 +226,7 @@ RUN apt-get update  && apt-get install --yes --no-install-recommends curl liblda
 # nothing is installed at runtime. grapy itself is copied beside the server by the build (src/grapy/grapy).
 RUN apt-get update && apt-get install --yes --no-install-recommends python3 python3-venv && rm -rf /var/lib/apt/lists/* \
  && python3 -m venv /opt/grapy \
- && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas rasterio scipy laspy xarray \
+ && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas rasterio scipy laspy xarray manifold3d \
  && /opt/grapy/bin/python -c "import shapely, pyproj, geopandas"
 
 # Non-root, and the uid is fixed rather than assigned. A volume written by uid

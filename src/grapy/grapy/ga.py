@@ -983,9 +983,6 @@ _REFUSED = {name: _EBK for name in ("EmpiricalBayesianKriging", "EmpiricalBayesi
 _REFUSED.update({name: _RANDOM for name in ("CreateSpatiallyBalancedPoints", "SubsetFeatures")})
 _REFUSED.update({name: _UNSPECIFIED for name in ("KernelInterpolationWithBarriers", "DiffusionInterpolationWithBarriers")})
 _REFUSED.update({name: _THREE_D for name in ("GALayer3DToMultidimensionalRaster", "GALayer3DToNetCDF")})
-_REFUSED.update({name: "its required output is a netCDF file of a 3D grid (and a voxel layer), a multidimensional "
-                       "format this server does not hold yet (ADR-224 group 2) and grapy's libraries cannot write"
-                 for name in ("IDW3D", "NearestNeighbor3D")})
 _REFUSED["GaussianGeostatisticalSimulations"] = "it is a conditioned simulation, and its answer is drawn at random"
 _REFUSED["GASemivariogramSensitivity"] = ("its nugget, sill and range values are drawn at random within the spans "
                                           "(the page: Mersenne Twister, seed 0 differing on every run)")
@@ -1000,6 +997,14 @@ _REFUSED["ArealInterpolationLayerToPolygons"] = ("its input is an areal interpol
 _REFUSED["GenerateSubsetPolygons"] = "its curve through the points and its segmentation are described, not specified"
 _REFUSED["ExtractValuesToTable"] = "the output table's fields are not named in the documentation"
 _REFUSED["DirectionalTrend"] = "its output is a chart on a layer in the active map, and the tool cannot run without one"
+
+
+# ---- 3D interpolation to a netCDF grid of voxels (ADR-238)
+
+from . import _voxel  # noqa: E402
+
+IDW3D = _voxel.IDW3D
+NearestNeighbor3D = _voxel.NearestNeighbor3D
 
 
 def __getattr__(name):
