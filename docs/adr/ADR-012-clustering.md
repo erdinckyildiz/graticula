@@ -2,9 +2,9 @@
 
 | | |
 |---|---|
-| **Status** | `REQUIRES PROTOTYPE` *(was `DEFERRED` until 2026-10-22, when the owner asked for the plan: "En son server clusteringi planla")* |
+| **Status** | `ACCEPTED WITH CONDITIONS` *(2026-10-31: the prototype of condition 2 ran and the owner confirmed and ordered the plan built — "Onayla, ölç ve kur"; was `REQUIRES PROTOTYPE` from 2026-10-22, and `DEFERRED` before that, when the owner asked for the plan: "En son server clusteringi planla")* |
 | **Confidence** | `MEDIUM` for the inventory, which is read from the code · `LOW` for every cost below, none of which is measured |
-| **Decided** | 2026-10-22, the plan only — nothing in §5 is built. **The model is the owner's**: ArcGIS Server's multiple-machine site (§1c). **The purpose is the owner's**: *"İkinci düğüm work share için gerekli. Performans artırma için"* — a second node is for sharing the work, to raise throughput (§1a). The phases and their order are still INFERRED, for the owner to confirm. |
+| **Decided** | 2026-10-22, the plan only — ~~nothing in §5 is built~~ **phase 0 built from 2026-10-31 (owner: *"Onayla, ölç ve kur"*), see §5.** **The model is the owner's**: ArcGIS Server's multiple-machine site (§1c). **The purpose is the owner's**: *"İkinci düğüm work share için gerekli. Performans artırma için"* — a second node is for sharing the work, to raise throughput (§1a). The phases and their order are still INFERRED, for the owner to confirm. |
 
 ---
 
@@ -168,28 +168,48 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
 
 ## 5. Decision — the plan
 
-**Alternative A, in phases, each of which leaves a one-node deployment exactly as it was.** Nothing is built yet.
+**Alternative A, in phases, each of which leaves a one-node deployment exactly as it was.** ~~Nothing is built yet.~~
+**Built from 2026-10-31, by owner decision** (*"Onayla, ölç ve kur"*) — phase by phase below, each item marked with
+what landed.
 
 **Phase 0 — a node that is ready to have a sibling** (no new dependency)
 
 1. **Singletons by advisory lock.** Each sweep of §1b takes `pg_try_advisory_lock(<its key>)` on a dedicated connection
    and runs only while it holds it; another node's sweep finds it held and sleeps. The backup schedule above all.
+   **Built 2026-10-31** (`SiteSingletons`): the backup schedule, the log and history sweeps, the attachment sweep, the
+   recycle bin's expiry and the image overviews, keyed by the store's schema and the sweep, on one connection held for
+   the node's life. **Two corrections to §1b, read from the code while building:** the usage flush is *not* a
+   singleton — each node adds its own minute's counts (`on conflict … + excluded`), so it must run on every node — and
+   the thumbnail and extent warmers fill each node's own memory, so they stay per node. A sweep is hourly, so a sweep
+   whose leader dies is taken by another node at that node's next pass, up to an hour later; the backup schedule ticks
+   every ten minutes.
 2. **Changes announced.** `TenantDirectory`, `ServiceContexts`, `ItemAnnotations` and `CatalogFallback` listen on the
    existing `graticula_grants` channel, or a sibling, for tenant, service and item changes and reload; their timers stay
    as the backstop. **A pin is one of the changes** (ADR-218): every node's `PinnedServices` wakes on it, rather than
    only the node the administrator happened to reach.
+   **Built 2026-10-31** (`SiteAnnouncements`, channel `graticula_site`): tenants, a layer's remembered shape (by table,
+   never the connection string, which carries a password), the items' terms and categories, pins, image overviews,
+   and a machine's state. **`CatalogFallback` needs none**: it reads the store on every request and remembers only for
+   an outage, so there is nothing for it to be told.
 3. **The connection budget counts nodes.** A `Graticula:Nodes` setting (default 1) multiplies the startup check of
    ADR-204 condition 14, so two nodes on a store that cannot hold them are told so — **including the connection each
    node keeps open for every data source that serves a pinned service** (ADR-218).
+   **Built 2026-10-31**: the larger of the setting and the nodes up now, times each node's ceiling — which now also
+   counts the site's two connections and one per pinned data source; the startup line names the site (events 2522,
+   2523).
 4. **Ready means ready.** `/healthz/ready` answers 503 while a node drains and before its first tenant and catalogue
    read, so the proxy stops sending it requests first. **And before its pinned services are warm** (ADR-218): a node
    back from an upgrade is otherwise cold for exactly the services an administrator said must not be. Before it says it
    is ready, the node also sends itself one request and one query of each pinned service, which pays the ~240 ms every
    first request costs a new process and the query path's first run (ADR-218 condition 1) — the warm-up a single node
    cannot hide and a cluster can, because the proxy is still sending the other node the traffic.
+   **Built 2026-10-31**: not ready while stopped or under maintenance, and until the pinned services' first round and
+   one request to itself are done.
 5. **When each node last warmed a pinned service is kept per node.** Each node writes its own time to the store, and
    the screen says *kept warm on 2 of 2 nodes* rather than the time of whichever node answered — the case it has to
    show is one node unable to reach a table the other can.
+   **Built 2026-10-31** (`site_node_warm`, migration 119; the service page says *on all 2 machines* or names the one
+   that has not renewed it).
 6. **The site's machines** (§1c). A `node` table every node writes itself into at start — name, address, version,
    started at, `last_seen` every 10 s — with an administrator's *configured state*: started, stopped (drained: not
    ready), under maintenance; and *remove* for a node gone for good. **Server › Site › Machines** lists them with their
@@ -198,6 +218,10 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
    node started with a different `Graticula:SecretKey` from the site's is refused at start, ArcGIS's *same account on
    every machine*. On one node this is a list of one, which is still the right thing to show. *INFERRED:* whether
    the ArcGIS administration endpoints answer `/admin/machines` too, so scripts that list a site's machines see these.
+   **Built 2026-10-31** (`site_node`, migration 119; `/admin/site/machines`; System › Machines): registration with
+   heartbeat, started / stopped / maintenance, remove only once down, the node's name held as an advisory lock so a
+   second process under it is refused, and a different `Graticula:SecretKey` refused at start. *Not built:* the
+   INFERRED `/admin/machines` on the ArcGIS administration face, and the node in the request and server logs (item 13).
 
 **Phase 1 — server directories** (our code; no library adopted)
 
@@ -210,18 +234,47 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
    found the plan said both: per node, an edit's emptying (ADR-186) reaches one node and the other serves the old
    tiles. Shared, there is one cache to empty. *INFERRED; revisit if a shared mount measures too slow for tile reads,
    and then the emptying is announced to every node over `NOTIFY` instead.*
+   **Built 2026-10-31, with one deliberate difference.** `Graticula:ServerDirectories` names one path every node mounts;
+   imagery, tile and feature exports, the recycle bin's files, backups and the tile cache resolve under it, and unset
+   they stay exactly where they were (a one-node deployment mounts nothing). **The port is a path, not an `IFileStore`
+   interface**: every consumer already reads and writes files, a shared mount is a path, and an interface would exist
+   only for the object-store adapter this plan defers to its own ADR — so it is not written until that ADR is. Each node
+   writes a check file under `.site/` and records it in its row; a node that cannot read another's, that keeps its own
+   directories on a site that shares them, or the reverse, is refused at start with the path named, and the Machines
+   page says which machines this one sees. **And the emptying is announced as well** (`SiteAnnouncements.Tiles`),
+   shared mount or not: each node's index over the cache is its own, so a file another node wrote is one this node's
+   index-driven emptying never reaches — the observation of condition 2. The node that made an edit empties the tiles
+   it reached (ADR-186); the others empty the layer, since a test of addresses cannot be sent. The GeoParquet root is
+   already an operator's path and is not moved; a site mounts it as it mounts the server directories.
 
 **Phase 0, continued — what the veteran's review of 2026-10-22 added**
 
 11. **Settings that must agree are the site's** (§1b): read from the store, or hashed per node and a differing node
-    refused at start.
+    refused at start. **Built 2026-10-31** — the second form: every `Graticula:*` key but a machine's own (its port,
+    address, paths, certificate, connection strings) is written to its row, and a node that sets one differently from a
+    running node is refused at start with the key and both values named (a secret by hash).
 12. **`/rest/info/healthcheck` answers** `{"success": true}` from readiness — ArcGIS's documented load-balancer check.
+    **Built 2026-10-31.**
 13. **The server log is the site's**: kept in the store with its node, or gathered from every node by the log screen.
+    **Built 2026-10-31** — the first form: each node writes its ring of warnings and errors to `site_log` (migration
+    120) every ten seconds with its name, bounded as the ring is (2,000 per node, thirty days); where more than one
+    machine is up the log screen's server source reads every machine's, each row naming its machine. A site of one
+    reads its ring as before. *Not built:* the node on each row of the request log.
 
 **Phase 2 — no state that spans requests in memory**
 
 8. Pro's staging, the ArcGIS append uploads and the OGC Processes job store move to the job table and the file store,
    keyed by id, so any node answers the next step. The export pictures likewise.
+   **Built 2026-10-31 — in the file store alone** (`SiteHandoff`): each is kept as a file under the server
+   directories' `handoff/<kind>/<id>`, written whole and replaced whole, and read by a node that is asked the next step
+   without having taken the first; each keeps its memory as before, and sweeps its files by the lifetime it already had
+   (uploads an hour, jobs an hour, pictures ten minutes; Pro's staging by its bound of 256 and the folders' sweep).
+   **Not the job table**: none of the four is work a worker claims, and the schema numbers this slice had were spent
+   on phase 0. **On a node of its own nothing is written** — there is nobody to hand to. Observed by
+   `A_service_definition_added_on_one_node_takes_its_part_on_the_other`,
+   `A_processes_job_started_on_one_node_is_followed_on_the_other` and `An_exported_picture_is_fetched_from_the_other_node`;
+   the append upload goes the same way and has no two-node test of its own. **Not covered: in-memory state nobody
+   listed** — this item names four structures from §1b, and a fifth found later is a node-local answer again.
 
 **Phase 3 — two nodes behind Caddy**
 
@@ -233,6 +286,14 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
    the proxy keeps `Host`, so absolute addresses stay `https://` and each organisation's host still reaches it — read
    nowhere in `src/` today. *Stickiness by client address for the multi-step paths of phase 2 (Pro's staging, append
    uploads, OGC Processes) is the bridge if phase 3 is wanted before phase 2 is done — INFERRED, not the plan.*
+   **Partly built 2026-10-31.** *Built:* the nodes honour `X-Forwarded-Proto` and `X-Forwarded-Host` from the proxies
+   `Graticula:TrustedProxies` names and from nobody else (`CallerAddress.ApplyForwarded`); both health paths drop a
+   stopped or maintained node; the Caddyfile and settings are written in deployment.md §1.4. Tested against two
+   processes (`ASiteBehindAProxyTests`, and the control that a node naming no proxy ignores the headers). **Unproven:
+   Caddy itself.** It is not installed on this machine and downloading it was refused by this session's permissions,
+   so Caddy's `dynamic a` discovery, its health checks taking a node out and back, its retry across a node killed
+   mid-request, and `Host` reaching the nodes unchanged have not been run. The nodes' own TLS still faces Caddy (with
+   `tls_insecure_skip_verify`), so *the nodes' certificates no longer face clients* holds only once that is set up.
 
 **Phase 4 — rolling upgrade**
 
@@ -255,12 +316,61 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
    the node needing about 1.2 times the store's CPU. So a second node pays for rendering and is wasted on queries and
    tiles until the store grows with it. **Phase 0 starts on the owner's word**, with that ratio as the sizing rule.
    Not measured: a server-class machine, image and geometry services, a cached tile workload.
+   **DISCHARGED 2026-10-31** — re-measured with what the first run left out
+   ([node-saturation](../../benchmarks/node-saturation/RESULTS.md), *Re-measured 2026-10-31*): a Release build, CPU
+   counted for this fixture's processes alone, and **PostgreSQL's connections at the peak**. Same cores, same data.
+   Queries (1,351 req/s: node 3.22 cores, store **5.35**) and uncached tiles (1,239: node 1.72, store **4.85**) fill
+   **PostgreSQL**; **for them the node is not the limit, and a second node adds nothing until the store grows — the
+   risk this ADR names is real for that work.** Map images and the mix fill **neither CPU**: they are held by the
+   per-node admission bound (`Graticula:PerSourceConcurrency`, 24 in flight per source), refusing with 503 past it at
+   128 callers (116 and 324 refusals, every one `ConnectionBudgetFullException`) while the node used 4.3 of its 6 cores.
+   A second node doubles that bound across the site — the gain, and also 48 permits against one store. Connections at
+   the peak: **53–58**, well under the 297 usable; **no breaker opened**; an authenticated whoami answered 200
+   throughout. The machine was shared with other sessions (about 22 % of its CPU at the start), so the ratios are the
+   finding.
 2. **A two-process prototype on one machine** — two hosts on two ports over one store — runs deployment.md §1.3's three
    checks (a sharing change, a revoked session, the tile fan-out) and §1b's expected failures (an image published on
    one and read on the other, a Pro publish split across them, a tenant made on one), so the table is observed rather
    than reasoned — **and measures condition 1's mix through both against one**, which is the number the owner's purpose
    is judged by.
+   **PARTLY DISCHARGED 2026-10-31** — the prototype ran: two hosts on two ports (18594, 18595) over one store, each
+   with its own state, tile cache and import folders, built from this branch before phase 0
+   (`D:/temp/cluster-e/checks.py`, kept outside the repository). Observed, not reasoned:
+   - **a sharing change** made on A was refused by B on its next request (200, then 404 to an anonymous read, then
+     200 again) — §1.1 holds;
+   - **a session signed out on A** was anonymous on B at once (`authenticated: false`) — §1.1 holds;
+   - **the tile fan-out**: A MISS, A HIT, **B MISS**, B HIT — each node builds its own;
+   - **an edit's emptying reaches one node** (ADR-186): after an edit on A, A answered MISS and **B kept answering
+     HIT** with the tile from before the edit — the correctness fault §1b names, now seen;
+   - **an image uploaded on A**: B's download answered 400 (*registered from a file on this server, not uploaded*).
+     B's `exportImage` answered 200, but only because both "machines" are one disk here and the catalogue stores A's
+     absolute path; on two machines it is a missing file — *reasoned, and the one row this prototype cannot show*;
+   - **a Pro publish split across nodes**: `addItem` on A 200, `addPart` on B **400** *Item does not exist*;
+   - **a tenant changed on A**: renamed on A, `whoami` on B still said *Default* — until it restarts.
+   **What remains: the mix measured through both nodes against one, on a quiet machine.** Tried twice on 2026-10-31.
+   The first run was abandoned with all sixteen logical cores at 100 % from other sessions. The second ran to the end
+   ([two-nodes-2026-10-31.txt](../../benchmarks/node-saturation/two-nodes-2026-10-31.txt); each node two physical
+   cores, the store three): mix 334 req/s on one node and 309 on two, map images 80 and 96, queries 1,152 and 881 —
+   **but the whole machine averaged 90 % CPU, 78 of 125 samples above 95 %**, with neither node nor the store at its
+   own ceiling, so the numbers describe the machine's contention and not the server. They are not used. What they do
+   show, at that contention: no request failed, the authenticated whoami answered on both nodes throughout, and the
+   site held 112 connections at its peak against 297 usable.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
+   **PARTLY DISCHARGED 2026-10-31** — phases 0, 1 and 2 each landed with such tests; phase 3's tests cover the nodes'
+   half and not Caddy, which was not run; phase 4 is not built. Phase by phase: **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
+   a fresh schema (`TwoNodeSite`). The first ten (items 1–6, 11, 12) pass on this branch and **all ten fail on the build
+   before it** (the same test assembly run against the previous `Graticula.Host.dll`, 2026-10-31); item 13's
+   (`One_nodes_log_screen_shows_the_other_nodes_warnings_with_their_machine`) reads a route and a field that build does
+   not have. **Phase 1: DISCHARGED 2026-10-31** — `ASiteSharesItsServerDirectoriesTests` (an image uploaded through one
+   node downloaded from the other; each machine sees the other's check file; a node keeping its own directories, and
+   one mounting another path, refused at start) and `An_edit_on_one_node_empties_the_tile_the_other_holds` — the
+   download and the tile both observed failing on the build before (condition 2's prototype). **Phase 2: DISCHARGED 2026-10-31** — the three
+   phase-2 tests in `ASiteSharesItsServerDirectoriesTests`, each a second step sent to the other node; the Pro split was
+   observed failing (400) on the build before, the other two are memory-only there by construction. Nineteen two-node
+   tests in all, passing on this branch, 2026-10-31. **Phase 3: PARTLY DISCHARGED 2026-10-31** — the
+   nodes' half is tested against two processes (`ASiteBehindAProxyTests`: the client's address written behind a named
+   proxy, a balancer's health check taking a maintained node out and back; and the control that an unnamed one is
+   ignored, 22 two-node tests in all); Caddy in front was not run (above).
 4. **The owner confirms** the order of the phases and that PostgreSQL's own availability and capacity are decided
    separately. **DISCHARGED 2026-10-31** — confirmed by owner decision (*"Onayla, ölç ve kur"*): phases 0 → 1 → 2 → 3 in this order, condition 1's measurement first, PostgreSQL's availability a decision of its own, and the plan is to be built rather than held. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
 
@@ -280,7 +390,7 @@ second node doubles the connections the store must allow (ADR-204 condition 14 a
 
 | ID | Assumption | Status |
 |---|---|---|
-| — | One node saturates before PostgreSQL does, so a second node adds throughput | UNVALIDATED — condition 1 |
+| — | One node saturates before PostgreSQL does, so a second node adds throughput | **SPLIT 2026-10-31 (condition 1): INVALID for feature queries and uncached tiles** — PostgreSQL fills first; **VALID for map images**, held by the node's CPU and its admission bound |
 | A-086 | A deployment holds tens of tenants, not thousands | UNVALIDATED (ADR-204) |
 
 ## 8. Dependencies

@@ -3257,6 +3257,8 @@ const SURFACES = {
       // organization a holder of admin:manageServer enters System (INFERRED, ADR-221 §5.2) and is still not shown it.
       ["organizations", "Organizations", () => isSystemAdministrator()],
       ["utilities", "Utility services"],
+      // ADR-012 phase 0 item 6: the machines of this site, as ArcGIS Server Manager's Site › Machines lists them.
+      ["machines", "Machines"],
       ["settings", "General"],
       // ADR-193 condition 4: a backup is the whole database, every organization's, so the machine's.
       ["backups", "Backups"],
@@ -3418,6 +3420,7 @@ const SCREEN_SURFACE = {
   // › Utility services until ADR-221, so `/studio/utilities` lands here.
   utilities: "system",
   backups: "system",
+  machines: "system",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
   // A screen absent from this table falls through to its surface's home, so `/server/group/planning`
@@ -4227,6 +4230,7 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "collaborations") loadPartnerships();
   if (screen === "backups") section("backups", loadBackups, "bkRows");
+  if (screen === "machines") section("machines", loadMachines, "mcRows");
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") {
@@ -21388,6 +21392,16 @@ function drawServicePin(failed = null) {
     ? `<b>Kept warm, but last renewed ${servicePinAgo(p.warmedAt)}.</b> The server could not reach one of its
         tables since; <a href="${failingLogHref(p.qualified)}">read its warnings</a>.`
     : `<b>Kept warm.</b> Last renewed ${servicePinAgo(p.warmedAt)}.`;
+
+  // ADR-012 item 5: on a site of several machines, each keeps its own time, and the case to show is one that cannot. Not
+  // after the late branch, which already ends on what to read.
+  if (p.pinned && !stopped && !late && p.nodes) {
+    const cold = p.nodes.cold || [];
+    state.innerHTML += p.nodes.warm === p.nodes.of
+      ? (p.nodes.of === 2 ? " On both machines of this site." : ` On all ${num(p.nodes.of)} machines of this site.`)
+      : ` On ${num(p.nodes.warm)} of ${num(p.nodes.of)} machines: <b>not on ${h(cold.length < 3 ? cold.join(" and ") : cold.slice(0, -1).join(", ") + " and " + cold.at(-1))}</b>, which
+          ${cold.length === 1 ? "has" : "have"} not renewed it in the last minute.`;
+  }
 
   const others = p.pinnedOnServer - (p.pinned ? 1 : 0);
   count.textContent = `${num(p.pinnedOnServer)} of ${num(p.limit)} services on this server are kept warm`
@@ -39517,4 +39531,230 @@ document.addEventListener("click", async event => {
     stop.hidden = true;
     t.removeAttribute("aria-disabled");
   }
+});
+
+
+/* ---- Machines — ADR-012 phase 0 item 6 ---------------------------------------------------------------------------
+ * The site's machines: every server process over this platform store, as ArcGIS Server Manager's Site › Machines lists
+ * them — what each is doing (one Status pill: the state that holds now, not the heartbeat and the setting side by side,
+ * from the design review of 2026-10-31), and which of the site's once-only jobs it runs. Read again every ten seconds
+ * while it is on screen, because its heading promises a machine heard every ten. On one machine it is a list of one.
+ */
+
+/** What `/admin/site/machines` last answered; null until it is read. */
+let machinesNow = null;
+
+/** The timer that reads the list again while the screen is open. */
+let machinesTimer = null;
+
+/** The rows last drawn, to leave an unchanged table alone. */
+let machinesDrawn = "";
+
+/** The site's once-only jobs, as a person names them. */
+const MACHINE_SWEEPS = {
+  "backup-schedule": "scheduled backup",
+  "log-retention": "log clean-up",
+  "history-retention": "history clean-up",
+  "attachment-sweep": "attachment clean-up",
+  "recycle-expiry": "recycle bin expiry",
+  "coverage-pyramids": "image overviews",
+};
+
+/** A line under the Machines heading, read out when it changes; `bad` marks a refusal. */
+function machineSay(message, bad = false) {
+  const line = $("mcSays");
+  if (!line) return;
+  line.textContent = message || "";
+  line.classList.toggle("bad-inline", !!bad);
+}
+
+/** What a machine is doing now: its configured state where it is up, down where it is not, and starting in between. */
+function machineEffective(m) {
+  if (m.status !== "up") return { label: "Down", pill: "p-failing", serving: false };
+  if (m.configuredState === "maintenance") return { label: "Under maintenance", pill: "p-stopped", serving: false };
+  if (m.configuredState === "stopped") return { label: "Stopped", pill: "p-stopped", serving: false };
+  return m.ready
+    ? { label: "Started", pill: "p-started", serving: true }
+    : { label: "Starting…", pill: "p-stopped", serving: false };
+}
+
+/** Machines — the list, the count and the sentence under it. A timed read keeps the reader's focus and says nothing. */
+async function loadMachines() {
+  try {
+    machinesNow = await api("/admin/site/machines") || {};
+  } catch (e) {
+    // A failed read draws its own refusal into the table, so the next good one must draw whatever it finds.
+    machinesDrawn = null;
+    throw e;
+  }
+  const all = machinesNow.machines || [];
+  const serving = all.filter(m => machineEffective(m).serving).length;
+
+  $("mcCount").textContent = all.length === 1
+    ? (serving ? "1 machine, serving" : "1 machine, not serving")
+    : `${num(all.length)} machines · ${num(serving)} serving`;
+
+  const focused = document.activeElement?.closest?.("[data-mc]")?.dataset.mc;
+  const focusedAct = document.activeElement?.dataset?.mcState || (document.activeElement?.dataset?.mcRemove ? "remove" : null);
+
+  const rowsHtml = all.length === 0
+    ? `<tr><td colspan="4" class="empty">No machine has registered with this site yet. A server registers itself when it
+        starts; if this one did not, its log says why.</td></tr>`
+    : all.map(m => {
+      const now = machineEffective(m);
+      const runs = (m.leads || []).map(l => MACHINE_SWEEPS[l] || l);
+      const status = m.status !== "up"
+        ? `<span class="pill ${now.pill}">${now.label}</span>
+           <div class="rowmeta">last heard ${servicePinAgo(m.lastSeen)}</div>`
+        : `<span class="pill ${now.pill}">${h(now.label)}</span>`;
+
+      // Start, Stop and Maintenance while it is up; Remove only once it is gone — one that still runs writes itself back.
+      const acts = m.status !== "up"
+        ? `<button class="tiny danger" type="button" data-mc-remove="${h(m.name)}"
+             aria-label="Remove ${h(m.name)} from the site">Remove&hellip;</button>`
+        : m.configuredState === "started"
+          ? `<button class="tiny" type="button" data-mc-state="stopped" data-mc-name="${h(m.name)}"
+               aria-label="Stop ${h(m.name)}">Stop</button><button class="tiny" type="button" data-mc-state="maintenance"
+               data-mc-name="${h(m.name)}" aria-label="Put ${h(m.name)} under maintenance">Maintenance</button>`
+          : `<button class="tiny" type="button" data-mc-state="started" data-mc-name="${h(m.name)}"
+               aria-label="Start ${h(m.name)}">Start</button>`;
+
+      // Each separator inside the item before it, so a line breaks only after a dot, never before one.
+      const meta = [m.self ? "this machine" : "", `<code>${h(m.address)}</code>`, `version ${h(m.version)}`]
+        .filter(Boolean)
+        .map((x, i, a) => `<span class="mcmeta">${x}${i < a.length - 1 ? `<span class="sep" aria-hidden="true">·</span>` : ""}</span>`)
+        .join(" ");
+
+      return `<tr data-mc="${h(m.name)}">
+        <td class="name"><b>${h(m.name)}</b><div class="rowmeta">${meta}</div></td>
+        <td data-l="Status"><span>${status}</span></td>
+        <td data-l="Runs"><span class="rowmeta">${runs.length ? h(runs.join(", ")) : "None of the site's jobs"}</span></td>
+        <td class="act mcacts">${acts}</td>
+      </tr>`;
+    }).join("");
+
+  // A timed read that found nothing new leaves the table alone, so a screen reader keeps its place.
+  const changed = rowsHtml !== machinesDrawn;
+  machinesDrawn = rowsHtml;
+  if (changed) $("mcRows").innerHTML = rowsHtml;
+
+  if (changed && focused) {
+    const row = document.querySelector(`[data-mc="${CSS.escape(focused)}"]`);
+    (focusedAct === "remove" ? row?.querySelector("[data-mc-remove]")
+      : row?.querySelector(`[data-mc-state="${focusedAct}"]`) || row?.querySelector("button"))?.focus();
+  }
+
+  const note = $("mcNote");
+  if (note) {
+    note.innerHTML = all.length <= 1
+      ? `This site has one machine. Another server started on the same database with the same key and settings joins it
+         and appears here; a load balancer in front sends each request to one of them.`
+      : `A stopped machine answers <code>/healthz/ready</code> and <code>/rest/info/healthcheck</code> with 503, so the
+         load balancer sends it nothing new; the others take its share, and its once-only jobs pass to another machine.
+         <b>Under maintenance</b> does the same, and tells another administrator reading this page that the machine is out
+         for work, not by accident.`;
+
+    // ADR-012 phase 1: the healthy shared form is a quiet fact here; a site whose directories are not shared is
+    // warned above the table, where it is read before anything else (design review, third pass).
+    const dirs = machinesNow.directories;
+    if (dirs?.shared && !(dirs.unseen || []).length) {
+      note.innerHTML += ` Uploads, exports, backups and the tile cache are in the site's server directories at
+        <code>${h(dirs.path)}</code>, shared by every machine that is up.`;
+    }
+  }
+
+  const warning = $("mcDirs");
+  if (warning) {
+    const dirs = machinesNow.directories;
+    const unseen = (dirs?.unseen || []).filter(n => n !== machinesNow.thisMachine);
+    const listed = unseen.length < 3 ? unseen.join(" and ") : unseen.slice(0, -1).join(", ") + " and " + unseen.at(-1);
+    const text = dirs?.shared && unseen.length
+      ? `<b>Server directories at <code>${h(dirs.path)}</code> are not shared:</b> ${h(listed)}
+         ${unseen.length === 1 ? "writes" : "write"} to a different folder at that path, so uploads, exports and tiles
+         written on one machine are missing on the others. Mount the same storage at <code>${h(dirs.path)}</code> on every
+         machine.`
+      : !dirs?.shared && all.filter(m => m.status === "up").length > 1
+        ? `<b>Each machine keeps its own server directories:</b> an image uploaded or an export written on one is
+           missing on the others. Set <code>Graticula:ServerDirectories</code> to one shared path on every machine.`
+        : "";
+    warning.hidden = !text;
+    warning.innerHTML = text
+      ? `<svg class="mcdirsicon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/>
+           <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>${text}</span>`
+      : "";
+  }
+
+  if (all.length > 1 && machinesNow.directories && !machinesNow.directories.shared) {
+    $("mcCount").textContent += " · directories not shared";
+  }
+
+  clearTimeout(machinesTimer);
+  machinesTimer = setTimeout(() => {
+    // A hidden tab stops reading; it reads again when it is shown (below).
+    if ($("view-machines")?.classList.contains("on") && document.visibilityState === "visible") {
+      loadMachines().catch(() => {});
+    }
+  }, 10000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && $("view-machines")?.classList.contains("on")) {
+    loadMachines().catch(() => {});
+  }
+});
+
+/** Sets a machine's state, then reads the list again and keeps the reader's place. */
+async function setMachineState(name, state) {
+  const m = (machinesNow?.machines || []).find(x => x.name === name);
+  const othersServing = (machinesNow?.machines || []).filter(x => x.name !== name && machineEffective(x).serving).length;
+
+  // One click stays one click, except where it takes away the machine serving this page or the last one serving at all.
+  if (state !== "started" && m) {
+    const verb = state === "maintenance" ? "Put" : "Stop";
+    const what = state === "maintenance" ? `${name} under maintenance` : name;
+    if (othersServing === 0 && !confirm(`${verb} ${what}? It is the only machine serving this site. Every request will be answered 503 until you start it.`)) return;
+    if (othersServing > 0 && m.self && !confirm(`${verb} ${what}? It is the machine this page is served from. The load balancer stops sending it requests, and the site's other machines take them.`)) return;
+  }
+
+  const doing = state === "stopped" ? "Stopping" : state === "maintenance" ? "Putting under maintenance" : "Starting";
+  machineSay(`${doing} ${name}…`);
+  try {
+    await api(`/admin/site/machines/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
+    await loadMachines();
+    machineSay(state === "started"
+      ? `${name} is set to started. It takes requests again within ten seconds.`
+      : state === "maintenance"
+        ? `${name} is under maintenance. It serves nothing new, as if stopped, and other administrators see why.`
+        : `${name} is stopped. The load balancer sends it nothing new.`);
+  } catch (e) {
+    machineSay(e.message, true);
+  }
+  // The row was drawn again: focus goes to its first control, not to the top of the page.
+  document.querySelector(`[data-mc="${CSS.escape(name)}"] button`)?.focus();
+}
+
+/** Removes a machine that is gone for good, after asking. */
+async function removeMachine(name) {
+  if (!confirm(`Remove ${name} from this site? Do this only for a machine that is gone for good. If it starts again, it joins the site again.`)) return;
+  machineSay(`Removing ${name}…`);
+  try {
+    await api(`/admin/site/machines/${encodeURIComponent(name)}`, { method: "DELETE" });
+    await loadMachines();
+    machineSay(`${name} is removed from this site.`);
+  } catch (e) {
+    machineSay(e.message, true);
+  }
+  $("mcTitle")?.focus();
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest("[data-mc-state], [data-mc-remove]");
+  if (!t) return;
+  if (t.dataset.mcRemove) { await removeMachine(t.dataset.mcRemove); return; }
+  await setMachineState(t.dataset.mcName, t.dataset.mcState);
 });

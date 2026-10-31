@@ -89,6 +89,11 @@ public static class PoolNames
     public const string Grants = "graticula-grants";
 
     /// <summary>
+    /// The connection that holds this node's site-wide sweep locks and hears the site's announcements — ADR-012 phase 0.
+    /// </summary>
+    public const string Site = "graticula-site";
+
+    /// <summary>
     /// A <c>like</c> pattern matching every pool of every Graticula server on a database.
     /// </summary>
     /// <remarks>

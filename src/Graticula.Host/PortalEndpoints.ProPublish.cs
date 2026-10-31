@@ -64,6 +64,33 @@ internal static partial class PortalEndpoints
 
     private static readonly ConcurrentDictionary<string, StagedDefinition> Staged = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The handoff kind staged definitions are kept under on a site (ADR-012 phase 2).</summary>
+    private const string StagedKind = "portal";
+
+    /// <summary>Writes a staged definition where the site's other nodes read it — after every change to it.</summary>
+    private static void Remember(StagedDefinition staged) => SiteHandoff.Save(StagedKind, staged.Id, staged);
+
+    /// <summary>A staged definition by id: this node's, or one another node of the site staged.</summary>
+    private static StagedDefinition? StagedById(string? id)
+    {
+        if (Staged.TryGetValue(id ?? string.Empty, out StagedDefinition? held))
+        {
+            return held;
+        }
+
+        if (SiteHandoff.Load<StagedDefinition>(StagedKind, id ?? string.Empty) is { } read)
+        {
+            Staged[read.Id] = read;
+            return read;
+        }
+
+        return null;
+    }
+
+    /// <summary>Every staged definition: this node's and, on a site, the others'.</summary>
+    private static IEnumerable<StagedDefinition> AllStaged() =>
+        Staged.Values.Concat(SiteHandoff.All<StagedDefinition>(StagedKind).Where(s => !Staged.ContainsKey(s.Id)));
+
     /// <summary>The most service definitions remembered at once; the oldest is forgotten first.</summary>
     private const int MaximumStaged = 256;
 
@@ -165,7 +192,10 @@ internal static partial class PortalEndpoints
         }
 
         string id = Guid.NewGuid().ToString("N");
-        string directory = System.IO.Path.Combine(scratch.Directory, "portal", id);
+
+        // ADR-012 phase 2: on a site the definition is staged in the shared server directories, so addPart, commit and
+        // publish may each reach a different node.
+        string directory = System.IO.Path.Combine(SiteHandoff.Directory(StagedKind) ?? System.IO.Path.Combine(scratch.Directory, "portal"), id);
         System.IO.Directory.CreateDirectory(directory);
 
         StagedDefinition staged = new(id, current.Principal.Id, directory,
@@ -191,6 +221,7 @@ internal static partial class PortalEndpoints
         }
 
         Staged[id] = staged;
+        Remember(staged);
         return Results.Ok(new { success = true, id, folder = (string?)null });
     }
 
@@ -273,14 +304,14 @@ internal static partial class PortalEndpoints
         }
 
         string askedJob = context.Request.Query["jobId"].ToString();
-        if (askedJob.Length > 0 && Staged.Values.Any(s => s.Owner == current.Principal.Id
+        if (askedJob.Length > 0 && AllStaged().Any(s => s.Owner == current.Principal.Id
                 && string.Equals(s.WrittenJob, askedJob, StringComparison.OrdinalIgnoreCase)))
         {
             return Results.Ok(new { status = "completed", itemId = id, jobId = askedJob });
         }
 
         Guid? job = Guid.TryParse(askedJob, out Guid asked) ? asked
-            : Staged.Values.FirstOrDefault(s => s.Owner == current.Principal.Id
+            : AllStaged().FirstOrDefault(s => s.Owner == current.Principal.Id
                 && (string.Equals(s.Id, id, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(s.ServiceItemId, id, StringComparison.OrdinalIgnoreCase)))?.Job;
 
@@ -444,6 +475,7 @@ internal static partial class PortalEndpoints
             cancellation).ConfigureAwait(false);
 
         staged.Job = import.Id;
+        Remember(staged);
         signal.Wake(import.Kind);
 
         // Small layers finish while Pro waits, so it can name the new item; a long import answers with the job.
@@ -478,6 +510,7 @@ internal static partial class PortalEndpoints
         // (Pro asked /studio/rest/services/... and got 404, dev 2026-10-17).
         string url = $"{context.Request.Scheme}://{context.Request.Host}/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{Uri.EscapeDataString(service)}/FeatureServer";
         staged.ServiceUrl = url;
+        Remember(staged);
 
         return Results.Ok(new
         {
@@ -630,6 +663,7 @@ internal static partial class PortalEndpoints
         string url = $"{context.Request.Scheme}://{context.Request.Host}/rest/services/{FeatureServerMetadataWriter.HostedFolder}/{Uri.EscapeDataString(existing.Name)}/FeatureServer";
         staged.ServiceUrl = url;
         staged.WrittenJob = Guid.NewGuid().ToString("N");
+        Remember(staged);
 
         return Results.Ok(new
         {
@@ -755,7 +789,7 @@ internal static partial class PortalEndpoints
 
     /// <summary>The staged definition with this id, when it is the caller's.</summary>
     private static StagedDefinition? Mine(string id, RequestPrincipal current) =>
-        Staged.TryGetValue(id ?? string.Empty, out StagedDefinition? staged) && staged.Owner == current.Principal.Id
+        StagedById(id) is { } staged && staged.Owner == current.Principal.Id
             ? staged
             : null;
 

@@ -55,6 +55,9 @@ internal static class ArcGisAppendEndpoints
 
     private static readonly ConcurrentDictionary<string, Upload> Uploads = new(StringComparer.Ordinal);
 
+    /// <summary>The handoff kind uploads wait under on a site (ADR-012 phase 2).</summary>
+    private const string UploadKind = "append-uploads";
+
     /// <summary>Maps the routes.</summary>
     /// <param name="app">The application.</param>
     public static void Map(WebApplication app)
@@ -139,7 +142,9 @@ internal static class ArcGisAppendEndpoints
         string id = "i" + Guid.NewGuid().ToString("N");
         string directory = System.IO.Path.Combine(scratch.Directory, "uploads");
         System.IO.Directory.CreateDirectory(directory);
-        string path = System.IO.Path.Combine(directory, id);
+
+        // ADR-012 phase 2: on a site the bytes wait in the shared server directories, so the append may reach any node.
+        string path = SiteHandoff.FileOf(UploadKind, id) ?? System.IO.Path.Combine(directory, id);
 
         try
         {
@@ -157,6 +162,7 @@ internal static class ArcGisAppendEndpoints
         DateTimeOffset now = DateTimeOffset.UtcNow;
         string fileName = System.IO.Path.GetFileName(file.FileName ?? "upload");
         Uploads[id] = new Upload(path, fileName, owner, now);
+        SiteHandoff.Save(UploadKind, id, Uploads[id]);
 
         await Results.Json(new
         {
@@ -244,7 +250,8 @@ internal static class ArcGisAppendEndpoints
 
         Forget();
 
-        if (!Uploads.TryGetValue(id, out Upload? upload) || !string.Equals(upload.Owner, owner, StringComparison.Ordinal))
+        if ((Uploads.TryGetValue(id, out Upload? held) ? held : SiteHandoff.Load<Upload>(UploadKind, id)) is not { } upload
+            || !string.Equals(upload.Owner, owner, StringComparison.Ordinal))
         {
             await RefuseAsync(context, 400,
                 $"No upload '{id}' of yours is waiting here. An upload is kept for an hour, on the server it was sent to.")
@@ -293,6 +300,7 @@ internal static class ArcGisAppendEndpoints
 
         // Appended once: the upload is spent.
         if (Uploads.TryRemove(id, out Upload? spent)) TryDelete(spent.Path);
+        SiteHandoff.Remove(UploadKind, id);
 
         await Results.Json(new
         {
@@ -331,6 +339,7 @@ internal static class ArcGisAppendEndpoints
     private static void Forget()
     {
         DateTimeOffset before = DateTimeOffset.UtcNow - Kept;
+        SiteHandoff.Sweep(UploadKind, Kept);
 
         foreach ((string id, Upload upload) in Uploads)
         {

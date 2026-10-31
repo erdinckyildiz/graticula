@@ -238,7 +238,7 @@ internal static partial class CoverageAdminEndpoints
     }
 
     /// <summary>Where uploaded imagery is kept: beside the serving certificate, on the volume that survives.</summary>
-    internal static string ImageryDirectory(HostSettings settings) => Path.Combine(settings.StatePath, "imagery");
+    internal static string ImageryDirectory(HostSettings settings) => settings.ImageryDirectory;
 
     /// <summary>Whether a coverage's file is one this server keeps, rather than one registered where it lives.</summary>
     internal static bool Uploaded(HostSettings settings, string path)
@@ -1419,6 +1419,9 @@ internal static partial class CoverageAdminEndpoints
 
         // ADR-148: a registered image without overviews is given them beside its file, in the background.
         context.RequestServices.GetService<CoveragePyramids>()?.Ask();
+
+        // ADR-012 phase 0 items 1–2: the node that builds overviews for the site may be another one.
+        context.RequestServices.GetService<SiteAnnouncements>()?.Announce(SiteAnnouncements.Pyramids);
 
         await audit.RecordAsync(
             new AuditEvent(

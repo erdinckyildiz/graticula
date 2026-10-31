@@ -31,14 +31,14 @@ namespace Graticula.Host;
 /// </remarks>
 internal sealed partial class RecycleBinService(
     IRecycleBin bin, PostGisImporter importer, IConfiguration configuration, TimeProvider time, HostSettings settings,
-    ILogger<RecycleBinService> log)
+    ILogger<RecycleBinService> log, SiteSingletons? site = null)
     : BackgroundService
 {
     /// <summary>What a relation of kind <c>file</c> is: an uploaded image moved under the state directory's recycle bin.</summary>
     private const string FileKind = "file";
 
     /// <summary>Where uploaded files wait — D-306: beside the state they came from, never under a datastore.</summary>
-    private string FileBin => Path.Combine(settings.StatePath, "recycle");
+    private string FileBin => settings.RecycleDirectory;
 
     private static bool IsFile(RecycledRelation relation) => relation.Kind == FileKind;
 
@@ -233,8 +233,12 @@ internal sealed partial class RecycleBinService(
         {
             try
             {
-                foreach (RecycleEntry expired in (await bin.ListAsync(stoppingToken).ConfigureAwait(false))
-                    .Where(e => e.ExpiresAt <= time.GetUtcNow()))
+                // ADR-012 phase 0 item 1: once per site, so two nodes never purge one entry together.
+                IEnumerable<RecycleEntry> entries = site is null || await site.LeadsAsync(SiteSingletons.RecycleBinExpiry, stoppingToken).ConfigureAwait(false)
+                    ? await bin.ListAsync(stoppingToken).ConfigureAwait(false)
+                    : [];
+
+                foreach (RecycleEntry expired in entries.Where(e => e.ExpiresAt <= time.GetUtcNow()))
                 {
                     await PurgeAsync(expired, stoppingToken).ConfigureAwait(false);
                     LogPurged(log, expired.Kind, expired.Title);

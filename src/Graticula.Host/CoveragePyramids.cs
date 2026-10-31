@@ -33,13 +33,16 @@ internal sealed partial class CoveragePyramids : BackgroundService
     private readonly ICoverageReaderFactory _readers;
     private readonly ICoveragePyramidBuilder _builder;
     private readonly ILogger<CoveragePyramids> _log;
+    private readonly SiteSingletons? _site;
     private readonly Channel<bool> _asked = Channel.CreateBounded<bool>(
         new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
 
     /// <summary>Builds overviews for the images that lack them.</summary>
     public CoveragePyramids(
-        ICoverageCatalog coverages, ICoverageReaderFactory readers, ICoveragePyramidBuilder builder, ILogger<CoveragePyramids> log)
+        ICoverageCatalog coverages, ICoverageReaderFactory readers, ICoveragePyramidBuilder builder, ILogger<CoveragePyramids> log,
+        SiteSingletons? site = null)
     {
+        _site = site;
         _coverages = coverages;
         _readers = readers;
         _builder = builder;
@@ -66,7 +69,11 @@ internal sealed partial class CoveragePyramids : BackgroundService
         {
             try
             {
-                await PassAsync(stoppingToken).ConfigureAwait(false);
+                // ADR-012 phase 0 item 1: overviews are written beside a file every node may share, so by one node.
+                if (_site is null || await _site.LeadsAsync(SiteSingletons.CoveragePyramids, stoppingToken).ConfigureAwait(false))
+                {
+                    await PassAsync(stoppingToken).ConfigureAwait(false);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {

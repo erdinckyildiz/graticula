@@ -368,11 +368,19 @@ internal static class OgcProcessesEndpoints
         }
 
         JobStore[job.Id] = job;
+
+        // ADR-012 phase 2: a poll for this job may reach another node of the site.
+        SiteHandoff.Sweep(JobKind, JobLifetime);
+        SiteHandoff.Save(JobKind, job.Id, job);
     }
+
+    /// <summary>The handoff kind jobs are kept under on a site.</summary>
+    private const string JobKind = "processes-jobs";
 
     /// <summary>A caller's own job: another caller's is not found, as a job id is not a capability to share.</summary>
     private static Job? OwnJob(HttpContext context, string jobId) =>
-        JobStore.TryGetValue(jobId, out Job? job) && job.Owner == OwnerOf(context) ? job : null;
+        (JobStore.TryGetValue(jobId, out Job? held) ? held : SiteHandoff.Load<Job>(JobKind, jobId)) is { } job
+        && job.Owner == OwnerOf(context) ? job : null;
 
     private static string? OwnerOf(HttpContext context) =>
         context.Features.Get<RequestPrincipal>()?.Principal is { } principal && principal.Kind != PrincipalKind.Anonymous
@@ -668,6 +676,7 @@ internal static class OgcProcessesEndpoints
         }
 
         job.Finished = job.Updated = DateTimeOffset.UtcNow;
+        SiteHandoff.Save(JobKind, job.Id, job);
     }
 
     private static JsonObject StatusInfo(HttpContext context, Job job)
@@ -720,7 +729,9 @@ internal static class OgcProcessesEndpoints
         }
 
         string? owner = OwnerOf(context);
-        Job[] own = [.. JobStore.Values.Where(j => j.Owner == owner).OrderBy(j => j.Created)];
+        // On a site, the jobs other nodes ran too (ADR-012 phase 2); this node's own memory wins for its own.
+        Job[] own = [.. JobStore.Values.Concat(SiteHandoff.All<Job>(JobKind).Where(j => !JobStore.ContainsKey(j.Id)))
+            .Where(j => j.Owner == owner).OrderBy(j => j.Created)];
 
         await JsonAsync(context, new JsonObject
         {
@@ -779,6 +790,7 @@ internal static class OgcProcessesEndpoints
         job.Updated = DateTimeOffset.UtcNow;
         JsonObject info = StatusInfo(context, job);
         JobStore.TryRemove(job.Id, out _);
+        SiteHandoff.Remove(JobKind, job.Id);
         await JsonAsync(context, info).ConfigureAwait(false);
     }
 

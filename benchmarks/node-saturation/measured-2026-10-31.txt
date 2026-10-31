@@ -1,0 +1,51 @@
+# ADR-012 condition 1, re-measured 2026-10-31 (Release build, Logging Warning, own PostgreSQL 16 cluster, max_connections 300)
+# PostgreSQL pinned to logical 0-5, the node to 6-11, the generator to 12-15. node cores = Graticula.Host of this fixture only;
+# postgres cores and processes = this cluster's postmaster and its children only. The watcher lines: an authenticated
+# /rest/whoami every 2 s during the run, and the peak of pg_stat_activity for the database.
+=== control, 20s per level, 1 node(s): https://127.0.0.1:18594
+    postgres processes idle: 34 (postmaster 65944 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |  50622 |     0.1 |     0.2 |      0 |       0 |  0.8 |       5.43 |           0.80 |                34
+    32 |  60207 |     0.4 |     1.2 |      0 |       0 |  1.0 |       5.44 |           0.76 |                13
+    64 |  62799 |     0.8 |     2.4 |      0 |       0 |  1.0 |       5.58 |           0.73 |                14
+   128 |  60508 |     1.8 |     4.6 |      0 |       0 |  1.0 |       5.44 |           0.74 |                15
+whoami https://127.0.0.1:18594: {"200": {"n": 49, "max_ms": 33}}
+pg_stat_activity giscluster peak: 28 connections, 2 active at once
+=== query, 20s per level, 1 node(s): https://127.0.0.1:18594
+    postgres processes idle: 14 (postmaster 65944 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |   1126 |     6.5 |    12.3 |      0 |       0 | 67.3 |       2.83 |           4.50 |                30
+    32 |   1272 |    17.2 |    76.8 |      0 |       0 | 75.8 |       3.05 |           5.23 |                60
+    64 |   1351 |    36.1 |   109.0 |      0 |       0 | 80.7 |       3.22 |           5.35 |                59
+   128 |   1311 |    84.2 |   160.7 |      0 |       4 | 78.2 |       3.15 |           5.21 |                59
+whoami https://127.0.0.1:18594: {"200": {"n": 42, "max_ms": 728}}
+pg_stat_activity giscluster peak: 53 connections, 22 active at once
+=== tile, 20s per level, 1 node(s): https://127.0.0.1:18594
+    postgres processes idle: 58 (postmaster 65944 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |    433 |     8.1 |    71.3 |      0 |       0 |  5.6 |       0.97 |           5.08 |                60
+    32 |    728 |    10.9 |   168.9 |      0 |       0 |  9.6 |       1.31 |           4.79 |                59
+    64 |    976 |    35.1 |   207.4 |      0 |       0 | 12.9 |       1.50 |           4.69 |                59
+   128 |   1239 |    86.5 |   184.6 |      0 |       0 | 15.7 |       1.72 |           4.85 |                59
+whoami https://127.0.0.1:18594: {"200": {"n": 45, "max_ms": 404}}
+pg_stat_activity giscluster peak: 53 connections, 35 active at once
+=== export, 20s per level, 1 node(s): https://127.0.0.1:18594
+    postgres processes idle: 58 (postmaster 65944 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |     76 |    44.5 |   322.2 |      0 |       0 |  8.7 |       3.30 |           2.12 |                63
+    32 |     76 |   208.1 |  1415.2 |      0 |       0 |  8.5 |       3.33 |           2.23 |                66
+    64 |     97 |   508.7 |  1646.5 |      0 |       0 | 11.1 |       4.30 |           2.88 |                68
+   128 |     84 |   547.9 |  4082.2 |      0 |     116 |  8.8 |       3.54 |           2.28 |                67
+whoami https://127.0.0.1:18594: {"200": {"n": 41, "max_ms": 770}}
+pg_stat_activity giscluster peak: 57 connections, 26 active at once
+=== mix, 20s per level, 1 node(s): https://127.0.0.1:18594
+    postgres processes idle: 60 (postmaster 65944 and its children)
+  conc |  req/s |  p50 ms |  p95 ms | errors | non-200 | MB/s | node cores | postgres cores | peak pg processes
+     8 |    243 |     9.2 |   175.2 |      0 |       0 | 11.2 |       2.29 |           2.19 |                67
+    32 |    345 |    23.8 |   449.6 |      0 |       0 | 15.9 |       3.21 |           2.94 |                67
+    64 |    377 |    90.4 |   604.0 |      0 |       0 | 17.3 |       3.40 |           3.22 |                67
+   128 |    343 |   221.9 |  1073.6 |      0 |     324 | 14.6 |       3.07 |           2.90 |                67
+whoami https://127.0.0.1:18594: {"200": {"n": 42, "max_ms": 171}}
+pg_stat_activity giscluster peak: 58 connections, 34 active at once
+# breaker lines in the node's log over the whole run: 0
+# 503s at 128 callers on export and mix: ConnectionBudgetFullException (24 in flight per source, 96 queued), not a breaker

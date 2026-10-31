@@ -42,6 +42,9 @@ internal static class ExportOutputs
 
     private static readonly ConcurrentDictionary<string, Picture> Pictures = new(StringComparer.Ordinal);
 
+    /// <summary>The handoff kind its pictures are kept under on a site (ADR-012 phase 2).</summary>
+    private const string Kind = "pictures";
+
     /// <summary>Keeps a drawn picture and answers the address a client fetches it from.</summary>
     public static string Keep(HttpContext context, byte[] image, string contentType)
     {
@@ -55,7 +58,11 @@ internal static class ExportOutputs
                 "image/tiff" => ".tif",
                 _ => ".bin",
             };
-        Pictures[name] = new Picture(image, contentType, DateTimeOffset.UtcNow + Lifetime);
+        Picture kept = new(image, contentType, DateTimeOffset.UtcNow + Lifetime);
+        Pictures[name] = kept;
+
+        // ADR-012 phase 2: the client fetches it next, and the balancer may send that fetch to another node.
+        SiteHandoff.Save(Kind, name, kept);
 
         return $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}{Path}/{name}";
     }
@@ -63,8 +70,9 @@ internal static class ExportOutputs
     /// <summary>The output directory's one route: a picture by its name, to anybody holding the name.</summary>
     public static void Map(WebApplication app) =>
         app.MapMethods($"{Path}/{{name}}", ["GET", "HEAD"], (string name) =>
-                Pictures.TryGetValue(name, out Picture? picture) && picture.Until > DateTimeOffset.UtcNow
-                    ? Results.File(picture.Bytes, picture.ContentType)
+                (Pictures.TryGetValue(name, out Picture? picture) ? picture : SiteHandoff.Load<Picture>(Kind, name)) is { } found
+                && found.Until > DateTimeOffset.UtcNow
+                    ? Results.File(found.Bytes, found.ContentType)
                     : Results.NotFound())
             .Governed(SharingGovernedExtensions.Public);
 
@@ -72,6 +80,7 @@ internal static class ExportOutputs
     private static void Sweep(long incoming)
     {
         DateTimeOffset now = DateTimeOffset.UtcNow;
+        SiteHandoff.Sweep(Kind, Lifetime);
 
         foreach ((string name, Picture picture) in Pictures)
         {

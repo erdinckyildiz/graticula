@@ -857,7 +857,8 @@ public static class Program
             async cancellation => await services.GetRequiredService<LayerConnections>().PruneRegisteredHistoryAsync(
                     await services.GetRequiredService<PostgresLayerCatalog>().ListAsync(cancellation).ConfigureAwait(false),
                     cancellation)
-                .ConfigureAwait(false)));
+                .ConfigureAwait(false),
+            services.GetRequiredService<SiteSingletons>()));
 
         // ADR-207: attachments a registered layer keeps in the datastore, for features another tool deleted.
         builder.Services.AddHostedService<AttachmentSweep>();
@@ -869,6 +870,38 @@ public static class Program
         // D-249, owner decision 2026-09-11.</b> The listener is the only thing that turns the cache
         // on; if it cannot connect, every anonymous request reads the store as it always did.
         builder.Services.AddSingleton<AnonymousGrants>();
+
+        // ADR-012 phase 0 item 1: the sweeps that run once per site, each by whichever node holds its advisory lock.
+        builder.Services.AddSingleton(services => new SiteSingletons(
+            settings.PlatformStore,
+            PoolNames.Of(PoolNames.Site),
+            services.GetRequiredService<ILogger<SiteSingletons>>()));
+
+        // ADR-012 phase 0 item 2: what one node changes in memory, the others hear and reload.
+        string nodeName = SiteNode.NameOf(builder.Configuration, settings);
+        builder.Services.AddSingleton(services => new SiteAnnouncements(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            settings.PlatformStore,
+            nodeName,
+            services.GetRequiredService<ILogger<SiteAnnouncements>>()));
+        builder.Services.AddHostedService(services => services.GetRequiredService<SiteAnnouncements>());
+
+        // ADR-012 phase 2: what one request leaves for the next is kept where every node of a site reads it; nowhere on a
+        // node of its own.
+        SiteHandoff.Root = settings.ServerDirectories is { } sharedDirectories
+            ? System.IO.Path.Combine(sharedDirectories, "handoff")
+            : null;
+
+        // ADR-012 phase 0 items 4–6 and 11: this process as one machine of a site.
+        builder.Services.AddSingleton(services => new SiteNode(
+            services.GetRequiredService<NpgsqlDataSource>(),
+            services.GetRequiredService<SiteSingletons>(),
+            settings,
+            builder.Configuration,
+            services.GetRequiredService<ILogger<SiteNode>>(),
+            services.GetRequiredService<PinnedServices>(),
+            services.GetRequiredService<ServerLogBuffer>()));
+        builder.Services.AddHostedService(services => services.GetRequiredService<SiteNode>());
 
         builder.Services.AddHostedService(services => new GrantsListening(
             new PostgresGrantsListener(
@@ -953,6 +986,44 @@ public static class Program
         builder.Logging.AddProvider(serverLog);
 
         WebApplication app = builder.Build();
+
+        // ADR-012 phase 0 item 2: who reloads what when another node of the site announces a change.
+        {
+            SiteAnnouncements site = app.Services.GetRequiredService<SiteAnnouncements>();
+            ServiceContexts shapes = app.Services.GetRequiredService<ServiceContexts>();
+            PinnedServices pins = app.Services.GetRequiredService<PinnedServices>();
+            TenantDirectory tenantDirectory = app.Services.GetRequiredService<TenantDirectory>();
+            ItemAnnotations itemAnnotations = app.Services.GetRequiredService<ItemAnnotations>();
+            CoveragePyramids pyramids = app.Services.GetRequiredService<CoveragePyramids>();
+
+            shapes.Announcer = site;
+            pins.Announcer = site;
+            site.On(SiteAnnouncements.Tenants, _ => tenantDirectory.ReloadAsync(CancellationToken.None));
+            site.On(SiteAnnouncements.Shape, detail => { shapes.ForgetAnnounced(detail); return Task.CompletedTask; });
+            site.On(SiteAnnouncements.Shapes, _ => { shapes.ForgetHere(null); return Task.CompletedTask; });
+            site.On(SiteAnnouncements.Annotations, _ => itemAnnotations.ReloadAsync(CancellationToken.None));
+            site.On(SiteAnnouncements.Pins, _ => { pins.Wake(); return Task.CompletedTask; });
+            site.On(SiteAnnouncements.Pyramids, _ => { pyramids.Ask(); return Task.CompletedTask; });
+
+            if (app.Services.GetRequiredService<ITileCache>() is FileSystemTileCache tileCache)
+            {
+                tileCache.Announcer = site;
+                site.On(SiteAnnouncements.Tiles, layer =>
+                {
+                    if (Guid.TryParse(layer, out Guid id))
+                    {
+                        tileCache.PurgeHere(id);
+                    }
+
+                    return Task.CompletedTask;
+                });
+            }
+
+            SiteNode thisNode = app.Services.GetRequiredService<SiteNode>();
+            site.On(SiteAnnouncements.Machine, named => named == thisNode.Name
+                ? thisNode.RefreshStateAsync(CancellationToken.None)
+                : Task.CompletedTask);
+        }
 
         // <b>Every request as it arrived, while Pro's publishing calls are recorded</b> (dev only, ADR-191 condition 2):
         // the request log reads the path after this server's own rewrites, and the Share pane's failure is in which
@@ -1347,6 +1418,9 @@ public static class Program
         app.Use(async (context, next) =>
         {
             CallerAddress.Resolve(context, settings.TrustedProxies);
+
+            // ADR-012 phase 3: the scheme and host the client used, from a proxy this deployment names.
+            CallerAddress.ApplyForwarded(context, settings.TrustedProxies);
 
             await next(context).ConfigureAwait(false);
         });
@@ -2004,9 +2078,10 @@ public static class Program
         settings.PlatformStore,
         settings.SecretKeyBase64,
         settings.StatePath,
-        configuration["Graticula:BackupPath"] is { Length: > 0 } path ? path : Path.Combine(settings.StatePath, "backups"),
+        configuration["Graticula:BackupPath"] is { Length: > 0 } path ? path : settings.BackupDirectory,
         configuration["Graticula:PostgresTools"],
-        configuration["Graticula:MaintenanceStore"]);
+        configuration["Graticula:MaintenanceStore"],
+        settings.ImageryDirectory);
 
     /// <summary>The backup <c>migrate</c> takes first, or none when <c>--no-backup</c> was given — ADR-193 §5.7.</summary>
     internal static Backups? BackupBeforeMigration(string[] args, Func<Backups> backups) =>
@@ -2151,10 +2226,13 @@ public static class Program
 
         int jobs = Enum.GetValues<Graticula.Platform.Jobs.JobKind>().Length;
 
-        // <b>And the one held open on purpose</b> — the grant-announcement subscription, D-249.
+        // <b>And the ones held open on purpose</b> — the grant-announcement subscription, D-249; and the site's two
+        // (ADR-012 phase 0): the connection that holds the sweep locks and the node's name, and the one that hears the
+        // site's announcements.
         const int listener = 1;
+        const int site = 2;
 
-        return PlatformStorePool + budget + jobs + listener;
+        return PlatformStorePool + budget + jobs + listener + site;
     }
 
     /// <summary>What the framework may write per request, and what it may not.</summary>
@@ -2254,10 +2332,18 @@ public static class Program
             // A store before migration 100 has one organisation.
         }
 
+        // ADR-012 phase 0 item 3: every node of the site holds as many, so the database must allow them all — the
+        // nodes an operator says the site has (Graticula:Nodes), or the nodes seen in the last thirty seconds where
+        // more are running than that says. And each node keeps one connection open per data source that serves a
+        // pinned service (ADR-218), which the ceiling above does not count.
+        int nodes = await SiteNodes.CountForBudgetAsync(dataSource, services.GetRequiredService<IConfiguration>(), CancellationToken.None)
+            .ConfigureAwait(false);
+        int pinnedSources = await SiteNodes.PinnedSourcesAsync(dataSource, CancellationToken.None).ConfigureAwait(false);
+
         await ConnectionCeilings.CompareAsync(
             dataSource,
-            Ceiling(services) + (tenants > 1 ? Math.Max(PlatformStorePool, 2 * tenants) : 0),
-            logger, CancellationToken.None).ConfigureAwait(false);
+            nodes * (Ceiling(services) + pinnedSources + (tenants > 1 ? Math.Max(PlatformStorePool, 2 * tenants) : 0)),
+            logger, CancellationToken.None, nodes).ConfigureAwait(false);
 
         // ADR-204 condition 9: whether the role this server reads as is one row-level security binds. Said here
         // for the same reason as the ceiling -- the connection has just been used, and nothing is serving yet.
@@ -2273,7 +2359,70 @@ public static class Program
             return false;
         }
 
+        // ADR-012 phase 0 items 6 and 11: join the site -- this node's name, the site's key and settings -- before anything
+        // is served, so a node that would answer differently from the others never answers at all.
+        if (await services.GetRequiredService<SiteNode>().JoinAsync(CancellationToken.None).ConfigureAwait(false) is { } refused)
+        {
+            Log.NodeRefused(logger, refused);
+            return false;
+        }
+
         return true;
+    }
+
+    /// <summary>
+    /// Why this node should not be sent requests now, or null when it should — <c>/healthz/ready</c> and
+    /// <c>/rest/info/healthcheck</c>.
+    /// </summary>
+    /// <remarks>
+    /// ADR-012 phase 0 item 4: <b>not ready while an administrator has it stopped or under maintenance</b>, so the proxy
+    /// stops sending it requests before anything else happens to it; <b>and not before its first round of warming</b> —
+    /// the pinned services read once and one request answered — so a node back from an upgrade is not sent the traffic
+    /// that would pay its warm-up while another node could take it.
+    /// </remarks>
+    private static async Task<string?> NotReadyAsync(
+        IAdminCatalog catalog, NpgsqlDataSource datastore, SiteNode node, CancellationToken cancellation)
+    {
+        if (node.Draining)
+        {
+            return $"This node is {node.ConfiguredState}: an administrator took it out of the site's rotation (ADR-012).";
+        }
+
+        if (!node.Warm)
+        {
+            return "This node is starting: its pinned services and its first request are being warmed (ADR-012).";
+        }
+
+        // Readiness DOES depend on the store, which is the whole difference
+        // from liveness. A load balancer should stop sending traffic here;
+        // an orchestrator should not kill the process.
+        //
+        // <b>Both pools, and the second one was added by the failure gate.</b>
+        // Checking only the platform store made this endpoint answer 200
+        // while every query answered 503: after the database came back, the
+        // catalogue pool reconnected several seconds before the datastore
+        // pool did, and for those seconds an orchestrator would have routed
+        // traffic to a server that could not serve it. A readiness probe
+        // that is green while the serving path is red is worse than none —
+        // it is the signal something acts on.
+        //
+        // <b>Only the datastore, not every registered source.</b> The
+        // datastore is mandatory (ADR-019) and every hosted layer needs it;
+        // a registered source being down should make its own layers fail,
+        // not take the server out of rotation.
+        try
+        {
+            await catalog.ListLayersAsync(cancellation).ConfigureAwait(false);
+
+            await using NpgsqlCommand probe = datastore.CreateCommand("select 1");
+            await probe.ExecuteScalarAsync(cancellation).ConfigureAwait(false);
+
+            return null;
+        }
+        catch (NpgsqlException e)
+        {
+            return e.Message;
+        }
     }
 
     private static void ConfigureKestrel(WebApplicationBuilder builder, HostSettings settings)
@@ -2360,43 +2509,34 @@ public static class Program
 
     private static void MapEndpoints(WebApplication app)
     {
+        // ADR-012 phase 0 item 12: ArcGIS Server's documented load-balancer check, from the same readiness, so a template
+        // written for an ArcGIS site's balancer (an F5 monitor, an ALB target group) works unchanged.
+        app.MapMethods("/rest/info/healthcheck", ["GET", "POST"], async (
+            IAdminCatalog catalog,
+            [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
+            SiteNode node,
+            CancellationToken cancellation) =>
+        {
+            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation).ConfigureAwait(false);
+
+            return reason is null
+                ? Results.Ok(new { success = true })
+                : Results.Json(
+                    new { success = false, error = new { code = 503, message = reason, details = Array.Empty<string>() } },
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+        });
+
         app.MapGet("/healthz/ready", async (
             IAdminCatalog catalog,
             [FromKeyedServices(DatastorePool)] NpgsqlDataSource datastore,
+            SiteNode node,
             CancellationToken cancellation) =>
         {
-            // Readiness DOES depend on the store, which is the whole difference
-            // from liveness. A load balancer should stop sending traffic here;
-            // an orchestrator should not kill the process.
-            //
-            // <b>Both pools, and the second one was added by the failure gate.</b>
-            // Checking only the platform store made this endpoint answer 200
-            // while every query answered 503: after the database came back, the
-            // catalogue pool reconnected several seconds before the datastore
-            // pool did, and for those seconds an orchestrator would have routed
-            // traffic to a server that could not serve it. A readiness probe
-            // that is green while the serving path is red is worse than none —
-            // it is the signal something acts on.
-            //
-            // <b>Only the datastore, not every registered source.</b> The
-            // datastore is mandatory (ADR-019) and every hosted layer needs it;
-            // a registered source being down should make its own layers fail,
-            // not take the server out of rotation.
-            try
-            {
-                await catalog.ListLayersAsync(cancellation);
+            string? reason = await NotReadyAsync(catalog, datastore, node, cancellation).ConfigureAwait(false);
 
-                await using NpgsqlCommand probe = datastore.CreateCommand("select 1");
-                await probe.ExecuteScalarAsync(cancellation);
-
-                return Results.Ok(new { status = "ready" });
-            }
-            catch (NpgsqlException e)
-            {
-                return Results.Json(
-                    new { status = "not-ready", reason = e.Message },
-                    statusCode: StatusCodes.Status503ServiceUnavailable);
-            }
+            return reason is null
+                ? Results.Ok(new { status = "ready" })
+                : Results.Json(new { status = "not-ready", reason }, statusCode: StatusCodes.Status503ServiceUnavailable);
         });
 
         // ADR-015 §4 has clients discovering how to authenticate here.
@@ -2727,6 +2867,9 @@ public static class Program
         MapServerEndpoints.Map(app);
         ExportOutputs.Map(app);
         BackupEndpoints.Map(app);
+
+        // ADR-012 phase 0 item 6: the site's machines.
+        SiteEndpoints.Map(app);
         ThumbnailEndpoints.Map(app);
         ImageServerEndpoints.Map(app);
         KmlEndpoints.Map(app);

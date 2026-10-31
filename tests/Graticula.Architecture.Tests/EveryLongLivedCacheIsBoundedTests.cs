@@ -116,6 +116,7 @@ public sealed class EveryLongLivedCacheIsBoundedTests
         ["ConnectionBudget._shares"] = "one per organisation per shared data source; emptied when the number of organisations changes",
         ["PinnedServices._warmed"] = "one per pinned service, under Graticula:PinnedServiceLimit; an unpinned one is removed each round",
         ["PinnedServices._read"] = "one per layer of a pinned service; removed with its service each round",
+        ["SiteAnnouncements._handlers"] = "fixed: one per kind of change a node announces, registered once at start (ADR-012)",
         ["ServiceThumbnails._held"] =
             "explicit capacity of 256 pictures with oldest-drawn eviction; an evicted "
             + "picture is read back from disk (D-58, ADR-071)",

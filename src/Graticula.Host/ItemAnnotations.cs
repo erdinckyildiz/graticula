@@ -24,7 +24,7 @@ namespace Graticula.Host;
 /// <c>categorySchema</c> answers.
 /// </para>
 /// </remarks>
-internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogger<ItemAnnotations> log) : BackgroundService
+internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogger<ItemAnnotations> log, SiteAnnouncements? site = null) : BackgroundService
 {
     /// <summary>The root every category path starts under.</summary>
     public const string Root = "Categories";
@@ -108,8 +108,15 @@ internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogge
         return [new { title = Root, categories = Children(null) }];
     }
 
-    /// <summary>Reads everything again.</summary>
+    /// <summary>Reads everything again after a change made here, and tells the site's other nodes to (ADR-012).</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        await ReloadAsync(cancellationToken).ConfigureAwait(false);
+        site?.Announce(SiteAnnouncements.Annotations);
+    }
+
+    /// <summary>Reads everything again.</summary>
+    public async Task ReloadAsync(CancellationToken cancellationToken)
     {
         long ticket = Interlocked.Increment(ref _started);
         ItemAnnotationSnapshot read = await store.LoadAsync(cancellationToken).ConfigureAwait(false);
@@ -149,7 +156,7 @@ internal sealed partial class ItemAnnotations(IItemAnnotationStore store, ILogge
         {
             try
             {
-                await RefreshAsync(stoppingToken).ConfigureAwait(false);
+                await ReloadAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {

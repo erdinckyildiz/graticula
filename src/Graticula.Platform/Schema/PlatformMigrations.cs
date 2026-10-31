@@ -150,8 +150,89 @@ public static class PlatformMigrations
         AServiceAccountHoldsClientSecretsV113,
         ABuiltInAppIsEveryOrganisationsV115,
         AServiceIsFoundByAStoredKeyV116,
+        ASiteKnowsItsNodesV119,
+        TheServerLogIsTheSitesV120,
         ADocumentKeepsAPictureV121,
     ]);
+
+    /// <summary>
+    /// The server's own warnings and errors are kept in the store with the node that logged them, so the log screen shows
+    /// the whole site — ADR-012 phase 0 item 13, ArcGIS Server Manager's logs queried across the site's machines.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written by each node every ten seconds, from the ring it already keeps</b> (ADR-045 §5a, D-300), and bounded the
+    /// way the ring is: the newest two thousand per node, thirty days at most. Read only where more than one machine is
+    /// up; a site of one reads its ring as before.
+    /// </para>
+    /// <para><b>The system's</b>, as the process log is; not floored. <b>Expand</b>: a table nothing older reads.</para>
+    /// </remarks>
+    private static Migration TheServerLogIsTheSitesV120 => Migration.Expand(
+        new SchemaVersion(120),
+        "The server's warnings and errors are kept in the store with the node that logged them (ADR-012).",
+
+        """
+        create table if not exists site_log (
+            id bigserial primary key,
+            node text not null,
+            at timestamptz not null,
+            level int not null,
+            category text not null,
+            event_id int not null,
+            event_name text,
+            message text not null,
+            exception text
+        )
+        """,
+
+        "create index if not exists site_log_at on site_log (at desc)",
+
+        "create index if not exists site_log_node on site_log (node, id)");
+
+    /// <summary>
+    /// A site knows its nodes — ADR-012 phase 0 items 5, 6 and 11: each node writes itself into <c>site_node</c> at
+    /// start and every ten seconds after, with what an administrator set it to and what its settings hash to; and the
+    /// time it last warmed each pinned service is its own row.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The system's, not an organisation's</b>: a node serves every organisation, as a machine of an ArcGIS site
+    /// serves every service. Not floored, and listed as such.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> Two tables nothing older reads; a build before this one starts on a store that has them and never
+    /// registers, which is what it did before.
+    /// </para>
+    /// </remarks>
+    private static Migration ASiteKnowsItsNodesV119 => Migration.Expand(
+        new SchemaVersion(119),
+        "A site knows its nodes: each registers itself, keeps a heartbeat, and keeps its own pinned services' warm times (ADR-012).",
+
+        """
+        create table if not exists site_node (
+            name text primary key,
+            address text not null,
+            version text not null,
+            started_at timestamptz not null,
+            last_seen timestamptz not null,
+            configured_state text not null default 'started'
+                check (configured_state in ('started', 'stopped', 'maintenance')),
+            settings text not null,
+            key_check text not null,
+            leads text[] not null default '{}',
+            ready boolean not null default false,
+            probe text
+        )
+        """,
+
+        """
+        create table if not exists site_node_warm (
+            node text not null references site_node (name) on delete cascade,
+            service_id uuid not null references service (id) on delete cascade,
+            warmed_at timestamptz not null,
+            primary key (node, service_id)
+        )
+        """);
 
     /// <summary>
     /// ArcGIS Pro, the ArcGIS API for Python and Field Maps are apps of every organisation, not of the first one —

@@ -918,6 +918,33 @@
     </div>
   </section>
 
+  <!-- System › Machines — ADR-012 phase 0 item 6: the site's machines, after ArcGIS Server Manager's Site › Machines. -->
+  <section class="view" id="view-machines">
+    <div class="pagehead">
+      <div>
+        <h2 id="mcTitle" tabindex="-1">Machines</h2>
+        <p>The servers that share this site's database and serve its requests together. Each one says it is alive every
+          ten seconds; one not heard from for thirty is shown down.</p>
+      </div>
+      <div class="right"><span class="val" id="mcCount"></span></div>
+    </div>
+
+    <p class="hint" id="mcSays" role="status" aria-live="polite"></p>
+    <!-- ADR-012 phase 1: the one thing on this page that can be wrong while every machine is up. -->
+    <div class="mcdirs" id="mcDirs" role="note" hidden></div>
+
+    <div class="panel widetable">
+      <table class="rowblocks" id="mcTable">
+        <thead><tr>
+          <th>Machine</th><th>Status</th><th>Runs</th>
+          <th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="mcRows"><tr><td colspan="4" class="empty">Reading the machines&hellip;</td></tr></tbody>
+      </table>
+    </div>
+    <p class="hint" id="mcNote"></p>
+  </section>
+
   <!--
     System › Backups — ADR-193 §5.6 and condition 4: take a backup, list, download and delete them, and the daily
     schedule with how many it keeps. The machine's, so System's: a backup is the whole database, every organization in

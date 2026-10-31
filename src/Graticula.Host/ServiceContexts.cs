@@ -470,6 +470,55 @@ internal sealed class ServiceContexts
     /// </remarks>
     public void Forget(PublishedLayer? layer)
     {
+        // ADR-012 phase 0 item 2: what this node forgets, the site's other nodes forget too. The detail names the table
+        // and never the connection, which carries a password and is heard by every listening session.
+        Announcer?.Announce(
+            layer is null ? SiteAnnouncements.Shapes : SiteAnnouncements.Shape,
+            layer is null ? "" : $"{layer.Id:N}|{layer.Definition.SchemaName}|{layer.Definition.TableName}|{layer.Definition.GeometryColumn}");
+
+        ForgetHere(layer);
+    }
+
+    /// <summary>Tells the site's other nodes of what this one forgets — ADR-012; set at startup.</summary>
+    public SiteAnnouncements? Announcer { get; set; }
+
+    /// <summary>What another node announced it forgot: every connection's entry for that table, and the layer's times.</summary>
+    /// <param name="detail">The layer id, schema, table and geometry column, separated by <c>|</c>.</param>
+    public void ForgetAnnounced(string detail)
+    {
+        string[] parts = detail.Split('|');
+
+        if (parts.Length < 4 || !Guid.TryParse(parts[0], out Guid id))
+        {
+            ForgetHere(null);
+            return;
+        }
+
+        string? geometry = parts[3].Length == 0 ? null : parts[3];
+
+        foreach (Key key in _entries.Keys)
+        {
+            if (key.Schema == parts[1] && key.Table == parts[2] && key.Geometry == geometry)
+            {
+                _entries.TryRemove(key, out _);
+            }
+        }
+
+        foreach (Key key in _known.Keys)
+        {
+            if (key.Schema == parts[1] && key.Table == parts[2] && key.Geometry == geometry)
+            {
+                _known.TryRemove(key, out _);
+            }
+        }
+
+        _times.TryRemove(id, out _);
+    }
+
+    /// <summary>Forgets on this node only.</summary>
+    /// <param name="layer">The layer, or null for every one.</param>
+    public void ForgetHere(PublishedLayer? layer)
+    {
         if (layer is null)
         {
             _entries.Clear();

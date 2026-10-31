@@ -345,6 +345,19 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     /// <inheritdoc/>
     public int Purge(Guid layerId)
     {
+        // ADR-012: every other node of the site empties the layer too — its own cache, or its index over a shared one.
+        Announcer?.Announce(SiteAnnouncements.Tiles, layerId.ToString("N", CultureInfo.InvariantCulture));
+        return PurgeHere(layerId);
+    }
+
+    /// <summary>Tells the site's other nodes what this one empties — ADR-012; set at startup.</summary>
+    public SiteAnnouncements? Announcer { get; set; }
+
+    /// <summary>Empties a layer on this node only — what another node's announcement asks.</summary>
+    /// <param name="layerId">The layer.</param>
+    /// <returns>How many entries went.</returns>
+    public int PurgeHere(Guid layerId)
+    {
         string prefix = layerId.ToString("N", CultureInfo.InvariantCulture);
         int removed = 0;
 
@@ -820,6 +833,10 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
     {
         ArgumentNullException.ThrowIfNull(affected);
 
+        // ADR-012: the other nodes cannot be sent the addresses' test, so they empty the whole layer — more than this
+        // edit reached, never less. Here the reached tiles alone go (ADR-186).
+        Announcer?.Announce(SiteAnnouncements.Tiles, layerId.ToString("N", CultureInfo.InvariantCulture));
+
         string prefix = layerId.ToString("N", CultureInfo.InvariantCulture) + "/";
         int removed = 0;
 
@@ -842,7 +859,7 @@ internal sealed class FileSystemTileCache : ITileCache, IDisposable
             // so the first one turns this into that purge, whose rename and stamp are what hold.
             if (File.Exists(System.IO.Path.Combine(_root, relative)))
             {
-                return removed + Purge(layerId);
+                return removed + PurgeHere(layerId);
             }
         }
 
