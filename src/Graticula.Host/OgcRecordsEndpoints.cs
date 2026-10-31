@@ -273,8 +273,7 @@ internal static class OgcRecordsEndpoints
 
         string? description = Text(PortalQuery.Field(item, "description")) ?? Text(PortalQuery.Field(item, "snippet"));
 
-        List<RecordLink> links = [.. ResourceLinks(origin, entry, ambiguousTiles)];
-        links.AddRange(ProtocolLinks(links));
+        List<RecordLink> links = [.. WithProtocolLinks(ResourceLinks(origin, entry, ambiguousTiles))];
 
         string portalItem = $"{origin}{PortalEndpoints.Path}/content/items/{Uri.EscapeDataString(entry.Id)}";
         links.Add(new RecordLink(portalItem + "?f=json", "related", OgcNames.Json, "Portal item (ArcGIS REST API)"));
@@ -323,10 +322,10 @@ internal static class OgcRecordsEndpoints
     /// 2026-10-31). The media-typed link stays, for clients that read <c>type</c> as 20-004r1 means it; this one is
     /// beside it, same address, same <c>rel</c>.
     /// </remarks>
-    private static IEnumerable<RecordLink> ProtocolLinks(IEnumerable<RecordLink> links) =>
-        [.. links
-            .Where(l => l.Rel == "describes" && ProtocolOf(l.Title) is not null)
-            .Select(l => l with { Type = ProtocolOf(l.Title), Title = l.Title + " (" + ProtocolOf(l.Title) + ")" })];
+    private static IEnumerable<RecordLink> WithProtocolLinks(IEnumerable<RecordLink> links) =>
+        links.SelectMany(l => l.Rel == "describes" && ProtocolOf(l.Title) is { } protocol
+            ? new[] { l, l with { Type = protocol, Title = $"{l.Title} ({protocol})" } }
+            : new[] { l });
 
     /// <summary>
     /// Where the resource is: <c>describes</c> links to each address that answers for it, by the faces' own rules.

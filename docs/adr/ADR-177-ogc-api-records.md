@@ -131,7 +131,7 @@ published standard (20-004r1) and the clients' observable requests only.
    or *Add ArcGIS* only for the protocol names catalogues have used since CSW (`OGC:WFS`, `OGC:WMS`,
    `ESRI:ArcGIS:FeatureServer` …); this server typed every link with its media type, as 20-004r1 means `type`. Each
    service link now has a twin beside it, same address and `rel`, typed with its protocol
-   (`OgcRecordsEndpoints.ProtocolLinks`; `OgcRecordsConformanceTests` asserts the `OGC:WFS` and
+   (`OgcRecordsEndpoints.WithProtocolLinks`, each twin right after its link and left out of `formats`, whose `mediaType` takes media types only; `OgcRecordsConformanceTests` asserts the `OGC:WFS` and
    `ESRI:ArcGIS:FeatureServer` twins). With it the Feature Service record offers *Add WFS* and *Add ArcGIS
    FeatureServer*; *Add WFS* opened QGIS's WFS window on the record's address, the layer was selected and Add pressed,
    and `graticula:ci_parcels` is in the project, valid, 12 features, read from `…/FeatureServer/WFSServer`.

@@ -606,7 +606,9 @@ internal static class RecordDocuments
         // formats rather than links still learns how to bind to it.
         json.WriteStartArray("formats");
 
-        foreach (RecordLink link in record.Links.Where(l => l.Rel == "describes"))
+        // A link typed with a protocol rather than a media type (ADR-177 condition 2's twin for MetaSearch) is the same
+        // address as the link before it, and `mediaType` takes media types only, so it is not a format of its own.
+        foreach (RecordLink link in record.Links.Where(l => l.Rel == "describes" && (l.Type is null || l.Type.Contains('/', StringComparison.Ordinal))))
         {
             json.WriteStartObject();
             json.WriteString("name", link.Title);
