@@ -237,8 +237,33 @@ public sealed class SqlServerFeatureWriter : IFeatureWriter
             + " for json path, without_array_wrapper, include_null_values)), 2)";
     }
 
-    /// <summary>A batch in a transaction the caller owns.</summary>
+    /// <summary>A batch in a transaction the caller owns, the editor named to the session for its length.</summary>
     private async Task<EditOutcome> ApplyWithinAsync(
+        SqlConnection connection, SqlTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
+    {
+        // Who is editing, for a history trigger (ADR-207, ADR-210 condition 5) — the session's context, cleared before the
+        // connection goes back.
+        await SqlServerFeatureHistory.SetContextAsync(connection, transaction, batch.Editor, null, cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            return await ApplyNamedAsync(connection, transaction, batch, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Best effort: a transaction the failure doomed refuses even this, and the pool's reset clears the context
+            // when the connection goes back, so the first failure is the one the caller hears.
+            try
+            {
+                await SqlServerFeatureHistory.SetContextAsync(connection, transaction, null, null, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (SqlException)
+            {
+            }
+        }
+    }
+
+    private async Task<EditOutcome> ApplyNamedAsync(
         SqlConnection connection, SqlTransaction transaction, EditBatch batch, CancellationToken cancellationToken)
     {
         TableFacts facts = await FactsAsync(connection, transaction, cancellationToken).ConfigureAwait(false);

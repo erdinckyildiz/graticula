@@ -50,7 +50,7 @@ What a customer-facing demonstration would need, and a VPS nobody has asked to p
 ### Alternative B — a provider of its own, `Graticula.Providers.SqlServer`, behind the engine seam, reading only *(chosen)*
 
 ADR-208 §5.6's seam takes a fourth engine as a member list; the reader is MySQL's in T-SQL. Writing, attachments, a
-history and relationships are each refused with the reason, so the seam's every member answers.
+history and relationships are each refused with the reason, so the seam's every member answers. *(Superseded: writing since 2026-10-21, attachments the same day, a history and relationships since 2026-10-31 — condition 5.)*
 
 ### Alternative C — the same provider with editing, as ADR-208 built MySQL
 
@@ -97,8 +97,8 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
    in a `uniqueidentifier` minted and looked up; a row's version a SHA-1 of its columns and shape as JSON, compared in
    the `where`; ownership in the `where`; Z and M refused. **A `geography` polygon sent clockwise is reoriented** — SQL
    Server reads a ring's left as its inside, so ArcGIS's clockwise ring would otherwise be the rest of the Earth. A table
-   is offered writable where the credential holds `UPDATE` on a base table. Attachments, a history and relationships
-   are still refused saying so, and a history answers *off*, so a layer can be removed (condition 5).
+   is offered writable where the credential holds `UPDATE` on a base table. ~~Attachments, a history and relationships
+   are still refused saying so, and a history answers *off*, so a layer can be removed (condition 5).~~ All three are built (condition 5).
 6. **The host runs with ICU and the invariant culture pinned.** `InvariantGlobalization` is false for
    `Graticula.Host` (and the provider's tests) alone; `Main` sets the process's cultures to the invariant one before
    anything else, so formatting and casing stay what they were, and a Turkish Windows does not upper-case `i` as `İ`.
@@ -142,7 +142,7 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
    values said by column), and through the local fixture's FeatureServer `applyEdits` 12 of 12 — a place added with
    Turkish letters, moved and renamed, one sent in EPSG:3857 stored in 4326, a building polygon added to the indexed
    `geometry` table, all deleted.
-5. **Attachments, a history and relationships** (ADR-207) on a SQL Server layer, as MySQL and Oracle have them. **PARTLY DISCHARGED 2026-10-21** — attachments, by the owner's word, [ADR-212](ADR-212-editor-tracking-on-a-registered-layer.md): kept beside the table and used end to end through FeatureServer. A history and relationships are still refused saying so.
+5. **Attachments, a history and relationships** (ADR-207) on a SQL Server layer, as MySQL and Oracle have them. **PARTLY DISCHARGED 2026-10-21** — attachments, by the owner's word, [ADR-212](ADR-212-editor-tracking-on-a-registered-layer.md): kept beside the table and used end to end through FeatureServer. A history and relationships are still refused saying so. **DISCHARGED 2026-10-31** — the remainder built: `SqlServerHistoryAndRelationshipsTests` 3 of 3 against LocalDB (the whole SQL Server suite 29 of 29): a trigger beside the table records every version with the editor this server names through `SESSION_CONTEXT` and the login another tool connects as; a read at a moment answers the attributes as their columns are declared (text with Turkish letters, a value past 4,000 characters, a `datetime2`, a GlobalID, a decimal) and the shapes then, `geometry` and `geography`; a deleted feature is recreated under its old object id and an existing one written back with its binary column; a keeping period is an extended property and pruning deletes only ended versions; a relationship is followed in one query within its limit. And through the local fixture's ArcGIS face (port 18571): history switched on with `POST /admin/layers/{layer}/history`, the layer then says `isDataArchived`, an `applyEdits` changes a label and `historicMoment` before it still answers the old one; a relationship declared between two SQL Server layers is answered by `queryRelatedRecords` grouped by origin. **Found on the way and repaired:** a point filter made a box with no width, which SQL Server refuses as an invalid polygon (error 24144) wherever it must evaluate it — every row of a table with no spatial index — so such a filter failed on those tables; the box is now made valid first. The history's shape column has no spatial index (SQL Server's needs a bounding box for `geometry` that would be guessed), and a `TRUNCATE` is not recorded, as on MySQL and Oracle.
 
 ## 6. Consequences
 
@@ -152,7 +152,7 @@ seam, with SQL Server's types nowhere in a Core signature. Nothing is written to
 - SQL Server cannot be shown on the showcase until an x64 machine hosts one.
 - **State.** A registered source's sealed `sqlserver:` locator in the catalogue's `data_source` row (kind `sqlserver`,
   migration 98), as every registered engine's; at runtime, per node, the driver's connection pool and a table's columns
-  kept a minute. Nothing in the customer's database.
+  kept a minute. Nothing in the customer's database until an administrator asks: then `<table>__attach` and `<table>__attach_chunk`, or `<table>__history` and the trigger `<table>__hist` with its keeping period as an extended property, beside the table (condition 5).
 
 ## 7. Assumptions this decision rests on
 

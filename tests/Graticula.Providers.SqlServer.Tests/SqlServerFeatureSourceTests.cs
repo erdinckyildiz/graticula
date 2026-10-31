@@ -233,16 +233,6 @@ public sealed class SqlServerFeatureSourceTests : IAsyncLifetime
         Assert.Equal(expected.Length, await Places().CountAsync(query, None));
     }
 
-    [Fact]
-    public async Task What_is_not_built_yet_is_refused_with_the_reason()
-    {
-        SqlServerReadOnly refused = new(new LayerDefinition("Places", "dbo", "zz_places", "shape", 4326, "objectid", "objectid", isHosted: false));
-
-        QueryNotSupportedException no = await Assert.ThrowsAsync<QueryNotSupportedException>(() => refused.EnableAsync(None));
-        Assert.Contains("does not keep a history of it yet", no.Message, StringComparison.Ordinal);
-        Assert.False(await refused.IsOnAsync(None));
-    }
-
     private static double Continuous(double[] sorted, double p)
     {
         double position = 1 + (p * (sorted.Length - 1));
