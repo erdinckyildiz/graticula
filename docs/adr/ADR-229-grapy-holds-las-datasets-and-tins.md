@@ -111,8 +111,9 @@ fails by name past it (segments meeting at very small angles are the known case)
    with that reason.
 4. **Interpolation on a TIN is linear**, on each triangle's plane, as documented. Natural neighbours and the conflation
    methods are refused by name until a natural neighbour interpolant over a TIN is built.
-5. **LAS through laspy; LAZ only when a LAZ backend is installed, and none is in the image yet (condition 5); zLAS is
-   refused** — Esri's format is not published.
+5. **LAS through laspy; LAZ ~~only when a LAZ backend is installed, and none is in the image yet (condition 5)~~ through
+   lazrs, which CI and the image install since 2026-10-31 (condition 5); zLAS is refused** — Esri's format is not
+   published. A grapy installed without lazrs still refuses LAZ by name.
 6. ~~**Terrain datasets are refused**, every tool naming them: a terrain is a pyramid inside a geodatabase feature
    dataset, built by Esri's thinning, and a TIN or LAS dataset is the surface grapy holds.~~ **Reversed 2026-10-30 by
    owner decision ([ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md))**: a terrain is grapy's own
@@ -248,6 +249,14 @@ None recorded.
    and `test_lastools.py` fails if one is.
 5. **LAZ is read in the image**: a LAZ backend (lazrs, MIT/Apache-2.0, or laszip) is chosen, its licence recorded, and
    a LAZ file read end to end — or LAZ is decided out.
+   **DISCHARGED 2026-10-31**: lazrs 0.8.2 (MIT; its 24 bundled crates permissive, read from the wheel's SBOM and
+   recorded in DEPENDENCY-LICENSES.md) is installed by both of CI's grapy pip lines and by `deploy/server.Dockerfile`,
+   whose build now fails if `laspy.LazBackend.detect_available()` is empty. `test_las.Laz` writes the LAS scene as LAZ
+   through ConvertLas, checks the file is LASzip-compressed by its own bytes (point format 129, the `laszip encoded`
+   22204 VLR, smaller than the LAS), and reads it back through CreateLasDataset, Describe and LasDatasetStatistics
+   against the scene's hand counts; a second test reads a LAZ laspy wrote alone. The test does not skip without a
+   backend. It found one fault on the way: Describe's extent read `.las` files only, so a LAS dataset of LAZ files had
+   none.
 6. **CONSTRAINED_DELAUNAY** is built with a permissively licensed triangulator, or refused for good with the search
    recorded.
 7. **The owner confirms or changes §5.9** ([Q-196](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-196 (*"Hepsini onayla"*).
