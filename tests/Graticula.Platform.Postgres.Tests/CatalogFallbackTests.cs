@@ -71,6 +71,63 @@ public sealed class CatalogFallbackTests
     private static NpgsqlException Unreachable() =>
         new NpgsqlException("Failed to connect", new System.Net.Sockets.SocketException(10061));
 
+    // ---------- one request asks once (D-261) ----------
+
+    /// <summary>
+    /// Inside a request's scope a service is read once however many times it is asked for, and the next request reads
+    /// it again — D-261, measured 2026-10-31: a layer document resolved its service twice, two of its five statements.
+    /// </summary>
+    [Fact]
+    public async Task One_request_reads_a_service_once_and_the_next_request_reads_it_again()
+    {
+        (CatalogFallback catalog, Store store, _) = Build(Service("a", SharingScope.Public));
+
+        using (CatalogReadScope.Begin())
+        {
+            Assert.NotNull((await catalog.FindServiceAsync("hosted", "a", CancellationToken.None)).Service);
+            Assert.NotNull((await catalog.FindServiceAsync("hosted", "A", CancellationToken.None)).Service);
+            Assert.Equal(1, store.Reads);
+
+            // Another service is another question.
+            await catalog.FindServiceAsync("hosted", "b", CancellationToken.None);
+            Assert.Equal(2, store.Reads);
+        }
+
+        // A sharing change, a stop or a delete reaches the next request: nothing is held past the scope.
+        store.Answer = null;
+
+        using (CatalogReadScope.Begin())
+        {
+            Assert.Null((await catalog.FindServiceAsync("hosted", "a", CancellationToken.None)).Service);
+        }
+
+        Assert.Equal(3, store.Reads);
+
+        // And with no scope, every ask reads, as before.
+        await catalog.FindServiceAsync("hosted", "a", CancellationToken.None);
+        await catalog.FindServiceAsync("hosted", "a", CancellationToken.None);
+        Assert.Equal(5, store.Reads);
+    }
+
+    /// <summary>A blind answer is never held: the next ask in the same request tries the store again.</summary>
+    [Fact]
+    public async Task A_blind_answer_is_not_held_for_the_rest_of_the_request()
+    {
+        (CatalogFallback catalog, Store store, _) = Build(Service("a", SharingScope.Public));
+        store.Failure = Unreachable();
+
+        using (CatalogReadScope.Begin())
+        {
+            Assert.True((await catalog.FindServiceAsync("hosted", "a", CancellationToken.None)).Blind);
+            store.Failure = null;
+            CatalogAnswer second = await catalog.FindServiceAsync("hosted", "a", CancellationToken.None);
+            Assert.False(second.Blind);
+            Assert.NotNull(second.Service);
+        }
+
+        Assert.Equal(2, store.Reads);
+    }
+
     // ---------- the healthy path is unchanged ----------
 
     /// <summary>

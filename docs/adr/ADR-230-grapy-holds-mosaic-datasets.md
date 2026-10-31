@@ -111,8 +111,10 @@ falls at x = 3, halfway between the centres. No performance claim is made.
 3. **Raster Dataset is the only raster type** *(and Frame Camera since 2026-10-30, added from a frames table —
    [ADR-234](ADR-234-grapy-holds-terrain-datasets-and-ortho-mapping.md) §5.3)*. The other raster types read a sensor's
    metadata through Esri's raster type definitions; they, product definitions, band definitions across items, CreateRasterType and
-   AlterMosaicDatasetSchema are refused. Items must have the mosaic's band count and reference, and lie on its grid —
-   the same cell size or a whole multiple read by NEAREST, corners whole cells apart (condition 4).
+   AlterMosaicDatasetSchema are refused. Items must have the mosaic's band count ~~and reference, and lie on its grid —
+   the same cell size or a whole multiple read by NEAREST, corners whole cells apart (condition 4)~~; *since
+   2026-10-31 (condition 4)* an item on the read's grid read by NEAREST is placed exactly, and any other — unaligned,
+   finer than the read, or in another reference — is warped onto it by GDAL through rasterio, as an equivalent.
 4. **Methods and operators.** Built as documented: None, North-West, Closest to Center, Closest to Nadir (CenterX and
    CenterY), Lock Raster, By Attribute (numbers and dates, the documented date formats), and FIRST, LAST, MIN, MAX, MEAN
    and SUM, after ZOrder and pixel size. Built as this server's image services draw them, the pages being silent: the
@@ -243,6 +245,20 @@ None recorded.
 4. **Items on different grids**: resampling (BILINEAR, CUBIC, MAJORITY, and reading coarser than an item), unaligned
    items and items in another reference are built to a documented method, or refused for good with the reason
    recorded.
+   **DISCHARGED 2026-10-31**, as an equivalent said in the run: ArcGIS's pages describe the four methods in words
+   (bilinear from the four nearest cell centres weighted by distance, cubic a smooth curve through the sixteen nearest,
+   majority the most popular value), not as kernels. grapy keeps its exact path — an item on the read's grid by
+   NEAREST is repeated — and warps every other item with GDAL's warper (`rasterio.warp.reproject`): nearest, bilinear,
+   cubic convolution (Keys 1981, a = −0.5) and mode for MAJORITY, NoData left out of a kernel, an integer band rounded
+   back to its type. An item in another reference is projected by PROJ: AddRastersToMosaicDataset and
+   SynchronizeMosaicDataset record its footprint (its stored extent densified and projected) and cell size in the
+   mosaic's reference, BuildFootprints projects what it finds, and Describe measures it there. Each read that warps
+   says so in a warning naming the items. `test_mosaic`: a 2 m item holding a plane, read at 1 m, gives the plane's
+   value at every interior cell by BILINEAR and by CUBIC (both reproduce a plane), by hand; an item a quarter cell off
+   the grid reads 10, 20, 30 by NEAREST and 7.5, 17.5, 27.5 by BILINEAR, while the items on the grid are unchanged;
+   MAJORITY read at twice an item's cell size gives the mode of each 2 × 2 block; a 0.001° item in EPSG:4326 lands in
+   a 3857 mosaic over 111.32 m, footprint included. Left: ExportMosaicDatasetItems still refuses a cell size other
+   than the item's (it writes the item's own file, and resampling it there is a separate choice).
 5. **One ordering for the server and grapy**: the server's `mosaicRule` orders North-West, Closest to Center, By
    Attribute and Closest to Nadir by ZOrder and pixel size first, as the mosaicking rules page says and grapy does — or
    the owner decides the server's order stands and grapy's follows it. **DISCHARGED 2026-10-30, by owner decision (*"Gerçek ZOrder ekle"*).**

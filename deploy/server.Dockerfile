@@ -226,11 +226,12 @@ RUN apt-get update  && apt-get install --yes --no-install-recommends curl liblda
 # nothing is installed at runtime. grapy itself is copied beside the server by the build (src/grapy/grapy).
 # ADR-248: PyTorch and torchvision for grapy's deep learning tools, the CPU builds from PyTorch's own index, which holds
 # both x86-64 and aarch64 wheels (PyPI's x86-64 wheel brings CUDA's libraries). No pretrained weights are baked in.
+# ADR-229 condition 5: lazrs is laspy's LAZ backend (MIT); the build fails if laspy cannot find it.
 RUN apt-get update && apt-get install --yes --no-install-recommends python3 python3-venv && rm -rf /var/lib/apt/lists/* \
  && python3 -m venv /opt/grapy \
- && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas rasterio scipy laspy xarray manifold3d \
+ && /opt/grapy/bin/pip install --no-cache-dir numpy pandas shapely pyproj pyarrow pyogrio geopandas rasterio scipy laspy lazrs xarray manifold3d \
  && /opt/grapy/bin/pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch torchvision \
- && /opt/grapy/bin/python -c "import shapely, pyproj, geopandas, torch, torchvision"
+ && /opt/grapy/bin/python -c "import shapely, pyproj, geopandas, torch, torchvision, laspy; assert laspy.LazBackend.detect_available()"
 
 # Non-root, and the uid is fixed rather than assigned. A volume written by uid
 # 64198 on one host and read by a differently-numbered user on the next is the

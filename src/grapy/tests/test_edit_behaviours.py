@@ -393,7 +393,7 @@ class ViewsAndStatistics(_Base):
 
 class Refused(unittest.TestCase):
     NAMES = ("AppendAnnotation", "CreateEnterpriseGeodatabase", "EnableEnterpriseGeodatabase",
-             "UpdateEnterpriseGeodatabaseLicense", "UpgradeGDB", "CreateDatabaseUser", "CreateRole", "ChangePrivileges",
+             "UpdateEnterpriseGeodatabaseLicense", "CreateDatabaseUser", "CreateRole", "ChangePrivileges",
              "CreateSpatialType", "ConfigureGeodatabaseLogFileTables", "ExportGeodatabaseConfigurationKeywords",
              "ImportGeodatabaseConfigurationKeywords", "DeleteSchemaGeodatabase", "MigrateStorage",
              "UpdatePortalDatasetOwner", "EnableFeatureBinning", "DisableFeatureBinning", "ManageFeatureBinCache",

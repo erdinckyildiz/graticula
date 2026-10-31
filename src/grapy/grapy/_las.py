@@ -1327,7 +1327,7 @@ class Described:
         self.spatialReference = SpatialReference(dataset.srid) if dataset.srid > 0 else None
         boxes = []
         for p in dataset.file_paths():
-            if os.path.exists(p) and p.lower().endswith(".las"):
+            if os.path.exists(p) and p.lower().endswith((".las", ".laz")):
                 with laspy.open(p) as reader:
                     boxes.append((*reader.header.mins[:2], *reader.header.maxs[:2]))
         self.extent = (Extent(min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes),

@@ -77,8 +77,11 @@
   /** The layer analysed: its address, name, geometry and fields, as its own document says. */
   let layer = null;
 
-  /** The other hosted layers this reader may use as a second input, each with the kind of geometry it holds. */
+  /** The other layers this reader may use as a second input, each with the kind of geometry it holds and its service. */
   let others = [];
+
+  /** Why the layers could not be read, when they could not; said in place of "you have none". */
+  let othersUnread = null;
 
   /**
    * Opens the tools on a layer. `opened` is the page's: `fetch(path, options)`, `notify(text, tone)`, the `body` and
@@ -94,19 +97,26 @@
     try {
       const [doc, found] = await Promise.all([
         host.fetch(`${new URL(target.url).pathname}?f=json`),
-        host.fetch(`/sharing/rest/search?q=${encodeURIComponent('type:"Feature Service"')}&num=100&f=json`).catch(() => ({ results: [] })),
+        host.fetch("/content/layers").catch(e => ({ unread: e.message || String(e) })),
       ]);
       layer = { url: target.url, name: target.name, kind: kindOf(doc.geometryType),
         fields: (doc.fields || []).filter(f => !/OID|GlobalID|Geometry/.test(f.type || "")) };
 
       // Each candidate's own geometry, so a list offers only what its tool can use (design review: the default
-      // polygon layer for Aggregate points was a point layer, and every run of it failed).
-      const service = new URL(target.url).pathname.replace(/\/\d+$/, "");
-      const candidates = (found.results || []).filter(r => r.url && new URL(r.url, location.origin).pathname !== service);
-      others = (await Promise.all(candidates.map(async r => {
-        const one = await host.fetch(`${new URL(r.url, location.origin).pathname}/0?f=json`).catch(() => null);
-        return one?.geometryType ? { url: `${new URL(r.url, location.origin).href}/0`, title: r.title || r.name, kind: kindOf(one.geometryType) } : null;
-      }))).filter(Boolean).sort((a, b) => a.title.localeCompare(b.title));
+      // polygon layer for Aggregate points was a point layer, and every run of it failed). <b>From one listing, every
+      // layer this reader may see with its geometry (D-322)</b>: this read the portal search's first 100 services and
+      // then each one's layer 0, so a layer past the hundredth, or not first in its service, could not be chosen.
+      const self = new URL(target.url).pathname;
+      const listed = [...(found.mine || []), ...(found.shared || []), ...(found.notShared || [])]
+        .filter(l => l.geometry && l.status === "started" && l.url !== self);
+      othersUnread = found.unread || null;
+      others = listed.map(l => ({
+        url: new URL(l.url, location.origin).href,
+        title: l.title || l.name,
+        service: l.service,
+        layerId: l.layerId,
+        kind: /Point/.test(l.geometry) ? "points" : /Line/.test(l.geometry) ? "lines" : "polygons",
+      })).sort((a, b) => a.title.localeCompare(b.title, undefined, { numeric: true, sensitivity: "base" }));
     } catch (e) {
       host.body.innerHTML = `<p class="bad">${h(e.message || e)}</p>`;
       return;
@@ -168,9 +178,21 @@
     const fits = candidates(tool);
     const what = tool.second === "polygons" ? "polygon layer" : tool.second === "same" ? `layer of ${layer.kind}`
       : tool.task === "JoinFeatures" ? "layer" : "layer of polygons";
-    box.innerHTML = fits.length
+    // <b>Told apart within this list, ignoring case</b> (design review 2026-10-31): a name twice gets its service, and
+    // twice in one service its layer too. Nothing is chosen until somebody chooses, and the line under the select says
+    // where the chosen layer is — on a narrow screen the end of an option is cut off.
+    const key = text => text.toLocaleLowerCase();
+    const named = o => key(o.title), served = o => key(`${o.title} (${o.service})`);
+    const count = (f, o) => fits.filter(x => f(x) === f(o)).length;
+    const shown = o => count(named, o) < 2 ? o.title
+      : count(served, o) < 2 ? `${o.title} (${o.service})` : `${o.title} (${o.service} / ${o.layerId})`;
+    box.innerHTML = othersUnread
+      ? `<span class="label">${h(tool.secondLabel)}</span><p class="hint bad" id="azNoSecond">Could not read your layers: ${h(othersUnread)}.</p>`
+      : fits.length
       ? `<label for="azOther">${h(tool.secondLabel)}</label>
-         <select id="azOther">${fits.map(o => `<option value="${h(o.url)}">${h(o.title)}</option>`).join("")}</select>`
+         <select id="azOther" aria-describedby="azOtherFrom"><option value="">Choose a layer</option>${fits.map(o =>
+           `<option value="${h(o.url)}">${h(shown(o))}</option>`).join("")}</select>
+         <span class="hint" id="azOtherFrom"></span>`
       : `<span class="label">${h(tool.secondLabel)}</span><p class="hint" id="azNoSecond">You have no other ${what} to use here.</p>`;
   }
 
@@ -418,8 +440,14 @@
       return;
     }
 
+    if (tool.second && !binned && $("azOther") && !$("azOther").value) {
+      refuse(`Not run: choose a layer for ${tool.secondLabel.toLocaleLowerCase()}.`, $("azOther"));
+      return;
+    }
+
     if (tool.second && !binned && !$("azOther")?.value) {
-      refuse(`Not run: ${$("azNoSecond")?.textContent || "there is no second layer to use."}`, null);
+      const none = $("azNoSecond")?.textContent || "there is no second layer to use.";
+      refuse(`Not run: ${none.charAt(0).toLowerCase()}${none.slice(1)}`, null);
       return;
     }
 
@@ -551,6 +579,11 @@
       return;
     }
     if (t.id === "azRelation") $("azDistanceRow").hidden = t.value !== "WithinDistance";
+    // Where the chosen second layer is, which the cut-off option may not show.
+    if (t.id === "azOther" && $("azOtherFrom")) {
+      const o = others.find(x => x.url === t.value);
+      $("azOtherFrom").textContent = o ? `${o.service} · layer ${o.layerId} · ${o.kind}` : "";
+    }
   });
 
   window.GraticulaAnalysis = { open, closed, kindOf, SERVICE };

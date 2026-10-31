@@ -1211,8 +1211,9 @@ SegMeanShift = _equivalent(*MEAN_SHIFT_METHOD)(SegMeanShift)
 
 
 def MLClassifyFunction(raster, signature):
-    """arcpy.ia.MLClassify(raster, signature): the MLClassify raster function — arcpy.sa.MLClassify's maximum
-    likelihood classification with its defaults (no reject fraction, equal priors)."""
+    """EQUIVALENT, as arcpy.sa.MLClassify is: arcpy.ia.MLClassify(raster, signature), the MLClassify raster
+    function — arcpy.sa.MLClassify's maximum likelihood classification with its defaults (no reject fraction, equal
+    priors)."""
     return MLClassify(raster, signature)
 
 

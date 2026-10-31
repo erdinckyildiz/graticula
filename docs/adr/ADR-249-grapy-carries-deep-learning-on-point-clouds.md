@@ -218,4 +218,4 @@ None recorded.
    ADR-223's limits, and record the time per epoch and the memory (D-341).
 2. **Run the point cloud tests in CI.** `test_point_cloud_deep_learning.py` runs where torch is installed; it has run
    only on Windows until CI runs it.
-3. **Confirm Q-219**, the INFERRED choices of §5.2–§5.3, with the owner.
+3. **Confirm Q-219**, the INFERRED choices of §5.2–§5.3, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-219 (*"Hepsini onayla"*).

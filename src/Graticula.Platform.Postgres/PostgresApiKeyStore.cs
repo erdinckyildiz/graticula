@@ -91,7 +91,9 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
             select p.id, p.name, p.display_name, p.user_type, p.created_at, p.disabled_at is not null,
                    coalesce(array(select graticula_role_label(r.role_name) from principal_role r where r.principal_id = p.id
                                   order by r.role_name), '{}'),
-                   (select count(*) from api_key k where k.principal_id = p.id and k.revoked_at is null
+                   (select count(*) from api_key k where k.principal_id = p.id and k.kind = 'key' and k.revoked_at is null
+                       and (k.expires_at is null or k.expires_at > now())),
+                   (select count(*) from api_key k where k.principal_id = p.id and k.kind = 'secret' and k.revoked_at is null
                        and (k.expires_at is null or k.expires_at > now()))
               from principal p
              where p.kind = 'service'
@@ -111,7 +113,8 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
                 reader.GetFieldValue<string[]>(6),
                 reader.GetFieldValue<DateTimeOffset>(4),
                 reader.GetBoolean(5),
-                (int)reader.GetInt64(7)));
+                (int)reader.GetInt64(7),
+                (int)reader.GetInt64(8)));
         }
 
         return accounts;
@@ -141,15 +144,24 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
     }
 
     /// <inheritdoc/>
-    public async Task<ApiKeyInfo?> IssueAsync(
-        string account, string keyName, byte[] hash, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
+    public Task<ApiKeyInfo?> IssueAsync(
+        string account, string keyName, byte[] hash, DateTimeOffset? expiresAt, CancellationToken cancellationToken) =>
+        IssueKindAsync("key", account, keyName, hash, expiresAt, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<ApiKeyInfo?> IssueSecretAsync(
+        string account, string secretName, byte[] hash, DateTimeOffset? expiresAt, CancellationToken cancellationToken) =>
+        IssueKindAsync("secret", account, secretName, hash, expiresAt, cancellationToken);
+
+    private async Task<ApiKeyInfo?> IssueKindAsync(
+        string kind, string account, string keyName, byte[] hash, DateTimeOffset? expiresAt, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(hash);
 
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             """
-            insert into api_key (id, principal_id, name, token_hash, expires_at)
-            select @id, p.id, @key, @hash, @expires from principal p where p.name = @account and p.kind = 'service'
+            insert into api_key (id, principal_id, name, token_hash, expires_at, kind)
+            select @id, p.id, @key, @hash, @expires, @kind from principal p where p.name = @account and p.kind = 'service'
             on conflict (principal_id, name) do nothing
             returning created_at
             """);
@@ -159,6 +171,7 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
         command.Parameters.AddWithValue("hash", hash);
         command.Parameters.Add(new NpgsqlParameter("expires", NpgsqlDbType.TimestampTz) { Value = (object?)expiresAt ?? DBNull.Value });
         command.Parameters.AddWithValue("account", account);
+        command.Parameters.AddWithValue("kind", kind);
 
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) is DateTime created
             ? new ApiKeyInfo(id, keyName, new DateTimeOffset(DateTime.SpecifyKind(created, DateTimeKind.Utc)), expiresAt, null, null)
@@ -166,17 +179,25 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
     }
 
     /// <inheritdoc/>
-    public async Task<IReadOnlyList<ApiKeyInfo>?> KeysAsync(string account, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ApiKeyInfo>?> KeysAsync(string account, CancellationToken cancellationToken) =>
+        ListKindAsync("key", account, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<IReadOnlyList<ApiKeyInfo>?> SecretsAsync(string account, CancellationToken cancellationToken) =>
+        ListKindAsync("secret", account, cancellationToken);
+
+    private async Task<IReadOnlyList<ApiKeyInfo>?> ListKindAsync(string kind, string account, CancellationToken cancellationToken)
     {
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             """
             select p.id, k.id, k.name, k.created_at, k.expires_at, k.revoked_at, k.last_used_at
               from principal p
-              left join api_key k on k.principal_id = p.id
+              left join api_key k on k.principal_id = p.id and k.kind = @kind
              where p.name = @account and p.kind = 'service'
              order by k.created_at
             """);
         command.Parameters.AddWithValue("account", account);
+        command.Parameters.AddWithValue("kind", kind);
 
         List<ApiKeyInfo>? keys = null;
         await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
@@ -203,19 +224,40 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
     }
 
     /// <inheritdoc/>
-    public async Task<bool> RevokeAsync(string account, Guid key, DateTimeOffset at, CancellationToken cancellationToken)
+    public Task<bool> RevokeAsync(string account, Guid key, DateTimeOffset at, CancellationToken cancellationToken) =>
+        RevokeKindAsync("key", account, key, at, cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<bool> RevokeSecretAsync(string account, Guid secret, DateTimeOffset at, CancellationToken cancellationToken) =>
+        RevokeKindAsync("secret", account, secret, at, cancellationToken);
+
+    private async Task<bool> RevokeKindAsync(string kind, string account, Guid key, DateTimeOffset at, CancellationToken cancellationToken)
     {
+        // <b>A secret's tokens go with it</b> (ADR-200 condition 2), in the same statement: a revocation that left the
+        // tokens it had already bought alive for their lifetime would be a revocation in name. A key has none: it is the
+        // token, so for a key the second half touches nothing.
         await using NpgsqlCommand command = _dataSource.CreateCommand(
             """
-            update api_key k set revoked_at = @at
-              from principal p
-             where k.id = @key and k.principal_id = p.id and p.name = @account and p.kind = 'service'
-               and k.revoked_at is null
+            with revoked as (
+                update api_key k set revoked_at = @at
+                  from principal p
+                 where k.id = @key and k.principal_id = p.id and p.name = @account and p.kind = 'service'
+                   and k.kind = @kind and k.revoked_at is null
+                returning k.id
+            ), ended as (
+                update session s set revoked_at = @at
+                 where s.credential_id in (select id from revoked) and s.revoked_at is null
+                returning s.id
+            )
+            select (select count(*) from revoked), (select count(*) from ended)
             """);
         command.Parameters.AddWithValue("key", key);
         command.Parameters.AddWithValue("account", account);
         command.Parameters.AddWithValue("at", at);
-        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+        command.Parameters.AddWithValue("kind", kind);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        return await reader.ReadAsync(cancellationToken).ConfigureAwait(false) && reader.GetInt64(0) > 0;
     }
 
     /// <inheritdoc/>
@@ -234,6 +276,7 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
              where k.token_hash = @hash
                and k.revoked_at is null
                and (k.expires_at is null or k.expires_at > @now)
+               and k.kind = 'key'
                and p.kind = 'service'
                and p.disabled_at is null
             """);
@@ -265,6 +308,69 @@ public sealed class PostgresApiKeyStore : IApiKeyStore
             """);
         command.Parameters.AddWithValue("key", key);
         command.Parameters.AddWithValue("at", at);
+        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task<(Guid Secret, Principal Principal, DateTimeOffset? ExpiresAt)?> FindSecretAsync(
+        string account, byte[] hash, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+        ArgumentNullException.ThrowIfNull(hash);
+
+        // As FindAsync: unknown, another account's, revoked, expired and a disabled account are one outcome. The use is
+        // recorded in the same statement, a minute at most, as a key's is.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            with found as (
+                select k.id, k.expires_at, p.id as principal, p.name, p.display_name
+                  from api_key k
+                  join principal p on p.id = k.principal_id
+                 where k.token_hash = @hash
+                   and k.kind = 'secret'
+                   and k.revoked_at is null
+                   and (k.expires_at is null or k.expires_at > @now)
+                   and p.kind = 'service'
+                   and p.name = @account
+                   and p.disabled_at is null
+            ), touched as (
+                update api_key set last_used_at = @now
+                 where id in (select id from found) and (last_used_at is null or last_used_at < @now - interval '1 minute')
+            )
+            select id, expires_at, principal, name, display_name from found
+            """);
+        command.Parameters.AddWithValue("hash", hash);
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("account", account);
+
+        await using NpgsqlDataReader reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
+        return (
+            reader.GetGuid(0),
+            new Principal(reader.GetGuid(2), PrincipalKind.Service, reader.GetString(3),
+                reader.IsDBNull(4) ? null : reader.GetString(4), isDisabled: false),
+            reader.IsDBNull(1) ? null : reader.GetFieldValue<DateTimeOffset>(1));
+    }
+
+    /// <inheritdoc/>
+    public async Task LinkSessionAsync(Guid session, Guid secret, CancellationToken cancellationToken)
+    {
+        // A secret revoked between its lookup and this link takes the new session with it: the revocation's own
+        // statement found no session to end, so this one ends it.
+        await using NpgsqlCommand command = _dataSource.CreateCommand(
+            """
+            update session s
+               set credential_id = @secret,
+                   revoked_at = coalesce(s.revoked_at, (select k.revoked_at from api_key k where k.id = @secret))
+             where s.id = @session
+            """);
+        command.Parameters.AddWithValue("session", session);
+        command.Parameters.AddWithValue("secret", secret);
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 }

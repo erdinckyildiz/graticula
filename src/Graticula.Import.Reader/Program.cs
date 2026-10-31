@@ -244,9 +244,15 @@ internal static class Program
                 request.TryGetProperty("maximumSide", out JsonElement side) ? side.GetInt32() : int.MaxValue,
                 request.TryGetProperty("maximumPixels", out JsonElement pixels) ? pixels.GetInt64() : long.MaxValue),
 
+            // <b>D-295: an image's overviews built here, by the builder the server used to run itself.</b> The build
+            // decodes every block of a file a stranger chose — ADR-148's pass over a registered image — so a defect in a
+            // block the door did not decode is met in this process, which the host kills and counts, and not in the one
+            // serving every other layer.
+            "pyramid" => Pyramid(Text(request, "path")),
+
             _ => throw new ArgumentException(
                 $"'{operation}' is not an operation. This reader answers 'ping', 'layers', "
-                + "'convert', 'features', 'fixture', 'export', 'tabular', 'raster' and 'tiff'."),
+                + "'convert', 'features', 'fixture', 'export', 'tabular', 'raster', 'tiff' and 'pyramid'."),
         };
     }
 
@@ -1715,6 +1721,28 @@ internal static class Program
                 .GetAwaiter().GetResult();
 
             return new { ok = true, width = info.Width, height = info.Height, decoded = true };
+        }
+    }
+
+    /// <summary>
+    /// Writes an image's overviews beside it — the server's own <see cref="TiffPyramidBuilder"/>, run here (D-295).
+    /// </summary>
+    /// <remarks>
+    /// A file that cannot be read or written is an answer with <c>unreadable</c> set, which the host turns back into the
+    /// exception the in-process builder threw, so its callers keep their one catch.
+    /// </remarks>
+    private static object Pyramid(string path)
+    {
+        try
+        {
+            int levels = new TiffPyramidBuilder().BuildAsync(path, System.Threading.CancellationToken.None)
+                .GetAwaiter().GetResult();
+
+            return new { ok = true, levels };
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            return new { ok = false, unreadable = true, error = e.Message };
         }
     }
 

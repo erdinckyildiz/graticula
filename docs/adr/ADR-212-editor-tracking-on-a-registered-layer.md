@@ -86,7 +86,7 @@ history triggers in the customer's database. The four tracking columns are a sma
    for a registered PostGIS, Oracle, MySQL, MariaDB or SQL Server layer, through three rounds of the ux-designer review:
    a confirm before anything is made in the customer's database, the four columns named, a refusal kept under the row
    that was pressed as an alert, one layout from 390 to 1280 px; axe clean, contrast measured, keyboard throughout.
-2. **SQL Server's history and relationships** (ADR-210 condition 5's remainder) — not asked for here, recorded so the
+2. **SQL Server's history and relationships** (ADR-210 condition 5's remainder) — **DISCHARGED 2026-10-31**, with ADR-210 condition 5, whose text carries the evidence (`SqlServerHistoryAndRelationshipsTests`, and history and `queryRelatedRecords` through the fixture's FeatureServer). Not asked for here, recorded so the
    gap stays visible.
 
 ## 6. Consequences

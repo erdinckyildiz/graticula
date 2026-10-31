@@ -495,6 +495,16 @@ and as the checkbox draws it today — is simpler and is how the three edits beh
    ASCII when they are made (`şehir` became `sehir`), so it is a registered layer that carries them. Still open: those
    names read by condition 2's readers rather than by GDAL.)*
    *(2026-10-14: read by them now, except one. ArcGIS Pro reads `şehir`, `ilçe_adı` and `nüfus` with İstanbul, Kırşehir, Muğla, Üsküdar and Çiçekdağı from the GeoPackage, the File Geodatabase (domain names `Şehirler` and `Nüfus aralığı` too), the Shapefile and *JSON To Features* on the Feature Collection. Excel, driven over COM (`tools/arcpy-probe/excel-reads.ps1`), reads the same header and rows from the CSV and the workbook. **Still open: the KML's names in Google Earth.** Pro's KML To Layer reads no `ExtendedData` at all (condition 2), and Google Earth is not installed on this machine.)*
+   **PARTLY DISCHARGED 2026-10-31: the GDAL read-back is now a test per format, and it fails when the encoding is lost.**
+   `TurkishTextSurvivesEveryExportFormatTests` stages three rows through `LayerExportRows` exactly as the job does, has
+   the reader child write GeoPackage, Shapefile (then `ShapefileFieldNames`), workbook, File Geodatabase, KML, CSV and
+   GeoJSON with the job's options, and reads each back through GDAL's `features` stream; the Feature Collection is
+   written by the job's query writer and read by a JSON parser. Field names `şehir`, `ilçe_adı`, `dağ_adı`, `İl_no`,
+   `nüfus`, `ÖĞÜŞ` and values carrying every Turkish letter in both cases (`İĞNE`, `ışık`, `Şırnak ğüşİıöç`, `ÇĞIİÖŞÜ
+   çğıiöşü`) come back intact in all eight: 8 of 8 pass. Removing the Shapefile's `ENCODING=UTF-8` makes the Shapefile
+   case fail (measured), so the test holds the letters and not only the files. Nothing had to be fixed. **Still open, and
+   only this: the KML's attribute names as Google Earth shows them** — Google Earth is still not installed here and has
+   no scripting surface to read a balloon from; GDAL's LIBKML reads the same `Schema`/`SimpleData` names back intact.
 4. **A Shapefile name collision** — three fields whose first ten bytes agree, one of them Turkish — gets §5.6's names and
    the `fieldnames.csv` says so. **DISCHARGED 2026-10-07.** `mahalle_adi_1`, `mahalle_adi_2` and `mahalle_adı_3` leave as
    `mahalle_ad`, `mahalle__1` and `mahalle__2`, and `aççççç` (eleven bytes) as `açççç` — cut before the fifth `ç`, where

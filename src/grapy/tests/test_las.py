@@ -284,5 +284,62 @@ class LasDataset(unittest.TestCase):
             arcpy.management.BuildLasDatasetPyramid(self.lasd)
 
 
+class Laz(unittest.TestCase):
+    """ADR-229 condition 5: LAZ is read and written through lazrs, which CI and the image install. The test does not skip
+    without a backend — on a machine with none it fails, which is the point."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        arcpy.env.workspace = self.directory
+        self.las = scene(os.path.join(self.directory, "tile.las"))
+
+    @staticmethod
+    def header(path):
+        """(point format byte, VLR (user id, record id) pairs) read from the file as LAS 1.2 §2.2 lays them out."""
+        import struct
+        data = open(path, "rb").read()
+        assert data[:4] == b"LASF"
+        header_size, = struct.unpack_from("<H", data, 94)
+        count, = struct.unpack_from("<I", data, 100)
+        vlrs, at = [], header_size
+        for _ in range(count):
+            user, record, length = struct.unpack_from("<16sHH", data, at + 2)
+            vlrs.append((user.rstrip(b"\x00").decode("ascii"), record))
+            at += 54 + length
+        return data[104], vlrs
+
+    def test_a_laz_file_is_written_compressed_and_read_back_point_for_point(self):
+        import laspy
+        self.assertTrue(laspy.LazBackend.detect_available(), "no LAZ backend: install lazrs (ADR-229 condition 5)")
+        folder = os.path.join(self.directory, "laz")
+        arcpy.conversion.ConvertLas(self.las, folder, compression="LAZ")
+        laz = os.path.join(folder, "tile.laz")
+        point_format, vlrs = self.header(laz)
+        # LASzip marks compressed points by setting bit 7 of the point format and adds its VLR, 'laszip encoded' 22204.
+        self.assertEqual(point_format, 128 + 1)
+        self.assertIn(("laszip encoded", 22204), vlrs)
+        self.assertLess(os.path.getsize(laz), os.path.getsize(self.las))
+        lasd = arcpy.management.CreateLasDataset(laz, os.path.join(self.directory, "laz.lasd"),
+                                                 compute_stats="COMPUTE_STATS")[0]
+        described = arcpy.Describe(lasd)
+        self.assertEqual(described.pointCount, GROUND + 2 * ROOF)
+        self.assertEqual((described.extent.XMin, described.extent.YMax), (0.5, 19.5))
+        report = os.path.join(self.directory, "stats.csv")
+        arcpy.management.LasDatasetStatistics(lasd, "OVERWRITE_EXISTING_STATS", report, "DATASET", "COMMA")
+        by_class = {int(line.split(",")[0]): line.split(",") for line in open(report).read().splitlines()[1:]}
+        self.assertEqual((int(by_class[1][1]), int(by_class[2][1])), (2 * ROOF, GROUND))
+        self.assertEqual(by_class[1][3:5], ["6.000", "6.500"])
+
+    def test_a_laz_written_by_laspy_alone_reaches_a_tool(self):
+        import laspy
+        laz = os.path.join(self.directory, "own.laz")
+        write_las(laz, [1.0, 2.0, 3.0], [1.0, 2.0, 3.0], [10.0, 20.0, 30.0], [2, 2, 6], [1, 1, 1], [1, 1, 1])
+        self.assertGreaterEqual(self.header(laz)[0], 128)
+        lasd = arcpy.management.CreateLasDataset(laz, os.path.join(self.directory, "own.lasd"),
+                                                 compute_stats="COMPUTE_STATS")[0]
+        self.assertEqual(arcpy.Describe(lasd).pointCount, 3)
+        self.assertEqual(sorted(laspy.read(laz).z), [10.0, 20.0, 30.0])
+
+
 if __name__ == "__main__":
     unittest.main()

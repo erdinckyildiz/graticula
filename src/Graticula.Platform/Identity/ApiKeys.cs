@@ -27,6 +27,23 @@ public static class ApiKeyToken
         token is { Length: > 40 } && token.StartsWith(Prefix, StringComparison.Ordinal);
 }
 
+/// <summary>An OAuth client secret's text — ADR-200 condition 2: what a service account's <c>client_credentials</c> sign-in sends.</summary>
+/// <remarks>
+/// <b>A different prefix from a key's, and the difference is load-bearing.</b> A key is a token; a secret is exchanged for
+/// one at <c>oauth2/token</c> and is never a token itself. <see cref="ApiKeyToken.IsOne"/> never matches this prefix, so a
+/// secret sent as <c>token=</c> is not even looked up among the keys, and the store's lookups filter by kind besides.
+/// </remarks>
+public static class ClientSecretToken
+{
+    /// <summary>What every client secret begins with.</summary>
+    public const string Prefix = "gcs_";
+
+    /// <summary>A new secret, shown once and never stored.</summary>
+    public static string Generate() =>
+        Prefix + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+}
+
 /// <summary>A machine's account: no password, no items, roles only (ADR-015 §2) — ADR-200.</summary>
 /// <param name="Id">The principal.</param>
 /// <param name="Name">Its name, unique among every principal.</param>
@@ -36,6 +53,7 @@ public static class ApiKeyToken
 /// <param name="CreatedAt">When it was made.</param>
 /// <param name="Disabled">Whether it is switched off, which stops every key it holds.</param>
 /// <param name="Keys">How many keys it holds that are neither revoked nor expired.</param>
+/// <param name="Secrets">How many OAuth client secrets it holds that are neither revoked nor expired (ADR-200 condition 2).</param>
 public sealed record ServiceAccount(
     Guid Id,
     string Name,
@@ -44,9 +62,10 @@ public sealed record ServiceAccount(
     IReadOnlyList<string> Roles,
     DateTimeOffset CreatedAt,
     bool Disabled,
-    int Keys);
+    int Keys,
+    int Secrets = 0);
 
-/// <summary>One key, as listed: never its text, which is shown once when it is issued.</summary>
+/// <summary>One key or client secret, as listed: never its text, which is shown once when it is issued.</summary>
 /// <param name="Id">The key.</param>
 /// <param name="Name">What its holder called it.</param>
 /// <param name="CreatedAt">When it was issued.</param>
@@ -97,4 +116,29 @@ public interface IApiKeyStore
 
     /// <summary>Records that a key was used, at most once a minute per key.</summary>
     Task TouchAsync(Guid key, DateTimeOffset at, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records an OAuth client secret by its hash (ADR-200 condition 2), or answers null when the account is missing or
+    /// the name is taken among its keys and secrets.
+    /// </summary>
+    Task<ApiKeyInfo?> IssueSecretAsync(
+        string account, string secretName, byte[] hash, DateTimeOffset? expiresAt, CancellationToken cancellationToken);
+
+    /// <summary>An account's client secrets, or null when there is no such account.</summary>
+    Task<IReadOnlyList<ApiKeyInfo>?> SecretsAsync(string account, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Revokes a client secret and every token issued for it; false when the account has no such live secret.
+    /// </summary>
+    Task<bool> RevokeSecretAsync(string account, Guid secret, DateTimeOffset at, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The secret a hash names, when it is the named account's, live, and the account enabled; null otherwise, with no
+    /// word about which. Records the use, at most once a minute.
+    /// </summary>
+    Task<(Guid Secret, Principal Principal, DateTimeOffset? ExpiresAt)?> FindSecretAsync(
+        string account, byte[] hash, DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>Records that a session was issued for a client secret, so revoking the secret ends it.</summary>
+    Task LinkSessionAsync(Guid session, Guid secret, CancellationToken cancellationToken);
 }

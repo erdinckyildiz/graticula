@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Encodings.Web;
 
 namespace Graticula.Core.Markup;
 
@@ -52,6 +53,24 @@ public readonly struct Html : IEquatable<Html>
 
     /// <summary>Text, escaped. Null is empty.</summary>
     public static Html Text(string? text) => new(WebUtility.HtmlEncode(text ?? string.Empty));
+
+    /// <summary>
+    /// Text, escaped as <c>System.Text.Encodings.Web</c>'s default encoder escapes it: every character outside Basic Latin
+    /// as a numeric reference (<c>ş</c> as <c>&amp;#x15F;</c>). Null is empty.
+    /// </summary>
+    /// <remarks>
+    /// <b>The OAuth sign-in pages' escaping, kept byte for byte</b> — ADR-023 condition 3, 2026-10-31. Those pages were the
+    /// last renderer off this type because <see cref="Text"/> writes <c>ş</c> as itself and their encoder does not, and
+    /// ArcGIS clients read their title. The escape is a property of the door and not of the page, so moving the pages
+    /// onto the type changed no byte of them.
+    /// </remarks>
+    public static Html Referenced(string? text) => new(HtmlEncoder.Default.Encode(text ?? string.Empty));
+
+    /// <summary>
+    /// Markup from an interpolated string, its string holes escaped as <see cref="Referenced"/> escapes them and its
+    /// <see cref="Html"/> holes kept.
+    /// </summary>
+    public static Html OfReferenced(ref ReferencedHtmlInterpolatedStringHandler html) => html.ToHtml();
 
     /// <summary>
     /// Markup written by this server, passed through as it is. Never a value that came from a request, a
@@ -151,6 +170,44 @@ public ref struct HtmlInterpolatedStringHandler
         };
 
         _inner.AppendLiteral(WebUtility.HtmlEncode(text));
+    }
+
+    internal Html ToHtml() => Html.Markup(_inner.ToStringAndClear());
+}
+
+/// <summary>
+/// Builds <see cref="Html"/> from an interpolated string, escaping every hole that is not already markup with
+/// <c>System.Text.Encodings.Web</c>'s default encoder — <see cref="Html.Referenced"/>.
+/// </summary>
+[InterpolatedStringHandler]
+public ref struct ReferencedHtmlInterpolatedStringHandler
+{
+    private DefaultInterpolatedStringHandler _inner;
+
+    /// <summary>Starts a handler; called by the compiler.</summary>
+    public ReferencedHtmlInterpolatedStringHandler(int literalLength, int formattedCount) =>
+        _inner = new DefaultInterpolatedStringHandler(literalLength, formattedCount, CultureInfo.InvariantCulture);
+
+    /// <summary>The literal parts are this server's markup.</summary>
+    public void AppendLiteral(string value) => _inner.AppendLiteral(value);
+
+    /// <summary>Markup is kept.</summary>
+    public void AppendFormatted(Html value) => _inner.AppendLiteral(value.ToString());
+
+    /// <summary>Text is escaped.</summary>
+    public void AppendFormatted(string? value) => _inner.AppendLiteral(HtmlEncoder.Default.Encode(value ?? string.Empty));
+
+    /// <summary>Anything else is formatted with the invariant culture, then escaped.</summary>
+    public void AppendFormatted<T>(T value)
+    {
+        string text = value switch
+        {
+            null => string.Empty,
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+            _ => value.ToString() ?? string.Empty,
+        };
+
+        _inner.AppendLiteral(HtmlEncoder.Default.Encode(text));
     }
 
     internal Html ToHtml() => Html.Markup(_inner.ToStringAndClear());

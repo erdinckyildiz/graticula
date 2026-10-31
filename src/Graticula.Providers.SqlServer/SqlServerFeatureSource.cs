@@ -119,6 +119,17 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
     private string From => _layer.QuotedTable;
 
+    /// <summary>
+    /// What a query reads: the table, or — with a <c>historicMoment</c> — the layer's history as it was then (ADR-207,
+    /// ADR-210 condition 5, <see cref="SqlServerFeatureHistory.AtMoment"/>). The moment is a literal this code formats from
+    /// a <see cref="DateTimeOffset"/>, so every statement a query builds carries it without a bind to thread through.
+    /// </summary>
+    private string Source(FeatureQuery query, SqlServerTable table) =>
+        query.HistoricMoment is not { } moment
+            ? From
+            : SqlServerFeatureHistory.AtMoment(
+                _layer, [.. table.Columns.Select(c => (c.Name, c.Declared ?? "nvarchar(max)"))], SqlServerFeatureHistory.MomentLiteral(moment));
+
     /// <summary>A shape as WKB in longitude–latitude order, two-dimensional.</summary>
     // A table answers every row without a shape (ADR-213), as the PostGIS source does.
     private string Wkb => _layer.IsTable ? "cast(null as varbinary(max))" : Shape + ".STAsBinary()";
@@ -195,7 +206,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
         if (distinct)
         {
-            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(From).Append(" t");
+            sql.Append("select min(").Append(Id).Append(") as i").Append(selected).Append(", null as g from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             sql.Append(" group by ").Append(string.Join(", ", schema.Names.Distinct(StringComparer.Ordinal).Select(n => "t." + LayerDefinition.Quote(n))));
         }
@@ -203,7 +214,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
         {
             sql.Append("select ").Append(Id).Append(" as i").Append(selected);
             sql.Append(query.IncludeGeometry || query.ReturnCentroid ? $", {Wkb} as g" : ", null as g");
-            sql.Append(" from ").Append(From).Append(" t");
+            sql.Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
 
@@ -311,8 +322,15 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
         Envelope? extent = _layer.IsTable ? null : await ExtentOfTableAsync(connection, table, cancellationToken).ConfigureAwait(false);
 
+        HistoryKept? kept = await SqlServerFeatureHistory.KeptAsync(connection, _layer, cancellationToken).ConfigureAwait(false);
+
         return new LayerDescription(fields, extent, writable)
         {
+            // ADR-207, ADR-210 condition 5: a history kept beside the table, which historicMoment reads.
+            Archived = kept is not null,
+            ArchivedSince = kept?.Since,
+            HistoryKeepDays = kept?.KeepDays,
+
             AnswersDistance = _engine is not null,
             AnswersHaving = true,
             AnswersTopFeatures = true,
@@ -402,20 +420,20 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
         {
             statement.Sql.Append("select count_big(*) from (select distinct ")
                 .Append(string.Join(", ", query.Fields.Select(f => "t." + LayerDefinition.Quote(f))))
-                .Append(" from ").Append(From).Append(" t");
+                .Append(" from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             statement.Sql.Append(") d");
         }
         else if (ceiling is { } most)
         {
             statement.Sql.Append("select count_big(*) from (select top (").Append(statement.Bind("ceiling", most)).Append(") 1 as o from ")
-                .Append(From).Append(" t");
+                .Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
             statement.Sql.Append(") d");
         }
         else
         {
-            statement.Sql.Append("select count_big(*) from ").Append(From).Append(" t");
+            statement.Sql.Append("select count_big(*) from ").Append(Source(query, table)).Append(" t");
             statement.AppendWhere();
         }
 
@@ -443,7 +461,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
         Filters filters = await FiltersAsync(connection, query, table, cancellationToken).ConfigureAwait(false);
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Wkb).Append(" from ").Append(From).Append(" t");
+        statement.Sql.Append("select ").Append(Wkb).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
 
         Envelope extent = Envelope.Empty;
@@ -509,7 +527,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
         Statement statement = new(filters);
 
-        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(From).Append(" t");
+        statement.Sql.Append("select ").Append(Id).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
         statement.Sql.Append(" order by ").Append(Id);
 
@@ -617,7 +635,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
             sql.Append("select w.*, ").Append(string.Join(", ", windows)).Append(" from (");
         }
 
-        sql.Append("select ").Append(string.Join(", ", inner)).Append(" from ").Append(From).Append(" t");
+        sql.Append("select ").Append(string.Join(", ", inner)).Append(" from ").Append(Source(query, table)).Append(" t");
         statement.AppendWhere();
         sql.Append(windows.Count > 0 ? ") w) q" : ") q");
 
@@ -728,11 +746,6 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
     {
         const string Here = "This layer is in a registered SQL Server database, which this build reads";
 
-        if (query.HistoricMoment is not null)
-        {
-            throw new QueryNotSupportedException($"{Here} and keeps no history of, so it has no historicMoment (ADR-210 §5).");
-        }
-
         if (query.Having is { } having && (having.Predicate is null || having.Columns is null))
         {
             throw new QueryNotSupportedException(
@@ -822,7 +835,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
         await using (SqlCommand command = new(
             """
-            select COLUMN_NAME, DATA_TYPE, NUMERIC_SCALE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE
+            select COLUMN_NAME, DATA_TYPE, NUMERIC_SCALE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, NUMERIC_PRECISION, DATETIME_PRECISION
               from INFORMATION_SCHEMA.COLUMNS
              where TABLE_SCHEMA = @s and TABLE_NAME = @t
              order by ORDINAL_POSITION
@@ -856,7 +869,14 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
                         ? (int)max
                         : null;
 
-                columns.Add(new SqlServerColumn(name, field, reader.GetString(4) == "YES", length));
+                string declared = SqlServerFeatureHistory.Declaration(
+                    type,
+                    reader.IsDBNull(3) ? null : Convert.ToInt64(reader.GetValue(3), CultureInfo.InvariantCulture),
+                    reader.IsDBNull(5) ? null : Convert.ToInt32(reader.GetValue(5), CultureInfo.InvariantCulture),
+                    reader.IsDBNull(2) ? null : Convert.ToInt32(reader.GetValue(2), CultureInfo.InvariantCulture),
+                    reader.IsDBNull(6) ? null : Convert.ToInt32(reader.GetValue(6), CultureInfo.InvariantCulture));
+
+                columns.Add(new SqlServerColumn(name, field, reader.GetString(4) == "YES", length, declared));
             }
         }
 
@@ -904,7 +924,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
             ranked.Append("partition by ").Append(string.Join(", ", top.GroupBy.Select(g => "t." + LayerDefinition.Quote(g)))).Append(' ');
         }
 
-        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(From).Append(" t");
+        ranked.Append("order by ").Append(order).Append(", ").Append(Id).Append(") as r from ").Append(Source(query, table)).Append(" t");
 
         if (filters.Clauses.Count > 0)
         {
@@ -984,7 +1004,7 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
 
         List<Geometry>? kept = byEngine is null ? null : [];
 
-        List<long>? matched = await RefineAsync(connection, new Filters(inSqlServer, parameters), boxes, shape, cancellationToken, kept)
+        List<long>? matched = await RefineAsync(connection, new Filters(inSqlServer, parameters), boxes, shape, Source(query, table), cancellationToken, kept)
             .ConfigureAwait(false);
 
         if (matched is null)
@@ -1016,12 +1036,13 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
         Filters candidates,
         IReadOnlyList<Envelope> boxes,
         Geometry? shape,
+        string from,
         CancellationToken cancellationToken,
         List<Geometry>? kept = null)
     {
         Statement statement = new(candidates);
 
-        statement.Sql.Append("select ").Append(Id).Append(", ").Append(Wkb).Append(" from ").Append(From).Append(" t");
+        statement.Sql.Append("select ").Append(Id).Append(", ").Append(Wkb).Append(" from ").Append(from).Append(" t");
         statement.AppendWhere();
 
         List<long> matched = [];
@@ -1081,7 +1102,12 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
             + $"{n(box.MinX)} {n(box.MaxY)}, {n(box.MinX)} {n(box.MinY)}))"));
 
         string srid = table.Geography ? "0" : table.Srid.ToString(CultureInfo.InvariantCulture);
-        return $"{Planar(table)}.STIntersects(geometry::STGeomFromText(@{name}, {srid})) = 1";
+
+        // <b>A box with no width or no height is not a valid polygon</b>, and SQL Server refuses to compare with one
+        // (error 24144) wherever it has to evaluate it — every row of a table with no spatial index, or a read at a moment.
+        // A point filter makes exactly that box; made valid it is the point or the segment, and meets what it should.
+        string valid = box.MinX == box.MaxX || box.MinY == box.MaxY ? ".MakeValid()" : string.Empty;
+        return $"{Planar(table)}.STIntersects(geometry::STGeomFromText(@{name}, {srid}){valid}) = 1";
     }
 
     /// <summary>The where clause, emitted again from its tree in T-SQL (D-162, ADR-210).</summary>
@@ -1317,7 +1343,13 @@ public sealed class SqlServerFeatureSource : IFeatureSource, IFeatureSummaries, 
         _ => value,
     };
 
-    internal sealed record SqlServerColumn(string Name, FieldType Type, bool Nullable, int? MaxLength);
+    /// <summary>A served column.</summary>
+    /// <param name="Name">Its name.</param>
+    /// <param name="Type">Its field type.</param>
+    /// <param name="Nullable">Whether it may hold a null.</param>
+    /// <param name="MaxLength">A text column's length, or null.</param>
+    /// <param name="Declared">Its declaration, <c>nvarchar(20)</c> — what a read at a moment reads a recorded value back as.</param>
+    internal sealed record SqlServerColumn(string Name, FieldType Type, bool Nullable, int? MaxLength, string? Declared = null);
 
     /// <param name="Columns">The table's served columns.</param>
     /// <param name="Srid">The layer's reference — SQL Server keeps one per shape, and the probe found one for every row.</param>

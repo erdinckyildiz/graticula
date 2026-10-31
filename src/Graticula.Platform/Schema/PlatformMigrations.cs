@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(112);
+    public static SchemaVersion ComponentSchemaVersion => new(113);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -147,7 +147,39 @@ public static class PlatformMigrations
         AnAnalysisIsAJobV110,
         ADenseTileIsNotedV111,
         AToolboxIsAnItemV112,
+        AServiceAccountHoldsClientSecretsV113,
     ]);
+
+    /// <summary>
+    /// A service account holds client secrets beside its keys, and a token issued for one remembers which — ADR-200
+    /// condition 2, owner decision 2026-10-31 (*"Kur"*): OAuth <c>client_credentials</c> on the existing accounts.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The same table as keys, not a second credential store</b> — ADR-200 Alternative B's objection was a second store
+    /// with the same lifecycle. A secret is made, expires, is revoked and was last used exactly as a key is; its kind keeps
+    /// it from ever being read as a token, and a key from ever being exchanged for one.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> A column with a default every existing row takes, and a nullable column on <c>session</c>. <b>A
+    /// rollback to a build before this one</b> reads every row as a key; a secret's text begins <c>gcs_</c>, which that
+    /// build never tries as a key, so a secret still opens nothing there — and the tokens already issued for it live to
+    /// their expiry, since that build does not revoke by credential.
+    /// </para>
+    /// </remarks>
+    private static Migration AServiceAccountHoldsClientSecretsV113 => Migration.Expand(
+        new SchemaVersion(113),
+        "A service account holds OAuth client secrets beside its keys, and a token remembers the secret it came from (ADR-200).",
+
+        "alter table api_key add column if not exists kind text not null default 'key'",
+
+        "alter table api_key drop constraint if exists api_key_kind_known",
+
+        "alter table api_key add constraint api_key_kind_known check (kind in ('key', 'secret'))",
+
+        "alter table session add column if not exists credential_id uuid null references api_key (id) on delete cascade",
+
+        "create index if not exists session_credential_idx on session (credential_id) where credential_id is not null");
 
     /// <summary>
     /// A user's Python toolbox is an item, its source and tools beside it, and a run of one of its tools is a job —

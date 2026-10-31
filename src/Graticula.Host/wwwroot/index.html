@@ -2156,9 +2156,9 @@
       <div class="pagehead sub">
         <div>
           <h3 id="saTitle" tabindex="-1">Service accounts</h3>
-          <p>Accounts for scripts and integrations, which sign in with an API key instead of a person's password. One
-            never owns anything and never administers; its keys open the ArcGIS services and the portal, not this
-            administration API.</p>
+          <p>Accounts for scripts and integrations, which sign in with an API key or an OAuth client secret instead of a
+            person's password. One never owns anything and never administers; what it signs in with opens the ArcGIS
+            services and the portal, not this administration API.</p>
         </div>
         <div class="right">
           <span class="val" id="saCount"></span>
@@ -2169,7 +2169,7 @@
       <div class="panel widetable">
         <table class="rowblocks">
           <thead><tr>
-            <th>Account</th><th>User type and role</th><th class="num">Live keys</th><th>State</th>
+            <th>Account</th><th>User type and role</th><th>Live keys and secrets</th><th>State</th>
             <th><span class="sr-only">Actions</span></th>
           </tr></thead>
           <tbody id="saRows"></tbody>
@@ -2226,6 +2226,34 @@
       <footer class="dialogfoot">
         <span class="fill"></span>
         <button type="button" class="primary" id="saKeyDone">I have copied it</button>
+      </footer>
+    </dialog>
+    <dialog id="saSecretIssued" class="formdialog" aria-labelledby="saSecretIssuedTitle" aria-describedby="saSecretOnce">
+      <header class="dialoghead">
+        <h3 id="saSecretIssuedTitle" tabindex="-1">Client secret created</h3>
+      </header>
+      <div class="dialogbody">
+        <p class="val" id="saSecretWhich"></p>
+        <p id="saSecretOnce"><b>This secret is shown only now.</b> The server keeps only a fingerprint of it, so it
+          cannot be shown again. Copy it into the app that uses it, with the client ID.</p>
+        <label class="tnlabel" for="saSecretClient">Client ID</label>
+        <div class="copyrow">
+          <input id="saSecretClient" type="text" readonly spellcheck="false" autocomplete="off">
+          <button type="button" id="saSecretClientCopy">Copy</button>
+        </div>
+        <label class="tnlabel" for="saSecretText">Client secret</label>
+        <div class="copyrow">
+          <input id="saSecretText" type="text" readonly spellcheck="false" autocomplete="off">
+          <button type="button" id="saSecretCopy">Copy</button>
+        </div>
+        <p class="hint">The app posts both to <code>/sharing/rest/oauth2/token</code> with
+          <code>grant_type=client_credentials</code>, as ArcGIS app credentials are, and sends the token it gets back.
+          The secret itself is not a token.</p>
+        <p class="hint" id="saSecretSays" role="status" aria-live="polite"></p>
+      </div>
+      <footer class="dialogfoot">
+        <span class="fill"></span>
+        <button type="button" class="primary" id="saSecretDone">I have copied it</button>
       </footer>
     </dialog>
     <div class="pagehead sub">
