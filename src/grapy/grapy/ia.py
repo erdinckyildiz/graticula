@@ -21,6 +21,11 @@ from .sa import (  # noqa: F401 — re-exported under arcpy.ia's names
     TransposeBits, VARI, Variety, WSTable, WeightedSum, ZonalStatistics, ZonalStatisticsAsTable,
 )
 from .sa import _NOT_YET, _REFUSED  # noqa: E402 — the reasons are shared with arcpy.sa
+from .sa import (  # noqa: E402,F401 — ADR-242, shared with arcpy.sa
+    CombinatorialAnd, CombinatorialOr, CombinatorialXOr, ComputeSegmentAttributes, RemoveRasterSegmentTilingArtifacts,
+    SegMeanShift, SegmentMeanShift, TopoBoundary, TopoCliff, TopoCoast, TopoContour, TopoExclusion, TopoLake,
+    TopoPointElevation, TopoSink, TopoStream,
+)
 
 
 # ---- multidimensional rasters (ADR-236)

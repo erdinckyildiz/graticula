@@ -216,7 +216,7 @@ class More(_Fixture):
             sa.Fill(grid([[1]]), 3)
 
     def test_tools_refused_by_name_say_why(self):
-        for name, words in (("TabulateArea", "fields"), ("TopoToRaster", "not specified")):
+        for name, words in (("TabulateArea", "fields"),):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a", "b")
             self.assertIn(words, str(raised.exception))
@@ -262,8 +262,7 @@ class RoundFour(_Fixture):
         self.assertIs(sa.Raster, arcpy.Raster)
         self.assertIs(sa.Point, arcpy.Point)
         self.assertIs(sa.Extent, arcpy.Extent)
-        for name, words in (("VfBinary", "path distance"),
-                            ("TopoLake", "TopoToRaster")):
+        for name, words in (("VfBinary", "path distance"),):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(sa, name)("a")
             self.assertIn(words, str(raised.exception))
