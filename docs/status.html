@@ -110,13 +110,13 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="eyebrow">Graticula · Phase 1 — Implementation</div>
 <h1>Control Room</h1>
 <p class="lede">Everything below is read out of the repository at build time — the ADR headers, <code>open-questions.md</code>, <code>architecture-debt.md</code>, <code>architecture-assumptions.md</code> and git. Nothing on this page is typed by hand, because the two versions that were went stale within a day.</p>
-<p class="stamp">Generated from commit <code>be238dbf</code> · 2026-10-31 03:07</p>
+<p class="stamp">Generated from commit <code>7cc0831b</code> · 2026-10-31 03:13</p>
 </header>
 <section><h2>Where it stands</h2><div class="kpis">
 <div class="kpi "><div class="kpi-v">234</div><div class="kpi-l">ADRs</div><div class="kpi-n">81 accepted outright</div></div>
 <div class="kpi good"><div class="kpi-v">520/618</div><div class="kpi-l">ADR conditions discharged</div><div class="kpi-n">88 live · 10 deferred with their decision</div></div>
 <div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open questions</div><div class="kpi-n">210 answered</div></div>
-<div class="kpi "><div class="kpi-v">10</div><div class="kpi-l">open debts</div><div class="kpi-n">306 repaid · 5 waiting on a trigger · 5 partly</div></div>
+<div class="kpi "><div class="kpi-v">9</div><div class="kpi-l">open debts</div><div class="kpi-n">307 repaid · 5 waiting on a trigger · 5 partly</div></div>
 <div class="kpi warn"><div class="kpi-v">7/9</div><div class="kpi-l">review gates run</div><div class="kpi-n">1 need an outside reviewer</div></div>
 <div class="kpi warn"><div class="kpi-v">16/91</div><div class="kpi-l">assumptions validated</div><div class="kpi-n">the rest are unproven</div></div>
 <div class="kpi good"><div class="kpi-v">5592</div><div class="kpi-l">tests</div><div class="kpi-n">606 source files, 269,912 lines</div></div>
@@ -126,7 +126,7 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <div class="cards">
 <article class="card blocking"><div class="card-h"><span class="id">Owner</span><span class="owner blocking-tag">9 open</span></div><p><b>Q-208</b> — [OWNER] How a GeoPackage holds editor tracking, last edit time, COGO, unregistered tables and registration, INFERRED 2026-10-31 (ADR-240 §5.6): (a) grapy&#x27;s own tables grapyeditortracking, grapylastedittime, grapycogo, grapyincrementingid and…</p><p><b>Q-203</b> — [OWNER] How grapy stores attribute rules, contingent values and sequences, and the Arcade answers the pages leave open, INFERRED 2026-10-30 (ADR-235 §5.8): (a) grapy&#x27;s own tables grapyattributerule, grapyfieldgroup, grapycontingentvalue and grapysequence,…</p><p><b>Q-201</b> — [OWNER] How grapy holds geostatistical layers and the fitting rules the pages leave open, INFERRED 2026-10-30 (ADR-233 §5.9): (a) a geostatistical layer is grapy&#x27;s own JSON (grapy-geostatistical-layer, version 1: method, parameters, neighbourhood, spatial…</p><p><b>Q-200</b> — [OWNER] How grapy stores network diagrams and the rule and layout cases the pages leave open, INFERRED 2026-10-30 (ADR-232 §5.9): (a) a template is grapy&#x27;s grapyndtemplate row with its ordered steps (rules, layouts, feature selections) and each Add tool&#x27;s…</p><p><b>Q-202</b> — [OWNER] How grapy stores terrain datasets and reads frame cameras, and the choices the terrain and ortho mapping pages leave open, INFERRED 2026-10-30 (ADR-234 §5.9): (a) a terrain is grapy&#x27;s six grapyterrain tables in the feature dataset&#x27;s GeoPackage and a…</p><p><b>Q-199</b> — [OWNER] How grapy stores utility networks and the trace rules the pages leave open, INFERRED 2026-10-30 (ADR-231 §5.9): (a) the network&#x27;s classes are ordinary grapy classes in its feature dataset under ArcGIS&#x27;s names (WaterDevice … StructureEdgeObject), with…</p><p><b>Q-198</b> — [OWNER] How grapy stores and reads mosaic datasets, INFERRED 2026-10-30 (ADR-230 §5.9): (a) a mosaic dataset is a catalog feature table named after it in the GeoPackage — OBJECTID, the footprint, Raster holding the item&#x27;s file path and the documented fields —…</p><p><b>Q-197</b> — [OWNER] How grapy stores subtypes, defaults, GlobalIDs and attachments, INFERRED 2026-10-30 (ADR-228 §5.6): (a) grapy&#x27;s own tables grapysubtypefield, grapysubtype, grapyfielddefault, grapysubtypedomain and grapyglobalid, because no GeoPackage or GDAL…</p><p><b>Q-196</b> — [OWNER] How grapy stores and triangulates LAS datasets and TINs, INFERRED 2026-10-30 (ADR-229 §5.9): (a) a TIN is grapy&#x27;s own tables in the GeoPackage (grapytin, its inputs, nodes, triangles and enforced edges), and a folder path names &lt;folder/tin.gpkg; a…</p></article>
 <article class="card"><div class="card-h"><span class="id">An outside reviewer</span><span class="owner">1 gates</span></div><p><b>Operations</b> — Needs a deployment somebody operates.</p><p class="muted-t">§67 also still owes a review round by somebody who did not participate. Rounds 1 and 2 were self-review; round 3 was commissioned and briefed by the author.</p></article>
-<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">102 items</span></div><p><b>88 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>10 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
+<article class="card"><div class="card-h"><span class="id">Ours</span><span class="owner">101 items</span></div><p><b>88 ADR conditions</b> outstanding across 56 decisions — the largest commitment on this page.</p><p><b>9 debts</b> with their repayment triggers already written down.</p><p><b>3 capability areas</b> not started: Publishing, Observability, Resource governance.</p><p><b>1 review gates</b> nobody else is blocking: Extensibility.</p></article>
 </div>
 <h2 style="margin-top:34px">Open conditions, by decision</h2>
 <p class="sub">A condition is discharged when its text is struck through in the ADR itself. Nothing here is marked done by this page — it is counted from the decision that made the promise.</p>
@@ -470,9 +470,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <tr class=""><td class="id">D-314</td><td>The provider jobs fail a test once and pass on a rerun.</td><td class="muted-t">A third occurrence, or one that fails its rerun</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-321</td><td>A document&#x27;s item page has less than a web map&#x27;s.</td><td class="muted-t">A member asks for one of them, or the next pass over Studio&#x27;s item pages</td><td><span class="pill cond">PARTLY</span></td></tr>
 <tr class=""><td class="id">D-322</td><td>The Analyze dialog reads up to a hundred layer documents to open, and offers nothing past them.</td><td class="muted-t">A reader with more than a hundred services, or an open slower than a second.</td><td><span class="pill warn">OPEN</span></td></tr>
-<tr class=""><td class="id">D-326</td><td>An image&#x27;s ZOrder has no control in Studio.</td><td class="muted-t">A publisher asking where to set it, or the next change to Settings › Images</td><td><span class="pill warn">OPEN</span></td></tr>
 </tbody></table></div>
-<p class="sub">306 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
+<p class="sub">307 repaid — every one of them kept in the register with what it cost, because a repaid debt is evidence and this page is only the work</p>
 </section>
 <section><h2>Assumptions</h2>
 <p class="sub">Invalidating one triggers a review of every ADR that rests on it. The unvalidated majority is the honest state of the project, not an oversight.</p>
@@ -628,6 +627,8 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 </tbody></table></div>
 </section>
 <section><h2>Recent work</h2><ol class="log">
+<li><code>7cc0831b</code><time>2026-10-31</time><span>Merge branch &#x27;grapy-e&#x27; into grapy-surface</span></li>
+<li><code>e1e7082f</code><time>2026-10-31</time><span>grapy holds editor tracking, last edit time, COGO, unregistered tables, registration, views and statistics, and refuses enterprise geodatabase administration name by name (ADR-240)</span></li>
 <li><code>be238dbf</code><time>2026-10-31</time><span>The Oracle history test reads the ids its identity gave instead of assuming 1 and 2 (D-314)</span></li>
 <li><code>773840af</code><time>2026-10-31</time><span>A tool&#x27;s outputs are bounded per organisation, asked a privilege, audited under the person and withdrawn whole (D-325, ADR-223 §5.12)</span></li>
 <li><code>e8faa394</code><time>2026-10-31</time><span>The owner confirms the eight group-2 models as built: Q-196 to Q-203 are answered (ADR-228 to ADR-235)</span></li>
@@ -640,8 +641,6 @@ footer{padding:36px 0;color:var(--ink-3);font-size:13px}
 <li><code>d4476427</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-surface&#x27; into grapy-d</span></li>
 <li><code>2b4b5d52</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-b&#x27; into grapy-surface</span></li>
 <li><code>78127b61</code><time>2026-10-30</time><span>grapy runs attribute rules in its own Arcade interpreter, holds field groups, contingent values and database sequences, and refuses replicas with their reasons (ADR-235)</span></li>
-<li><code>bfc2e73c</code><time>2026-10-30</time><span>grapy holds network diagrams: templates, diagrams, rules and layouts (ADR-232)</span></li>
-<li><code>586697ec</code><time>2026-10-30</time><span>Merge branch &#x27;grapy-c&#x27; into grapy-surface</span></li>
 </ol></section>
 <footer><p>Graticula · Community License 1.1 · generated by <code>tools/status-page.py</code></p></footer>
 </main>
