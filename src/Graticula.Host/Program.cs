@@ -2261,7 +2261,17 @@ public static class Program
 
         // ADR-204 condition 9: whether the role this server reads as is one row-level security binds. Said here
         // for the same reason as the ceiling -- the connection has just been used, and nothing is serving yet.
-        await PlatformStoreRole.ReportAsync(dataSource, logger, CancellationToken.None).ConfigureAwait(false);
+        bool? bound = await PlatformStoreRole.ReportAsync(dataSource, logger, CancellationToken.None).ConfigureAwait(false);
+
+        // <b>And the refusal it promised.</b> The tenant endpoint refuses to make a second organisation over such a
+        // role, but a store that already holds several can be reached as one later -- a rollback of the serving role,
+        // an override file lost in an upgrade -- and then every organisation's pool reads every organisation's rows.
+        // Nothing is served rather than that.
+        if (PlatformStoreRole.RefusesToServe(bound, tenants))
+        {
+            Log.SeveralOrganisationsOverAnUnboundRole(logger, tenants);
+            return false;
+        }
 
         return true;
     }

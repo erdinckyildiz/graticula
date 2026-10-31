@@ -67,9 +67,26 @@ services:
       datastore:
         condition: service_healthy
     environment:
+      # <b>The role the server reads its catalogue as -- ADR-204 condition 9.</b> Unset, it is the
+      # datastore image's superuser, as on every deployment before 2026-10-31, and the server warns
+      # at startup (event 1094) that row-level security does not bind it. That is harmless while the
+      # deployment holds one organisation, and it is refused with two: the server will not make a
+      # second organisation over such a role, nor start over a store that already holds several
+      # (event 1095). Before the second organisation, hand the store to a serving role and set
+      # GIS_SERVING_ROLE and GIS_SERVING_PASSWORD -- docs/deployment.md §0.3 has the three commands.
+      # Left as the superuser by default because a volume made before then has no such role, and the
+      # switch would stop every existing deployment that pulled a new image (owner decision 2026-10-19:
+      # the switch comes with a deployment's first second organisation, not before).
       Graticula__PlatformStore: >-
+        Host=datastore;Port=5432;Database=gis;Username=${GIS_SERVING_ROLE:-gis};
+        Password=${GIS_SERVING_PASSWORD:-${GIS_DATASTORE_PASSWORD:-gis}};Search Path=gisserver,public
+
+      # What the serving role may not do and restore and backup need: create a database, put PostGIS
+      # in it, read every schema to dump it (ADR-193, amended by ADR-204). The superuser, always --
+      # while the server is itself the superuser this changes nothing.
+      Graticula__MaintenanceStore: >-
         Host=datastore;Port=5432;Database=gis;Username=gis;
-        Password=${GIS_DATASTORE_PASSWORD:-gis};Search Path=gisserver,public
+        Password=${GIS_DATASTORE_PASSWORD:-gis}
 
       # Required, and there is no default on purpose. It seals every registered
       # data source credential (ADR-002 §4.7): a default would be a published

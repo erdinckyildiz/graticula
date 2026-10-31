@@ -275,7 +275,7 @@ internal static class OAuthEndpoints
         await RecordAsync(context, audit, principal.Id, principal.Name, "oauth.signin", app.ClientId, succeeded: true, cancellation)
             .ConfigureAwait(false);
 
-        context.Response.Cookies.Delete(FormCookie, new CookieOptions { Path = CookiePath });
+        context.Response.Cookies.Delete(FormCookie, new CookieOptions { Path = context.Request.PathBase.Add(CookiePath) });
 
         if (string.Equals(request.RedirectUri, OAuthRules.OutOfBand, StringComparison.Ordinal))
         {
@@ -854,8 +854,11 @@ internal static class OAuthEndpoints
             Secure = context.Request.IsHttps,
             SameSite = SameSiteMode.Strict,
 
-            // Both sign-in addresses — `/sharing/rest/oauth2/signin` and the Python API's `/sharing/oauth2/signin` (Q-170).
-            Path = CookiePath,
+            // Both sign-in addresses — `/sharing/rest/oauth2/signin` and the Python API's `/sharing/oauth2/signin` (Q-170) —
+            // under the portal's path base: at `/studio`, the address Pro must be given (ADR-191), a cookie for `/sharing`
+            // was never sent back to `/studio/sharing/oauth2/signin`, and `GIS("https://host/studio", user, password)`
+            // was refused *Sign-in could not start* (found 2026-10-31, ADR-204 condition 3).
+            Path = context.Request.PathBase.Add(CookiePath),
             MaxAge = TimeSpan.FromMinutes(15),
         });
 
@@ -1124,10 +1127,18 @@ internal static class OAuthEndpoints
             + $"form-action 'self'{(formTarget is null ? string.Empty : " " + formTarget)}; "
             + "frame-ancestors 'none'; base-uri 'none'";
 
+        // <b>The oAuthInfo element goes first, on a line of its own</b> — found 2026-10-31 by running arcgis 2.4.3
+        // against a second organisation (ADR-204 condition 3), which failed at the main one too. The API does not look
+        // for the assignment: it takes the first `{` in the page to the last `}` on the same line
+        // (`re.search(r"\{.*\}", page, re.MULTILINE)`) and parses that as JSON. With the page on one line that was
+        // `:root{…` through the end of the element, and every password sign-in failed with *Could not login*.
+        (body, Html? info) = TakeOAuthInfo(body);
+
         string page =
             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             + "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             + $"<title>{Html.Referenced(title)}</title>"
+            + (info is null ? string.Empty : "\n" + info.Value.ToString() + "\n")
             + "<style>"
             + ":root{--ground:#f4f6f5;--card:#fff;--ink:#17262b;--muted:#5a6b70;--line:#d3dcdb;--field:#8a9a9e;--accent:#1d6a86;--bad:#a8321f}"
             + "@media (prefers-color-scheme:dark){:root{--ground:#0f171a;--card:#162226;--ink:#e1eaea;--muted:#93a5a9;--line:#2a3a3f;--field:#5b6f75;--accent:#72b8d0;--bad:#f08c78}}"
@@ -1169,7 +1180,25 @@ internal static class OAuthEndpoints
     /// script element, and an HTML escape would corrupt the JSON a client reads.
     /// </remarks>
     private static Html OAuthInfo(Dictionary<string, object?> info) =>
-        Html.Markup($"<script type=\"application/json\" id=\"oAuthInfo\">var oAuthInfo = {JsonSerializer.Serialize(info)};</script>");
+        Html.Markup($"{OAuthInfoOpen}var oAuthInfo = {JsonSerializer.Serialize(info)};</script>");
+
+    private const string OAuthInfoOpen = "<script type=\"application/json\" id=\"oAuthInfo\">";
+
+    /// <summary>Takes the <c>oAuthInfo</c> element out of a page's body, for <c>HtmlAsync</c> to put first.</summary>
+    /// <param name="body">The body as the caller built it.</param>
+    /// <returns>The body without the element, and the element, or null when there was none.</returns>
+    internal static (Html Body, Html? Info) TakeOAuthInfo(Html body)
+    {
+        string text = body.ToString();
+        int start = text.IndexOf(OAuthInfoOpen, StringComparison.Ordinal);
+        if (start < 0)
+        {
+            return (body, null);
+        }
+
+        int end = text.IndexOf("</script>", start, StringComparison.Ordinal) + "</script>".Length;
+        return (Html.Markup(text.Remove(start, end - start)), Html.Markup(text[start..end]));
+    }
 
     private static SealedState? UnsealState(string carried, SecretProtector protector)
     {

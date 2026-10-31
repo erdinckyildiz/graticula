@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <!-- A local fixture with a self-signed certificate; the rig accepts it, nothing else does. -->
+    <NoWarn>$(NoWarn);CA5359</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -646,6 +646,39 @@ own.
 3. **Every absolute address is checked under a second tenant's host**, the seven of §1b and the literal `/studio`
    links first; and what Pro, the JavaScript SDK and the ArcGIS API for Python do with `portalMode = "multitenant"` is
    measured rather than assumed.
+   **PARTLY DISCHARGED 2026-10-31.** *The addresses:* `EveryAbsoluteAddressIsTheOrganisationsHostTests` makes a second
+   organisation and reads 26 documents at its host — `/rest/info`, the portal's self, servers, search and item, the
+   pro-admin `info`, the OGC landing pages, collections and API, WFS, WMS and WMTS capabilities, the services directory
+   in JSON and HTML, the FeatureServer, MapServer and VectorTileServer documents and style — scanning every
+   `http(s)://authority` in each: none is the main organisation's, and the sixteen that carry this server's own address
+   carry the organisation's host; at the main host the same documents carry the main host (the control). The token
+   exchange takes `serverUrl` at the organisation's origin and refuses the main one's (400). All seven of §1b's pinned
+   addresses are built from the request's host, so they were right per host, as §5a reasoned; the literal `/studio`
+   links are root-relative and stay on the host they were served from. *`portalMode`:* the question as written is gone —
+   since §5e item 12 no organisation is ever told `multitenant` — so what was measured is what each client does with a
+   second organisation's portal. **Two defects were found that way, and a third on the way:**
+   - **Pro, the Python API and Field Maps could not sign in at any organisation but the first.** Their built-in OAuth
+     apps were the default organisation's rows under the floor, and `oauth2/authorize?client_id=arcgisprodesktop`
+     answered 400 at a second host. Migration 115 adds a `for select` policy that shows a built-in app to every
+     organisation; writes stay `tenant_floor`'s.
+   - **The Python API's password sign-in did not work at all, at any organisation.** arcgis 2.4.3 takes the first `{`
+     of the sign-in page to the last `}` on that line and parses it as `oAuthInfo`; the page's inline style came first
+     on the same line. And under `/studio` — the portal address ADR-191 gives Pro — the form's cookie was scoped to
+     `/sharing` and never returned to `/studio/sharing/oauth2/signin`. The element now opens the page on a line of its
+     own, the cookie is scoped under the path base, and `OAuthConformanceTests` reads the page as the API does — it read
+     it by the assignment's name and passed throughout.
+   - **`gis.content.search` returned two items five times** (found on the second organisation, true of every one):
+     the search answered `num` as the count of results sent, the API adds `num` up to `max_items` and kept asking.
+     ArcGIS Online answers the page size asked for — measured 2026-10-31, eight results with `"num": 10` — and so does
+     this server now (`PortalPage`).
+   Measured after the repairs at `https://<org>.localhost:18571/studio`: the Python API signs in by password, reads its
+   own organisation's id, `singletenant` and the organisation's host, and finds its layer twice (feature and tile
+   service); the JavaScript SDK 4.30 (`tools/sdk-probe/organisation.html`) loads the portal with its id, `singletenant`
+   and the user, searches it, loads the item's layer from the organisation's host and counts its feature. **What
+   remains:** ArcGIS Pro itself. Its sign-in page now opens at a second organisation (the 400 above), but adding a portal
+   to Pro is a change to Pro's portal list, which this work may not make — the owner's, with
+   `https://<org-host>/studio`. And the SDK did not send its token to an organisation-shared hosted service under
+   `/studio` at either organisation — [D-347](../architecture-debt.md), not a tenancy difference.
 4. **A token from one tenant opens another's host as an outsider and nothing more**, tested on every face that
    `LayerAccess` guards — not on the portal alone. *(Partly, 2026-10-22: the portal, FeatureServer, its query, MapServer,
    VectorTileServer and the administration API in `TenantsAreKeptApartTests`; by hand the same with warm caches both
@@ -707,20 +740,82 @@ own.
    `graticula_serving` (every datastore layer answered as it does on the live showcase, no permission refused), then
    the real store handed over — `gisserver` and `hosted` the role's, the `showcase` schema granted to it — and the
    server restarted on it through the VPS's `compose.override.yaml`; `compose.yaml` itself is unchanged, as decided.
-   **What remains of this condition is `compose.yaml` for everyone else**, which switches with the first second
-   organisation on a deployment.
+   ~~**What remains of this condition is `compose.yaml` for everyone else**, which switches with the first second
+   organisation on a deployment.~~
+   **DISCHARGED 2026-10-31.** *The refusal at startup:* the handshake counts the store's organisations and, with more
+   than one over a role `rolsuper` or `rolbypassrls` says is not bound, logs event 1095 (critical) and exits 1 —
+   measured on a fixture served as a bound role: an organisation made, the same build restarted as the superuser
+   `gis`, and it stopped with 1095 and exit 1; before this the handshake only warned (1094) and went on to serve
+   (`PlatformStoreRole.RefusesToServe`, held by
+   `A_server_refuses_to_start_only_over_several_organisations_and_an_unbound_role`). It closes the one route the
+   endpoint's refusal left: a store that already holds several organisations reached as a superuser later — a lost
+   override file, a rolled-back serving role. *`compose.yaml` for everyone else:* the server connects as
+   `${GIS_SERVING_ROLE:-gis}` with `${GIS_SERVING_PASSWORD}`, so the switch the owner tied to a deployment's first
+   second organisation is two lines in `.env` after the handover, not an edit of the file; unset, nothing changes for
+   an existing volume. `Graticula__MaintenanceStore` is the superuser always, so backup and restore keep working after
+   the switch. *The deployment guide* §0.3 gives the handover as three `docker compose` commands and says what the
+   server now refuses. **Not run here:** the compose file itself — this machine has no Docker; the interpolation is
+   the Compose specification's nested default, and CI's quickstart rehearsal runs the unset path on its next push.
 10. **The reach tables are kept by triggers that run as a role the floor does not bind**, and tested by sharing
     across tenants as a member who belongs to only one of them — the case that left them empty in the prototype.
+    **DISCHARGED 2026-10-31, by the form that was built rather than the one this names.** There are no reach tables and
+    no triggers (§5e item 5): the one policy that reaches across, `principal`'s, asks `sharing_group_member` and
+    `sharing_group` directly, and a membership row is written on the *group's* organisation — the column's default is
+    the connection's tenant, and a member is added by the group's administrator at the group's host — so the floor
+    shows it to that organisation's policy and to nobody else's. The prototype's trap was a derived table filled under
+    the floor by its floored owner; nothing derived is written here, so there is nothing for a floored writer to leave
+    empty. **The test the condition asks for runs on a bound role:** `TenantsAreKeptApartTests` makes a member of the
+    main organisation only, admits them to a second organisation's group by `default
+ame`, shares a layer into the
+    group, and the member reads it at the second organisation's host and nothing the second organisation shares with
+    itself — passed in the conformance run of 2026-10-31 on the grapy-d fixture served as `graticula_gd`. **Its cost,
+    which §5e item 5 left unmeasured:** in `EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests` the policy's
+    subquery is an index probe of `sharing_group_member_by_principal` per member row read, and `sharing_group` is read
+    whole at seventy groups (reported, below the scale-target threshold); at the root pool, where a session is found, it
+    never runs. The HTTP cost of the floor as a whole is condition 13's.
 11. **Every statement that runs per request keeps its index under the floor**, held by a test that reads each one's
     plan as a floored role over a catalogue at the scale target and fails on a sequential scan of a floored table.
     `FindServiceAsync` failed exactly that way in the prototype, and nothing about it looked wrong from outside.
+    **DISCHARGED 2026-10-31** — `EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests` (Postgres suite): a catalogue
+    at the scale target — 1,000 services with three layers each, 950 the default organisation's and 50 a second's,
+    1,100 members with a session each, 70 groups, every item shared into one — two roles the test makes, one the floor
+    binds and one `BYPASSRLS`, and PostgreSQL's `auto_explain` (`log_analyze`, nested statements) loaded for both and sent
+    to the client, so the plans read are the plans of the stores' own calls: `FindServiceAsync`, a layer by id,
+    `FindSessionAsync` (on the root pool, as the product runs it), `GrantsOfAsync` and `ListServicesAsync`, for each
+    organisation. It fails on a sequential scan, in a node that ran, of a floored table of at least a thousand rows that
+    the same call made without the floor did not scan; a table of a few dozen rows is reported, not failed. **The
+    control** — `lower(s.name) = lower(@name)` as the prototype wrote it — is caught each run. **And it found the
+    prototype's trap still in the product**: `FindServiceAsync` compared `lower(s.name)`, §5b's stored key had never
+    been built, and every request any face answered scanned every service — for the default organisation as well,
+    since the policy is there for both. Migration 116 keeps `service.lookup_key` by trigger, indexes it, and the lookup
+    compares it with `=`; the test failed before (service scanned for both organisations) and passes after. What it
+    reports and does not fail: `data_source` scanned under the floor (three rows here). Not covered: writes, and the
+    administrative reads, `FindAsync` by layer name among them — it scans `layer` without the floor too.
 12. **Plans are kept — Npgsql's automatic preparation on the platform pool — or the planning cost of the floor is
     accepted by name.** Measured: kept plans make the floored lookup faster than today's. Not measured: what a
     migration does to plans a running server holds, which is the reason this is a condition and not a line in
     the connection string.
+    **Still open 2026-10-31, and now for a measured reason.** Plans are not kept — no `Max Auto Prepare` on any platform
+    pool — and the planning cost cannot honestly be accepted by name while condition 13's HTTP comparison shows the
+    query 1.33–2.61× slower with ten organisations and does not say how much of that is planning. Keeping plans is also
+    worth less than it was in the prototype: each organisation's pool lets an idle connection go after ten seconds
+    (§5e departure 1), and a prepared plan dies with its connection.
 13. **The HTTP p95 of `/sharing/rest/search`, `/rest/services` and a FeatureServer `query` is measured on the built
     floor against the same build without a second tenant**, and §9's 20 % trigger is read from that rather than
     from the store statements condition 1 measured.
+    **PARTLY DISCHARGED 2026-10-31 — measured, and the trigger fires on the query; its cause is not separated.**
+    [benchmarks/tenant-http](../../benchmarks/tenant-http/RESULTS.md): the same Debug build twice, ten organisations
+    (550 + 9 × 50 services) against one (the same 1,000 services, rows moved to the default), the same signed-in requests
+    — half to one busy organisation — interleaved one, ten, one, ten because the machine was shared and noisy. At 4
+    callers the FeatureServer `query` p95 was **1.33×, 1.41× and 2.61×** with ten organisations; `/sharing/rest/search`
+    1.08–1.65× and the services directory 0.89–1.68×, inside this machine's noise (the one-organisation runs alone moved
+    from 74 to 28 requests a second). **§9's 20 % trigger therefore fires on the query.** Its remedy — the floor into the
+    stores' SQL — is not taken here, because three things differ between the two modes and the run cannot tell them
+    apart: the policies, each organisation's pool of two connections (condition 14), and the per-organisation admission
+    shares (condition 6); condition 11's plans show the floor keeping every per-request index, and the prototype
+    measured the small pool making a busy organisation queue behind itself. **What remains:** the same comparison on a
+    quiet machine with a Release build, varying one of the three at a time — and the decision §9 asks for once it is
+    known which.
 14. **The pools per tenant (§5e.1) are measured against the connection budget** — ten tenants, one busy — as condition
     1 measured the shapes it rejected; if they refuse or queue past the trigger of §9, the per-statement batch replaces
     them.
@@ -735,6 +830,17 @@ own.
     the server's ceiling reads 118 rather than 94, and against a stock PostgreSQL's 97 it says at startup that it does
     not fit — which is true, and is the configuration to change before a second organisation is served **The datastore image now starts with
     `max_connections=300`, by owner decision the same morning** — *"Postgresql in varsayılan değerini sen değiştir"*.)*
+    **Measured again 2026-10-31 at the HTTP level, and the pools fail it.**
+    [benchmarks/tenant-http](../../benchmarks/tenant-http/RESULTS.md), 64 callers, half on the default organisation:
+    with ten organisations the busy organisation's query p95 was **1.9 s against 0.44–0.64 s with one**, its search
+    6.2 s against 1.0–1.4 s, and throughput half — queueing past §9's trigger, which is this condition's own test for
+    replacing them with the per-statement batch. The second ten-organisation run also ran the shared 100-connection
+    cluster out of slots (`53300` ×172), the breaker opened 346 times, 7,037 requests were 503 and no token was signed
+    in afterwards — the misfit the startup check had named (120 against 97), on a cluster without the image's 300. At 4
+    callers nothing failed and the platform store's connections peaked at 33–36 against 18–19 with one organisation.
+    **Open:** the replacement the condition names — one pool, the tenant carried in a batch ahead of each statement —
+    is a rewrite of the stores' connectionless commands (§5e departure 1 counts about three hundred), and was not
+    started here.
 15. **Names become unique per tenant (§5b)** only after every cache keyed by a name is keyed by tenant as well, each
     shown by a test that publishes the same name in two tenants and reads each back at its own host. **PARTLY
     DISCHARGED 2026-10-22** for services and folders (§5e item 14): the five places found are keyed by organisation,
