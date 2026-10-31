@@ -243,9 +243,9 @@ None recorded.
 
 ## 11. Conditions
 
-1. **Measure the image.** Build the server image on linux/arm64 and x86-64 and record its size before and after.
+1. **Measure the image.** Build the server image on linux/arm64 and x86-64 and record its size before and after. **DISCHARGED 2026-10-31**: the release images, compressed layers summed from the registry manifests — v1.0.488 amd64 608 MB, arm64 597 MB; v1.0.489 amd64 878 MB (+270), arm64 829 MB (+232). Far below the 2 GB the owner was told; the CPU wheels are what keeps it small. torch 2.15.0+cpu and torchvision 0.29.2+cpu import and run a convolution inside the showcase's arm64 container.
 2. **Run torch inside the fence on Linux.** `test_deep_learning.TrainingInsideTheFence` trains a U-Net in a fenced tool
-   under the server's default 2 GB limit. It is skipped on Windows and has not run until CI runs it.
+   under the server's default 2 GB limit. It is skipped on Windows and has not run until CI runs it. **DISCHARGED 2026-10-31**: it ran and passed on Linux in the grapy job of CI run 41195186209 (the v1.0.489 release commit), torch 2.15.0+cpu on x86-64.
 3. **Read the Linux wheels' bundled licences.** The licences of the bundled libraries were read from the Windows CPU
    wheel; the aarch64 and x86-64 wheels the image installs (OpenBLAS, the GNU OpenMP runtime) are not read yet.
 4. **Confirm Q-218**, the INFERRED choices of §5.2–§5.6, with the owner.
