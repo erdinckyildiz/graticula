@@ -404,6 +404,20 @@ class AgainstPro(_Fixture):
         self.assertEqual(len(got), len(pro))
         np.testing.assert_allclose(got, pro, atol=2e-3)
 
+    def test_a_surface_alone_is_reached_as_pro_reaches_it(self):
+        # tools/pro-compare/adr241-da-surface.py's plane z = 0.5x + 0.3y (rows down) and bowl 0.02 r^2 on 41 x 41 cells
+        # of 1 m from the centre: Pro 3.7's float32 answers at three cells, which the four quadrant Eikonal steps
+        # missed by up to 0.3 m. grapy now takes Pro's update over the eight edge-and-diagonal triangles.
+        r, k = np.indices((41, 41), dtype=float)
+        source = one(1, (41, 41, (20, 20)))
+        for surface, place, pro in ((0.5 * k + 0.3 * r, (17, 27), 8.236873626708984),
+                                    (0.5 * k + 0.3 * r, (30, 5), 18.77499771118164),
+                                    (0.02 * ((k - 20) ** 2 + (r - 20) ** 2), (10, 33), 17.613637924194336)):
+            surface_raster = arcpy.NumPyArrayToRaster(surface.astype(np.float32), arcpy.Point(0.0, 0.0), 1.0, 1.0)
+            source = arcpy.NumPyArrayToRaster(np.where((r == 20) & (k == 20), 1, -9), arcpy.Point(0.0, 0.0), 1.0, 1.0, -9)
+            got = arcpy.RasterToNumPyArray(sa.DistanceAccumulation(source, in_surface_raster=surface_raster))
+            self.assertAlmostEqual(float(got[place]), pro, delta=2e-5)
+
     def test_the_rasters_mark_the_cells_that_hold_a_vertex(self):
         zone = cells(sa.OptimalPathAsRaster(self.destinations, self.accumulation, arcpy.Raster(self.back)))
         self.assertEqual(sum(v == 1 for row in zone for v in row), 17)
