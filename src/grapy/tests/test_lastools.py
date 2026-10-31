@@ -357,8 +357,8 @@ class Refused(unittest.TestCase):
             self.assertFalse([k for k, v in module._REFUSED.items() if "batch" in str(v)])
 
     # A schedule is not a reason (ADR-224): "not held yet", "until defined", "today", "later". The words are looked for
-    # in what every refused name of every module of arcpy-surface.json answers, as tools/grapy_refusals.py asks it —
-    # the dictionaries above missed "with today" in arcpy.da.
+    # in what every refused name of every module of arcpy-surface.json answers, as tools/grapy_refusals.py asks it,
+    # and in the whole-module refusals — the dictionaries above missed "with today" in arcpy.da.
     SCHEDULE = re.compile(r"\b(yet|today|until|later|for now|not chosen|currently|at present|eventually|so far|"
                           r"at the moment|in a later|batch)\b", re.IGNORECASE)
 
@@ -371,6 +371,8 @@ class Refused(unittest.TestCase):
             sys.path.pop(0)
         scheduled = [f"{module}.{name}: {reason}" for module, row in grapy_refusals.survey().items()
                      for name, reason in row["refused"].items() if self.SCHEDULE.search(reason)]
+        scheduled += [f"arcpy.{name}: {reason}" for name, reason in arcpy._REFUSED_MODULES.items()
+                      if self.SCHEDULE.search(reason)]
         self.assertEqual(scheduled, [])
 
     def test_the_schedule_words_are_caught(self):

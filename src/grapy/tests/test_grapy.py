@@ -93,9 +93,10 @@ class FeatureClassesAndCursors(unittest.TestCase):
             arcpy.ba.GenerateTradeAreaRings("stores", "rings")
         self.assertIn("ADR-224 group 3", str(said.exception))
         self.assertIn("arcpy.ba.GenerateTradeAreaRings", str(said.exception))
-        with self.assertRaises(NotImplementedError) as said:
-            arcpy.parcel.BuildParcelFabric("fabric")
-        self.assertIn("ADR-224 group 2", str(said.exception))
+        # Group 2's last three modules hold their data models (ADR-250 to ADR-252): none is refused whole.
+        for name in ("parcel", "topographic", "locref"):
+            self.assertNotIn(name, arcpy._REFUSED_MODULES)
+            self.assertEqual(getattr(arcpy, name).__name__, "grapy." + name)
 
     def test_hexagon_bins_count_every_feature(self):
         points = os.path.join(self.directory, "pts.gpkg")
