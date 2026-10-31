@@ -76,9 +76,9 @@ def CreateParcelFabric(target_dataset, name, config_keyword=None):
     """A parcel fabric in a feature dataset — one per dataset, in the dataset's spatial reference — with its Records,
     Points and Connections classes, its three adjustment classes, its domains and its geodatabase topology
     ``<name>_Topology``, as documented; each class has global IDs and editor tracking, and the lines are COGO
-    enabled (ADR-240). The topology starts disabled, so parcel types can be added (AddParcelType needs it disabled):
-    EnableParcelTopology turns it on (INFERRED, §5.8 (d)). ``config_keyword`` is for an enterprise geodatabase's
-    storage parameters and is refused when given."""
+    enabled (ADR-240). The topology starts enabled, as Pro 3.7's does (measured 2026-10-31, ADR-250 condition 2:
+    EnableParcelTopology on a new fabric warns that it must be disabled). ``config_keyword`` is for an enterprise
+    geodatabase's storage parameters and is refused when given."""
     from . import _gpkg
     from .management import _feature_dataset_of
     if pf.given(config_keyword):
@@ -98,8 +98,10 @@ def CreateParcelFabric(target_dataset, name, config_keyword=None):
 def AddParcelType(in_parcel_fabric, name, administrative_polygon="TOPOLOGY_POLYGON", strata_parcels="NOT_STRATA_PARCELS"):
     """A parcel type: the polygon class ``<name>`` and the line class ``<name>_Lines`` (INFERRED from the pages'
     samples, §5.8 (a)) with the documented system fields, registered with the fabric; a STRATA_PARCELS type adds
-    ``FloorOrder`` to both, and an ADMINISTRATIVE_POLYGON type's polygons stay out of the topology. The fabric's
-    topology must be disabled, as documented. Outputs the fabric, the polygon class and the line class."""
+    ``FloorOrder`` to both, and an ADMINISTRATIVE_POLYGON type's polygons stay out of the topology. The page asks for
+    the topology disabled, but Pro 3.7 adds a type to an enabled one too (measured 2026-10-31), and so does grapy:
+    the type's classes and system rules then join the topology. Outputs the fabric, the polygon class and the line
+    class."""
     fab = _fabric(in_parcel_fabric, "AddParcelType")[0]
     administrative = pf.word(administrative_polygon, "TOPOLOGY_POLYGON", ("ADMINISTRATIVE_POLYGON", "TOPOLOGY_POLYGON"),
                              "AddParcelType", "administrative_polygon") == "ADMINISTRATIVE_POLYGON"
@@ -121,15 +123,17 @@ def EnableParcelTopology(in_parcel_fabric):
     """The fabric's classes — but an administrative type's polygons — and the six system rules added to its topology:
     each topology type's lines must have their endpoints covered by the Points, must not have dangles, self-overlap
     or self-intersect, must be covered by the boundary of the type's polygons, whose boundary must be covered by the
-    lines. Connection lines take the first rule only (INFERRED, §5.8 (e))."""
+    lines. Connection lines take the first rule only (INFERRED, §5.8 (e)). On an enabled topology, Pro 3.7's warning
+    002007 (measured)."""
     fab = _fabric(in_parcel_fabric, "EnableParcelTopology")[0]
-    pf.enable_topology(fab)
+    pf.enable_topology(fab, "EnableParcelTopology")
     return Result(fab.path)
 
 
 def DisableParcelTopology(in_parcel_fabric):
     """The system rules and the fabric's classes removed from the topology; rules a user added stay, as documented,
-    and with them the classes they name (INFERRED, §5.8 (e))."""
+    and with them the classes they name (INFERRED, §5.8 (e)). On a disabled topology, Pro 3.7's warning 002006
+    (measured)."""
     fab = _fabric(in_parcel_fabric, "DisableParcelTopology")[0]
     pf.disable_topology(fab)
     return Result(fab.path)
@@ -180,8 +184,11 @@ def CreateParcelRecords(in_parcel_features, record_field=None, record_expression
 def CreateParcelSeeds(in_parcel_fabric, record_name):
     """A seed in every closed loop of current lines of the record (named without regard to case, as documented), in
     every parcel type; no seed where a parcel or seed is already there, nor in a loop of other records' or other
-    types' lines; a strata type's loops by floor (FloorOrder). A seed is a minimized polygon inside the loop
-    (INFERRED, §5.8 (i)), its record the given one."""
+    types' lines; a strata type's loops by floor (FloorOrder). A seed is a circle of radius 1 (in the fabric's
+    linear unit) at the loop's centroid, as Pro 3.7 makes it for loops 10 to 1,000 m across
+    (measured 2026-10-31; Pro's is a true circular arc, grapy's a 64-sided polygon; where the circle does not fit at
+    the centroid it goes to the pole of inaccessibility, and in a loop too narrow for it the radius is half the
+    distance to the loop, INFERRED); its record the given one."""
     from . import _parcel_build
     fab = _fabric(in_parcel_fabric, "CreateParcelSeeds")[0]
     _parcel_build.create_seeds(fab, record_name)
@@ -190,16 +197,17 @@ def CreateParcelSeeds(in_parcel_fabric, record_name):
 
 def BuildParcelFabric(in_parcel_fabric, extent=None, record_name=None):
     """Parcels built, as documented: a seed's loop of lines becomes its parcel; a parcel polygon gets a two-point line
-    for each of its boundary's segments — collinear vertices give one line, adjacent parcels share one line, which
-    takes the record with the latest Recorded Date, then the latest created record; an existing line is not made
-    again, and COGO is not filled; a missing point is made at each line's end; each record's COGO Accuracy goes to
-    its lines (where the fields exist); record polygons and counts are refreshed. Only current parcels; with an extent
-    and a record name, only parcels in both. The topology must be enabled. INFERRED (§5.8 (j)): a neighbour's corner,
-    an existing point or line end on a polygon's edge splits the line there; an administrative type is built too."""
+    for each of its boundary's segments, adjacent parcels share one line, which takes the record with the latest
+    Recorded Date, then the latest created record; an existing line is not made again, and COGO is not filled; a
+    missing point is made at each line's end; each record's COGO Accuracy goes to its lines (where the fields exist);
+    record polygons and counts are refreshed. Only current parcels; with an extent and a record name, only parcels in
+    both. As Pro 3.7 builds (measured 2026-10-31, ADR-250 condition 2): every vertex of a polygon ends a line, a
+    collinear one too; a parcel's own lines run clockwise round it; seeds become parcels only in a build named by a
+    record; and the topology need not be enabled. INFERRED (§5.8 (j)): a neighbour's corner, an existing point or
+    line end on a polygon's edge splits the line there; an administrative type is built too."""
     from . import _parcel_build
     tool = "BuildParcelFabric"
     fab = _fabric(in_parcel_fabric, tool)[0]
-    pf.require_topology(fab, True, tool)
     box = pf.extent_box(extent, tool, fab)
     guid = None
     if pf.given(record_name):
@@ -321,8 +329,8 @@ def MergeCollinearParcelBoundaries(in_parcel_boundaries, offset_tolerance):
 # ---- least squares ------------------------------------------------------------------------------------------------
 
 
-@equivalent("parametric least-squares adjustment of distances and direction sets, iterated to convergence; free "
-            "network by inner constraints; error ellipses and standardized residuals",
+@equivalent("parametric least-squares adjustment of distances and direction sets in the grid, iterated to "
+            "convergence; a free network held by every point at 10 m; error ellipses and standardized residuals",
             "Ghilani and Wolf, Adjustment Computations, 5th ed. (2010), ch. 10-21; DynAdjust user guide "
             "(Geoscience Australia)")
 def AnalyzeParcelsByLeastSquaresAdjustment(in_parcel_fabric, analysis_type, convergence_tolerance=None):
@@ -330,18 +338,28 @@ def AnalyzeParcelsByLeastSquaresAdjustment(in_parcel_fabric, analysis_type, conv
     *Adjustment Computations* (5th ed., 2010) publish it, for the DynAdjust run the pages describe. Each line with a
     distance (or a curve's chord from its radius and arc length) is a distance; at each point the directions of the
     lines of one record are a direction set with its own orientation (two lines at least); defaults 0.15 m and 30
-    seconds; ground dimensions go to the grid by Scale and Rotation. CONSISTENCY_CHECK solves the free network by
-    inner constraints; WEIGHTED_LEAST_SQUARES adds fixed points (Is Fixed, or XYZ constrained) at 5 mm and weighted
-    points (XY Accuracy) as coordinate observations, and needs two. Iterations stop when no coordinate moves more than
-    the tolerance (default 0.05 m). The three adjustment classes are rewritten; the message gives the standard error.
+    seconds; ground dimensions go to the grid by Scale and Rotation. CONSISTENCY_CHECK holds the free network by every
+    point at 10 m; WEIGHTED_LEAST_SQUARES adds control points (Adjustment Constraint XYZ constrained) at 5 mm and
+    weighted points (XY Accuracy) as coordinate observations, and with fewer than two of them holds the other points
+    at 10 m too. Iterations stop when no coordinate moves more than the tolerance (default 0.05 m), at most 15. The
+    three adjustment classes are rewritten; the messages give the unknowns, measurements, degrees of freedom and
+    standard error.
+
+    Measured beside ArcGIS Pro 3.7 on 2026-10-31 (ADR-250 condition 2) and followed: Fixed Shape alone makes no
+    control point; a set's rows are its backsight (the smallest azimuth, nothing adjusted) and the angle from each
+    direction to the next in azimuth order (standard deviation sqrt(2) times a direction's); the degrees of freedom
+    are measurements less unknown coordinates; every point of a weighted adjustment is marked for update; the points'
+    standard deviations and 95 % ellipses are a-priori, XY Uncertainty the radius of the 95 % circle; Z is reported
+    held at 5 mm. On the measured networks the coordinates and corrections agree with Pro's to 0.15 mm and 0.1",
+    the precisions to 2.5 %.
 
     The input is the whole fabric, or a layer over a parcel or line class with a selection: selected parcels give
     their lines, selected lines themselves, connection lines only when selected, current and historic alike. What
-    differs from the pages, by choice (§5.8 (p)): weighted points are grid coordinates, not geodetic latitude and
-    longitude, and are not written to AdjustmentLines; AzimuthType 2–5 is refused; the Standardized Normal Statistic is
-    the correction over its own standard deviation (the published w-test) where the page's sentence divides by the
-    adjusted measurement's; Student's t is that over the a-posteriori sigma; Pelzer's reliability the measurement's
-    standard deviation over the correction's; XY Uncertainty 2.4477 times the semi-major axis."""
+    differs from Pro, by choice (§5.8 (p)): the adjustment is in the grid, not geodetic, so weighted points are grid
+    coordinates and are not written to AdjustmentLines (Pro writes them as latitude and longitude rows); AzimuthType
+    2–5 is refused. The Standardized Normal Statistic is the correction over its own standard deviation (the published
+    w-test, which Pro's numbers follow); Student's t is that over the a-posteriori sigma; Pelzer's reliability the
+    measurement's standard deviation over the correction's."""
     from . import _parcel_build, _parcel_lsa
     tool = "AnalyzeParcelsByLeastSquaresAdjustment"
     kind = pf.word(analysis_type, None, ("CONSISTENCY_CHECK", "WEIGHTED_LEAST_SQUARES"), tool, "analysis_type")
@@ -560,8 +578,9 @@ def FindGapsAndOverlaps(in_parcel_features, out_feature_class, maximum_width=Non
     intersection of two current parcels and a gap as a hole in the union of the parcels, and keeps each that a negative
     buffer of half the maximum width (default 2 m) empties — narrower than the width (OGC Simple Features buffer and
     intersection). WITHIN_LAYER looks inside each input; BETWEEN_LAYERS also between them, filling ParcelInput1 and
-    ParcelInput2 with the inputs' names. Each output polygon's ``Type`` is Gap or Overlap (INFERRED, §5.8 (s): the
-    page shows the kind only by symbology)."""
+    ParcelInput2 with the inputs' names (WITHIN_LAYER ParcelInput1 only). Each output polygon's ``GapOverlap`` is GAP
+    or OVERLAP, as Pro 3.7 writes it (measured 2026-10-31, ADR-250 condition 2, where Pro found the same gap of 10 m²
+    and overlap of 5 m² on the tests' six boxes)."""
     from . import _parcel_io
     tool = "FindGapsAndOverlaps"
     inputs = [_resolve(v) for v in _multi(in_parcel_features)]

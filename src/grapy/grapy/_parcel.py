@@ -39,71 +39,90 @@ TABLES = ("grapy_parcel_fabric", "grapy_parcel_class")
 
 YES, NO = 1, 0
 ENTERED, FROM_GEOMETRY, COMPUTED = 1, 2, 3
-LEFT, RIGHT, CENTERED = 1, 2, 3
+# Pro 3.7 measured 2026-10-31 (ADR-250 condition 2): PF_LabelPosition is 1 Right, 2 Left, 3 Centered.
+RIGHT, LEFT, CENTERED = 1, 2, 3
 XY_FREE, XYZ_CONSTRAINED = 1, 2
 CREATED, RETIRED, CREATED_AND_RETIRED = 1, 2, 3
-DISTANCE, DIRECTION_SET, GEODETIC_LONGITUDE, GEODETIC_LATITUDE, GEODETIC_AZIMUTH, ELLIPSOID_ARC = 1, 2, 3, 4, 5, 6
+# Pro 3.7 measured: the AdjustmentLines subtypes are 1 Direction Set, 2 Distance, 3 Geodetic Latitude, 4 Geodetic
+# Longitude, and no others.
+DIRECTION_SET, DISTANCE, GEODETIC_LATITUDE, GEODETIC_LONGITUDE = 1, 2, 3, 4
 
-# The domains the schema page lists, with INFERRED codes (§5.8 (c)).
+# Pro 3.7 measured: PF_AreaUnits holds the projection engine's area unit codes, in this order and with these names.
+AREA_UNIT_NAMES = [
+    "Hectare", "Acre", "Acre US", "Square Meter", "Square Foot", "Square Foot US", "Square Foot Clarke",
+    "Square Fathom", "Square Nautical Mile", "Square Meter German", "Square Chain US", "Square Link US",
+    "Square Mile US", "Square Kilometer", "Square Yard Clarke", "Square Chain Clarke", "Square Link Clarke",
+    "Square Yard Sears", "Square Foot Sears", "Square Chain Sears", "Square Link Sears", "Square Yard Benoit A",
+    "Square Foot Benoit A", "Square Chain Benoit A", "Square Link Benoit A", "Square Yard Benoit B",
+    "Square Foot Benoit B", "Square Chain Benoit B", "Square Link Benoit B", "Square Foot 1865", "Square Foot Indian",
+    "Square Foot Indian 1937", "Square Foot Indian 1962", "Square Foot Indian 1975", "Square Yard Indian",
+    "Square Yard Indian 1937", "Square Yard Indian 1962", "Square Yard Indian 1975", "Square Mile Statute",
+    "Square Foot Gold Coast", "Square Foot British 1936", "Square Yard", "Square Yard US", "Square Chain",
+    "Square Link", "Square Yard Sears 1922 Trunc", "Square Foot Sears 1922 Trunc", "Square Chain Sears 1922 Trunc",
+    "Square Link Sears 1922 Trunc", "Square Decimeter", "Square Centimeter", "Square Millimeter", "Square Inch",
+    "Square Inch US", "Square Rod", "Square Rod US", "Square Nautical Mile US", "Square Nautical Mile UK",
+    "Square Smoot", "Square Km50", "Square Km150", "Square Vara TX", "Are", "Square DTP Point", "Square Micrometer",
+    "Square Nanometer"]
+AREA_UNIT_CODES = [(109401 + i, name) for i, name in enumerate(AREA_UNIT_NAMES)]
+
+# The domains a new fabric holds in Pro 3.7 (measured; PF_COGOAccuracy and ExportStatus are not among them).
 DOMAINS = {
     "PF_YesNo": ("Parcel Fabric Yes No", [(NO, "No"), (YES, "Yes")]),
     "PF_COGOType": ("Parcel Fabric COGO Type", [(ENTERED, "Entered"), (FROM_GEOMETRY, "From Geometry"),
                                                 (COMPUTED, "Computed")]),
-    "PF_LabelPosition": ("Parcel Fabric Label Position", [(LEFT, "Left"), (RIGHT, "Right"), (CENTERED, "Centered")]),
+    "PF_LabelPosition": ("Parcel Fabric Label Position", [(RIGHT, "Right"), (LEFT, "Left"), (CENTERED, "Centered")]),
     "PF_AdjustmentConstraint": ("Parcel Fabric Adjustment Point Constraint",
                                 [(XY_FREE, "XY free, Z constrained"), (XYZ_CONSTRAINED, "XYZ constrained")]),
-    "PF_AreaUnits": ("Parcel Fabric Area Units", [(1, "Square Meters"), (2, "Hectares"), (3, "Square Kilometers"),
-                                                  (4, "Square Feet"), (5, "Square US Survey Feet"), (6, "Acres"),
-                                                  (7, "US Survey Acres")]),
-    "PF_COGOAccuracy": ("Parcel Fabric COGO Accuracy", []),
+    "PF_AreaUnits": ("Parcel Fabric Area Units", AREA_UNIT_CODES),
 }
 EXPORT_STATUS = ("ExportStatus", "Parcel Fabric Export Status",
                  [(CREATED, "Created By Record"), (RETIRED, "Retired By Record"),
                   (CREATED_AND_RETIRED, "Created and Retired By Record")])
-MEASUREMENT_TYPES = [(DISTANCE, "Distance"), (DIRECTION_SET, "Direction Set"), (GEODETIC_LONGITUDE, "Geodetic Longitude"),
-                     (GEODETIC_LATITUDE, "Geodetic Latitude"), (GEODETIC_AZIMUTH, "Geodetic Azimuth"),
-                     (ELLIPSOID_ARC, "Ellipsoid Arc Distance")]
-# Square metres per unit of each PF_AreaUnits code.
-AREA_UNITS = {1: 1.0, 2: 1.0e4, 3: 1.0e6, 4: 0.09290304, 5: 0.09290341161327487, 6: 4046.8564224, 7: 4046.872609874252}
+MEASUREMENT_TYPES = [(DIRECTION_SET, "Direction Set"), (DISTANCE, "Distance"), (GEODETIC_LATITUDE, "Geodetic Latitude"),
+                     (GEODETIC_LONGITUDE, "Geodetic Longitude")]
 
 GUID = "Guid"
+# Field names as Pro 3.7 makes them (measured): where an alias's words differ from the physical name, the physical
+# name is Pro's (EllipseMajor, MeasurementStdDev, Residual, NormalStatistic, PelzerReliablity as Pro spells it), and
+# VALIDATIONSTATUS is on the classes that carry a validation rule (polygons, lines, connection lines), not on points.
+VALIDATION = ("VALIDATIONSTATUS", "SmallInteger")
 RECORD_FIELDS = [("Name", "String"), ("RecordType", "Integer"), ("RecordedDate", "Date"), ("ParcelCount", "Integer"),
                  ("RetiredParcelCount", "Integer")]
 POLYGON_FIELDS = [("Name", "String"), ("CreatedByRecord", GUID), ("RetiredByRecord", GUID), ("StatedArea", "Double"),
                   ("StatedAreaUnit", "Integer"), ("CalculatedArea", "Double"), ("MiscloseRatio", "Double"),
-                  ("MiscloseDistance", "Double"), ("IsSeed", "Integer"), ("ValidationStatus", "SmallInteger")]
+                  ("MiscloseDistance", "Double"), ("IsSeed", "Integer"), VALIDATION]
 COGO_FIELDS = [("Direction", "Double"), ("Distance", "Double"), ("Radius", "Double"), ("ArcLength", "Double"),
                ("Radius2", "Double")]
 CONNECTION_FIELDS = [("CreatedByRecord", GUID), ("RetiredByRecord", GUID), *COGO_FIELDS, ("COGOType", "Integer"),
                      ("IsCOGOGround", "Integer"), ("Rotation", "Double"), ("Scale", "Double"),
-                     ("DirectionAccuracy", "Double"), ("DistanceAccuracy", "Double"), ("ValidationStatus", "SmallInteger")]
+                     ("DirectionAccuracy", "Double"), ("DistanceAccuracy", "Double"), VALIDATION]
 LINE_FIELDS = [*CONNECTION_FIELDS[:-3], ("ParentLineID", GUID), ("DirectionAccuracy", "Double"),
-               ("DistanceAccuracy", "Double"), ("LabelPosition", "Integer"), ("ValidationStatus", "SmallInteger")]
+               ("DistanceAccuracy", "Double"), ("LabelPosition", "Integer"), VALIDATION]
+ELLIPSE = [("EllipseMajor", "Double"), ("EllipseMinor", "Double"), ("EllipseDirection", "Double")]
 POINT_FIELDS = [("Name", "String"), ("CreatedByRecord", GUID), ("RetiredByRecord", GUID), ("IsFixed", "Integer"),
                 ("AdjustmentConstraint", "Integer"), ("Preserve", "Integer"), ("X", "Double"), ("Y", "Double"),
                 ("Z", "Double"), ("XYAccuracy", "Double"), ("ZAccuracy", "Double"), ("XYUncertainty", "Double"),
-                ("ErrorEllipseSemiMajor", "Double"), ("ErrorEllipseSemiMinor", "Double"),
-                ("ErrorEllipseDirection", "Double"), ("ValidationStatus", "SmallInteger")]
+                *ELLIPSE]
 ADJUSTMENT_LINE_FIELDS = [("PointID", GUID), ("LineID", GUID), ("Source", "String"), ("MeasurementType", "Integer"),
                           ("Point1Name", "String"), ("Point2Name", "String"), ("Point3Name", "String"),
                           ("Measurement", "Double"), ("AdjustedMeasurement", "Double"),
-                          ("MeasurementCorrection", "Double"), ("MeasurementStandardDeviation", "Double"),
-                          ("AdjustedStandardDeviation", "Double"), ("CorrectionStandardDeviation", "Double"),
-                          ("StandardizedNormalStatistic", "Double"), ("StandardizedStudentTStatistic", "Double"),
-                          ("PelzersReliability", "Double"), ("Outlier", "Integer")]
-ADJUSTMENT_POINT_FIELDS = [("Name", "String"), ("PointID", GUID), ("Constrained", "String"), ("X", "Double"),
+                          ("MeasurementCorrection", "Double"), ("MeasurementStdDev", "Double"),
+                          ("AdjustedStdDev", "Double"), ("Residual", "Double"), ("NormalStatistic", "Double"),
+                          ("StudentStatistic", "Double"), ("PelzerReliablity", "Double"), ("Outlier", "Integer")]
+ADJUSTMENT_POINT_FIELDS = [("PointID", GUID), ("Name", "String"), ("Constrained", "String"), ("X", "Double"),
                            ("Y", "Double"), ("Z", "Double"), ("AdjustedX", "Double"), ("AdjustedY", "Double"),
-                           ("AdjustedZ", "Double"), ("XYAccuracy", "Double"), ("XYUncertainty", "Double"),
-                           ("ZAccuracy", "Double"), ("ErrorEllipseSemiMajor", "Double"),
-                           ("ErrorEllipseSemiMinor", "Double"), ("ErrorEllipseDirection", "Double"),
-                           ("ZUncertainty", "Double"), ("StdDevE", "Double"), ("StdDevN", "Double"),
-                           ("StdDevUp", "Double"), ("UpdateSource", "Integer")]
+                           ("AdjustedZ", "Double"), ("XYAccuracy", "Double"), ("ZAccuracy", "Double"),
+                           ("XYUncertainty", "Double"), ("ZUncertainty", "Double"), ("StdDevE", "Double"),
+                           ("StdDevN", "Double"), ("StdDevUp", "Double"), *ELLIPSE, ("UpdateSource", "Integer")]
 ADJUSTMENT_VECTOR_FIELDS = [("PointID", GUID)]
 
 DOMAIN_OF = {"IsSeed": "PF_YesNo", "IsCOGOGround": "PF_YesNo", "IsFixed": "PF_YesNo", "Preserve": "PF_YesNo",
              "Outlier": "PF_YesNo", "UpdateSource": "PF_YesNo", "COGOType": "PF_COGOType",
              "LabelPosition": "PF_LabelPosition", "AdjustmentConstraint": "PF_AdjustmentConstraint",
              "StatedAreaUnit": "PF_AreaUnits"}
+# The defaults Pro 3.7 gives its fields (measured).
+DEFAULTS = {"DirectionAccuracy": 30.0, "DistanceAccuracy": 0.15, "LabelPosition": RIGHT, "IsSeed": NO,
+            "AdjustmentConstraint": XY_FREE, "MeasurementType": DIRECTION_SET}
 
 # The six system rules of *Work with the geodatabase topology* — "Lines" and "Polygons" are each parcel type's own
 # classes; an administrative type's lines take the four line rules, its polygons being outside the topology, and a
@@ -309,6 +328,11 @@ def fabric(value, tool):
     return locate(value, tool)[0]
 
 
+def load(path):
+    """The fabric at ``<file>.gpkg/<dataset>/<fabric>``, read again."""
+    return fabric(path, "parcel")
+
+
 # ---- reading and writing features ---------------------------------------------------------------------------------
 
 
@@ -486,10 +510,13 @@ def refresh_records(fab, guids=None):
     """Each record's polygon, Created Parcel Count and Retired Parcel Count from the parcels associated with it: the
     polygon is the union of the parcels it created or retired; a record with no parcels takes the envelope of the
     lines it created or retired (documented for connection lines; INFERRED for parcel lines, §5.8 (h)); no polygon is
-    written for a record with more than 2,000 parcels, as documented. Seeds are not counted (INFERRED)."""
-    polygons, lines = [], []
+    written for a record with more than 2,000 parcels, as documented. A seed is counted, as Pro 3.7 counts it
+    (measured 2026-10-31: a record whose only parcel is a seed has a Created Parcel Count of 1), but gives the polygon
+    no shape (INFERRED)."""
+    polygons, lines, seeds = [], [], []
     for each in fab.types:
-        polygons.extend(f for f in read(fab.file, each.polygons) if f.get_ci("IsSeed") != YES)
+        for f in read(fab.file, each.polygons):
+            (seeds if f.get_ci("IsSeed") == YES else polygons).append(f)
         lines.extend(read(fab.file, each.lines))
     lines.extend(read(fab.file, fab.connections))
     changes = {}
@@ -499,7 +526,8 @@ def refresh_records(fab, guids=None):
             continue
         created = [p for p in polygons if same_guid(p.get_ci("CreatedByRecord"), guid)]
         retired = [p for p in polygons if same_guid(p.get_ci("RetiredByRecord"), guid)]
-        change = {"ParcelCount": len(created), "RetiredParcelCount": len(retired)}
+        seeded = sum(1 for p in seeds if same_guid(p.get_ci("CreatedByRecord"), guid))
+        change = {"ParcelCount": len(created) + seeded, "RetiredParcelCount": len(retired)}
         if len(created) + len(retired) <= RECORD_POLYGON_LIMIT:
             shapes = [p.shape for p in created + retired if p.shape is not None and not p.shape.is_empty]
             if shapes:
@@ -580,15 +608,24 @@ def contains_point(polygon, xy):
     return polygon.covers(Point(xy))
 
 
+SEED_RADIUS = 1.0
+
+
 def minimized_polygon(face):
-    """A seed's "minimized polygon" (INFERRED, §5.8 (i)): a square around the face's pole of inaccessibility, its half
-    side a tenth of the distance from there to the face's boundary, so it lies wholly inside the loop."""
+    """A seed: a circle of radius 1 around the face's pole of inaccessibility, as Pro 3.7 makes one (measured
+    2026-10-31, ADR-250 condition 2: area pi for square loops 10, 100 and 1,000 m across and a 400 by 20 m one,
+    centred in each, at the centroid of the 400 by 20 m one). Pro's is a true circular arc; a GeoPackage polygon here
+    has 64 sides. The centre is the loop's centroid where the circle fits inside there, else its pole of
+    inaccessibility; in a loop too narrow for the circle the radius is half the distance from the pole to the loop,
+    so the seed stays inside (INFERRED, §5.8 (i))."""
     from shapely.ops import polylabel
-    centre = polylabel(face, tolerance=max(math.sqrt(face.area) / 1000.0, 1e-9))
-    half = max(face.exterior.distance(centre) if face.geom_type == "Polygon" else face.boundary.distance(centre),
-               1e-9) / 10.0
-    return Polygon([(centre.x - half, centre.y - half), (centre.x + half, centre.y - half),
-                    (centre.x + half, centre.y + half), (centre.x - half, centre.y + half)])
+    centre = face.centroid
+    room = face.boundary.distance(centre) if face.covers(centre) else 0.0
+    if room <= SEED_RADIUS:
+        centre = polylabel(face, tolerance=max(math.sqrt(face.area) / 1000.0, 1e-9))
+        room = face.boundary.distance(centre)
+    radius = SEED_RADIUS if room > SEED_RADIUS else max(room, 1e-9) / 2.0
+    return centre.buffer(radius, quad_segs=16)
 
 
 # ---- creating the fabric and its parcel types ---------------------------------------------------------------------
@@ -599,7 +636,8 @@ def _columns(spec):
     return [Column(name, "Guid" if kind == GUID else kind) for name, kind in spec]
 
 
-def _domains(file):
+def _domains(file, export=False):
+    """The fabric's domains in a GeoPackage, and ``ExportStatus`` too for ExportParcelRecordFeatures' target."""
     from . import management
     connection = _gpkg.connect(file)
     try:
@@ -608,7 +646,7 @@ def _domains(file):
             held = {r[0] for r in connection.execute("select name from grapy_domains")}
     finally:
         connection.close()
-    for name, (description, codes) in [*DOMAINS.items(), (EXPORT_STATUS[0], EXPORT_STATUS[1:])]:
+    for name, (description, codes) in [*DOMAINS.items(), *([(EXPORT_STATUS[0], EXPORT_STATUS[1:])] if export else [])]:
         if name in held:
             continue
         management.CreateDomain(file, name, description, "LONG", "CODED")
@@ -621,6 +659,8 @@ def assign_domains(file, table, spec):
     for name, _ in spec:
         if name in DOMAIN_OF:
             management.AssignDomainToField(f"{file}/{table}", name, DOMAIN_OF[name])
+        if name in DEFAULTS:
+            management.AssignDefaultToField(f"{file}/{table}", name, DEFAULTS[name])
 
 
 def make_class(file, table, shape, srid, spec, cogo=False, track=True):
@@ -720,7 +760,11 @@ def create(file, dataset, name):
     finally:
         connection.close()
     _register(file, [(table, name, role, None, 0, 0) for role, table in classes.items()])
-    return Fabric(file, dataset, name, topology, 0, [])
+    # A new fabric's topology starts enabled, as Pro 3.7's does (measured 2026-10-31: EnableParcelTopology on a new
+    # fabric warns 002007 that the topology must be disabled).
+    fab = load(f"{file}/{dataset}/{name}")
+    enable_topology(fab)
+    return load(f"{file}/{dataset}/{name}")
 
 
 def require_topology(fab, enabled, tool):
@@ -730,7 +774,7 @@ def require_topology(fab, enabled, tool):
 
 
 def add_type(fab, name, administrative, strata):
-    require_topology(fab, False, "AddParcelType")
+    # Pro 3.7 adds a parcel type with the topology enabled too (measured); the type's classes and rules then join it.
     name = str(name).strip()
     if not name or "/" in name:
         raise ExecuteError(f"ERROR 000800: AddParcelType: '{name}' is not a parcel type name.")
@@ -752,6 +796,8 @@ def add_type(fab, name, administrative, strata):
     add_rules(fab.file, lines, "lines")
     _register(fab.file, [(polygons, fab.name, "polygons", name, int(administrative), int(strata)),
                          (lines, fab.name, "lines", name, int(administrative), int(strata))])
+    if fab.enabled:
+        enable_topology(load(fab.path))
     return polygons, lines
 
 
@@ -793,9 +839,13 @@ def topology_classes(fab):
     return found
 
 
-def enable_topology(fab):
-    """The fabric's classes (not an administrative type's polygons) and the six system rules added to its topology."""
+def enable_topology(fab, tool=None):
+    """The fabric's classes (not an administrative type's polygons) and the six system rules added to its topology.
+    Run by a tool on an enabled topology, Pro 3.7's warning 002007 (measured) and the classes and rules made sure of."""
     from . import _topology
+    if tool and fab.enabled:
+        from ._runtime import AddWarning
+        AddWarning("WARNING 002007: Parcel topology must be disabled.")
     connection = _gpkg.connect(fab.file)
     try:
         _topology.ensure(connection)
@@ -839,7 +889,12 @@ def _remove_from_topology(connection, fab, tables, rules_only_system=True):
 
 def disable_topology(fab):
     """The system rules and the fabric's classes taken out of the topology; a user rule stays, and with it the
-    fabric classes it names (INFERRED, §5.8 (e): a rule cannot name a class outside its topology)."""
+    fabric classes it names (INFERRED, §5.8 (e): a rule cannot name a class outside its topology). On a disabled
+    topology, Pro 3.7's warning 002006 (measured) and nothing else."""
+    if not fab.enabled:
+        from ._runtime import AddWarning
+        AddWarning("WARNING 002006: Parcel topology must be enabled.")
+        return
     connection = _gpkg.connect(fab.file)
     try:
         _remove_from_topology(connection, fab, [t for t, _ in topology_classes(fab)])

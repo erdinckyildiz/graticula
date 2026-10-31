@@ -439,7 +439,7 @@ def export_record(fab, record, target):
             dataset == fab.dataset:
         raise ExecuteError("ERROR 000800: ExportParcelRecordFeatures: the target feature dataset must not be the "
                            "parcel fabric's own.")
-    pf._domains(out_file)
+    pf._domains(out_file, export=True)
     guid = record.get_ci("GlobalID")
     status = [("ExportedStatus", "Integer")]
 
@@ -469,11 +469,11 @@ def export_record(fab, record, target):
 
 
 def _sequence_format(pattern):
-    """A format such as ``#``, ``##``, ``P#``, ``ABC-##1`` or ``#P``: the run of ``#`` (with any digits that follow it)
-    is the number, zero-padded to the run's length; the rest is kept as written (INFERRED from the page's examples,
-    §5.8 (n))."""
+    """A format such as ``#``, ``##``, ``P#``, ``ABC-##1`` or ``#P``: the run of ``#`` is the number, zero-padded to
+    the run's length, and the rest is kept as written — ``ABC-##1`` numbers ABC-011, ABC-021 …, as Pro 3.7 does
+    (measured 2026-10-31, ADR-250 condition 2)."""
     text = str(pattern) if pf.given(pattern) else "#"
-    match = re.search(r"#+\d*", text)
+    match = re.search(r"#+", text)
     if match is None:
         raise ExecuteError(f"ERROR 000800: ExportSequencedParcelFeatures: '{pattern}' has no '#' for the number.")
     width = len(match.group(0))
@@ -803,10 +803,12 @@ def gaps_and_overlaps(inputs, out, width, between):
             found.append(("Gap", touching[0] if touching else None, touching[1] if len(touching) > 1 else None, hole))
     out_file, out_table = _gpkg.split(out if ".gpkg" in out.lower() else out + ".gpkg")
     out_table = out_table or os.path.splitext(os.path.basename(out_file))[0]
-    columns = [_gpkg.Column("Type", "String"), _gpkg.Column("ParcelInput1", "String"),
+    # Pro 3.7's output (measured 2026-10-31, ADR-250 condition 2): the field GapOverlap holding GAP or OVERLAP, and
+    # ParcelInput1 naming the input in WITHIN_LAYER too.
+    columns = [_gpkg.Column("GapOverlap", "String"), _gpkg.Column("ParcelInput1", "String"),
                _gpkg.Column("ParcelInput2", "String")]
     _gpkg.create(f"{out_file}/{out_table}", "Polygon", srid, columns)
-    pf.insert(out_file, out_table, [{"Type": kind, "ParcelInput1": a if between else None,
+    pf.insert(out_file, out_table, [{"GapOverlap": kind.upper(), "ParcelInput1": a,
                                      "ParcelInput2": b if between else None, "shape": s} for kind, a, b, s in found])
     AddMessage(f"{sum(1 for f in found if f[0] == 'Gap')} gaps and {sum(1 for f in found if f[0] == 'Overlap')} "
                "overlaps found.")

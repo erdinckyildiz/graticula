@@ -56,15 +56,19 @@ def _in_scope(feature, box, guid):
 
 
 def _corners(ring, tolerance):
-    """The vertices of a closed ring that are not collinear with their neighbours (offset beyond the tolerance)."""
-    points = ring[:-1]
+    """Every vertex of a closed ring: Pro 3.7 ends a line at a collinear vertex too (measured 2026-10-31, ADR-250
+    condition 2: a parcel with a vertex in the middle of its bottom edge builds two lines and a point there)."""
     out = []
-    n = len(points)
-    for i, p in enumerate(points):
-        a, b = points[i - 1], points[(i + 1) % n]
-        if pf.offset(p, a, b) > tolerance or n <= 3:
+    for p in ring[:-1]:
+        if not out or not pf.near(p, out[-1], tolerance):
             out.append(p)
     return out
+
+
+def _clockwise(shape):
+    """A polygon with its exterior rings clockwise and its holes anticlockwise, the order in which Pro 3.7 builds a
+    parcel's lines (measured: each unshared line runs clockwise round its parcel)."""
+    return shapely.orient_polygons(shape, exterior_cw=True)
 
 
 def _pieces(ring, nodes, tolerance):
@@ -128,7 +132,10 @@ def build(fab, box, guid):
         polygons = pf.read(fab.file, each.polygons)
         lines = [f for f in pf.read(fab.file, each.lines) if pf.current(f)]
         # 1. from lines and seeds
-        seeds = [p for p in polygons if pf.current(p) and p.get_ci("IsSeed") == pf.YES and _in_scope(p, box, guid)]
+        # Pro 3.7 builds seeds only when the build names a record (measured 2026-10-31: a whole-fabric build leaves a
+        # seed a seed, enabled topology or not; the same build with the seed's record name builds it).
+        seeds = [p for p in polygons if guid is not None and pf.current(p) and p.get_ci("IsSeed") == pf.YES
+                 and _in_scope(p, box, guid)]
         changes = {}
         for seed in seeds:
             group = [ln for ln in lines if not each.strata or _floor(ln) == _floor(seed)]
@@ -168,7 +175,7 @@ def build(fab, box, guid):
         existing = {_key(snap, *pf.ends(ln.shape)) for ln in lines if ln.shape is not None}
         made = {}
         for p in scope:
-            for ring in pf.rings(p.shape):
+            for ring in pf.rings(_clockwise(p.shape)):
                 for a, b in _pieces(ring, nodes, tolerance):
                     key = _key(snap, a, b)
                     if key in existing:
@@ -311,7 +318,8 @@ def delete_parcels(fab, parcel_type, polygons):
             continue
         if point.get_ci("Preserve") == pf.YES or point.get_ci("IsFixed") == pf.YES:
             continue
-        if any(v not in (None, "") for k, v in point.items() if k.lower() not in _POINT_SYSTEM):
+        if any(v not in (None, "") for k, v in point.items() if k.lower() not in _POINT_SYSTEM
+               and not (k in pf.DEFAULTS and v == pf.DEFAULTS[k])):     # a field's default is no value of its own
             continue
         points.append(point.oid)
     pf.delete(fab.file, fab.points, points)
