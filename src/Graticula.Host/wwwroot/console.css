@@ -4232,7 +4232,7 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 /* 2026-09-28: `anywhere` also shrank the column to one character, so a short path broke mid-token
    ("datastore:5432/gi" / "s"). The string now wraps only between the pieces breakAtSeparators()
    draws, each piece stays whole, and the full value is always on screen. */
-#sources td.val .seg { white-space: nowrap; }
+#sources td.val .seg, #sources .rowmeta .seg { white-space: nowrap; }
 /* The four actions are one row, never a staircase. Remove stands a little apart because it is the
    one that cannot be undone. */
 /* Left-aligned, so Probe, Pause, Edit and Remove stand in the same place on every row: right-aligned,

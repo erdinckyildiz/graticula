@@ -845,5 +845,227 @@ class Blocks(unittest.TestCase):
         np.testing.assert_allclose(c2, c, atol=0.01)
 
 
+class BlocksSlcAndOcean(Blocks):
+    """D-328, the rest: Deburst, coherence, the interferogram, Goldstein filtering, unwrapping, flattening,
+    coregistration, the masks, indices and composites and the ocean tools read by blocks of rows (with a halo where a
+    window needs neighbours) and answer as on the whole band. Each test fails on a tool that reads a band whole: a read
+    larger than a block and its halo is caught."""
+
+    BLOCK = 7 * F.COLS + 13
+
+    def _both(self, name, run, read=None):
+        """``run(out)`` whole and in blocks of BLOCK cells; the outputs read by ``read`` (bands by default), and the
+        largest single read of the blocked run."""
+        read = read or (lambda out: {k: np.asarray(v) for k, v in _read(out).bands.items()})
+        got = []
+        largest = 0
+        for cells in (10 ** 9, self.BLOCK):
+            _sar.BLOCK_CELLS = cells
+            out = os.path.join(self.dir, f"{name}_{cells}.tif")
+            self.reads.clear()
+            run(out)
+            largest = max(self.reads) if self.reads else 0
+            got.append(read(out))
+        return got[0], got[1], largest
+
+    def _rows(self, n, m, halo):
+        """The most cells a blocked tool may read at once from an n x m band: its block's rows and the halo either side."""
+        return min(n, max(1, self.BLOCK // m) + 2 * halo) * m
+
+    def _complex(self, n, m, seed, ramp=0.0):
+        rng = np.random.default_rng(seed)
+        z = rng.normal(size=(n, m)) + 1j * rng.normal(size=(n, m))
+        return (z * np.exp(1j * ramp * np.arange(m))[None, :]).astype(np.complex64)
+
+    def test_deburst_reads_only_the_lines_each_block_of_rows_comes_from(self):
+        lpb, cols = 10, F.COLS
+        values = self._complex(30, cols, 11)
+        first_valid = [-1] + [3] * 8 + [-1]
+        last_valid = [-1] + [70] * 8 + [-1]
+        times = [F.T1 + 7 * b * F.DT for b in range(3)]
+        name = F.safe(self.dir, "SLC", {"VV": values}, rows=30, cols=cols, bursts=(lpb, times, first_valid, last_valid))
+        whole, blocked, largest = self._both("deb", lambda out: arcpy.ia.Deburst(name, out))
+        self.assertSame(whole, blocked)
+        self.assertLess(largest, 30 * cols)
+        self.assertLessEqual(largest, (self.BLOCK // cols + 3) * cols)   # a block's rows and one overlap
+
+    def test_coherence_answers_in_blocks_as_whole(self):
+        a = F.write(os.path.join(self.dir, "c1.tif"), {"VV": self._complex(F.ROWS, F.COLS, 1)}, F.meta())
+        z2 = self._complex(F.ROWS, F.COLS, 1) * 0.8 + 0.6 * self._complex(F.ROWS, F.COLS, 2)
+        b = F.write(os.path.join(self.dir, "c2.tif"), {"VV": z2.astype(np.complex64)}, F.meta())
+        whole, blocked, largest = self._both(
+            "coh", lambda out: arcpy.ia.ComputeCoherence(a, b, out, range_window_size=5, azimuth_window_size=3))
+        # the boxcar's running sums start at another row in a block, so the two agree to float rounding
+        np.testing.assert_allclose(blocked["VV"], whole["VV"], rtol=1e-6, atol=1e-7)
+        self.assertLessEqual(largest, self._rows(F.ROWS, F.COLS, 3))
+
+    def test_the_interferogram_and_its_flattened_twin_answer_in_blocks_exactly_as_whole(self):
+        a = F.write(os.path.join(self.dir, "i1.tif"), {"VV": self._complex(F.ROWS, F.COLS, 3)}, F.meta())
+        b = F.write(os.path.join(self.dir, "i2.tif"), {"VV": self._complex(F.ROWS, F.COLS, 4, 0.3)},
+                    F.meta(offset=(0.0, 150.0, 80.0)))
+        west, south, east, north = F.footprint(F.meta())
+        dem = F.dem(os.path.join(self.dir, "idem.tif"), west, south, east, north,
+                    lambda x, y: 300 * np.sin(x * 900) * np.cos(y * 700))
+
+        def run(out):
+            arcpy.ia.GenerateInterferogram(a, b, out, None, "TOPO", dem, "NONE",
+                                           out_flattened_interferogram=out[:-4] + "_flat.tif")
+
+        def read(out):
+            return {"topo": np.asarray(_read(out).bands["VV"]),
+                    "flat": np.asarray(_read(out[:-4] + "_flat.tif").bands["VV"])}
+        whole, blocked, largest = self._both("ifg", run, read)
+        self.assertSame(whole, blocked)
+        self.assertFalse(np.allclose(whole["topo"], whole["flat"]))   # the relief's phase was removed
+        self.assertLessEqual(largest, self._rows(F.ROWS, F.COLS, 0))
+
+    def test_goldstein_filtering_answers_in_blocks_as_whole(self):
+        n, m = 200, 40
+        rng = np.random.default_rng(6)
+        clean = 0.2 * np.mgrid[0:n, 0:m][1] + 0.05 * np.mgrid[0:n, 0:m][0]
+        z = (np.exp(1j * (clean + rng.normal(0, 0.8, (n, m)))) * rng.gamma(2, 1, (n, m))).astype(np.complex64)
+        z[50:53, 5:9] = np.nan
+        path = F.write(os.path.join(self.dir, "gz.tif"), {"VV": z}, F.meta(rows=n, cols=m))
+        whole, blocked, largest = self._both("gold", lambda out: arcpy.ia.ApplyComplexDataFilter(
+            path, out, alpha=0.8, inner_window_size=4, outer_window_size=16))
+        # every patch reaching a block lies whole in its window, so the patches agree exactly; only the effective
+        # coherence that chooses between the two patch sizes is a running sum, and no cell here sits on its threshold
+        self.assertSame(whole, blocked)
+        self.assertLessEqual(largest, self._rows(n, m, 16 + 8))
+
+    def test_unwrapping_reads_and_writes_in_blocks_and_answers_as_whole(self):
+        n, m = 200, 40
+        rows, cols = np.mgrid[0:n, 0:m]
+        ramp = 0.3 * cols + 0.15 * rows
+        z = np.exp(1j * ramp).astype(np.complex64)
+        z[100:104, 10:14] = 0
+        path = F.write(os.path.join(self.dir, "uz.tif"), {"VV": z}, F.meta(rows=n, cols=m))
+        whole, blocked, largest = self._both("unw", lambda out: arcpy.ia.UnwrapPhase(path, out))
+        np.testing.assert_allclose(blocked["VV"], whole["VV"], rtol=0, atol=1e-6, equal_nan=True)
+        self.assertLessEqual(largest, self._rows(n, m, 4))
+        good = ~np.isnan(whole["VV"])
+        self.assertLess(np.ptp((whole["VV"] - ramp)[good]), 1e-3)
+
+    def test_flattening_places_facets_by_blocks_exactly_as_whole(self):
+        m = F.meta(values="intensity")
+        m["calibration"] = "beta0"
+        rng = np.random.default_rng(7)
+        path = F.write(os.path.join(self.dir, "b0.tif"), {"VV": rng.gamma(3, 0.1, (F.ROWS, F.COLS)).astype(np.float32)},
+                       m)
+        west, south, east, north = F.footprint(m, margin=0.02)
+        dem = F.dem(os.path.join(self.dir, "fdem.tif"), west, south, east, north,
+                    lambda x, y: 400 + 250 * np.sin(x * 800) * np.cos(y * 600), cell=0.0002)
+
+        def run(out):
+            arcpy.ia.ApplyRadiometricTerrainFlattening(path, out, dem, "NONE", out_scattering_area=out[:-4] + "_a.tif")
+
+        def read(out):
+            return {"VV": np.asarray(_read(out).bands["VV"]),
+                    "Area": np.asarray(_read(out[:-4] + "_a.tif").bands["Area"])}
+        whole, blocked, largest = self._both("rtf", run, read)
+        self.assertSame(whole, blocked)
+        self.assertGreater(np.isfinite(whole["VV"]).mean(), 0.9)
+        self.assertLessEqual(largest, self._rows(F.ROWS, F.COLS, 0))
+
+    def test_coregistration_resamples_windows_of_the_secondary_exactly_as_whole(self):
+        ref_meta = F.meta()
+        sec_meta = F.meta(rows=F.ROWS + 10, first=F.T1 - 3 * F.DT)
+        a = F.write(os.path.join(self.dir, "cr.tif"), {"VV": self._complex(F.ROWS, F.COLS, 8)}, ref_meta)
+        b = F.write(os.path.join(self.dir, "cs.tif"), {"VV": self._complex(F.ROWS + 10, F.COLS, 9)}, sec_meta)
+        whole, blocked, largest = self._both("cor", lambda out: arcpy.ia.ApplyCoregistration(a, b, out, geoid="NONE"))
+        self.assertSame(whole, blocked)
+        self.assertLessEqual(largest, (self.BLOCK // F.COLS + 3) * F.COLS)
+
+    def test_masks_indices_and_composites_answer_in_blocks_exactly_as_whole(self):
+        rng = np.random.default_rng(10)
+        bands = {p: rng.gamma(2, 0.1, (F.ROWS, F.COLS)).astype(np.float32) for p in ("HH", "HV", "VH", "VV")}
+        quad = F.write(os.path.join(self.dir, "q.tif"), bands, F.meta(values="intensity"))
+        lon, _ = _sar.lonlat_grid(F.meta(), (F.ROWS, F.COLS))
+        cut = float(np.median(lon))
+        west, south, east, north = F.footprint(F.meta())
+        dem = F.dem(os.path.join(self.dir, "mdem.tif"), west, south, east, north,
+                    lambda x, y: np.where(x > cut, -5.0, 20.0))
+        for name, run in (("rvi", lambda out: arcpy.ia.ComputeSARIndices(quad, out, "RVI", "HH_HV_VH_VV")),
+                          ("csi", lambda out: arcpy.ia.ComputeSARIndices(quad, out, "CSI")),
+                          ("mask", lambda out: arcpy.ia.GenerateMaskedSARRaster(quad, out, "VV;HH", in_dem_raster=dem,
+                                                                                geoid="NONE"))):
+            with self.subTest(tool=name):
+                whole, blocked, largest = self._both(name, run)
+                self.assertSame(whole, blocked)
+                self.assertLessEqual(largest, self._rows(F.ROWS, F.COLS, 0))
+        from rasterio.transform import from_origin
+        dates = []
+        for k in range(3):
+            mm = F.meta(values="intensity")
+            mm["geometry"] = "map"
+            dates.append(_sar.write(os.path.join(self.dir, f"d{k}.tif"), {"VV": bands["VV"] * (k + 1)}, mm,
+                                    from_origin(30.0, 0.01, 1e-4, 1e-4), 4326))
+        whole, blocked, largest = self._both("mtc", lambda out: arcpy.ia.GenerateMultitemporalCoherence(*dates, out))
+        self.assertSame(whole, blocked)
+        self.assertLessEqual(largest, self._rows(F.ROWS, F.COLS, 0))
+
+    def _map(self, values):
+        from rasterio.transform import from_origin
+        m = F.meta(values="intensity")
+        m["geometry"] = "map"
+        cell = 10 / 111320.0
+        return _sar.write(os.path.join(self.dir, f"map{len(os.listdir(self.dir))}.tif"), {"VV": values}, m,
+                          from_origin(30.0, 0.01, cell, cell), 4326)
+
+    def test_dark_areas_are_found_and_joined_across_blocks_as_whole(self):
+        rng = np.random.default_rng(12)
+        z = rng.gamma(8, 0.125, (300, 120)).astype(np.float32)
+        z[40:160, 30:50] *= 0.1       # crosses many blocks: one area of 120 x 20 cells
+        z[200:202, 60:62] *= 0.1      # too small
+        z[240:280, 80:84] *= 0.1      # 40 x 4 cells, kept
+        path = self._map(z)
+        whole, blocked, largest = self._both(
+            "dark", lambda out: arcpy.ia.DetectDarkOceanAreas(path, out, "10000 SquareMeters"))
+        self.assertSame(whole, blocked)
+        band = whole["Dark"]
+        self.assertGreater(band[50:150, 33:47].mean(), 0.95)
+        self.assertEqual(band[201, 61], 0)
+        self.assertLessEqual(largest, self._rows(300, 120, 51))
+
+    def test_bright_objects_are_found_and_measured_across_blocks_as_whole(self):
+        rng = np.random.default_rng(13)
+        z = rng.gamma(4, 0.25, (400, 160)).astype(np.float32)
+        z[100:103, 60:70] = 40.0      # 30 m x 100 m
+        z[250:262, 20:23] = 40.0      # 120 m x 30 m, along the rows, so across blocks
+        path = self._map(z)
+
+        def read(out):
+            from grapy import da
+            with da.SearchCursor(out[:-4] + ".gpkg/ships", ["Length", "Width", "PixelCount", "MaxValue", "MeanValue",
+                                                            "SHAPE@WKT"]) as rows:
+                return list(rows)
+        whole, blocked, largest = self._both(
+            "bright", lambda out: arcpy.ia.DetectBrightOceanObjects(path, out[:-4] + ".gpkg/ships"), read)
+        self.assertEqual(whole, blocked)
+        self.assertEqual(sorted(r[2] for r in whole), [30, 36])
+        self.assertLessEqual(largest, self._rows(400, 160, 77))
+
+    def test_ocean_winds_answer_in_blocks_as_whole(self):
+        n = 120
+        m = F.meta(rows=n, cols=F.COLS, values="intensity")
+        m["calibration"] = "sigma0"
+        m["azimuth_pixel_spacing"] = 200.0    # a 3 km window of 15 rows, so a block's halo is smaller than the band
+        lon, lat = _sar.lonlat_grid(m, (n, F.COLS))
+        east = (lon - lon.mean()) * 111320 * math.cos(math.radians(lat.mean()))
+        north = (lat - lat.mean()) * 110574
+        across = east * math.cos(math.radians(30)) - north * math.sin(math.radians(30))
+        _, row_bearing = _sartools._bearings(lon, lat)
+        t = _sar.row_time(m, np.arange(n))
+        theta = _sar.incidence(m, np.repeat(t, F.COLS), np.tile(np.arange(F.COLS, dtype=float), n)).reshape(n, F.COLS)
+        sigma = _sartools.cmod5n(10.0, 30 - (row_bearing + 90.0), theta) * (1 + 0.15 * np.sin(2 * math.pi * across / 60))
+        sigma[5, 7] = np.nan
+        path = F.write(os.path.join(self.dir, "w0.tif"), {"VV": sigma.astype(np.float32)}, m)
+        whole, blocked, largest = self._both("wind", lambda out: arcpy.ia.ExtractOceanWinds(path, out))
+        for k in ("U", "V"):
+            # the 3 km window's running sums start at another row in a block: float rounding, nothing more
+            np.testing.assert_allclose(blocked[k], whole[k], rtol=1e-5, atol=1e-5, equal_nan=True)
+        self.assertLessEqual(largest, self._rows(n, F.COLS, 15 // 2 + 8))
+
+
 if __name__ == "__main__":
     unittest.main()

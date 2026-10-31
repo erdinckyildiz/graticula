@@ -3231,11 +3231,13 @@
   string into a single box, which is a format with quoting rules, a spelling for every keyword,
   and no way to be told you got it wrong except by the whole thing failing.
 
-  <b>Three controls in that picture are not drawn here, and the omissions are the design.</b>
-  *Database Platform* is a combo with one entry — v1 is PostGIS and nothing else, and
+  <b>Three controls in that picture were not drawn here, and the omissions were the design.</b>
+  *Database Platform* was a combo with one entry — v1 was PostGIS and nothing else, and
   [ADR-034](docs/adr/ADR-034-server-and-studio.md) says a
-  control is not drawn for a feature that does not exist. *Authentication Type* is the same:
-  there is one. *Save User/Password* cannot be unticked — a registered source is read by this
+  control is not drawn for a feature that does not exist. *Authentication Type* was the same.
+  Both have more than one value now (ADR-055 condition 1, 2026-10-31): a new source chooses its
+  platform in *What it is*, a correction says its platform and its authentication, and the
+  Data sources rows name both. *Save User/Password* cannot be unticked — a registered source is read by this
   server long after whoever registered it went home, so the sealed credential is what makes it a
   registration rather than a session.
 
