@@ -2423,6 +2423,14 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
     <label class="check"><input type="checkbox" id="idpStartTls" ${p && p.startTls ? "checked" : ""}
       aria-describedby="idpStartTlsHint"> Upgrade ldap:// with StartTLS</label>
     <p class="hint" id="idpStartTlsHint">Only for an ldap:// address; ldaps:// is encrypted already.</p>
+    <label for="idpTrusted">Certificate authority to trust</label>
+    <textarea id="idpTrusted" rows="3" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"
+      aria-describedby="idpTrustedHint">${h(p && p.trustedCertificate ? p.trustedCertificate.pem : "")}</textarea>
+    <p class="hint" id="idpTrustedHint">${p && p.trustedCertificate
+      ? `Trusting ${h(p.trustedCertificate.subject)} until ${h(String(p.trustedCertificate.notAfter).slice(0, 10))}. `
+      : ""}Only needed when the directory's certificate comes from an authority this server's machine does not
+      trust — usually a domain's own, as Active Directory Certificate Services issues. Paste that authority's
+      certificate in PEM. Empty trusts only what the machine trusts.</p>
     <label for="idpClient">Account that searches the directory</label>
     <input id="idpClient" type="text" spellcheck="false" autocomplete="off" value="${h(p ? p.clientId : "")}"
       placeholder="CN=graticula-reader,OU=Service,DC=contoso,DC=com" aria-describedby="idpClientHint">
@@ -2493,8 +2501,16 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
       <label for="idpGroupAttr">Their groups</label>
       <input id="idpGroupAttr" type="text" spellcheck="false" value="${h(p ? p.groupAttribute || "memberOf" : "memberOf")}"
         aria-describedby="idpGroupAttrHint">
-      <p class="hint" id="idpGroupAttrHint">memberOf lists the groups a person is directly in; groups inside groups are not
-        followed.</p>
+      <p class="hint" id="idpGroupAttrHint">memberOf lists the groups a person is directly in.</p>
+      <label class="check"><input type="checkbox" id="idpNested" ${p && p.nestedGroups ? "checked" : ""}
+        aria-describedby="idpNestedHint"> Follow groups inside groups</label>
+      <p class="hint" id="idpNestedHint">Somebody in Planners, which is itself in All-GIS, is then in All-GIS here too.
+        Active Directory only: it asks the directory one more question at each sign-in, which OpenLDAP does not
+        answer.</p>
+      <label for="idpGroupBase">Where groups are</label>
+      <input id="idpGroupBase" type="text" spellcheck="false" value="${h(p ? p.groupBase || "" : "")}"
+        placeholder="empty: the whole domain of Where people are" aria-describedby="idpGroupBaseHint">
+      <p class="hint" id="idpGroupBaseHint">Searched for groups inside groups, with everything below it.</p>
       <label for="idpSubjectAttr">What stays the same when they move or are renamed</label>
       <input id="idpSubjectAttr" type="text" spellcheck="false" value="${h(p ? p.subjectAttribute || "" : "objectGUID")}"
         aria-describedby="idpSubjectAttrHint"${p && p.accounts ? " readonly" : ""}>
@@ -2764,6 +2780,10 @@ async function saveIdp() {
     groupAttribute: $("idpGroupAttr")?.value || null,
     subjectAttribute: $("idpSubjectAttr")?.value ?? null,
     startTls: !!$("idpStartTls")?.checked,
+    // ADR-089 conditions 1 and 3: sent only from a directory's form, so another kind's save leaves them alone.
+    nestedGroups: $("idpNested") ? $("idpNested").checked : null,
+    groupBase: $("idpGroupBase") ? $("idpGroupBase").value : null,
+    trustedCertificate: $("idpTrusted") ? $("idpTrusted").value : null,
     // ADR-090
     metadataUrl: $("idpMetadataUrl")?.value.trim() || null,
     metadata: idpMetadataText ? idpMetadataText.text : null,

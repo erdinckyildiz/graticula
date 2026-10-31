@@ -287,6 +287,49 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// ADR-089 conditions 1 and 3 on screen: a new directory's form takes the certificate authority to trust beside its
+    /// address, and offers groups inside groups under Advanced — opened as a person opens it, so the box is one they can
+    /// see — and Add sends both.
+    /// </summary>
+    [Fact]
+    public async Task A_new_directory_sends_the_authority_to_trust_and_groups_inside_groups()
+    {
+        (string token, _) = await SignInAsync();
+
+        using RSA key = RSA.Create(2048);
+        using X509Certificate2 authority = new CertificateRequest("CN=zz Contoso CA", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(1));
+        string pem = authority.ExportCertificatePem();
+
+        await OpenAsync("/studio/#/signin", token);
+        await WaitForAsync(Shown("#idpNew"), "Organization › Security drew no Add a provider.");
+        await ClickAsync("#idpNew");
+        await WaitForAsync(Shown("[name=idpKind][value=ldap]"), "Add a provider offers no directory.");
+
+        await Browser.EvaluateAsync<bool>(Change("[name=idpKind][value=ldap]", "ldap"));
+        await WaitForAsync(Shown("#idpTrusted"), "A directory's form asks for no certificate authority to trust.");
+        Assert.False(await Browser.EvaluateAsync<bool>("document.getElementById('idpNested').checked"), "Groups inside groups are on for a new directory.");
+
+        await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpNested').closest('details').querySelector('summary').click(); return true; })()");
+        await WaitForAsync(Shown("#idpNested"), "Opening Advanced did not show Follow groups inside groups.");
+        await ClickAsync("#idpNested");
+
+        await Browser.EvaluateAsync<bool>("(() => {"
+            + " document.getElementById('idpName').value = 'zz Contoso';"
+            + " document.getElementById('idpIssuer').value = 'ldaps://dc01.contoso.com';"
+            + " document.getElementById('idpUserBase').value = 'OU=Staff,DC=contoso,DC=com';"
+            + $" document.getElementById('idpTrusted').value = {JsonSerializer.Serialize(pem)};"
+            + " return true; })()");
+
+        await Browser.EvaluateAsync<bool>(KeepBodies);
+        await ClickAsync("#idpSave");
+        await WaitForAsync("window.__bodies.some(b => b.includes('\\\"nestedGroups\\\":true') && b.includes('BEGIN CERTIFICATE'))",
+            "Add sent no directory with its authority to trust and groups inside groups on.");
+
+        NothingWentWrong(await PageErrorsAsync());
+    }
+
     [Fact]
     public async Task A_new_saml_provider_gives_this_servers_identifier_and_reply_url_and_asks_for_metadata()
     {

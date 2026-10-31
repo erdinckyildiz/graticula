@@ -34,6 +34,12 @@ namespace Graticula.Host;
 /// <param name="StartTls">Whether a directory's <c>ldap://</c> is upgraded with StartTLS.</param>
 /// <param name="MetadataUrl">Where a SAML provider publishes its metadata — ADR-090.</param>
 /// <param name="Metadata">A SAML provider's metadata document, uploaded where its URL cannot be reached.</param>
+/// <param name="NestedGroups">Whether a directory's groups inside groups are read too — ADR-089 condition 3; kept as
+/// it was when absent.</param>
+/// <param name="GroupBase">Where a directory's groups are searched for nested membership; kept when absent, empty for
+/// the user base's domain.</param>
+/// <param name="TrustedCertificate">A certificate authority, in PEM, a directory's TLS certificate is also checked
+/// against — ADR-089 condition 1; kept when absent, removed when empty.</param>
 internal sealed record IdentityProviderRequest(
     string? Name,
     string? Issuer,
@@ -55,7 +61,10 @@ internal sealed record IdentityProviderRequest(
     string? SubjectAttribute = null,
     bool StartTls = false,
     string? MetadataUrl = null,
-    string? Metadata = null);
+    string? Metadata = null,
+    bool? NestedGroups = null,
+    string? GroupBase = null,
+    string? TrustedCertificate = null);
 
 /// <summary>A provider's group mappings as the admin surface takes them — ADR-089.</summary>
 /// <param name="Mappings">Each: the directory's or provider's group, and the role and group here it gives.</param>
@@ -409,6 +418,16 @@ internal static partial class AdminEndpoints
             {
                 why = await directory.CheckAsync(provider, cancellation).ConfigureAwait(false);
             }
+            catch (System.DirectoryServices.Protocols.LdapException e) when (e.ErrorCode is 81 or -1
+                && (provider.Settings.Issuer.StartsWith("ldaps:", StringComparison.OrdinalIgnoreCase) || provider.Settings.Ldap?.StartTls == true))
+            {
+                // ADR-089 condition 1: a certificate the server does not trust looks to the LDAP client exactly like a
+                // directory that is not there, so the check says both.
+                why = $"{e.Message} If it is running, its certificate may be from an authority this server does not "
+                    + (string.IsNullOrWhiteSpace(provider.Settings.Ldap?.TrustedCertificate)
+                        ? "trust: give that authority as the certificate authority to trust."
+                        : "trust, or name another host than the address: check the certificate authority given and the address.");
+            }
             catch (Exception e) when (e is System.DirectoryServices.Protocols.LdapException
                 or System.DirectoryServices.Protocols.DirectoryException)
             {
@@ -552,6 +571,12 @@ internal static partial class AdminEndpoints
             ? "(&(objectClass=person)(|(sAMAccountName={0})(uid={0})(userPrincipalName={0})))"
             : request.UserFilter.Trim();
         string role = string.IsNullOrWhiteSpace(request.DefaultRole) ? Roles.Viewer : request.DefaultRole.Trim();
+
+        // ADR-089 conditions 1 and 3: what a form that does not show them leaves as it was.
+        LdapSettings? ldapBefore = before?.Settings.Ldap;
+        string trusted = (request.TrustedCertificate ?? ldapBefore?.TrustedCertificate ?? string.Empty).Trim();
+        bool nested = request.NestedGroups ?? ldapBefore?.NestedGroups ?? false;
+        string groupBase = (request.GroupBase ?? ldapBefore?.GroupBase ?? string.Empty).Trim();
         string userType = string.IsNullOrWhiteSpace(request.DefaultUserType) ? UserTypes.Unrestricted : request.DefaultUserType.Trim();
 
         string? refusal = kind is not ("oidc" or "ldap" or "saml")
@@ -562,6 +587,8 @@ internal static partial class AdminEndpoints
                 ? samlRefusal
             : directory && Graticula.Host.Ldap.LdapDirectory.AddressRefusal(issuer, request.StartTls) is { } badAddress
                 ? badAddress
+            : directory && trusted.Length > 0 && Graticula.Host.Ldap.LdapDirectory.CertificateRefusal(trusted) is { } badCertificate
+                ? badCertificate
             : kind == "oidc" && OidcClient.IssuerRefusal(issuer) is { } badIssuer
                 ? badIssuer
                 : kind == "oidc" && clientId.Length == 0
@@ -616,7 +643,10 @@ internal static partial class AdminEndpoints
                     string.IsNullOrWhiteSpace(request.DisplayAttribute) ? "displayName" : request.DisplayAttribute.Trim(),
                     string.IsNullOrWhiteSpace(request.GroupAttribute) ? "memberOf" : request.GroupAttribute.Trim(),
                     (request.SubjectAttribute ?? string.Empty).Trim(),
-                    request.StartTls)
+                    request.StartTls,
+                    nested,
+                    groupBase,
+                    trusted)
                 : null,
             samlSettings);
     }
@@ -687,6 +717,9 @@ internal static partial class AdminEndpoints
         groupAttribute = provider.Settings.Ldap?.GroupAttribute,
         subjectAttribute = provider.Settings.Ldap?.SubjectAttribute,
         startTls = provider.Settings.Ldap?.StartTls ?? false,
+        nestedGroups = provider.Settings.Ldap?.NestedGroups ?? false,
+        groupBase = provider.Settings.Ldap?.GroupBase,
+        trustedCertificate = Graticula.Host.Ldap.LdapDirectory.DescribeCertificate(provider.Settings.Ldap?.TrustedCertificate),
         saml = provider.Settings.Saml is { } saml ? DescribeSaml(provider, saml) : null,
     };
 

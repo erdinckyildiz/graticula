@@ -191,13 +191,23 @@ public sealed record SamlSettings(string MetadataUrl, string Metadata, DateTimeO
 /// <param name="GroupAttribute">The attribute that lists a person's groups.</param>
 /// <param name="SubjectAttribute">The attribute that never changes for a person, or empty for their DN.</param>
 /// <param name="StartTls">Whether an <c>ldap://</c> connection is upgraded before the password is sent.</param>
+/// <param name="NestedGroups">Whether the groups a person is in through other groups are read too — ADR-089
+/// condition 3: Active Directory's <c>LDAP_MATCHING_RULE_IN_CHAIN</c> asked of <paramref name="GroupBase"/>.</param>
+/// <param name="GroupBase">Where groups are searched for when <paramref name="NestedGroups"/> is on, or empty for the
+/// domain the user base is in (its <c>DC=</c> parts).</param>
+/// <param name="TrustedCertificate">A certificate authority this directory's TLS certificate is checked against
+/// besides the machine's own, in PEM, or empty — ADR-089 condition 1: a domain's own CA, which an operator gives
+/// here rather than to the operating system.</param>
 public sealed record LdapSettings(
     string UserBase,
     string UserFilter,
     string DisplayAttribute,
     string GroupAttribute,
     string SubjectAttribute,
-    bool StartTls);
+    bool StartTls,
+    bool NestedGroups = false,
+    string GroupBase = "",
+    string TrustedCertificate = "");
 
 /// <summary>One of a directory's or provider's groups, and what it gives here — ADR-089.</summary>
 /// <param name="ExternalGroup">The group as the directory or provider names it: a name, or a DN whose first part is.</param>

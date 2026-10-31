@@ -141,6 +141,162 @@ public sealed class DirectorySignInConformanceTests : ArcGisClient
         }
     }
 
+    /// <summary>
+    /// ADR-089 condition 3: a person in <c>Planners</c>, which is itself in <c>All-GIS</c>, is not in <c>All-GIS</c> by
+    /// <c>memberOf</c>, which lists direct groups only; with the directory's <c>nestedGroups</c> on, the server asks the
+    /// directory for transitive membership — Active Directory's <c>LDAP_MATCHING_RULE_IN_CHAIN</c> — and the mapping
+    /// on <c>All-GIS</c> applies at the next sign-in. Off, as before, nothing more is asked.
+    /// </summary>
+    [Fact]
+    public async Task Groups_inside_groups_are_followed_when_the_directory_is_set_to()
+    {
+        string root = await RequireServerAsync();
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        using FakeLdapServer ldap = new($"dc=n{suffix}");
+
+        string uid = $"nadia{suffix}";
+        string password = $"pw-{suffix}";
+        string planners = $"cn=Planners,ou=groups,{ldap.BaseDn}";
+        string dn = ldap.AddPerson(uid, password, "Nadia Nested", planners);
+        ldap.AddGroup("Planners", dn);
+        string allGis = ldap.AddGroup("All-GIS", planners);
+
+        string group = $"zz All GIS {suffix}";
+        string? providerId = null;
+        object Settings(bool nested) => new
+        {
+            kind = "ldap", name = $"zz Nested {suffix}", issuer = ldap.Address, clientId = ldap.SearchDn,
+            clientSecret = ldap.SearchPassword, userBase = $"ou=people,{ldap.BaseDn}", userFilter = "(uid={0})",
+            autoCreate = true, defaultRole = "viewer", nestedGroups = nested,
+        };
+
+        try
+        {
+            (int madeGroup, string groupSaid) = await AdminAsync(HttpMethod.Post, "/admin/groups", JsonSerializer.Serialize(new { name = group }));
+            Assert.True(madeGroup is 200 or 201, $"Making the group answered {madeGroup}: {groupSaid}");
+
+            (int made, string said) = await AdminAsync(HttpMethod.Post, "/admin/identity-providers", JsonSerializer.Serialize(Settings(false)));
+            Assert.True(made == 201, $"Adding the directory answered {made}: {said}");
+            providerId = JsonDocument.Parse(said).RootElement.GetProperty("id").GetString()!;
+
+            (int mapped, string mapSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{providerId}/groups",
+                JsonSerializer.Serialize(new { mappings = new object[] { new { externalGroup = allGis, role = "publisher", group } } }));
+            Assert.True(mapped == 200, $"Mapping answered {mapped}: {mapSaid}");
+
+            // ---- off: memberOf alone, so the group around Planners is not reached ----
+            Assert.Equal(HttpStatusCode.OK, (await PasswordAsync(root, uid, password)).Status);
+            Assert.False(await InGroupAsync(group, uid), "With nested groups off, a group inside a group was followed.");
+            Assert.Contains("viewer", (await MemberAsync(uid)).GetProperty("roles").ToString(), StringComparison.Ordinal);
+            Assert.Equal(0, ldap.ChainSearches);
+
+            // ---- on: the directory is asked for the chain, and All-GIS's mapping applies ----
+            (int changed, string changeSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{providerId}",
+                JsonSerializer.Serialize(Settings(true)));
+            Assert.True(changed == 200, $"Turning nested groups on answered {changed}: {changeSaid}");
+            Assert.True(JsonDocument.Parse(changeSaid).RootElement.GetProperty("nestedGroups").GetBoolean());
+
+            Assert.Equal(HttpStatusCode.OK, (await PasswordAsync(root, uid, password)).Status);
+            Assert.True(await InGroupAsync(group, uid), "With nested groups on, All-GIS around Planners did not join its group here.");
+            Assert.Contains("publisher", (await MemberAsync(uid)).GetProperty("roles").ToString(), StringComparison.Ordinal);
+            Assert.True(ldap.ChainSearches > 0, "The directory was never asked for transitive membership.");
+
+            // ---- a wrong password asks nothing more of it ----
+            int before = ldap.ChainSearches;
+            Assert.Equal(HttpStatusCode.Unauthorized, (await PasswordAsync(root, uid, "wrong")).Status);
+            Assert.Equal(before, ldap.ChainSearches);
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{uid}");
+            await AdminAsync(HttpMethod.Delete, $"/admin/groups/{Uri.EscapeDataString(group)}");
+            if (providerId is not null) await AdminAsync(HttpMethod.Delete, $"/admin/identity-providers/{providerId}");
+        }
+    }
+
+    /// <summary>
+    /// ADR-089 condition 1: a directory over <c>ldaps://</c> whose certificate comes from an authority nobody trusts —
+    /// one made for this run, as a domain's own CA is to a server outside the domain — is refused until that authority
+    /// is given to the server as the directory's certificate to trust, and then checks and signs somebody in. Taking it
+    /// away refuses it again: nothing but the certificate decides.
+    /// </summary>
+    [Fact]
+    public async Task A_directory_over_ldaps_is_trusted_by_the_authority_it_is_given_and_by_nothing_else()
+    {
+        string root = await RequireServerAsync();
+        string suffix = Guid.NewGuid().ToString("N")[..8];
+        using FakeLdapServer ldap = new($"dc=s{suffix}", tls: true);
+
+        string uid = $"tess{suffix}";
+        string password = $"pw-{suffix}";
+        ldap.AddPerson(uid, password, "Tess Tls");
+        string? providerId = null;
+        object Settings(string trusted) => new
+        {
+            kind = "ldap", name = $"zz Ldaps {suffix}", issuer = ldap.Address, clientId = ldap.SearchDn,
+            clientSecret = ldap.SearchPassword, userBase = $"ou=people,{ldap.BaseDn}", userFilter = "(uid={0})",
+            autoCreate = true, defaultRole = "viewer", trustedCertificate = trusted,
+        };
+
+        try
+        {
+            Assert.StartsWith("ldaps://", ldap.Address, StringComparison.Ordinal);
+
+            // ---- a certificate that is not one is refused before it is stored ----
+            (int bad, string badSaid) = await AdminAsync(HttpMethod.Post, "/admin/identity-providers",
+                JsonSerializer.Serialize(Settings("not a certificate")));
+            Assert.True(bad == 400, $"A certificate that is not one answered {bad}: {badSaid}");
+
+            // ---- without the authority: the handshake is refused, so the check fails and nobody signs in ----
+            (int made, string said) = await AdminAsync(HttpMethod.Post, "/admin/identity-providers", JsonSerializer.Serialize(Settings("")));
+            Assert.True(made == 201, $"Adding the directory answered {made}: {said}");
+            providerId = JsonDocument.Parse(said).RootElement.GetProperty("id").GetString()!;
+
+            (int untrusted, string untrustedSaid) = await AdminAsync(HttpMethod.Post, $"/admin/identity-providers/{providerId}/check");
+            Assert.True(untrusted != 200, $"A directory whose certificate nothing trusts was checked as fine: {untrustedSaid}");
+            Assert.Equal(HttpStatusCode.Unauthorized, (await PasswordAsync(root, uid, password)).Status);
+            Assert.Equal(0, ldap.PersonBinds);
+            Assert.True(ldap.RefusedHandshakes > 0, "The refusal was not the TLS handshake's.");
+
+            // ---- given the authority: the check passes and the person signs in over TLS ----
+            (int trusted, string trustedSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{providerId}",
+                JsonSerializer.Serialize(Settings(ldap.Tls!)));
+            Assert.True(trusted == 200, $"Giving the authority answered {trusted}: {trustedSaid}");
+            Assert.Contains("Graticula test directory CA",
+                JsonDocument.Parse(trustedSaid).RootElement.GetProperty("trustedCertificate").GetProperty("subject").GetString(),
+                StringComparison.Ordinal);
+
+            (int checkedIt, string checkSaid) = await AdminAsync(HttpMethod.Post, $"/admin/identity-providers/{providerId}/check");
+            Assert.True(checkedIt == 200, $"Checking the directory with its authority given answered {checkedIt}: {checkSaid}");
+
+            (HttpStatusCode signed, string? token) = await PasswordAsync(root, uid, password);
+            Assert.True(signed == HttpStatusCode.OK, $"Signing in over ldaps:// answered {(int)signed}.");
+            Assert.NotNull(token);
+            Assert.Equal(1, ldap.PersonBinds);
+
+            // ---- a form that does not send it keeps it ----
+            (int kept, string keptSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{providerId}",
+                JsonSerializer.Serialize(new
+                {
+                    kind = "ldap", name = $"zz Ldaps {suffix}", issuer = ldap.Address, clientId = ldap.SearchDn,
+                    userBase = $"ou=people,{ldap.BaseDn}", userFilter = "(uid={0})", autoCreate = true, defaultRole = "viewer",
+                }));
+            Assert.True(kept == 200, $"Saving without the certificate answered {kept}: {keptSaid}");
+            Assert.Equal(JsonValueKind.Object, JsonDocument.Parse(keptSaid).RootElement.GetProperty("trustedCertificate").ValueKind);
+
+            // ---- taken away: refused again ----
+            (int removed, string removedSaid) = await AdminAsync(HttpMethod.Put, $"/admin/identity-providers/{providerId}",
+                JsonSerializer.Serialize(Settings("")));
+            Assert.True(removed == 200, $"Removing the authority answered {removed}: {removedSaid}");
+            Assert.True((await AdminAsync(HttpMethod.Post, $"/admin/identity-providers/{providerId}/check")).Item1 != 200,
+                "With the authority taken away the directory was still trusted.");
+        }
+        finally
+        {
+            await AdminAsync(HttpMethod.Delete, $"/admin/members/{uid}");
+            if (providerId is not null) await AdminAsync(HttpMethod.Delete, $"/admin/identity-providers/{providerId}");
+        }
+    }
+
     [Fact]
     public async Task An_account_with_a_password_here_is_never_asked_of_the_directory()
     {
