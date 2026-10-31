@@ -117,7 +117,7 @@ what requiring it means. **Rotation** is `POST /admin/identity-providers/{id}/sa
 published at once and the one before it is kept to open assertions still encrypted to it, until the next rotation drops
 it — so a provider that reads the new metadata later does not break sign-in in between. The keys are never shown: the
 admin surface says each one's certificate subject, SHA-256, when it was made and its certificate's end. The console's
-SAML form has *Require encrypted assertions*, what the key is, and *Make a new key*. A key an organisation brings from
+SAML form has *Require encrypted assertions*, what the key is, *Make a new key*, and the certificate alone as a `.cer` (`GET /rest/auth/saml/{id}/encryption.cer`, public as the metadata is), because Entra ID's Token encryption takes an upload rather than SP metadata; the design review of 2026-10-31 asked for that, for a new key that leaves unsaved edits alone, and for the nested-groups controls to open when they are set. A key an organisation brings from
 its own PKI is not taken; nothing asked has needed one, and the providers named take whatever certificate the SP
 metadata gives them.
 

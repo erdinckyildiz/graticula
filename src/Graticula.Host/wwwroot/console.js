@@ -2418,13 +2418,14 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
     <h5>3. Encryption</h5>
     <label class="check"><input type="checkbox" id="idpEncrypt" ${p && p.saml && p.saml.encryptAssertions ? "checked" : ""}
       aria-describedby="idpEncryptHint"> Require encrypted assertions</label>
-    <p class="hint" id="idpEncryptHint">The provider then encrypts what it says about each person to a key this server
-      makes for it, and a response sent unencrypted is refused. The key's certificate is in this server's metadata:
-      give the provider the metadata again after turning this on, or upload the certificate there.${samlKeyHeld(p)}</p>
-    ${p && p.saml && p.saml.encryptionKey ? `<button type="button" class="ghost tiny" id="idpRotateKey"
-      aria-describedby="idpRotateKeyHint">Make a new key</button>
-    <p class="hint" id="idpRotateKeyHint">The new key's certificate replaces this one in the metadata at once. The
-      current key keeps opening assertions until the next new key, so there is time to update the provider.</p>` : ""}
+    <p class="hint" id="idpEncryptHint">The provider encrypts each sign-in to a certificate this server makes, and an
+      unencrypted one is refused. AD FS: update the relying party trust from this server's metadata. Entra ID: upload
+      the certificate under Token encryption.${samlKeyHeld(p)}</p>
+    ${p && p.saml && p.saml.encryptionKey ? `<div class="row left">
+      ${p.saml.encryptAssertions ? `<a id="idpKeyCert" href="/rest/auth/saml/${h(p.id)}/encryption.cer" download>Download the certificate (.cer)</a>` : ""}
+      <button type="button" class="ghost tiny" id="idpRotateKey" aria-describedby="idpRotateKeyHint">Make a new key</button></div>
+    <p class="hint" id="idpRotateKeyHint">A new key's certificate replaces this one in the metadata at once. This key
+      still decrypts until you make another, so there is time to update the provider.</p>` : ""}
 ` : kind === "ldap" ? `    <h5>The directory</h5>
     <label for="idpIssuer">Address</label>
     <input id="idpIssuer" type="text" required spellcheck="false" value="${h(p ? p.issuer : "")}"
@@ -2438,7 +2439,7 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
     <textarea id="idpTrusted" rows="3" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"
       aria-describedby="idpTrustedHint">${h(p && p.trustedCertificate ? p.trustedCertificate.pem : "")}</textarea>
     <p class="hint" id="idpTrustedHint">${p && p.trustedCertificate
-      ? `Trusting ${h(p.trustedCertificate.subject)} until ${h(String(p.trustedCertificate.notAfter).slice(0, 10))}. `
+      ? `Trusting ${h(p.trustedCertificate.subject)} until ${h(day(p.trustedCertificate.notAfter))}. `
       : ""}Only needed when the directory's certificate comes from an authority this server's machine does not
       trust — usually a domain's own, as Active Directory Certificate Services issues. Paste that authority's
       certificate in PEM. Empty trusts only what the machine trusts.</p>
@@ -2506,7 +2507,7 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
       <select id="idpType">${idpMeta.userTypes.map(t => `<option ${p ? (p.defaultUserType === t ? "selected" : "") : (t === "unrestricted" ? "selected" : "")}>${h(t)}</option>`).join("")}</select>
     </div>
 
-    ${kind === "ldap" ? `<details><summary>Advanced: the attributes read from a person's entry</summary>
+    ${kind === "ldap" ? `<details${p && (p.nestedGroups || p.groupBase) ? " open" : ""}><summary>Advanced: attributes and nested groups</summary>
       <label for="idpDisplayAttr">A name to show</label>
       <input id="idpDisplayAttr" type="text" spellcheck="false" value="${h(p ? p.displayAttribute || "displayName" : "displayName")}">
       <label for="idpGroupAttr">Their groups</label>
@@ -2516,12 +2517,13 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
       <label class="check"><input type="checkbox" id="idpNested" ${p && p.nestedGroups ? "checked" : ""}
         aria-describedby="idpNestedHint"> Follow groups inside groups</label>
       <p class="hint" id="idpNestedHint">Somebody in Planners, which is itself in All-GIS, is then in All-GIS here too.
-        Active Directory only: it asks the directory one more question at each sign-in, which OpenLDAP does not
-        answer.</p>
+        Active Directory only: it asks the directory one more question at each sign-in
+        (LDAP_MATCHING_RULE_IN_CHAIN), which OpenLDAP does not answer.</p>
       <label for="idpGroupBase">Where groups are</label>
       <input id="idpGroupBase" type="text" spellcheck="false" value="${h(p ? p.groupBase || "" : "")}"
-        placeholder="empty: the whole domain of Where people are" aria-describedby="idpGroupBaseHint">
-      <p class="hint" id="idpGroupBaseHint">Searched for groups inside groups, with everything below it.</p>
+        placeholder="Empty: the domain of Where people are" aria-describedby="idpGroupBaseHint">
+      <p class="hint" id="idpGroupBaseHint">Where nested groups are looked up, including everything below it. Used only
+        with Follow groups inside groups.</p>
       <label for="idpSubjectAttr">What stays the same when they move or are renamed</label>
       <input id="idpSubjectAttr" type="text" spellcheck="false" value="${h(p ? p.subjectAttribute || "" : "objectGUID")}"
         aria-describedby="idpSubjectAttrHint"${p && p.accounts ? " readonly" : ""}>
@@ -2596,7 +2598,6 @@ document.addEventListener("input", e => {
 /** Entra ID's groups attribute: the default a SAML provider is given, as the server gives it (ADR-090). */
 const SAML_GROUPS = "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups";
 
-/** What the form says about a SAML provider's metadata held — ADR-090: whose, from where, and until when it holds. */
 /** What a SAML provider's encryption key is: when it was made and how long its certificate says it is good for. */
 function samlKeyHeld(p) {
   const key = p && p.saml && p.saml.encryptionKey;
@@ -2606,6 +2607,7 @@ function samlKeyHeld(p) {
     + (previous ? ` The key before it, made ${h(day(previous.created))}, still opens assertions.` : "");
 }
 
+/** What the form says about a SAML provider's metadata held — ADR-090: whose, from where, and until when it holds. */
 function samlHeld(p) {
   if (idpMetadataText) return `Read ${h(idpMetadataText.name)}; it is checked when you save.`;
   const s = p && p.saml;
@@ -5139,6 +5141,8 @@ const itemIds = new Map();
 /** What the recycle bin last answered — ADR-203; null until it is read. */
 let recycleEntries = null;
 let recycleRetention = 14;
+/** Whether the server has said how long the bin keeps things; until it has, a sentence leaves the number out. */
+let recycleRetentionRead = false;
 
 /** What a bin entry's kind is called on screen. */
 const RECYCLE_KINDS = {
@@ -5150,6 +5154,7 @@ async function loadRecycleBin() {
   const answer = await api("/admin/recycle-bin") || {};
   recycleEntries = answer.entries || [];
   recycleRetention = answer.retentionDays || recycleRetention;
+  recycleRetentionRead = recycleRetentionRead || !!answer.retentionDays;
   drawRecycleBin();
   const count = document.querySelector('#contentScopes a[data-content-scope="recycle"]');
   if (count) count.innerHTML = `Recycle bin <span class="count">${num(recycleEntries.length)}</span>`;
@@ -5377,6 +5382,7 @@ async function loadMyContent() {
   if (bin) {
     recycleEntries = bin.entries || [];
     recycleRetention = bin.retentionDays || recycleRetention;
+    recycleRetentionRead = recycleRetentionRead || !!bin.retentionDays;
   }
 
   // `content` still keys by layer name for the map, which reads it by name when a row is drawn. The
@@ -31270,13 +31276,18 @@ async function handleClick(event) {
   if (t.id === "idpRotateKey") {
     const p = idpList.find(x => x.id === idpEditing);
     if (!p || !confirm(`Make a new encryption key for ${p.name}? Its certificate replaces the current one in this `
-      + "server's metadata at once; give the provider the new metadata. The current key keeps working until the next new key.")) return;
+      + "server's metadata now. The current key still decrypts until you make another, so update the provider before then.")) return;
     t.disabled = true;
     try {
-      await api(`/admin/identity-providers/${p.id}/saml/encryption-key`, { method: "POST" });
-      await loadSignin();
-      idpSay(`${p.name} has a new encryption key. Give the provider this server's metadata again so it encrypts to it.`);
-      ($("idpRotateKey") || $("idpEncrypt"))?.focus();
+      // Only the key's sentence is redrawn: the rest of the form may hold edits not yet saved (design review 2026-10-31).
+      const saved = await api(`/admin/identity-providers/${p.id}/saml/encryption-key`, { method: "POST" });
+      const at = idpList.findIndex(x => x.id === p.id);
+      if (saved && saved.id && at >= 0) idpList[at] = saved;
+      const hint = $("idpEncryptHint");
+      if (saved && saved.id && hint) hint.innerHTML = hint.innerHTML.replace(/ This server's key was made[\s\S]*$/, "") + samlKeyHeld(saved);
+      t.disabled = false;
+      idpSay(`${p.name} has a new encryption key. Give the provider this server's metadata or certificate again so it encrypts to it.`);
+      t.focus();
     } catch (e) {
       t.disabled = false;
       idpSay(e.message, true);
@@ -39248,8 +39259,9 @@ document.addEventListener("click", async event => {
 
   if (t.id === "tbDelete") {
     // ADR-203, D-346: a toolbox waits in the recycle bin as every other item does, and comes back with its name and id.
-    if (!confirm(`Delete the toolbox ${toolbox.title}? It waits in the recycle bin for ${num(recycleRetention)} days with `
-      + `its service, and can be restored from there. Layers its runs made stay where they are.`)) return;
+    if (!confirm(`Delete the toolbox ${toolbox.title}? It and its service go to the recycle bin`
+      + (recycleRetentionRead ? ` for ${num(recycleRetention)} days` : "")
+      + `, where they can be restored. Layers its runs made are kept.`)) return;
     try {
       await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}`, { method: "DELETE" });
       toast(`${toolbox.title} is in the recycle bin.`, true);

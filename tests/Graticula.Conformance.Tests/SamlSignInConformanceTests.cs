@@ -154,6 +154,13 @@ public sealed class SamlSignInConformanceTests : ArcGisClient
             Assert.NotNull(first);
             Assert.Equal(Convert.ToHexString(SHA256.HashData(first!.RawData)), described.GetProperty("encryptionKey").GetProperty("sha256").GetString());
 
+            // The same certificate alone, for a provider that takes an upload rather than metadata (Entra ID).
+            using (HttpClient anyone = new(new HttpClientHandler { ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator }))
+            {
+                byte[] cer = await anyone.GetByteArrayAsync(new Uri($"{root}/rest/auth/saml/{id}/encryption.cer"));
+                Assert.Equal(first.RawData, cer);
+            }
+
             Assert.Equal($"eve{suffix}", await SignInAsync($"eve{suffix}@example.org", first));
             Assert.Null(await SignInAsync($"clear{suffix}@example.org", null));
 

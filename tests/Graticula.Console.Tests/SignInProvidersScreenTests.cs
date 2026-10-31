@@ -399,6 +399,15 @@ public sealed class SignInProvidersScreenTests : ConsoleTest
             await WaitForAsync("(document.getElementById('idpEncryptHint')?.textContent || '').includes('good until')",
                 "The encryption hint does not say until when the key's certificate is good.");
             await WaitForAsync(Shown("#idpRotateKey"), "A provider with a key offers no new key.");
+            await WaitForAsync(Shown("#idpKeyCert"), "A provider requiring encryption offers no certificate to download.");
+
+            // A new key leaves what has been typed but not saved where it is (design review 2026-10-31).
+            await Browser.EvaluateAsync<bool>("(() => { document.getElementById('idpName').value = 'zz typed, not saved'; return true; })()");
+            await ClickAsync("#idpRotateKey");
+            await WaitForAsync("(window.__writes || []).some(w => w.startsWith('POST') && w.includes('/saml/encryption-key'))",
+                "Make a new key sent nothing.");
+            Assert.Equal("zz typed, not saved", await Browser.EvaluateAsync<string>("document.getElementById('idpName').value"));
+            await Browser.EvaluateAsync<bool>($"(() => {{ document.getElementById('idpName').value = {JsonSerializer.Serialize(name)}; return true; }})()");
 
             await Browser.EvaluateAsync<bool>(KeepBodies);
             await ClickAsync("#idpSave");

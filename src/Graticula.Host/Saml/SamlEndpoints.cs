@@ -79,6 +79,27 @@ internal static class SamlEndpoints
         app.MapGet("/rest/auth/saml/{id:guid}/start", StartAsync);
         app.MapPost(AcsPath, AssertionConsumerAsync).DisableAntiforgery();
         app.MapGet("/rest/auth/saml/{id:guid}/metadata", MetadataAsync);
+        app.MapGet("/rest/auth/saml/{id:guid}/encryption.cer", EncryptionCertificateAsync);
+    }
+
+    /// <summary>
+    /// The certificate a provider encrypts to, alone, as a DER <c>.cer</c> — ADR-090 condition 3: Entra ID's Token
+    /// encryption takes an uploaded certificate and does not read SP metadata. Public, as the metadata that carries it is.
+    /// </summary>
+    private static async Task EncryptionCertificateAsync(HttpContext context, Guid id, IIdentityProviderStore store, CancellationToken cancellation)
+    {
+        if (await store.FindAsync(id, cancellation).ConfigureAwait(false) is not { Settings: { Kind: "saml", Saml: { } saml } }
+            || SamlEncryption.Published(saml) is not { } certificate)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        using (certificate)
+        {
+            context.Response.Headers.ContentDisposition = "attachment; filename=\"graticula-saml-encryption.cer\"";
+            await Results.Bytes(certificate.RawData, "application/pkix-cert").ExecuteAsync(context).ConfigureAwait(false);
+        }
     }
 
     /// <summary>Where a provider posts its response, for the operator to register with it.</summary>
