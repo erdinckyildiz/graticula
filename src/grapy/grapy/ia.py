@@ -49,6 +49,12 @@ AnalyzeChangesUsingCCDC = _change_tools.AnalyzeChangesUsingCCDC
 AnalyzeChangesUsingLandTrendr = _change_tools.AnalyzeChangesUsingLandTrendr
 DetectChangeUsingChangeAnalysis = _change_tools.DetectChangeUsingChangeAnalysis
 DetectChangeUsingChangeAnalysisRaster = _change_tools.DetectChangeUsingChangeAnalysisRaster
+from . import _mdmore as _md_more  # noqa: E402 — D-329's sweep
+
+Foreach = _md_more.Foreach
+Subset = _md_more.Subset
+SummarizeCategoricalRaster = _md_more.SummarizeCategoricalRaster
+Complex = _md_more.Complex
 
 
 def __getattr__(name):

@@ -100,8 +100,9 @@ class DaMore(unittest.TestCase):
         two = arcpy.da.NumPyArrayToFeatureClass(columns, os.path.join(self.directory, "two.gpkg"), ("x", "y"))
         with arcpy.da.SearchCursor(two, ["SHAPE@XY"]) as rows:
             self.assertEqual(next(rows)[0], (5.0, 6.0))
-        with self.assertRaisesRegex(arcpy.NotBuiltError, "z and m"):
-            arcpy.da.NumPyArrayToFeatureClass(columns, os.path.join(self.directory, "z.gpkg"), ("x", "y", "x"))
+        z = arcpy.da.NumPyArrayToFeatureClass(columns, os.path.join(self.directory, "z.gpkg"), ("x", "y", "x"))
+        with arcpy.da.SearchCursor(z, ["SHAPE@Z"]) as rows:
+            self.assertEqual(next(rows)[0], 5.0)
 
     def test_extend_table(self):
         extra = np.array([("a", 10), ("zz", 99)], dtype=[("key", "<U4"), ("score", np.int32)])
@@ -185,8 +186,8 @@ class CreateTableAsDocumented(unittest.TestCase):
         fc, _ = arcpy.da.CreateTable(os.path.join(directory, "p.gpkg"), [("v", "DOUBLE")], ("POLYGON", 4326))
         described = arcpy.Describe(fc)
         self.assertEqual((described.shapeType, described.spatialReference.factoryCode), ("Polygon", 4326))
-        with self.assertRaises(NotImplementedError):
-            arcpy.da.CreateTable(os.path.join(directory, "z.gpkg"), None, ("POINT", 4326, True))
+        z, _ = arcpy.da.CreateTable(os.path.join(directory, "z.gpkg"), None, ("POINT", 4326, True))
+        self.assertTrue(arcpy.Describe(z).hasZ)
         with self.assertRaises(RuntimeError):
             arcpy.da.CreateTable(path)
 

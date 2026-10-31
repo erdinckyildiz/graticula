@@ -873,19 +873,22 @@ def LocateLasPointsByProximity(in_las_dataset, in_features, search_radius, count
     as MULTIPOINT rows; with ``class_code`` they are reclassified in their files. The layer's filters are honoured, as
     documented.
 
-    Refused: polygon and multipatch features — the page does not say whether a 3D polygon's distance is measured to its
-    outline or its surface, and grapy holds no multipatch.
+    Multipatch features (ADR-238) are measured to their nearest face, a multipatch being its faces.
+
+    Refused: polygon features — the page does not say whether a 3D polygon's distance is measured to its outline or
+    its surface.
 
     INFERRED: the radius is measured in 3D and includes its edge; MULTIPOINT is the default, the page giving none, and
-    writes one multipoint for each feature with points near it; POINT writes each point found once."""
+    writes one multipoint for each feature with points near it; POINT writes each point found once; a point inside a
+    closed multipatch is measured to its nearest face too, not 0 (Q-209 (k))."""
     from . import da
     from .analysis import _schema
     from ._tintools import _ensure_fields, _write
     columns, kind, srid, _ = _schema(in_features)
-    if kind not in ("Point", "Multipoint", "Polyline"):
+    if kind not in ("Point", "Multipoint", "Polyline", "MultiPatch"):
         _refuse("ddd", "LocateLasPointsByProximity", "in_features", in_features,
                 f"its features are {kind.lower()}s; the page does not say whether a 3D polygon's distance is to its "
-                "outline or its surface, and grapy holds no multipatch")
+                "outline or its surface")
     names = {c.name.lower(): c.name for c in columns}
     by_field = isinstance(search_radius, str) and search_radius.lower() in names
     field = str(count_field) if _given(count_field) else "COUNT"
@@ -905,7 +908,11 @@ def LocateLasPointsByProximity(in_las_dataset, in_features, search_radius, count
                 raise ExecuteError("ERROR: LocateLasPointsByProximity needs z-enabled features, as documented.")
             radius = float(row[0]) if by_field else _length(search_radius)
             close = np.nonzero(shapely.dwithin(shapely.force_2d(shape), xy, radius))[0]
-            d = _distance_3d(xyz[close], shape)
+            if kind == "MultiPatch":
+                from . import _multipatch, _mpmore
+                d = _mpmore.distance_to_faces(xyz[close], _multipatch.triangles(shape))
+            else:
+                d = _distance_3d(xyz[close], shape)
             hit = close[d <= radius]
             nearest[hit] = np.minimum(nearest[hit], d[d <= radius])
             groups.append(hit)
@@ -1113,14 +1120,21 @@ def ExtractObjectsFromPointCloud(in_point_cloud, class_codes_to_extract, cluster
     CENTERPOINT, BOUNDING_CIRCLE, BOUNDING_BOX_2D, CONVEX_HULL_2D or CONCAVE_HULL_2D, the alpha radius the given one or
     the clustering distance, as documented, with ``ObjectCode``, ``COUNT``, ``ALPHA`` (concave hulls) and ``MIN_Z`` and
     ``MAX_Z`` (polygons). ``min_height`` and ``max_height`` rasters keep only the points above, and below, them.
+    BOUNDING_BOX_2D is the smallest oriented rectangle, as documented (rotating calipers, Freeman and Shapira 1975).
+    The 3D types write multipatch features (ADR-238): CONVEX_HULL_3D, the default (Qhull); BOUNDING_SPHERE, the
+    smallest enclosing sphere (Welzl 1991); CONCAVE_HULL_3D, the alpha shape (Edelsbrunner and Mücke 1994), its radius
+    the given one or the clustering distance divided by the vertical scale factor, as documented, and the convex hull
+    when that factor is 0, as documented.
 
-    Refused: the 3D geometry types, the default among them — they write multipatch features, a data model this server
-    does not hold yet (ADR-224 group 2); PER_OBJECT alpha — the page does not say how each object's radius is computed.
+    Refused: BOUNDING_BOX_3D — the page asks for the smallest oriented box, and the exact one (O'Rourke 1985) and the
+    approximations in use (principal axes, hull-face boxes) give different boxes, of which the page names none;
+    PER_OBJECT alpha — the page does not say how each object's radius is computed.
 
-    INFERRED: a code without a group ID is its own group; the centre point is the mean of the points; BOUNDING_BOX_2D is
-    the axis-aligned box; the concave hull is the alpha shape — the union of the Delaunay triangles whose circumradius is
-    at most the radius — and an object whose alpha shape is empty is not written; the layer's filters are honoured; a
-    point off a height surface is dropped."""
+    INFERRED: a code without a group ID is its own group; the centre point is the mean of the points; the concave hull
+    is the alpha shape — the union of the Delaunay triangles (tetrahedra in 3D) whose circumradius is at most the radius
+    — and an object whose alpha shape is empty is not written; the layer's filters are honoured; a point off a height
+    surface is dropped; the 3D shapes are of the points' own heights, the vertical scale factor shaping only the
+    clusters; a sphere is faceted as Buffer3D's, 20 meridians (Q-209 (k))."""
     from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import connected_components
     from scipy.spatial import cKDTree
@@ -1128,12 +1142,15 @@ def ExtractObjectsFromPointCloud(in_point_cloud, class_codes_to_extract, cluster
     from ._tin import rows_of
     from ._tintools import _write
     form = _upper(geometry_type, "CONVEX_HULL_3D")
-    if form in ("BOUNDING_SPHERE", "BOUNDING_BOX_3D", "CONVEX_HULL_3D", "CONCAVE_HULL_3D"):
+    if form == "BOUNDING_BOX_3D":
         _refuse("ddd", "ExtractObjectsFromPointCloud", "geometry_type", form,
-                "it writes multipatch features, a data model this server does not hold yet (ADR-224 group 2)")
-    if form not in ("CENTERPOINT", "BOUNDING_CIRCLE", "BOUNDING_BOX_2D", "CONVEX_HULL_2D", "CONCAVE_HULL_2D"):
+                "the page asks for the smallest oriented 3D box, and the exact one (O'Rourke 1985) and the "
+                "approximations in use (principal axes, hull-face boxes) give different boxes, of which it names none")
+    solid = form in ("BOUNDING_SPHERE", "CONVEX_HULL_3D", "CONCAVE_HULL_3D")
+    if form not in ("CENTERPOINT", "BOUNDING_CIRCLE", "BOUNDING_BOX_2D", "CONVEX_HULL_2D", "CONCAVE_HULL_2D") and \
+            not solid:
         raise ExecuteError(f"ERROR 000800: '{geometry_type}' is not a geometry type.")
-    concave = form == "CONCAVE_HULL_2D"
+    concave = form in ("CONCAVE_HULL_2D", "CONCAVE_HULL_3D")
     if concave and _upper(alpha_calculation, "ALL_OBJECTS") == "PER_OBJECT":
         _refuse("ddd", "ExtractObjectsFromPointCloud", "alpha_calculation", alpha_calculation,
                 "the page does not say how each object's alpha radius is computed")
@@ -1142,6 +1159,8 @@ def ExtractObjectsFromPointCloud(in_point_cloud, class_codes_to_extract, cluster
     if not 0.0 <= scale <= 10.0:
         raise ExecuteError("ERROR: vertical_scale_factor ranges from 0.0 to 10.0, as documented.")
     alpha = _length(alpha_radius) if _given(alpha_radius) else distance
+    if form == "CONCAVE_HULL_3D" and not _given(alpha_radius):
+        alpha = distance / scale if scale > 0 else None  # the convex hull when the factor is 0, as documented
     least = int(min_points) if _given(min_points) else 10
     groups = {}
     for code, group in (r[:2] for r in rows_of(class_codes_to_extract, 2)):
@@ -1162,7 +1181,7 @@ def ExtractObjectsFromPointCloud(in_point_cloud, class_codes_to_extract, cluster
                 keep &= (found["z"] > heights) if above else (found["z"] < heights)
     x, y, z = found["x"][keep], found["y"][keep], found["z"][keep]
     group_of = np.array([groups[int(c)] for c in found["classification"][keep]], np.int64)
-    polygon = form != "CENTERPOINT"
+    polygon = form != "CENTERPOINT" and not solid
     columns = [_gpkg.Column("ObjectCode", "Integer"), _gpkg.Column("COUNT", "Integer")]
     if concave:
         columns.append(_gpkg.Column("ALPHA", "Double"))
@@ -1187,20 +1206,36 @@ def ExtractObjectsFromPointCloud(in_point_cloud, class_codes_to_extract, cluster
             elif form == "BOUNDING_CIRCLE":
                 shape = shapely.minimum_bounding_circle(shapely.multipoints(xy))
             elif form == "BOUNDING_BOX_2D":
-                shape = shapely.box(*shapely.bounds(shapely.multipoints(xy)))
+                shape = shapely.oriented_envelope(shapely.multipoints(xy))
             elif form == "CONVEX_HULL_2D":
                 shape = shapely.convex_hull(shapely.multipoints(xy))
-            else:
+            elif form == "CONCAVE_HULL_2D":
                 shape = _alpha_shape(xy, alpha)
+            else:
+                from . import _multipatch, _mpmore
+                pts = np.column_stack([x[one], y[one], z[one]])
+                if form == "BOUNDING_SPHERE":
+                    centre, radius = _mpmore.welzl(pts)
+                    tris = _mpmore.sphere(centre, radius) if radius > 0 else None
+                elif form == "CONCAVE_HULL_3D" and alpha is not None:
+                    tris = _mpmore.alpha_hull(pts, alpha)
+                else:
+                    tris = _multipatch.hull(pts)
+                if tris is None:
+                    continue
+                shape = _multipatch.from_triangles(tris)
             if polygon:
                 if shape.is_empty or shape.geom_type not in ("Polygon", "MultiPolygon"):
                     continue
                 shape = shape if shape.geom_type == "MultiPolygon" else shapely.MultiPolygon([shape])
             values = [g, int(len(one))]
             if concave:
-                values.append(float(alpha))
+                values.append(float(alpha) if alpha is not None else None)
             if polygon:
                 values += [float(z[one].min()), float(z[one].max())]
             rows.append((*values, shape))
+    if solid:
+        from . import _multipatch
+        return Result(_multipatch.write(out_features, dataset.srid, columns, [(list(r[:-1]), r[-1]) for r in rows]))
     kind = "Polygon" if polygon else "Point"
     return Result(_write(out_features, kind, dataset.srid, columns, not polygon, rows))

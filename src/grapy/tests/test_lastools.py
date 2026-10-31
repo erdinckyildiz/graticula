@@ -340,8 +340,8 @@ class Objects(Base):
         none = arcpy.ddd.ExtractObjectsFromPointCloud(self.lasd, [(1, None)], 1.1, self.out("none.gpkg"),
                                                       "CONVEX_HULL_2D", 40)[0]
         self.assertEqual(rows(none, ["COUNT"]), [])
-        with self.assertRaisesRegex(NotBuiltError, "multipatch"):
-            arcpy.ddd.ExtractObjectsFromPointCloud(self.lasd, [(1, None)], 1.1, self.out("mp.gpkg"))
+        with self.assertRaisesRegex(NotBuiltError, "O'Rourke"):
+            arcpy.ddd.ExtractObjectsFromPointCloud(self.lasd, [(1, None)], 1.1, self.out("mp.gpkg"), "BOUNDING_BOX_3D")
 
 
 class Refused(unittest.TestCase):

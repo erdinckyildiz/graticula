@@ -4,7 +4,9 @@ Both tools write a netCDF file of a 3D grid. grapy writes it with scipy's netCDF
 classic netCDF-3 format of Unidata's specification, 64-bit offsets), which GDAL, xarray and ArcGIS read. The pages do
 not name the file's dimensions or variables; grapy's are INFERRED (ADR-238 §5.2): dimensions ``elevation``, ``y``
 and ``x`` with coordinate variables of the same names holding the voxel centres, and one variable per interpolated
-field named after it. A voxel with no prediction holds the variable's ``_FillValue`` (NaN for IDW3D, −1 for a
+field named after it. The file is written by ``_mdim.netcdf3``, grapy's one netCDF writer, which the multidimensional
+raster (ADR-236) writes through too; the two layouts differ (a voxel grid is ascending in y, and keeps integer
+categories with −1 as fill), the writer does not. A voxel with no prediction holds the variable's ``_FillValue`` (NaN for IDW3D, −1 for a
 category). The coordinate system is the global attribute ``crs_wkt``.
 
 The voxel layer each page lists among its derived outputs is made only when the tool runs in a local scene of
@@ -100,27 +102,23 @@ def _mask(axes, area, min_elev_raster, max_elev_raster, tool):
 
 
 def _write(path, axes, variables, srid, fills):
-    from scipy.io import netcdf_file
+    """The voxels through grapy's one netCDF writer, ``_mdim.netcdf3`` (ADR-236): the layout of this module's
+    docstring, with CF's ``axis`` on the three coordinates and ``positive = "up"`` on ``elevation`` so that a CF reader
+    — and ``Raster(path, True)``, which calls it ``StdZ`` — knows it is the vertical one."""
+    from . import _mdim
     xs, ys, zs = axes
-    with netcdf_file(path, "w", version=2) as nc:
-        nc.createDimension("elevation", len(zs))
-        nc.createDimension("y", len(ys))
-        nc.createDimension("x", len(xs))
-        for name, values in (("x", xs), ("y", ys), ("elevation", zs)):
-            v = nc.createVariable(name, "d", (name,))
-            v[:] = values
-        if srid:
-            from pyproj import CRS
-            # netCDF-3 text is ASCII: WKT's degree signs and the like are replaced by '?'.
-            nc.crs_wkt = CRS.from_epsg(srid).to_wkt().encode("ascii", "replace").decode("ascii")
-        for name, (data, extra) in variables.items():
-            kind = "d" if data.dtype.kind == "f" else "i"
-            v = nc.createVariable(name, kind, ("elevation", "y", "x"))
-            v._FillValue = fills[kind]
-            v[:] = data
-            for key, value in extra.items():
-                setattr(v, key, value)
-    return path
+    dimensions = [("elevation", zs, {"axis": "Z", "positive": "up"}), ("y", ys, {"axis": "Y"}), ("x", xs, {"axis": "X"})]
+    out = []
+    for name, (data, extra) in variables.items():
+        kind = "d" if data.dtype.kind == "f" else "i"
+        out.append((name, ("elevation", "y", "x"), data.astype(np.float64 if kind == "d" else np.int32),
+                    {"_FillValue": fills[kind], **extra}))
+    attributes = {}
+    if srid:
+        from pyproj import CRS
+        # netCDF-3 text is ASCII: WKT's degree signs and the like are replaced by '?'.
+        attributes["crs_wkt"] = CRS.from_epsg(srid).to_wkt().encode("ascii", "replace").decode("ascii")
+    return _mdim.netcdf3(path, dimensions, out, attributes)
 
 
 def _neighbourhood(value, tool):

@@ -445,9 +445,43 @@ def _read_gdal(path):
 # ---- writing
 
 
-def write(cube, path):
-    """The cube as netCDF-3 (64-bit offset) following CF 1.8."""
+def netcdf3(path, dimensions, variables, attributes=None):
+    """grapy's one netCDF writer (ADR-236, and ADR-238's voxels through it): a netCDF-3 file (64-bit offset) written
+    by scipy, as Unidata's classic format defines it. ``dimensions`` is [(name, coordinate values, {attribute: value})],
+    each a dimension with a double coordinate variable of the same name; ``variables`` is [(name, dimension names,
+    array, {attribute: value})], where ``_FillValue`` is written in the variable's own type; ``attributes`` are the
+    global ones. Text that is not ASCII is written as its UTF-8 bytes, as netCDF-3 holds char attributes."""
     from scipy.io import netcdf_file
+    if os.path.exists(path):
+        os.remove(path)
+    with netcdf_file(path, "w", version=2) as nc:
+        for key, value in (attributes or {}).items():
+            setattr(nc, key, _attr(value))
+        for name, values, attrs in dimensions:
+            nc.createDimension(name, len(values))
+            cv = nc.createVariable(name, "d", (name,))
+            cv[:] = np.asarray(values, float)
+            for key, value in (attrs or {}).items():
+                setattr(cv, key, _attr(value))
+        for name, dims, data in ((n, tuple(d), a) for n, d, a, _ in variables if n is None):
+            nc.createDimension(dims[0], data)  # a dimension with no coordinate variable (a band count)
+        for name, dims, data, attrs in variables:
+            if name is None:
+                continue
+            data = np.asarray(data)
+            kind = {"f": "f" if data.dtype == np.float32 else "d", "i": "i", "u": "i", "b": "b"}[data.dtype.kind]
+            out = nc.createVariable(name, kind, tuple(dims))
+            if data.ndim:  # a scalar (a grid-mapping variable) carries only its attributes
+                out[:] = data
+            for key, value in (attrs or {}).items():
+                if key == "_FillValue":
+                    value = out.data.dtype.type(value)
+                setattr(out, key, _attr(value))
+    return path
+
+
+def write(cube, path):
+    """The cube as netCDF-3 (64-bit offset) following CF 1.8, through ``netcdf3``."""
     refuse_crf(path, "save")
     path = _path(path)
     if not os.path.splitext(path)[1]:
@@ -466,65 +500,50 @@ def write(cube, path):
                     axes[d].append(value)
     for d in axes:
         axes[d].sort(key=_key)
-    if os.path.exists(path):
-        os.remove(path)
-    with netcdf_file(path, "w", version=2) as nc:
-        nc.Conventions = "CF-1.8"
-        nc.source = "grapy (Graticula), ADR-236"
-        nc.createDimension("x", g.columns)
-        nc.createDimension("y", g.rows)
-        x = nc.createVariable("x", "d", ("x",))
-        x[:] = xs
-        x.standard_name, x.axis = "projection_x_coordinate", "X"
-        y = nc.createVariable("y", "d", ("y",))
-        y[:] = ys
-        y.standard_name, y.axis = "projection_y_coordinate", "Y"
-        crs = nc.createVariable("crs", "i", ())
-        crs.GeoTransform = f"{g.left!r} {g.width!r} 0 {g.top!r} 0 {-g.height!r}"
-        if g.srid:
-            from pyproj import CRS
-            reference = CRS.from_epsg(g.srid)
-            crs.spatial_ref = _attr(reference.to_wkt(version="WKT1_GDAL"))
-            crs.crs_wkt = _attr(reference.to_wkt())
-        for d, values in axes.items():
-            nc.createDimension(d, len(values))
-            cv = nc.createVariable(d, "d", (d,))
-            if d == TIME:
-                cv[:] = [days(v) for v in values]
-                cv.units, cv.calendar, cv.standard_name, cv.axis = ("days since 1970-01-01 00:00:00", "standard",
-                                                                    "time", "T")
-            else:
-                cv[:] = values
-                if d == "StdZ":
-                    cv.axis, cv.positive = "Z", "up"
-            for variable in cube.variables.values():
-                for key, a in variable.dim_attrs.get(d, {}).items():
-                    if key not in ("units", "calendar", "axis", "standard_name") and isinstance(a, (str, int, float)):
-                        setattr(cv, key, _attr(a))
-        bands = {v.bands for v in cube.variables.values() if v.bands > 1}
-        for b in bands:
-            nc.createDimension(f"band{b}" if len(bands) > 1 else "band", b)
-        for v in cube.variables.values():
-            shape = [len(axes[d]) for d in v.dims]
-            full = np.full(shape + [v.bands, g.rows, g.columns], _FILL, np.float32 if _fits32(v) else np.float64)
-            for i, c in enumerate(v.coords):
-                index = tuple(next(k for k, f in enumerate(axes[d]) if _same(c[d], f)) for d in v.dims)
-                full[index] = np.where(v.mask[i], _FILL, v.data[i])
-            dims = tuple(v.dims)
-            if v.bands > 1:
-                dims += ((f"band{v.bands}" if len(bands) > 1 else "band"),)
-            else:
-                full = full[..., 0, :, :]
-            out = nc.createVariable(v.name, "f" if full.dtype == np.float32 else "d", dims + ("y", "x"))
-            out[:] = full
-            out._FillValue = full.dtype.type(_FILL)
-            out.grid_mapping = "crs"
-            if v.bands > 1:
-                out.band_names = ",".join(v.names_of_bands())
-            for key, a in v.attrs.items():
-                if isinstance(a, (str, int, float)) and key not in ("_FillValue",):
-                    setattr(out, key, _attr(a))
-    return path
+    dimensions = [("x", xs, {"standard_name": "projection_x_coordinate", "axis": "X"}),
+                  ("y", ys, {"standard_name": "projection_y_coordinate", "axis": "Y"})]
+    for d, values in axes.items():
+        attrs = {}
+        if d == TIME:
+            coordinate = [days(v) for v in values]
+            attrs.update(units="days since 1970-01-01 00:00:00", calendar="standard", standard_name="time", axis="T")
+        else:
+            coordinate = values
+            if d == "StdZ":
+                attrs.update(axis="Z", positive="up")
+        for variable in cube.variables.values():
+            for key, a in variable.dim_attrs.get(d, {}).items():
+                if key not in ("units", "calendar", "axis", "standard_name") and isinstance(a, (str, int, float)):
+                    attrs[key] = a
+        dimensions.append((d, coordinate, attrs))
+    crs = {"GeoTransform": f"{g.left!r} {g.width!r} 0 {g.top!r} 0 {-g.height!r}"}
+    if g.srid:
+        from pyproj import CRS
+        reference = CRS.from_epsg(g.srid)
+        crs.update(spatial_ref=reference.to_wkt(version="WKT1_GDAL"), crs_wkt=reference.to_wkt())
+    variables = [("crs", (), np.int32(0), crs)]
+    bands = {v.bands for v in cube.variables.values() if v.bands > 1}
+    for b in bands:
+        variables.append((None, (f"band{b}" if len(bands) > 1 else "band",), b, {}))
+    for v in cube.variables.values():
+        shape = [len(axes[d]) for d in v.dims]
+        full = np.full(shape + [v.bands, g.rows, g.columns], _FILL, np.float32 if _fits32(v) else np.float64)
+        for i, c in enumerate(v.coords):
+            index = tuple(next(k for k, f in enumerate(axes[d]) if _same(c[d], f)) for d in v.dims)
+            full[index] = np.where(v.mask[i], _FILL, v.data[i])
+        dims = tuple(v.dims)
+        if v.bands > 1:
+            dims += ((f"band{v.bands}" if len(bands) > 1 else "band"),)
+        else:
+            full = full[..., 0, :, :]
+        attrs = {"_FillValue": _FILL, "grid_mapping": "crs"}
+        if v.bands > 1:
+            attrs["band_names"] = ",".join(v.names_of_bands())
+        for key, a in v.attrs.items():
+            if isinstance(a, (str, int, float)) and key not in ("_FillValue",):
+                attrs[key] = a
+        variables.append((v.name, dims + ("y", "x"), full, attrs))
+    return netcdf3(path, dimensions, variables, {"Conventions": "CF-1.8", "source": "grapy (Graticula), ADR-236"})
 
 
 def _attr(value):

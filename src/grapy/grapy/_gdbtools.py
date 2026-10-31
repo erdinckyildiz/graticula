@@ -505,7 +505,8 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
     SQLite having no way to make an existing column the key; without a field named, an integer ``OBJECTID`` already
     there is used, its empty values numbered after its largest, and otherwise a new ``OBJECTID`` is created; values
     that repeat are an error. Without a shape field named, a class made by CreateUnRegisteredFeatureclass registers its
-    ``geom`` column with the type, reference and dimensions it was made with."""
+    ``geom`` column with the type, reference and dimensions it was made with. MULTIPATCH registers polygons with z as a
+    multipatch class, each polygon a face, as ADR-238 holds one (§5.2 (a)); D-329's sweep."""
     from ._reference import reference_of
     from ._raster import _is_raster_path
     m = _m()
@@ -528,6 +529,7 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
                                      "table_name = ?", (table,)).fetchone() \
             if _behaviours._has(connection, _behaviours.UNREGISTERED) else None
         # The shape.
+        multipatch = False
         shape_field = m._text(in_shape_field) if m._given(in_shape_field) else (_gpkg.GEOMETRY if pending else None)
         stored = None
         if shape_field is not None:
@@ -537,9 +539,8 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
             shape_field = found[0]
             if m._given(in_geometry_type):
                 word = str(in_geometry_type).upper()
-                if word == "MULTIPATCH":
-                    raise NotBuiltError("arcpy.management.RegisterWithGeodatabase: MULTIPATCH is not built in grapy; "
-                                        "grapy's shapes are points, multipoints, lines and polygons.")
+                if word == "MULTIPATCH":  # ADR-238: faces as MultiPolygon Z, marked as a multipatch class
+                    multipatch, word = True, "POLYGON"
                 if word not in _REGISTER_TYPES:
                     raise ExecuteError(f"ERROR 000800: in_geometry_type is POINT, MULTIPOINT, POLYLINE, POLYGON or "
                                        f"MULTIPATCH, not '{in_geometry_type}'.")
@@ -553,6 +554,8 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
         bounds = None
         if shape_field is not None:
             srid, z, mm, bounds = _shapes(connection, table, shape_field, stored)
+            if multipatch:
+                z = 1  # a multipatch's z is mandatory (ADR-238 §5.2 (a))
             if m._given(in_spatial_reference):
                 reference = reference_of(in_spatial_reference)
                 given = reference.factoryCode if reference is not None else 0
@@ -579,6 +582,13 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
         if shape_field is not None:
             connection.execute("insert into gpkg_geometry_columns values (?, ?, ?, ?, ?, ?)",
                                (table, shape_field, stored, srid, z, mm))
+        if multipatch:
+            from . import _multipatch
+            connection.execute("create table if not exists gpkg_extensions (table_name text, column_name text, "
+                               "extension_name text not null, definition text not null, scope text not null, "
+                               "constraint ge_tce unique (table_name, column_name, extension_name))")
+            connection.execute("insert or ignore into gpkg_extensions values (?, ?, ?, ?, 'read-write')",
+                               (table, shape_field, _multipatch.EXTENSION, _multipatch.DEFINITION))
         if pending:
             connection.execute(f"delete from {_behaviours.UNREGISTERED} where table_name = ?", (table,))
         _behaviours.restore_triggers(connection, table)

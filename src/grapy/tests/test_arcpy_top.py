@@ -397,7 +397,7 @@ class LegacyAndScriptTools(_Folder):
         for name, said in (("GetInstallInfo", "not ArcGIS"), ("ListTools", "toolbox catalogue"),
                            ("AIO", "network"), ("ListTransformations", "catalogue"), ("Multipatch", "documents no Multipatch class"),
                            ("Annotation", "Element BLOB field"), ("Chart", "application"), ("ViewContext", "could not be found"),
-                           ("NetCDFFileProperties", "netCDF"), ("Render", "symbology")):
+                           ("Render", "symbology")):
             with self.assertRaisesRegex(arcpy.NotBuiltError, said):
                 getattr(arcpy, name)
         for name, said in (("CausalInferenceAnalysis", "estimation"), ("BuildBalancedZones", "random"),

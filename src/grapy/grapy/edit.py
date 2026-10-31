@@ -914,7 +914,6 @@ _REFUSED = {
                                               "not hold, and its fitting is not specified",
     "SimplifyByTangentSegments": "it writes true curves, which a GeoPackage feature class here does not hold, and its "
                                  "fitting is not specified",
-    "UpdateCOGO": "it works on COGO-enabled lines, a data model this server does not hold (ADR-224 group 2)",
 }
 
 
@@ -927,3 +926,9 @@ def __getattr__(name):
         raise NotBuiltError(f"arcpy.edit.{name} is not built in grapy" + (f": {why}." if why else " yet."))
 
     return missing
+
+
+# ---- UpdateCOGO on ADR-240's COGO-enabled lines (D-329's sweep), built in _cogo
+from . import _cogo  # noqa: E402
+
+UpdateCOGO = _cogo.UpdateCOGO
