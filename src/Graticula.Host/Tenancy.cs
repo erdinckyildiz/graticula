@@ -29,11 +29,11 @@ internal sealed record GroupElsewhere(Tenant Tenant, string Name, string? Title,
 /// The deployment's tenants as last read, which host names reach which, and whose home a member is — ADR-204.
 /// </summary>
 /// <remarks>
-/// <b>Read at start and after every change made here</b>; a second node learns of a change at its next start or its next
-/// change. Nothing here has run on two nodes, and ADR-204's state line names the refresh on <c>graticula_grants</c> as
-/// the condition that closes that.
+/// <b>Read at start and after every change made here</b>, ~~and a second node learns of a change at its next start or its
+/// next change~~ — and since ADR-012 phase 0 item 2 (2026-10-31) every change made here is announced on the site's
+/// channel, so every other node reads the tenants again at once (<see cref="SiteAnnouncements"/>).
 /// </remarks>
-internal sealed class TenantDirectory(ITenantStore store, NpgsqlDataSource root) : IHostedService
+internal sealed class TenantDirectory(ITenantStore store, NpgsqlDataSource root, SiteAnnouncements? site = null) : IHostedService
 {
     private IReadOnlyList<Tenant> _all =
         [new Tenant(TenantScope.DefaultTenant, "default", "Default", [], PortalIdentity.Current ?? "0000000000000000", false)];
@@ -42,13 +42,20 @@ internal sealed class TenantDirectory(ITenantStore store, NpgsqlDataSource root)
     public IReadOnlyList<Tenant> All => Volatile.Read(ref _all);
 
     /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken) => RefreshAsync(cancellationToken);
+    public Task StartAsync(CancellationToken cancellationToken) => ReloadAsync(cancellationToken);
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
-    /// <summary>Reads the tenants again, and tells the catalogue's connections how many there are.</summary>
+    /// <summary>Reads the tenants again after a change made here, and tells the site's other nodes to (ADR-012).</summary>
     public async Task RefreshAsync(CancellationToken cancellationToken)
+    {
+        await ReloadAsync(cancellationToken).ConfigureAwait(false);
+        site?.Announce(SiteAnnouncements.Tenants);
+    }
+
+    /// <summary>Reads the tenants again, and tells the catalogue's connections how many there are.</summary>
+    public async Task ReloadAsync(CancellationToken cancellationToken)
     {
         IReadOnlyList<Tenant> read;
 
@@ -198,7 +205,7 @@ internal static class TenantRouting
     /// </summary>
     internal static readonly string[] SystemOnly =
     [
-        "/admin/tenants", "/admin/backups", "/admin/logs/server", "/admin/health", "/admin/usage", "/admin/routes",
+        "/admin/tenants", "/admin/backups", "/admin/logs/server", "/admin/health", "/admin/usage", "/admin/routes", "/admin/site",
         "/admin/settings/style-origins", "/admin/settings/geometry-service", "/admin/settings/ground",
     ];
 

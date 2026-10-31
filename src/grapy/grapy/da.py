@@ -1170,8 +1170,18 @@ _REFUSED = {name: _NO_MODEL for name in (
     "ListReplicas", "Replica", "SyncReplica", "ContingentFieldValue",
     "ContingentValue", "ListContingentValues", "DatabaseSequence", "ListDatabaseSequences",
     "SearchRelatedRecords")}
-_REFUSED["TableToArrowTable"] = "pyarrow is not among the wheels a user tool runs with today"
-_REFUSED["CreateParquetCache"] = "pyarrow is not among the wheels a user tool runs with today"
+_REFUSED["CreateParquetCache"] = (
+    "its page says only that it makes \"a persistent local cache\" of a Parquet file, not the cache's form or where it "
+    "is kept, and no grapy reader opens a Parquet file as a dataset, so a cache grapy made would be read by nothing")
+
+
+def TableToArrowTable(in_table, field_names=None, where_clause=None, geometry_encoding="ESRISHAPE"):
+    """A table or feature class as a ``pyarrow.Table``: its fields typed as *Apache Arrow in ArcGIS* gives them (types
+    it does not list dropped, text cut at 5,000 characters), the object ID int64 with ``esri.oid``, and the shape in
+    ``geometry_encoding`` — ESRISHAPE (the Shapefile Technical Description's record), ESRIJSON, GEOJSON, WKT or WKB —
+    with ``esri.encoding`` and ``esri.sr_wkt``. Without a geometry field the table has no geometry column."""
+    from ._arrow import table_to_arrow
+    return table_to_arrow(in_table, field_names, where_clause, geometry_encoding)
 
 
 # ---- versions (ADR-227) -------------------------------------------------------------------------------------------

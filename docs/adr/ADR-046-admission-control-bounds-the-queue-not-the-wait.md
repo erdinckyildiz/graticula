@@ -438,6 +438,20 @@ ADR-045 (the Logs screen, where condition 3's refusals become visible).
    a different fixture and layer from the 2026-08-23 cold run, so it neither reproduces
    nor refutes the 15%.
 
+   ***RE-RUN 2026-10-31, after D-261 cut a request's catalogue reads from five statements to three: the verdict stands,
+   on a faster path.*** [benchmarks/admission-control/2026-10-31](../../benchmarks/admission-control/2026-10-31/RESULTS.md),
+   the same ramp, layer, request and generator. The database is a local PostgreSQL this time, not Docker. **The query path is
+   about 38% faster** (1,049–1,224 req/s against 848–872), and this run cannot split that gain between D-261's cut and the
+   database's move. **The first clause holds again**: with `PerSourceConcurrency=2` the source refused **64–82%**, with the
+   queue at 7–8 of 8. **The second clause is still breached**:
+   - shipped bound: the admitted median grows **18.5, 48.9, 95.3, 198.7, 425.6 ms** from 24 to 480 callers;
+   - narrow bound: it grows **58.6 → 481.3 ms**, while four requests in five are refused.
+
+   At 480 callers Little's law gives about 410 ms at the measured throughput, and 425.6 ms was measured. The queue was at
+   its bound in 0.5% of samples. So the wait is still outside the part of the server this decision governs. **The shipped
+   default still barely fires**: 81 of 70,632 refused at 240 callers and 526 of 62,938 at 480. This condition stays as it
+   was: first clause met, second BREACHED on a cause outside the gate.
+
 2. **The depth is chosen against the measurement rather than asserted.** Four per permit is a
    judgement; the condition is to run the probe at several depths and write the table down, so
    the number in the code is one somebody picked with the numbers in front of them.

@@ -49,6 +49,23 @@ public sealed class ArcGisDiscoveryTests : ArcGisClient
                 .GetString()));
     }
 
+    /// <summary>
+    /// Step 1, as ArcGIS Pro reaches it from an ImageServer: Pro derives a SOAP root from the REST address and, with no
+    /// instance name in front of <c>/rest</c>, asks <c>/services/rest/info</c> (ADR-181 condition 1, measured through a
+    /// recording relay 2026-10-31). It is the same document, not a 404.
+    /// </summary>
+    [Fact]
+    public async Task Step1_the_server_identifies_itself_where_Pro_looks_for_it_from_an_image_service()
+    {
+        JsonElement info = await GetJsonAsync("/rest/info");
+        JsonElement asked = await GetJsonAsync("/services/rest/info");
+
+        Assert.Equal(Require(info, "currentVersion", "").GetDouble(), Require(asked, "currentVersion", "").GetDouble());
+        Assert.Equal(
+            Require(Require(info, "authInfo", ""), "tokenServicesUrl", "").GetString(),
+            Require(Require(asked, "authInfo", "A client signs in where this says."), "tokenServicesUrl", "").GetString());
+    }
+
     /// <summary>Step 2. The catalogue, reached from nothing but the root.</summary>
     [Fact]
     public async Task Step2_the_catalogue_lists_services_a_client_can_address()

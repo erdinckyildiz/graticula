@@ -120,7 +120,11 @@ def _add_rat_field(in_table, field_name, field_type):
 
 def GetCount(in_rows):
     """The number of rows — of a layer or table view, its selected rows, or all it shows when nothing is selected; of a
-    layer joined with ``KEEP_COMMON``, only the rows that found a match."""
+    layer joined with ``KEEP_COMMON``, only the rows that found a match; of a ``pyarrow.Table``
+    (arcpy.da.TableToArrowTable's page counts one this way), its rows."""
+    from ._arrow import is_arrow_table
+    if is_arrow_table(in_rows):
+        return Result(str(in_rows.num_rows))
     if _joined_layer(in_rows) is not None:
         from . import da
         with da.SearchCursor(_text(in_rows), ["OID@"]) as rows:
@@ -4739,7 +4743,7 @@ def AddRuleToTopology(in_topology, rule_type, in_featureclass, subtype=None, in_
     """A rule of the documented list added between the topology's classes, of the shape types its name gives. ``subtype``
     and ``subtype2`` restrict it to one subtype of the origin and of the destination class -- "Provide the subtype name
     (not the code)"; blank, the rule applies to all subtypes -- and ValidateTopology evaluates it on those features only
-    (ADR-228 condition 6). The same rule twice, on the same subtypes, is an error (INFERRED). INFERRED: a rule within
+    (ADR-228 condition 6). The same rule twice, on the same subtypes, is an error (INFERRED). INFERRED (Q-223 (c)): a rule within
     one class on a subtype compares that subtype's features with each other; a subtype name the class does not have,
     or a class with no subtypes, is an error."""
     from . import _topology as topo
@@ -4799,7 +4803,8 @@ def _subtype_code(connection, table, value):
 def RemoveRuleFromTopology(in_topology, in_rule):
     """A rule removed, named as documented: its name and the object-class id of its class, or of both classes joined
     by a hyphen — ``"Must Not Have Dangles (21)"``, ``"Must Be Properly Inside (78-79)"`` — the ids being the
-    ``class_id`` of ``grapy_topology_class``. Its errors go with it."""
+    ``class_id`` of ``grapy_topology_class``. Its errors go with it. INFERRED (Q-223 (c)): the form names no subtype,
+    so of several rules that differ only in subtype the last added is removed."""
     import re
     from ._runtime import ExecuteError
     match = re.fullmatch(r"\s*(.+?)\s*\((\d+)(?:-(\d+))?\)\s*", str(in_rule))

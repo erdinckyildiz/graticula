@@ -58,11 +58,225 @@ def iso(value):
 # ---- the dataset
 
 
+#: How many cells a SAR tool holds per block when it reads, computes and writes a band in rows (D-328): about 4
+#: million, so a block's float64 temporaries stay near 32 MB each, and a full Sentinel-1 scene (26,325 x 21,331 cells,
+#: 2.2 GB as float32 for one band) runs within ADR-223's 2 GB. A test makes it small to cut a scene into many blocks.
+BLOCK_CELLS = 4_000_000
+
+
+#: GDAL's block cache, in MB, while a SAR tool reads or writes (D-328). GDAL's own default is 5 % of the machine's
+#: memory, and a terrain correction writing tiles across a 29,000-column grid filled it to 4.3 GB of committed memory
+#: on the real GRD; blocks are read and written once each, so a cache buys nothing.
+GDAL_CACHE_MB = 64
+
+
+def row_blocks(shape, multiple=1):
+    """(first row, last row + 1) of the row blocks a band of ``shape`` is worked in, each a whole number of
+    ``multiple`` rows (a multilook's azimuth looks)."""
+    n, m = shape
+    step = max(multiple, (BLOCK_CELLS // max(m, 1)) // multiple * multiple)
+    return [(r0, min(n, r0 + step)) for r0 in range(0, n, step)]
+
+
+def halo_blocks(shape, halo, align=1, fit=False):
+    """(r0, r1, h0, h1) for each row block [r0, r1) of a band of ``shape`` and the window [h0, h1) a tool that needs
+    ``halo`` rows of neighbours on either side reads for it, clipped to the image; h0 is a multiple of ``align``
+    (Goldstein's patch grid is anchored at row 0). Inside the window, a filter reaching no further than ``halo`` rows
+    answers the block's rows from the same cells as on the whole band (D-328). With ``fit`` the block is made smaller
+    so that the window, halo included, holds about BLOCK_CELLS: for a tool whose halo is large beside its block and
+    whose window carries many temporaries (ExtractOceanWinds' 3 km window on a multilooked swath: 1,865 MB without)."""
+    n, m = shape
+    out = []
+    if fit:
+        step = max(1, BLOCK_CELLS // max(m, 1) - 2 * halo)
+        blocks = [(r0, min(n, r0 + step)) for r0 in range(0, n, step)]
+    else:
+        blocks = row_blocks(shape)
+    for r0, r1 in blocks:
+        h0 = max(0, (r0 - halo) // align * align)
+        out.append((r0, r1, h0, min(n, r1 + halo)))
+    return out
+
+
+#: Points geocoded or back-geocoded at a time when a tool solves a lattice (D-328). Fixed, never derived from
+#: BLOCK_CELLS: Newton's method in ``geocode`` stops on the largest step of the points it holds, so a lattice solved in
+#: the same chunks gives the same answer however the tool's rows are blocked.
+LATTICE_CHUNK = 65536
+
+
+def by_chunks(fn, *arrays):
+    """``fn`` applied to LATTICE_CHUNK points of ``arrays`` at a time, its outputs (an array or a tuple of arrays)
+    joined in order."""
+    size = len(arrays[0])
+    if size <= LATTICE_CHUNK:
+        return fn(*arrays)
+    parts = [fn(*(a[k: k + LATTICE_CHUNK] for a in arrays)) for k in range(0, size, LATTICE_CHUNK)]
+    if isinstance(parts[0], tuple):
+        return tuple(np.concatenate([p[j] for p in parts]) for j in range(len(parts[0])))
+    return np.concatenate(parts)
+
+
+def ground_points(meta, rows, columns, dem=None, heights=None):
+    """ECEF ground points of radar cells, on the DEM (or the tie points' heights) unless ``heights`` are given, solved in
+    LATTICE_CHUNK points at a time."""
+    rows = np.asarray(rows, float)
+    columns = np.asarray(columns, float)
+    if heights is None:
+        return by_chunks(lambda r, c: geocode(meta, r, c, heights_for(meta, r, c, dem)), rows, columns)
+    return by_chunks(lambda r, c, h: geocode(meta, r, c, h), rows, columns, np.asarray(heights, float))
+
+
+def lattice(shape, step=16):
+    """Every ``step``-th row and column of a grid, the last included."""
+    n, m = shape
+    rs = np.unique(np.r_[np.arange(0, n, step), n - 1]).astype(float)
+    cs = np.unique(np.r_[np.arange(0, m, step), m - 1]).astype(float)
+    return rs, cs
+
+
+class Field:
+    """A smooth quantity solved on a lattice of a grid and answered at any rows: an interpolating bicubic spline
+    (FITPACK, not-a-knot) where the lattice has four points or more each way, bilinear otherwise. A cell's value
+    depends only on the lattice, never on which other cells are asked for, so a block of rows is answered exactly as
+    the whole grid would be (D-328)."""
+
+    def __init__(self, rs, cs, values):
+        from scipy.interpolate import RectBivariateSpline
+        self.m = int(cs[-1]) + 1 if len(cs) else 0
+        values = np.asarray(values, float)
+        self.constant = None
+        if len(rs) < 2 or len(cs) < 2:
+            self.constant = float(np.mean(values))
+            return
+        k = 3 if len(rs) >= 4 and len(cs) >= 4 else 1
+        self.spline = RectBivariateSpline(rs, cs, values, kx=k, ky=k, s=0)
+
+    def rows(self, r0, r1, m=None):
+        m = self.m if m is None else m
+        if self.constant is not None:
+            return np.full((r1 - r0, m), self.constant)
+        return self.spline(np.arange(r0, r1, dtype=float), np.arange(m, dtype=float), grid=True)
+
+
+class LonLat:
+    """Longitude and latitude of the cells of a radar-geometry grid: geocoded on a lattice of every ``step``-th cell
+    (on the DEM, or the tie points' heights) and interpolated bilinearly, answered a block of rows at a time; a cell's
+    value is the same whichever rows are asked for (D-328)."""
+
+    def __init__(self, meta, shape, dem=None, step=16):
+        from scipy.interpolate import RegularGridInterpolator
+        self.shape = shape
+        rs, cs = lattice(shape, step)
+        rr, cc = np.meshgrid(rs, cs, indexing="ij")
+        lon, lat, _ = geodetic(ground_points(meta, rr.ravel(), cc.ravel(), dem))
+        lon, lat = lon.reshape(rr.shape), lat.reshape(rr.shape)
+        self.flat = len(rs) < 2 or len(cs) < 2
+        if self.flat:
+            self.mean = (float(lon.mean()), float(lat.mean()))
+        else:
+            self.lon = RegularGridInterpolator((rs, cs), lon)
+            self.lat = RegularGridInterpolator((rs, cs), lat)
+
+    def rows(self, r0, r1):
+        m = self.shape[1]
+        if self.flat:
+            return np.full((r1 - r0, m), self.mean[0]), np.full((r1 - r0, m), self.mean[1])
+        R, Cc = np.meshgrid(np.arange(r0, r1, dtype=float), np.arange(m, dtype=float), indexing="ij")
+        pts = np.stack([R.ravel(), Cc.ravel()], -1)
+        return self.lon(pts).reshape(r1 - r0, m), self.lat(pts).reshape(r1 - r0, m)
+
+
+class CellLonLat:
+    """Longitude and latitude of the cells of a dataset in either geometry, a block of rows at a time."""
+
+    def __init__(self, sar, dem=None):
+        self.sar = sar
+        self.radar = LonLat(sar.meta, sar.shape, dem) if sar.radar else None
+        self.to = None
+        if not sar.radar and sar.srid not in (0, 4326):
+            import pyproj
+            self.to = pyproj.Transformer.from_crs(sar.srid, 4326, always_xy=True)
+
+    def rows(self, r0, r1):
+        if self.radar is not None:
+            return self.radar.rows(r0, r1)
+        x, y = map_centres(self.sar, r0, r1)
+        return (x, y) if self.to is None else self.to.transform(x, y)
+
+
+def fsum_rows(array):
+    """The sum of an array's finite values, the same however its rows are blocked: each row summed by numpy, the rows
+    by ``math.fsum`` (exactly rounded, so in any grouping)."""
+    return np.nansum(array, axis=1).tolist()
+
+
+class Band:
+    """One band of a dataset on disk, read whole or by window when a tool asks for it; nothing is read before."""
+
+    def __init__(self, path, index, shape, complex_):
+        self.path, self.index, self.shape, self.complex = path, index, tuple(shape), bool(complex_)
+
+    @property
+    def dtype(self):
+        return np.dtype(np.complex64 if self.complex else np.float32)
+
+    def read(self, r0=0, r1=None, c0=0, c1=None):
+        import rasterio
+        from rasterio.windows import Window
+        n, m = self.shape
+        r1 = n if r1 is None else r1
+        c1 = m if c1 is None else c1
+        with _quiet(), rasterio.Env(GDAL_CACHEMAX=GDAL_CACHE_MB), rasterio.open(self.path) as source:
+            band = source.read(self.index, window=Window(c0, r0, c1 - c0, r1 - r0))
+        return band.astype(np.complex64) if np.iscomplexobj(band) else band.astype(np.float32)
+
+
+class Bands(dict):
+    """A dataset's bands by name. A band still on disk is read whole the first time a tool indexes it, as every
+    tool did before blocks; ``window`` reads only the rows and columns a blocked tool needs and leaves it on disk."""
+
+    def __getitem__(self, name):
+        value = dict.__getitem__(self, name)
+        if isinstance(value, Band):
+            value = value.read()
+            dict.__setitem__(self, name, value)
+        return value
+
+    def get(self, name, default=None):
+        return self[name] if name in self else default
+
+    def values(self):
+        return [self[k] for k in self]
+
+    def items(self):
+        return [(k, self[k]) for k in self]
+
+    def shape(self, name):
+        return tuple(dict.__getitem__(self, name).shape)
+
+    def complex(self, name):
+        value = dict.__getitem__(self, name)
+        return value.complex if isinstance(value, Band) else bool(np.iscomplexobj(value))
+
+    def dtype(self, name):
+        return dict.__getitem__(self, name).dtype
+
+    def window(self, name, r0, r1, c0=0, c1=None):
+        value = dict.__getitem__(self, name)
+        if isinstance(value, Band):
+            return value.read(r0, r1, c0, c1)
+        return value[r0:r1, c0:c1]
+
+    def on_disk(self):
+        return {v.path for v in dict.values(self) if isinstance(v, Band)}
+
+
 class SarData:
-    """Bands (name -> array, in order), the sidecar's metadata, and — in map geometry — the grid's transform and EPSG."""
+    """Bands (name -> array, in order), the sidecar's metadata, and, in map geometry, the grid's transform and EPSG.
+    A dataset read from disk keeps its bands there (``Bands``) until a tool reads them."""
 
     def __init__(self, bands, meta, transform=None, srid=0, path=None):
-        self.bands = dict(bands)
+        self.bands = bands if isinstance(bands, Bands) else Bands(bands)
         self.meta = meta
         self.transform = transform
         self.srid = int(srid or 0)
@@ -74,7 +288,7 @@ class SarData:
 
     @property
     def shape(self):
-        return next(iter(self.bands.values())).shape
+        return self.bands.shape(next(iter(self.bands)))
 
     @property
     def radar(self):
@@ -125,30 +339,24 @@ def read(value, tool):
         raise ExecuteError(f"{tool}: '{path}' is not SAR data: it has no {SIDE} beside it, and is not a Sentinel-1 "
                            "SAFE product.")
     import rasterio
-    meta = json.load(open(side, encoding="utf-8"))
+    with open(side, encoding="utf-8") as f:
+        meta = json.load(f)
     with _quiet(), rasterio.open(path) as source:
         names = [d or f"Band_{k}" for k, d in enumerate(source.descriptions, 1)]
-        bands = {}
+        bands = Bands()
         for k, name in enumerate(names, 1):
-            band = source.read(k)
-            bands[name] = band.astype(np.complex64 if np.iscomplexobj(band) else np.float32)
+            bands[name] = Band(path, k, source.shape, source.dtypes[k - 1].startswith("complex"))
         transform = source.transform if meta.get("geometry") == "map" else None
         srid = source.crs.to_epsg() if source.crs else 0
     return SarData(bands, meta, transform, srid, path)
 
 
-def write(path, bands, meta, transform=None, srid=0):
-    """A SAR dataset: the GeoTIFF of its bands and its sidecar."""
-    import rasterio
+def _profile(path, dtype, shape, count, transform, srid):
     from rasterio.transform import from_origin
-    path = out_path(path)
-    arrays = list(bands.values())
-    complex_ = any(np.iscomplexobj(a) for a in arrays)
-    dtype = "complex64" if complex_ else "float32"
-    rows, columns = arrays[0].shape
-    profile = {"driver": "GTiff", "height": rows, "width": columns, "count": len(arrays), "dtype": dtype,
+    rows, columns = shape
+    profile = {"driver": "GTiff", "height": rows, "width": columns, "count": count, "dtype": dtype,
                "transform": transform if transform is not None else from_origin(0, 0, 1, 1)}
-    if not complex_:
+    if dtype != "complex64":
         profile["nodata"] = float("nan")
     if srid:
         profile["crs"] = f"EPSG:{srid}"
@@ -156,16 +364,83 @@ def write(path, bands, meta, transform=None, srid=0):
     for stale in (path, path + SIDE, path + ".aux.xml"):
         if os.path.exists(stale):
             os.remove(stale)
-    with _quiet(), rasterio.open(path, "w", **profile) as out:
-        for k, (name, array) in enumerate(bands.items(), 1):
-            out.write(array.astype(dtype), k)
-            out.set_band_description(k, name)
+    return profile
+
+
+def _sidecar(path, names, meta):
     meta = dict(meta)
     meta["format"] = FORMAT
-    meta["bands"] = list(bands)
+    meta["bands"] = list(names)
     with open(path + SIDE, "w", encoding="utf-8") as f:
         json.dump(meta, f)
+
+
+def write(path, bands, meta, transform=None, srid=0):
+    """A SAR dataset: the GeoTIFF of its bands and its sidecar. Bands still on disk (``Bands``) are copied by
+    blocks of rows, never read whole."""
+    import rasterio
+    from rasterio.windows import Window
+    path = out_path(path)
+    lazy = isinstance(bands, Bands)
+    if lazy and os.path.abspath(path) in {os.path.abspath(p) for p in bands.on_disk()}:
+        bands, lazy = {k: bands[k] for k in bands}, False   # written over its own source: read it first
+    names = list(bands)
+    complex_ = any((bands.complex(k) if lazy else np.iscomplexobj(bands[k])) for k in names)
+    dtype = "complex64" if complex_ else "float32"
+    shape = bands.shape(names[0]) if lazy else bands[names[0]].shape
+    profile = _profile(path, dtype, shape, len(names), transform, srid)
+    with _quiet(), rasterio.Env(GDAL_CACHEMAX=GDAL_CACHE_MB), rasterio.open(path, "w", **profile) as out:
+        for k, name in enumerate(names, 1):
+            if lazy:
+                for r0, r1 in row_blocks(shape):
+                    out.write(bands.window(name, r0, r1).astype(dtype), k, window=Window(0, r0, shape[1], r1 - r0))
+            else:
+                out.write(bands[name].astype(dtype), k)
+            out.set_band_description(k, name)
+    _sidecar(path, names, meta)
     return path
+
+
+class BlockWriter:
+    """A SAR dataset opened for writing block by block; ``write`` puts one block (first row, first column,
+    {name: array}) and ``close`` writes the sidecar. Two can be open at once, for a tool with two outputs; the later
+    opened is closed first, each holding its GDAL environment."""
+
+    def __init__(self, path, names, dtype, shape, meta, transform=None, srid=0):
+        import contextlib
+        import rasterio
+        self.path, self.names, self.dtype, self.meta = out_path(path), list(names), dtype, meta
+        profile = _profile(self.path, dtype, shape, len(self.names), transform, srid)
+        self._stack = contextlib.ExitStack()
+        self._stack.enter_context(_quiet())
+        self._stack.enter_context(rasterio.Env(GDAL_CACHEMAX=GDAL_CACHE_MB))
+        self.out = self._stack.enter_context(rasterio.open(self.path, "w", **profile))
+        for k, name in enumerate(self.names, 1):
+            self.out.set_band_description(k, name)
+
+    def write(self, r0, c0, arrays):
+        from rasterio.windows import Window
+        for k, name in enumerate(self.names, 1):
+            a = arrays[name]
+            self.out.write(a.astype(self.dtype), k, window=Window(c0, r0, a.shape[1], a.shape[0]))
+
+    def close(self):
+        self._stack.close()
+        _sidecar(self.path, self.names, self.meta)
+        return self.path
+
+
+def write_blocks(path, names, dtype, shape, meta, blocks, transform=None, srid=0):
+    """A SAR dataset written block by block: ``blocks`` yields (first row, first column, {name: array}), the blocks
+    together cover the grid, and only one is held at a time (D-328)."""
+    writer = BlockWriter(path, names, dtype, shape, meta, transform, srid)
+    try:
+        for r0, c0, arrays in blocks:
+            writer.write(r0, c0, arrays)
+    except BaseException:
+        writer._stack.close()
+        raise
+    return writer.close()
 
 
 def _quiet():
@@ -263,11 +538,11 @@ def read_safe(path, tool):
         if not os.path.exists(tiff):
             raise ExecuteError(f"{tool}: '{tiff}' is missing from the product.")
         with _quiet(), rasterio.open(tiff) as source:
-            band = source.read(1)
+            shape, complex_ = source.shape, source.dtypes[0].startswith("complex")
         product = _text(header, "productType").upper()
-        bands[pol] = band.astype(np.complex64) if np.iscomplexobj(band) else band.astype(np.float32)
+        bands[pol] = Band(tiff, 1, shape, complex_)
         if meta is None:
-            meta = _annotation(root, product, band.shape)
+            meta = _annotation(root, product, shape)
             meta["ipf_version"] = _ipf_version(safe)
             meta["source"] = safe
         pols[pol] = {"calibration": _calibration(os.path.join(safe, "annotation", "calibration", "calibration-" + name + ".xml")),
@@ -275,10 +550,13 @@ def read_safe(path, tool):
     meta["pols"] = pols
     override = os.path.join(safe, "grapy-orbit.json")
     if os.path.exists(override):
-        meta["orbit"] = json.load(open(override, encoding="utf-8"))["orbit"]
-        meta["orbit_source"] = json.load(open(override, encoding="utf-8")).get("source")
+        with open(override, encoding="utf-8") as f:
+            held = json.load(f)
+        meta["orbit"] = held["orbit"]
+        meta["orbit_source"] = held.get("source")
     order = [p for p in ("HH", "HV", "VH", "VV") if p in bands] + [p for p in bands if p not in ("HH", "HV", "VH", "VV")]
-    return SarData({p: bands[p] for p in order}, meta, None, 0, safe)
+    return SarData(Bands((p, dict.__getitem__(bands, p) if isinstance(bands, Bands) else bands[p]) for p in order),
+                   meta, None, 0, safe)
 
 
 def _annotation(root, product, shape):
@@ -396,25 +674,48 @@ def noise(vectors, lines, pixels):
 
 def _orbit(meta):
     o = np.asarray(meta["orbit"], float)
+    if o.ndim != 2 or o.shape[1] < 7:
+        raise ExecuteError("The radar data carries fewer than two orbit state vectors.")
     if len(o) < 2:
         raise ExecuteError("The radar data carries fewer than two orbit state vectors.")
     return o[np.argsort(o[:, 0])]
 
 
-def state(meta, t):
-    """Position and velocity at azimuth times ``t``, by cubic Hermite interpolation of the bracketing state vectors
-    (positions and velocities both honoured)."""
+def _hermite(meta):
+    """The orbit's cubic Hermite segments as polynomial coefficients in s = (t - t0) / (t1 - t0): position
+    c0 + c1 s + c2 s² + c3 s³ on each segment, with the positions and velocities at both ends honoured. The last
+    orbit's are held, because a terrain correction asks for millions of states (D-328)."""
     o = _orbit(meta)
-    t = np.atleast_1d(np.asarray(t, float))
-    k = np.clip(np.searchsorted(o[:, 0], t) - 1, 0, len(o) - 2)
-    t0, t1 = o[k, 0], o[k + 1, 0]
+    key = o.tobytes()
+    if _HERMITE.get("key") == key:
+        return _HERMITE["segments"]
+    t0, t1 = o[:-1, 0], o[1:, 0]
     h = (t1 - t0)[:, None]
-    s = ((t - t0) / (t1 - t0))[:, None]
-    p0, p1, v0, v1 = o[k, 1:4], o[k + 1, 1:4], o[k, 4:7] * h, o[k + 1, 4:7] * h
-    h00, h10, h01, h11 = 2 * s ** 3 - 3 * s ** 2 + 1, s ** 3 - 2 * s ** 2 + s, -2 * s ** 3 + 3 * s ** 2, s ** 3 - s ** 2
-    pos = h00 * p0 + h10 * v0 + h01 * p1 + h11 * v1
-    d00, d10, d01, d11 = 6 * s ** 2 - 6 * s, 3 * s ** 2 - 4 * s + 1, -6 * s ** 2 + 6 * s, 3 * s ** 2 - 2 * s
-    vel = (d00 * p0 + d10 * v0 + d01 * p1 + d11 * v1) / h
+    p0, p1, v0, v1 = o[:-1, 1:4], o[1:, 1:4], o[:-1, 4:7] * h, o[1:, 4:7] * h
+    c2 = -3 * p0 - 2 * v0 + 3 * p1 - v1
+    c3 = 2 * p0 + v0 - 2 * p1 + v1
+    segments = (o[:, 0], t0, h[:, 0], np.stack([p0, v0, c2, c3], 1))
+    _HERMITE.update(key=key, segments=segments)
+    return segments
+
+
+_HERMITE = {}
+
+
+def state(meta, t, acceleration=False):
+    """Position and velocity (and, when asked, acceleration) at azimuth times ``t``, by cubic Hermite interpolation
+    of the bracketing state vectors (positions and velocities both honoured)."""
+    times, t0, h, c = _hermite(meta)
+    t = np.atleast_1d(np.asarray(t, float))
+    k = np.clip(np.searchsorted(times, t) - 1, 0, len(times) - 2)
+    hk = h[k][:, None]
+    s = ((t - t0[k]) / h[k])[:, None]
+    ck = c[k]
+    c0, c1, c2, c3 = ck[:, 0], ck[:, 1], ck[:, 2], ck[:, 3]
+    pos = c0 + s * (c1 + s * (c2 + s * c3))
+    vel = (c1 + s * (2 * c2 + s * (3 * c3))) / hk
+    if acceleration:
+        return pos, vel, (2 * c2 + 6 * s * c3) / (hk * hk)
     return pos, vel
 
 
@@ -536,12 +837,17 @@ def _pixel_of_range(meta, t, tau):
     times = np.array([r[0] for r in rows])
     t = np.atleast_1d(np.asarray(t, float))
     tau = np.atleast_1d(np.asarray(tau, float))
-    per = np.array([_extrap(tau, r[:, 1], r[:, 3]) for _, r in rows])
     if len(times) == 1:
-        return per[0]
+        return _extrap(tau, rows[0][1][:, 1], rows[0][1][:, 3])
     k = np.clip(np.searchsorted(times, t, side="right") - 1, 0, len(times) - 2)
     i = np.arange(t.size)
-    at = np.array([_extrap(per[j], r[:, 3], r[:, 0]) for j, (_, r) in enumerate(rows)])
+    # only the tie-point rows that bracket some point are interpolated: a tile of a terrain correction meets two or
+    # three of a scene's dozen (D-328), and each point's answer is the same as if all were
+    first = int(k.min()) if k.size else 0
+    used = rows[first: int(k.max()) + 2] if k.size else rows[:2]
+    per = np.array([_extrap(tau, r[:, 1], r[:, 3]) for _, r in used])
+    at = np.array([_extrap(per[j], r[:, 3], r[:, 0]) for j, (_, r) in enumerate(used)])
+    k = k - first
     w = (t - at[k, i]) / (at[k + 1, i] - at[k, i])
     return per[k, i] * (1 - w) + per[k + 1, i] * w
 
@@ -572,19 +878,31 @@ def geocode(meta, rows, columns, heights):
 
 
 def zero_doppler(meta, p):
-    """The azimuth time at which each ECEF point is at zero Doppler, and the slant range then."""
+    """The azimuth time at which each ECEF point is at zero Doppler, and the slant range then: Newton's method on
+    f(t) = (P - S(t)) . V(t), f'(t) = (P - S) . A - V . V, from the state vector nearest each point. A point stops
+    once its step is under a nanosecond or no longer moves its time (float64 holds an azimuth time since 2000 to
+    about 1e-7 s), so only the points still converging are carried (D-328)."""
     p = np.atleast_2d(np.asarray(p, float))
     o = _orbit(meta)
-    # start from the state vector nearest each point, then Newton on f(t) = (P - S(t)) . V(t)
-    distance = np.linalg.norm(p[:, None, :] - o[None, :, 1:4], axis=-1)
-    t = o[np.argmin(distance, axis=1), 0]
+    times = o[:, 0]
+    best = np.full(len(p), np.inf)
+    t = np.empty(len(p))
+    # the nearest state vector, one at a time rather than a points x vectors array; of a precise orbit's thousands,
+    # 64 evenly spaced, Newton's method converging from a minute away as from ten seconds
+    for k in np.unique(np.linspace(0, len(o) - 1, min(len(o), 64)).round().astype(int)):
+        d = np.sum((p - o[k, 1:4]) ** 2, -1)
+        closer = d < best
+        best[closer], t[closer] = d[closer], times[k]
+    active = np.arange(len(p))
     for _ in range(30):
-        s, v = state(meta, t)
-        d = p - s
-        f = np.sum(d * v, -1)
-        step = f / np.sum(v * v, -1)
-        t = t + step
-        if np.max(np.abs(step)) < 1e-9:
+        s, v, a = state(meta, t[active], acceleration=True)
+        d = p[active] - s
+        step = np.sum(d * v, -1) / (np.sum(v * v, -1) - np.sum(d * a, -1))
+        moved = t[active] + step
+        still = (np.abs(step) >= 1e-9) & (moved != t[active])
+        t[active] = moved
+        active = active[still]
+        if not len(active):
             break
     s, v = state(meta, t)
     return t, np.linalg.norm(p - s, axis=-1), s
@@ -596,6 +914,59 @@ def backgeocode(meta, p):
     rows = (t - meta["first_line_time"]) / meta["line_interval"]
     pixels = _pixel_of_range(meta, t, 2 * r / C)
     return rows, pixel_column(meta, pixels), s
+
+
+#: The lattice ``backgeocode_grid`` solves exactly: every LATTICE_STEP-th cell of a map grid, at three heights.
+LATTICE_STEP = 16
+
+
+def backgeocode_grid(meta, lon_axis, lat_axis, heights, step=None):
+    """Fractional (row, column) in radar geometry of every cell of a map grid (longitudes ``lon_axis`` by latitudes
+    ``lat_axis``, cells at ``heights``, rows x columns). The range-Doppler equations are solved exactly
+    (``zero_doppler``) on a lattice of every ``step``-th cell at the lowest, middle and highest of the cells' heights;
+    a cell's azimuth time and slant range, both smooth, are interpolated bilinearly on the lattice and quadratically
+    in height, and its row and column follow from them exactly as ``backgeocode``'s do (the column through the tie
+    points, whose kinks an interpolated column would cut). Both quantities are smooth over a lattice cell: on
+    S1D_IW_GRDH_1SDV_20261031T054608 the lattice puts cells within 1e-4 of a line and 6e-4 of a column of the
+    per-cell solution, at the tie points' heights and on 800 m of synthetic relief, in an eighth of the time (D-328)."""
+    step = LATTICE_STEP if step is None else int(step)
+    lon_axis, lat_axis = np.asarray(lon_axis, float), np.asarray(lat_axis, float)
+    h = np.asarray(heights, float).reshape(len(lat_axis), len(lon_axis))
+    n, m = h.shape
+    ri = np.unique(np.r_[np.arange(0, n, step), n - 1])
+    ci = np.unique(np.r_[np.arange(0, m, step), m - 1])
+    finite = h[np.isfinite(h)]
+    low, high = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 0.0)
+    levels = [low] if high - low < 1e-3 else [low, (low + high) / 2, high]
+    glon, glat = np.meshgrid(lon_axis[ci], lat_axis[ri])
+    at_levels = []
+    for level in levels:
+        t, r, _ = zero_doppler(meta, ecef(glon.ravel(), glat.ravel(), np.full(glon.size, level)))
+        at_levels.append((t.reshape(glon.shape), r.reshape(glon.shape)))
+    # linear weights of every row and column between the lattice's, applied along columns and then along rows
+    kr = np.clip(np.searchsorted(ri, np.arange(n), side="right") - 1, 0, max(len(ri) - 2, 0))
+    kc = np.clip(np.searchsorted(ci, np.arange(m), side="right") - 1, 0, max(len(ci) - 2, 0))
+    kr1, kc1 = np.minimum(kr + 1, len(ri) - 1), np.minimum(kc + 1, len(ci) - 1)
+    wr = np.where(kr1 > kr, (np.arange(n) - ri[kr]) / np.maximum(ri[kr1] - ri[kr], 1), 0.0)[:, None]
+    wc = np.where(kc1 > kc, (np.arange(m) - ci[kc]) / np.maximum(ci[kc1] - ci[kc], 1), 0.0)[None, :]
+    base = at_levels[0][0][0, 0]   # times are spread relative to one, to keep float64's resolution
+
+    def spread(v):
+        across = v[:, kc] * (1 - wc) + v[:, kc1] * wc
+        return across[kr] * (1 - wr) + across[kr1] * wr
+    if len(levels) == 1:
+        t, r = spread(at_levels[0][0] - base), spread(at_levels[0][1])
+    else:
+        x0, x1, x2 = levels   # Lagrange through the three heights
+        hh = np.where(np.isfinite(h), h, x1)
+        l0 = (hh - x1) * (hh - x2) / ((x0 - x1) * (x0 - x2))
+        l1 = (hh - x0) * (hh - x2) / ((x1 - x0) * (x1 - x2))
+        l2 = 1.0 - l0 - l1
+        t = sum(spread(v - base) * w for (v, _), w in zip(at_levels, (l0, l1, l2)))
+        r = sum(spread(v) * w for (_, v), w in zip(at_levels, (l0, l1, l2)))
+    t = t.ravel() + base
+    rows = (t - meta["first_line_time"]) / meta["line_interval"]
+    return rows, pixel_column(meta, _pixel_of_range(meta, t, 2 * r.ravel() / C))
 
 
 def ground_spacing(meta):
@@ -637,11 +1008,13 @@ class Dem:
         return bilinear(self.values, r, c)
 
 
-def bilinear(array, rows, columns):
-    """Values of an array at fractional (row, column) cell centres, bilinearly; NaN outside it."""
+def bilinear(array, rows, columns, offset=(0, 0), shape=None):
+    """Values of an array at fractional (row, column) cell centres, bilinearly; NaN outside it. ``array`` may be a
+    window of a larger image of ``shape`` whose first cell is at ``offset`` (D-328): the cells and weights are
+    those of the whole image, read from the window, which ``bilinear_reach`` says how large to make."""
     rows = np.asarray(rows, float)
     columns = np.asarray(columns, float)
-    n, m = array.shape
+    n, m = array.shape if shape is None else shape
     inside = (rows >= -0.5) & (rows <= n - 0.5) & (columns >= -0.5) & (columns <= m - 0.5)
     r = np.clip(rows, 0, n - 1)
     c = np.clip(columns, 0, m - 1)
@@ -649,6 +1022,7 @@ def bilinear(array, rows, columns):
     c0 = np.clip(np.floor(c).astype(int), 0, max(m - 2, 0))
     r1, c1 = np.minimum(r0 + 1, n - 1), np.minimum(c0 + 1, m - 1)
     wr, wc = r - r0, c - c0
+    r0, r1, c0, c1 = r0 - offset[0], r1 - offset[0], c0 - offset[1], c1 - offset[1]
     out = (array[r0, c0] * (1 - wr) * (1 - wc) + array[r0, c1] * (1 - wr) * wc + array[r1, c0] * wr * (1 - wc)
            + array[r1, c1] * wr * wc)
     if np.iscomplexobj(out):
@@ -656,6 +1030,13 @@ def bilinear(array, rows, columns):
     else:
         out = np.where(inside, out, np.nan)
     return out
+
+
+def bilinear_reach(index, n):
+    """(first, last + 1) of the rows (or columns) of an image of ``n`` that ``bilinear`` reads at fractional
+    ``index``es."""
+    k = np.clip(np.floor(np.clip(np.asarray(index, float), 0, n - 1)).astype(int), 0, max(n - 2, 0))
+    return int(k.min()), int(min(k.max() + 1, n - 1)) + 1
 
 
 def heights_for(meta, rows, columns, dem, iterations=3):
@@ -676,40 +1057,22 @@ def heights_for(meta, rows, columns, dem, iterations=3):
 
 def lonlat_grid(meta, shape, dem=None, step=16):
     """Longitude and latitude of every cell of a radar-geometry dataset, geocoded on a coarse lattice of ``step``
-    cells and interpolated bilinearly between."""
-    n, m = shape
-    rs = np.unique(np.r_[np.arange(0, n, step), n - 1]).astype(float)
-    cs = np.unique(np.r_[np.arange(0, m, step), m - 1]).astype(float)
-    rr, cc = np.meshgrid(rs, cs, indexing="ij")
-    h = heights_for(meta, rr.ravel(), cc.ravel(), dem)
-    lon, lat, _ = geodetic(geocode(meta, rr.ravel(), cc.ravel(), h))
-    lon, lat = lon.reshape(rr.shape), lat.reshape(rr.shape)
-    from scipy.interpolate import RegularGridInterpolator
-    R, Cc = np.meshgrid(np.arange(n, dtype=float), np.arange(m, dtype=float), indexing="ij")
-    pts = np.stack([R.ravel(), Cc.ravel()], -1)
-    lon_i = RegularGridInterpolator((rs, cs), lon)(pts).reshape(n, m) if len(rs) > 1 and len(cs) > 1 else np.full((n, m), lon.mean())
-    lat_i = RegularGridInterpolator((rs, cs), lat)(pts).reshape(n, m) if len(rs) > 1 and len(cs) > 1 else np.full((n, m), lat.mean())
-    return lon_i, lat_i
+    cells and interpolated bilinearly between (``LonLat`` answers a block of rows)."""
+    return LonLat(meta, shape, dem, step).rows(0, shape[0])
 
 
-def map_centres(sar):
-    """x and y of every cell centre of a map-geometry dataset."""
+def map_centres(sar, r0=0, r1=None):
+    """x and y of the cell centres of a map-geometry dataset, rows r0 to r1."""
     n, m = sar.shape
+    r1 = n if r1 is None else r1
     t = sar.transform
-    cols, rows = np.meshgrid(np.arange(m) + 0.5, np.arange(n) + 0.5)
+    cols, rows = np.meshgrid(np.arange(m) + 0.5, np.arange(r0, r1) + 0.5)
     return t.c + cols * t.a + rows * t.b, t.f + cols * t.d + rows * t.e
 
 
 def cell_lonlat(sar, dem=None):
     """Longitude and latitude of every cell of a dataset, in either geometry."""
-    if sar.radar:
-        return lonlat_grid(sar.meta, sar.shape, dem)
-    x, y = map_centres(sar)
-    if sar.srid in (0, 4326):
-        return x, y
-    import pyproj
-    to = pyproj.Transformer.from_crs(sar.srid, 4326, always_xy=True)
-    return to.transform(x, y)
+    return CellLonLat(sar, dem).rows(0, sar.shape[0])
 
 
 def intensity(array):

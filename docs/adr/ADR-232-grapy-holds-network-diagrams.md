@@ -280,4 +280,18 @@ None recorded.
    on this diagram where grapy's unit of 1 gives 2, one diagram not saying what Pro's average junction size is; and the
    radial tree, mainline tree and linear dispatch, which Pro answered with success while moving nothing, run headless
    on a diagram layer, so nothing of theirs was compared.
+   **Measured further 2026-10-31** (`tools/pro-compare/adr232-diagrams.py`): headless Pro applies only the first
+   layout a Python process runs and answers every later one with success and no change — which is all the earlier
+   "moved nothing" was — so each layout was run in a process of its own, on five diagrams: §4's network, the same at
+   10 times, stretched 10 times east–west, and two smaller trees of it, three and two levels deep. *Relative units,
+   changed to Pro's answer:* in proportional units Pro draws a smart tree to the diagram's size, the longer side of
+   the tree's extent equal to the longer side of the junctions' before (spacings 10, 100, 100, 6.667 and 10 m on the
+   five, left to right and top to bottom), and grapy now does (`_ndlayout._fitted`) — eight layouts agree to the
+   coordinate, the vault with them; the INFERRED unit of §5.9 (e) stays for every other layout. *Linear dispatch*
+   agrees on the three diagrams it ran on. *Mainline tree*: Pro fits its tree the same way and puts a branch's first
+   junction one step along as well as across (E at T + (1, 1)), where grapy's branch grows straight across. *Radial
+   tree*: Pro fits and centres it the same way, its levels 10.955 m apart on §4's diagram, and spreads T's two leaves
+   ±24° about the line where grapy gives each half the circle. Those two stay in
+   [D-338](../architecture-debt.md), measured but not followed: one tree shape does not pin a branch's or a wedge's
+   rule. **DISCHARGED 2026-10-31** — compared; the remaining difference accepted by owner decision ("Kabul et, borçta izle") and tracked in [D-338](../architecture-debt.md) with its measurement and trigger.
 6. **The owner confirms or changes §5.9** ([Q-200](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-200 (*"Hepsini onayla"*).

@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(113);
+    public static SchemaVersion ComponentSchemaVersion => new(121);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -148,7 +148,187 @@ public static class PlatformMigrations
         ADenseTileIsNotedV111,
         AToolboxIsAnItemV112,
         AServiceAccountHoldsClientSecretsV113,
+        ABuiltInAppIsEveryOrganisationsV115,
+        AServiceIsFoundByAStoredKeyV116,
+        ASiteKnowsItsNodesV119,
+        TheServerLogIsTheSitesV120,
+        ADocumentKeepsAPictureV121,
     ]);
+
+    /// <summary>
+    /// The server's own warnings and errors are kept in the store with the node that logged them, so the log screen shows
+    /// the whole site — ADR-012 phase 0 item 13, ArcGIS Server Manager's logs queried across the site's machines.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written by each node every ten seconds, from the ring it already keeps</b> (ADR-045 §5a, D-300), and bounded the
+    /// way the ring is: the newest two thousand per node, thirty days at most. Read only where more than one machine is
+    /// up; a site of one reads its ring as before.
+    /// </para>
+    /// <para><b>The system's</b>, as the process log is; not floored. <b>Expand</b>: a table nothing older reads.</para>
+    /// </remarks>
+    private static Migration TheServerLogIsTheSitesV120 => Migration.Expand(
+        new SchemaVersion(120),
+        "The server's warnings and errors are kept in the store with the node that logged them (ADR-012).",
+
+        """
+        create table if not exists site_log (
+            id bigserial primary key,
+            node text not null,
+            at timestamptz not null,
+            level int not null,
+            category text not null,
+            event_id int not null,
+            event_name text,
+            message text not null,
+            exception text
+        )
+        """,
+
+        "create index if not exists site_log_at on site_log (at desc)",
+
+        "create index if not exists site_log_node on site_log (node, id)");
+
+    /// <summary>
+    /// A site knows its nodes — ADR-012 phase 0 items 5, 6 and 11: each node writes itself into <c>site_node</c> at
+    /// start and every ten seconds after, with what an administrator set it to and what its settings hash to; and the
+    /// time it last warmed each pinned service is its own row.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The system's, not an organisation's</b>: a node serves every organisation, as a machine of an ArcGIS site
+    /// serves every service. Not floored, and listed as such.
+    /// </para>
+    /// <para>
+    /// <b>Expand.</b> Two tables nothing older reads; a build before this one starts on a store that has them and never
+    /// registers, which is what it did before.
+    /// </para>
+    /// </remarks>
+    private static Migration ASiteKnowsItsNodesV119 => Migration.Expand(
+        new SchemaVersion(119),
+        "A site knows its nodes: each registers itself, keeps a heartbeat, and keeps its own pinned services' warm times (ADR-012).",
+
+        """
+        create table if not exists site_node (
+            name text primary key,
+            address text not null,
+            version text not null,
+            started_at timestamptz not null,
+            last_seen timestamptz not null,
+            configured_state text not null default 'started'
+                check (configured_state in ('started', 'stopped', 'maintenance')),
+            settings text not null,
+            key_check text not null,
+            leads text[] not null default '{}',
+            ready boolean not null default false,
+            probe text
+        )
+        """,
+
+        """
+        create table if not exists site_node_warm (
+            node text not null references site_node (name) on delete cascade,
+            service_id uuid not null references service (id) on delete cascade,
+            warmed_at timestamptz not null,
+            primary key (node, service_id)
+        )
+        """);
+
+    /// <summary>
+    /// ArcGIS Pro, the ArcGIS API for Python and Field Maps are apps of every organisation, not of the first one —
+    /// ADR-204 condition 3.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found 2026-10-31 by signing in at a second organisation's host.</b> Migration 100 floored <c>oauth_app</c>
+    /// with every other organisation table, and the three built-in apps that migrations 84, 86 and 88 had inserted were
+    /// the default organisation's rows. At any other organisation's host <c>/sharing/rest/oauth2/authorize?client_id=
+    /// arcgisprodesktop</c> answered 400, <i>Sign-in could not start</i>: Pro, the Python API and Field Maps could not
+    /// sign in to any organisation but the first.
+    /// </para>
+    /// <para>
+    /// <b>A second, permissive policy for reading only.</b> A built-in app is read by every organisation; it is changed
+    /// and removed by none but the one whose row it is, because <c>tenant_floor</c> still governs every write — a
+    /// <c>for select</c> policy grants nothing to <c>update</c> or <c>delete</c>. An organisation's own app stays its
+    /// own. Not named <c>tenant_floor</c>, which marks the policy a purge walks (condition 2).
+    /// </para>
+    /// <para><b>Expand.</b> A policy; a build before this one ignores it and is as it was.</para>
+    /// </remarks>
+    private static Migration ABuiltInAppIsEveryOrganisationsV115 => Migration.Expand(
+        new SchemaVersion(115),
+        "A built-in OAuth app is read by every organisation (ADR-204 condition 3).",
+
+        "drop policy if exists builtin_apps_are_everyones on oauth_app",
+
+        "create policy builtin_apps_are_everyones on oauth_app for select using (builtin)");
+
+    /// <summary>
+    /// A document keeps a picture its owner gave it, as Portal's items do — D-321.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Numbered 121, not 117</b>: 117 to 120 were handed to branches built beside this one on 2026-10-31, and the set
+    /// orders by number rather than requiring every number, so the merge keeps all of them in order.
+    /// </para>
+    /// <para>
+    /// <b>Beside the file, in <c>document</c>, not on <c>item</c></b>: a web map keeps its picture on <c>web_map</c>
+    /// (migration 74) and a service draws its own, so the item table has no picture column for this to share.
+    /// </para>
+    /// <para><b>Expand.</b> A nullable column; a build before this one never reads it.</para>
+    /// </remarks>
+    private static Migration ADocumentKeepsAPictureV121 => Migration.Expand(
+        new SchemaVersion(121),
+        "A document keeps a picture its owner gave it (D-321).",
+
+        "alter table document add column if not exists thumbnail bytea");
+
+    /// <summary>
+    /// A service is found by a stored key, so the lookup every request makes keeps its index under the tenant floor —
+    /// ADR-204 §5b and condition 11.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Found by <c>EveryPerRequestStatementKeepsItsIndexUnderTheFloorTests</c>, 2026-10-31</b> — the trap ADR-204's
+    /// prototype found on 2026-10-19 and §5b wrote down, which the build of 2026-10-22 did not take: under a row-level
+    /// policy PostgreSQL may not evaluate <c>lower(s.name)</c>, which is not leakproof, before the policy has filtered the
+    /// row, so <c>FindServiceAsync</c>'s <c>lower(s.name) = lower(@name)</c> could not use migration 15's expression
+    /// index and read every service of the catalogue on every request any face answered — for the default organisation
+    /// and for a second alike, since the policy is there for both.
+    /// </para>
+    /// <para>
+    /// <b>A plain column kept by a trigger, not a generated one</b>, because the recycle bin and the catalogue manifest
+    /// write a service row back from its JSON with every column it had; the trigger recomputes the key from the name and
+    /// folder on every write, so a stale key in such a row is corrected rather than refused.
+    /// </para>
+    /// <para><b>Expand.</b> A column, a trigger and an index; a build before this one never reads the column, and its
+    /// writes go through the same trigger.</para>
+    /// </remarks>
+    private static Migration AServiceIsFoundByAStoredKeyV116 => Migration.Expand(
+        new SchemaVersion(116),
+        "A service is found by a stored key, so the per-request lookup keeps its index under the tenant floor (ADR-204 condition 11).",
+
+        "alter table service add column if not exists lookup_key text",
+
+        """
+        create or replace function graticula_service_lookup_key() returns trigger
+        language plpgsql as $f$
+        begin
+            new.lookup_key := coalesce(lower(new.folder), '') || chr(31) || lower(new.name);
+            return new;
+        end
+        $f$
+        """,
+
+        "drop trigger if exists service_lookup_key on service",
+
+        """
+        create trigger service_lookup_key before insert or update on service
+            for each row execute function graticula_service_lookup_key()
+        """,
+
+        "update service set lookup_key = coalesce(lower(folder), '') || chr(31) || lower(name)",
+
+        "create index if not exists service_lookup on service (lookup_key)");
 
     /// <summary>
     /// A service account holds client secrets beside its keys, and a token issued for one remembers which — ADR-200

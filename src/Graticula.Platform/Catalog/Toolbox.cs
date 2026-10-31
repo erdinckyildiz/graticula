@@ -70,10 +70,4 @@ public interface IToolboxStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>Whether it was found.</returns>
     Task<bool> ShareAsync(string id, SharingScope sharing, CancellationToken cancellationToken);
-
-    /// <summary>Removes it, its source with it.</summary>
-    /// <param name="id">The item id.</param>
-    /// <param name="cancellationToken">Cancellation.</param>
-    /// <returns>Whether it was there.</returns>
-    Task<bool> DeleteAsync(string id, CancellationToken cancellationToken);
 }

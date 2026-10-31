@@ -204,7 +204,7 @@ not reopen.
    polygon list whose first entry was a point layer so every Aggregate failed, Cancel that silently let the layer be
    made, focus lost on every run, the server's parameter names in its sentences), the second shipped it with fixes, all
    taken. `AnalyzeDialogTests`. ~~**Open: in the map** — Studio's map has no analysis pane yet.~~
-   **The rest DISCHARGED 2026-10-29 — in the map.** The map's tool rail has **Analysis** beside Measure: one of the map's
+   **DISCHARGED 2026-10-29 — the rest, in the map.** *(Marker re-spelled 2026-10-31: written as* The rest DISCHARGED *it was invisible to `tools/conditions.py`, which reads a discharge only where the emphasis opens on the word, so the register counted this condition open for two days after it was met.)* The map's tool rail has **Analysis** beside Measure: one of the map's
    hosted layers, the same tools, and the result added to the map as a layer, with a link to it in Content. The tools are
    one script, `analysis.js`, that the item's dialog and the map both run, each saying only how it asks the server,
    how it tells the reader and what a result becomes — a second copy would be D-130's shape. The dialog gained Join

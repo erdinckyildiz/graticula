@@ -558,6 +558,31 @@ internal static partial class Log
     public static partial void ConnectionCeilingExceedsTheDatabase(
         ILogger logger, int ceiling, int usable, int allowed);
 
+    [LoggerMessage(
+        EventId = 2522,
+        Level = LogLevel.Information,
+        Message = "This site's {Nodes} nodes may hold up to {Ceiling} database connections at once between them and the "
+                + "platform store allows {Usable} of its {Allowed} (the rest are reserved for superusers). It fits (ADR-012).")]
+    public static partial void SiteConnectionCeilingFits(
+        ILogger logger, int nodes, int ceiling, int usable, int allowed);
+
+    [LoggerMessage(
+        EventId = 2523,
+        Level = LogLevel.Warning,
+        Message = "This site's {Nodes} nodes may hold up to {Ceiling} database connections at once between them and the "
+                + "platform store allows only {Usable} of its {Allowed} (the rest are reserved for superusers). Under load "
+                + "a node will be refused with '53300: sorry, too many clients already', its source breaker opens, and "
+                + "unrelated requests answer 503 for ten seconds. Raise max_connections, or lower "
+                + "Graticula:PerSourceConcurrency and Graticula:WorkerConcurrency on every node (ADR-012, D-196).")]
+    public static partial void SiteConnectionCeilingExceedsTheDatabase(
+        ILogger logger, int nodes, int ceiling, int usable, int allowed);
+
+    [LoggerMessage(
+        EventId = 2521,
+        Level = LogLevel.Critical,
+        Message = "{Reason}")]
+    public static partial void NodeRefused(ILogger logger, string reason);
+
     /// <summary>A layer could not be described, so a listing document was written without it — V-43.</summary>
     /// <param name="logger">The logger.</param>
     /// <param name="layer">The layer, qualified by folder and service.</param>
@@ -757,4 +782,13 @@ internal static partial class Log
                 + "a role that is neither a superuser nor BYPASSRLS and owns the database -- docs/deployment.md, "
                 + "'The role the server connects as'. ADR-204 condition 9.")]
     public static partial void PlatformStoreRoleIsNotBound(ILogger logger, string role, string why);
+
+    [LoggerMessage(
+        EventId = 1095,
+        Level = LogLevel.Critical,
+        Message = "The platform store holds {Organisations} organisations and is reached as a role row-level security "
+                + "does not bind (event 1094 names it), so every organisation would read every other's rows. The server "
+                + "will not start this way. Connect as the serving role the store was handed to -- docs/deployment.md, "
+                + "'The role the server connects as'. ADR-204 condition 9.")]
+    public static partial void SeveralOrganisationsOverAnUnboundRole(ILogger logger, int organisations);
 }

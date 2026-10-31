@@ -117,7 +117,11 @@ that carries them.
 
 1. **The owner's archive is imported again and the 25D layers arrive with their elevations.** Its
    `OHN_Watercourse` layer (3,659 features) is the case this decision was taken for. *(Open — the archive is the
-   owner's and is not in this repository.)*
+   owner's and is not in this repository.)* *(Searched for 2026-10-31, read-only, and not found on this machine: no file
+   geodatabase catalogue (`a00000001.gdbtable`, 150 of them) under `D:\` or `C:\Users\Erdinc` names an `OHN_` class,
+   and no archive among 181 `.zip`, `.7z`, `.sd` and `.mpk` files there holds one, by member name or by catalogue.
+   `E:\Users\eyildiz` refused the read and was not forced. So this stays open on the owner: the archive, or where it
+   is.)*
 2. **The console's map editor says why it cannot edit the geometry of a 3D hosted layer**, rather than
    showing the writer's refusal as a failed save. **DISCHARGED** 2026-09-19, by the premise failing rather
    than by work: there is no such editor. Nothing this server serves sends a feature geometry — no

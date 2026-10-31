@@ -19,13 +19,28 @@ namespace Graticula.Host;
 /// tenant that owns 50.
 /// </para>
 /// <para>
-/// <b>A warning, the way <see cref="ConnectionCeilings"/> is.</b> One organisation does not depend on the floor,
-/// and refusing to start would stop every deployment that works today. The refusal belongs where it matters — to
-/// serving a second organisation over a connection that cannot keep them apart — and that is ADR-204's to build.
+/// <b>A warning, the way <see cref="ConnectionCeilings"/> is, while there is one organisation.</b> One organisation
+/// does not depend on the floor, and refusing to start would stop every deployment that works today. The refusal
+/// belongs where it matters — to serving a second organisation over a connection that cannot keep them apart: the
+/// tenant endpoint will not make one, and <see cref="RefusesToServe"/> stops a server starting over a store that
+/// already holds several.
 /// </para>
 /// </remarks>
 internal static class PlatformStoreRole
 {
+    /// <summary>
+    /// Whether the server must refuse to start: the store holds more than one organisation and the role it is reached
+    /// as is one the floor does not bind. ADR-204 condition 9.
+    /// </summary>
+    /// <param name="bound">What <see cref="ReportAsync"/> said; null when the database would not say.</param>
+    /// <param name="organisations">How many organisations the store holds.</param>
+    /// <returns>
+    /// True only when the role is known not to be bound and there are several organisations. A database that would not
+    /// say is not refused: the tenant endpoint asks again before it makes one, and the read just failed for a reason the
+    /// handshake reports on its own.
+    /// </returns>
+    public static bool RefusesToServe(bool? bound, int organisations) => bound is false && organisations > 1;
+
     /// <summary>Reads the connected role's attributes and warns when the floor would not bind it.</summary>
     /// <param name="dataSource">The platform store, which is the connection we already have.</param>
     /// <param name="logger">Where to say it.</param>

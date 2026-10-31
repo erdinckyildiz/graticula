@@ -185,6 +185,16 @@ services directory), ADR-034 (Server and Studio).
    is opened here — both directions, recorded in §4. *(2026-10-14, the Maps SDK's half of the first direction: a map saved here opens in
    the SDK as a portal item, its styled layer drawn in its own style and its pop-up as saved — ADR-104 condition 3 and
    ADR-110 condition 2 record the measurement. Pro opening it, and a map saved by Pro opened here, are still owed.)*
+   *(2026-10-31: **arcpy has no route to either half from this machine.** Pro's own web-map reader,
+   `arcpy.mp.ConvertWebMapToArcGISProject`, was handed a map saved here (a red-filled FeatureServer layer and a
+   MapServer layer at half opacity, read anonymously from the portal's `items/{id}/data`) and answered *Invalid input*
+   with no request on the wire; the control shows why: Esri's own `USA/MapServer` through the same loopback relay is
+   refused the same way, at `127.0.0.1` and at `localhost`, and reached directly it converts. The converter refuses a
+   loopback address before it asks anything, so it can only be run against a server at a public address — dev or
+   the showcase, which this session may not touch. Saving a web map from Pro is *Share › Web Map* in Pro's window;
+   arcpy has no sharing draft for one. **Still owed, by a person**: in Pro signed in to dev's portal
+   (`https://dev.graticula.com/studio`), Catalog › Portal › My Content › open a web map saved in Studio and see its
+   layers drawn in their saved style; then *Share › Web Map* a map from Pro and open it in Studio's Map viewer.)*
 2. **Every screen passes the ux-designer review**, first-run state included (no maps yet, no services). *(2026-10-14: the review was
    run on both states — a server with no service and no map, and the fixture — and it did not pass: no blocker, six
    major and nine minor findings. **Repaired the same day:** My content's first run said *everything here belongs to
@@ -206,7 +216,7 @@ services directory), ADR-034 (Server and Studio).
    own actions are hidden, but its tick is not, and the selection bar's* Move to folder… *moves maps as well as
    services, so a map can be moved at that width; the review tried the row and not the bar. *Colour* and
    *Customised* are left: they run through the style controls and their tests, a change of its own.)* **Still open** for the owner's first use, which the
-   dissent below waits on.)*
+   dissent below waits on.)* **PARTLY DISCHARGED 2026-10-31 — everything but the owner's first use.** *Colour* and *Customised*, the two findings left from 2026-10-14, now read *Color*, *Colors*, *One color*, *A color per value* and *Customized for this map*. A ux-designer pass on 2026-10-31 rendered the viewer at 1280 and 390, including its first-run states: a new map with no layers, Add layer, and a layer's Style and Pop-up. It found the same family again — *centre* in the map's accessible name and in Place at map centre, and *grey* in a layer's warning — and those now say *center* and *gray*. It also found a pop-up Apply announced in two live regions (the panel's line is no longer one), and an empty new map at 390 px that pointed at an Add layer hidden in a closed sheet (the sentence now says to open Layers first). Its re-check passed all of them, and found no British spelling left in the rendered text, labels, titles or placeholders. **What remains is the owner's own first use of the viewer**, which §10a's two recommendations wait on. Nobody else can supply it.
 3. **The next item kind builds ADR-056's table** and moves web maps into it, rather than becoming a third
    source for the portal listing. **DISCHARGED 2026-10-16, before a next kind rather than with it** — owner decision of
    2026-10-15 to build ADR-101 condition 4's structural items. Migration 87 makes `item` and moves every web map's

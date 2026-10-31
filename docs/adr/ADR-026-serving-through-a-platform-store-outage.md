@@ -353,6 +353,7 @@ for the admin API and is **not** solved here.
    verdict at all.
 5. **The window's default is revisited against a real operator response time**
    before the first deployment that matters. A-068 is a guess.
+   **DISCHARGED 2026-10-31** — moved to [D-359](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *a real operator response time before the first deployment that matters*, is carried there verbatim with ADR-024's and ADR-059's. The condition was a trigger and not work; the debt row is where it is now watched.
 
 ## 11. Dissent
 

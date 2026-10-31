@@ -312,8 +312,11 @@ internal sealed record HostSettings(
     /// <summary>How long past its lifetime a tile may be served while its source cannot build it.</summary>
     public TimeSpan TileStaleIfError => TimeSpan.FromHours(TileStaleIfErrorHours);
 
-    /// <summary>Where packages are written: the setting, or <c>exports</c> under <see cref="StatePath"/>.</summary>
-    public string TileExportDirectory => TileExportPath ?? Path.Combine(StatePath, "exports");
+    /// <summary>
+    /// Where packages are written: the setting, or <c>exports</c> under the server directories — the state directory on a
+    /// node of its own, the shared path on a site (ADR-012 phase 1, D-282).
+    /// </summary>
+    public string TileExportDirectory => TileExportPath ?? Path.Combine(ServerDirectoryRoot, "exports");
 
     /// <summary>How long a written package is kept.</summary>
     public TimeSpan TileExportRetention => TimeSpan.FromHours(TileExportRetentionHours);
@@ -442,6 +445,9 @@ internal sealed record HostSettings(
                 + "resolves one directory too high and the map loads nothing.");
         }
 
+        // ADR-012 phase 1: one path every node of a site mounts. Unset, every directory below stays where it was.
+        string? serverDirectories = keys.Text("ServerDirectories");
+
         return new HostSettings(
             platformStore,
             key,
@@ -494,7 +500,10 @@ internal sealed record HostSettings(
             // largest thing this server writes, and putting it on the volume
             // that must be backed up would make every backup carry gigabytes of
             // tiles that can be rebuilt from the database in seconds.
+            // ADR-012 phase 1: on a site the tile cache is one of the server directories, as `arcgiscache` is ArcGIS's,
+            // so an edit empties one cache rather than one node's.
             keys.Text("TileCachePath")
+                ?? (serverDirectories is not null ? Path.Combine(serverDirectories, "tilecache") : null)
                 ?? Path.Combine(AppContext.BaseDirectory, "tilecache"),
 
             budget * 1024 * 1024,
@@ -754,8 +763,29 @@ internal sealed record HostSettings(
             Math.Max(1, keys.Value("ImportMaxFeatures", ImportLimits.Default.Features)),
             Math.Max(1L, keys.Value("ImportMaxVertices", ImportLimits.Default.Vertices)),
             Math.Max(1L, keys.Value("DocumentMaxMB", Graticula.Platform.Catalog.Documents.DefaultMaximumBytes / 1048576)) * 1048576,
-            Math.Max(0, keys.Value("PinnedServiceLimit", 50)));
+            Math.Max(0, keys.Value("PinnedServiceLimit", 50)))
+        {
+            ServerDirectories = serverDirectories,
+        };
     }
+
+    /// <summary>
+    /// The site's server directories, one path every node mounts — ADR-012 phase 1, ArcGIS's shared server directories;
+    /// null on a deployment of one node, which mounts nothing and keeps them under <see cref="StatePath"/> as before.
+    /// </summary>
+    public string? ServerDirectories { get; init; }
+
+    /// <summary>Where the server directories are: the shared path, or the state directory on a node of its own.</summary>
+    public string ServerDirectoryRoot => ServerDirectories ?? StatePath;
+
+    /// <summary>Uploaded imagery and what tools write beside it.</summary>
+    public string ImageryDirectory => Path.Combine(ServerDirectoryRoot, "imagery");
+
+    /// <summary>Uploaded files waiting in the recycle bin (D-306).</summary>
+    public string RecycleDirectory => Path.Combine(ServerDirectoryRoot, "recycle");
+
+    /// <summary>Backups, unless <c>Graticula:BackupPath</c> names another place.</summary>
+    public string BackupDirectory => Path.Combine(ServerDirectoryRoot, "backups");
 
     /// <summary>
     /// EPSG codes, comma or space separated, each with or without its <c>EPSG:</c>; a value that is not one refuses to

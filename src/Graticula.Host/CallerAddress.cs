@@ -116,6 +116,51 @@ internal static class CallerAddress
         return resolved;
     }
 
+    /// <summary>
+    /// The scheme and host the client used, where a trusted proxy ended its connection — ADR-012 §5 phase 3: behind a
+    /// proxy that ends TLS the node sees <c>http</c> and the proxy's address for the node, and every absolute address it
+    /// writes (<c>owningSystemUrl</c>, <c>tokenServicesUrl</c>, a picture's <c>href</c>) would say so.
+    /// </summary>
+    /// <param name="context">The request.</param>
+    /// <param name="trusted">The proxies this deployment trusts — <c>Graticula:TrustedProxies</c>.</param>
+    /// <remarks>
+    /// <para>
+    /// <b>Only from a proxy the deployment names</b>, the rule <see cref="Resolve"/> keeps for the address: from anybody
+    /// else a forwarded header is a caller choosing what this server believes, so with no proxy named nothing changes.
+    /// </para>
+    /// <para>
+    /// <b>The first value of each</b> — the one the outermost proxy wrote, which is the one the client reached — and
+    /// <c>X-Forwarded-Proto</c> only when it is <c>http</c> or <c>https</c>. The host is taken as the proxy says it; the
+    /// tenant a host reaches (ADR-204) is then the client's host, as it is when a proxy keeps <c>Host</c>.
+    /// </para>
+    /// </remarks>
+    public static void ApplyForwarded(HttpContext context, IReadOnlyList<IPNetwork> trusted)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(trusted);
+
+        if (trusted.Count == 0 || context.Connection.RemoteIpAddress is not { } socket || !IsTrusted(socket, trusted))
+        {
+            return;
+        }
+
+        string proto = First(context.Request.Headers["X-Forwarded-Proto"].ToString());
+
+        if (proto is "http" or "https")
+        {
+            context.Request.Scheme = proto;
+        }
+
+        string host = First(context.Request.Headers["X-Forwarded-Host"].ToString());
+
+        if (host.Length > 0 && host.Length <= 255 && !host.Any(c => char.IsWhiteSpace(c) || c is '/' or '\\' or '@'))
+        {
+            context.Request.Host = new HostString(host);
+        }
+
+        static string First(string header) => header.Split(',')[0].Trim().ToLowerInvariant();
+    }
+
     /// <summary>The caller's address, as resolved earlier in this request.</summary>
     /// <param name="context">The request.</param>
     /// <returns>The address, or null when there is none.</returns>

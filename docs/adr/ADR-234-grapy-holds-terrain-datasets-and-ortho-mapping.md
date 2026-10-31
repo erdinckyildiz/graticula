@@ -193,7 +193,7 @@ limits.
      `<name>_embed`; embedding and anchoring only for point and multipoint classes; embed fields refused; anchor points
      kept at every level; a bound change and a line or polygon class's removal leave a terrain built, a mass point
      class's removal invalidates it;
-   - (d) pyramids: windows are squares from the extent's lower-left corner; of ties, the earlier point; of two points at
+   - (d) pyramids: windows are squares from the extent's lower-left corner *(Pro 3.7 measured 2026-10-31, condition 4: **changed to Pro's** — from the corner of each tile of `round(spacing × √200000)` from the XY domain's origin, centred on the data on an axis whose tile index reaches 23,170; the extent's corner only where grapy does not know the domain, which is every coordinate system but the UTM zones)*; of ties, the earlier point; of two points at
      one x,y the later source's kept; window size levels thinned from the level before (as the page says), z-tolerance
      levels each from full resolution (so the documented bound holds at every level); *(Pro 3.7 measured 2026-10-31,
      condition 4: **changed to Pro's** — a window size level chooses in each window from full resolution and keeps
@@ -311,7 +311,7 @@ None recorded.
    ZMIN, and from its 918 by 276 for ZMEAN); ZMEAN ties within 1e-9; the 2× minimum window. **Not met**: Pro's window corner is not the
    extent's corner; it follows the XY domain (moving the domain's origin 1 m moved the windows 1 m) and the point
    spacing, by a rule its outputs do not pin down, so the same terrain keeps different points in grapy (208 of 642
-   shared at level 4) — [D-339](../architecture-debt.md). **Z-tolerance (c)**: Pro keeps 1,641 points at 0.5 and 193 at
+   shared at level 4) — [D-339](../architecture-debt.md). **DISCHARGED 2026-10-31**, the window corner: Pro 3.7 on 45 terrains of the same 2,500 points (`tools/pro-compare/adr234-terrain-corner-*.py`), the XY domain's origin moved from 0 to 26.8 km and to Pro's default, the point spacing 1, 1.5, 2, 3, 4 and 8: the data is cut into square tiles of `round(spacing × √200000)` m (447, 671, 894, 1,342, 1,789, 3,578) from the domain's origin, and each tile's windows start at its own corner; on an axis whose tile index reaches 23,170 (23,169 measured holding, 23,170 not, at spacings 1 and 2) the tiles are centred on the data's extent instead. The rule reproduces 23,225 of Pro's 23,273 kept points over every run and level (99.8 %); the rest are ties in height and the seam between two tiles, where Pro kept 5 points fewer than the rule at level 8 of one run. grapy now starts its windows by that rule (`_terrain.window_anchors`) from Pro's default XY domain where it is known — the UTM zones, read with arcpy's `SpatialReference(code).domain` — and on the first run's points, unaided, keeps Pro's points at every level of every method but the same height ties as before (ZMAX 642/642, 182/182, 49/49; ZMIN 641 of 642). What stays is recorded in D-339: other coordinate systems' default domains, which grapy does not tabulate, and the seam. **Z-tolerance (c)**: Pro keeps 1,641 points at 0.5 and 193 at
    2, grapy 1,735 and 206; every full-resolution point lies within the tolerance of both (Pro max 0.498 and 1.961,
    grapy 0.499 and 1.981); between the points the two surfaces differ by a mean of 0.095 and 0.551 on a 0.5 m grid.
    The comparison found a grapy bug, fixed: Qhull on UTM coordinates dropped 21 of the 2,500 points as coplanar, so a

@@ -259,6 +259,18 @@ public sealed class OgcRecordsConformanceTests : ArcGisClient
                 Assert.Equal(HttpStatusCode.OK, (await GetAsync(href)).Status);
             }
 
+            // ADR-177 condition 2: the same addresses typed with their protocol, which is what QGIS's MetaSearch reads a
+            // link's type as before it offers Add WFS or Add ArcGIS FeatureServer; with media types alone it offered none.
+            (string Type, string Href)[] typed = [.. record.GetProperty("links").EnumerateArray()
+                .Where(l => l.GetProperty("rel").GetString() == "describes" && l.TryGetProperty("type", out _))
+                .Select(l => (l.GetProperty("type").GetString()!, l.GetProperty("href").GetString()!))];
+            Assert.Contains(typed, l => l.Type == "OGC:WFS" && l.Href.Contains($"/rest/services/{service}/FeatureServer/WFSServer", StringComparison.Ordinal));
+            Assert.Contains(typed, l => l.Type == "ESRI:ArcGIS:FeatureServer" && l.Href.EndsWith($"/rest/services/{service}/FeatureServer?f=json", StringComparison.Ordinal));
+            // The twin is not a format of its own: `formats[].mediaType` holds media types only.
+            Assert.All(record.GetProperty("properties").GetProperty("formats").EnumerateArray()
+                .Where(f => f.TryGetProperty("mediaType", out _)),
+                f => Assert.Contains('/', f.GetProperty("mediaType").GetString()!));
+
             // ADR-166: turning WFS off takes the WFS address off the record, because WFS would no longer list it.
             (HttpStatusCode off, string offBody) = await SendAsync(admin, HttpMethod.Put,
                 $"/admin/services/{service}/ogc?folder=", Json(new { off = WfsOnly }));

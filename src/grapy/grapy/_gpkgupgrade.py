@@ -110,7 +110,7 @@ def _table_sql(connection, table):
 
 def upgrade(file, backup=True):
     """The file brought to the form grapy writes now; answers the findings it repaired. A copy of the file is kept
-    beside it first as ``<file>.before-upgrade`` (INFERRED, D-340: the rebuild cannot be undone otherwise, and the
+    beside it first as ``<file>.before-upgrade`` (INFERRED, D-340, Q-223 (e): the rebuild cannot be undone otherwise, and the
     upgrade page asks for a backup before an enterprise upgrade)."""
     connection = _gpkg.connect(file)
     try:
@@ -184,7 +184,7 @@ def UpgradeGDB(input_workspace, input_prerequisite_check="PREREQUISITE_CHECK", i
     of which must be on: PREREQUISITE_CHECK verifies the file can be written and lists in the messages what is in the
     old form; UPGRADE repairs it. A file already in the current form is left as it is, which the messages say.
 
-    INFERRED (D-340): a GeoPackage's "release" is the form grapy writes it in; the prerequisite check is that the file
+    INFERRED (D-340, Q-223 (e)): a GeoPackage's "release" is the form grapy writes it in; the prerequisite check is that the file
     exists, is a GeoPackage and is not read-only, the file-geodatabase checks of the page that a file has (no other
     users, no edit session and the system tables opening have no counterpart beyond SQLite opening it)."""
     from ._result import Result

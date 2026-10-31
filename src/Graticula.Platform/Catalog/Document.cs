@@ -29,6 +29,7 @@ namespace Graticula.Platform.Catalog;
 /// <param name="Tags">The words it is found by.</param>
 /// <param name="ContentFolder">The owner's content folder it is in, or null for the root.</param>
 /// <param name="Description">What it is about at length, or null.</param>
+/// <param name="HasThumbnail">Whether its owner gave it a picture — D-321, migration 121.</param>
 public sealed record Document(
     string Id,
     string Title,
@@ -46,7 +47,8 @@ public sealed record Document(
     bool DeleteProtected = false,
     IReadOnlyList<string>? Tags = null,
     Guid? ContentFolder = null,
-    string? Description = null);
+    string? Description = null,
+    bool HasThumbnail = false);
 
 /// <summary>What a document is, decided by this server from its first bytes and its name — ADR-188 §5.3.</summary>
 /// <param name="Name">The short name stored with it: <c>pdf</c>, <c>xlsx</c> and so on.</param>
@@ -76,6 +78,25 @@ public static class Documents
     private static readonly DocumentKind Jpeg = new("jpeg", "image/jpeg", "Image", ".jpg");
     private static readonly DocumentKind Gif = new("gif", "image/gif", "Image", ".gif");
     private static readonly DocumentKind WebP = new("webp", "image/webp", "Image", ".webp");
+
+    /// <summary>The largest picture a document keeps as its thumbnail: 1 MB, ArcGIS's limit on an item's.</summary>
+    public const int MaximumThumbnailBytes = 1 << 20;
+
+    /// <summary>
+    /// What a thumbnail is, from its first bytes alone — a PNG, JPEG, GIF or WebP picture — or null. D-321.
+    /// </summary>
+    /// <remarks>
+    /// <b>By signature only.</b> A thumbnail has no name anybody chose, and the bytes are served back with the type this
+    /// decides, so a file that is not a picture is never sent to a browser as one.
+    /// </remarks>
+    /// <param name="head">Its first bytes.</param>
+    /// <returns>The kind, or null when it is not one of the four.</returns>
+    public static DocumentKind? RecognisePicture(ReadOnlySpan<byte> head) =>
+        head.StartsWith(PngSignature) ? Png
+        : head.StartsWith(JpegSignature) ? Jpeg
+        : head.StartsWith("GIF87a"u8) || head.StartsWith("GIF89a"u8) ? Gif
+        : head.Length >= 12 && head[..4].SequenceEqual("RIFF"u8) && head[8..12].SequenceEqual("WEBP"u8) ? WebP
+        : null;
 
     /// <summary>Every kind accepted, by its stored name.</summary>
     public static IReadOnlyList<DocumentKind> Accepted { get; } = [Pdf, Word, Excel, PowerPoint, Csv, Png, Jpeg, Gif, WebP];
@@ -343,6 +364,19 @@ public interface IDocumentStore
     /// <param name="cancellationToken">Cancellation.</param>
     /// <returns>What happened.</returns>
     Task<OwnerChange> ChangeOwnerAsync(string id, string receiver, CancellationToken cancellationToken);
+
+    /// <summary>Keeps a picture as a document's thumbnail, or forgets it with null — D-321.</summary>
+    /// <param name="id">The document.</param>
+    /// <param name="picture">The picture's bytes, already recognised and bounded, or null.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>Whether the document exists.</returns>
+    Task<bool> SetThumbnailAsync(string id, byte[]? picture, CancellationToken cancellationToken);
+
+    /// <summary>A document's thumbnail, or null when it has none or there is no such document.</summary>
+    /// <param name="id">The document.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The picture's bytes.</returns>
+    Task<byte[]?> ThumbnailAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Removes a document; false when there was none.</summary>
     /// <param name="id">Its id.</param>

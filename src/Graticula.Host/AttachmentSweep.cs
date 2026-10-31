@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Platform.Catalog;
@@ -19,7 +20,7 @@ namespace Graticula.Host;
 /// then hourly, every failure logged and the next hour tried.
 /// </remarks>
 internal sealed partial class AttachmentSweep(
-    PostgresLayerCatalog layers, LayerConnections connections, ILogger<AttachmentSweep> logger) : BackgroundService
+    PostgresLayerCatalog layers, LayerConnections connections, ILogger<AttachmentSweep> logger, SiteSingletons? site = null) : BackgroundService
 {
     private static readonly TimeSpan Every = TimeSpan.FromHours(1);
 
@@ -30,7 +31,12 @@ internal sealed partial class AttachmentSweep(
         {
             try
             {
-                foreach (PublishedLayer layer in await layers.ListAsync(stoppingToken).ConfigureAwait(false))
+                // ADR-012 phase 0 item 1: once per site.
+                IReadOnlyList<PublishedLayer> all = site is null || await site.LeadsAsync(SiteSingletons.AttachmentSweep, stoppingToken).ConfigureAwait(false)
+                    ? await layers.ListAsync(stoppingToken).ConfigureAwait(false)
+                    : [];
+
+                foreach (PublishedLayer layer in all)
                 {
                     if (layer.Definition.IsHosted || layer.AttachmentsIn != AttachmentPlaces.Datastore)
                     {

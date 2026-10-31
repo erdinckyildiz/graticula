@@ -156,4 +156,13 @@ None recorded.
    the evidence that the conversion is right on real data. **PARTLY DISCHARGED 2026-09-24**: v1.0.164 migrated a
    copy and then the showcase to 55 without error, and it serves. But the showcase had no layer with a domain, so
    the conversion itself ran on nothing there; the evidence that it converts correctly is still the seeded copy of
-   §4. Discharged by the first real store with domains going through it.
+   §4. Discharged by the first real store with domains going through it. **Re-read 2026-10-31, still partly, and the
+   rest may never come.** The showcase has since migrated well past 55 — `platform_schema.applied_version` is
+   **113** on 2026-10-31 (v1.0.490), read-only from the VPS — and it still holds **no domains**: `count(*)` of
+   `gisserver.field_domain` is 0. So migration 55's conversion has still run on nothing real. And no store this project knows of can
+   bring it now: the conversion acts on a store that held domains *before* 55, the showcase is the only real
+   store this project knows of that old, and every store made since (dev.graticula.com's `gis_dev`, 2026-10-17; every fixture) was
+   created past 55. What remains is a store somebody else ran before v1.0.164 with domains in it, which nobody has
+   reported — so this is a trigger rather than work, and whether to keep it open, or to accept §4's seeded copy
+   as the evidence, is the owner's call.
+   **DISCHARGED 2026-10-31** — moved to [D-364](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *the first real store with domains going through migration 55*, is carried there verbatim. The condition was a trigger and not work; the debt row is where it is now watched.

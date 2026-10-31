@@ -208,6 +208,7 @@ isolation boundary a plugin system would use), [ADR-011](ADR-011-job-system.md),
    file and the line, and passes when it is removed.)*
 2. **The trigger in §2.3 is checked at each phase gate**, so this is a decision
    that gets revisited rather than one that expires quietly.
+   **DISCHARGED 2026-10-31** — moved to [D-360](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): §2.3's trigger — *someone needs a provider, output format or geoprocessing operation that we have decided not to build ourselves* — is carried there verbatim, where the register's triggers are read, rather than waiting for a phase gate. The condition was a trigger and not work; the debt row is where it is now watched.
 
 ## 8. Revisit triggers
 

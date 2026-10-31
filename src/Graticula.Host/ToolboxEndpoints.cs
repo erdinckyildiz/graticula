@@ -247,18 +247,38 @@ internal static partial class ToolboxEndpoints
         await Results.Json(new { name, sharing = sent!["sharing"]!.ToString() }).ExecuteAsync(context).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Deletes a toolbox into the recycle bin — ADR-203 (Q-180), D-346: its item and, by the walk of the store's own
+    /// foreign keys, the <c>toolbox</c> row that holds its source, so a restore brings the GPServer back under the
+    /// same item id and name.
+    /// </summary>
     private static async Task DeleteAsync(
-        HttpContext context, string name, IToolboxStore toolboxes, IAuditLog audit, CancellationToken cancellation)
+        HttpContext context, string name, IToolboxStore toolboxes, IAuditLog audit, RecycleBinService recycle,
+        CancellationToken cancellation)
     {
         if (await ManagedAsync(context, name, toolboxes, cancellation).ConfigureAwait(false) is not { } toolbox)
         {
             return;
         }
 
-        await toolboxes.DeleteAsync(toolbox.Id, cancellation).ConfigureAwait(false);
-        await AdminEndpoints.AuditAsync(context, audit, "toolbox.delete", name, AdminEndpoints.Detail(new { id = toolbox.Id }),
-            succeeded: true, cancellation).ConfigureAwait(false);
-        await Results.Json(new { name, deleted = true }).ExecuteAsync(context).ConfigureAwait(false);
+        RequestPrincipal current = context.Features.Get<RequestPrincipal>()!;
+        Guid id = Guid.Parse(toolbox.Id);
+        (Guid? entry, string? refused) = await recycle.RecycleRowsAsync(
+            "item", id, id, "toolbox", toolbox.Title, toolbox.Owner, current.Principal.Id, cancellation).ConfigureAwait(false);
+        bool gone = entry is not null;
+
+        await AdminEndpoints.AuditAsync(context, audit, "toolbox.delete", name,
+            AdminEndpoints.Detail(new { id = toolbox.Id, recycled = entry }), succeeded: gone, cancellation).ConfigureAwait(false);
+
+        if (!gone)
+        {
+            await AnalysisEndpoints.RefuseAsync(context, 409, refused ?? "It could not be set aside, and nothing was deleted.")
+                .ConfigureAwait(false);
+            return;
+        }
+
+        await Results.Json(new { name, deleted = true, recycled = entry, until = DateTimeOffset.UtcNow + recycle.Retention })
+            .ExecuteAsync(context).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------ the GPServer

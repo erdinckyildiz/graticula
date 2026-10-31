@@ -262,6 +262,7 @@ this server can see.
 2. **If a real extract ever becomes cheap to load in CI** — a cached artefact, a
    prebuilt image — Alternative C should be re-costed, because it is the only one
    that makes the check travel.
+   **DISCHARGED 2026-10-31** — moved to [D-361](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *a real extract becomes cheap to load in CI*, is carried there verbatim with the re-costing of Alternative C it asks for. The condition was a trigger and not work; the debt row is where it is now watched.
 
 ## 8. Revisit triggers
 

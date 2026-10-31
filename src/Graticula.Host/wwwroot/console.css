@@ -780,7 +780,8 @@ label.field {
 #idpGroups .tablewrap { overflow-x: auto; max-width: 100%; }
 #idpGroups .picker { min-width: 0; max-width: 100%; }
 #idpGroups .row.left, #idpForm .row.left { justify-content: flex-start; }
-#idpForm #idpIssuer, #idpForm #idpClient, #idpForm #idpUserBase, #idpForm #idpUserFilter { font-family: var(--mono, monospace); }
+#idpForm .row.left > :last-child { margin-left: 0; }
+#idpForm #idpIssuer, #idpForm #idpClient, #idpForm #idpUserBase, #idpForm #idpUserFilter, #idpForm #idpGroupBase { font-family: var(--mono, monospace); }
 #view-signin .tablewrap { overflow-x: auto; max-width: 100%; }
 /* <b>Any control the page marks invalid, since 2026-09-25.</b> This was scoped to `#idpForm`, so the
    three other places console.js sets `aria-invalid` (a field map, a schedule's minutes, a refused
@@ -4231,7 +4232,7 @@ label.overridden input { background: var(--surface-2); cursor: not-allowed; }
 /* 2026-09-28: `anywhere` also shrank the column to one character, so a short path broke mid-token
    ("datastore:5432/gi" / "s"). The string now wraps only between the pieces breakAtSeparators()
    draws, each piece stays whole, and the full value is always on screen. */
-#sources td.val .seg { white-space: nowrap; }
+#sources td.val .seg, #sources .rowmeta .seg { white-space: nowrap; }
 /* The four actions are one row, never a staircase. Remove stands a little apart because it is the
    one that cannot be undone. */
 /* Left-aligned, so Probe, Pause, Edit and Remove stand in the same place on every row: right-aligned,
@@ -5785,6 +5786,9 @@ button svg, .iconbtn svg, a.iconbtn svg { pointer-events: none; }
 #itemActions .itemmore[open] > summary, #itemActions .itemmore > summary:hover,
 #mapActions .itemmore[open] > summary, #mapActions .itemmore > summary:hover, #docActions .itemmore[open] > summary, #docActions .itemmore > summary:hover { background: var(--surface-2); }
 #itemActions .itemmore .sheet, #mapActions .itemmore .sheet, #docActions .itemmore .sheet { min-width: 200px; }
+/* The document page's status line keeps its height, so a sentence arriving does not push the page down (design review
+   2026-10-31). */
+#docSays { min-height: 1.5em; }
 #itemActions .itemmore .sheet button { display: block; width: 100%; text-align: left; }
 
 /* Logs: the head sits over the log, beside its sources, as on every other page with a left column (2026-10-17);
@@ -6424,3 +6428,17 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #saKeysOf .sanewkey > .bad-inline, #saKeysOf .sanewkey > [role="status"] { margin: var(--gap-2) 0 0; }
 #saSecretIssued .copyrow + .hint { margin-top: var(--gap-3); }
 #saCard td.act { white-space: nowrap; }
+
+/* System › Machines (ADR-012): the row's buttons side by side, the address unbroken, steady columns. */
+#mcTable td.act { white-space: nowrap; width: 1%; }
+#mcTable td.act > * + * { margin-left: var(--gap-1, 6px); }
+#mcRows .rowmeta code { overflow-wrap: normal; white-space: nowrap; }
+#mcTable th:nth-child(2) { width: 11rem; }
+#mcRows .mcmeta { white-space: nowrap; overflow-wrap: normal; }
+#view-machines .mcdirs {
+  display: flex; gap: var(--gap-2, 8px); align-items: flex-start; margin: 0 0 var(--gap-3, 12px);
+  padding: 10px 12px; font-size: var(--t-small); border-radius: 7px;
+  background: var(--warn-soft); color: var(--warn); border: 1px solid var(--warn-line);
+}
+#view-machines .mcdirs[hidden] { display: none; }
+#view-machines .mcdirs .mcdirsicon { flex: none; margin-top: 2px; }

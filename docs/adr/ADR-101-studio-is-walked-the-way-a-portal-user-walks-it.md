@@ -248,6 +248,26 @@ way they expect, and the caching page says the thing that is true about this eng
    `item` table holds every service's and web map's owner, scope, folder, description, tags and protection, and one
    share table their groups. Open: one map engine, which waits on the Studio redesign handed over on 2026-10-16
    (`docs/design/GRATICULA-HYBRID.md`), by owner decision of the same day.
+   *(Re-read 2026-10-31 against the code: still open, and not owner-only work, but it is a decision the owner
+   should confirm.)* The redesign it waited on is no longer a reason: the UI has been this project's own since
+   2026-10-28, and `GRATICULA-HYBRID.md` names no engine. What the code holds is **two engines**. OpenLayers
+   (`ol.js`) draws every 2D map — the Map Viewer (`webmap.js`, with its pop-ups of ADR-110 and its labels), the
+   item viewer (`view.html`) and the console's own maps (`symMap`, `seedMap`, `pubMap` in `console.js`). The ArcGIS
+   Maps SDK, loaded from `js.arcgis.com`, draws `map.html`, which Studio links for an image service's view and for
+   every 3D scene (`console.js`, `ImageServerEndpoints`, `MapServerEndpoints`, `Program.cs`). MapLibre, which the
+   design review proposed, is used nowhere. So the decision left is real and has a cost either way: OpenLayers
+   cannot draw a scene, and the SDK is a proprietary script fetched from Esri at run time. Writing that ADR needs
+   no owner data; choosing between those two costs is the owner's call.
+   **DISCHARGED 2026-10-31 — the last of the seven has its decision, by owner decision.** Asked to choose between
+   those costs, the owner chose *"2B OpenLayers, sahne SDK"* (its own ADR: [ADR-253](ADR-253-openlayers-draws-2d-and-the-maps-sdk-draws-scenes.md)): **OpenLayers draws every 2D map** — the Map Viewer
+   with its Style, Pop-ups and Labels panels, the item viewer and the console's own maps — **and the ArcGIS Maps
+   SDK, loaded from `js.arcgis.com`, draws image-service views and 3D scenes** (`map.html`). The condition's *one
+   map engine* is therefore two, by name, each where the code already has it, and MapLibre is not adopted. **The
+   accepted consequence**, recorded because the owner took it knowingly: a deployment that cannot reach
+   `js.arcgis.com` — offline, air-gapped, or behind a proxy that refuses it — has no scene viewer and no image-service
+   view, while every 2D map keeps its engine, since `ol.js` is served by this server (an online basemap is a separate matter). With the map engine decided,
+   all seven structural decisions this condition lists now have theirs (ADR-056 §5a, ADR-102, ADR-186, ADR-112,
+   ADR-103/105, ADR-134, and this answer), which is all the condition asked.
 
 ## 11. Dissent
 

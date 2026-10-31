@@ -2414,6 +2414,18 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
     <p class="hint" id="idpMetadataFileHint" aria-live="polite">${samlHeld(p)}</p>
     <p class="bad-inline" id="idpMetadataMissing" hidden>Give the provider's metadata URL, or its metadata file.</p>
     <p class="hint">Groups are read from Entra ID's groups attribute; for AD FS, change it under Advanced.</p>
+
+    <h5>3. Encryption</h5>
+    <label class="check"><input type="checkbox" id="idpEncrypt" ${p && p.saml && p.saml.encryptAssertions ? "checked" : ""}
+      aria-describedby="idpEncryptHint"> Require encrypted assertions</label>
+    <p class="hint" id="idpEncryptHint">The provider encrypts each sign-in to a certificate this server makes, and an
+      unencrypted one is refused. AD FS: update the relying party trust from this server's metadata. Entra ID: upload
+      the certificate under Token encryption.${samlKeyHeld(p)}</p>
+    ${p && p.saml && p.saml.encryptionKey ? `<div class="row left">
+      ${p.saml.encryptAssertions ? `<a id="idpKeyCert" href="/rest/auth/saml/${h(p.id)}/encryption.cer" download>Download the certificate (.cer)</a>` : ""}
+      <button type="button" class="ghost tiny" id="idpRotateKey" aria-describedby="idpRotateKeyHint">Make a new key</button></div>
+    <p class="hint" id="idpRotateKeyHint">A new key's certificate replaces this one in the metadata at once. This key
+      still decrypts until you make another, so there is time to update the provider.</p>` : ""}
 ` : kind === "ldap" ? `    <h5>The directory</h5>
     <label for="idpIssuer">Address</label>
     <input id="idpIssuer" type="text" required spellcheck="false" value="${h(p ? p.issuer : "")}"
@@ -2423,6 +2435,14 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
     <label class="check"><input type="checkbox" id="idpStartTls" ${p && p.startTls ? "checked" : ""}
       aria-describedby="idpStartTlsHint"> Upgrade ldap:// with StartTLS</label>
     <p class="hint" id="idpStartTlsHint">Only for an ldap:// address; ldaps:// is encrypted already.</p>
+    <label for="idpTrusted">Certificate authority to trust</label>
+    <textarea id="idpTrusted" rows="3" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----"
+      aria-describedby="idpTrustedHint">${h(p && p.trustedCertificate ? p.trustedCertificate.pem : "")}</textarea>
+    <p class="hint" id="idpTrustedHint">${p && p.trustedCertificate
+      ? `Trusting ${h(p.trustedCertificate.subject)} until ${h(day(p.trustedCertificate.notAfter))}. `
+      : ""}Only needed when the directory's certificate comes from an authority this server's machine does not
+      trust — usually a domain's own, as Active Directory Certificate Services issues. Paste that authority's
+      certificate in PEM. Empty trusts only what the machine trusts.</p>
     <label for="idpClient">Account that searches the directory</label>
     <input id="idpClient" type="text" spellcheck="false" autocomplete="off" value="${h(p ? p.clientId : "")}"
       placeholder="CN=graticula-reader,OU=Service,DC=contoso,DC=com" aria-describedby="idpClientHint">
@@ -2487,14 +2507,23 @@ ${kind === "saml" ? `    <h5>1. At your provider</h5>
       <select id="idpType">${idpMeta.userTypes.map(t => `<option ${p ? (p.defaultUserType === t ? "selected" : "") : (t === "unrestricted" ? "selected" : "")}>${h(t)}</option>`).join("")}</select>
     </div>
 
-    ${kind === "ldap" ? `<details><summary>Advanced: the attributes read from a person's entry</summary>
+    ${kind === "ldap" ? `<details${p && (p.nestedGroups || p.groupBase) ? " open" : ""}><summary>Advanced: attributes and nested groups</summary>
       <label for="idpDisplayAttr">A name to show</label>
       <input id="idpDisplayAttr" type="text" spellcheck="false" value="${h(p ? p.displayAttribute || "displayName" : "displayName")}">
       <label for="idpGroupAttr">Their groups</label>
       <input id="idpGroupAttr" type="text" spellcheck="false" value="${h(p ? p.groupAttribute || "memberOf" : "memberOf")}"
         aria-describedby="idpGroupAttrHint">
-      <p class="hint" id="idpGroupAttrHint">memberOf lists the groups a person is directly in; groups inside groups are not
-        followed.</p>
+      <p class="hint" id="idpGroupAttrHint">memberOf lists the groups a person is directly in.</p>
+      <label class="check"><input type="checkbox" id="idpNested" ${p && p.nestedGroups ? "checked" : ""}
+        aria-describedby="idpNestedHint"> Follow groups inside groups</label>
+      <p class="hint" id="idpNestedHint">Somebody in Planners, which is itself in All-GIS, is then in All-GIS here too.
+        Active Directory only: it asks the directory one more question at each sign-in
+        (LDAP_MATCHING_RULE_IN_CHAIN), which OpenLDAP does not answer.</p>
+      <label for="idpGroupBase">Where groups are</label>
+      <input id="idpGroupBase" type="text" spellcheck="false" value="${h(p ? p.groupBase || "" : "")}"
+        placeholder="Empty: the domain of Where people are" aria-describedby="idpGroupBaseHint">
+      <p class="hint" id="idpGroupBaseHint">Where nested groups are looked up, including everything below it. Used only
+        with Follow groups inside groups.</p>
       <label for="idpSubjectAttr">What stays the same when they move or are renamed</label>
       <input id="idpSubjectAttr" type="text" spellcheck="false" value="${h(p ? p.subjectAttribute || "" : "objectGUID")}"
         aria-describedby="idpSubjectAttrHint"${p && p.accounts ? " readonly" : ""}>
@@ -2568,6 +2597,15 @@ document.addEventListener("input", e => {
 
 /** Entra ID's groups attribute: the default a SAML provider is given, as the server gives it (ADR-090). */
 const SAML_GROUPS = "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups";
+
+/** What a SAML provider's encryption key is: when it was made and how long its certificate says it is good for. */
+function samlKeyHeld(p) {
+  const key = p && p.saml && p.saml.encryptionKey;
+  if (!key) return "";
+  const previous = p.saml.previousEncryptionKey;
+  return ` This server's key was made ${h(day(key.created))}; its certificate says it is good until ${h(day(key.notAfter))}.`
+    + (previous ? ` The key before it, made ${h(day(previous.created))}, still decrypts.` : "");
+}
 
 /** What the form says about a SAML provider's metadata held — ADR-090: whose, from where, and until when it holds. */
 function samlHeld(p) {
@@ -2764,8 +2802,13 @@ async function saveIdp() {
     groupAttribute: $("idpGroupAttr")?.value || null,
     subjectAttribute: $("idpSubjectAttr")?.value ?? null,
     startTls: !!$("idpStartTls")?.checked,
+    // ADR-089 conditions 1 and 3: sent only from a directory's form, so another kind's save leaves them alone.
+    nestedGroups: $("idpNested") ? $("idpNested").checked : null,
+    groupBase: $("idpGroupBase") ? $("idpGroupBase").value : null,
+    trustedCertificate: $("idpTrusted") ? $("idpTrusted").value : null,
     // ADR-090
     metadataUrl: $("idpMetadataUrl")?.value.trim() || null,
+    encryptAssertions: $("idpEncrypt") ? $("idpEncrypt").checked : null,
     metadata: idpMetadataText ? idpMetadataText.text : null,
   };
 
@@ -3214,6 +3257,8 @@ const SURFACES = {
       // organization a holder of admin:manageServer enters System (INFERRED, ADR-221 §5.2) and is still not shown it.
       ["organizations", "Organizations", () => isSystemAdministrator()],
       ["utilities", "Utility services"],
+      // ADR-012 phase 0 item 6: the machines of this site, as ArcGIS Server Manager's Site › Machines lists them.
+      ["machines", "Machines"],
       ["settings", "General"],
       // ADR-193 condition 4: a backup is the whole database, every organization's, so the machine's.
       ["backups", "Backups"],
@@ -3375,6 +3420,7 @@ const SCREEN_SURFACE = {
   // › Utility services until ADR-221, so `/studio/utilities` lands here.
   utilities: "system",
   backups: "system",
+  machines: "system",
 
   // <b>`group` beside `groups`, and forgetting it is the silent failure the comment above records.</b>
   // A screen absent from this table falls through to its surface's home, so `/server/group/planning`
@@ -3742,6 +3788,7 @@ document.addEventListener("toggle", event => {
     sheet.style.top = "";
     sheet.style.right = "";
     sheet.style.left = "";
+    sheet.style.bottom = "";
     return;
   }
 
@@ -3762,6 +3809,18 @@ document.addEventListener("toggle", event => {
     sheet.style.top = "";
     sheet.style.right = "";
     sheet.style.left = "";
+    // <b>But never over its own summary</b> (design review 2026-10-31): a More low on the screen sat under the
+    // sheet, so the tap meant to close it landed on *Move to folder…*. The page scrolls the summary clear first.
+    const summary = menu.querySelector("summary");
+    const top = sheet.getBoundingClientRect().top;
+    const under = summary ? summary.getBoundingClientRect().bottom + 8 - top : 0;
+    if (under > 0) window.scrollBy({ top: under, behavior: "instant" });
+    // A page too short to scroll that far keeps the sheet under the summary instead, still across the screen.
+    const still = summary ? summary.getBoundingClientRect().bottom + 8 - sheet.getBoundingClientRect().top : 0;
+    if (still > 0 && summary) {
+      sheet.style.top = `${Math.round(summary.getBoundingClientRect().bottom + 4)}px`;
+      sheet.style.bottom = "auto";
+    }
     return;
   }
 
@@ -4127,7 +4186,18 @@ function openScreen(surface, screen, folder) {
   }
 
   if (screen === "content") {
-    section("your content", loadMyContent, "contentRows").then(paintPreviews);
+    // <b>A folder in the address</b> — an item page's breadcrumb links here (D-321), so a new tab, a copied link and Back
+    // open the same folder a click does. Read once and taken out, so a chip chosen afterwards is not undone by a reload.
+    const askedFolder = hashQuery.get("folder");
+    if (askedFolder) {
+      contentFolderPick = askedFolder;
+      if (contentScope !== "all" && contentScope !== "mine") contentScope = "mine";
+      history.replaceState(null, "", pathOf("#/content"));
+    }
+    section("your content", loadMyContent, "contentRows").then(() => {
+      paintPreviews();
+      if (askedFolder) focusFolderPick();
+    });
   }
   if (screen === "members") {
     memberFilterFromAddress();
@@ -4160,6 +4230,7 @@ function openScreen(surface, screen, folder) {
   }
   if (screen === "collaborations") loadPartnerships();
   if (screen === "backups") section("backups", loadBackups, "bkRows");
+  if (screen === "machines") section("machines", loadMachines, "mcRows");
   if (screen === "sources") section("data sources", loadSources, "sources");
   if (screen === "publish") section("publish", loadPublish);
   if (screen === "logs") {
@@ -5098,6 +5169,8 @@ const itemIds = new Map();
 /** What the recycle bin last answered — ADR-203; null until it is read. */
 let recycleEntries = null;
 let recycleRetention = 14;
+/** Whether the server has said how long the bin keeps things; until it has, a sentence leaves the number out. */
+let recycleRetentionRead = false;
 
 /** What a bin entry's kind is called on screen. */
 const RECYCLE_KINDS = {
@@ -5109,6 +5182,7 @@ async function loadRecycleBin() {
   const answer = await api("/admin/recycle-bin") || {};
   recycleEntries = answer.entries || [];
   recycleRetention = answer.retentionDays || recycleRetention;
+  recycleRetentionRead = recycleRetentionRead || !!answer.retentionDays;
   drawRecycleBin();
   const count = document.querySelector('#contentScopes a[data-content-scope="recycle"]');
   if (count) count.innerHTML = `Recycle bin <span class="count">${num(recycleEntries.length)}</span>`;
@@ -5336,6 +5410,7 @@ async function loadMyContent() {
   if (bin) {
     recycleEntries = bin.entries || [];
     recycleRetention = bin.retentionDays || recycleRetention;
+    recycleRetentionRead = recycleRetentionRead || !!bin.retentionDays;
   }
 
   // `content` still keys by layer name for the map, which reads it by name when a row is drawn. The
@@ -6106,7 +6181,9 @@ async function showWebMapItem(id) {
   const open = `/studio/webmap.html?id=${encodeURIComponent(map.id)}`;
   const plural = (n, word) => `${num(n)} ${word}${n === 1 ? "" : "s"}`;
 
-  $("mapCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(map.title)}</b>`;
+  await folderOfItem(map);
+  if (mapOpen !== map) return;
+  $("mapCrumb").innerHTML = contentCrumb(map, map.title);
   $("mapTitle").innerHTML = nameWithBreaks(map.title);
   $("mapSub").textContent = [
     "Web map",
@@ -21316,6 +21393,16 @@ function drawServicePin(failed = null) {
         tables since; <a href="${failingLogHref(p.qualified)}">read its warnings</a>.`
     : `<b>Kept warm.</b> Last renewed ${servicePinAgo(p.warmedAt)}.`;
 
+  // ADR-012 item 5: on a site of several machines, each keeps its own time, and the case to show is one that cannot. Not
+  // after the late branch, which already ends on what to read.
+  if (p.pinned && !stopped && !late && p.nodes) {
+    const cold = p.nodes.cold || [];
+    state.innerHTML += p.nodes.warm === p.nodes.of
+      ? (p.nodes.of === 2 ? " On both machines of this site." : ` On all ${num(p.nodes.of)} machines of this site.`)
+      : ` On ${num(p.nodes.warm)} of ${num(p.nodes.of)} machines: <b>not on ${h(cold.length < 3 ? cold.join(" and ") : cold.slice(0, -1).join(", ") + " and " + cold.at(-1))}</b>, which
+          ${cold.length === 1 ? "has" : "have"} not renewed it in the last minute.`;
+  }
+
   const others = p.pinnedOnServer - (p.pinned ? 1 : 0);
   count.textContent = `${num(p.pinnedOnServer)} of ${num(p.limit)} services on this server are kept warm`
     + (p.pinned && others > 0 ? `, this one and ${num(others)} other${others === 1 ? "" : "s"}.`
@@ -24674,6 +24761,25 @@ function breakAtSeparators(text) {
     .join("<wbr>");
 }
 
+/**
+ * A source's platform and how it signs in, in the words of Pro's *Database Connection* dialog — ADR-055 condition 1.
+ *
+ * <b>Named by the server</b> (`platform`, `authentication` in the listing), so this screen and an API client say the
+ * same thing; the kind's code is the fallback for a listing from a server older than the condition.
+ *
+ * @param {object} d a listed source
+ * @returns {string} HTML for the row's second line
+ */
+function sourcePlatformSays(d) {
+  // Each half kept whole and the line broken only at the separator (a design review: at 390 px it broke inside
+  // "Database authentication"); the dot is the console's own `.sep`, hidden from a screen reader.
+  const platform = `<span class="seg">${h(d.platform || d.kind || "")}</span>`;
+
+  return d.authentication
+    ? `${platform} <span class="sep" aria-hidden="true">·</span> <span class="seg">${h(d.authentication)}</span>`
+    : platform;
+}
+
 async function loadSources() {
   const { dataSources, geoParquetRoot: root, remoteGeoParquet: remote, motherDuck } = await api("/admin/datasources");
   geoParquetRoot = root ?? null;
@@ -24690,7 +24796,7 @@ async function loadSources() {
             ? ` <span class="pill p-hosted" tabindex="0"
                   title="This server's own hosted store: its connection comes from the Graticula:PlatformStore setting on every start, so it is neither edited here nor removed.">built-in</span>`
             : ""}
-          <div class="rowmeta">${h(d.kind)}</div>
+          <div class="rowmeta">${sourcePlatformSays(d)}</div>
           ${d.quiesced ? sourceHeldSays(d.quiesced, d.sharesWith) : ""}</td>
         <td class="val">${d.sealedWithAnotherKey
           ? `<span class="bad-inline">sealed with a key this build does not hold</span>`
@@ -24718,6 +24824,8 @@ async function loadSources() {
                   : ` <span class="managed">set by Graticula:PlatformStore</span>`
               : ` <button class="tiny" data-source-edit="${h(d.id)}" data-source-name="${h(d.name)}"
                     data-source-kind="${h(d.kind)}"
+                    data-source-platform="${h(d.platform || "")}"
+                    data-source-authentication="${h(d.authentication || "")}"
                     data-source-summary="${h(d.summary || "")}"
                     data-source-layers="${num(d.layerCount)}">Edit…</button>
                   <button class="tiny danger" data-source-remove="${h(d.id)}"
@@ -25658,7 +25766,15 @@ async function openDbConnection(source) {
   ].filter(Boolean);
   const offNote = off.length ? 'aria-describedby="dcKindOff"' : "";
 
-  const kindChoice = source ? "" : `
+  // <b>A correction names the platform and the sign-in it keeps — ADR-055 condition 1.</b> Registering chooses the
+  // platform below; a source keeps it for good (the server refuses a correction that would change it), so here it is
+  // said, not offered, as Pro's dialog shows its Database Platform greyed for an existing connection.
+  const kindFixed = source && source.platform ? `
+      <p class="hint" id="dcPlatform">Platform: <b>${h(source.platform)}</b>${source.authentication
+        ? ` · Authentication: <b>${h(source.authentication)}</b>` : ""}. These are fixed for a source. To change them,
+        register the data as a new source.</p>` : "";
+
+  const kindChoice = source ? kindFixed : `
       <fieldset class="dckind">
         <legend>What it is</legend>
         <div class="dcgroup" role="group" aria-labelledby="dcKindServers">
@@ -25901,6 +26017,9 @@ async function openDbConnection(source) {
 
   dbconnOverride();
   dbconnServerKind(dbconnKind() in DBCONN_PORTS ? dbconnKind() : "postgis");
+  // The platform line describes the whole dialog, which opens on the password: without this a screen reader never
+  // hears it (a design review, ADR-055 condition 1).
+  if ($("dcPlatform")) dialog.setAttribute("aria-describedby", "dcPlatform"); else dialog.removeAttribute("aria-describedby");
   dialog.showModal();
 
   if (!source) {
@@ -31225,6 +31344,29 @@ async function handleClick(event) {
     return;
   }
 
+  // ADR-090 condition 3: a new key for a SAML provider's encrypted assertions, published in the metadata at once.
+  if (t.id === "idpRotateKey") {
+    const p = idpList.find(x => x.id === idpEditing);
+    if (!p || !confirm(`Make a new encryption key for ${p.name}? Its certificate replaces the current one in this `
+      + "server's metadata now. The current key still decrypts until you make another, so update the provider before then.")) return;
+    t.disabled = true;
+    try {
+      // Only the key's sentence is redrawn: the rest of the form may hold edits not yet saved (design review 2026-10-31).
+      const saved = await api(`/admin/identity-providers/${p.id}/saml/encryption-key`, { method: "POST" });
+      const at = idpList.findIndex(x => x.id === p.id);
+      if (saved && saved.id && at >= 0) idpList[at] = saved;
+      const hint = $("idpEncryptHint");
+      if (saved && saved.id && hint) hint.innerHTML = hint.innerHTML.replace(/ This server's key was made[\s\S]*$/, "") + samlKeyHeld(saved);
+      t.disabled = false;
+      idpSay(`${p.name} has a new encryption key. Give the provider this server's metadata or certificate again so it encrypts to it.`);
+      t.focus();
+    } catch (e) {
+      t.disabled = false;
+      idpSay(e.message, true);
+    }
+    return;
+  }
+
   if (t.id === "idpCopyAcs") {
     try { await navigator.clipboard.writeText($("idpAcs").value); idpSay("The reply URL is copied."); copiedHere(t); }
     catch { $("idpAcs").select(); idpSay("Select and copy it: this browser did not let the page copy."); }
@@ -32041,6 +32183,8 @@ async function handleClick(event) {
       id: d.sourceEdit,
       name: d.sourceName,
       kind: d.sourceKind,
+      platform: d.sourcePlatform,
+      authentication: d.sourceAuthentication,
       summary: d.sourceSummary,
       layers: Number(d.sourceLayers) || 0,
     });
@@ -34158,7 +34302,12 @@ function docRow(i) {
 
   return `<tr class="mediarow">
     ${pickCell(i, `document:${d.id}`)}
-    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${docTile(d)}</a></td>
+    <td class="thumbcell"><a class="thumblink" href="${open}" title="Open ${h(i.name)}">${d.thumbnail
+      ? `<img class="thumb" alt="" loading="lazy" data-thumb="${h(docThumbAddress(d))}">`
+      // The page's rule, so a picture is the same picture in its row and on its page (design review 2026-10-31).
+      : DOC_KINDS[d.kind] === "Picture" && d.size <= DOC_PICTURE_THUMB_BYTES
+      ? `<img class="thumb" alt="" loading="lazy" data-thumb="/content/documents/${encodeURIComponent(d.id)}/data">`
+      : docTile(d)}</a></td>
     <td class="name">
       <div class="svctitle"><a href="${open}">${h(i.name)}</a>
         <span class="svctype type">${h(DOC_KINDS[d.kind] || d.type || "Document")}</span></div>
@@ -34210,12 +34359,18 @@ async function showDocumentItem(id) {
 
   docOpen = doc;
   const kind = DOC_KINDS[doc.kind] || doc.type || "Document";
-  $("docCrumb").innerHTML = `<a href="#/content">Content</a> › <b>${h(doc.title)}</b>`;
+  await folderOfItem(doc);
+  if (docOpen !== doc) return;
+  $("docCrumb").innerHTML = contentCrumb(doc, doc.title);
   $("docTitle").innerHTML = nameWithBreaks(doc.title);
   $("docSub").textContent = [kind, fileSize(doc.size), doc.owner ? `owner ${doc.owner}` : ""].filter(Boolean).join(" · ");
   // D-321: a picture is its own thumbnail, as Portal shows one; a file of another kind keeps its kind's tile. Read with the
   // session's credential through the preview queue, and only below a size a thumbnail is worth fetching whole.
-  $("docThumb").innerHTML = DOC_KINDS[doc.kind] === "Picture" && doc.size <= DOC_PICTURE_THUMB_BYTES
+  // A picture its owner gave it comes first (D-321, as Portal's *Edit thumbnail*); its address carries the item's time, so a
+  // new picture is fetched rather than the one the preview queue already holds.
+  $("docThumb").innerHTML = doc.thumbnail
+    ? `<img class="thumb mapitemthumb" data-thumb="${h(docThumbAddress(doc))}" alt="">`
+    : DOC_KINDS[doc.kind] === "Picture" && doc.size <= DOC_PICTURE_THUMB_BYTES
     ? `<img class="thumb mapitemthumb" data-thumb="/content/documents/${encodeURIComponent(doc.id)}/data"
          alt="">`
     : docTile(doc, "mapitemthumb");
@@ -34225,6 +34380,8 @@ async function showDocumentItem(id) {
     doc.mine ? `<button type="button" data-move-document="${h(doc.id)}" data-move-folder="${h(doc.contentFolder || "")}"
       data-move-title="${h(doc.title)}">Move to folder…</button>` : "",
     doc.manages ? `<button type="button" id="docEditMore">Edit details</button>` : "",
+    doc.manages ? `<button type="button" id="docThumbChange">${doc.thumbnail ? "Change thumbnail…" : "Set thumbnail…"}</button>` : "",
+    doc.manages && doc.thumbnail ? `<button type="button" id="docThumbRemove">Remove thumbnail</button>` : "",
   ].filter(Boolean).join("");
 
   // Redrawing the actions drops focus; the control that had it gets it back.
@@ -34258,6 +34415,43 @@ async function showDocumentItem(id) {
 
 /** The largest picture shown as its own thumbnail; past it the page would fetch megabytes to draw a box. */
 const DOC_PICTURE_THUMB_BYTES = 4 * 1024 * 1024;
+
+/**
+ * A refusal on the document page, put where it is read: the line in view, and the focus on More, where a retry is one
+ * key away (design review 2026-10-31 — on a phone the line sat half below the fold with the focus on the title above).
+ */
+function docRefusalSeen(line) {
+  document.querySelector("#docActions details.itemmore summary")?.focus();
+  line.scrollIntoView({ block: "nearest" });
+}
+
+/** The largest thumbnail the server keeps — 1 MB, as an ArcGIS item's (D-321). */
+const DOC_THUMB_BYTES = 1024 * 1024;
+
+/** A document's own thumbnail, addressed by when it last changed so a replaced picture is not the cached one. */
+const docThumbAddress = d => `${d.thumbnail}?v=${encodeURIComponent(d.modified || "")}`;
+
+/**
+ * The reader's folders, read once when an item of theirs is in one and the list is not here yet — an item page opened
+ * from its address has not passed through Content, which is where they are otherwise read (D-321).
+ */
+async function folderOfItem(item) {
+  if (!item?.mine || !item.contentFolder || myFolders.some(f => f.id === item.contentFolder)) return;
+  myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+}
+
+/**
+ * An item page's breadcrumb: Content, the reader's folder the item is in, and the item — as Portal's item page names
+ * the folder (D-321). The folder step opens Content on that folder.
+ */
+function contentCrumb(item, title) {
+  const folder = item?.mine && item.contentFolder ? myFolders.find(f => f.id === item.contentFolder) : null;
+  return `<a href="#/content">Content</a> › ${folder
+    ? `<a href="#/content?folder=${encodeURIComponent(folder.id)}" data-crumb-folder="${h(folder.id)}"
+        title="Your items in this folder">${h(folder.title)}</a> › `
+    : ""}<b>${h(title)}</b>`;
+}
+
 
 /**
  * A document's terms of use and the reader's favourite (D-321), from its portal item and the reader's list, as a web
@@ -34464,6 +34658,30 @@ document.addEventListener("click", async event => {
 
   if (t.id === "docReplace") { $("docReplaceFile").click(); return; }
 
+  // <b>The summary takes the focus before its menu closes</b> (design review 2026-10-31): closing first left the focus on
+  // a button inside a closed menu, so cancelling the picker dropped it to the page.
+  if (t.id === "docThumbChange") {
+    t.closest("details")?.querySelector("summary")?.focus();
+    t.closest("details")?.removeAttribute("open");
+    $("docThumbFile").click();
+    return;
+  }
+
+  if (t.id === "docThumbRemove") {
+    t.closest("details")?.querySelector("summary")?.focus();
+    t.closest("details")?.removeAttribute("open");
+    try {
+      await api(`/content/documents/${encodeURIComponent(docOpen.id)}/thumbnail`, { method: "DELETE" });
+      docSayNext = DOC_KINDS[docOpen.kind] === "Picture"
+        ? "Thumbnail removed. The page shows the picture itself again."
+        : "Thumbnail removed. The page shows the file's kind again.";
+      await showDocumentItem(docOpen.id);
+    } catch (e) {
+      $("docSays").textContent = `Not removed: ${lowerFirst(e.message || String(e))}`;
+    }
+    return;
+  }
+
   if (t.id === "docEditMore") {
     t.closest("details")?.removeAttribute("open");
     docTab = "overview";
@@ -34617,6 +34835,37 @@ document.addEventListener("click", async event => {
     } catch (e) {
       $("docSays").textContent = `Not deleted: ${lowerFirst(e.message || String(e))}`;
     }
+  }
+});
+
+document.addEventListener("change", async event => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || input.id !== "docThumbFile" || !docOpen) return;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  const says = $("docSays");
+  // Said before sending, as the file's own limits are: the server would refuse both, a megabyte later.
+  if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) {
+    says.textContent = `Not changed: ${file.name} is not a PNG, JPEG, GIF or WebP picture.`;
+    docRefusalSeen(says);
+    return;
+  }
+  if (file.size > DOC_THUMB_BYTES) {
+    says.textContent = `Not changed: ${file.name} is ${fileSize(file.size)}, and a thumbnail is at most 1 MB. A picture 600 by 400 pixels is plenty.`;
+    docRefusalSeen(says);
+    return;
+  }
+  says.textContent = `Sending ${file.name}…`;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    await sendDocument("PUT", `/content/documents/${encodeURIComponent(docOpen.id)}/thumbnail`, form, null);
+    docSayNext = `${file.name} is the thumbnail now — here, in Content and in ArcGIS clients.`;
+    await showDocumentItem(docOpen.id);
+  } catch (e) {
+    says.textContent = `Not changed: ${lowerFirst(e.message || String(e))}`;
+    docRefusalSeen(says);
   }
 });
 
@@ -35342,6 +35591,22 @@ function openFolderDialog(title, body, go, label) {
 }
 
 /** Where focus goes when the list is redrawn under it. */
+document.addEventListener("DOMContentLoaded", () => {
+  // <b>Cancel keeps the reader where they were</b> (design review 2026-10-31): Move… is opened from a menu that closes
+  // behind the dialog, so the browser's own return of focus landed on the page. An item page gives it to its More.
+  // Checked a task later: when `close` fires the focus is still on the dialog's own button, and it reaches the page after.
+  $("contentFolderDialog")?.addEventListener("close", () => setTimeout(() => {
+    // Lost is the page itself, or the closed menu's own Move… button, where the browser's return of focus can leave it.
+    const at = document.activeElement;
+    const lost = !at || at === document.body || !!at.closest("details:not([open])") || $("contentFolderDialog").contains(at);
+    if (!lost) return;
+    const more = $("view-document")?.classList.contains("on") ? "#docActions details.itemmore summary"
+      : $("view-map")?.classList.contains("on") ? "#mapActions details.itemmore summary"
+      : null;
+    if (more) document.querySelector(more)?.focus();
+  }, 0));
+});
+
 function focusFolderPick() {
   document.querySelector(`[data-folder-pick="${CSS.escape(contentFolderPick)}"]`)?.focus();
 }
@@ -35386,6 +35651,16 @@ async function folderGo(go) {
       // A moved row has left the list, so focus goes to the list's first row rather than to a chip far above.
       if (go === "move") (document.querySelector("#contentRows td.name a") || $("contentCount"))?.focus();
       else focusFolderPick();
+    } else if (go === "move" && docOpen && $("view-document")?.classList.contains("on")) {
+      // <b>The page the item was moved from, redrawn</b> (design review 2026-10-31): the breadcrumb, the Folder fact and
+      // the menu's own idea of where it is stayed as they were, so a second Move could not take it back out.
+      myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+      await showDocumentItem(docOpen.id);
+      document.querySelector("#docActions details.itemmore summary")?.focus();
+    } else if (go === "move" && mapOpen && $("view-map")?.classList.contains("on")) {
+      myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
+      await showWebMapItem(mapOpen.id);
+      document.querySelector("#mapActions details summary")?.focus();
     } else if (serviceItem) {
       myFolders = (await api("/content/folders").catch(() => null))?.folders || myFolders;
       if (go === "move") {
@@ -39188,10 +39463,13 @@ document.addEventListener("click", async event => {
   }
 
   if (t.id === "tbDelete") {
-    if (!confirm(`Delete the toolbox ${toolbox.title}? Its service goes with it; layers its runs made stay.`)) return;
+    // ADR-203, D-346: a toolbox waits in the recycle bin as every other item does, and comes back with its name and id.
+    if (!confirm(`Delete the toolbox ${toolbox.title}? It and its service go to the recycle bin`
+      + (recycleRetentionRead ? ` for ${num(recycleRetention)} days` : "")
+      + `, where they can be restored. Layers its runs made are kept.`)) return;
     try {
       await api(`/content/toolboxes/${encodeURIComponent(toolbox.name)}`, { method: "DELETE" });
-      toast(`${toolbox.title} was deleted.`, true);
+      toast(`${toolbox.title} is in the recycle bin.`, true);
       location.hash = "#/content";
     } catch (e) { toast(e.message); }
     return;
@@ -39287,4 +39565,230 @@ document.addEventListener("click", async event => {
     stop.hidden = true;
     t.removeAttribute("aria-disabled");
   }
+});
+
+
+/* ---- Machines — ADR-012 phase 0 item 6 ---------------------------------------------------------------------------
+ * The site's machines: every server process over this platform store, as ArcGIS Server Manager's Site › Machines lists
+ * them — what each is doing (one Status pill: the state that holds now, not the heartbeat and the setting side by side,
+ * from the design review of 2026-10-31), and which of the site's once-only jobs it runs. Read again every ten seconds
+ * while it is on screen, because its heading promises a machine heard every ten. On one machine it is a list of one.
+ */
+
+/** What `/admin/site/machines` last answered; null until it is read. */
+let machinesNow = null;
+
+/** The timer that reads the list again while the screen is open. */
+let machinesTimer = null;
+
+/** The rows last drawn, to leave an unchanged table alone. */
+let machinesDrawn = "";
+
+/** The site's once-only jobs, as a person names them. */
+const MACHINE_SWEEPS = {
+  "backup-schedule": "scheduled backup",
+  "log-retention": "log clean-up",
+  "history-retention": "history clean-up",
+  "attachment-sweep": "attachment clean-up",
+  "recycle-expiry": "recycle bin expiry",
+  "coverage-pyramids": "image overviews",
+};
+
+/** A line under the Machines heading, read out when it changes; `bad` marks a refusal. */
+function machineSay(message, bad = false) {
+  const line = $("mcSays");
+  if (!line) return;
+  line.textContent = message || "";
+  line.classList.toggle("bad-inline", !!bad);
+}
+
+/** What a machine is doing now: its configured state where it is up, down where it is not, and starting in between. */
+function machineEffective(m) {
+  if (m.status !== "up") return { label: "Down", pill: "p-failing", serving: false };
+  if (m.configuredState === "maintenance") return { label: "Under maintenance", pill: "p-stopped", serving: false };
+  if (m.configuredState === "stopped") return { label: "Stopped", pill: "p-stopped", serving: false };
+  return m.ready
+    ? { label: "Started", pill: "p-started", serving: true }
+    : { label: "Starting…", pill: "p-stopped", serving: false };
+}
+
+/** Machines — the list, the count and the sentence under it. A timed read keeps the reader's focus and says nothing. */
+async function loadMachines() {
+  try {
+    machinesNow = await api("/admin/site/machines") || {};
+  } catch (e) {
+    // A failed read draws its own refusal into the table, so the next good one must draw whatever it finds.
+    machinesDrawn = null;
+    throw e;
+  }
+  const all = machinesNow.machines || [];
+  const serving = all.filter(m => machineEffective(m).serving).length;
+
+  $("mcCount").textContent = all.length === 1
+    ? (serving ? "1 machine, serving" : "1 machine, not serving")
+    : `${num(all.length)} machines · ${num(serving)} serving`;
+
+  const focused = document.activeElement?.closest?.("[data-mc]")?.dataset.mc;
+  const focusedAct = document.activeElement?.dataset?.mcState || (document.activeElement?.dataset?.mcRemove ? "remove" : null);
+
+  const rowsHtml = all.length === 0
+    ? `<tr><td colspan="4" class="empty">No machine has registered with this site yet. A server registers itself when it
+        starts; if this one did not, its log says why.</td></tr>`
+    : all.map(m => {
+      const now = machineEffective(m);
+      const runs = (m.leads || []).map(l => MACHINE_SWEEPS[l] || l);
+      const status = m.status !== "up"
+        ? `<span class="pill ${now.pill}">${now.label}</span>
+           <div class="rowmeta">last heard ${servicePinAgo(m.lastSeen)}</div>`
+        : `<span class="pill ${now.pill}">${h(now.label)}</span>`;
+
+      // Start, Stop and Maintenance while it is up; Remove only once it is gone — one that still runs writes itself back.
+      const acts = m.status !== "up"
+        ? `<button class="tiny danger" type="button" data-mc-remove="${h(m.name)}"
+             aria-label="Remove ${h(m.name)} from the site">Remove&hellip;</button>`
+        : m.configuredState === "started"
+          ? `<button class="tiny" type="button" data-mc-state="stopped" data-mc-name="${h(m.name)}"
+               aria-label="Stop ${h(m.name)}">Stop</button><button class="tiny" type="button" data-mc-state="maintenance"
+               data-mc-name="${h(m.name)}" aria-label="Put ${h(m.name)} under maintenance">Maintenance</button>`
+          : `<button class="tiny" type="button" data-mc-state="started" data-mc-name="${h(m.name)}"
+               aria-label="Start ${h(m.name)}">Start</button>`;
+
+      // Each separator inside the item before it, so a line breaks only after a dot, never before one.
+      const meta = [m.self ? "this machine" : "", `<code>${h(m.address)}</code>`, `version ${h(m.version)}`]
+        .filter(Boolean)
+        .map((x, i, a) => `<span class="mcmeta">${x}${i < a.length - 1 ? `<span class="sep" aria-hidden="true">·</span>` : ""}</span>`)
+        .join(" ");
+
+      return `<tr data-mc="${h(m.name)}">
+        <td class="name"><b>${h(m.name)}</b><div class="rowmeta">${meta}</div></td>
+        <td data-l="Status"><span>${status}</span></td>
+        <td data-l="Runs"><span class="rowmeta">${runs.length ? h(runs.join(", ")) : "None of the site's jobs"}</span></td>
+        <td class="act mcacts">${acts}</td>
+      </tr>`;
+    }).join("");
+
+  // A timed read that found nothing new leaves the table alone, so a screen reader keeps its place.
+  const changed = rowsHtml !== machinesDrawn;
+  machinesDrawn = rowsHtml;
+  if (changed) $("mcRows").innerHTML = rowsHtml;
+
+  if (changed && focused) {
+    const row = document.querySelector(`[data-mc="${CSS.escape(focused)}"]`);
+    (focusedAct === "remove" ? row?.querySelector("[data-mc-remove]")
+      : row?.querySelector(`[data-mc-state="${focusedAct}"]`) || row?.querySelector("button"))?.focus();
+  }
+
+  const note = $("mcNote");
+  if (note) {
+    note.innerHTML = all.length <= 1
+      ? `This site has one machine. Another server started on the same database with the same key and settings joins it
+         and appears here; a load balancer in front sends each request to one of them.`
+      : `A stopped machine answers <code>/healthz/ready</code> and <code>/rest/info/healthcheck</code> with 503, so the
+         load balancer sends it nothing new; the others take its share, and its once-only jobs pass to another machine.
+         <b>Under maintenance</b> does the same, and tells another administrator reading this page that the machine is out
+         for work, not by accident.`;
+
+    // ADR-012 phase 1: the healthy shared form is a quiet fact here; a site whose directories are not shared is
+    // warned above the table, where it is read before anything else (design review, third pass).
+    const dirs = machinesNow.directories;
+    if (dirs?.shared && !(dirs.unseen || []).length) {
+      note.innerHTML += ` Uploads, exports, backups and the tile cache are in the site's server directories at
+        <code>${h(dirs.path)}</code>, shared by every machine that is up.`;
+    }
+  }
+
+  const warning = $("mcDirs");
+  if (warning) {
+    const dirs = machinesNow.directories;
+    const unseen = (dirs?.unseen || []).filter(n => n !== machinesNow.thisMachine);
+    const listed = unseen.length < 3 ? unseen.join(" and ") : unseen.slice(0, -1).join(", ") + " and " + unseen.at(-1);
+    const text = dirs?.shared && unseen.length
+      ? `<b>Server directories at <code>${h(dirs.path)}</code> are not shared:</b> ${h(listed)}
+         ${unseen.length === 1 ? "writes" : "write"} to a different folder at that path, so uploads, exports and tiles
+         written on one machine are missing on the others. Mount the same storage at <code>${h(dirs.path)}</code> on every
+         machine.`
+      : !dirs?.shared && all.filter(m => m.status === "up").length > 1
+        ? `<b>Each machine keeps its own server directories:</b> an image uploaded or an export written on one is
+           missing on the others. Set <code>Graticula:ServerDirectories</code> to one shared path on every machine.`
+        : "";
+    warning.hidden = !text;
+    warning.innerHTML = text
+      ? `<svg class="mcdirsicon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4M12 17h.01"/>
+           <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span>${text}</span>`
+      : "";
+  }
+
+  if (all.length > 1 && machinesNow.directories && !machinesNow.directories.shared) {
+    $("mcCount").textContent += " · directories not shared";
+  }
+
+  clearTimeout(machinesTimer);
+  machinesTimer = setTimeout(() => {
+    // A hidden tab stops reading; it reads again when it is shown (below).
+    if ($("view-machines")?.classList.contains("on") && document.visibilityState === "visible") {
+      loadMachines().catch(() => {});
+    }
+  }, 10000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && $("view-machines")?.classList.contains("on")) {
+    loadMachines().catch(() => {});
+  }
+});
+
+/** Sets a machine's state, then reads the list again and keeps the reader's place. */
+async function setMachineState(name, state) {
+  const m = (machinesNow?.machines || []).find(x => x.name === name);
+  const othersServing = (machinesNow?.machines || []).filter(x => x.name !== name && machineEffective(x).serving).length;
+
+  // One click stays one click, except where it takes away the machine serving this page or the last one serving at all.
+  if (state !== "started" && m) {
+    const verb = state === "maintenance" ? "Put" : "Stop";
+    const what = state === "maintenance" ? `${name} under maintenance` : name;
+    if (othersServing === 0 && !confirm(`${verb} ${what}? It is the only machine serving this site. Every request will be answered 503 until you start it.`)) return;
+    if (othersServing > 0 && m.self && !confirm(`${verb} ${what}? It is the machine this page is served from. The load balancer stops sending it requests, and the site's other machines take them.`)) return;
+  }
+
+  const doing = state === "stopped" ? "Stopping" : state === "maintenance" ? "Putting under maintenance" : "Starting";
+  machineSay(`${doing} ${name}…`);
+  try {
+    await api(`/admin/site/machines/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state }),
+    });
+    await loadMachines();
+    machineSay(state === "started"
+      ? `${name} is set to started. It takes requests again within ten seconds.`
+      : state === "maintenance"
+        ? `${name} is under maintenance. It serves nothing new, as if stopped, and other administrators see why.`
+        : `${name} is stopped. The load balancer sends it nothing new.`);
+  } catch (e) {
+    machineSay(e.message, true);
+  }
+  // The row was drawn again: focus goes to its first control, not to the top of the page.
+  document.querySelector(`[data-mc="${CSS.escape(name)}"] button`)?.focus();
+}
+
+/** Removes a machine that is gone for good, after asking. */
+async function removeMachine(name) {
+  if (!confirm(`Remove ${name} from this site? Do this only for a machine that is gone for good. If it starts again, it joins the site again.`)) return;
+  machineSay(`Removing ${name}…`);
+  try {
+    await api(`/admin/site/machines/${encodeURIComponent(name)}`, { method: "DELETE" });
+    await loadMachines();
+    machineSay(`${name} is removed from this site.`);
+  } catch (e) {
+    machineSay(e.message, true);
+  }
+  $("mcTitle")?.focus();
+}
+
+document.addEventListener("click", async event => {
+  const t = event.target.closest("[data-mc-state], [data-mc-remove]");
+  if (!t) return;
+  if (t.dataset.mcRemove) { await removeMachine(t.dataset.mcRemove); return; }
+  await setMachineState(t.dataset.mcName, t.dataset.mcState);
 });

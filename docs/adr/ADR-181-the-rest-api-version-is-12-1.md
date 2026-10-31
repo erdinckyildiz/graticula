@@ -140,6 +140,17 @@ build sets `InvariantGlobalization`, so no culture but the invariant one can be 
    nothing. **Still refused on the way, and named:** `/services/rest/info` (404), and the ImageServer's `/metadata`,
    answered with an error because nothing documents what it should hold — Pro goes on past both. The condition stays
    partly discharged for those two.)*
+   **DISCHARGED 2026-10-31.** ArcGIS Pro 3.7, through arcpy against the local fixture's plain-HTTP twin and a recording
+   relay, anonymously, added `hosted/ci_parcels` as a FeatureServer layer, a MapServer and a VectorTileServer, and a
+   public float32 image service, each in a map of its own with nothing else in it, and `MapView.exportToPNG` drew every
+   one (the parcels in 9, 153 and 5 colours, the image in Pro's grey stretch, 257). **98 requests, 94 answered 200 and
+   4 with 304, none refused.** The one refusal left was `/services/rest/info`: the control run — the same calls against
+   Esri's sampleserver6 through the same kind of relay — shows Pro deriving a SOAP root from an ImageServer's REST
+   address (`/arcgis/rest/services/…` → `POST /arcgis/services`) and then asking `/arcgis/rest/info`; with no instance
+   name in front of `/rest` here, the same derivation lands on `/services/rest/info`, which now answers what
+   `/rest/info` answers (`Step1_the_server_identifies_itself_where_Pro_looks_for_it_from_an_image_service`).
+   `ImageServer/metadata` was not asked in this run; Esri's own Terrain3D answers it with an error too
+   (`{"error":{"code":500,"message":"Error retrieving metadata"}}`, measured), so it is not a gap of this server's.
 
 ## 10. Dissent
 

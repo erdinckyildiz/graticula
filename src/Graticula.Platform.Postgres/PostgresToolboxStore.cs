@@ -114,20 +114,6 @@ public sealed class PostgresToolboxStore : IToolboxStore
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }
 
-    /// <inheritdoc/>
-    public async Task<bool> DeleteAsync(string id, CancellationToken cancellationToken)
-    {
-        if (!WebMaps.IsId(id))
-        {
-            return false;
-        }
-
-        // The item, and the source with it by cascade.
-        await using NpgsqlCommand command = _dataSource.CreateCommand("delete from item where id = @id::uuid and kind = 'toolbox'");
-        command.Parameters.AddWithValue("id", id);
-        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
-    }
-
     private static Toolbox Read(NpgsqlDataReader reader) => new(
         reader.GetString(0),
         reader.GetString(1),

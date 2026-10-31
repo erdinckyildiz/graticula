@@ -39,12 +39,15 @@ internal sealed partial class LogRetention : BackgroundService
 
     private readonly ILogReader _logs;
     private readonly ILogger<LogRetention> _logger;
+    private readonly SiteSingletons? _site;
 
     /// <summary>Creates the sweeper.</summary>
     /// <param name="logs">The log store.</param>
     /// <param name="logger">Where to say what was swept.</param>
-    public LogRetention(ILogReader logs, ILogger<LogRetention> logger)
+    /// <param name="site">Which node of a site runs the sweep (ADR-012); none runs it here.</param>
+    public LogRetention(ILogReader logs, ILogger<LogRetention> logger, SiteSingletons? site = null)
     {
+        _site = site;
         ArgumentNullException.ThrowIfNull(logs);
         ArgumentNullException.ThrowIfNull(logger);
 
@@ -61,7 +64,10 @@ internal sealed partial class LogRetention : BackgroundService
         {
             try
             {
-                long swept = await _logs.SweepAsync(Keep, stoppingToken).ConfigureAwait(false);
+                // ADR-012 phase 0 item 1: once per site, by the node that holds the sweep's lock.
+                long swept = _site is null || await _site.LeadsAsync(SiteSingletons.LogRetention, stoppingToken).ConfigureAwait(false)
+                    ? await _logs.SweepAsync(Keep, stoppingToken).ConfigureAwait(false)
+                    : 0;
 
                 if (swept > 0)
                 {

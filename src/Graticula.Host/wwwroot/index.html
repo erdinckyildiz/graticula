@@ -918,6 +918,33 @@
     </div>
   </section>
 
+  <!-- System › Machines — ADR-012 phase 0 item 6: the site's machines, after ArcGIS Server Manager's Site › Machines. -->
+  <section class="view" id="view-machines">
+    <div class="pagehead">
+      <div>
+        <h2 id="mcTitle" tabindex="-1">Machines</h2>
+        <p>The servers that share this site's database and serve its requests together. Each one says it is alive every
+          ten seconds; one not heard from for thirty is shown down.</p>
+      </div>
+      <div class="right"><span class="val" id="mcCount"></span></div>
+    </div>
+
+    <p class="hint" id="mcSays" role="status" aria-live="polite"></p>
+    <!-- ADR-012 phase 1: the one thing on this page that can be wrong while every machine is up. -->
+    <div class="mcdirs" id="mcDirs" role="note" hidden></div>
+
+    <div class="panel widetable">
+      <table class="rowblocks" id="mcTable">
+        <thead><tr>
+          <th>Machine</th><th>Status</th><th>Runs</th>
+          <th><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody id="mcRows"><tr><td colspan="4" class="empty">Reading the machines&hellip;</td></tr></tbody>
+      </table>
+    </div>
+    <p class="hint" id="mcNote"></p>
+  </section>
+
   <!--
     System › Backups — ADR-193 §5.6 and condition 4: take a backup, list, download and delete them, and the daily
     schedule with how many it keeps. The machine's, so System's: a backup is the whole database, every organization in
@@ -1769,6 +1796,7 @@
     </div>
     <p class="hint" id="docSays" role="status" aria-live="polite"></p>
     <input type="file" id="docReplaceFile" hidden>
+    <input type="file" id="docThumbFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
     <div class="mapitem" id="docOverview">
       <aside class="panel" id="docSide"></aside>
       <div class="mapmain">
@@ -3203,11 +3231,13 @@
   string into a single box, which is a format with quoting rules, a spelling for every keyword,
   and no way to be told you got it wrong except by the whole thing failing.
 
-  <b>Three controls in that picture are not drawn here, and the omissions are the design.</b>
-  *Database Platform* is a combo with one entry — v1 is PostGIS and nothing else, and
+  <b>Three controls in that picture were not drawn here, and the omissions were the design.</b>
+  *Database Platform* was a combo with one entry — v1 was PostGIS and nothing else, and
   [ADR-034](docs/adr/ADR-034-server-and-studio.md) says a
-  control is not drawn for a feature that does not exist. *Authentication Type* is the same:
-  there is one. *Save User/Password* cannot be unticked — a registered source is read by this
+  control is not drawn for a feature that does not exist. *Authentication Type* was the same.
+  Both have more than one value now (ADR-055 condition 1, 2026-10-31): a new source chooses its
+  platform in *What it is*, a correction says its platform and its authentication, and the
+  Data sources rows name both. *Save User/Password* cannot be unticked — a registered source is read by this
   server long after whoever registered it went home, so the sealed credential is what makes it a
   registration rather than a session.
 

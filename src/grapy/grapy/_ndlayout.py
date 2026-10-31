@@ -714,8 +714,9 @@ def smart_tree(view, p, margin):
     """EQUIVALENT (Reingold–Tilford): from the root junctions — or, where a connected part has none, its lowest
     feature id (INFERRED for "the smallest network topology index") — each part a tidy tree in the tree direction,
     levels ``along`` apart, siblings ``perpendicular`` apart and neighbouring subtrees ``subtree`` apart; several roots
-    of one part side by side as subtrees; parts ``disjoined`` apart; the whole centred where the diagram's junctions
-    were, as Pro 3.7 places it (measured 2026-10-31)."""
+    of one part side by side as subtrees; parts ``disjoined`` apart; in proportional units the whole scaled to the
+    diagram's size (``_fitted``); the whole centred where the diagram's junctions were, as Pro 3.7 places it (measured
+    2026-10-31)."""
     frame = FRAMES[p.get("direction", "FROM_LEFT_TO_RIGHT")]
     along, perp = _spacing(p, "along", 2.0), _spacing(p, "perpendicular", 2.0)
     sub = _spacing(p, "subtree", 2.0)
@@ -737,10 +738,33 @@ def smart_tree(view, p, margin):
         first = roots[0]
         coords = {first: coords[first], **{n: c for n, c in coords.items() if n != first}}
         laid.append(coords)
-    new = _centred(view, _place_components(view, laid, _spacing(p, "disjoined", 4.0), frame))
+    new = _place_components(view, laid, _spacing(p, "disjoined", 4.0), frame)
+    if p.get("proportional", True):
+        new = _fitted(view, new)
+    new = _centred(view, new)
     shapes = _edges(view, new, parents, p.get("edge_display", "REGULAR_EDGES"), p.get("breakpoint", 50.0), offset,
                     frame)
     view.commit(new, shapes, margin=margin)
+
+
+def _fitted(view, new):
+    """``new`` scaled about its centre so that the longer side of its extent is the longer side of the extent the same
+    junctions had before. In proportional units ArcGIS Pro 3.7 draws a smart tree to the diagram's own size: measured
+    2026-10-31 (ADR-232 condition 5) on five diagrams — the network of §4 at 1, at 10 times and stretched 10 times
+    east-west, and two smaller trees of it, two and three levels deep, left to right and top to bottom — the tree's
+    longer side was the diagram's every time, its spacings the default proportions of it. Junctions all in one place
+    are left as they are."""
+    if len(new) < 2:
+        return new
+
+    def side(points):
+        xs, ys = [x for x, _ in points], [y for _, y in points]
+        return max(max(xs) - min(xs), max(ys) - min(ys))
+    before, after = side([view.pos[n] for n in new]), side(list(new.values()))
+    if before <= 0 or after <= 0:
+        return new
+    k = before / after
+    return {n: (x * k, y * k) for n, (x, y) in new.items()}
 
 
 def _centred(view, new):

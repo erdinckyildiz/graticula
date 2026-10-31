@@ -1,6 +1,6 @@
 # Draft reports to `opengeospatial/ets-ogcapi-maps10` — ADR-175 condition 2
 
-**Status: draft, not sent.** Filing an issue on somebody else's repository publishes text under this project's name,
+**Status: draft, not sent — and not to be: on 2026-10-31 the owner decided *"Bildirme, kayda geçir"* (ADR-175 condition 2).** Filing an issue on somebody else's repository publishes text under this project's name,
 so it waits for the owner. Written 2026-10-15 from the suite's source at the commit this repository pins
 (`83d256077c8dc620c0945d84f44306cd6b7783a2`, `tools/cite-run-maps.sh`), which is still the suite's head. No open or
 closed issue in that repository covered either point when this was written.

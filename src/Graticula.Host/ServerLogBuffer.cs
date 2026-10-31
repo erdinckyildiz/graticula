@@ -111,6 +111,17 @@ internal sealed class ServerLogBuffer : ILoggerProvider
         ];
     }
 
+    /// <summary>Entries after a cursor, oldest first — what a node writes to the site's log (ADR-012 item 13).</summary>
+    /// <param name="after">The last cursor already written.</param>
+    /// <returns>The entries.</returns>
+    public IReadOnlyList<ServerLogEntry> After(long after)
+    {
+        lock (_gate)
+        {
+            return [.. _entries.Where(e => e.Cursor > after)];
+        }
+    }
+
     /// <inheritdoc/>
     public void Dispose() => _files?.Dispose();
 

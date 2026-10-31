@@ -176,6 +176,119 @@ public sealed class DocumentScreensTests : ConsoleTest
         }
     }
 
+    /// <summary>
+    /// D-321: a document in a folder names the folder in its breadcrumb, and its owner sets, shows and removes a thumbnail
+    /// of its own from the page's More menu.
+    /// </summary>
+    [Fact]
+    public async Task A_document_names_its_folder_and_keeps_a_thumbnail_its_owner_sets()
+    {
+        string title = $"zz_thumb_{Guid.NewGuid():N}"[..20];
+        string folderTitle = $"zz folder {Guid.NewGuid():N}"[..18];
+        string id = await FileDocumentAsync(title);
+        string? folder = null;
+
+        try
+        {
+            (int made, string madeBody) = await AdminAsync(HttpMethod.Post, "/content/folders", JsonSerializer.Serialize(new { title = folderTitle }));
+            Assert.True(made == 201, $"Making the folder answered {made}: {madeBody}");
+            folder = JsonDocument.Parse(madeBody).RootElement.GetProperty("id").GetString();
+            (int moved, string movedBody) = await AdminAsync(HttpMethod.Post, "/content/move",
+                JsonSerializer.Serialize(new { items = new[] { new { document = id } }, to = folder }));
+            Assert.True(moved == 200, $"Moving answered {moved}: {movedBody}");
+
+            // Opened from its own address, not through Content, so the folders have not been read yet.
+            (string token, _) = await SignInAsync();
+            await OpenAsync($"/studio/#/item/{id}", token);
+            await WaitForAsync($"(document.getElementById('docTitle')?.textContent || '').includes('{title}')",
+                "The document's page did not open.");
+            await WaitForAsync($"document.querySelector('#docCrumb a[data-crumb-folder=\"{folder}\"]')?.textContent === '{folderTitle}'",
+                "The breadcrumb does not name the folder the document is in (D-321).");
+            Assert.EndsWith($"/studio/content?folder={folder}",
+                await Browser.EvaluateAsync<string>($"document.querySelector('#docCrumb a[data-crumb-folder=\"{folder}\"]').href") ?? string.Empty,
+                StringComparison.Ordinal);
+
+            // Cancelling Move gives the focus back to More rather than to the page (design review 2026-10-31).
+            await ClickAsync("#docActions details.itemmore summary");
+            await ClickAsync("#docActions [data-move-document]");
+            await WaitForAsync("document.getElementById('contentFolderDialog')?.open === true", "Move to folder… did not open its dialog.");
+            await ClickAsync("#contentFolderCancel");
+            await WaitForAsync("document.activeElement?.matches('#docActions details.itemmore summary') === true",
+                "Cancelling Move left the focus on the page instead of on More.");
+
+            // No picture of its own yet: More offers to set one, and not to remove one.
+            Assert.True(await Browser.EvaluateAsync<bool>("!!document.querySelector('#docThumb .doctile')"),
+                "A PDF with no thumbnail of its own does not show its kind's tile.");
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "document.getElementById('docThumbChange')?.textContent.trim() === 'Set thumbnail…' && !document.getElementById('docThumbRemove')"),
+                "More does not offer Set thumbnail… alone for a document with none.");
+
+            // A file that is not a picture is refused before it is sent; a picture is sent as the file part.
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const carried = new DataTransfer(); carried.items.add(new File(["%PDF-"], "zz.pdf", { type: "application/pdf" }));
+                  const input = document.getElementById('docThumbFile'); input.files = carried.files;
+                  input.dispatchEvent(new Event('change', { bubbles: true }));
+                  return true;
+                })()
+                """);
+            await WaitForAsync("(document.getElementById('docSays')?.textContent || '').includes('not a PNG, JPEG, GIF or WebP')",
+                "A PDF chosen as a thumbnail was not refused before sending.");
+            Assert.False(await Browser.EvaluateAsync<bool>("window.__writes.some(w => w.includes('/thumbnail'))"),
+                "A refused thumbnail was sent anyway.");
+
+            await Browser.EvaluateAsync<bool>("""
+                (() => {
+                  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+                  const carried = new DataTransfer(); carried.items.add(new File([png], "zz-cover.png", { type: "image/png" }));
+                  const input = document.getElementById('docThumbFile'); input.files = carried.files;
+                  input.dispatchEvent(new Event('change', { bubbles: true }));
+                  return true;
+                })()
+                """);
+            await WaitForAsync($"window.__writes.some(w => w.startsWith('PUT /content/documents/{id}/thumbnail'))",
+                "Choosing a picture did not send it as the document's thumbnail.");
+
+            // Set through the API, the page shows it, and More offers to change or remove it.
+            using (HttpRequestMessage request = new(HttpMethod.Put, new Uri($"{Root}/content/documents/{id}/thumbnail")))
+            {
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                using MultipartFormDataContent form = new();
+                ByteArrayContent file = new(Png);
+                file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                form.Add(file, "file", "zz-cover.png");
+                request.Content = form;
+                using HttpResponseMessage response = await Http.SendAsync(request);
+                Assert.True(response.IsSuccessStatusCode, $"Setting the thumbnail answered {(int)response.StatusCode}");
+            }
+
+            await OpenAsync($"/studio/#/item/{id}", token);
+            await WaitForAsync("(document.querySelector('#docThumb img')?.getAttribute('src') || '').startsWith('blob:')",
+                "The document's own thumbnail is not shown on its page.");
+            await WaitForAsync("document.querySelector('#docThumb img')?.naturalWidth === 1",
+                "The thumbnail shown is not the picture that was set.");
+            Assert.True(await Browser.EvaluateAsync<bool>(
+                "document.getElementById('docThumbChange')?.textContent.trim() === 'Change thumbnail…' && !!document.getElementById('docThumbRemove')"),
+                "More does not offer Change thumbnail… and Remove thumbnail for a document with one.");
+
+            await ClickAsync("#docActions details.itemmore summary");
+            await ClickAsync("#docThumbRemove");
+            await WaitForAsync($"window.__writes.some(w => w.startsWith('DELETE /content/documents/{id}/thumbnail'))",
+                "Remove thumbnail did not ask the server to forget it.");
+
+            // The folder step goes back to Content on that folder.
+            await ClickAsync($"#docCrumb a[data-crumb-folder=\"{folder}\"]");
+            await WaitForAsync($"document.querySelector('#contentFolders [data-folder-pick=\"{folder}\"]')?.getAttribute('aria-pressed') === 'true'",
+                "The folder step of the breadcrumb did not open Content on the folder.");
+            NothingWentWrong(await PageErrorsAsync());
+        }
+        finally
+        {
+            await RemoveAsync(id);
+            if (folder is not null) await AdminAsync(HttpMethod.Delete, $"/content/folders/{folder}");
+        }
+    }
+
     [Fact]
     public async Task New_item_uploads_a_document_with_its_title_from_the_file_name()
     {

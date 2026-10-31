@@ -67,6 +67,13 @@ def _write(out, bands, meta, sar=None):
     return path
 
 
+def _write_blocks(out, names, dtype, shape, meta, blocks, sar=None):
+    """A dataset written block by block (D-328); a map-geometry input keeps its grid."""
+    keep = sar is not None and not sar.radar
+    return _sar.write_blocks(out, names, dtype, shape, meta, blocks, sar.transform if keep else None,
+                             sar.srid if keep else 0)
+
+
 def _keep_pols(meta, names):
     if meta.get("pols"):
         meta["pols"] = {k: v for k, v in meta["pols"].items() if k in names}
@@ -79,12 +86,14 @@ def _keep_pols(meta, names):
 _CALIBRATIONS = {"BETA_NOUGHT": "beta0", "SIGMA_NOUGHT": "sigma0", "GAMMA_NOUGHT": "gamma0"}
 
 
-def _calibration_lut(sar, pol, key, tool):
+def _calibration_lut(sar, pol, key, tool, lines=None):
+    """The calibration LUT at every pixel of the given original ``lines`` (all of the dataset's when none are
+    given); each row depends only on its own line, so a block of rows is answered exactly as the whole would be."""
     cal = (sar.meta.get("pols") or {}).get(pol, {}).get("calibration")
     if not cal:
         raise ExecuteError(f"{tool}: band {pol} carries no calibration look-up table; only Sentinel-1 products, "
                            "which ship theirs, are calibrated.")
-    return _sar.lut(cal, key, sar.meta["lines"], sar.meta["pixels"])
+    return _sar.lut(cal, key, sar.meta["lines"] if lines is None else lines, sar.meta["pixels"])
 
 
 def ApplyRadiometricCalibration(in_radar_data, out_radar_data, polarization_bands=None, calibration_type="BETA_NOUGHT"):
@@ -110,20 +119,30 @@ def ApplyRadiometricCalibration(in_radar_data, out_radar_data, polarization_band
         raise ExecuteError(f"{tool}: '{values}' data cannot be calibrated.")
     names = polarizations(sar, polarization_bands, tool)
     key = _CALIBRATIONS[kind]
-    out = {}
     for pol in names:
-        a = _calibration_lut(sar, pol, key, tool)
-        band = sar.bands[pol]
-        if values == "complex":
-            out[pol] = (band / a).astype(np.complex64)
-        elif values == "amplitude":
-            out[pol] = (band.astype(np.float64) ** 2 / a ** 2).astype(np.float32)
-        else:
-            if sar.meta.get("noise_removed"):   # the noise floor, calibrated as Pro 3.7 calibrates it (NOISE_FLOOR)
-                band = np.where(band == np.float32(NOISE_FLOOR), np.float32(NOISE_FLOOR * FLOOR_CALIBRATED), band)
-            out[pol] = (band / a ** 2).astype(np.float32)
+        _calibration_lut(sar, pol, key, tool, [])   # every band has its table before anything is written
+    lines = np.asarray(sar.meta["lines"], float)
+    floor = sar.meta.get("noise_removed")
+
+    def blocks():   # by rows (D-328): each row's LUT depends only on its line
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            out = {}
+            for pol in names:
+                a = _calibration_lut(sar, pol, key, tool, lines[r0:r1])
+                band = sar.bands.window(pol, r0, r1)
+                if values == "complex":
+                    out[pol] = (band / a).astype(np.complex64)
+                elif values == "amplitude":
+                    out[pol] = (band.astype(np.float64) ** 2 / a ** 2).astype(np.float32)
+                else:
+                    if floor:   # the noise floor, calibrated as Pro 3.7 calibrates it (NOISE_FLOOR)
+                        band = np.where(band == np.float32(NOISE_FLOOR), np.float32(NOISE_FLOOR * FLOOR_CALIBRATED),
+                                        band)
+                    out[pol] = (band / a ** 2).astype(np.float32)
+            yield r0, 0, out
     meta = _keep_pols(sar.copy_meta(calibration=key, values="complex" if values == "complex" else "intensity"), names)
-    return Result(_write(out_radar_data, out, meta, sar))
+    return Result(_write_blocks(out_radar_data, names, "complex64" if values == "complex" else "float32", sar.shape,
+                                meta, blocks(), sar))
 
 
 NOISE_FLOOR = 1e-5   # what Pro 3.7 writes where the noise exceeds the power (RemoveThermalNoise)
@@ -149,20 +168,31 @@ def RemoveThermalNoise(in_radar_data, out_radar_data, polarization_bands=None):
         raise ExecuteError(f"{tool}: '{values}' data has no thermal noise to remove.")
     names = polarizations(sar, polarization_bands, tool)
     calibrated = sar.meta.get("calibration", "none")
-    out = {}
+    tables = {}
     for pol in names:
         vectors = (sar.meta.get("pols") or {}).get(pol, {}).get("noise")
         if not vectors or not vectors.get("range"):
             raise ExecuteError(f"{tool}: band {pol} carries no noise look-up table; only Sentinel-1 products, which "
                                "ship theirs, are corrected.")
-        eta = _sar.noise(vectors, sar.meta["lines"], sar.meta["pixels"])
         if calibrated != "none":
-            eta = eta / _calibration_lut(sar, pol, calibrated, tool) ** 2
-        band = sar.bands[pol]
-        power = np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude") else band.astype(np.float64)
-        out[pol] = np.maximum(power - eta, NOISE_FLOOR).astype(np.float32)
+            _calibration_lut(sar, pol, calibrated, tool, [])
+        tables[pol] = vectors
+    lines, pixels = np.asarray(sar.meta["lines"], float), np.asarray(sar.meta["pixels"], float)
+
+    def blocks():   # by rows (D-328): the noise of a row depends only on its line
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            out = {}
+            for pol in names:
+                eta = _sar.noise(tables[pol], lines[r0:r1], pixels)
+                if calibrated != "none":
+                    eta = eta / _calibration_lut(sar, pol, calibrated, tool, lines[r0:r1]) ** 2
+                band = sar.bands.window(pol, r0, r1)
+                power = (np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude")
+                         else band.astype(np.float64))
+                out[pol] = np.maximum(power - eta, NOISE_FLOOR).astype(np.float32)
+            yield r0, 0, out
     meta = _keep_pols(sar.copy_meta(noise_removed=True, values="intensity"), names)
-    return Result(_write(out_radar_data, out, meta, sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", sar.shape, meta, blocks(), sar))
 
 
 # ---- deburst
@@ -208,17 +238,26 @@ def Deburst(in_radar_data, out_radar_data, polarization_bands=None):
         source[n] = k * lpb + j
         keep_first[n] = bursts["list"][k]["first_valid"][j]
         keep_last[n] = bursts["list"][k]["last_valid"][j]
-    columns = np.arange(sar.shape[1])
-    blank = (columns[None, :] < keep_first[:, None]) | (columns[None, :] > keep_last[:, None])
-    out = {}
-    for pol in names:
-        band = sar.bands[pol][source]
-        nodata = (np.nan + 1j * np.nan) if np.iscomplexobj(band) else np.nan
-        out[pol] = np.where(blank, nodata, band).astype(band.dtype)
+    m = sar.shape[1]
+    columns = np.arange(m)
+    complex_ = any(sar.bands.complex(p) for p in names)
+
+    def blocks():   # by output rows (D-328): a block reads only the source lines its rows come from, which ascend
+        for r0, r1 in _sar.row_blocks((count, m)):
+            rows = source[r0:r1]
+            s0 = int(rows.min())
+            blank = (columns[None, :] < keep_first[r0:r1, None]) | (columns[None, :] > keep_last[r0:r1, None])
+            out = {}
+            for pol in names:
+                band = sar.bands.window(pol, s0, int(rows.max()) + 1)[rows - s0]
+                nodata = (np.nan + 1j * np.nan) if np.iscomplexobj(band) else np.nan
+                out[pol] = np.where(blank, nodata, band).astype(band.dtype)
+            yield r0, 0, out
     meta = _keep_pols(sar.copy_meta(first_line_time=float(times[0]), line_interval=dt,
                                     lines=[int(sar.meta["lines"][s]) for s in source]), names)
     meta.pop("bursts", None)
-    return Result(_write(out_radar_data, out, meta, sar))
+    return Result(_write_blocks(out_radar_data, names, "complex64" if complex_ else "float32", (count, m), meta,
+                                blocks(), sar))
 
 
 # ---- multilook
@@ -267,12 +306,20 @@ def Multilook(in_radar_data, out_radar_data, polarization_bands=None, range_look
         al = int(azimuth_looks)
     if rl < 1 or al < 1:
         raise ExecuteError(f"{tool}: looks must be whole numbers of at least 1.")
-    out = {}
-    for pol in names:
-        band = sar.bands[pol]
-        power = np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude") else band.astype(np.float64)
-        out[pol] = _block_mean(power, rl, al).astype(np.float32)
-    rows, columns = next(iter(out.values())).shape
+    n, m = sar.shape
+    rows, columns = n // al, m // rl
+
+    def blocks():   # whole looks of rows at a time (D-328); a block's mean is the same in any block
+        for r0, r1 in _sar.row_blocks(sar.shape, al):
+            if (r1 - r0) // al == 0:
+                continue
+            out = {}
+            for pol in names:
+                band = sar.bands.window(pol, r0, r1)
+                power = (np.abs(band).astype(np.float64) ** 2 if values in ("complex", "amplitude")
+                         else band.astype(np.float64))
+                out[pol] = _block_mean(power, rl, al).astype(np.float32)
+            yield r0 // al, 0, out
     lines = np.asarray(sar.meta["lines"], float)[: rows * al].reshape(rows, al).mean(1)
     pixels = np.asarray(sar.meta["pixels"], float)[: columns * rl].reshape(columns, rl).mean(1)
     looks = sar.meta.get("looks", [1, 1])
@@ -282,7 +329,8 @@ def Multilook(in_radar_data, out_radar_data, polarization_bands=None, range_look
         meta["first_line_time"] = sar.meta["first_line_time"] + (al - 1) / 2 * sar.meta["line_interval"]
         meta["line_interval"] = sar.meta["line_interval"] * al
     _say(f"Multilook: {rl} range looks and {al} azimuth looks.")
-    return Result(_write(out_radar_data, out, _keep_pols(meta, names), sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", (rows, columns), _keep_pols(meta, names), blocks(),
+                                sar))
 
 
 # ---- units
@@ -297,40 +345,63 @@ def ConvertSARUnits(in_radar_data, out_radar_data, conversion_type="LINEAR_TO_DB
     kind = word(conversion_type, "LINEAR_TO_DB")
     sar = _sar.read(in_radar_data, tool)
     values, scale = sar.meta.get("values"), sar.meta.get("scale", "linear")
-    out, meta = {}, sar.copy_meta()
+    meta = sar.copy_meta()
 
     def need(ok, what):
         if not ok:
             raise ExecuteError(f"{tool}: {kind} needs {what}; the radar data is {scale} {values}.")
 
-    for pol, band in sar.bands.items():
-        b = band.astype(np.complex128 if np.iscomplexobj(band) else np.float64)
-        if kind == "LINEAR_TO_DB":
-            need(scale == "linear" and values in ("amplitude", "intensity", "coherence"), "linear amplitude or intensity")
+    if kind == "LINEAR_TO_DB":
+        need(scale == "linear" and values in ("amplitude", "intensity", "coherence"), "linear amplitude or intensity")
+        meta["scale"] = "db"
+
+        def convert(b):
             with np.errstate(divide="ignore", invalid="ignore"):
-                r = np.where(b > 0, (20 if values == "amplitude" else 10) * np.log10(np.where(b > 0, b, 1)), np.nan)
-            meta["scale"] = "db"
-        elif kind == "DB_TO_LINEAR":
-            need(scale == "db", "data in decibels")
-            r = 10 ** (b / (20 if values == "amplitude" else 10))
-            meta["scale"] = "linear"
-        elif kind == "AMPLITUDE_TO_INTENSITY":
-            need(scale == "linear" and values == "amplitude", "linear amplitude")
-            r, meta["values"] = b ** 2, "intensity"
-        elif kind == "INTENSITY_TO_AMPLITUDE":
-            need(scale == "linear" and values == "intensity", "linear intensity")
-            r, meta["values"] = np.sqrt(np.maximum(b, 0)), "amplitude"
-        elif kind == "COMPLEX_TO_INTENSITY":
-            need(values == "complex", "complex data")
-            r, meta["values"] = b.real ** 2 + b.imag ** 2, "intensity"
-        elif kind == "PHASE_TO_DISPLACEMENT":
-            need(values == "unwrapped_phase", "an unwrapped interferogram phase")
-            wavelength = C / sar.meta["radar_frequency"]
-            r, meta["values"] = -wavelength * b / (4 * math.pi), "displacement"
-        else:
-            raise ExecuteError(f"{tool}: conversion_type '{conversion_type}' is not a documented conversion.")
-        out[pol] = np.asarray(r).astype(np.float32)
-    return Result(_write(out_radar_data, out, meta, sar))
+                return np.where(b > 0, (20 if values == "amplitude" else 10) * np.log10(np.where(b > 0, b, 1)), np.nan)
+    elif kind == "DB_TO_LINEAR":
+        need(scale == "db", "data in decibels")
+        meta["scale"] = "linear"
+
+        def convert(b):
+            return 10 ** (b / (20 if values == "amplitude" else 10))
+    elif kind == "AMPLITUDE_TO_INTENSITY":
+        need(scale == "linear" and values == "amplitude", "linear amplitude")
+        meta["values"] = "intensity"
+
+        def convert(b):
+            return b ** 2
+    elif kind == "INTENSITY_TO_AMPLITUDE":
+        need(scale == "linear" and values == "intensity", "linear intensity")
+        meta["values"] = "amplitude"
+
+        def convert(b):
+            return np.sqrt(np.maximum(b, 0))
+    elif kind == "COMPLEX_TO_INTENSITY":
+        need(values == "complex", "complex data")
+        meta["values"] = "intensity"
+
+        def convert(b):
+            return b.real ** 2 + b.imag ** 2
+    elif kind == "PHASE_TO_DISPLACEMENT":
+        need(values == "unwrapped_phase", "an unwrapped interferogram phase")
+        wavelength = C / sar.meta["radar_frequency"]
+        meta["values"] = "displacement"
+
+        def convert(b):
+            return -wavelength * b / (4 * math.pi)
+    else:
+        raise ExecuteError(f"{tool}: conversion_type '{conversion_type}' is not a documented conversion.")
+    names = sar.names
+
+    def blocks():   # cell by cell, so by rows (D-328)
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            out = {}
+            for pol in names:
+                band = sar.bands.window(pol, r0, r1)
+                b = band.astype(np.complex128 if np.iscomplexobj(band) else np.float64)
+                out[pol] = np.asarray(convert(b)).astype(np.float32)
+            yield r0, 0, out
+    return Result(_write_blocks(out_radar_data, names, "float32", sar.shape, meta, blocks(), sar))
 
 
 # ---- speckle filters
@@ -499,9 +570,15 @@ def Despeckle(in_radar_data, out_radar_data, polarization_bands=None, filter_typ
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
     names = polarizations(sar, polarization_bands, tool)
-    out = {}
-    for pol in names:
-        z = _sar.intensity(sar.bands[pol]).astype(np.float64)
+    n = sar.shape[0]
+
+    def blocks():   # rows with a halo of DESPECKLE_HALO on each side, which every filter's reach fits in (D-328)
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            h0, h1 = max(0, r0 - DESPECKLE_HALO), min(n, r1 + DESPECKLE_HALO)
+            yield r0, 0, {pol: _despeckle(sar.bands.window(pol, h0, h1))[r0 - h0: r1 - h0] for pol in names}
+
+    def _despeckle(band):
+        z = _sar.intensity(band).astype(np.float64)
         blank = np.isnan(z)
         if blank.any():
             from scipy import ndimage
@@ -523,10 +600,16 @@ def Despeckle(in_radar_data, out_radar_data, polarization_bands=None, filter_typ
             r = gamma_map(z, size, looks)
         else:
             r = frost(z, size, damp)
-        out[pol] = np.where(blank, np.nan, r).astype(np.float32)
+        return np.where(blank, np.nan, r).astype(np.float32)
     values = sar.meta.get("values")
     meta = sar.copy_meta(values="intensity" if values == "complex" else values)
-    return Result(_write(out_radar_data, out, _keep_pols(meta, names), sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", sar.shape, _keep_pols(meta, names), blocks(), sar))
+
+
+#: Rows each Despeckle block reads beyond its own on either side: the NoData fill's 7 x 7 window (3), then Refined
+#: Lee's 3 x 3 means sampled 2 cells off and its 7 x 7 masks (3 + 2 + 3), or the largest documented window (5) —
+#: at most 11, held at 16. Inside it every filter answers as on the whole band, to the rounding of scipy's running sums.
+DESPECKLE_HALO = 16
 
 
 # ---- interferometry
@@ -541,9 +624,9 @@ def _pair(reference, secondary, tool, polarization_bands):
     for p in pol:
         if p not in sec.bands:
             raise ExecuteError(f"{tool}: the secondary radar data has no band {p}.")
-        if sec.bands[p].shape != ref.bands[p].shape:
+        if sec.bands.shape(p) != ref.bands.shape(p):
             raise ExecuteError(f"{tool}: the inputs are not coregistered — their grids differ "
-                               f"({ref.bands[p].shape} and {sec.bands[p].shape}); run ApplyCoregistration first.")
+                               f"({ref.bands.shape(p)} and {sec.bands.shape(p)}); run ApplyCoregistration first.")
     return ref, sec, pol
 
 
@@ -557,52 +640,49 @@ def ComputeCoherence(in_reference_radar_data, in_secondary_radar_data, out_radar
     ref, sec, pols = _pair(in_reference_radar_data, in_secondary_radar_data, tool, polarization_bands)
     rw = int(range_window_size if _is_given(range_window_size) else 10)
     aw = int(azimuth_window_size) if _is_given(azimuth_window_size) else square_looks(ref.meta, rw)[1]
-    out = {}
-    for p in pols:
-        s1 = np.nan_to_num(ref.bands[p].astype(np.complex128))
-        s2 = np.nan_to_num(sec.bands[p].astype(np.complex128))
-        cross = s1 * np.conj(s2)
-        num = ndimage.uniform_filter(cross.real, (aw, rw)) + 1j * ndimage.uniform_filter(cross.imag, (aw, rw))
-        p1 = ndimage.uniform_filter(np.abs(s1) ** 2, (aw, rw))
-        p2 = ndimage.uniform_filter(np.abs(s2) ** 2, (aw, rw))
-        with np.errstate(divide="ignore", invalid="ignore"):
-            out[p] = np.clip(np.where(p1 * p2 > 0, np.abs(num) / np.sqrt(p1 * p2), np.nan), 0, 1).astype(np.float32)
+    shape = ref.shape
+
+    def blocks():   # rows with a halo of the azimuth window (D-328); inside it the boxcar sums see the same cells
+        for r0, r1, h0, h1 in _sar.halo_blocks(shape, aw):
+            out = {}
+            for p in pols:
+                s1 = np.nan_to_num(ref.bands.window(p, h0, h1).astype(np.complex128))
+                s2 = np.nan_to_num(sec.bands.window(p, h0, h1).astype(np.complex128))
+                cross = s1 * np.conj(s2)
+                num = ndimage.uniform_filter(cross.real, (aw, rw)) + 1j * ndimage.uniform_filter(cross.imag, (aw, rw))
+                p1 = ndimage.uniform_filter(np.abs(s1) ** 2, (aw, rw))
+                p2 = ndimage.uniform_filter(np.abs(s2) ** 2, (aw, rw))
+                k = slice(r0 - h0, r1 - h0)
+                num, p1, p2 = num[k], p1[k], p2[k]
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    out[p] = np.clip(np.where(p1 * p2 > 0, np.abs(num) / np.sqrt(p1 * p2), np.nan), 0, 1
+                                     ).astype(np.float32)
+            yield r0, 0, out
     meta = ref.copy_meta(values="coherence")
     _say(f"ComputeCoherence: a window of {rw} range × {aw} azimuth cells.")
-    return Result(_write(out_radar_data, out, _keep_pols(meta, pols), ref))
+    return Result(_write_blocks(out_radar_data, pols, "float32", shape, _keep_pols(meta, pols), blocks(), ref))
 
 
 def _lattice(shape, step=16):
-    n, m = shape
-    rs = np.unique(np.r_[np.arange(0, n, step), n - 1]).astype(float)
-    cs = np.unique(np.r_[np.arange(0, m, step), m - 1]).astype(float)
-    return rs, cs
-
-
-def _expand(rs, cs, values, shape):
-    """A field computed on a lattice, interpolated to every cell: cubically where the lattice has four points or more
-    each way, bilinearly otherwise."""
-    from scipy.interpolate import RegularGridInterpolator
-    n, m = shape
-    if len(rs) < 2 or len(cs) < 2:
-        return np.full(shape, float(np.mean(values)))
-    R, Cc = np.meshgrid(np.arange(n, dtype=float), np.arange(m, dtype=float), indexing="ij")
-    method = "cubic" if len(rs) >= 4 and len(cs) >= 4 else "linear"
-    return RegularGridInterpolator((rs, cs), values, method=method)(np.stack([R.ravel(), Cc.ravel()], -1)).reshape(n, m)
+    return _sar.lattice(shape, step)
 
 
 def _reference_phase(ref, sec, dem, shape):
     """The phase 4π(R2 − R1)/λ of each reference cell's ground point — on the ellipsoid without a DEM — between the
-    reference sensor and the secondary's, on a lattice and interpolated."""
+    reference sensor and the secondary's, solved on a lattice of every 8th cell and interpolated (``_sar.Field``)."""
     rs, cs = _lattice(shape, 8)
     rr, cc = np.meshgrid(rs, cs, indexing="ij")
-    h = _sar.heights_for(ref.meta, rr.ravel(), cc.ravel(), dem) if dem is not None else np.zeros(rr.size)
-    p = _sar.geocode(ref.meta, rr.ravel(), cc.ravel(), h)
-    _, r1, _ = _sar.zero_doppler(ref.meta, p)
-    _, r2, _ = _sar.zero_doppler(sec.meta, p)
     wavelength = C / ref.meta["radar_frequency"]
-    phase = (-4 * math.pi / wavelength * (r1 - r2)).reshape(rr.shape)
-    return _expand(rs, cs, phase, shape)
+
+    def solve(rows, cols):   # a chunk of the lattice at a time (D-328): a swath's lattice is millions of points
+        if dem is not None:
+            p = _sar.ground_points(ref.meta, rows, cols, dem)
+        else:
+            p = _sar.ground_points(ref.meta, rows, cols, heights=np.zeros(rows.size))
+        _, r1, _ = _sar.zero_doppler(ref.meta, p)
+        _, r2, _ = _sar.zero_doppler(sec.meta, p)
+        return -4 * math.pi / wavelength * (r1 - r2)
+    return _sar.Field(rs, cs, _sar.by_chunks(solve, rr.ravel(), cc.ravel()).reshape(rr.shape))
 
 
 def GenerateInterferogram(in_reference_radar_data, in_secondary_radar_data, out_radar_data, polarization_bands=None,
@@ -611,8 +691,8 @@ def GenerateInterferogram(in_reference_radar_data, in_secondary_radar_data, out_
     """EQUIVALENT: s1·s2* with the reference geometry's phase removed (see INTERFEROGRAM). A complex sample is taken
     as exp(−i4πR/λ), so the phase removed is −4π(R1 − R2)/λ: R1 from the reference sensor and R2 from the secondary's
     to each reference cell's ground point, on the ellipsoid (flat earth) for NONE and on the DEM for TOPO (INFERRED:
-    the sign convention, and the reference phase computed every 8 cells and interpolated cubically). The secondary keeps its
-    own orbit, as ApplyCoregistration writes it."""
+    the sign convention, and the reference phase computed every 8 cells and interpolated by a bicubic spline). The
+    secondary keeps its own orbit, as ApplyCoregistration writes it. Both outputs are written by blocks of rows (D-328)."""
     tool = _tool("GenerateInterferogram")
     topo = word(remove_topographic_phase, "NONE") in ("TOPO", "TRUE")
     ref, sec, pols = _pair(in_reference_radar_data, in_secondary_radar_data, tool, polarization_bands)
@@ -626,30 +706,39 @@ def GenerateInterferogram(in_reference_radar_data, in_secondary_radar_data, out_
             raise ExecuteError(f"{tool}: remove_topographic_phase TOPO needs in_dem_raster.")
         dem = _sar.Dem(in_dem_raster, "GenerateInterferogram", geoid)
     p = pols[0]
-    shape = ref.bands[p].shape
-    raw = ref.bands[p].astype(np.complex128) * np.conj(sec.bands[p].astype(np.complex128))
+    shape = ref.bands.shape(p)
     meta = ref.copy_meta(values="complex", interferogram=True, secondary_orbit=sec.meta.get("orbit"))
     flat = _reference_phase(ref, sec, None, shape)
-    if topo:
-        topo_phase = _reference_phase(ref, sec, dem, shape)
-        out = raw * np.exp(-1j * topo_phase)
-        if _is_given(out_flattened_interferogram):
-            _write(out_flattened_interferogram, {p: (raw * np.exp(-1j * flat)).astype(np.complex64)},
-                   _keep_pols(dict(meta, topographic_phase_removed=False), [p]), ref)
-        meta["topographic_phase_removed"] = True
-    else:
-        out = raw * np.exp(-1j * flat)
-        if _is_given(out_flattened_interferogram):
-            _write(out_flattened_interferogram, {p: out.astype(np.complex64)}, _keep_pols(dict(meta), [p]), ref)
-        meta["topographic_phase_removed"] = False
-    path = _write(out_radar_data, {p: out.astype(np.complex64)}, _keep_pols(meta, [p]), ref)
-    outputs = [path] + ([_sar.out_path(out_flattened_interferogram)] if _is_given(out_flattened_interferogram) else [])
+    topo_phase = _reference_phase(ref, sec, dem, shape) if topo else None
+    meta["topographic_phase_removed"] = bool(topo)
+    writer = _sar.BlockWriter(out_radar_data, [p], "complex64", shape, _keep_pols(meta, [p]))
+    flattened = None
+    if _is_given(out_flattened_interferogram):
+        flattened = _sar.BlockWriter(out_flattened_interferogram, [p], "complex64", shape,
+                                     _keep_pols(dict(meta, topographic_phase_removed=False), [p]))
+    for r0, r1 in _sar.row_blocks(shape):
+        raw = ref.bands.window(p, r0, r1).astype(np.complex128) * np.conj(sec.bands.window(p, r0, r1).astype(np.complex128))
+        flat_out = raw * np.exp(-1j * flat.rows(r0, r1, shape[1]))
+        if flattened is not None:
+            flattened.write(r0, 0, {p: flat_out})
+        writer.write(r0, 0, {p: raw * np.exp(-1j * topo_phase.rows(r0, r1, shape[1])) if topo else flat_out})
+    if flattened is not None:
+        flattened.close()
+    path = writer.close()
+    outputs = [path] + ([_sar.out_path(out_flattened_interferogram)] if flattened is not None else [])
     return Result(*outputs)
 
 
 def goldstein(z, alpha, patch):
     """Goldstein and Werner (1998): each patch's spectrum Z is weighted by |S(Z)|^α, S a 3×3 smoothing, normalised
-    to its peak; patches overlap by half and are blended with a triangular taper."""
+    to its peak; patches overlap by half and are blended with a triangular taper.
+
+    Patches are filtered a row of them at a time, in batches of patches that cannot overlap — those whose indices
+    agree modulo ``goldstein_period(patch)`` — so a full swath is not a Python loop over millions of 8 × 8 patches
+    (D-328: about 30 minutes of CPU on a 12,300 × 21,000 interferogram, past ADR-223's 10). Each cell receives at
+    most one patch of each batch class, added in the classes' order, so a window whose first row is a multiple of
+    ``goldstein_period(patch) * (patch // 2)`` answers its rows as the whole band does."""
+    from numpy.lib.stride_tricks import sliding_window_view
     from scipy import ndimage
     n, m = z.shape
     step = max(1, patch // 2)
@@ -660,16 +749,33 @@ def goldstein(z, alpha, patch):
     weight = np.zeros(zp.shape)
     taper1 = 1 - np.abs(np.arange(patch) - (patch - 1) / 2) / (patch / 2)
     taper = np.outer(taper1, taper1) + 1e-6
-    for r in range(0, zp.shape[0] - patch + 1, step):
-        for c in range(0, zp.shape[1] - patch + 1, step):
-            block = zp[r: r + patch, c: c + patch]
-            spectrum = np.fft.fft2(block)
-            smooth = ndimage.uniform_filter(np.abs(spectrum), 3, mode="wrap")
-            peak = smooth.max()
-            h = (smooth / peak) ** alpha if peak > 0 else np.ones_like(smooth)
-            out[r: r + patch, c: c + patch] += np.fft.ifft2(spectrum * h) * taper
-            weight[r: r + patch, c: c + patch] += taper
+    q = goldstein_period(patch)
+    row_starts = np.arange(0, zp.shape[0] - patch + 1, step)
+    col_starts = np.arange(0, zp.shape[1] - patch + 1, step)
+    span = np.arange(patch)
+    for a in range(q):
+        for b in range(q):
+            cols = col_starts[b::q]
+            if not len(cols):
+                continue
+            where = (cols[:, None] + span[None, :]).ravel()   # the batch's columns, none repeated
+            for r in row_starts[a::q]:
+                blocks = sliding_window_view(zp[r: r + patch], patch, axis=1)[:, cols, :].transpose(1, 0, 2)
+                spectrum = np.fft.fft2(blocks)
+                smooth = ndimage.uniform_filter(np.abs(spectrum), (1, 3, 3), mode="wrap")
+                peak = smooth.max(axis=(1, 2), keepdims=True)
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    h = np.where(peak > 0, (smooth / np.where(peak > 0, peak, 1)) ** alpha, 1.0)
+                result = np.fft.ifft2(spectrum * h) * taper
+                out[r: r + patch, where] += result.transpose(1, 0, 2).reshape(patch, -1)
+                weight[r: r + patch, where] += np.tile(taper, (1, len(cols)))
     return (out / weight)[:n, :m]
+
+
+def goldstein_period(patch):
+    """How many patch steps apart two Goldstein patches must start not to overlap."""
+    step = max(1, patch // 2)
+    return int(math.ceil(patch / step))
 
 
 def effective_coherence(phase, size):
@@ -700,9 +806,8 @@ def ApplyComplexDataFilter(in_radar_data, out_radar_data, polarization_bands=Non
     if sar.meta.get("values") != "complex":
         raise ExecuteError(f"{tool}: the input must be complex data.")
     names = polarizations(sar, polarization_bands, tool)
-    out = {}
-    for pol in names:
-        z = sar.bands[pol].astype(np.complex128)
+
+    def filtered_rows(z, r0, r1, h0):
         blank = np.isnan(z)
         zz = np.where(blank, 0, z)
         unit = np.where(np.abs(zz) > 0, zz / np.where(np.abs(zz) > 0, np.abs(zz), 1), 0)
@@ -713,9 +818,20 @@ def ApplyComplexDataFilter(in_radar_data, out_radar_data, polarization_bands=Non
             large = goldstein(unit, a, outer)
             coherent = effective_coherence(np.angle(unit), outer) >= 0.3
             filtered = np.where(coherent, small, large)
-        result = np.abs(zz) * np.exp(1j * np.angle(filtered))
-        out[pol] = np.where(blank, np.nan + 1j * np.nan, result).astype(np.complex64)
-    return Result(_write(out_radar_data, out, _keep_pols(sar.copy_meta(), names), sar))
+        k = slice(r0 - h0, r1 - h0)
+        result = np.abs(zz[k]) * np.exp(1j * np.angle(filtered[k]))
+        return np.where(blank[k], np.nan + 1j * np.nan, result).astype(np.complex64)
+
+    # Rows with a halo of the outer window, its first row on both patch grids and their batch classes (D-328): every
+    # patch that reaches a block's rows lies whole inside the window and is filtered and blended as on the whole band.
+    align = math.lcm(*(goldstein_period(k) * max(1, k // 2) for k in (inner, outer)))
+
+    def blocks():
+        for r0, r1, h0, h1 in _sar.halo_blocks(sar.shape, outer, align):
+            yield r0, 0, {pol: filtered_rows(sar.bands.window(pol, h0, h1).astype(np.complex128), r0, r1, h0)
+                          for pol in names}
+    return Result(_write_blocks(out_radar_data, names, "complex64", sar.shape, _keep_pols(sar.copy_meta(), names),
+                                blocks(), sar))
 
 
 def _wrap(x):
@@ -723,61 +839,92 @@ def _wrap(x):
 
 
 def _dct_poisson(rho):
-    """Solves the Neumann Poisson equation ∇²φ = ρ by the discrete cosine transform (Ghiglia and Romero 1994)."""
+    """Solves the Neumann Poisson equation ∇²φ = ρ by the discrete cosine transform (Ghiglia and Romero 1994). The
+    eigenvalues are divided out a band of rows at a time, so no second grid of them is held (D-328)."""
     from scipy.fft import dctn, idctn
     n, m = rho.shape
     d = dctn(rho, norm="ortho")
-    i = np.arange(n)[:, None]
-    j = np.arange(m)[None, :]
-    denom = 2 * (np.cos(math.pi * i / n) + np.cos(math.pi * j / m) - 2)
-    denom[0, 0] = 1.0
-    phi = d / denom
-    phi[0, 0] = 0.0
-    return idctn(phi, norm="ortho")
+    ci = np.cos(math.pi * np.arange(n) / n)[:, None]
+    cj = np.cos(math.pi * np.arange(m) / m)[None, :]
+    band = max(1, (1 << 20) // max(m, 1))
+    for r0 in range(0, n, band):
+        denom = 2 * (ci[r0: r0 + band] + cj - 2)
+        if r0 == 0:
+            denom[0, 0] = 1.0
+        d[r0: r0 + band] /= denom
+    d[0, 0] = 0.0
+    return idctn(d, norm="ortho", overwrite_x=True)
 
 
 def unwrap(phase, weights, iterations=200, tolerance=1e-8):
     """Weighted least-squares phase unwrapping by preconditioned conjugate gradient (Ghiglia and Romero 1994,
-    algorithm PCG): the wrapped differences are the data, the weights each edge's product of its cells' weights."""
-    w = weights.astype(float)
-    dx = _wrap(np.diff(phase, axis=1))
-    dy = _wrap(np.diff(phase, axis=0))
-    wx = np.minimum(w[:, 1:], w[:, :-1]) ** 2
-    wy = np.minimum(w[1:, :], w[:-1, :]) ** 2
+    algorithm PCG): the wrapped differences are the data, the weights each edge's product of its cells' weights.
 
-    def divergence(gx, gy):
+    The method is global — every cell's answer depends on every other — so the grid is held whole; what is not needed
+    is not (D-328): the edge weights, 0 or 1 when the weights are, are held as booleans, and the differences and
+    products are formed in place."""
+    w = np.asarray(weights)
+    binary = w.dtype == bool or bool(np.isin(w, (0, 1)).all())
+    if binary:
+        w = w.astype(bool)
+        wx = w[:, 1:] & w[:, :-1]
+        wy = w[1:, :] & w[:-1, :]
+    else:
+        w = w.astype(float)
+        wx = np.minimum(w[:, 1:], w[:, :-1]) ** 2
+        wy = np.minimum(w[1:, :], w[:-1, :]) ** 2
+    del w
+
+    def divergence_of(p, wrap=False):
+        """−div(w ∇p), the wrapped differences of ``p`` when ``wrap``."""
         out = np.zeros_like(phase)
-        out[:, :-1] += gx
-        out[:, 1:] -= gx
-        out[:-1, :] += gy
-        out[1:, :] -= gy
-        return -out
+        g = np.diff(p, axis=1)
+        if wrap:
+            g = _wrap(g)
+        g *= wx
+        out[:, :-1] += g
+        out[:, 1:] -= g
+        del g
+        g = np.diff(p, axis=0)
+        if wrap:
+            g = _wrap(g)
+        g *= wy
+        out[:-1, :] += g
+        out[1:, :] -= g
+        del g
+        np.negative(out, out=out)
+        return out
 
-    def apply(p):
-        return divergence(wx * np.diff(p, axis=1), wy * np.diff(p, axis=0))
-
-    rhs = divergence(wx * dx, wy * dy)
+    r = divergence_of(phase, wrap=True)
+    norm0 = np.sqrt(np.sum(r * r)) or 1.0
     x = np.zeros_like(phase)
-    r = rhs - apply(x)
     z = _dct_poisson(r)
     p = z.copy()
     rz = np.sum(r * z)
-    norm0 = np.sqrt(np.sum(rhs * rhs)) or 1.0
+    del z
     for _ in range(iterations):
-        ap = apply(p)
+        ap = divergence_of(p)
         denom = np.sum(p * ap)
         if denom == 0:
             break
         step = rz / denom
         x += step * p
-        r -= step * ap
+        ap *= step
+        r -= ap
+        del ap
         if np.sqrt(np.sum(r * r)) / norm0 < tolerance:
             break
         z = _dct_poisson(r)
         rz_new = np.sum(r * z)
-        p = z + (rz_new / rz) * p
+        p *= rz_new / rz
+        p += z
+        del z
         rz = rz_new
     return x
+
+
+#: Rows each UnwrapPhase block reads beyond its own for the 5 x 5 effective coherence (2), held at 4.
+UNWRAP_HALO = 4
 
 
 def UnwrapPhase(in_radar_data, out_radar_data, polarization_bands=None, unwrap_phase_method="LEAST_SQUARES_PCG",
@@ -785,7 +932,10 @@ def UnwrapPhase(in_radar_data, out_radar_data, polarization_bands=None, unwrap_p
     """EQUIVALENT: weighted least-squares unwrapping by PCG (see UNWRAP). The effective coherence is |mean exp(iφ)|
     over 5 × 5 cells (INFERRED: the window); cells below the threshold get weight 0 and are NoData in the output.
     INFERRED: the solution, which least squares defines only up to a constant, is shifted to agree with the wrapped
-    phase modulo 2π, then by the whole number of cycles that brings its mean closest to the wrapped phase's."""
+    phase modulo 2π, then by the whole number of cycles that brings its mean closest to the wrapped phase's.
+
+    The wrapped phase and its coherence are read by blocks of rows and the answer written by them; the solver itself
+    holds the grid, its method being global (D-328)."""
     tool = _tool("UnwrapPhase")
     if word(unwrap_phase_method, "LEAST_SQUARES_PCG") != "LEAST_SQUARES_PCG":
         raise ExecuteError(f"{tool}: unwrap_phase_method '{unwrap_phase_method}' is not LEAST_SQUARES_PCG.")
@@ -794,20 +944,37 @@ def UnwrapPhase(in_radar_data, out_radar_data, polarization_bands=None, unwrap_p
     if sar.meta.get("values") != "complex":
         raise ExecuteError(f"{tool}: the input must be a complex wrapped interferogram.")
     names = polarizations(sar, polarization_bands, tool)
-    out = {}
+    shape = sar.shape
+    answers = {}
     for pol in names:
-        z = sar.bands[pol].astype(np.complex128)
-        blank = np.isnan(z) | (np.abs(np.nan_to_num(z)) == 0)
-        phase = np.angle(np.nan_to_num(z))
-        good = (effective_coherence(phase, 5) >= threshold) & ~blank
-        u = unwrap(phase, good.astype(float))
+        phase = np.empty(shape)
+        good = np.empty(shape, bool)
+        for r0, r1, h0, h1 in _sar.halo_blocks(shape, UNWRAP_HALO):
+            z = sar.bands.window(pol, h0, h1).astype(np.complex128)
+            blank = np.isnan(z) | (np.abs(np.nan_to_num(z)) == 0)
+            ph = np.angle(np.nan_to_num(z))
+            k = slice(r0 - h0, r1 - h0)
+            phase[r0:r1] = ph[k]
+            good[r0:r1] = ((effective_coherence(ph, 5) >= threshold) & ~blank)[k]
+        u = unwrap(phase, good)
         if good.any():
-            u = u + np.angle(np.sum(np.exp(1j * (phase[good] - u[good]))))
-            k = np.round(np.mean(u[good] - phase[good]) / (2 * math.pi))
-            u = u - 2 * math.pi * k
-        out[pol] = np.where(good, u, np.nan).astype(np.float32)
+            # summed over fixed bands of rows, so no grid-sized temporaries are made and the sum is the same however
+            # the tool's rows are blocked
+            bands = range(0, shape[0], max(1, (1 << 20) // max(shape[1], 1)))
+            band = bands.step
+            u += np.angle(sum(np.sum(np.exp(1j * (phase[b: b + band][good[b: b + band]]
+                                                  - u[b: b + band][good[b: b + band]]))) for b in bands))
+            total = math.fsum(float(np.sum(u[b: b + band][good[b: b + band]] - phase[b: b + band][good[b: b + band]]))
+                              for b in bands)
+            u -= 2 * math.pi * np.round(total / int(good.sum()) / (2 * math.pi))
+        del phase
+        answers[pol] = (u, good)
+
+    def blocks():
+        for r0, r1 in _sar.row_blocks(shape):
+            yield r0, 0, {pol: np.where(g[r0:r1], u[r0:r1], np.nan).astype(np.float32) for pol, (u, g) in answers.items()}
     meta = sar.copy_meta(values="unwrapped_phase")
-    return Result(_write(out_radar_data, out, _keep_pols(meta, names), sar))
+    return Result(_write_blocks(out_radar_data, names, "float32", shape, _keep_pols(meta, names), blocks(), sar))
 
 
 # ---- indices and composites
@@ -823,35 +990,41 @@ def ComputeSARIndices(in_radar_data, out_raster, index="RVI", polarization_bands
         raise ExecuteError(f"{tool}: index '{index}' is not RVI, RFDI or CSI.")
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
-    have = {n.upper(): _sar.intensity(b).astype(np.float64) for n, b in sar.bands.items()}
-    quad = all(p in have for p in ("HH", "HV", "VH", "VV"))
+    upper = {n.upper(): n for n in sar.names}
+    quad = all(p in upper for p in ("HH", "HV", "VH", "VV"))
     pair = word(polarization_bands, "HH_HV")
     if kind == "CSI":
-        if not ("HH" in have and "VV" in have):
+        if not ("HH" in upper and "VV" in upper):
             raise ExecuteError(f"{tool}: CSI needs HH and VV bands.")
-        r = (have["HH"] - have["VV"]) / (have["HH"] + have["VV"])
-    else:
+    elif not (quad and kind == "RVI" and pair == "HH_HV_VH_VV"):
+        if quad:
+            if pair not in ("HH_HV", "VV_VH"):
+                raise ExecuteError(f"{tool}: polarization_bands '{polarization_bands}' is not HH_HV or VV_VH for {kind}.")
+            co, x = ("HH", "HV") if pair == "HH_HV" else ("VV", "VH")
+        elif "HH" in upper and "HV" in upper:
+            co, x = "HH", "HV"
+        elif "VV" in upper and "VH" in upper:
+            co, x = "VV", "VH"
+        else:
+            raise ExecuteError(f"{tool}: {kind} needs HH and HV, or VV and VH, bands.")
+
+    def index_of(have):
+        if kind == "CSI":
+            return (have["HH"] - have["VV"]) / (have["HH"] + have["VV"])
         if quad and kind == "RVI" and pair == "HH_HV_VH_VV":
             hv = (have["HV"] + have["VH"]) / 2
-            r = 8 * hv / (have["HH"] + have["VV"] + 2 * hv)
-        else:
-            if quad:
-                if pair not in ("HH_HV", "VV_VH"):
-                    raise ExecuteError(f"{tool}: polarization_bands '{polarization_bands}' is not HH_HV or VV_VH for {kind}.")
-                co, x = ("HH", "HV") if pair == "HH_HV" else ("VV", "VH")
-            elif "HH" in have and "HV" in have:
-                co, x = "HH", "HV"
-            elif "VV" in have and "VH" in have:
-                co, x = "VV", "VH"
-            else:
-                raise ExecuteError(f"{tool}: {kind} needs HH and HV, or VV and VH, bands.")
-            if kind == "RVI":
-                r = 4 * have[x] / (have[co] + have[x])
-            else:
-                r = (have[co] - have[x]) / (have[co] + have[x])
+            return 8 * hv / (have["HH"] + have["VV"] + 2 * hv)
+        if kind == "RVI":
+            return 4 * have[x] / (have[co] + have[x])
+        return (have[co] - have[x]) / (have[co] + have[x])
+
+    def blocks():   # cell by cell, so by rows (D-328)
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            have = {u: _sar.intensity(sar.bands.window(n, r0, r1)).astype(np.float64) for u, n in upper.items()}
+            yield r0, 0, {kind: index_of(have).astype(np.float32)}
     meta = sar.copy_meta(values="index")
     meta.pop("pols", None)
-    return Result(_write(out_raster, {kind: r.astype(np.float32)}, meta, sar))
+    return Result(_write_blocks(out_raster, [kind], "float32", sar.shape, meta, blocks(), sar))
 
 
 def GenerateMultitemporalCoherence(in_radar_red, in_radar_green, in_radar_blue, out_radar_data, polarization_bands=None):
@@ -863,18 +1036,23 @@ def GenerateMultitemporalCoherence(in_radar_red, in_radar_green, in_radar_blue, 
     first = inputs[0]
     if first.radar:
         raise ExecuteError(f"{tool}: the inputs must be terrain corrected; run ApplyGeometricTerrainCorrection first.")
-    bands = {}
-    for name, sar in zip(("Red", "Green", "Blue"), inputs):
+    pols = []
+    for sar in inputs:
         if sar.radar:
             raise ExecuteError(f"{tool}: the inputs must be terrain corrected; run ApplyGeometricTerrainCorrection first.")
         if sar.shape != first.shape or sar.srid != first.srid or not np.allclose(tuple(sar.transform)[:6],
                                                                                     tuple(first.transform)[:6]):
             raise ExecuteError(f"{tool}: the inputs are not on one grid.")
-        pol = polarizations(sar, polarization_bands, tool)[0]
-        bands[name] = _sar.intensity(sar.bands[pol]).astype(np.float32)
+        pols.append(polarizations(sar, polarization_bands, tool)[0])
+    names = ["Red", "Green", "Blue"]
+
+    def blocks():   # cell by cell, so by rows (D-328)
+        for r0, r1 in _sar.row_blocks(first.shape):
+            yield r0, 0, {name: _sar.intensity(sar.bands.window(pol, r0, r1)).astype(np.float32)
+                          for name, sar, pol in zip(names, inputs, pols)}
     meta = first.copy_meta(values="composite")
     meta.pop("pols", None)
-    return Result(_write(out_radar_data, bands, meta, first))
+    return Result(_write_blocks(out_radar_data, names, "float32", first.shape, meta, blocks(), first))
 
 
 # ---- masks, land and sea
@@ -945,32 +1123,58 @@ def _areal_m2(value, default):
     return number * factors[unit]
 
 
-def _water(sar, tool, mask_features, feature_type, dem, tolerance):
+class _Water:
     """Which cells are open water, from mask features (LAND or WATER) or, failing them, the DEM (INFERRED: water
-    where the DEM is at or below 0). The land is grown by the tolerance (INFERRED: a WATER polygon is shrunk by it)."""
-    import shapely
-    if not _is_given(mask_features) and dem is None:
-        return None
-    lon, lat = _sar.cell_lonlat(sar, dem)
-    if _is_given(mask_features):
-        kind = word(feature_type, "")
-        if kind not in ("LAND", "WATER"):
-            raise ExecuteError(f"{tool}: feature_type must be LAND or WATER when mask features are given.")
-        polygons = _features(mask_features, tool)
-        if kind == "LAND":
-            land = _buffer_m(polygons, tolerance)
-            return ~shapely.contains_xy(land, lon, lat)
-        water = _buffer_m(polygons, -tolerance) if tolerance else polygons
-        return shapely.contains_xy(water, lon, lat)
-    elevation = dem.at(lon, lat)
-    water = np.nan_to_num(elevation, nan=0.0) <= 0
-    if tolerance:
-        from scipy import ndimage
-        rg, az = _cell_metres(sar)
-        grow = (max(1, int(round(tolerance / az))), max(1, int(round(tolerance / rg))))
-        land = ndimage.binary_dilation(~water, structure=np.ones((2 * grow[0] + 1, 2 * grow[1] + 1), bool))
-        water = ~land
-    return water
+    where the DEM is at or below 0), a block of rows at a time (D-328). The land is grown by the tolerance (INFERRED: a
+    WATER polygon is shrunk by it). ``none`` when neither is given."""
+
+    def __init__(self, sar, tool, mask_features, feature_type, dem, tolerance):
+        self.none = not _is_given(mask_features) and dem is None
+        if self.none:
+            return
+        self.n = sar.shape[0]
+        self.lonlat = _sar.CellLonLat(sar, dem)
+        self.dem, self.grow = dem, None
+        if _is_given(mask_features):
+            kind = word(feature_type, "")
+            if kind not in ("LAND", "WATER"):
+                raise ExecuteError(f"{tool}: feature_type must be LAND or WATER when mask features are given.")
+            polygons = _features(mask_features, tool)
+            self.land = kind == "LAND"
+            if self.land:
+                self.polygons = _buffer_m(polygons, tolerance)
+            else:
+                self.polygons = _buffer_m(polygons, -tolerance) if tolerance else polygons
+            return
+        if tolerance:
+            rg, az = _cell_metres(sar)
+            self.grow = (max(1, int(round(tolerance / az))), max(1, int(round(tolerance / rg))))
+
+    @property
+    def halo(self):
+        return self.grow[0] if self.grow else 0
+
+    def rows(self, r0, r1):
+        import shapely
+        if hasattr(self, "polygons"):
+            lon, lat = self.lonlat.rows(r0, r1)
+            inside = shapely.contains_xy(self.polygons, lon, lat)
+            return ~inside if self.land else inside
+        h0, h1 = max(0, r0 - self.halo), min(self.n, r1 + self.halo)
+        lon, lat = self.lonlat.rows(h0, h1)
+        water = np.nan_to_num(self.dem.at(lon, lat), nan=0.0) <= 0
+        if self.grow:
+            from scipy import ndimage
+            g = self.grow
+            land = ndimage.binary_dilation(~water, structure=np.ones((2 * g[0] + 1, 2 * g[1] + 1), bool))
+            water = ~land
+        return water[r0 - h0: r1 - h0]
+
+
+def _water(sar, tool, mask_features, feature_type, dem, tolerance):
+    """Which cells are open water, the whole grid (``_Water`` answers a block of rows)."""
+    water = _Water(sar, tool, mask_features, feature_type, dem, tolerance)
+    return None if water.none else water.rows(0, sar.shape[0])
 
 
 def _cell_metres(sar):
@@ -988,7 +1192,8 @@ def GenerateMaskedSARRaster(in_radar_data, out_radar_data, polarization_bands=No
                             mask_area="INSIDE", in_dem_raster=None, geoid="GEOID"):
     """Sets cells to NoData inside (or outside) the mask features, or — with no features — where the DEM says the
     ground is ocean (INFERRED: at or below 0). Radar-geometry data is placed on the ground by range-Doppler geocoding
-    on the DEM, or on the tie points' heights where no DEM is given; terrain-corrected data by its own grid."""
+    on the DEM, or on the tie points' heights where no DEM is given; terrain-corrected data by its own grid. Cell by
+    cell, so by blocks of rows (D-328)."""
     import shapely
     tool = _tool("GenerateMaskedSARRaster")
     sar = _sar.read(in_radar_data, tool)
@@ -996,27 +1201,96 @@ def GenerateMaskedSARRaster(in_radar_data, out_radar_data, polarization_bands=No
     dem = _sar.Dem(in_dem_raster, "GenerateMaskedSARRaster", geoid) if _is_given(in_dem_raster) else None
     if not _is_given(in_mask_features) and dem is None:
         raise ExecuteError(f"{tool}: give mask features or a DEM.")
-    lon, lat = _sar.cell_lonlat(sar, dem)
+    polygons = None
     if _is_given(in_mask_features):
-        inside = shapely.contains_xy(_features(in_mask_features, tool), lon, lat)
+        polygons = _features(in_mask_features, tool)
         area = word(mask_area, "INSIDE")
         if area not in ("INSIDE", "OUTSIDE"):
             raise ExecuteError(f"{tool}: mask_area '{mask_area}' is not INSIDE or OUTSIDE.")
-        blank = inside if area == "INSIDE" else ~inside
-    else:
-        blank = np.nan_to_num(dem.at(lon, lat), nan=0.0) <= 0
-    out = {}
-    for pol in names:
-        band = sar.bands[pol]
-        nodata = (np.nan + 1j * np.nan) if np.iscomplexobj(band) else np.nan
-        out[pol] = np.where(blank, nodata, band).astype(band.dtype)
-    return Result(_write(out_radar_data, out, _keep_pols(sar.copy_meta(), names), sar))
+    lonlat = _sar.CellLonLat(sar, dem)
+    complex_ = any(sar.bands.complex(p) for p in names)
+
+    def blocks():
+        for r0, r1 in _sar.row_blocks(sar.shape):
+            lon, lat = lonlat.rows(r0, r1)
+            if polygons is not None:
+                inside = shapely.contains_xy(polygons, lon, lat)
+                blank = inside if area == "INSIDE" else ~inside
+            else:
+                blank = np.nan_to_num(dem.at(lon, lat), nan=0.0) <= 0
+            out = {}
+            for pol in names:
+                band = sar.bands.window(pol, r0, r1)
+                nodata = (np.nan + 1j * np.nan) if np.iscomplexobj(band) else np.nan
+                out[pol] = np.where(blank, nodata, band).astype(band.dtype)
+            yield r0, 0, out
+    return Result(_write_blocks(out_radar_data, names, "complex64" if complex_ else "float32", sar.shape,
+                                _keep_pols(sar.copy_meta(), names), blocks(), sar))
 
 
 def _components(binary):
     from scipy import ndimage
     labels, count = ndimage.label(binary, structure=np.ones((3, 3), bool))
     return labels, count
+
+
+class _BlockComponents:
+    """The 8-connected components of a mask held a block of rows at a time (D-328): each block is labelled as
+    ``ndimage.label`` labels it, and a label touching one in the block above, diagonals included, is joined to it.
+    ``add`` takes the blocks in order; ``finish`` resolves each label to its component; ``labels`` labels a block again
+    and answers its cells' components. A component's size is its cells, counted exactly."""
+
+    def __init__(self):
+        self.parent = [0]
+        self.sizes = [0]
+        self.offsets = []
+        self._last = None
+
+    def _find(self, a):
+        root = a
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[a] != root:
+            self.parent[a], a = root, self.parent[a]
+        return root
+
+    def add(self, mask):
+        labels, count = _components(mask)
+        total = len(self.parent) - 1
+        self.offsets.append(total)
+        self.parent.extend(range(total + 1, total + count + 1))
+        self.sizes.extend(np.bincount(labels.ravel(), minlength=count + 1)[1:].tolist())
+        top = np.where(labels[0] > 0, labels[0] + total, 0)
+        if self._last is not None:
+            m = len(top)
+            for d in (-1, 0, 1):
+                a = self._last[max(0, -d): m - max(0, d)]
+                b = top[max(0, d): m - max(0, -d)]
+                both = (a > 0) & (b > 0)
+                for x, y in set(zip(a[both].tolist(), b[both].tolist())):
+                    rx, ry = self._find(x), self._find(y)
+                    if rx != ry:
+                        self.parent[max(rx, ry)] = min(rx, ry)
+        self._last = np.where(labels[-1] > 0, labels[-1] + total, 0)
+
+    def finish(self):
+        self.root = np.array([self._find(k) for k in range(len(self.parent))], np.int64)
+        self.size = np.bincount(self.root, weights=np.asarray(self.sizes, float), minlength=len(self.parent))
+        return self
+
+    def labels(self, k, mask):
+        """The components of block ``k``'s cells (0 where the mask is off)."""
+        labels, _ = _components(mask)
+        return np.where(labels > 0, self.root[labels + self.offsets[k]], 0)
+
+
+def _pack(mask):
+    return mask.shape[1], np.packbits(mask, axis=1)
+
+
+def _unpack(packed):
+    m, bits = packed
+    return np.unpackbits(bits, axis=1, count=m).astype(bool)
 
 
 def _cell_outline(sar, rows, columns, dem):
@@ -1066,7 +1340,10 @@ def DetectBrightOceanObjects(in_radar_data, out_feature_class, out_type="BOUNDS"
     bright cells joined by their 8 neighbours are objects, kept when their minimum rotated rectangle's length and
     width are within the limits. Objects are written in WGS 84 for radar-geometry data (geocoded on the DEM or the
     tie points) and in the data's reference otherwise; BOUNDS writes the minimum rotated rectangle and PERIMETER the
-    outline of the object's cells. INFERRED fields: Length, Width (metres), PixelCount, MaxValue, MeanValue."""
+    outline of the object's cells. INFERRED fields: Length, Width (metres), PixelCount, MaxValue, MeanValue.
+
+    The background is found by blocks of rows with a halo of half the ring, and the bright cells joined across blocks
+    (D-328); only the bright cells are held."""
     from scipy import ndimage
     from . import _gpkg
     tool = _tool("DetectBrightOceanObjects")
@@ -1083,46 +1360,69 @@ def DetectBrightOceanObjects(in_radar_data, out_feature_class, out_type="BOUNDS"
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
     dem = _sar.Dem(in_dem_raster, "DetectBrightOceanObjects", geoid) if _is_given(in_dem_raster) else None
-    z = _sar.intensity(sar.bands[sar.names[0]]).astype(np.float64)
-    blank = np.isnan(z)
-    water = _water(sar, tool, mask_features, feature_type, dem, tolerance)
-    if water is not None:
-        blank |= ~water
+    water = _Water(sar, tool, mask_features, feature_type, dem, tolerance)
     rg, az = _cell_metres(sar)
     guard = (max(1, int(round(limits[3] / az))) | 1, max(1, int(round(limits[3] / rg))) | 1)
     outer = (guard[0] * 3, guard[1] * 3)
-    filled = np.where(blank, 0.0, z)
-    valid = (~blank).astype(float)
+    pol = sar.names[0]
 
     def boxsum(a, size):
         return ndimage.uniform_filter(a, size, mode="constant") * size[0] * size[1]
 
-    count = boxsum(valid, outer) - boxsum(valid, guard)
-    total = boxsum(filled, outer) - boxsum(filled, guard)
-    square = boxsum(filled ** 2, outer) - boxsum(filled ** 2, guard)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        mean = total / count
-        std = np.sqrt(np.maximum(square / count - mean ** 2, 0))
-    bright = (z > mean + 5 * std) & ~blank & (count > 0)
-    labels, n = _components(bright)
+    components = _BlockComponents()
+    masks, cells = [], []
+    for r0, r1, h0, h1 in _sar.halo_blocks(sar.shape, outer[0] // 2 + 1):
+        z = _sar.intensity(sar.bands.window(pol, h0, h1)).astype(np.float64)
+        blank = np.isnan(z)
+        if not water.none:
+            blank |= ~water.rows(h0, h1)
+        filled = np.where(blank, 0.0, z)
+        valid = (~blank).astype(float)
+        count = boxsum(valid, outer) - boxsum(valid, guard)
+        total = boxsum(filled, outer) - boxsum(filled, guard)
+        square = boxsum(filled ** 2, outer) - boxsum(filled ** 2, guard)
+        k = slice(r0 - h0, r1 - h0)
+        count, total, square, z, blank = count[k], total[k], square[k], z[k], blank[k]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            mean = total / count
+            std = np.sqrt(np.maximum(square / count - mean ** 2, 0))
+        bright = (z > mean + 5 * std) & ~blank & (count > 0)
+        components.add(bright)
+        masks.append(_pack(bright))
+        rr, cc = np.nonzero(bright)
+        cells.append((rr + r0, cc, z[rr, cc]))
+    components.finish()
+    roots = np.concatenate([components.labels(k, _unpack(p))[_unpack(p)] for k, p in enumerate(masks)]
+                           ) if masks else np.zeros(0, np.int64)
+    rows_all = np.concatenate([c[0] for c in cells]) if cells else np.zeros(0, int)
+    cols_all = np.concatenate([c[1] for c in cells]) if cells else np.zeros(0, int)
+    values_all = np.concatenate([c[2] for c in cells]) if cells else np.zeros(0)
+    # components in the order ndimage.label numbers them on the whole band: by their first cell in raster order
+    order = np.argsort(roots, kind="stable")
+    groups = np.split(order, np.flatnonzero(np.diff(roots[order])) + 1) if len(order) else []
+    groups.sort(key=lambda g: int(g[0]))
     rows_out = []
     geographic = sar.radar or sar.srid in (0, 4326)
-    for k in range(1, n + 1):
-        rr, cc = np.nonzero(labels == k)
+    for g in groups:
+        rr, cc = rows_all[g], cols_all[g]
         outline = _cell_outline(sar, rr.astype(float), cc.astype(float), dem)
         length, width, box = _measure(outline, geographic)
         if not (limits[0] <= width <= limits[1] and limits[2] <= length <= limits[3]):
             continue
         shape = box if kind == "BOUNDS" else outline
-        values = z[rr, cc]
+        values = values_all[g]
         rows_out.append((length, width, int(len(rr)), float(values.max()), float(values.mean()), shape))
     columns = [_gpkg.Column("Length", "Double"), _gpkg.Column("Width", "Double"), _gpkg.Column("PixelCount", "Integer"),
                _gpkg.Column("MaxValue", "Double"), _gpkg.Column("MeanValue", "Double")]
     from ._tintools import _write as write_features
     srid = 4326 if sar.radar else (sar.srid or 4326)
     path = write_features(out_feature_class, "Polygon", srid, columns, False, rows_out)
-    _say(f"DetectBrightOceanObjects: {len(rows_out)} objects of {n} bright components.")
+    _say(f"DetectBrightOceanObjects: {len(rows_out)} objects of {len(groups)} bright components.")
     return Result(path)
+
+
+#: Rows each DetectDarkOceanAreas block reads beyond its own: half the 101 x 101 background window, and one.
+DARK_HALO = 51
 
 
 def DetectDarkOceanAreas(in_radar_data, out_raster, min_area="10000 SquareMeters", mask_features=None,
@@ -1130,7 +1430,8 @@ def DetectDarkOceanAreas(in_radar_data, out_raster, min_area="10000 SquareMeters
     """EQUIVALENT (see DARK_AREAS): after a 3 × 3 mean, a cell is dark where it is below half the mean of the 101 ×
     101 cells around it (INFERRED: −3 dB and the window); dark cells joined by their 8 neighbours are kept when they
     cover at least min_area on the ground. The output is 1 for a dark cell and 0 otherwise, NoData off the water,
-    in the input's geometry."""
+    in the input's geometry. Found by blocks of rows with a halo of half the window, the dark cells joined across
+    blocks; only a bit per cell is held (D-328)."""
     from scipy import ndimage
     tool = _tool("DetectDarkOceanAreas")
     area = _areal_m2(min_area, 10000.0)
@@ -1142,26 +1443,36 @@ def DetectDarkOceanAreas(in_radar_data, out_raster, min_area="10000 SquareMeters
     sar = _sar.read(in_radar_data, tool)
     _sar.needs_linear(sar, tool)
     dem = _sar.Dem(in_dem_raster, "DetectDarkOceanAreas", geoid) if _is_given(in_dem_raster) else None
-    z = _sar.intensity(sar.bands[sar.names[0]]).astype(np.float64)
-    blank = np.isnan(z)
-    water = _water(sar, tool, mask_features, feature_type, dem, tolerance)
-    if water is not None:
-        blank |= ~water
-    filled = np.where(blank, 0.0, z)
-    valid = (~blank).astype(float)
-    smooth = ndimage.uniform_filter(filled, 3) / np.maximum(ndimage.uniform_filter(valid, 3), 1e-12)
-    background = ndimage.uniform_filter(filled, 101) / np.maximum(ndimage.uniform_filter(valid, 101), 1e-12)
-    dark = (smooth < 0.5 * background) & ~blank
-    labels, n = _components(dark)
+    water = _Water(sar, tool, mask_features, feature_type, dem, tolerance)
+    pol = sar.names[0]
+    components = _BlockComponents()
+    held = []
+    for r0, r1, h0, h1 in _sar.halo_blocks(sar.shape, DARK_HALO):
+        z = _sar.intensity(sar.bands.window(pol, h0, h1)).astype(np.float64)
+        blank = np.isnan(z)
+        if not water.none:
+            blank |= ~water.rows(h0, h1)
+        filled = np.where(blank, 0.0, z)
+        valid = (~blank).astype(float)
+        smooth = ndimage.uniform_filter(filled, 3) / np.maximum(ndimage.uniform_filter(valid, 3), 1e-12)
+        background = ndimage.uniform_filter(filled, 101) / np.maximum(ndimage.uniform_filter(valid, 101), 1e-12)
+        k = slice(r0 - h0, r1 - h0)
+        dark = (smooth[k] < 0.5 * background[k]) & ~blank[k]
+        components.add(dark)
+        held.append((r0, _pack(dark), _pack(blank[k])))
+    components.finish()
     rg, az = _cell_metres(sar)
-    sizes = ndimage.sum(dark, labels, index=np.arange(1, n + 1)) * rg * az if n else np.array([])
-    keep = np.zeros(n + 1, bool)
-    keep[1:] = sizes >= area
-    result = keep[labels].astype(np.float32)
-    result[blank] = np.nan
+    keep = components.size * rg * az >= area
+    keep[0] = False
+
+    def blocks():
+        for k, (r0, dark, blank) in enumerate(held):
+            result = keep[components.labels(k, _unpack(dark))].astype(np.float32)
+            result[_unpack(blank)] = np.nan
+            yield r0, 0, {"Dark": result}
     meta = sar.copy_meta(values="mask")
     meta.pop("pols", None)
-    return Result(_write(out_raster, {"Dark": result}, meta, sar))
+    return Result(_write_blocks(out_raster, ["Dark"], "float32", sar.shape, meta, blocks(), sar))
 
 
 # ---- ocean winds: CMOD5.N (Hersbach 2008, ECMWF Tech. Memo. 554, Table 1; form of Hersbach et al. 2007, JGR 112)
@@ -1256,46 +1567,74 @@ def ExtractOceanWinds(in_radar_data, out_raster):
     pol = upper.get("VV") or upper.get("HH")
     if pol is None:
         raise ExecuteError(f"{tool}: the input needs a VV or HH band.")
-    sigma = _sar.intensity(sar.bands[pol]).astype(np.float64)
-    n, m = sigma.shape
-    t = _sar.row_time(sar.meta, np.arange(n))
-    theta = _sar.incidence(sar.meta, np.repeat(t, m), np.tile(np.arange(m, dtype=float), n)).reshape(n, m)
-    if pol.upper() == "HH":
-        tan2 = np.tan(np.radians(theta)) ** 2
-        sigma = sigma * (1 + 2 * tan2) ** 2 / (1 + 0.6 * tan2) ** 2
-    lon, lat = _sar.lonlat_grid(sar.meta, sigma.shape)
-    col_bearing, row_bearing = _bearings(lon, lat)
-    look = row_bearing + 90.0
+    n, m = sar.shape
+    columns = np.arange(m, dtype=float)
+
+    def sigma_rows(r0, r1):
+        """σ0 VV of rows r0 to r1 (HH converted) and their incidence angles."""
+        sigma = _sar.intensity(sar.bands.window(pol, r0, r1)).astype(np.float64)
+        t = _sar.row_time(sar.meta, np.arange(r0, r1))
+        theta = _sar.incidence(sar.meta, np.repeat(t, m), np.tile(columns, r1 - r0)).reshape(r1 - r0, m)
+        if pol.upper() == "HH":
+            tan2 = np.tan(np.radians(theta)) ** 2
+            sigma = sigma * (1 + 2 * tan2) ** 2 / (1 + 0.6 * tan2) ** 2
+        return sigma, theta
+
+    def logs_of(sigma):
+        return np.log(np.where(np.nan_to_num(sigma) > 0, np.nan_to_num(sigma), np.nan))
+
+    # the mean log backscatter, which fills cells with none, summed row by row and the rows exactly (D-328)
+    sums, count = [], 0
+    for r0, r1 in _sar.row_blocks(sar.shape):
+        logs = logs_of(sigma_rows(r0, r1)[0])
+        sums += _sar.fsum_rows(logs)
+        count += int(np.isfinite(logs).sum())
+    fill = math.fsum(sums) / count if count else np.nan
+    lonlat = _sar.LonLat(sar.meta, sar.shape)
     rg, az = _cell_metres(sar)
     block = (max(4, min(n, int(round(3000 / az)))), max(4, min(m, int(round(3000 / rg)))))
-    logs = np.log(np.where(np.nan_to_num(sigma) > 0, np.nan_to_num(sigma), np.nan))
-    logs = np.where(np.isnan(logs), np.nanmean(logs), logs)
-    logs = ndimage.gaussian_filter(logs, 1.0)
-    gr = ndimage.sobel(logs, axis=0) / az
-    gc = ndimage.sobel(logs, axis=1) / rg
-    # gradient vectors on the ground, east and north, through the column and row bearings
-    cb, rb = np.radians(col_bearing), np.radians(row_bearing)
-    ge = gc * np.sin(cb) + gr * np.sin(rb)
-    gn = gc * np.cos(cb) + gr * np.cos(rb)
-    jee = ndimage.uniform_filter(ge * ge, block)
-    jnn = ndimage.uniform_filter(gn * gn, block)
-    jen = ndimage.uniform_filter(ge * gn, block)
-    gradient = 0.5 * np.arctan2(2 * jen, jee - jnn)  # angle from east of the dominant gradient
-    axis = gradient + math.pi / 2  # the streaks, from east
-    bearing = (90.0 - np.degrees(axis)) % 180.0  # the axis's bearing from north, 0..180
-    frm = np.where(bearing <= 90.0, bearing, bearing + 180.0) % 360.0  # INFERRED: from the northern half
-    phi = frm - look
-    smooth = ndimage.uniform_filter(np.nan_to_num(sigma), 3)
-    speed = invert_cmod5n(np.maximum(smooth, 1e-10), phi, theta)
-    to = np.radians(frm + 180.0)
-    u = (speed * np.sin(to)).astype(np.float32)
-    v = (speed * np.cos(to)).astype(np.float32)
-    blank = np.isnan(sigma)
-    u[blank] = np.nan
-    v[blank] = np.nan
+
+    def blocks():
+        # rows with a halo of half the 3 km window and the smoothing, Sobel and bearing stencils beyond it (D-328)
+        for r0, r1, h0, h1 in _sar.halo_blocks(sar.shape, block[0] // 2 + 8, fit=True):
+            k = slice(r0 - h0, r1 - h0)
+            sigma, theta = sigma_rows(h0, h1)
+            lon, lat = lonlat.rows(h0, h1)
+            col_bearing, row_bearing = _bearings(lon, lat)
+            del lon, lat
+            look = row_bearing[k] + 90.0
+            logs = logs_of(sigma)
+            logs = np.where(np.isnan(logs), fill, logs)
+            logs = ndimage.gaussian_filter(logs, 1.0)
+            gr = ndimage.sobel(logs, axis=0) / az
+            gc = ndimage.sobel(logs, axis=1) / rg
+            del logs
+            # gradient vectors on the ground, east and north, through the column and row bearings
+            cb, rb = np.radians(col_bearing), np.radians(row_bearing)
+            del col_bearing, row_bearing
+            ge = gc * np.sin(cb) + gr * np.sin(rb)
+            gn = gc * np.cos(cb) + gr * np.cos(rb)
+            del cb, rb, gr, gc
+            jee = ndimage.uniform_filter(ge * ge, block)[k]
+            jnn = ndimage.uniform_filter(gn * gn, block)[k]
+            jen = ndimage.uniform_filter(ge * gn, block)[k]
+            gradient = 0.5 * np.arctan2(2 * jen, jee - jnn)  # angle from east of the dominant gradient
+            axis = gradient + math.pi / 2  # the streaks, from east
+            bearing = (90.0 - np.degrees(axis)) % 180.0  # the axis's bearing from north, 0..180
+            frm = np.where(bearing <= 90.0, bearing, bearing + 180.0) % 360.0  # INFERRED: from the northern half
+            phi = frm - look
+            smooth = ndimage.uniform_filter(np.nan_to_num(sigma), 3)[k]
+            speed = invert_cmod5n(np.maximum(smooth, 1e-10), phi, theta[k])
+            to = np.radians(frm + 180.0)
+            u = (speed * np.sin(to)).astype(np.float32)
+            v = (speed * np.cos(to)).astype(np.float32)
+            blank = np.isnan(sigma[k])
+            u[blank] = np.nan
+            v[blank] = np.nan
+            yield r0, 0, {"U": u, "V": v}
     meta = sar.copy_meta(values="wind")
     meta.pop("pols", None)
-    return Result(_write(out_raster, {"U": u, "V": v}, meta, sar))
+    return Result(_write_blocks(out_raster, ["U", "V"], "float32", sar.shape, meta, blocks(), sar))
 
 
 # ---- terrain: correction and flattening
@@ -1322,7 +1661,10 @@ def _tie_heights(meta):
 
     def at(lon, lat):
         h = linear(lon, lat)
-        return np.where(np.isnan(h), nearest(lon, lat), h)
+        out = np.isnan(h)
+        if out.any():
+            h[out] = nearest(np.asarray(lon)[out], np.asarray(lat)[out])
+        return h
     return at
 
 
@@ -1330,7 +1672,8 @@ def ApplyGeometricTerrainCorrection(in_radar_data, out_radar_data, polarization_
                                     geoid="GEOID"):
     """EQUIVALENT (see GTC): every cell of a WGS 84 grid over the scene's footprint is placed on the DEM — or, without
     one, on heights interpolated from the metadata's tie points, as documented — found in the radar image by
-    range-Doppler back-geocoding, and resampled bilinearly. INFERRED: the cell is the finer ground spacing of the
+    range-Doppler back-geocoding (solved exactly on a lattice and interpolated, ``_sar.backgeocode_grid``), and
+    resampled bilinearly. The grid is worked in tiles, so a full scene runs within ADR-223's memory (D-328). INFERRED: the cell is the finer ground spacing of the
     input in degrees of latitude (and the same distance in longitude at the scene's middle latitude)."""
     tool = _tool("ApplyGeometricTerrainCorrection")
     sar = _sar.read(in_radar_data, tool)
@@ -1345,28 +1688,62 @@ def ApplyGeometricTerrainCorrection(in_radar_data, out_radar_data, polarization_
     dlon = spacing / (111320.0 * math.cos(mid))
     columns = int(math.ceil((east - west) / dlon)) + 1
     rows = int(math.ceil((north - south) / dlat)) + 1
-    if rows * columns > 50_000_000:
-        raise ExecuteError(f"{tool}: the output grid would be {rows} × {columns} cells; grapy's limit is 50 million.")
     from rasterio.transform import from_origin
     transform = from_origin(west - dlon / 2, north + dlat / 2, dlon, dlat)
     tie = _tie_heights(sar.meta)
-    out = {p: np.full((rows, columns), np.nan + (1j * np.nan if np.iscomplexobj(sar.bands[p]) else 0),
-                      dtype=sar.bands[p].dtype) for p in names}
-    lon_axis = west + np.arange(columns) * dlon
-    chunk = max(1, 200_000 // columns)
-    for r0 in range(0, rows, chunk):
-        lat_axis = north - np.arange(r0, min(rows, r0 + chunk)) * dlat
-        lon, lat = np.meshgrid(lon_axis, lat_axis)
-        lon, lat = lon.ravel(), lat.ravel()
-        h = tie(lon, lat)
-        if dem is not None:
-            found = dem.at(lon, lat)
-            h = np.where(np.isnan(found), h, found)
-        r, c, _ = _sar.backgeocode(sar.meta, _sar.ecef(lon, lat, h))
-        for p in names:
-            out[p][r0: r0 + len(lat_axis)] = _sar.bilinear(sar.bands[p], r, c).reshape(len(lat_axis), columns)
+    complex_ = any(sar.bands.complex(p) for p in names)
+    n, m = sar.shape
+    heights = np.asarray(sar.meta["grid"], float)[:, 6]
+    low, high = float(heights.min()), float(heights.max())
+    if dem is not None and np.isfinite(dem.values).any():
+        low, high = min(low, float(np.nanmin(dem.values))), max(high, float(np.nanmax(dem.values)))
+
+    def _outside(lon_axis, lat_axis):
+        """Whether a whole tile falls beyond one edge of the radar image at the lowest and the highest height any
+        of its cells can have: nine by nine of its cells, edges included, are back-geocoded at both; a cell's place
+        moves smoothly with height and across the tile, so a tile all past one edge by two cells has nothing to
+        resample, and its heights are never looked up (the bounding box of a rotated swath is a fifth empty)."""
+        lo, la = np.meshgrid(np.linspace(lon_axis[0], lon_axis[-1], 9), np.linspace(lat_axis[0], lat_axis[-1], 9))
+        for level in (low, high):
+            r, c, _ = _sar.backgeocode(sar.meta, _sar.ecef(lo.ravel(), la.ravel(), np.full(lo.size, level)))
+            if not ((r < -2.5).all() or (r > n + 1.5).all() or (c < -2.5).all() or (c > m + 1.5).all()):
+                return False
+        return True
+
+    def blocks():
+        # Tiles of the output grid (D-328): each tile's cells are back-geocoded, and only the window of the radar
+        # image their bilinear neighbours fall in is read, so the image is never held whole.
+        side = max(1, int(math.sqrt(GTC_TILE_CELLS)))
+        blank = np.nan + (1j * np.nan if complex_ else 0)
+        for r0 in range(0, rows, side):
+            lat_axis = north - np.arange(r0, min(rows, r0 + side)) * dlat
+            # a row of tiles is gathered and written at once: the GeoTIFF is in strips of whole rows
+            band = {p: np.full((len(lat_axis), columns), blank, np.complex64 if complex_ else np.float32)
+                    for p in names}
+            for c0 in range(0, columns, side):
+                lon_axis = west + np.arange(c0, min(columns, c0 + side)) * dlon
+                if _outside(lon_axis, lat_axis):
+                    continue
+                lon, lat = np.meshgrid(lon_axis, lat_axis)
+                lon, lat = lon.ravel(), lat.ravel()
+                h = tie(lon, lat)
+                if dem is not None:
+                    found = dem.at(lon, lat)
+                    h = np.where(np.isnan(found), h, found)
+                r, c = _sar.backgeocode_grid(sar.meta, lon_axis, lat_axis, h)
+                (w0, w1), (v0, v1) = _sar.bilinear_reach(r, n), _sar.bilinear_reach(c, m)
+                for p in names:
+                    window = sar.bands.window(p, w0, w1, v0, v1)
+                    band[p][:, c0: c0 + len(lon_axis)] = _sar.bilinear(window, r, c, offset=(w0, v0), shape=(n, m)
+                                                                       ).reshape(len(lat_axis), len(lon_axis))
+            yield r0, 0, band
     meta = sar.copy_meta(geometry="map")
-    return Result(_sar.write(out_radar_data, out, _keep_pols(meta, names), transform, 4326))
+    return Result(_sar.write_blocks(out_radar_data, names, "complex64" if complex_ else "float32", (rows, columns),
+                                    _keep_pols(meta, names), blocks(), transform, 4326))
+
+
+#: Cells of the output grid ApplyGeometricTerrainCorrection back-geocodes at a time, as square tiles (D-328).
+GTC_TILE_CELLS = 512 * 512
 
 
 def _enu(lon, lat):
@@ -1420,61 +1797,98 @@ def ApplyRadiometricTerrainFlattening(in_radar_data, out_radar_data, in_dem_rast
     pad_lon, pad_lat = 4 * g.width, 4 * g.height
     lons = np.arange(west - pad_lon, east + pad_lon, dlon)
     lats = np.arange(north + pad_lat, south - pad_lat, -dlat)
-    area = np.zeros((n, m))
     chunk = max(1, 200_000 // max(1, len(lons)))
-    for r0 in range(0, len(lats), chunk):
-        la = lats[max(0, r0 - 1): r0 + chunk + 1]
-        lon, lat = np.meshgrid(lons, la)
-        h = dem.at(lon, lat)
-        dx = np.radians(dlon) * _sar.WGS84_A * np.cos(np.radians(lat))
-        dy = np.radians(dlat) * _sar.WGS84_A
-        dhdx = np.gradient(h, axis=1) / dx
-        dhdy = -np.gradient(h, axis=0) / dy
-        keep = slice(1 if r0 > 0 else 0, None)
-        lon, lat, h, dx, dhdx, dhdy = (a[keep][: min(chunk, len(lats) - r0)] for a in (lon, lat, h, dx, dhdx, dhdy))
-        lon, lat, h, dx, dhdx, dhdy = (a.ravel() for a in (lon, lat, h, dx, dhdx, dhdy))
-        ok = ~np.isnan(h) & ~np.isnan(dhdx) & ~np.isnan(dhdy)
-        if not ok.any():
-            continue
-        lon, lat, h, dx, dhdx, dhdy = (a[ok] for a in (lon, lat, h, dx, dhdx, dhdy))
-        e, nn, u = _enu(lon, lat)
-        normal = -dhdx[:, None] * e - dhdy[:, None] * nn + u
-        stretch = np.linalg.norm(normal, axis=1)
-        normal /= stretch[:, None]
-        facet = dx * dy * stretch
-        p = _sar.ecef(lon, lat, h)
-        rr, cc, s = _sar.backgeocode(sar.meta, p)
-        look = p - s
-        look /= np.linalg.norm(look, axis=1)[:, None]
-        cos_local = -np.sum(look * normal, axis=1)
-        lit = cos_local > 0
-        contribution = facet * (cos_local if kind == "GAMMA_NOUGHT" else 1.0)
-        r0, c0 = np.floor(rr).astype(int), np.floor(cc).astype(int)
-        fr, fc = rr - r0, cc - c0
-        for dr, dc, share in ((0, 0, (1 - fr) * (1 - fc)), (0, 1, (1 - fr) * fc), (1, 0, fr * (1 - fc)),
-                              (1, 1, fr * fc)):
-            ri, ci = r0 + dr, c0 + dc
-            inside = lit & (ri >= 0) & (ri < n) & (ci >= 0) & (ci < m)
-            np.add.at(area, (ri[inside], ci[inside]), (contribution * share)[inside])
+    starts = list(range(0, len(lats), chunk))
+    finite = dem.values[np.isfinite(dem.values)]
+    levels = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 0.0)
+    # Which radar rows each stretch of FLATTEN_TILE DEM columns of each chunk of DEM rows can reach (D-328): its
+    # corners back-geocoded at the DEM's lowest and highest heights, a facet's row moving smoothly between them.
+    edges = np.unique(np.r_[np.arange(0, len(lons), FLATTEN_TILE), len(lons) - 1])
+    reach = []
+    for r0 in starts:
+        la = lats[[r0, min(len(lats), r0 + chunk) - 1]]
+        lo_, la_ = np.meshgrid(lons[edges], la)
+        found = [_sar.backgeocode(sar.meta, _sar.ecef(lo_.ravel(), la_.ravel(), np.full(lo_.size, level)))[0]
+                 for level in levels]
+        found = np.stack(found).reshape(len(levels) * 2, len(edges))
+        low_row = np.minimum(found[:, :-1].min(0), found[:, 1:].min(0)) if len(edges) > 1 else found.min(0)
+        high_row = np.maximum(found[:, :-1].max(0), found[:, 1:].max(0)) if len(edges) > 1 else found.max(0)
+        reach.append((np.floor(low_row) - FLATTEN_MARGIN, np.floor(high_row) + 1 + FLATTEN_MARGIN))
+
+    def area_rows(b0, b1):
+        """The facets' area falling in radar rows b0 to b1: every chunk is swept as on the whole band, but only the
+        facets of stretches that can reach these rows are placed, and only their shares in these rows added, so
+        each cell receives the same contributions in the same order (D-328)."""
+        area = np.zeros((b1 - b0, m))
+        for r0, (low_row, high_row) in zip(starts, reach):
+            wanted = (low_row <= b1 - 1) & (high_row >= b0)
+            if not wanted.any():
+                continue
+            la = lats[max(0, r0 - 1): r0 + chunk + 1]
+            lon, lat = np.meshgrid(lons, la)
+            h = dem.at(lon, lat)
+            dx = np.radians(dlon) * _sar.WGS84_A * np.cos(np.radians(lat))
+            dy = np.radians(dlat) * _sar.WGS84_A
+            dhdx = np.gradient(h, axis=1) / dx
+            dhdy = -np.gradient(h, axis=0) / dy
+            keep = slice(1 if r0 > 0 else 0, None)
+            lon, lat, h, dx, dhdx, dhdy = (a[keep][: min(chunk, len(lats) - r0)] for a in (lon, lat, h, dx, dhdx, dhdy))
+            stretch_of = np.broadcast_to(np.minimum(np.arange(len(lons)) // FLATTEN_TILE, len(wanted) - 1), lon.shape)
+            lon, lat, h, dx, dhdx, dhdy, stretch_of = (a.ravel() for a in (lon, lat, h, dx, dhdx, dhdy, stretch_of))
+            ok = ~np.isnan(h) & ~np.isnan(dhdx) & ~np.isnan(dhdy) & wanted[stretch_of]
+            if not ok.any():
+                continue
+            lon, lat, h, dx, dhdx, dhdy = (a[ok] for a in (lon, lat, h, dx, dhdx, dhdy))
+            e, nn, u = _enu(lon, lat)
+            normal = -dhdx[:, None] * e - dhdy[:, None] * nn + u
+            stretch = np.linalg.norm(normal, axis=1)
+            normal /= stretch[:, None]
+            facet = dx * dy * stretch
+            p = _sar.ecef(lon, lat, h)
+            rr, cc, s = _sar.backgeocode(sar.meta, p)
+            look = p - s
+            look /= np.linalg.norm(look, axis=1)[:, None]
+            cos_local = -np.sum(look * normal, axis=1)
+            lit = cos_local > 0
+            contribution = facet * (cos_local if kind == "GAMMA_NOUGHT" else 1.0)
+            fr0, fc0 = np.floor(rr).astype(int), np.floor(cc).astype(int)
+            fr, fc = rr - fr0, cc - fc0
+            for dr, dc, share in ((0, 0, (1 - fr) * (1 - fc)), (0, 1, (1 - fr) * fc), (1, 0, fr * (1 - fc)),
+                                  (1, 1, fr * fc)):
+                ri, ci = fr0 + dr, fc0 + dc
+                inside = lit & (ri >= b0) & (ri < b1) & (ci >= 0) & (ci < m)
+                np.add.at(area, (ri[inside] - b0, ci[inside]), (contribution * share)[inside])
+        return area
     # the reference area of a radar cell: slant range spacing × azimuth spacing
     t = _sar.row_time(sar.meta, np.full(m, n / 2))
     tau = _sar.range_time(sar.meta, t, np.arange(m, dtype=float))
     slant = np.abs(np.gradient(tau)) * C / 2
     a_beta = slant[None, :] * (sar.meta["azimuth_pixel_spacing"] * sar.meta.get("looks", [1, 1])[1])
-    out = {}
-    with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = np.where(area > 0, a_beta / area, np.nan)
-    for pol in names:
-        out[pol] = (_sar.intensity(sar.bands[pol]) * ratio).astype(np.float32)
     meta = sar.copy_meta(calibration="gamma0" if kind == "GAMMA_NOUGHT" else "sigma0", terrain_flattened=True,
                          values="intensity")
-    path = _write(out_radar_data, out, _keep_pols(meta, names), sar)
-    outputs = [path]
+    writer = _sar.BlockWriter(out_radar_data, names, "float32", sar.shape, _keep_pols(meta, names))
+    scattering = None
     if _is_given(out_scattering_area):
         side = sar.copy_meta(values="scattering_area")
         side.pop("pols", None)
-        outputs.append(_write(out_scattering_area, {"Area": np.where(area > 0, area, np.nan).astype(np.float32)}, side, sar))
+        scattering = _sar.BlockWriter(out_scattering_area, ["Area"], "float32", sar.shape, side)
+    for b0, b1 in _sar.row_blocks(sar.shape):
+        area = area_rows(b0, b1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where(area > 0, a_beta / area, np.nan)
+        writer.write(b0, 0, {pol: (_sar.intensity(sar.bands.window(pol, b0, b1)) * ratio).astype(np.float32)
+                             for pol in names})
+        if scattering is not None:
+            scattering.write(b0, 0, {"Area": np.where(area > 0, area, np.nan).astype(np.float32)})
+    side_path = scattering.close() if scattering is not None else None   # the later opened is closed first
+    outputs = [writer.close()] + ([side_path] if side_path else [])
     return Result(*outputs)
+
+
+#: DEM columns ApplyRadiometricTerrainFlattening judges together when it asks which radar rows they can reach, and
+#: the rows it adds either side of what their corners reach (D-328).
+FLATTEN_TILE = 128
+FLATTEN_MARGIN = 2
 
 
 def ApplyCoregistration(in_reference_radar_data, in_secondary_radar_data, out_secondary_radar_data, in_dem_raster=None,
@@ -1506,18 +1920,30 @@ def ApplyCoregistration(in_reference_radar_data, in_secondary_radar_data, out_se
     shape = ref.shape
     rs, cs = _lattice(shape)
     rr, cc = np.meshgrid(rs, cs, indexing="ij")
-    h = _sar.heights_for(ref.meta, rr.ravel(), cc.ravel(), dem)
-    p = _sar.geocode(ref.meta, rr.ravel(), cc.ravel(), h)
-    r2, c2, _ = _sar.backgeocode(sec.meta, p)
-    rows = _expand(rs, cs, r2.reshape(rr.shape), shape)
-    cols = _expand(rs, cs, c2.reshape(rr.shape), shape)
-    out = {pol: _sar.bilinear(sec.bands[pol].astype(np.complex128), rows, cols).astype(np.complex64) for pol in names}
+    p = _sar.ground_points(ref.meta, rr.ravel(), cc.ravel(), dem)
+    r2, c2, _ = _sar.by_chunks(lambda q: _sar.backgeocode(sec.meta, q), p)
+    rows_of, cols_of = _sar.Field(rs, cs, r2.reshape(rr.shape)), _sar.Field(rs, cs, c2.reshape(rr.shape))
+    n2, m2 = sec.shape
+    shifts = []
+
+    def blocks():
+        # by rows of the reference (D-328): each block's places in the secondary, and only the window of the
+        # secondary their bilinear neighbours fall in
+        for r0, r1 in _sar.row_blocks(shape):
+            rows, cols = rows_of.rows(r0, r1, shape[1]), cols_of.rows(r0, r1, shape[1])
+            (w0, w1), (v0, v1) = _sar.bilinear_reach(rows, n2), _sar.bilinear_reach(cols, m2)
+            shift = np.hypot(rows - np.arange(r0, r1)[:, None], cols - np.arange(shape[1])[None, :])
+            shifts.append((_sar.fsum_rows(shift), int(np.isfinite(shift).sum())))
+            yield r0, 0, {pol: _sar.bilinear(sec.bands.window(pol, w0, w1, v0, v1).astype(np.complex128), rows, cols,
+                                             offset=(w0, v0), shape=(n2, m2)).astype(np.complex64) for pol in names}
     meta = ref.copy_meta(orbit=sec.meta["orbit"], orbit_source=sec.meta.get("orbit_source"), coregistered=True,
                          radar_frequency=sec.meta["radar_frequency"])
     meta.pop("pols", None)
-    shift = np.nanmean(np.hypot(rows - np.arange(shape[0])[:, None], cols - np.arange(shape[1])[None, :]))
+    path = _write_blocks(out_secondary_radar_data, names, "complex64", shape, meta, blocks(), ref)
+    total = sum(c for _, c in shifts)
+    shift = math.fsum(v for s, _ in shifts for v in s) / total if total else float("nan")
     _say(f"ApplyCoregistration: mean offset {shift:.2f} cells.")
-    return Result(_write(out_secondary_radar_data, out, meta, ref))
+    return Result(path)
 
 
 # ---- orbits

@@ -9347,12 +9347,18 @@ internal static partial class AdminEndpoints
         foreach (RegisteredDataSource source in sources)
         {
             string? connection = reachable.GetValueOrDefault(source.Id);
+            (string platform, string? authentication) = Describe(source.Kind, connection);
 
             listed.Add(new
             {
                 source.Id,
                 source.Name,
                 source.Kind,
+
+                // <b>ADR-055 condition 1</b>: the two controls Pro's dialog draws and this one left out while each had
+                // one value — named by the server, so the console and an API client read the same words.
+                platform,
+                authentication,
                 source.LayerCount,
                 summary = connection is null ? null : Summarise(connection),
                 sealedWithAnotherKey = connection is null,
@@ -13383,6 +13389,64 @@ internal static partial class AdminEndpoints
         || !string.IsNullOrWhiteSpace(request.Endpoint) || !string.IsNullOrEmpty(request.AccessKeyId)
         || !string.IsNullOrEmpty(request.SecretAccessKey) || !string.IsNullOrWhiteSpace(request.UrlStyle)
         || request.UseSsl is not null;
+
+    /// <summary>
+    /// A source's <i>Database Platform</i> and <i>Authentication Type</i>, as ArcGIS Pro's Database Connection dialog
+    /// names the two — ADR-055 condition 1.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Undrawn while each had one value, and neither has one now.</b> ADR-055 left both out of the dialog because v1
+    /// held PostGIS alone and one way to sign in to it; ADR-066 to ADR-210 added seven more kinds, and a source now
+    /// reaches its data as a database user, with a token, with an access key, anonymously or through this server's own
+    /// disk. The platform is the kind's, fixed at registration (a correction that changes it is refused). The
+    /// authentication is read from what is stored, never from what was asked for, so a bucket registered without keys
+    /// says <i>anonymous</i> and one with them says <i>access key</i> — and nothing secret is named.
+    /// </para>
+    /// </remarks>
+    /// <param name="kind">The source's kind, as <c>data_source.kind</c> holds it.</param>
+    /// <param name="stored">Its unsealed locator, or null when it could not be opened.</param>
+    /// <returns>The platform's name, and the authentication's, or null for the latter when nothing could be read.</returns>
+    internal static (string Platform, string? Authentication) Describe(string kind, string? stored)
+    {
+        string platform = kind switch
+        {
+            DataSourceKinds.Oracle => "Oracle",
+            DataSourceKinds.MySql => "MySQL or MariaDB",
+            DataSourceKinds.SqlServer => "SQL Server",
+            DataSourceKinds.GeoParquet => "GeoParquet folder",
+            DataSourceKinds.GeoParquetRemote => "GeoParquet on the web or in S3",
+            DataSourceKinds.DuckDb => "DuckDB file",
+            DataSourceKinds.MotherDuck => "MotherDuck",
+            _ => "PostgreSQL with PostGIS",
+        };
+
+        string? authentication = kind switch
+        {
+            DataSourceKinds.GeoParquet or DataSourceKinds.DuckDb => "None (files on this server)",
+            DataSourceKinds.MotherDuck => "Access token",
+            DataSourceKinds.GeoParquetRemote => stored is null ? null : RemoteAuthentication(stored),
+            _ => "Database authentication",
+        };
+
+        return (platform, authentication);
+    }
+
+    private static string? RemoteAuthentication(string stored)
+    {
+        try
+        {
+            Graticula.Providers.DuckDb.RemoteGeoParquet remote = RemoteGeoParquetLocations.Parse(stored);
+
+            return remote.AccessKeyId is { Length: > 0 }
+                ? "Access key"
+                : "Anonymous";
+        }
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException or ArgumentException)
+        {
+            return null;
+        }
+    }
 
     internal static string Summarise(string connectionString)
     {

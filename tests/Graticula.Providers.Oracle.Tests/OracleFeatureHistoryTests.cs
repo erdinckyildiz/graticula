@@ -42,11 +42,19 @@ public sealed class OracleFeatureHistoryTests
         await ExecuteAsync($"insert into user_sdo_geom_metadata values ('{Table}', 'SHAPE', sdo_dim_array(sdo_dim_element('X', -180, 180, 0.05), sdo_dim_element('Y', -90, 90, 0.05)), 4326)");
         await ExecuteAsync($"create index {Table}_SX on {Table} (shape) indextype is mdsys.spatial_index_v2");
         await ExecuteAsync($"insert into {Table} (label, size_m, shape) values ('one', 1.5, sdo_geometry(2001, 4326, sdo_point_type(30, 40, null), null, null))");
+
+        // D-314: a gap in the identity, made on purpose, so the test runs the case CI met by chance rather than
+        // waiting for it. With 'one' at 1 and 'two' at 3, the version of this test that assumed 1 and 2 updated 1
+        // and failed to delete 2 with "No feature with object id 2 exists" — the fourth occurrence's sentence.
+        await ExecuteAsync($"insert into {Table} (label, size_m, shape) values ('gap', 0, null)");
+        await ExecuteAsync($"delete from {Table} where label = 'gap'");
+
         await ExecuteAsync($"insert into {Table} (label, size_m, shape) values ('two', 2.5, sdo_geometry(2001, 4326, sdo_point_type(31, 41, null), null, null))");
 
         // D-314: the ids the identity gave, read rather than assumed — a sequence promises order, not 1 and 2.
         long one = await IdOfAsync(Table, "one");
         long two = await IdOfAsync(Table, "two");
+        Assert.True(two > one + 1, $"The identity gave {one} and {two}, so the gap this test needs was not made.");
 
         LayerDefinition layer = new(Table, Owner, Table, "SHAPE", 4326, "OBJECTID", "OBJECTID", isHosted: false);
         OracleFeatureHistory history = new(OracleFixture.Locator, layer);

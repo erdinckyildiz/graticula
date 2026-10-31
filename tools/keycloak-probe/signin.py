@@ -6,7 +6,7 @@ start-dev`), `setup.sh` beside this making a realm, a confidential client and a 
 `ssh -L 18180:127.0.0.1:18180` to that host, and the two secret files copied beside this script. GRATICULA_TEST_URL,
 _USER and _PASSWORD name the server and its administrator.
 
-Registers Keycloak (reached through an SSH tunnel on 127.0.0.1:18180) as an OpenID Connect provider, walks the
+Registers Keycloak (reached through an SSH tunnel on 127.0.0.1:18181, where setup.sh now starts it; 18180 on that host is another project's) as an OpenID Connect provider, walks the
 browser's redirects with a cookie jar, fills Keycloak's own form, and reads /rest/whoami. Removes the provider and the
 account it made afterwards. Secrets are read from files beside this script and never printed."""
 import html, json, os, re, ssl, sys, urllib.error, urllib.parse, urllib.request
@@ -22,7 +22,7 @@ class LocalPolicy(DefaultCookiePolicy):
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.environ.get("GRATICULA_TEST_URL", "https://127.0.0.1:18491")
-ISSUER = "http://127.0.0.1:18180/realms/graticula"
+ISSUER = "http://127.0.0.1:18181/realms/graticula"
 CTX = ssl._create_unverified_context()
 
 

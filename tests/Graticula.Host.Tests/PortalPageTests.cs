@@ -33,7 +33,8 @@ public sealed class PortalPageTests
 
         Assert.Equal((5, 1, 2, 3), (first.Total, first.Start, first.Num, first.NextStart));
         Assert.Equal((3, 2, 5), (second.Start, second.Num, second.NextStart));
-        Assert.Equal((5, 1, -1), (last.Start, last.Num, last.NextStart));
+        Assert.Equal((5, 2, -1), (last.Start, last.Num, last.NextStart));
+        Assert.Single(last.Results);
     }
 
     [Fact]
@@ -45,7 +46,8 @@ public sealed class PortalPageTests
         PortalPage.Page page = PortalPage.Of(many, context);
 
         Assert.Equal((25, 1, 10, 11), (page.Total, page.Start, page.Num, page.NextStart));
-        Assert.Equal((5, 1, 5, -1), (Page(string.Empty).Total, Page(string.Empty).Start, Page(string.Empty).Num, Page(string.Empty).NextStart));
+        Assert.Equal((5, 1, 10, -1), (Page(string.Empty).Total, Page(string.Empty).Start, Page(string.Empty).Num, Page(string.Empty).NextStart));
+        Assert.Equal(5, Page(string.Empty).Results.Count);
     }
 
     [Fact]
@@ -59,7 +61,22 @@ public sealed class PortalPageTests
 
     [Fact]
     public void Num_is_held_at_ArcGIS_s_ceiling() =>
-        Assert.Equal(5, Page($"?num={PortalPage.MaximumNum + 50}").Num);
+        Assert.Equal(PortalPage.MaximumNum, Page($"?num={PortalPage.MaximumNum + 50}").Num);
+
+    /// <summary>
+    /// <c>num</c> says the page size asked for, as ArcGIS Online answers (measured 2026-10-31: eight results, <c>num=10</c>,
+    /// <c>"num": 10</c>); the ArcGIS API for Python adds it up to know when to stop, and with the count of results sent
+    /// it never stopped short of <c>max_items</c>.
+    /// </summary>
+    [Fact]
+    public void Num_is_the_page_size_asked_for_not_the_results_sent()
+    {
+        PortalPage.Page page = Page("?num=10");
+
+        Assert.Equal(5, page.Results.Count);
+        Assert.Equal(10, page.Num);
+        Assert.Equal(-1, page.NextStart);
+    }
 
     [Fact]
     public void Sort_field_orders_case_insensitively_and_sort_order_reverses_it()

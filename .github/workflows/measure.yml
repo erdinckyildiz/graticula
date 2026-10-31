@@ -1,0 +1,61 @@
+# Measurements that need a Linux runner and are run by hand, not on every push.
+#
+# ADR-249 condition 1: point cloud training measured inside ADR-223's limits. D-341 trained RandLA-Net and Point
+# Transformer V3 on a real 1.44-million-point 3DEP tile on Windows, where grapy's fence does not exist, so whether a
+# training step fits the fence's 2 GiB of address space was left unmeasured. This job is that half: it installs what
+# ci.yml's grapy job installs, checks that the kernel has Landlock (the fence refuses to start without it), and runs
+# tools/measure_point_cloud_fence.py, which trains each network for one epoch through grapy.runner -- the same fence a
+# user's tool runs in -- on a synthetic cloud of the same size and block shape, and prints peak address space, peak
+# resident memory, CPU and wall time. The numbers land in the job's summary.
+#
+# workflow_dispatch only: it costs a runner for several minutes and measures a property of the code rather than
+# guarding one, so it runs when somebody asks for the number. A run that does not fit stays green and says so in its
+# table -- a red run here means the workflow itself broke.
+
+name: measure
+
+on:
+  workflow_dispatch:
+    inputs:
+      points:
+        description: "points in the synthetic cloud (D-341's real tile had 1,443,491)"
+        default: "1440000"
+      epoch_iterations:
+        description: "percentage of training blocks one epoch visits (D-341 timed 10)"
+        default: "10"
+      memory_gib:
+        description: "the fence's address-space limit in GiB (ADR-223's default is 2)"
+        default: "2"
+      cpu_seconds:
+        description: "the fence's CPU limit in seconds (ADR-223's default is 600)"
+        default: "600"
+
+permissions:
+  contents: read
+
+jobs:
+  point-cloud-fence:
+    name: point cloud training inside the fence
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: grapy's dependencies, as ci.yml installs them
+        run: |
+          python -m pip install --quiet shapely pyproj numpy pyarrow rasterio scipy laspy lazrs xarray manifold3d
+          python -m pip install --quiet --index-url https://download.pytorch.org/whl/cpu torch torchvision
+          python -c "import ctypes; v = ctypes.CDLL(None).syscall(444, None, 0, 1); print('Landlock ABI', v); assert v >= 1, 'no Landlock on this kernel'"
+          nproc
+          free -m
+      - name: train RandLA-Net and Point Transformer V3 one epoch each, fenced
+        env:
+          POINTS: ${{ inputs.points }}
+          ITERATIONS: ${{ inputs.epoch_iterations }}
+          MEMORY: ${{ inputs.memory_gib }}
+          CPU: ${{ inputs.cpu_seconds }}
+        run: |
+          python tools/measure_point_cloud_fence.py --points "$POINTS" --epoch-iterations "$ITERATIONS" \
+            --memory-gib "$MEMORY" --cpu-seconds "$CPU"

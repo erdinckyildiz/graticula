@@ -215,7 +215,19 @@ None recorded.
 ## 11. Conditions
 
 1. **Measure on real lidar.** Train RandLA-Net and Point Transformer V3 on a real LAS tile of 8,192-point blocks inside
-   ADR-223's limits, and record the time per epoch and the memory (D-341).
+   ADR-223's limits, and record the time per epoch and the memory (D-341). **PARTLY DISCHARGED 2026-10-31**: both
+   trained on 3DEP CA_SanFrancisco_1_B23 (1.44 million points, 538 training blocks of 8,192 points, 15 m). Time per
+   epoch on 10 % of the blocks with 94 validation blocks: RandLA-Net about 150 s of CPU, Point Transformer V3 about
+   230 s; peak commit 2,241 MB and 3,221 MB; PTv3 scored 0.920 on points it never saw. Not shown: that a training step
+   fits 2 GB — on Windows neither does, and the Linux fence was not available to this run (D-341 has the numbers).
+   (2026-10-31: **the Linux half is written and not yet run.** `.github/workflows/measure.yml`, `workflow_dispatch`
+   only, installs what `ci.yml`'s grapy job installs and runs `tools/measure_point_cloud_fence.py`: a synthetic
+   1.44-million-point cloud in D-341's 15 m, 8,192-point blocks, then RandLA-Net and Point Transformer V3 one epoch
+   each through `grapy.runner` inside the fence, at ADR-223's 2 GiB of address space and 600 s of CPU, printing
+   peak address space, peak resident memory, CPU and wall time. Checked unfenced on Windows with 150,000 points,
+   both networks trained; the fenced numbers come from the first dispatched run.)
 2. **Run the point cloud tests in CI.** `test_point_cloud_deep_learning.py` runs where torch is installed; it has run
-   only on Windows until CI runs it.
+   only on Windows until CI runs it. **DISCHARGED 2026-10-31**: it runs in `ci.yml`'s grapy job, which installs torch
+   and torchvision (CPU) on Linux. In main's CI run 41211660456 (75d2398e, v1.0.490), job 124567754106, all 25 of the
+   file's tests report `ok` and none is skipped, in a suite of 1,285 that ends `OK` — read from the job's own log.
 3. **Confirm Q-219**, the INFERRED choices of §5.2–§5.3, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-219 (*"Hepsini onayla"*).

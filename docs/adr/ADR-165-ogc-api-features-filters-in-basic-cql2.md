@@ -62,6 +62,7 @@ As §2, Alternative A.
    Features Part 1, Tiles, Processes, Maps, EDR and Coverages and none for Part 3 or CQL2, and Docker Hub's `ogccite`
    has no image for either. The condition stays open — it is met the day one is published — and the claim stands on
    this repository's own tests.)*
+   **DISCHARGED 2026-10-31** — moved to [D-358](../architecture-debt.md) by owner decision (*"Borç satırına taşı"*): the trigger, *an OGC executable test suite is published* for Part 3 / CQL2, is carried there verbatim with ADR-176's and ADR-177's. The condition was a trigger and not work; the debt row is where it is now watched.
 
 ## 6. Consequences
 

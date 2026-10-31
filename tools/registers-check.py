@@ -1559,6 +1559,9 @@ def a_serving_assembly_that_reaches_for_the_network():
         # line. A command-line tool, not the serving process -- the same reason tools/ is not read.
         "src/Graticula.Host/Tools/InventoryScan.cs",
         "src/Graticula.Host/Tools/MigrationPlan.cs",
+        # ADR-012 phase 0 item 4: one request a node sends itself, at its own loopback address and port, before it
+        # says it is ready -- the warm-up of its first request. It leaves no machine, so an air gap does not see it.
+        "src/Graticula.Host/SiteNode.cs",
     }
 
     # **Target-typed `new(` too** -- found 2026-09-24 writing that file: `HttpClient Http = new(...)` is the

@@ -986,6 +986,28 @@ class MeshNetwork(unittest.TestCase):
         self.assertEqual(self.trace("DOWNSTREAM", "A1", **ignore), set())
         self.assertEqual(self.trace("UPSTREAM", "D2", **ignore), {"D2", "CV", "D1", "J3"})
 
+    def test_a_subnetwork_trace_runs_from_the_controllers_its_start_reaches(self):
+        # Pro 3.7, 2026-10-31 (tools/pro-compare/adr231-propagators.py): with VB closed, a subnetwork trace from C1 is
+        # S1's side alone and one from A4 S2's side alone, VB kept by both — not the whole subnetwork of Zone1.
+        closed = "'Device Status' IS_EQUAL_TO SPECIFIC_VALUE 1 #"
+        left = {"A1", "A2", "A3a", "B1", "B2", "B3", "B4", "C1", "CV2", "E1", "J1", "J2", "J4", "J5", "S1", "VB"}
+        self.assertEqual(self.trace("SUBNETWORK", "C1", condition_barriers=closed), left)
+        self.assertEqual(self.trace("SUBNETWORK", "A4", condition_barriers=closed),
+                         {"A3b", "A4", "CV", "D1", "D2", "J3", "S2", "VB"})
+
+    def test_a_propagated_value_combines_every_path_from_every_controller(self):
+        # Pro 3.7, 2026-10-31: a MAX propagator meets VB's Device Status of 1 on the only way between S1 and S2, so
+        # every element both feed carries 1, no controller passes "IS_EQUAL_TO 0" and the trace is refused (ERROR
+        # 001797) — where carrying a value along one path from S1 would have kept the left half.
+        propagator = [["Device Status", None, "PROPAGATED_MAX", "IS_EQUAL_TO", 0]]
+        for kind in ("SUBNETWORK", "UPSTREAM"):
+            with self.assertRaises(ExecuteError) as said:
+                self.trace(kind, "C1", propagators=propagator)
+            self.assertIn("001797", str(said.exception))
+        self.assertEqual(self.trace("DOWNSTREAM", "S1", propagators=propagator), {"S1"})
+        self.assertEqual(len(self.trace("SUBNETWORK", "C1", propagators=[
+            ["Device Status", None, "PROPAGATED_MAX", "IS_LESS_THAN", 2]])), 23)
+
     def test_what_pro_answers_when_barriers_leave_nothing(self):
         # Measured in ArcGIS Pro 3.7 on 2026-10-31 (tools/pro-compare/adr231-mesh-traces.py): an upstream trace cut off
         # its controllers by a feature or a function barrier is refused, and a shortest path with none left is empty.

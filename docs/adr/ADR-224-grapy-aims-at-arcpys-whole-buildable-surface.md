@@ -127,7 +127,15 @@ None recorded.
 1. **The counter covers every group-1 module**, from a list read from arcpy and kept in the repository. **DISCHARGED 2026-10-29** (26a715f5): `tools/arcpy-surface.json` adds `sa`, `ia`, `ddd` and `ga`, read from Pro 3.7; 1,819 names.
 2. **Image services cross into a tool as files** (§5.5), and `sa` reads one end to end. **DISCHARGED 2026-10-29**: a raster parameter (`GPRasterLayer`, `DERasterDataset` and the like, served as `GPRasterDataLayer`) takes an image service of this server the caller may read. The runner writes its first band as raw doubles beside a header, and grapy turns that into the GeoTIFF the tool opens. `An_image_service_reaches_a_tool_as_a_raster_it_reads_cell_for_cell` uploads a corpus image and reads four cells, NoData included, against the values `truth.json` records. A mosaic of several images, and an image of more than 25 million cells, are refused by name.
 3. **Group 3 is refused with its reason**, tested. **DISCHARGED 2026-10-29**: `arcpy.ba`, `agolservices`, `geoai` and `geocoding` answer every tool with NotBuiltError naming the tool and saying it answers from Esri's data or services. Group 2's modules (`un`, `parcel`, `na`, `nax`, `nd`, `topographic`, `locref`) say they need a data model this server does not hold. Group-3 tools inside a group-1 module (`analysis.Enrich`, `EnrichLayer`) are refused the same way. Tested in `test_a_module_on_esris_data_or_on_a_model_not_held_is_refused_with_its_reason`.
-4. **Group 1 is complete**: the counter reads every group-1 name built. **PARTLY DISCHARGED 2026-10-29**: every name is *decided* — `tools/grapy_refusals.py` read 615 built, 1,204 refused with a reason and none unexamined. §5.6 turns the undocumented refusals into equivalents; the rest of the refusals are groups 2 and 3, a Pro application, no network from a fenced tool, or grapy's own limits (Z on features, raster attribute tables, multiband rasters), which are this project's to remove.
+4. ~~**Group 1 is complete**: the counter reads every group-1 name built.~~ **Narrowed 2026-10-31 by owner decision**
+   (asked whether to narrow the condition or reopen the refusals one by one, the owner chose *"Daralt"*): **every
+   group-1 name is built or refused with a reason of its own.** **DISCHARGED 2026-10-31**: `tools/grapy_refusals.py`
+   on branch grapy-a reads the twelve group-1 modules' 1,819 names as 1,262 built (198 of them equivalents) and 557
+   refused, **0 unexamined** in every module, and `--check` says `grapy-refusals.json is current`; the guard test
+   `test_lastools.Refused.test_no_refusal_anywhere_reads_as_a_schedule`, which reads every refused name's answer for
+   *yet*, *today*, *until*, *later* and their kind, passed (1 test, OK) — so no refusal stands in for a schedule. A
+   refusal reopened later is a new piece of work under §5.6 or a debt row, not this condition.
+   *History, kept as written:* **PARTLY DISCHARGED 2026-10-29**: every name is *decided* — `tools/grapy_refusals.py` read 615 built, 1,204 refused with a reason and none unexamined. §5.6 turns the undocumented refusals into equivalents; the rest of the refusals are groups 2 and 3, a Pro application, no network from a fenced tool, or grapy's own limits (Z on features, raster attribute tables, multiband rasters), which are this project's to remove.
    **Read again 2026-10-31, still PARTLY DISCHARGED.** `tools/grapy_refusals.py` on branch grapy-a: the twelve group-1
    modules hold 1,819 names — 1,260 built (197 of them equivalents) and 559 refused, none unexamined. Every name is
    decided and a refusal names its own reason, but the condition asks for every name *built*, and that is not true,
@@ -138,7 +146,12 @@ None recorded.
    own (installation and licence queries, DBMS users and roles, colormapped or pansharpened rasters grapy does not
    keep, and so on). Two refusals still carry a schedule the guard test's words miss — `da.TableToArrowTable` and
    `da.CreateParquetCache` say pyarrow "is not among the wheels a user tool runs with today", and the image installs
-   pyarrow. What is missing for the condition as written is a decision rather than work: either the owner narrows
+   pyarrow. *(Repaired 2026-10-31: `da.TableToArrowTable` is built to its page and to* Apache Arrow in ArcGIS *on
+   pyarrow, which CI's grapy jobs now install as the image does; `conversion.ExportToParquet`, refused for the same
+   missing wheel, is built as a GeoParquet 1.1 equivalent; `da.CreateParquetCache` is refused because its page
+   defines neither the cache's form nor where it is kept, and no grapy reader opens a Parquet file. The guard test
+   `test_lastools.Refused.test_no_refusal_anywhere_reads_as_a_schedule` now reads every refused name's answer for
+   *yet*, *today*, *until*, *later* and their kind.)* What is missing for the condition as written is a decision rather than work: either the owner narrows
    it to *every group-1 name built or refused with its own reason* — which holds today — or the refusals above are
    reopened one by one.
 5. **Group 2 has an ADR per data model** before its tools are built. **PARTLY DISCHARGED 2026-10-31**: §1's group 2
@@ -156,6 +169,20 @@ None recorded.
    the counter does not show them. Missing: an ADR for each (with an assigned number), then their names read into
    the surface file and built or refused one by one. Inside group-1 modules, `arcpy.Dimension`, the BIM file
    workspace tools and the scene layer tools are refused with the same "(ADR-224 group 2)" reason.
+   **DISCHARGED 2026-10-31**: the three models have their ADRs — the parcel fabric
+   ([ADR-250](ADR-250-grapy-holds-parcel-fabrics.md)), topographic production
+   ([ADR-251](ADR-251-grapy-holds-topographic-production.md)) and linear referencing systems
+   ([ADR-252](ADR-252-grapy-holds-linear-referencing-systems.md)), each written with its tools — so every model §1's
+   group 2 names has one. Their names were read into `tools/arcpy-surface.json` with `dir()` from ArcGIS Pro 3.7's arcpy
+   (26, 55 and 49) and checked against each tool page; `_DATA_MODEL` and the three whole-module refusals are gone from
+   `grapy/__init__.py`. `tools/grapy_refusals.py`: `arcpy.parcel` 25 built (5 equivalents), 1 refused;
+   `arcpy.topographic` 37 built (21 equivalents), 18 refused; `arcpy.locref` 42 built (9 equivalents), 7 refused; none
+   unexamined, every refusal a reason of its own. The test that fails without it:
+   `test_lastools.Refused.test_no_refusal_anywhere_reads_as_a_schedule` reads every refused name and every whole-module
+   refusal for schedule words, and failed on the three modules' *"does not hold yet"* before this change;
+   `test_grapy`'s module test now asserts the three are modules, not refusals. The group-1 names refused with a
+   "(ADR-224 group 2)" reason (`arcpy.Dimension`, the BIM file and scene layer tools) name a model grapy does not hold
+   rather than a schedule, and are condition 4's, not this one's.
 6. **Equivalents are counted apart** (§5.6): the status page shows built-to-documentation and built-as-equivalent
    separately, and every equivalent names its method and source and says so in its run. **DISCHARGED 2026-10-31**:
    `tools/grapy_refusals.py` reads `__grapy_equivalent__` and the status page's grapy table has its own column for

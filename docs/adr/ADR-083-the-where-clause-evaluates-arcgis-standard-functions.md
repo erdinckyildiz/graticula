@@ -173,3 +173,6 @@ None recorded.
 2. **An ArcGIS client's own clause is answered.** The clauses in §4 were written by hand from ArcGIS's
    list; one captured from Dashboards or Experience Builder against this server — the date filter
    Dashboards builds is the likeliest — is what says the list is the one they send.
+   *(2026-10-31: owed by the owner. Dashboards and Experience Builder run in ArcGIS Online or Enterprise and need an
+   ArcGIS account, which this machine has no business holding: add a public layer of the showcase to a dashboard,
+   give it a date filter, and the showcase's request log holds the `where` it sent.)*

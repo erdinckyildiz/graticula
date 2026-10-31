@@ -150,8 +150,9 @@
   "unexamined": []
  },
  "arcpy.conversion": {
-  "built": 31,
+  "built": 32,
   "equivalents": {
+   "ExportToParquet": "GeoParquet 1.1: WKB in the shape field's column, described by the file's geo metadata (OGC GeoParquet 1.1.0)",
    "FeatureClassToShapefile": "the ESRI Shapefile Technical Description (1998) and dBASE III, field names cut to ten characters (ESRI Shapefile Technical Description, July 1998)",
    "TableToDBASE": "dBASE III tables, field names cut to ten characters (dBASE III file format)"
   },
@@ -165,7 +166,6 @@
    "ConvertPersonalGeodatabase": "arcpy.conversion.ConvertPersonalGeodatabase reads or writes Esri's personal, mobile or file geodatabase, whose formats are not publicly documented; grapy's workspace is a GeoPackage.",
    "DEMToRaster": "arcpy.conversion.DEMToRaster lays the profiles of a USGS DEM, which start at different rows, on an output grid whose extent and filling the page does not define.",
    "ExportCAD": "arcpy.conversion.ExportCAD reads or writes CAD drawings into Esri's CAD feature schema, which is not publicly documented.",
-   "ExportToParquet": "arcpy.conversion.ExportToParquet needs a Parquet writer (pyarrow), which grapy's build of these tools does not carry.",
    "ExtractBIMFileFloorplan": "arcpy.conversion.ExtractBIMFileFloorplan reads a BIM file workspace (Revit or IFC), which grapy does not hold (ADR-224 group 2).",
    "ExtractLocationsDocument": "arcpy.conversion.ExtractLocationsDocument uses Esri's undocumented text and document parsing to find locations.",
    "ExtractLocationsText": "arcpy.conversion.ExtractLocationsText uses Esri's undocumented text and document parsing to find locations.",
@@ -194,15 +194,14 @@
   "unexamined": []
  },
  "arcpy.da": {
-  "built": 24,
+  "built": 25,
   "equivalents": {},
   "of": 29,
   "refused": {
-   "CreateParquetCache": "arcpy.da.CreateParquetCache is not built in grapy — pyarrow is not among the wheels a user tool runs with today.",
+   "CreateParquetCache": "arcpy.da.CreateParquetCache is not built in grapy — its page says only that it makes \"a persistent local cache\" of a Parquet file, not the cache's form or where it is kept, and no grapy reader opens a Parquet file as a dataset, so a cache grapy made would be read by nothing.",
    "ListReplicas": "arcpy.da.ListReplicas is not built in grapy — a GeoPackage holds no geodatabase replicas: CreateReplica needs data registered as traditionally versioned in an enterprise geodatabase, and grapy holds branch versions only (ADR-235 §5.6).",
    "Replica": "arcpy.da.Replica is not built in grapy — a GeoPackage holds no geodatabase replicas: CreateReplica needs data registered as traditionally versioned in an enterprise geodatabase, and grapy holds branch versions only (ADR-235 §5.6).",
-   "SyncReplica": "arcpy.da.SyncReplica is not built in grapy — a GeoPackage holds no geodatabase replicas: CreateReplica needs data registered as traditionally versioned in an enterprise geodatabase, and grapy holds branch versions only (ADR-235 §5.6).",
-   "TableToArrowTable": "arcpy.da.TableToArrowTable is not built in grapy — pyarrow is not among the wheels a user tool runs with today."
+   "SyncReplica": "arcpy.da.SyncReplica is not built in grapy — a GeoPackage holds no geodatabase replicas: CreateReplica needs data registered as traditionally versioned in an enterprise geodatabase, and grapy holds branch versions only (ADR-235 §5.6)."
   },
   "unexamined": []
  },
@@ -432,6 +431,31 @@
    "VideoMetadataToFeatureClass": "arcpy.ia.VideoMetadataToFeatureClass is not built in grapy: it reads the MISB ST 0601 KLV metadata from inside a video container (.ts, .mp4, .mkv …), and a user tool on this server has no video demuxer, muxer or decoder: none is among grapy's libraries, and grapy does not vendor one (ADR-237 §5.6); ConvertVideoMetadata works on a metadata .csv.",
    "VideoMultiplexer": "arcpy.ia.VideoMultiplexer is not built in grapy: it writes a .ts video file, its input's video stream multiplexed with KLV metadata, from containers as varied as .mp4, .avi and .wmv, and a user tool on this server has no video demuxer, muxer or decoder: none is among grapy's libraries, and grapy does not vendor one (ADR-237 §5.6).",
    "WOTable": "arcpy.ia.WOTable is not built in grapy: it holds WeightedOverlay's criteria, and WeightedOverlay is refused (rounding shown only by example)."
+  },
+  "unexamined": []
+ },
+ "arcpy.locref": {
+  "built": 42,
+  "equivalents": {
+   "ApplyEventBehaviors": "each route edit's behaviour rule applied by relocating the event's location on the old route onto the new one (Locate Features Along Routes) (ArcGIS Pro, What is event behavior? and Apply Event Behaviors)",
+   "CalculateIntersectingRouteMeasures": "a location's measure is the m interpolated on the nearest route segment within the tolerance (Locate Features Along Routes); an event's shape is the route between its measures (Make Route Event Layer) (ArcGIS Pro, Locate Features Along Routes and Make Route Event Layer)",
+   "DeriveEventMeasures": "a location's measure is the m interpolated on the nearest route segment within the tolerance (Locate Features Along Routes); an event's shape is the route between its measures (Make Route Event Layer) (ArcGIS Pro, Locate Features Along Routes and Make Route Event Layer)",
+   "GenerateCalibrationPoints": "calibration points at each part's ends (and a loop's thirds), measured by length with the network's gap rule (ArcGIS Pro, Generate Calibration Points; Create a new route; Methods for calibrating routes with physical gaps)",
+   "GenerateRoutes": "linear interpolation between calibration points, extrapolated before the first and after the last by the nearest pair's ratio (the DISTANCE method of Calibrate Routes) (ArcGIS Pro, Calibrate Routes and Essential Roads and Highways vocabulary)",
+   "OverlayEvents": "Overlay Route Events' UNION applied across the event layers, split also at the events' from and to dates (ArcGIS Pro, Overlay Route Events and Overlay Events)",
+   "RemoveOverlappingCenterlines": "a planar overlay of the centerlines at the XY tolerance (GEOS noding union), each overlap one new centerline (ArcGIS Pro, Remove Overlapping Centerlines (\"uses Intersect and Simplify\"))",
+   "ReverseLineOrders": "the line's LineOrder values given back in reverse sequence, the value set kept (ArcGIS Pro, Reverse Line Orders (the page does not say how the new values are computed))",
+   "TranslateEventMeasures": "a location's measure is the m interpolated on the nearest route segment within the tolerance (Locate Features Along Routes); an event's shape is the route between its measures (Make Route Event Layer) (ArcGIS Pro, Locate Features Along Routes and Make Route Event Layer)"
+  },
+  "of": 49,
+  "refused": {
+   "ConfigureExternalEventBehaviorsWithLRS": "arcpy.locref.ConfigureExternalEventBehaviorsWithLRS registers an external event so that an outside system can relocate it through the ArcGIS Server LRS service's Relocate Event REST operation, and its page requires the LRS to be in an enterprise geodatabase, which a GeoPackage store is not; a user tool also runs fenced, with no server (ADR-223 §5.3).",
+   "ConfigureExternalEventWithLRS": "arcpy.locref.ConfigureExternalEventWithLRS registers event data kept in an external system, and the page requires both the event store and the LRS to be enterprise geodatabases, which a GeoPackage store is not.",
+   "ConfigureUtilityNetworkFeatureClass": "arcpy.locref.ConfigureUtilityNetworkFeatureClass is deprecated on its own page in favour of ConfigureUtilityNetworkFeatureClasses, which grapy builds, and requires a branch versioned enterprise geodatabase connection, which a GeoPackage store is not.",
+   "GenerateLRFeatureCount": "arcpy.locref.GenerateLRFeatureCount writes a report whose rows, columns and order no public page gives (the tool page names only the fields the user supplies, and the LRS data products page describes a designed product with headers, footers, notes and logos), so no output grapy wrote could be checked against Pro's.",
+   "GenerateLRLengthSummary": "arcpy.locref.GenerateLRLengthSummary writes a report whose rows, columns and order no public page gives (the tool page names only the fields the user supplies, and the LRS data products page describes a designed product with headers, footers, notes and logos), so no output grapy wrote could be checked against Pro's.",
+   "GenerateLRRouteLog": "arcpy.locref.GenerateLRRouteLog writes a report whose rows, columns and order no public page gives (the tool page names only the fields the user supplies, and the LRS data products page describes a designed product with headers, footers, notes and logos), so no output grapy wrote could be checked against Pro's.",
+   "GenerateLrsDataProduct": "arcpy.locref.GenerateLrsDataProduct reads an LRS data template .json written by Pro's Data Product Designer, whose schema Esri does not publish, and writes a report whose rows, columns and order no public page gives (the tool page names only the fields the user supplies, and the LRS data products page describes a designed product with headers, footers, notes and logos), so no output grapy wrote could be checked against Pro's."
   },
   "unexamined": []
  },
@@ -754,6 +778,21 @@
   },
   "unexamined": []
  },
+ "arcpy.parcel": {
+  "built": 25,
+  "equivalents": {
+   "AnalyzeParcelsByLeastSquaresAdjustment": "parametric least-squares adjustment of distances and direction sets in the grid, iterated to convergence; a free network held by every point at 10 m; error ellipses and standardized residuals (Ghilani and Wolf, Adjustment Computations, 5th ed. (2010), ch. 10-21; DynAdjust user guide (Geoscience Australia))",
+   "ExportSequencedParcelFeatures": "clockwise walk of the parcel's exterior ring from the boundary point nearest the chosen corner of its envelope (ADR-250 §5.4)",
+   "FindGapsAndOverlaps": "overlaps as pairwise intersections and gaps as holes of the union, each kept when a negative buffer of half the maximum width empties it (morphological opening) (OGC Simple Features 1.2.1 (06-103r4) §6.1.15)",
+   "GenerateParcelFabricLinks": "each point's location at the From and To dates read from its class's archive or branch-version history (ADR-227)",
+   "ValidateParcelFabric": "vertices within the cluster tolerance snap to the best-ranked class's vertex; the rules evaluated with OGC Simple Features predicates (ADR-225 §5.3)"
+  },
+  "of": 26,
+  "refused": {
+   "UpgradeArcMapParcelFabric": "arcpy.parcel.UpgradeArcMapParcelFabric reads an ArcMap parcel fabric, a controller dataset that only an Esri geodatabase holds (the page lists file, enterprise and mobile ones), and grapy reads none of them: its workspaces are GeoPackages, which cannot hold an ArcMap parcel fabric; a file geodatabase's table format Esri does not publish; and an enterprise geodatabase is a database server a fenced tool cannot reach (ADR-223 §5.3)."
+  },
+  "unexamined": []
+ },
  "arcpy.sa": {
   "built": 298,
   "equivalents": {
@@ -952,6 +991,54 @@
    "PredictUsingSSMFile": "arcpy.stats.PredictUsingSSMFile is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published.",
    "PresenceOnlyPrediction": "arcpy.stats.PresenceOnlyPrediction is not built in grapy — its MaxEnt fit is named but not specified: its pages give neither the regularization penalty nor its values, nor the hinge function's linear segment, nor how background points are sampled or the entropy term H of its link functions is found.",
    "SetSSMFileProperties": "arcpy.stats.SetSSMFileProperties is not built in grapy — it reads or writes a spatial statistics model (.ssm) file, whose layout is not published."
+  },
+  "unexamined": []
+ },
+ "arcpy.topographic": {
+  "built": 37,
+  "equivalents": {
+   "CalculateMagneticComponents": "the World Magnetic Model WMM2015v2, WMM2020 or WMM2025 of the date's epoch, degree 12 spherical harmonics with secular variation (Chulliat et al., The US/UK World Magnetic Model for 2025-2030: Technical Report, NOAA NCEI and BGS, 2025)",
+   "CalculateMetrics": "the minimum-area bounding rectangle for length, width and orientation, Horn's (1981) aspect for downhill rotation, and MGRS per NGA.STND.0037 (Freeman & Shapira 1975; Horn 1981; NGA.STND.0037 (2014))",
+   "FillGaps": "enclosed gaps as holes of the inputs' union; unenclosed gaps by morphological closing (Serra 1982)",
+   "GenerateAdjoiningSheetsFeatures": "sheets of the area-of-interest layer meeting the area of interest buffered by buffer_size (ADR-251 §5.8 (i))",
+   "GenerateElevationBands": "area-share thresholds snapped to the contour interval, polygonised and smoothed by Douglas-Peucker and Chaikin's corner cutting (TDS TM specification §3.3.6.3 as cited; Chaikin 1974)",
+   "GenerateElevationBandsFromFeatures": "the faces of the contours and the area of interest, each given the range of its bounding contours (ADR-251 §5.8 (j))",
+   "GenerateElevationGuideFeatures": "GenerateElevationBands, ThinHydrologyLines, IdentifyNarrowPolygons and spot thinning by distance, composed (ADR-251 §5.8 (k))",
+   "GenerateIsogonicLines": "the World Magnetic Model WMM2015v2, WMM2020 or WMM2025 of the date's epoch, degree 12 spherical harmonics with secular variation, contoured over the extent by the contouring of arcpy.sa.Contour (Chulliat et al., The US/UK World Magnetic Model for 2025-2030: Technical Report, NOAA NCEI and BGS, 2025)",
+   "GenerateLocationDiagramFeatures": "a five-by-five-sheet diagram centred on the area of interest's sheet (ADR-251 §5.8 (i))",
+   "GenerateSpotHeights": "innermost closed contours, the raster's highest (top) or lowest (depression) cells inside each (ADR-251 §5.8 (l))",
+   "GenerateTopographicContours": "the contouring of arcpy.sa.Contour, Gaussian raster smoothing and Douglas-Peucker/Chaikin line smoothing (Esri, How contouring works; Chaikin 1974)",
+   "GeoNamesToGeodatabase": "NGA GNS tab-delimited country files, one point per UFI and one row per UNI (NGA Geographic Names Server)",
+   "IdentifyContours": "closed contours whose inside lies below them, by the raster's mean (ADR-251 §5.8 (m))",
+   "IdentifyNarrowPolygons": "morphological opening by a disc of the minimum width; centrelines by the Voronoi medial axis (Serra 1982; Blum 1967)",
+   "PolygonToCenterline": "the Voronoi medial axis of the densified boundary, pruned to its main path (Blum 1967)",
+   "RemoveSmallLines": "the page's rules for dangles, overshoots and declination angles (ADR-251 §5.8 (n))",
+   "SetLineDirection": "DEM heights at the line ends; networks oriented toward their lowest outlets by breadth-first search (ADR-251 §5.8 (o))",
+   "ThinHydrologyLines": "stroke-based selection by good continuation (Thomson & Richardson 1999)",
+   "ThinSpotHeights": "greedy selection by priority, each kept spot clearing its search distance (ADR-251 §5.8 (p))",
+   "UpdateGeoNames": "the GeoNames feature's name of its stored name ID, else its approved name of lowest rank (ADR-251 §5.8 (q))",
+   "ValidateSpotHeights": "the documented codes tested in the order 4, 3, 2, 1 (ADR-251 §5.8 (r))"
+  },
+  "of": 55,
+  "refused": {
+   "ApplyBuildingOffsets": "arcpy.topographic.ApplyBuildingOffsets is not built in grapy: it changes an ArcGIS Pro map's layers — it aligns, moves and hides building marker symbols by an offset rule file whose XML schema is not published.",
+   "ApplyElementValues": "arcpy.topographic.ApplyElementValues is not built in grapy: its product is an ArcGIS Pro layout: the numbers and grid references it writes come from a layout's Guide To Numbered Features or Index To Streets element as Pro renders it.",
+   "ApplyMasksFromRules": "arcpy.topographic.ApplyMasksFromRules is not built in grapy: it changes an ArcGIS Pro map's layers — its whole effect is the symbol-layer masking of the map's layers.",
+   "ApplyVisualSpecificationToMap": "arcpy.topographic.ApplyVisualSpecificationToMap is not built in grapy: it changes an ArcGIS Pro map's layers — it turns Production Mapping visual specification tables, whose schema is not published, into Pro renderers and .stylx symbols.",
+   "CalculateBridgeOffsets": "arcpy.topographic.CalculateBridgeOffsets is not built in grapy: each offset is the rendered width of the overpassing layer's ArcGIS Pro symbol at the reference scale, and grapy holds no symbol to measure.",
+   "DownloadJobFiles": "arcpy.topographic.DownloadJobFiles is not built in grapy: it talks to an ArcGIS Enterprise portal's Workflow Manager and Topographic Production services, and a grapy tool has no network and no such server (ADR-223 §5.3).",
+   "ExportGeneralizedData": "arcpy.topographic.ExportGeneralizedData is not built in grapy: the theme-to-production mapping lives in Esri's generalization rule workbook from the product files, whose sheet and column layout is not published.",
+   "ExportMetadata": "arcpy.topographic.ExportMetadata is not built in grapy: the metadata follows the MGCP/MUVD Technical Reference Documents, which are distributed to the programme's members and not published, and the page gives no field-to-element mapping.",
+   "GAIT": "arcpy.topographic.GAIT is not built in grapy: it launches NGA's GAIT Windows program under Cygwin, the checks being that program's, and a fenced grapy tool runs no external program (ADR-223 §5.3).",
+   "GenerateProductLayout": "arcpy.topographic.GenerateProductLayout is not built in grapy: its product is an ArcGIS Pro layout (PAGX, APRX, PPKX) built from Esri's product-file JSON definitions and layout templates.",
+   "ImportGeneralizationData": "arcpy.topographic.ImportGeneralizationData is not built in grapy: the theme-to-production mapping lives in Esri's generalization rule workbook from the product files, whose sheet and column layout is not published.",
+   "ImportMetadata": "arcpy.topographic.ImportMetadata is not built in grapy: the metadata follows the MGCP/MUVD Technical Reference Documents, which are distributed to the programme's members and not published, and the page gives no field-to-element mapping.",
+   "MakeGridsAndGraticulesLayer": "arcpy.topographic.MakeGridsAndGraticulesLayer is not built in grapy: every line, interval and label comes from Esri's grids and graticules XML definition, whose format is not published, and its product is a group layer of a map.",
+   "MakeMasksFromRules": "arcpy.topographic.MakeMasksFromRules is not built in grapy: a mask is drawn where rendered symbol parts of given CMYK or spot colours meet, which needs ArcGIS Pro's drawing of a map.",
+   "PopulateMapSheetInfo": "arcpy.topographic.PopulateMapSheetInfo is not built in grapy: its product is an ArcGIS Pro layout: the text it changes is the graphic text elements of a Pro layout.",
+   "UnzipCellAndImport": "arcpy.topographic.UnzipCellAndImport is not built in grapy: the cell package's layout and its metadata import are defined by the MGCP/MUVD Technical Reference Documents, which are not published.",
+   "UpdateTopographicProductionServiceDatabase": "arcpy.topographic.UpdateTopographicProductionServiceDatabase is not built in grapy: it maintains the tables of ArcGIS Enterprise's Topographic Production server object extension, whose schema is not published, in an enterprise geodatabase.",
+   "UploadJobFiles": "arcpy.topographic.UploadJobFiles is not built in grapy: it talks to an ArcGIS Enterprise portal's Workflow Manager and Topographic Production services, and a grapy tool has no network and no such server (ADR-223 §5.3)."
   },
   "unexamined": []
  },

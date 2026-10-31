@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>elevation item probe</title>
+<link rel="stylesheet" href="https://js.arcgis.com/4.30/esri/themes/light/main.css">
+<style>html,body,#v{margin:0;height:100%;width:100%}</style>
+<script src="https://js.arcgis.com/4.30/"></script>
+</head><body><div id="v"></div>
+<script>
+// ADR-182 condition 2: a portal item for an elevation surface is opened by the Maps SDK as an elevation layer and
+// used as a 3D scene's ground, the way Scene Viewer opens one. ?portal=<url>&id=<item id>&at=lon,lat;lon,lat picks the
+// item and the points whose height is asked; the control run is Esri's Terrain3D item on ArcGIS Online.
+// The page writes {type, layerType, ground, heights} to window.__result.
+var q = new URLSearchParams(location.search);
+var portalUrl = q.get("portal"), itemId = q.get("id");
+var points = (q.get("at") || "").split(";").filter(Boolean).map(function (p) { return p.split(",").map(Number); });
+require(["esri/config", "esri/layers/Layer", "esri/Map", "esri/views/SceneView", "esri/geometry/Point"],
+  function (esriConfig, Layer, Map, SceneView, Point) {
+    esriConfig.portalUrl = portalUrl;
+    var out = { item: itemId };
+    Layer.fromPortalItem({ portalItem: { id: itemId, portal: { url: portalUrl } } }).then(function (layer) {
+      out.layerType = layer.type;
+      out.itemType = layer.portalItem && layer.portalItem.type;
+      out.typeKeywords = layer.portalItem && layer.portalItem.typeKeywords;
+      var map = new Map({ ground: { layers: [layer] } });
+      var view = new SceneView({ container: "v", map: map, camera: { position: { x: points.length ? points[0][0] : 0, y: points.length ? points[0][1] - 0.6 : 0, z: 40000 }, tilt: 60 } });
+      return view.when().then(function () { return layer.load(); }).then(function () {
+        out.ground = map.ground.layers.map(function (l) { return l.type + ":" + l.loadStatus; }).toArray();
+        return Promise.all(points.map(function (p) {
+          return map.ground.queryElevation(new Point({ x: p[0], y: p[1], spatialReference: { wkid: 4326 } }), { returnSampleInfo: true })
+            .then(function (r) { return { at: p, z: r.geometry.z }; }, function (e) { return { at: p, error: String(e && e.message || e) }; });
+        }));
+      });
+    }).then(function (heights) {
+      out.heights = heights;
+      window.__result = JSON.stringify(out);
+    }, function (e) {
+      out.error = String(e && e.message || e);
+      window.__result = JSON.stringify(out);
+    });
+  });
+</script></body></html>

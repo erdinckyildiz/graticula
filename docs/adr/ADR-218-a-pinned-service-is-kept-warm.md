@@ -109,6 +109,17 @@ carries it.
    services are warm, after a request to itself (item 4); and *when last warmed* kept per node, so the screen can say on
    how many nodes it is (item 5). *(Added 2026-10-22 at the owner's request, after the question whether pinning still
    makes sense in a cluster.)*
+   **DISCHARGED 2026-10-31 — two nodes each warm their own, tested against two real processes.** ADR-012's phase 0
+   built the four items this condition named (ADR-012 §5 phase 0 items 2–5, each marked *Built 2026-10-31*), and
+   `ASiteOfTwoNodesTests.A_pin_made_on_one_node_is_warmed_by_both_at_once` (tests/Graticula.Host.Tests) holds the
+   condition itself: a service pinned on node-a is warmed by both nodes within a heartbeat — `site_node_warm` holds a
+   row from **2 distinct nodes** for it — and node-b's pinned page answers `nodes.warm` 2 of 2. The connections pins
+   keep are counted for the site by `Each_node_compares_the_whole_sites_connections_with_the_database` (item 3).
+   Commit 3d04b628 recorded the class at 10/10 against two `TwoNodeSite` processes, and 10/10 failing against the
+   previous `Graticula.Host.dll`; it was not re-run for this note, which changes no code. **Not held by a two-node
+   test:** item 4's *not ready until the pinned services are warm* — the class tests readiness for a stopped machine
+   (`A_machine_stopped_from_the_other_answers_not_ready_until_started`), not for a cold pin — and that gap is
+   ADR-012's phase 0 to hold, as this condition said its four items were.
 
 ## 6. Consequences
 

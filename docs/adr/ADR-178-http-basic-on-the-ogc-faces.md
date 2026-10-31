@@ -107,7 +107,10 @@ ordinary rows in the session store.
 
 ## Conditions
 
-1. ArcGIS Pro, added to `/wfs` with a name and password, reads a private layer. *(2026-10-14: tried through arcpy and it cannot be done that way. Pro 3.7's *WFS To Feature Class*, given `http://user:password@…/wfs`, sends no `Authorization` header (read through a recording relay), reads the anonymous capabilities, which leave the private type out, and stops with ERROR 000228. arcpy has no tool that makes a WFS connection with stored credentials. So this needs Pro's own *Add WFS Server* dialog with a user name, which is a person at the screen. Two things this server can see from here: anonymous GetCapabilities answers 200 rather than challenging, so a client that sends Basic only after a 401 would never send it; and Pro asks `/wfs/rest/info?f=json` first, which is a harmless 404.)*
+1. ArcGIS Pro, added to `/wfs` with a name and password, reads a private layer. *(2026-10-14: tried through arcpy and it cannot be done that way. Pro 3.7's *WFS To Feature Class*, given `http://user:password@…/wfs`, sends no `Authorization` header (read through a recording relay), reads the anonymous capabilities, which leave the private type out, and stops with ERROR 000228. arcpy has no tool that makes a WFS connection with stored credentials. So this needs Pro's own *Add WFS Server* dialog with a user name, which is a person at the screen. Two things this server can see from here: anonymous GetCapabilities answers 200 rather than challenging, so a client that sends Basic only after a 401 would never send it; and Pro asks `/wfs/rest/info?f=json` first, which is a harmless 404.)* *(2026-10-31: no arcpy tool makes a WFS connection with stored credentials in Pro 3.7 either — the only WFS tool
+   is *WFS To Feature Class*. **Owed, by a person:** Pro › Insert › Connections › Server › New WFS Server ›
+   Server URL `https://dev.graticula.com/wfs`, a member's user name and password › OK; open the connection in
+   Catalog and add the member's private layer to a map; it must list and draw.)*
 
 ## 9. Revisit triggers
 

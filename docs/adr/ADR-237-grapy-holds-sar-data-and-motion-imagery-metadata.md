@@ -240,7 +240,9 @@ None recorded.
    output does not show — [D-328](../architecture-debt.md). **Memory**: grapy's RemoveThermalNoise on the whole scene
    peaked at **22,009 MB** of committed memory (it reads both polarizations whole and works in float64), eleven times
    ADR-223's 2 GB, and its terrain correction refuses the scene by its 50-million-cell limit (the grid would be about
-   29,000 × 21,000) — D-328. **Not run, the SLC half**: no stripmap SLC pair can be had without an account — Copernicus
+   29,000 × 21,000) — D-328. **Repaid the same day for the GRD chain**: read and written in blocks, RemoveThermalNoise
+   peaks at 762 MB, ApplyRadiometricCalibration at 715 MB, and ApplyGeometricTerrainCorrection, the limit lifted, at
+   1,311 MB and 495 s of CPU for the whole 25,869 × 29,855 grid (772 million cells) (D-328 has the method and what still reads whole). **Not run, the SLC half**: no stripmap SLC pair can be had without an account — Copernicus
    Data Space and ASF both require a login, the AWS registry's Sentinel-1 buckets are requester-pays (an AWS account),
-   and Planetary Computer holds GRD and RTC only — so it waits for a product the owner provides.
+   and Planetary Computer holds GRD and RTC only — so it waits for a product the owner provides. **The code half of the SLC chain done 2026-10-31**: every SAR tool now reads and writes by blocks of rows (D-328 has the method and `test_sar.BlocksSlcAndOcean` the proof, each test failing on the old code), and on a synthetic full-size IW SLC (9 bursts, 12,260 x 21,000 debursted) Deburst peaks at 227 MB, coherence at 554 MB, the interferogram at 448 MB, Goldstein at 1,204 MB and coregistration at 849 MB of committed memory, inside ADR-223's 2 GB; Goldstein's CPU time, the ocean winds' and unwrapping a full-resolution swath do not fit ADR-223 (D-357). Still owed: the real stripmap SLC pair, its comparison with SNAP or Pro, and its memory measured — the owner's free Earthdata or Copernicus account.
 4. **The owner confirms or changes §5.8** ([Q-205](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-205 (*"Hepsini onayla"*).

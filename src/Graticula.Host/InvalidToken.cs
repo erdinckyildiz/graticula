@@ -41,6 +41,7 @@ internal static class InvalidToken
         "/rest/generateToken",
         "/rest/auth",
         "/rest/info",
+        "/services/rest/info",
 
         // Asked by the console and the directory banner to learn whether the token they hold is
         // still good; its answer for a dead one is *not authenticated*, which is what they act on.
