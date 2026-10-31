@@ -731,7 +731,8 @@ public static class Program
         // the only place the host names a raster format, which is what makes the
         // adapter's project boundary a boundary rather than a suggestion.
         builder.Services.AddSingleton<ICoverageReaderFactory, TiffCoverageReaderFactory>();
-        builder.Services.AddSingleton<ICoveragePyramidBuilder, TiffPyramidBuilder>();
+        // D-295: built in the import reader's process, which decodes the whole file, not in this one.
+        builder.Services.AddSingleton<ICoveragePyramidBuilder, ReaderPyramidBuilder>();
 
         // ADR-148: images published without overviews — before ADR-139, or registered in place — are given them.
         builder.Services.AddSingleton<CoveragePyramids>();
