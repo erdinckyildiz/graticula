@@ -78,6 +78,138 @@ def row_blocks(shape, multiple=1):
     return [(r0, min(n, r0 + step)) for r0 in range(0, n, step)]
 
 
+def halo_blocks(shape, halo, align=1, fit=False):
+    """(r0, r1, h0, h1) for each row block [r0, r1) of a band of ``shape`` and the window [h0, h1) a tool that needs
+    ``halo`` rows of neighbours on either side reads for it, clipped to the image; h0 is a multiple of ``align``
+    (Goldstein's patch grid is anchored at row 0). Inside the window, a filter reaching no further than ``halo`` rows
+    answers the block's rows from the same cells as on the whole band (D-328). With ``fit`` the block is made smaller
+    so that the window, halo included, holds about BLOCK_CELLS: for a tool whose halo is large beside its block and
+    whose window carries many temporaries (ExtractOceanWinds' 3 km window on a multilooked swath: 1,865 MB without)."""
+    n, m = shape
+    out = []
+    if fit:
+        step = max(1, BLOCK_CELLS // max(m, 1) - 2 * halo)
+        blocks = [(r0, min(n, r0 + step)) for r0 in range(0, n, step)]
+    else:
+        blocks = row_blocks(shape)
+    for r0, r1 in blocks:
+        h0 = max(0, (r0 - halo) // align * align)
+        out.append((r0, r1, h0, min(n, r1 + halo)))
+    return out
+
+
+#: Points geocoded or back-geocoded at a time when a tool solves a lattice (D-328). Fixed, never derived from
+#: BLOCK_CELLS: Newton's method in ``geocode`` stops on the largest step of the points it holds, so a lattice solved in
+#: the same chunks gives the same answer however the tool's rows are blocked.
+LATTICE_CHUNK = 65536
+
+
+def by_chunks(fn, *arrays):
+    """``fn`` applied to LATTICE_CHUNK points of ``arrays`` at a time, its outputs (an array or a tuple of arrays)
+    joined in order."""
+    size = len(arrays[0])
+    if size <= LATTICE_CHUNK:
+        return fn(*arrays)
+    parts = [fn(*(a[k: k + LATTICE_CHUNK] for a in arrays)) for k in range(0, size, LATTICE_CHUNK)]
+    if isinstance(parts[0], tuple):
+        return tuple(np.concatenate([p[j] for p in parts]) for j in range(len(parts[0])))
+    return np.concatenate(parts)
+
+
+def ground_points(meta, rows, columns, dem=None, heights=None):
+    """ECEF ground points of radar cells, on the DEM (or the tie points' heights) unless ``heights`` are given, solved in
+    LATTICE_CHUNK points at a time."""
+    rows = np.asarray(rows, float)
+    columns = np.asarray(columns, float)
+    if heights is None:
+        return by_chunks(lambda r, c: geocode(meta, r, c, heights_for(meta, r, c, dem)), rows, columns)
+    return by_chunks(lambda r, c, h: geocode(meta, r, c, h), rows, columns, np.asarray(heights, float))
+
+
+def lattice(shape, step=16):
+    """Every ``step``-th row and column of a grid, the last included."""
+    n, m = shape
+    rs = np.unique(np.r_[np.arange(0, n, step), n - 1]).astype(float)
+    cs = np.unique(np.r_[np.arange(0, m, step), m - 1]).astype(float)
+    return rs, cs
+
+
+class Field:
+    """A smooth quantity solved on a lattice of a grid and answered at any rows: an interpolating bicubic spline
+    (FITPACK, not-a-knot) where the lattice has four points or more each way, bilinear otherwise. A cell's value
+    depends only on the lattice, never on which other cells are asked for, so a block of rows is answered exactly as
+    the whole grid would be (D-328)."""
+
+    def __init__(self, rs, cs, values):
+        from scipy.interpolate import RectBivariateSpline
+        self.m = int(cs[-1]) + 1 if len(cs) else 0
+        values = np.asarray(values, float)
+        self.constant = None
+        if len(rs) < 2 or len(cs) < 2:
+            self.constant = float(np.mean(values))
+            return
+        k = 3 if len(rs) >= 4 and len(cs) >= 4 else 1
+        self.spline = RectBivariateSpline(rs, cs, values, kx=k, ky=k, s=0)
+
+    def rows(self, r0, r1, m=None):
+        m = self.m if m is None else m
+        if self.constant is not None:
+            return np.full((r1 - r0, m), self.constant)
+        return self.spline(np.arange(r0, r1, dtype=float), np.arange(m, dtype=float), grid=True)
+
+
+class LonLat:
+    """Longitude and latitude of the cells of a radar-geometry grid: geocoded on a lattice of every ``step``-th cell
+    (on the DEM, or the tie points' heights) and interpolated bilinearly, answered a block of rows at a time; a cell's
+    value is the same whichever rows are asked for (D-328)."""
+
+    def __init__(self, meta, shape, dem=None, step=16):
+        from scipy.interpolate import RegularGridInterpolator
+        self.shape = shape
+        rs, cs = lattice(shape, step)
+        rr, cc = np.meshgrid(rs, cs, indexing="ij")
+        lon, lat, _ = geodetic(ground_points(meta, rr.ravel(), cc.ravel(), dem))
+        lon, lat = lon.reshape(rr.shape), lat.reshape(rr.shape)
+        self.flat = len(rs) < 2 or len(cs) < 2
+        if self.flat:
+            self.mean = (float(lon.mean()), float(lat.mean()))
+        else:
+            self.lon = RegularGridInterpolator((rs, cs), lon)
+            self.lat = RegularGridInterpolator((rs, cs), lat)
+
+    def rows(self, r0, r1):
+        m = self.shape[1]
+        if self.flat:
+            return np.full((r1 - r0, m), self.mean[0]), np.full((r1 - r0, m), self.mean[1])
+        R, Cc = np.meshgrid(np.arange(r0, r1, dtype=float), np.arange(m, dtype=float), indexing="ij")
+        pts = np.stack([R.ravel(), Cc.ravel()], -1)
+        return self.lon(pts).reshape(r1 - r0, m), self.lat(pts).reshape(r1 - r0, m)
+
+
+class CellLonLat:
+    """Longitude and latitude of the cells of a dataset in either geometry, a block of rows at a time."""
+
+    def __init__(self, sar, dem=None):
+        self.sar = sar
+        self.radar = LonLat(sar.meta, sar.shape, dem) if sar.radar else None
+        self.to = None
+        if not sar.radar and sar.srid not in (0, 4326):
+            import pyproj
+            self.to = pyproj.Transformer.from_crs(sar.srid, 4326, always_xy=True)
+
+    def rows(self, r0, r1):
+        if self.radar is not None:
+            return self.radar.rows(r0, r1)
+        x, y = map_centres(self.sar, r0, r1)
+        return (x, y) if self.to is None else self.to.transform(x, y)
+
+
+def fsum_rows(array):
+    """The sum of an array's finite values, the same however its rows are blocked: each row summed by numpy, the rows
+    by ``math.fsum`` (exactly rounded, so in any grouping)."""
+    return np.nansum(array, axis=1).tolist()
+
+
 class Band:
     """One band of a dataset on disk, read whole or by window when a tool asks for it; nothing is read before."""
 
@@ -269,22 +401,46 @@ def write(path, bands, meta, transform=None, srid=0):
     return path
 
 
+class BlockWriter:
+    """A SAR dataset opened for writing block by block; ``write`` puts one block (first row, first column,
+    {name: array}) and ``close`` writes the sidecar. Two can be open at once, for a tool with two outputs; the later
+    opened is closed first, each holding its GDAL environment."""
+
+    def __init__(self, path, names, dtype, shape, meta, transform=None, srid=0):
+        import contextlib
+        import rasterio
+        self.path, self.names, self.dtype, self.meta = out_path(path), list(names), dtype, meta
+        profile = _profile(self.path, dtype, shape, len(self.names), transform, srid)
+        self._stack = contextlib.ExitStack()
+        self._stack.enter_context(_quiet())
+        self._stack.enter_context(rasterio.Env(GDAL_CACHEMAX=GDAL_CACHE_MB))
+        self.out = self._stack.enter_context(rasterio.open(self.path, "w", **profile))
+        for k, name in enumerate(self.names, 1):
+            self.out.set_band_description(k, name)
+
+    def write(self, r0, c0, arrays):
+        from rasterio.windows import Window
+        for k, name in enumerate(self.names, 1):
+            a = arrays[name]
+            self.out.write(a.astype(self.dtype), k, window=Window(c0, r0, a.shape[1], a.shape[0]))
+
+    def close(self):
+        self._stack.close()
+        _sidecar(self.path, self.names, self.meta)
+        return self.path
+
+
 def write_blocks(path, names, dtype, shape, meta, blocks, transform=None, srid=0):
     """A SAR dataset written block by block: ``blocks`` yields (first row, first column, {name: array}), the blocks
     together cover the grid, and only one is held at a time (D-328)."""
-    import rasterio
-    from rasterio.windows import Window
-    path = out_path(path)
-    profile = _profile(path, dtype, shape, len(names), transform, srid)
-    with _quiet(), rasterio.Env(GDAL_CACHEMAX=GDAL_CACHE_MB), rasterio.open(path, "w", **profile) as out:
-        for k, name in enumerate(names, 1):
-            out.set_band_description(k, name)
+    writer = BlockWriter(path, names, dtype, shape, meta, transform, srid)
+    try:
         for r0, c0, arrays in blocks:
-            for k, name in enumerate(names, 1):
-                a = arrays[name]
-                out.write(a.astype(dtype), k, window=Window(c0, r0, a.shape[1], a.shape[0]))
-    _sidecar(path, names, meta)
-    return path
+            writer.write(r0, c0, arrays)
+    except BaseException:
+        writer._stack.close()
+        raise
+    return writer.close()
 
 
 def _quiet():
@@ -901,40 +1057,22 @@ def heights_for(meta, rows, columns, dem, iterations=3):
 
 def lonlat_grid(meta, shape, dem=None, step=16):
     """Longitude and latitude of every cell of a radar-geometry dataset, geocoded on a coarse lattice of ``step``
-    cells and interpolated bilinearly between."""
-    n, m = shape
-    rs = np.unique(np.r_[np.arange(0, n, step), n - 1]).astype(float)
-    cs = np.unique(np.r_[np.arange(0, m, step), m - 1]).astype(float)
-    rr, cc = np.meshgrid(rs, cs, indexing="ij")
-    h = heights_for(meta, rr.ravel(), cc.ravel(), dem)
-    lon, lat, _ = geodetic(geocode(meta, rr.ravel(), cc.ravel(), h))
-    lon, lat = lon.reshape(rr.shape), lat.reshape(rr.shape)
-    from scipy.interpolate import RegularGridInterpolator
-    R, Cc = np.meshgrid(np.arange(n, dtype=float), np.arange(m, dtype=float), indexing="ij")
-    pts = np.stack([R.ravel(), Cc.ravel()], -1)
-    lon_i = RegularGridInterpolator((rs, cs), lon)(pts).reshape(n, m) if len(rs) > 1 and len(cs) > 1 else np.full((n, m), lon.mean())
-    lat_i = RegularGridInterpolator((rs, cs), lat)(pts).reshape(n, m) if len(rs) > 1 and len(cs) > 1 else np.full((n, m), lat.mean())
-    return lon_i, lat_i
+    cells and interpolated bilinearly between (``LonLat`` answers a block of rows)."""
+    return LonLat(meta, shape, dem, step).rows(0, shape[0])
 
 
-def map_centres(sar):
-    """x and y of every cell centre of a map-geometry dataset."""
+def map_centres(sar, r0=0, r1=None):
+    """x and y of the cell centres of a map-geometry dataset, rows r0 to r1."""
     n, m = sar.shape
+    r1 = n if r1 is None else r1
     t = sar.transform
-    cols, rows = np.meshgrid(np.arange(m) + 0.5, np.arange(n) + 0.5)
+    cols, rows = np.meshgrid(np.arange(m) + 0.5, np.arange(r0, r1) + 0.5)
     return t.c + cols * t.a + rows * t.b, t.f + cols * t.d + rows * t.e
 
 
 def cell_lonlat(sar, dem=None):
     """Longitude and latitude of every cell of a dataset, in either geometry."""
-    if sar.radar:
-        return lonlat_grid(sar.meta, sar.shape, dem)
-    x, y = map_centres(sar)
-    if sar.srid in (0, 4326):
-        return x, y
-    import pyproj
-    to = pyproj.Transformer.from_crs(sar.srid, 4326, always_xy=True)
-    return to.transform(x, y)
+    return CellLonLat(sar, dem).rows(0, sar.shape[0])
 
 
 def intensity(array):
