@@ -248,6 +248,16 @@ way they expect, and the caching page says the thing that is true about this eng
    `item` table holds every service's and web map's owner, scope, folder, description, tags and protection, and one
    share table their groups. Open: one map engine, which waits on the Studio redesign handed over on 2026-10-16
    (`docs/design/GRATICULA-HYBRID.md`), by owner decision of the same day.
+   *(Re-read 2026-10-31 against the code: still open, and not owner-only work, but it is a decision the owner
+   should confirm.)* The redesign it waited on is no longer a reason: the UI has been this project's own since
+   2026-10-28, and `GRATICULA-HYBRID.md` names no engine. What the code holds is **two engines**. OpenLayers
+   (`ol.js`) draws every 2D map — the Map Viewer (`webmap.js`, with its pop-ups of ADR-110 and its labels), the
+   item viewer (`view.html`) and the console's own maps (`symMap`, `seedMap`, `pubMap` in `console.js`). The ArcGIS
+   Maps SDK, loaded from `js.arcgis.com`, draws `map.html`, which Studio links for an image service's view and for
+   every 3D scene (`console.js`, `ImageServerEndpoints`, `MapServerEndpoints`, `Program.cs`). MapLibre, which the
+   design review proposed, is used nowhere. So the decision left is real and has a cost either way: OpenLayers
+   cannot draw a scene, and the SDK is a proprietary script fetched from Esri at run time. Writing that ADR needs
+   no owner data; choosing between those two costs is the owner's call.
 
 ## 11. Dissent
 
