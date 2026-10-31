@@ -112,6 +112,23 @@ class Supervised(_Fixture):
         self.assertAlmostEqual(w[1], 0.0, delta=1e-3)
         self.assertAlmostEqual(b, 0.0, delta=1e-3)
 
+    def test_smo_reaches_the_optimum_when_the_classes_overlap(self):
+        # ADR-243 condition 2, measured beside ArcGIS Pro 3.7 on 2026-10-31: on two overlapping classes, fifty plain
+        # passes over every example stopped at twice the optimal objective. The soft-margin primal reached must be the
+        # one an independent quadratic programme reaches.
+        from scipy.optimize import minimize
+        rng = np.random.default_rng(11)
+        x = np.vstack([rng.normal(0.0, 1.0, (150, 4)), rng.normal(0.6, 1.0, (150, 4))])
+        y = np.repeat([1.0, -1.0], 150)
+        w, b = classify._smo(x, y)
+        q = (y[:, None] * y[None, :]) * (x @ x.T)
+        a = minimize(lambda v: 0.5 * v @ q @ v - v.sum(), np.zeros(y.size), jac=lambda v: q @ v - 1, method="SLSQP",
+                     bounds=[(0, 1.0)] * y.size, constraints=[{"type": "eq", "fun": lambda v: v @ y, "jac": lambda v: y}],
+                     options={"maxiter": 500, "ftol": 1e-12}).x
+        best = -(0.5 * a @ q @ a - a.sum())  # the dual optimum equals the primal optimum
+        primal = 0.5 * w @ w + np.maximum(0.0, 1 - y * (x @ w + b)).sum()
+        self.assertLess(primal, best * 1.01)
+
     def test_a_definition_grapy_did_not_write_is_refused(self):
         foreign = os.path.join(self.directory, "pro.ecd")
         with open(foreign, "w", encoding="utf-8") as handle:

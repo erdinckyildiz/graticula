@@ -3171,7 +3171,8 @@ def CreateRandomPoints(out_path, out_name, constraining_feature_class=None, cons
     """Random points: the number asked (or each feature's field value) inside each constraining polygon, along each line,
     as a random subset of each point feature's points, or inside an extent. ``CID`` holds the constraining feature's
     object ID (0 for an extent). INFERRED: the ``CID`` field; the default of 100 points; points are uniform by area or
-    by length; draws are from ``env.randomGenerator``'s seed (see ``_seed``). A minimum allowed distance is not built:
+    by length; draws are from ``env.randomGenerator``'s seed (see ``_seed``); under MERSENNE_TWISTER an area's points
+    are Pro 3.7's to the last digit (measured in an extent, ADR-247 condition 1). A minimum allowed distance is not built:
     the page reduces the count to *the maximum that can fit* without saying how that is found."""
     import numpy
     import shapely
@@ -3179,7 +3180,12 @@ def CreateRandomPoints(out_path, out_name, constraining_feature_class=None, cons
     from . import da
     if _given(minimum_allowed_distance) and str(minimum_allowed_distance).split()[0] not in ("0", "0.0"):
         raise NotBuiltError("arcpy.management.CreateRandomPoints: minimum_allowed_distance is not built in grapy.")
-    random = numpy.random.default_rng(_seed())
+    seeded = _seed()
+    random = numpy.random.default_rng(seeded)
+    # Under MERSENNE_TWISTER Pro 3.7 places each point with two 32-bit words of mt19937, x then y, each as
+    # (w + 0.5) / 2**32 of the extent (genrand_real3): measured 2026-10-31 in an extent at three seeds, exact to the
+    # last digit (ADR-247 condition 1). grapy draws an area's points the same way.
+    twister = seeded.random_raw if isinstance(seeded, numpy.random.MT19937) else None
     groups = []
     if _given(constraining_feature_class):
         columns = {c.name.lower(): c.name for c in _schema(_source(constraining_feature_class)[0])[0]}
@@ -3215,8 +3221,13 @@ def CreateRandomPoints(out_path, out_name, constraining_feature_class=None, cons
             prepared = prep(shape)
             found = 0
             while found < count:
-                xs = random.uniform(xmin, xmax, 2 * (count - found) + 8)
-                ys = random.uniform(ymin, ymax, len(xs))
+                if twister is not None:
+                    words = (twister(2 * (2 * (count - found) + 8)).astype(numpy.float64) + 0.5) / 2.0 ** 32
+                    xs = xmin + words[0::2] * (xmax - xmin)
+                    ys = ymin + words[1::2] * (ymax - ymin)
+                else:
+                    xs = random.uniform(xmin, xmax, 2 * (count - found) + 8)
+                    ys = random.uniform(ymin, ymax, len(xs))
                 for x, y in zip(xs, ys):
                     point = ShapelyPoint(x, y)
                     if prepared.contains(point):

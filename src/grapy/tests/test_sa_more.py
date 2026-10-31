@@ -322,10 +322,11 @@ class Equivalents(_Fixture):
         # Sibson's interpolant is exact for linear data: on z = x it answers each centre's x.
         points = self.features("nn", "POINT", [(0.0, point(0, 0)), (10.0, point(10, 0)), (0.0, point(0, 10)),
                                                (10.0, point(10, 10))], [("z", "DOUBLE")])
-        got = cells(sa.NaturalNeighbor(points, "z", 5))
-        for row in got:
-            self.assertAlmostEqual(row[0], 2.5, places=4)
-            self.assertAlmostEqual(row[1], 7.5, places=4)
+        got = cells(sa.NaturalNeighbor(points, "z", 2.5))
+        # Centres every 2.5 from 0 to 10 (the grid Pro 3.7 lays out (ADR-233 condition 4): cell centres on the points' extent); the inner ones answer their x.
+        for row in got[1:-1]:
+            for value, x in zip(row[1:-1], (2.5, 5.0, 7.5)):
+                self.assertAlmostEqual(value, x, places=4)
 
     def test_kriging_solves_cressies_system(self):
         # The spherical model at half its range: 1.5·0.5 − 0.5·0.125 = 0.6875; the exponential at its range 1 − e⁻³.
@@ -337,11 +338,14 @@ class Equivalents(_Fixture):
         self.assertAlmostEqual(estimate, 2.5)
         # At the midpoint the weights are ½ each and μ = γ₁₀ − ½γ₁₂ = 0, so the variance is γ₁₀ = 0.05.
         self.assertAlmostEqual(sa._krige(xs, ys, zs, 5.0, 0.0, "LINEAR", 100.0, 1.0, 0.0, None)[1], 0.05)
-        # Four points at the corners of a square, the single cell at its centre: equal weights, the mean.
+        # Four points at the corners of a square, the middle cell at its centre: equal weights, the mean; a cell centred
+        # on a point (the grid Pro 3.7 lays out (ADR-233 condition 4): cell centres on the points' extent) takes its value, kriging being exact.
         points = self.features("kr", "POINT", [(1.0, point(5, 5)), (2.0, point(15, 5)), (3.0, point(5, 15)),
                                                (4.0, point(15, 15))], [("z", "DOUBLE")])
         model = sa.KrigingModelOrdinary("SPHERICAL", 10, 20, 1, 0)
-        self.assertAlmostEqual(cells(sa.Kriging(points, "z", model, 10))[0][0], 2.5, places=5)
+        got = cells(sa.Kriging(points, "z", model, 5))
+        self.assertAlmostEqual(got[1][1], 2.5, places=5)
+        self.assertAlmostEqual(got[0][0], 3.0, places=5)
         with self.assertRaises(arcpy.NotBuiltError):
             sa.Kriging(points, "z", sa.KrigingModelOrdinary("STABLE", 10, 20, 1, 0), 10)
 
@@ -433,14 +437,14 @@ class Equivalents(_Fixture):
         plane = self.features("sp", "POINT", [(0.0, point(0, 0)), (20.0, point(20, 0)), (40.0, point(0, 20))],
                               [("z", "DOUBLE")])
         got = cells(sa.Spline(plane, "z", 10))
-        for row, y in zip(got, (15, 5)):
-            for value, x in zip(row, (5, 15)):
+        for row, y in zip(got, (20, 10, 0)):
+            for value, x in zip(row, (0, 10, 20)):
                 self.assertAlmostEqual(value, x + 2 * y, places=3)
         # Tension, two points 20 apart on one row: T = a₁ is their mean and the λs are opposite, so the midpoint is the
         # mean, 5.
         pair = self.features("pr", "POINT", [(0.0, point(0, 0)), (10.0, point(20, 0))], [("z", "DOUBLE")])
         middle = cells(sa.Spline(pair, "z", 10, "TENSION"))
-        self.assertAlmostEqual((middle[0][0] + middle[0][1]) / 2, 5.0, places=3)
+        self.assertAlmostEqual(middle[0][1], 5.0, places=3)
         many = self.features("many", "POINT", [(float(k), point(k, k)) for k in range(13)], [("z", "DOUBLE")])
         with self.assertRaises(arcpy.NotBuiltError):
             sa.Spline(many, "z", 1)

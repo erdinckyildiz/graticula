@@ -222,7 +222,8 @@ class Barriers(_Fixture):
     def setUp(self):
         super().setUp()
         self.points = self.features("pts", "POINT", [(0.0, point(0, 0)), (100.0, point(100, 0))], [("z", "DOUBLE")])
-        self.wall = self.features("wall", "POLYLINE", [(line((50, -10), (50, 10)),)])
+        # The wall at x = 55 runs between two cell centres (the grid Pro 3.7 lays out (ADR-233 condition 4): cell centres on the points' extent).
+        self.wall = self.features("wall", "POLYLINE", [(line((55, -10), (55, 10)),)])
 
     def test_spline_with_barriers_is_free_across_the_barrier(self):
         # Without a barrier the surface honours both points and climbs between them.
@@ -232,7 +233,8 @@ class Barriers(_Fixture):
         self.assertTrue(all(a < b for a, b in zip(free, free[1:])))
         # With the wall each side holds one point, and the least-curvature surface through one value is flat.
         cut = cells(sa.SplineWithBarriers(self.points, "z", self.wall, 10))[0]
-        for value, expected in zip(cut, [0.0] * 5 + [100.0] * 5):
+        self.assertEqual(len(cut), 11)
+        for value, expected in zip(cut, [0.0] * 6 + [100.0] * 5):
             self.assertAlmostEqual(value, expected, delta=1e-6)
         # Full smoothing leaves the surface tied only to the points' mean.
         for value in cells(sa.SplineWithBarriers(self.points, "z", None, 10, 1.0))[0]:

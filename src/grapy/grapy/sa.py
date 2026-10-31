@@ -2334,8 +2334,9 @@ def _points(in_point_features, z_field, tool):
 
 
 def _point_grid(in_point_features, cell_size, xs, ys, tool):
-    """The output grid: over the points' extent, its top-left corner at the extent's, at the cell size given or, by
-    the documented rule, the shorter side of the extent divided by 250."""
+    """The output grid at the cell size given or, by the documented rule, the shorter side of the extent divided by
+    250. Laid out as Pro 3.7 lays it (measured 2026-10-31 with Idw at five cell sizes, ADR-233 condition 4): the
+    lower-left cell's centre on the points' lower-left corner, and round(extent / cell) + 1 cells along each side."""
     _refuse_environment(f"arcpy.sa.{tool}")
     cell = _cell_size(cell_size, tool)
     if cell is None:
@@ -2343,7 +2344,12 @@ def _point_grid(in_point_features, cell_size, xs, ys, tool):
         if shorter <= 0:
             _refuse(tool, "cell_size", "(empty)", "the points' extent has no width or height to divide by 250")
         cell = shorter / 250.0
-    return _grid_over(in_point_features, cell)
+    from .analysis import _schema
+    srid = _schema(in_point_features)[2]
+    columns = int(math.floor((xs.max() - xs.min()) / cell + 0.5)) + 1
+    rows_ = int(math.floor((ys.max() - ys.min()) / cell + 0.5)) + 1
+    bottom = ys.min() - cell / 2
+    return _Grid(xs.min() - cell / 2, bottom + rows_ * cell, cell, cell, rows_, columns, srid)
 
 
 class RadiusVariable:

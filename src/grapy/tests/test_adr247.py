@@ -195,6 +195,20 @@ class RandomGenerators(_Workspace):
         arcpy.env.randomGenerator = "3 MERSENNE_TWISTER"
         self.assertEqual(self.draw("d"), twister)            # a tool starts from the seed, so it repeats itself
 
+    def test_random_points_in_an_extent_are_pros_under_mersenne_twister(self):
+        # ArcGIS Pro 3.7, measured 2026-10-31 (ADR-247 condition 1): CreateRandomPoints in "0 0 1000 1000" under
+        # "1 MERSENNE_TWISTER" — its first two points, to the digits Pro wrote.
+        arcpy.env.randomGenerator = "1 MERSENNE_TWISTER"
+        out = arcpy.management.CreateRandomPoints(self.gpkg, "pro", constraining_extent="0 0 1000 1000",
+                                                  number_of_points_or_field=10)[0]
+        with arcpy.da.SearchCursor(out, ["SHAPE@XY"]) as rows:
+            got = [r[0] for r in rows]
+        self.assertEqual(len(got), 10)
+        for (x, y), (px, py) in zip(got, [(417.02199855353683, 997.1848082495853),
+                                          (720.3244894044474, 932.5573613168672)]):
+            self.assertAlmostEqual(x, px, places=9)
+            self.assertAlmostEqual(y, py, places=9)
+
     def test_it_is_counted_as_an_equivalent(self):
         self.assertIn("Matsumoto and Nishimura", arcpy.CreateRandomValueGenerator.__grapy_equivalent__)
 

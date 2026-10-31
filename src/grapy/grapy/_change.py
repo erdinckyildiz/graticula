@@ -574,8 +574,8 @@ def AnalyzeChangesUsingLandTrendr(in_multidimensional_raster, processing_band=No
                         out[:, 4 + q, r, c] = np.interp(x_all, xb, fb)
             empty[:, :, r, c] = False
     coords = [{TIME: v.coords[i][TIME]} for i in slots]
-    variable = Variable("LandTrendr", [TIME], coords, np.where(empty, 0, out), empty, {"grapy_change": "LANDTRENDR"},
-                        names)
+    variable = Variable("LandTrendr", [TIME], coords, np.where(empty, 0, out), empty,
+                        {"grapy_change": "LANDTRENDR", "grapy_snapping_date": f"{month:02d}-{day:02d}"}, names)
     return _result([variable], cube.grid)
 
 
@@ -587,8 +587,13 @@ _TYPES_LT = _TYPES_CCDC + ("TIME_OF_LONGEST_CHANGE", "TIME_OF_SHORTEST_CHANGE", 
                            "TIME_OF_SLOWEST_CHANGE")
 
 
+# A detected change's date as Pro 3.7 writes it: days since 1899-12-30 (measured 2026-10-31, ADR-236 condition 3).
+_DATE_EPOCH_DAYS = -25569.0  # 1899-12-30 in days since 1970-01-01
+
+
 def _events(v, r, c, segment_date):
-    """The pixel's change events: dicts of date, magnitude (signed), duration, start and end value."""
+    """The pixel's change events: dicts of date (a decimal year, for ordering and the year filter), when (the date as
+    days since 1899-12-30, which the output holds), magnitude (signed), duration, start and end value."""
     events = []
     times = [_mdim.decimal_year(co[TIME]) for co in v.coords]
     names = v.names_of_bands()
@@ -596,7 +601,8 @@ def _events(v, r, c, segment_date):
         change, magnitude = names.index("Change"), names.index("Magnitude")
         for i, t in enumerate(times):
             if not v.mask[i, change, r, c] and v.data[i, change, r, c] == 1:
-                events.append({"date": t, "magnitude": float(v.data[i, magnitude, r, c]), "duration": None,
+                events.append({"date": t, "when": _mdim.days(v.coords[i][TIME]) - _DATE_EPOCH_DAYS,
+                               "magnitude": float(v.data[i, magnitude, r, c]), "duration": None,
                                "start": None, "end": None})
         return events
     vertex, fitted = names.index("Vertex"), names.index("Fitted_Value")
@@ -606,7 +612,10 @@ def _events(v, r, c, segment_date):
     for a, b in zip(at[:-1], at[1:]):
         start, end = float(v.data[a, fitted, r, c]), float(v.data[b, fitted, r, c])
         year_a, year_b = math.floor(times[a]), math.floor(times[b])
-        events.append({"date": year_a if segment_date == "BEGINNING_OF_SEGMENT" else year_b,
+        year = year_a if segment_date == "BEGINNING_OF_SEGMENT" else year_b
+        # A segment is dated at its year's snapping date, as Pro 3.7 dates it (measured, ADR-236 condition 3).
+        snap = _mdim.to_time(f"{year}-{v.attrs.get('grapy_snapping_date', '06-30')}")
+        events.append({"date": year, "when": _mdim.days(snap) - _DATE_EPOCH_DAYS,
                        "magnitude": end - start, "duration": year_b - year_a + 1, "start": start, "end": end})
     return events
 
@@ -668,7 +677,7 @@ def _detect(source, change_type, count, segment_date, direction, by_year, years,
                 e["rate"] = abs(e["magnitude"]) / e["duration"] if e["duration"] else abs(e["magnitude"])
             events.sort(key=lambda e: (e[key], e["date"]), reverse=reverse)
             for k, e in enumerate(events[:n]):
-                out[k, r, c], empty[k, r, c] = e["date"], False
+                out[k, r, c], empty[k, r, c] = e["when"], False
     if layers == 1:
         return Raster._of(np.where(empty[0], 0, out[0]), empty[0], cube.grid)
     return Raster._of_bands([np.where(empty[k], 0, out[k]) for k in range(layers)], list(empty), cube.grid)
@@ -701,7 +710,8 @@ def DetectChangeUsingChangeAnalysisRaster(in_change_analysis_raster, change_type
     first or last year (``segment_date``) and its duration ``end − start + 1`` years, as documented; magnitude filters
     are absolute, as documented.
 
-    INFERRED (ADR-236 §5.3, §5.6): a date is a decimal year (a LandTrendr segment's, a whole year); a CCDC change's
+    A date is days since 1899-12-30, a CCDC change's at its slice and a LandTrendr segment's at its year's snapping
+    date, as Pro 3.7 writes them (measured 2026-10-31, ADR-236 condition 3). INFERRED (ADR-236 §5.3, §5.6): a CCDC change's
     magnitude is the change analysis raster's Magnitude band; a LandTrendr segment's is its fitted end less its fitted
     start; every segment between two vertices is a change; a rank with no change is NoData."""
     tool = "DetectChangeUsingChangeAnalysisRaster"
