@@ -2604,7 +2604,7 @@ function samlKeyHeld(p) {
   if (!key) return "";
   const previous = p.saml.previousEncryptionKey;
   return ` This server's key was made ${h(day(key.created))}; its certificate says it is good until ${h(day(key.notAfter))}.`
-    + (previous ? ` The key before it, made ${h(day(previous.created))}, still opens assertions.` : "");
+    + (previous ? ` The key before it, made ${h(day(previous.created))}, still decrypts.` : "");
 }
 
 /** What the form says about a SAML provider's metadata held — ADR-090: whose, from where, and until when it holds. */

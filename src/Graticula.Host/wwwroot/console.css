@@ -780,6 +780,7 @@ label.field {
 #idpGroups .tablewrap { overflow-x: auto; max-width: 100%; }
 #idpGroups .picker { min-width: 0; max-width: 100%; }
 #idpGroups .row.left, #idpForm .row.left { justify-content: flex-start; }
+#idpForm .row.left > :last-child { margin-left: 0; }
 #idpForm #idpIssuer, #idpForm #idpClient, #idpForm #idpUserBase, #idpForm #idpUserFilter, #idpForm #idpGroupBase { font-family: var(--mono, monospace); }
 #view-signin .tablewrap { overflow-x: auto; max-width: 100%; }
 /* <b>Any control the page marks invalid, since 2026-09-25.</b> This was scoped to `#idpForm`, so the
