@@ -813,17 +813,22 @@ def PointFileInformation(input, out_feature_class, in_file_type="LAS", file_suff
     "are evenly spaced over the x,y extent"), ``Z_Min`` and ``Z_Max``, and with SUMMARIZE one row per class code with
     ``Class``, as documented.
 
-    Refused: XYZ, XYZI and GENERATE files; EXTRUSION (multipatch); NO_LAS_SPACING — the page's two descriptions of this
-    parameter contradict each other, and grapy builds the even-spacing estimate the LAS_SPACING text describes.
+    EXTRUSION writes multipatch features (ADR-238) "depicting the z-range of each input file", as documented: a box
+    over the file's x,y extent from its Z_Min to its Z_Max (a class's, with SUMMARIZE).
+
+    Refused: XYZ, XYZI and GENERATE files; NO_LAS_SPACING — the page's two descriptions of this parameter contradict
+    each other, and grapy builds the even-spacing estimate the LAS_SPACING text describes.
 
     INFERRED: Pt_Spacing is √(extent area ÷ count), from the file's header extent; field types are text, integers and
-    doubles."""
+    doubles; an extruded file whose points are all at one height is its extent's rectangle at that height (Q-209 (j))."""
     from ._reference import reference_of
     from ._tintools import _write
     if str(in_file_type or "LAS").upper() != "LAS":
         _refuse("ddd", "PointFileInformation", "in_file_type", in_file_type, "only LAS files are read")
-    if str(extrude_geometry or "NO_EXTRUSION").upper() != "NO_EXTRUSION":
-        _refuse("ddd", "PointFileInformation", "extrude_geometry", extrude_geometry, "it writes multipatch features")
+    extrude = str(extrude_geometry or "NO_EXTRUSION").upper()
+    if extrude not in ("EXTRUSION", "NO_EXTRUSION"):
+        raise ExecuteError(f"ERROR 000800: extrude_geometry is EXTRUSION or NO_EXTRUSION, not '{extrude_geometry}'.")
+    extrude = extrude == "EXTRUSION"
     if str(improve_las_point_spacing or "LAS_SPACING").upper() != "LAS_SPACING":
         _refuse("ddd", "PointFileInformation", "improve_las_point_spacing", improve_las_point_spacing,
                 "the page's descriptions of LAS_SPACING and NO_LAS_SPACING contradict each other")
@@ -839,17 +844,31 @@ def PointFileInformation(input, out_feature_class, in_file_type="LAS", file_suff
     if by_class:
         columns.append(_gpkg.Column("Class", "Integer"))
     rows = []
+
+    def shape(extent, low, high):
+        if not extrude:
+            return shapely.MultiPolygon([shapely.box(*extent)])
+        from . import _multipatch as M
+        x0, y0, x1, y1 = extent
+        if high > low:
+            return M.from_triangles(M.box((x0, y0, low), (x1, y1, high)))
+        return shapely.MultiPolygon([shapely.Polygon([(x0, y0, low), (x1, y0, low), (x1, y1, low), (x0, y1, low)])])
+
     for path in files:
         s = statistics(path)
         srid = srid or s["srid"]
-        box = shapely.MultiPolygon([shapely.box(*s["extent"])])
         area = (s["extent"][2] - s["extent"][0]) * (s["extent"][3] - s["extent"][1])
         if by_class:
             for code, c in sorted(s["classes"].items(), key=lambda kv: int(kv[0])):
                 spacing = math.sqrt(area / c["count"]) if c["count"] and area > 0 else None
-                rows.append((os.path.basename(path), spacing, c["zMin"], c["zMax"], c["count"], int(code), box))
+                rows.append((os.path.basename(path), spacing, c["zMin"], c["zMax"], c["count"], int(code),
+                             shape(s["extent"], c["zMin"], c["zMax"])))
         else:
-            rows.append((os.path.basename(path), s["pointSpacing"], s["zMin"], s["zMax"], s["pointCount"], box))
+            rows.append((os.path.basename(path), s["pointSpacing"], s["zMin"], s["zMax"], s["pointCount"],
+                         shape(s["extent"], s["zMin"], s["zMax"])))
+    if extrude:
+        from . import _multipatch as M
+        return Result(M.write(out_feature_class, srid, columns, [(list(r[:-1]), r[-1]) for r in rows]))
     return Result(_write(out_feature_class, "Polygon", srid, columns, False, rows))
 
 

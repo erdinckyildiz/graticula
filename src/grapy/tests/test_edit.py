@@ -170,9 +170,6 @@ class Edit(unittest.TestCase):
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             grapy.edit.SplitLineByMatch("a", "b", "t", "o", "1 Meters")
         self.assertIn("match table", str(raised.exception))
-        with self.assertRaises(arcpy.NotBuiltError) as raised:
-            grapy.edit.UpdateCOGO("lines")
-        self.assertIn("ADR-224 group 2", str(raised.exception))
 
 
 if __name__ == "__main__":

@@ -67,7 +67,15 @@ internal static partial class CoverageAdminEndpoints
         List<CatalogImage> images = [.. (await ImageServerEndpoints.CatalogAsync(coverage, readers, cancellation).ConfigureAwait(false))
             .OrderBy(i => i.Position)];
         int from = images.FindIndex(i => i.Id == id);
-        int to = from + (string.Equals(move.Direction, "up", StringComparison.OrdinalIgnoreCase) ? 1 : -1);
+        int step = string.Equals(move.Direction, "up", StringComparison.OrdinalIgnoreCase) ? 1 : -1;
+        int to = from + step;
+
+        // D-326: a ZOrder comes before the stack, so the image swapped with is the nearest of the same ZOrder; one of
+        // another ZOrder between them is drawn by it whatever its place (ux review of D-326).
+        while (from >= 0 && to >= 0 && to < images.Count && (images[to].ZOrder ?? 0) != (images[from].ZOrder ?? 0))
+        {
+            to += step;
+        }
 
         if (from < 0 || move.Direction is null || to < 0 || to >= images.Count)
         {

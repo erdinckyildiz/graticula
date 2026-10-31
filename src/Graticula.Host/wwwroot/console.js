@@ -35707,8 +35707,10 @@ async function drawCoverageImages(name, folder, focusAt = null) {
   // What has been typed and not saved, by image id, so a redraw puts it back.
   const unsaved = {};
   box.querySelectorAll("tr[data-image]").forEach(tr => {
-    const n = tr.querySelector(".imageName"), d = tr.querySelector(".imageTaken");
-    if (n && d && (n.value !== n.defaultValue || d.value !== d.defaultValue)) unsaved[tr.dataset.image] = { name: n.value, taken: d.value };
+    const n = tr.querySelector(".imageName"), d = tr.querySelector(".imageTaken"), z = tr.querySelector(".imageZ");
+    if (n && d && z && (n.value !== n.defaultValue || d.value !== d.defaultValue || z.value !== z.defaultValue)) {
+      unsaved[tr.dataset.image] = { name: n.value, taken: d.value, z: z.value };
+    }
   });
   let said;
   try { said = await api(`/admin/coverages/${encodeURIComponent(name)}/images${query}`); }
@@ -35726,8 +35728,14 @@ async function drawCoverageImages(name, folder, focusAt = null) {
   // One column a dimension besides time, named as multidimensionalInfo names it (ux review 11).
   const dimensionNames = [...new Set(images.flatMap(i => Object.keys(i.dimensions || {})))];
   const firstOf = d => images.map(i => (i.dimensions || {})[d]).find(v => v != null);
-  // Listed from the top of the stack down, so Raise moves a row up (ux review 11).
-  const listed = [...images].sort((a, b) => b.position - a.position);
+  // Listed from the top of the stack down, so Raise moves a row up (ux review 11). D-326: a ZOrder comes first — the
+  // lower is drawn on top, none counts as 0 — and the stack orders images of one ZOrder.
+  const zOf = i => i.zOrder ?? 0;
+  const ordered = images.some(i => i.zOrder != null);
+  const listed = [...images].sort((a, b) => zOf(a) - zOf(b) || b.position - a.position);
+  // Raise and Lower swap an image with the nearest one of its own ZOrder that way, as the server does (ux review of
+  // D-326: the neighbour in the stack may hold another ZOrder, and swapping with it changes nothing drawn).
+  const movable = (i, step) => images.some(o => zOf(o) === zOf(i) && (step > 0 ? o.position > i.position : o.position < i.position));
   box.innerHTML = `
     <h4>Images</h4>
     ${sliced ? `<p class="hint" id="imagesSliced">Multidimensional: ${variables.length === 1 ? "1 variable" : `${variables.length} variables`} (${h(variables.join(", "))})
@@ -35736,26 +35744,31 @@ async function drawCoverageImages(name, folder, focusAt = null) {
     <p class="hint">${one
       ? "One image."
       : `${images.length} images, listed from the top down: where they overlap, the first listed is drawn over the others. ArcGIS clients see them as the catalog of a mosaic dataset, and may choose which is on top with a mosaic rule. Raise and Lower save at once.`}
+      ${one ? "" : `<span id="imagesZHint">${ordered
+        ? "An image with a lower ZOrder is drawn on top, wherever it is in the stack; empty counts as 0. Raise and Lower only swap images with the same ZOrder."
+        : "An image with a lower ZOrder is drawn on top; empty counts as 0."}</span>`}
       The acquisition date is when an image was taken; dated images give the service time, so a time slider chooses among them.</p>
     ${dated > 0 && dated < images.length ? `<p class="hint bad-inline" id="imagesPartlyDated">${dated} of ${images.length} images have a date. With a time slider on, only dated images are drawn; the other ${images.length - dated} are hidden.</p>` : ""}
     <div class="tablewrap"><table id="imagesTable"${sliced ? ` class="sliced"` : ""}>
-      <thead><tr><th scope="col" class="num" title="The object id ArcGIS clients use">ID</th><th scope="col" class="num drawn" title="1 is on top">Stack</th><th scope="col">Name</th>${sliced ? `<th scope="col">${h(["Variable", ...dimensionNames].join(" · "))}</th>` : ""}<th scope="col">${sliced ? "Acquired (StdTime)" : "Acquired"}</th>${removable ? `<th scope="col"><span class="sr-only">Actions</span></th>` : ""}</tr></thead>
-      <tbody>${listed.map(i => {
+      <thead><tr><th scope="col" class="num" title="The object id ArcGIS clients use">ID</th><th scope="col" class="num drawn" title="1 is on top">Stack</th><th scope="col">Name</th>${sliced ? `<th scope="col">${h(["Variable", ...dimensionNames].join(" · "))}</th>` : ""}<th scope="col">${sliced ? "Acquired (StdTime)" : "Acquired"}</th>${one ? "" : `<th scope="col" class="num">ZOrder</th>`}${removable ? `<th scope="col"><span class="sr-only">Actions</span></th>` : ""}</tr></thead>
+      <tbody>${listed.map((i, at) => {
         const kept = unsaved[i.id];
-        return `<tr data-image="${i.id}">
+        return `<tr data-image="${i.id}"${ordered && at > 0 && zOf(listed[at - 1]) !== zOf(i) ? ` class="zbreak"` : ""}>
         <td class="num" data-label="ID">${i.id}</td>
-        <td class="num drawn" data-label="Stack">${images.length - i.position}</td>
+        <td class="num drawn" data-label="Stack">${at + 1}</td>
         <td><input type="text" class="imageName" value="${h(i.name)}" maxlength="200" title="${h(i.name)}" aria-label="Name of image ${i.id}" aria-describedby="imagesSays">
           ${i.file ? `<span class="hint imageFile">${h(i.file)}</span>` : ""}<span class="hint imageChanged" id="imageChanged${i.id}" hidden>Changed, not saved</span></td>
         ${sliced ? `<td class="imageSlice" data-label="${h(["Variable", ...dimensionNames].join(" · "))}">${h([i.variable || "", ...dimensionNames.map(d => (i.dimensions || {})[d] ?? "")].join(" · "))}</td>` : ""}
         <td data-label="${sliced ? "Acquired (StdTime)" : "Acquired"}"><input type="date" class="imageTaken" value="${day(i.acquired)}" aria-label="When image ${i.id} was taken"></td>
+        ${one ? `<td hidden><input type="text" class="imageZ" value="${i.zOrder ?? ""}"></td>` : `<td class="zcell" data-label="ZOrder"><input type="text" inputmode="numeric" class="imageZ" value="${i.zOrder ?? ""}" size="5"
+          aria-label="ZOrder of image ${i.id}" aria-describedby="imagesSays imagesZHint"></td>`}
         ${removable ? `<td class="acts">
-          <button type="button" class="tiny" data-image-move="up" data-image="${i.id}"${i.position === images.length - 1 ? " disabled" : ""}
+          <button type="button" class="tiny" data-image-move="up" data-image="${i.id}"${movable(i, 1) ? "" : " disabled"}
             aria-label="Raise image ${i.id}, ${h(i.name)}: draw it over the one above">Raise</button>
-          <button type="button" class="tiny" data-image-move="down" data-image="${i.id}"${i.position === 0 ? " disabled" : ""}
+          <button type="button" class="tiny" data-image-move="down" data-image="${i.id}"${movable(i, -1) ? "" : " disabled"}
             aria-label="Lower image ${i.id}, ${h(i.name)}: draw it under the one below">Lower</button>
           <button type="button" class="tiny danger" data-image-remove="${i.id}" aria-label="Remove image ${i.id}, ${h(i.name)}">Remove</button></td>` : ""}
-        ${kept ? `<td hidden data-kept-name="${h(kept.name)}" data-kept-taken="${h(kept.taken)}"></td>` : ""}</tr>`; }).join("")}</tbody>
+        ${kept ? `<td hidden data-kept-name="${h(kept.name)}" data-kept-taken="${h(kept.taken)}" data-kept-z="${h(kept.z)}"></td>` : ""}</tr>`; }).join("")}</tbody>
     </table></div>
     <div class="row covsave">
       <button type="button" class="primary" id="imagesSave">Save changes</button>
@@ -35770,6 +35783,7 @@ async function drawCoverageImages(name, folder, focusAt = null) {
     const tr = td.closest("tr");
     tr.querySelector(".imageName").value = td.dataset.keptName;
     tr.querySelector(".imageTaken").value = td.dataset.keptTaken;
+    tr.querySelector(".imageZ").value = td.dataset.keptZ;
     tr.dataset.dirty = "true";
     const marker = tr.querySelector(".imageChanged");
     if (marker) marker.hidden = false;
@@ -35783,13 +35797,14 @@ async function drawCoverageImages(name, folder, focusAt = null) {
     setTimeout(() => { line.textContent = text; line.classList.toggle("bad-inline", refusal); }, 30);
   };
   const markDirty = tr => {
-    const n = tr.querySelector(".imageName"), d = tr.querySelector(".imageTaken");
-    tr.dataset.dirty = String(n.value !== n.defaultValue || d.value !== d.defaultValue);
+    const n = tr.querySelector(".imageName"), d = tr.querySelector(".imageTaken"), z = tr.querySelector(".imageZ");
+    tr.dataset.dirty = String(n.value !== n.defaultValue || d.value !== d.defaultValue || z.value !== z.defaultValue);
     // Said, not only shown by a bar: a screen reader hears that the row is changed (ux review 8).
     const marker = tr.querySelector(".imageChanged");
     if (marker) marker.hidden = tr.dataset.dirty !== "true";
     n.setAttribute("aria-describedby", tr.dataset.dirty === "true" ? `imagesSays imageChanged${tr.dataset.image}` : "imagesSays");
     n.removeAttribute("aria-invalid");
+    z.removeAttribute("aria-invalid");
   };
   box.querySelectorAll("tr[data-image] input").forEach(input => {
     input.addEventListener("input", () => markDirty(input.closest("tr")));
@@ -35821,19 +35836,48 @@ async function drawCoverageImages(name, folder, focusAt = null) {
       input.focus();
       return;
     }
+    // A ZOrder is a whole number, as ArcGIS's field is, or empty for none.
+    const notWhole = changed.find(tr => {
+      const v = tr.querySelector(".imageZ").value.trim();
+      return v !== "" && !(/^[+-]?\d+$/.test(v) && Math.abs(Number(v)) <= 2147483647);
+    });
+    if (notWhole) {
+      const input = notWhole.querySelector(".imageZ");
+      const v = input.value.trim();
+      input.setAttribute("aria-invalid", "true");
+      say(/^[+-]?\d+$/.test(v)
+        ? `Image ${notWhole.dataset.image}'s ZOrder must be between -2,147,483,647 and 2,147,483,647.`
+        : `Image ${notWhole.dataset.image}'s ZOrder must be a whole number, such as -1, 0 or 5. Leave it empty for none.`, true);
+      input.focus();
+      return;
+    }
     button.setAttribute("aria-disabled", "true");
     let saved = 0;
+    const moved = changed.filter(tr => { const z = tr.querySelector(".imageZ"); return z.value !== z.defaultValue; }).map(tr => tr.dataset.image);
     try {
       for (const tr of changed) {
         const taken = tr.querySelector(".imageTaken").value;
         const body = { name: tr.querySelector(".imageName").value.trim() };
         if (taken) body.acquired = Date.parse(`${taken}T00:00:00Z`); else body.clearAcquired = true;
+        const z = tr.querySelector(".imageZ").value.trim();
+        if (z !== "") body.zOrder = Number(z); else body.clearZOrder = true;
         await api(`/admin/coverages/${encodeURIComponent(name)}/images/${tr.dataset.image}${query}`,
           { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         saved++;
+        // Saved, so not kept as unsaved by the redraw (ux review of D-326); a row that failed stays marked.
+        tr.querySelectorAll("input").forEach(input => { input.defaultValue = input.value; });
+        tr.dataset.dirty = "false";
       }
       await drawCoverageImages(name, folder);
-      say(`Saved ${saved} image${saved === 1 ? "" : "s"}.`);
+      let where = "";
+      if (moved.length === 1) {
+        const row = box.querySelector(`tr[data-image="${moved[0]}"]`);
+        const stack = Number(row?.querySelector(".drawn")?.textContent);
+        const count = box.querySelectorAll("tr[data-image]").length;
+        const called = `Image ${moved[0]}${row?.querySelector(".imageName")?.value ? `, ${row.querySelector(".imageName").value},` : ""}`;
+        if (row) where = ` ${called} is now ${stack === 1 ? "on top" : stack === count ? "at the bottom" : `${stack} of ${count} from the top`}.`;
+      }
+      say(`Saved ${saved} image${saved === 1 ? "" : "s"}.${where}`);
       $("imagesSave")?.focus();
     } catch (e) {
       say(`Saved ${saved} of ${changed.length}; then: ${e.message || e}`, true);

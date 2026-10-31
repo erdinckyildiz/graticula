@@ -130,6 +130,18 @@ is Esri's. Rejected for the name, not the shape: grapy keeps `arcpy`'s documente
    process writes, so a tool could have had the server parse any file it can read as GeoJSON; and a FIFO in the place of
    `result.json` would have held the server's only tool slot for ever. A process the tool leaves behind is why the check
    is on the handle and not the path: the sandbox kills the tree only past the deadline.
+12. **Added 2026-10-31 by owner decision on [D-325](../architecture-debt.md) (*"Dördünü de kapat"*): what a run
+   publishes is bounded per organisation, asked a privilege, audited under the person and withdrawn whole.** (a) The
+   rasters tools publish are kept apart from uploads, under `imagery/tool-outputs/`, and an organisation's tools may hold
+   at most `Graticula:Tools:OutputMegabytes:<organisation key>` of them, or `…:Default` for every organisation not named;
+   unset is unlimited, as before. The figure is measured from the files the organisation's image services hold there now,
+   so removing an output frees its room. (b) **Reverses §5.3's choice that a feature output asks no privilege**: a run
+   that would publish a hosted layer asks `content:publishFeatures`, as the import door does, before it is queued; a tool
+   that answers only values asks nothing. (c) The audit record of an output names the person who submitted the run and
+   where from, not the job — `coverage.tool-output` and, new, `layer.tool-output`; a run queued before the change keeps
+   the job's name. (d) A run that fails while publishing withdraws, last first, every output it had published — the
+   hosted layer unpublished, its table dropped and its service deleted; the image service removed with its file — and
+   audits each as `…-withdrawn`.
 
 ## Conditions
 

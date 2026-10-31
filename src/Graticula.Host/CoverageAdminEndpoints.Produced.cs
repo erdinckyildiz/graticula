@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Graticula.Coverages;
@@ -104,9 +105,12 @@ internal static partial class CoverageAdminEndpoints
     /// <param name="owner">Who ran the tool.</param>
     /// <param name="job">The run, for the audit record.</param>
     /// <param name="cancellation">Cancellation.</param>
+    /// <param name="ownerName">Their name when they submitted the run, which the audit record carries (D-325).</param>
+    /// <param name="address">Where they submitted it from, or null.</param>
     /// <returns>The service as published, or why the file was refused.</returns>
     internal static async Task<(PublishedCoverage? Published, string? Refusal)> PublishProducedAsync(
-        IServiceProvider services, FileStream source, string named, string name, Guid owner, Guid job, CancellationToken cancellation)
+        IServiceProvider services, FileStream source, string named, string name, Guid owner, Guid job, CancellationToken cancellation,
+        string? ownerName = null, string? address = null)
     {
         ICoverageCatalog coverages = services.GetRequiredService<ICoverageCatalog>();
         ICoverageReaderFactory readers = services.GetRequiredService<ICoverageReaderFactory>();
@@ -126,7 +130,13 @@ internal static partial class CoverageAdminEndpoints
                 + $"{MaximumUploadBytes / (1024 * 1024 * 1024)} GB.");
         }
 
-        string directory = ImageryDirectory(settings);
+        // D-325 (a): one organisation's runs cannot fill the volume every organisation is served from.
+        if (await OverQuotaAsync(services, coverages, settings, named, size, cancellation).ConfigureAwait(false) is { } over)
+        {
+            return (null, over);
+        }
+
+        string directory = ToolOutputsDirectory(settings);
         Directory.CreateDirectory(directory);
 
         // The server's own name, so nothing the tool chose becomes a path; a copy, so the run's directory can go.
@@ -170,11 +180,12 @@ internal static partial class CoverageAdminEndpoints
                     published.Folder, published.ServiceName, [new CoverageImageEntry(1, Path.GetFileName(path), named + ".tif", null)], null, cancellation)
                     .ConfigureAwait(false);
 
+                // Under the person's name, as every other publish is; the run is in the detail (D-325 (c)).
                 await services.GetRequiredService<IAuditLog>().RecordAsync(
                     new AuditEvent(
                         owner,
-                        $"tool job {job:N}",
-                        null,
+                        ownerName ?? $"tool job {job:N}",
+                        address,
                         "coverage.tool-output",
                         published.QualifiedName,
                         System.Text.Json.JsonSerializer.Serialize(new
@@ -202,5 +213,70 @@ internal static partial class CoverageAdminEndpoints
                 Forget([path]);
             }
         }
+    }
+
+    /// <summary>
+    /// Where the rasters tools publish are kept: beside the uploads, under the imagery directory, and apart from them so
+    /// that what an organisation's tools hold can be measured (D-325).
+    /// </summary>
+    internal static string ToolOutputsDirectory(HostSettings settings) => Path.Combine(ImageryDirectory(settings), "tool-outputs");
+
+    /// <summary>
+    /// Withdraws a raster a run published when a later output of the same run failed — D-325 (d): a run either answers
+    /// every output or leaves none of them behind.
+    /// </summary>
+    internal static async Task WithdrawProducedAsync(IServiceProvider services, PublishedCoverage published)
+    {
+        ICoverageCatalog coverages = services.GetRequiredService<ICoverageCatalog>();
+
+        if (await coverages.RemoveAsync(published.Folder, published.ServiceName, CancellationToken.None).ConfigureAwait(false))
+        {
+            Forget([published.Path]);
+        }
+    }
+
+    /// <summary>
+    /// Why <paramref name="size"/> more bytes would take the organisation's tools past their limit, or null — measured
+    /// from the files its tool outputs hold now, so what was removed no longer counts.
+    /// </summary>
+    private static async Task<string?> OverQuotaAsync(
+        IServiceProvider services, ICoverageCatalog coverages, HostSettings settings, string named, long size, CancellationToken cancellation)
+    {
+        ToolSettings? tools = services.GetService<ToolSettings>();
+        string? key = null;
+
+        if (tools?.OutputBytes is not null && services.GetService<Graticula.Platform.Tenancy.ITenantStore>() is { } tenants)
+        {
+            Guid current = Graticula.Platform.Tenancy.TenantScope.Effective;
+            key = (await tenants.ListAsync(cancellation).ConfigureAwait(false)).FirstOrDefault(t => t.Id == current)?.Key;
+        }
+
+        if (tools?.OutputLimitFor(key) is not long limit)
+        {
+            return null;
+        }
+
+        string root = Path.GetFullPath(ToolOutputsDirectory(settings)) + Path.DirectorySeparatorChar;
+        long held = 0;
+
+        // The catalogue's rows are the organisation's own (ADR-204), so these are its tools' files and nobody else's.
+        foreach (PublishedCoverage coverage in await coverages.ListAsync(cancellation).ConfigureAwait(false))
+        {
+            string path = Path.GetFullPath(coverage.Path);
+
+            if (path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && Directory.Exists(root))
+            {
+                // With the overviews built beside it.
+                foreach (string file in Directory.EnumerateFiles(root, Path.GetFileNameWithoutExtension(path) + "*"))
+                {
+                    held += new FileInfo(file).Length;
+                }
+            }
+        }
+
+        return held + size <= limit
+            ? null
+            : $"{named} is {size / (1024 * 1024)} MB, and this organisation's tools already hold {held / (1024 * 1024)} MB of the "
+                + $"{limit / (1024 * 1024)} MB they may; remove a tool's earlier output, or ask an administrator to raise the limit.";
     }
 }

@@ -142,7 +142,7 @@ falls at x = 3, halfway between the centres. No performance claim is made.
 8. **What a parameter's page leaves undefined is refused, not guessed**: BuildFootprints' `approx_num_vertices` other
    than -1 (how vertices are reduced is not said), `request_size`, `MAINTAIN_EDGES` and their tolerances;
    ExportMosaicDatasetItems' formats other than TIFF, image space and band selection; a `.dbf` paths table.
-9. **INFERRED, for confirmation** ([Q-198](../open-questions.md)):
+9. ~~**INFERRED, for confirmation**~~ **Confirmed 2026-10-31 by owner decision in Q-198** (*"Hepsini onayla"*) ([Q-198](../open-questions.md)):
    - (a) the storage of §5.2: the catalog as a GeoPackage feature table named after the mosaic dataset, with
      `OBJECTID` and `Raster` holding the file path; grapy's two tables; only in a GeoPackage; items read in place, and
      mosaicked by grapy rather than through a VRT;

@@ -3409,10 +3409,6 @@ _REFUSED.update({
     "RasterCellIterator": "the page does not give the iteration order, edge behaviour or integer NoData, and new output "
                           "rasters come from RasterInfo, whose page could not be read (404)",
     "Apply": "it runs Pro's raster function engine by function name or raster function template (.rft.xml)",
-    "Foreach": "it applies a raster function to every slice of a multidimensional raster (ADR-224 group 2)",
-    "Subset": "it subsets multidimensional rasters by variable and dimension (ADR-224 group 2)",
-    "SummarizeCategoricalRaster": "it summarises multidimensional categorical rasters (ADR-224 group 2)",
-    "Complex": "grapy's rasters hold no complex pixel types, and the page defers the magnitude formula",
     "Geometric": "it approximates the sensor model by a Polynomial or Projective transform within a pixel tolerance, "
                  "and the page does not say how that approximation is fitted; arcpy.management."
                  "CreateOrthoCorrectedRasterDataset orthorectifies an RPC raster or Frame Camera items by their exact "
@@ -3432,7 +3428,8 @@ _REFUSED.update({
     "CreateBinaryMask": "the page does not define the flood fill, the expansion metric or the region connectivity",
     "CalculateCutFillVolume": "the page does not give the volume integration or how SURFACE's base is interpolated",
     "OptimalInterpolation": _UNSPEC,
-    "ExtractWater": "it classifies radar backscatter by a method the page does not name (ADR-224 group 2 for SAR)",
+    "ExtractWater": "it labels radar backscatter as water or land by a classifier its page does not name — no threshold, "
+                    "statistic or training is given — though grapy holds SAR data (ADR-237)",
     "DetectImageAnomalies": "RXD and UTD are given, but not how the mean and covariance are estimated nor the scaling "
                             "to 0-1, and KMEANS is not defined",
     "ClassifyRasterUsingSpectra": "its methods (SAM, SID, SIDSAM, NS3) are described without formulas",
@@ -5158,6 +5155,39 @@ def CutFill(in_before_surface, in_after_surface, z_factor=1):
 for _built in ("Lookup", "Combine", "CutFill"):
     _REFUSED.pop(_built, None)
     _NOT_YET.pop(_built, None)
+
+
+# ---- multidimensional rasters (ADR-236): built in _mdimtools and _change, answered here and by arcpy.ia under
+# arcpy's names; the reasons for the one still refused replace group 2's.
+
+from . import _mdimtools as _md_tools  # noqa: E402
+
+AggregateMultidimensionalRaster = _md_tools.AggregateMultidimensionalRaster
+Anomaly = _md_tools.Anomaly
+ArgStatistics = _md_tools.ArgStatistics
+DimensionalMovingStatistics = _md_tools.DimensionalMovingStatistics
+GenerateMultidimensionalAnomaly = _md_tools.GenerateMultidimensionalAnomaly
+for _built in ("AggregateMultidimensionalRaster", "AnalyzeChangesUsingCCDC", "AnalyzeChangesUsingLandTrendr", "Anomaly",
+               "ArgStatistics", "ComputeChange", "ComputeChangeRaster", "DetectChangeUsingChangeAnalysis",
+               "DetectChangeUsingChangeAnalysisRaster", "DimensionalMovingStatistics", "FindArgumentStatistics",
+               "GenerateMultidimensionalAnomaly", "GenerateTrend", "GenerateTrendRaster",
+               "InterpolateFromSpatiotemporalPoints", "MultidimensionalPrincipalComponents",
+               "MultidimensionalRasterCorrelation", "PredictUsingTrend", "PredictUsingTrendRaster", "RasterCollection",
+               "RasterToXarray", "TrendToRGB", "XarrayToRaster"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+# Subset and Foreach (D-329's sweep): built on ADR-236's model, in _mdmore.
+from . import _mdmore as _md_more  # noqa: E402
+
+Subset = _md_more.Subset
+Foreach = _md_more.Foreach
+Complex = _md_more.Complex  # on ADR-237's complex rasters
+for _built in ("Subset", "Foreach", "SummarizeCategoricalRaster", "Complex"):
+    _REFUSED.pop(_built, None)
+    _NOT_YET.pop(_built, None)
+_REFUSED["InterpolateRasterByDimension"] = (
+    "arcpy documents no Python signature for it: there is no arcpy reference page, and the raster function page gives "
+    "only its display labels, so its parameter names and order are unknown (ADR-236)")
 
 
 def __getattr__(name):

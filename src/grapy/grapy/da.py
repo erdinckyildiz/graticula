@@ -158,6 +158,9 @@ class _Cursor:
                                    f"{self._joined.names[0] if self._joined.names else 'table.field'}.") from None
         else:
             self.fields = tuple(_columns(field_names, self._described, self._oid))
+            if field_names in ("*", ["*"]) and self._geometry not in [r[1] for r in self._connection.execute(
+                    f'pragma table_info("{self._table}")')]:
+                self.fields = tuple(f for f in self.fields if f != "SHAPE@")  # a table or view with no shape (ADR-240)
         self._tokens = _model_tokens(self._connection, self._table, self.fields)
         if self._tokens and self._joined is not None:
             raise NotBuiltError("arcpy.da: SUBTYPE@ and GLOBALID@ on a joined layer are not built in grapy.")
@@ -221,6 +224,13 @@ class _Cursor:
             found = _rules.engine(self._connection, self._table, version=getattr(self, "_version_name", None))
             self._engine = found if found.active else None
         return self._engine
+
+    def _tracker(self):
+        """The class's editor tracking (ADR-240), stamped on each insert and update after its rules; None without."""
+        if not hasattr(self, "_tracking"):
+            from . import _behaviours
+            self._tracking = _behaviours.tracker(self._connection, self._table)
+        return self._tracking
 
     def _full_row(self, oid):
         cursor = self._connection.execute(f'select * from "{self._table}" where "{self._oid}" = ?', (oid,))
@@ -441,11 +451,15 @@ class InsertCursor(_Cursor):
             written = self._defaults(self._row_values(row))
             if self._rules() is not None:
                 written = self._rules().insert(written)
+            if self._tracker() is not None:
+                written = self._tracker().insert(written)
             _versions.write(self._connection, self._table, branch, object_id, written)
             return object_id
         written = self._defaults(self._row_values(row))
         if self._rules() is not None:
             written = self._rules().insert(written)
+        if self._tracker() is not None:
+            written = self._tracker().insert(written)
         names, values = list(written), list(written.values())
         quoted = ", ".join('"' + n + '"' for n in names)
         marks = ", ".join("?" for _ in names)
@@ -485,6 +499,8 @@ class UpdateCursor(SearchCursor):
             current.update(self._row_values(row))
             if self._rules() is not None:
                 current = self._rules().update(original, current)
+            if self._tracker() is not None:
+                current = self._tracker().update(current)
             _versions.write(self._connection, self._table, branch, oid, current)
             return
         names, values = [], []
@@ -521,6 +537,8 @@ class UpdateCursor(SearchCursor):
             values = [proposed[k] for k in names]
             if not names:
                 return
+        if self._tracker() is not None:
+            names, values = self._tracker().update_names(names, values)
         assignments = ", ".join(f'"{n}" = ?' for n in names)
         self._connection.execute(f'update "{self._table}" set {assignments} where "{self._oid}" = ?', [*values, oid])
 
@@ -799,8 +817,8 @@ def CreateTable(path, fields=None, shape=None, configuration=None):
 
     ``fields`` is tuples ``(name, type, alias, length, nullable, default)``, Field objects, or a NumPy dtype. ``shape``
     is a tuple ``(geometry type, spatial reference, has z, has m)``. Alias and length change nothing in a GeoPackage
-    (INFERRED, as for AddField); a default value, z, m, a multipatch and ``configuration`` (enterprise geodatabases only)
-    are refused by name."""
+    (INFERRED, as for AddField); z and m set the GeoPackage geometry column's flags, and MULTIPATCH makes a multipatch
+    class (ADR-238). A default value and ``configuration`` (enterprise geodatabases only) are refused by name."""
     from . import ValidateFieldName
     from ._reference import reference_of
     if configuration not in (None, "", "#"):
@@ -823,43 +841,71 @@ def CreateTable(path, fields=None, shape=None, configuration=None):
             if stored is None:
                 raise NotBuiltError(f"arcpy.da.CreateTable: field type '{kind}' is not built in grapy.")
             columns.append(_gpkg.Column(ValidateFieldName(name), stored, bool(nullable)))
-    kind, srid = "Geometry", 0
+    kind, srid, has_z, has_m = "Geometry", 0, False, False
     if shape is not None:
         shape = (shape,) if isinstance(shape, str) else tuple(shape)
         geometry = str(shape[0]).upper()
-        if geometry == "MULTIPATCH" or any(bool(v) for v in shape[2:4]):
-            raise NotBuiltError("arcpy.da.CreateTable: z, m and multipatch geometry are not built — grapy's feature classes are 2D.")
-        kinds = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon"}
+        has_z = len(shape) > 2 and _truthy(shape[2])
+        has_m = len(shape) > 3 and _truthy(shape[3])
+        kinds = {"POINT": "Point", "MULTIPOINT": "Multipoint", "POLYLINE": "Polyline", "POLYGON": "Polygon",
+                 "MULTIPATCH": "MultiPatch"}
         if geometry not in kinds:
             raise ValueError(f"arcpy.da.CreateTable: '{shape[0]}' is not a geometry type.")
         kind = kinds[geometry]
         reference = reference_of(shape[1]) if len(shape) > 1 and shape[1] not in (None, "") else None
         srid = reference.factoryCode if reference else 0
     out = _new("CreateTable", path)
-    _gpkg.create(out, kind, srid, columns)
+    if kind == "MultiPatch":  # ADR-238: a multipatch class is faces as MultiPolygon Z
+        from . import _multipatch
+        _gpkg.create(out, "Polygon", srid, columns, True, has_m)
+        _multipatch.register(out)
+    else:
+        _gpkg.create(out, kind, srid, columns, has_z, has_m)
     return out, [c.name for c in columns]
+
+
+def _truthy(value):
+    """has z / has m in a shape tuple: True, or ENABLED, as arcpy's tools spell it."""
+    if isinstance(value, str):
+        return value.strip().upper() in ("TRUE", "ENABLED", "HAS_Z", "HAS_M", "1", "YES")
+    return bool(value)
 
 
 def NumPyArrayToFeatureClass(in_array, out_table, shape_fields, spatial_reference=None):
     """A NumPy structured array written as a new point feature class: its x and y from two fields, or from one field
-    of two values; the other fields as attributes. z and m are refused: grapy's shapes hold neither."""
+    of two values, then z and m from the third and fourth fields when they are given, as documented; the other fields
+    as attributes. With z or m the class's geometry column carries them."""
+    import shapely
     from . import ValidateFieldName
     from ._reference import reference_of
     out = _new("NumPyArrayToFeatureClass", out_table)
-    shape = [f for f in ([shape_fields] if isinstance(shape_fields, str) else list(shape_fields))]
-    if len(shape) > 2 and any(f not in (None, "") for f in shape[2:]):
-        raise NotBuiltError("arcpy.da.NumPyArrayToFeatureClass: z and m shape fields are not built in grapy.")
-    shape = [f for f in shape[:2] if f not in (None, "")]
-    names = [n for n in in_array.dtype.names if n not in shape]
+    given = [f for f in ([shape_fields] if isinstance(shape_fields, str) else list(shape_fields))]
+    used = [f for f in given if f not in (None, "")]
+    if len(given) == 1:
+        xy_fields, z_field, m_field = given[:1], None, None
+    else:
+        xy_fields = given[:2]
+        z_field = given[2] if len(given) > 2 and given[2] not in (None, "") else None
+        m_field = given[3] if len(given) > 3 and given[3] not in (None, "") else None
+    names = [n for n in in_array.dtype.names if n not in used]
     columns = [_gpkg.Column(ValidateFieldName(n), _column_type("NumPyArrayToFeatureClass", n, in_array.dtype[n]))
                for n in names]
     reference = reference_of(spatial_reference)
-    _gpkg.create(out, "Point", reference.factoryCode if reference else 0, columns)
+    _gpkg.create(out, "Point", reference.factoryCode if reference else 0, columns, z_field is not None,
+                 m_field is not None)
     with InsertCursor(out, [*[c.name for c in columns], "SHAPE@"]) as written:
         for record in in_array:
-            xy = tuple(float(v) for v in record[shape[0]]) if len(shape) == 1 else (float(record[shape[0]]),
-                                                                                   float(record[shape[1]]))
-            written.insertRow((*[_python(record[n]) for n in names], ShapelyPoint(*xy)))
+            xy = tuple(float(v) for v in record[xy_fields[0]]) if len(xy_fields) == 1 else (
+                float(record[xy_fields[0]]), float(record[xy_fields[1]]))
+            if m_field is not None:
+                z = float(record[z_field]) if z_field is not None else None
+                m = float(record[m_field])
+                point = shapely.from_wkt(f"POINT ZM ({xy[0]!r} {xy[1]!r} {z!r} {m!r})") if z is not None else                     shapely.from_wkt(f"POINT M ({xy[0]!r} {xy[1]!r} {m!r})")
+            elif z_field is not None:
+                point = ShapelyPoint(xy[0], xy[1], float(record[z_field]))
+            else:
+                point = ShapelyPoint(*xy)
+            written.insertRow((*[_python(record[n]) for n in names], point))
     return out
 
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.Json.Nodes;
 using System.Threading;
@@ -23,9 +24,21 @@ namespace Graticula.Host;
 /// <param name="CpuSeconds">Its CPU-time limit.</param>
 /// <param name="FileBytes">The largest file it may write.</param>
 /// <param name="Tasks">The ceiling on the OS user's tasks — RLIMIT_NPROC, which Linux counts per user.</param>
+/// <param name="OutputBytes">
+/// How much imagery the tools of one organisation may hold at once (D-325): <c>Graticula:Tools:OutputMegabytes:Default</c>
+/// for every organisation, <c>Graticula:Tools:OutputMegabytes:&lt;key&gt;</c> for one; unset is unlimited.
+/// </param>
 internal sealed record ToolSettings(
-    string Python, string Grapy, bool Unfenced, TimeSpan WallClock, long MemoryBytes, int CpuSeconds, long FileBytes, int Tasks)
+    string Python, string Grapy, bool Unfenced, TimeSpan WallClock, long MemoryBytes, int CpuSeconds, long FileBytes, int Tasks,
+    IReadOnlyDictionary<string, long>? OutputBytes = null)
 {
+    /// <summary>The imagery an organisation's tools may hold, in bytes, or null when it is unlimited.</summary>
+    public long? OutputLimitFor(string? organisation) =>
+        OutputBytes is null ? null
+        : organisation is not null && OutputBytes.TryGetValue(organisation, out long own) ? own
+        : OutputBytes.TryGetValue("Default", out long all) ? all
+        : null;
+
     /// <summary>The settings as configured, with ADR-223 §5.9c's defaults.</summary>
     public static ToolSettings From(IConfiguration configuration)
     {
@@ -40,7 +53,24 @@ internal sealed record ToolSettings(
             (long.TryParse(tools["MemoryMegabytes"], out long memory) && memory > 0 ? memory : 2048) * 1024 * 1024,
             int.TryParse(tools["CpuSeconds"], out int cpu) && cpu > 0 ? cpu : 600,
             (long.TryParse(tools["FileMegabytes"], out long file) && file > 0 ? file : 1024) * 1024 * 1024,
-            int.TryParse(tools["Tasks"], out int tasks) && tasks > 0 ? tasks : 1024);
+            int.TryParse(tools["Tasks"], out int tasks) && tasks > 0 ? tasks : 1024,
+            OutputQuotas(tools.GetSection("OutputMegabytes")));
+    }
+
+    /// <summary>Each organisation's limit as configured, in bytes; a value that is not a whole number of megabytes is not read.</summary>
+    private static Dictionary<string, long>? OutputQuotas(IConfigurationSection section)
+    {
+        Dictionary<string, long> quotas = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (IConfigurationSection organisation in section.GetChildren())
+        {
+            if (long.TryParse(organisation.Value, NumberStyles.None, CultureInfo.InvariantCulture, out long megabytes))
+            {
+                quotas[organisation.Key] = megabytes * 1024 * 1024;
+            }
+        }
+
+        return quotas.Count > 0 ? quotas : null;
     }
 
     /// <summary>Why tools cannot run here, or null when they can.</summary>

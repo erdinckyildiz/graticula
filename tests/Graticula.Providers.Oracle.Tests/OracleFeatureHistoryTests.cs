@@ -44,6 +44,10 @@ public sealed class OracleFeatureHistoryTests
         await ExecuteAsync($"insert into {Table} (label, size_m, shape) values ('one', 1.5, sdo_geometry(2001, 4326, sdo_point_type(30, 40, null), null, null))");
         await ExecuteAsync($"insert into {Table} (label, size_m, shape) values ('two', 2.5, sdo_geometry(2001, 4326, sdo_point_type(31, 41, null), null, null))");
 
+        // D-314: the ids the identity gave, read rather than assumed — a sequence promises order, not 1 and 2.
+        long one = await IdOfAsync(Table, "one");
+        long two = await IdOfAsync(Table, "two");
+
         LayerDefinition layer = new(Table, Owner, Table, "SHAPE", 4326, "OBJECTID", "OBJECTID", isHosted: false);
         OracleFeatureHistory history = new(OracleFixture.Locator, layer);
         OracleFeatureSource source = new(OracleFixture.Locator, layer, new FailingProjector());
@@ -59,16 +63,16 @@ public sealed class OracleFeatureHistoryTests
         OracleFeatureWriter writer = new(OracleFixture.Locator, layer, described.Fields, new FailingProjector());
 
         EditOutcome edited = await writer.ApplyAsync(
-            new EditBatch([], [new FeatureUpdate(1, new Dictionary<string, object?> { ["LABEL"] = "changed" }, null)], [2], Editor: "ayse"),
+            new EditBatch([], [new FeatureUpdate(one, new Dictionary<string, object?> { ["LABEL"] = "changed" }, null)], [two], Editor: "ayse"),
             None);
-        Assert.True(edited.AllSucceeded, Said(edited));
+        Assert.True(edited.AllSucceeded, Said(edited) + " The table held: " + await RowsAsync(Table));
 
-        await ExecuteAsync($"update {Table} set label = 'by sql' where objectid = 1");
+        await ExecuteAsync($"update {Table} set label = 'by sql' where objectid = {one}");
 
         IReadOnlyList<FeatureChange> changes = await history.ChangesAsync(null, 10, None);
-        Assert.Contains(changes, c => c is { ObjectId: 1, Kind: "updated", Editor: "ayse", Direct: false });
-        Assert.Contains(changes, c => c is { ObjectId: 2, Kind: "deleted", Editor: "ayse", Direct: false });
-        Assert.Contains(changes, c => c.ObjectId == 1 && c.Kind == "updated" && c.Direct && c.Editor == Owner);
+        Assert.Contains(changes, c => c.ObjectId == one && c is { Kind: "updated", Editor: "ayse", Direct: false });
+        Assert.Contains(changes, c => c.ObjectId == two && c is { Kind: "deleted", Editor: "ayse", Direct: false });
+        Assert.Contains(changes, c => c.ObjectId == one && c.Kind == "updated" && c.Direct && c.Editor == Owner);
 
         // The layer as it was: both features, with their labels and sizes then.
         List<Feature> then = [];
@@ -81,13 +85,13 @@ public sealed class OracleFeatureHistoryTests
         Assert.Equal([1.5, 2.5], then.Select(f => Convert.ToDouble(f[1], System.Globalization.CultureInfo.InvariantCulture)));
         Assert.All(then, f => Assert.IsAssignableFrom<Point>(f.Geometry));
 
-        FeatureVersion deleted = Assert.Single(await history.VersionsAsync(2, None));
+        FeatureVersion deleted = Assert.Single(await history.VersionsAsync(two, None));
         Assert.Equal("delete", deleted.ClosedBy);
 
-        RestoreOutcome restored = await history.RestoreAsync(2, deleted.HistoryId, "ayse", null, None);
+        RestoreOutcome restored = await history.RestoreAsync(two, deleted.HistoryId, "ayse", null, None);
         Assert.Equal(RestoreResult.Recreated, restored.Result);
-        Assert.Equal(1, await source.CountAsync(new FeatureQuery(1, identities: [2]), None));
-        Assert.Contains(await history.ChangesAsync(null, 10, None), c => c is { ObjectId: 2, Kind: "restored" });
+        Assert.Equal(1, await source.CountAsync(new FeatureQuery(1, identities: [two]), None));
+        Assert.Contains(await history.ChangesAsync(null, 10, None), c => c.ObjectId == two && c.Kind == "restored");
 
         Assert.True(await history.SetKeepAsync(30, None));
         Assert.Equal(30, (await history.KeptAsync(None))?.KeepDays);
@@ -95,6 +99,31 @@ public sealed class OracleFeatureHistoryTests
         await history.DisableAsync(None);
         Assert.False(await history.IsOnAsync(None));
         Assert.False((await source.DescribeAsync(None)).Archived);
+    }
+
+    private static async Task<long> IdOfAsync(string table, string label)
+    {
+        await using OracleConnection connection = await OracleConnections.OpenAsync(
+            OracleConnections.For(OracleFixture.Locator, pooling: true), None);
+        await using OracleCommand command = new($"select objectid from {table} where label = :label", connection);
+        command.Parameters.Add("label", label);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(None), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>The table's rows as a failed edit left them — D-314: the fourth occurrence said only "no such feature".</summary>
+    private static async Task<string> RowsAsync(string table)
+    {
+        await using OracleConnection connection = await OracleConnections.OpenAsync(
+            OracleConnections.For(OracleFixture.Locator, pooling: true), None);
+        await using OracleCommand command = new($"select objectid || ' ' || label from {table} order by objectid", connection);
+        await using OracleDataReader reader = await command.ExecuteReaderAsync(None);
+        List<string> rows = [];
+        while (await reader.ReadAsync(None))
+        {
+            rows.Add(reader.GetString(0));
+        }
+
+        return rows.Count == 0 ? "no rows" : string.Join(", ", rows);
     }
 
     /// <summary>Why each edit that failed failed — D-314: the assertion alone said only <c>False</c>, twice in CI.</summary>

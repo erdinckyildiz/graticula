@@ -87,6 +87,8 @@ class _Described:
             model = _model_properties(connection, table)
             from . import _rules
             rules = _rules.rules(connection, table)  # Describe's attributeRules (ADR-235)
+            from . import _behaviours
+            tracked = _behaviours.tracking(connection, table)  # the editor tracking properties (ADR-240)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -115,6 +117,10 @@ class _Described:
         self.hasGlobalID = bool(global_id)
         self.relationshipClassNames = relationships
         self.attributeRules = rules
+        self.editorTrackingEnabled = tracked is not None
+        self.creatorFieldName, self.createdAtFieldName, self.editorFieldName, self.editedAtFieldName = (
+            [name or "" for name in tracked[:4]] if tracked else ["", "", "", ""])
+        self.isTimeInUTC = tracked[4] if tracked else True
         if joined is not None:
             own = f"{table}.".lower()
             for field in joined:
@@ -694,11 +700,14 @@ _OBJECTS = {"array": Array, "extent": Extent, "featureset": lambda *a: FeatureSe
 
 def CreateObject(name, *options):
     """The geoprocessing object of that name, built as its class is: CreateObject("ValueTable", 2) is ValueTable(2).
-    ArcSDESQLExecute and NetCDFFileProperties are refused: the first needs an enterprise geodatabase a fenced tool
-    cannot reach, the second is not built."""
+    ArcSDESQLExecute is refused: it needs an enterprise geodatabase a fenced tool cannot reach."""
     key = str(name).replace(" ", "").lower()
-    if key in ("arcsdesqlexecute", "netcdffileproperties"):
-        raise NotBuiltError(f"arcpy.CreateObject: '{name}' is not built in grapy.")
+    if key == "arcsdesqlexecute":
+        raise NotBuiltError(f"arcpy.CreateObject: '{name}' is not built in grapy: it needs an enterprise geodatabase, "
+                            "which a fenced tool cannot reach.")
+    if key == "netcdffileproperties":
+        from ._mdmore import NetCDFFileProperties as _properties
+        return _properties(*options)
     if key not in _OBJECTS:
         raise ValueError(f"arcpy.CreateObject: '{name}' is not an object it creates.")
     return _OBJECTS[key](*options)
@@ -978,9 +987,12 @@ _REFUSED_NAMES.update({name: _NO_APPLICATION for name in (
     "GetLogMetadata", "SetLogMetadata", "LogMetadata")})
 _REFUSED_NAMES["SetMessageLevels"] = "its message categories are the internal diagnostics of Esri's own tools, which "                                      "grapy's tools do not write"
 _REFUSED_NAMES.update({
-    "Annotation": "annotation features are a geodatabase data model this server does not hold (ADR-224 group 2)",
+    "Annotation": "an annotation feature keeps its text and its symbol in the Element BLOB field and its class's text "
+                  "symbols in a symbol collection, both in Esri's binary form, which is not published (ADR-240)",
     "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
-    "Multipatch": "a multipatch is a data model this server does not hold yet (ADR-224 group 2)",
+    "Multipatch": "arcpy documents no Multipatch class — neither its class list nor the Geometry page names one, so "
+                  "its constructor and members are unknown; grapy holds multipatch features (ADR-238) and reads and "
+                  "writes them through the cursors as geometries",
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",
     "ListLasDatasetFiles": "it is not documented: absent from ArcPy's function list on pro.arcgis.com on "
                            "2026-10-30, so its parameters and answer are unknown (ADR-229 §5.8)",
@@ -991,10 +1003,6 @@ _REFUSED_NAMES.update({
     "GenerateOptimalCoordinateSystem": "how it chooses a projection and its parameters is not documented",
     "Render": "it applies display symbology — band combinations, stretches and colour maps — for a notebook's view, "
               "and the stretches' rules and the rendered raster it saves are not specified closely enough to reproduce",
-    "NetCDFFileProperties": "GDAL's netCDF driver, the one grapy's rasters read through, reports attributes and extra "
-                            "dimensions as metadata text, not the typed variables and dimensions the class answers "
-                            "(getFieldType, getDimensionsByVariable, getSpatialReference); answering through it would "
-                            "be approximate",
     **{name: "its documentation could not be found (looked under the arcpy functions and classes alphabetical lists, "
              "its pro.arcgis.com address, and the arcpy.mp, arcpy.ia and arcpy.sharing sections)"
        for name in ("GetUTMFromLocation", "GetPCSFromDataSource", "Guide", "Mensuration", "TimeBinningProperties",
@@ -1029,6 +1037,11 @@ class _Refused:
         if name.startswith("_"):
             raise AttributeError(name)
         raise NotBuiltError(f"arcpy.{self._module}.{name}: {self._reason}.")
+
+
+from . import _mdmore  # noqa: E402 — D-329's sweep: read on ADR-236's netCDF reader
+
+NetCDFFileProperties = _mdmore.NetCDFFileProperties
 
 
 def __getattr__(name):

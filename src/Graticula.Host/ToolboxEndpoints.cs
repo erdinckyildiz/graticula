@@ -365,12 +365,14 @@ internal static partial class ToolboxEndpoints
 
             if (IsOutput(parameter))
             {
-                // A raster output becomes an image service, which the upload door asks this privilege for; the tool's door
-                // asks the same, before the run (security review, 2026-10-30).
-                if (dataType == "GPRasterDataLayer" && !current.Authorization.Allows(Privilege.ContentPublishFeatures))
+                // A raster output becomes an image service and a feature output a hosted layer, which the upload doors ask
+                // this privilege for; the tool's door asks the same, before the run (security review 2026-10-30, and for
+                // a feature output by owner decision 2026-10-31, D-325 (b)).
+                if (dataType is "GPRasterDataLayer" or "GPFeatureRecordSetLayer" && !current.Authorization.Allows(Privilege.ContentPublishFeatures))
                 {
+                    string becomes = dataType == "GPRasterDataLayer" ? "an image service" : "a hosted layer";
                     await AnalysisEndpoints.RefuseAsync(context, 403,
-                        $"{parameterName} is published as an image service, which takes the privilege content:publishFeatures; ask an administrator for it.")
+                        $"{parameterName} is published as {becomes}, which takes the privilege content:publishFeatures; ask an administrator for it.")
                         .ConfigureAwait(false);
                     return;
                 }
@@ -463,6 +465,10 @@ internal static partial class ToolboxEndpoints
             ["inputs"] = inputs,
             ["outputs"] = outputs,
             ["sent"] = sent,
+
+            // Who published what the run answers, as the audit log names them (D-325 (c)).
+            ["by"] = current.Principal.Name,
+            ["from"] = CallerAddress.Of(context)?.ToString(),
         };
 
         AnalysisRun run = await runs.CreateAsync(
