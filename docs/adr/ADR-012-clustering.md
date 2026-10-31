@@ -262,7 +262,7 @@ behind one proxy do not need, and makes the small deployment pay for it (§60).
    is judged by.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
 4. **The owner confirms** the order of the phases and that PostgreSQL's own availability and capacity are decided
-   separately. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
+   separately. **DISCHARGED 2026-10-31** — confirmed by owner decision (*"Onayla, ölç ve kur"*): phases 0 → 1 → 2 → 3 in this order, condition 1's measurement first, PostgreSQL's availability a decision of its own, and the plan is to be built rather than held. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
 
 ## 6. Consequences
 

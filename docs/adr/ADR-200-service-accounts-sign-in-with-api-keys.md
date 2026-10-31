@@ -69,7 +69,7 @@ lifetime is optional, as ADR-015 §5 allows; *last used* is shown so an unused k
 ## 6. Conditions
 
 1. **The ArcGIS API for Python is driven with a key** — `GIS(url, api_key=…)` — against this server. *(Discharged 2026-10-18: ArcGIS API for Python 2.4.3, `GIS(url, api_key=…)` against the local fixture, signed in, searched content (5 items) and counted a hosted layer (8); `addItem` with the same key answered 403 — the machine creates nothing.)*
-2. **`client_credentials` is decided**: built on these accounts, or refused by decision.
+2. **`client_credentials` is decided**: built on these accounts, or refused by decision. *Decided 2026-10-31 by owner decision (*"Kur"*): built on these accounts, no second kind of account; the screen goes through the ux review. The condition stays open until it is built.*
 3. **A screen** — D-303. **DISCHARGED 2026-10-28**: Organization › Settings › Security lists the accounts and their keys, makes both, shows a key once, and turns off, deletes and revokes after asking (`ServiceAccountsScreenTests`).
 
 ## 7. Dependencies

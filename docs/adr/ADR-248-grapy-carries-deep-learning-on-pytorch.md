@@ -248,4 +248,4 @@ None recorded.
    under the server's default 2 GB limit. It is skipped on Windows and has not run until CI runs it. **DISCHARGED 2026-10-31**: it ran and passed on Linux in the grapy job of CI run 41195186209 (the v1.0.489 release commit), torch 2.15.0+cpu on x86-64.
 3. **Read the Linux wheels' bundled licences.** The licences of the bundled libraries were read from the Windows CPU
    wheel; the aarch64 and x86-64 wheels the image installs (OpenBLAS, the GNU OpenMP runtime) are not read yet.
-4. **Confirm Q-218**, the INFERRED choices of §5.2–§5.6, with the owner.
+4. **Confirm Q-218**, the INFERRED choices of §5.2–§5.6, with the owner. **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-218 (*"Hepsini onayla"*), the no-baked-weights choice included.
