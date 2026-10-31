@@ -7600,6 +7600,12 @@ internal static partial class AdminEndpoints
             waitSeconds = budget.Wait.TotalSeconds,
             waitingForWorker = budget.WaitingForWorker,
             waitingForSource = budget.WaitingForSource,
+
+            // ADR-046 at the platform store (2026-11-01): requests reading it before a data source, and their queue.
+            store = context.RequestServices.GetService<StoreGate>() is { } gate
+                ? new { permits = gate.Permits, inside = gate.Inside, waiting = gate.Waiting, queueDepth = gate.QueueDepth,
+                        refused = gate.Refused }
+                : null,
         };
 
         health["tileCache"] = new

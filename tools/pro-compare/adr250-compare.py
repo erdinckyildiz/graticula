@@ -9,6 +9,7 @@ Uncertainty, and the rows one side has and the other has not. Pro rounds its out
 statistics), which bounds what agreement can show.
 """
 import json
+import math
 import sys
 
 pro, grapy = (json.load(open(p)) for p in sys.argv[1:3])
@@ -33,7 +34,11 @@ for case in cases:
         continue
     pp = {r["Name"]: r for r in p["Fab_AdjustmentPoints"]}
     gp = {r["Name"]: r for r in g["Fab_AdjustmentPoints"]}
-    dxy = max(max(abs(pp[n]["AdjustedX"] - gp[n]["AdjustedX"]), abs(pp[n]["AdjustedY"] - gp[n]["AdjustedY"]))
+    # a geographic system's degrees as metres (enough for a difference of millimetres)
+    geographic = all(abs(pp[n]["AdjustedX"]) <= 360 and abs(pp[n]["AdjustedY"]) <= 90 for n in pp)
+    kx = (lambda n: 111320.0 * math.cos(math.radians(pp[n]["AdjustedY"]))) if geographic else (lambda n: 1.0)
+    ky = (lambda n: 110574.0) if geographic else (lambda n: 1.0)
+    dxy = max(max(abs(pp[n]["AdjustedX"] - gp[n]["AdjustedX"]) * kx(n), abs(pp[n]["AdjustedY"] - gp[n]["AdjustedY"]) * ky(n))
               for n in pp)
     ell = max(max(rel(pp[n]["EllipseMajor"], gp[n]["EllipseMajor"]) or 0, rel(pp[n]["EllipseMinor"], gp[n]["EllipseMinor"]) or 0)
               for n in pp)

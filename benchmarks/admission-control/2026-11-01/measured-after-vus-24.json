@@ -1,0 +1,155 @@
+{
+ "label": "after-vus-24",
+ "when": "2026-10-31T22:30:50.642Z",
+ "generator": "k6",
+ "mode": "vus",
+ "offered": {
+  "vus": 24
+ },
+ "target": {
+  "url": "https://127.0.0.1:18576",
+  "layer": "hosted/ci_many",
+  "rows": "200",
+  "query": "https://127.0.0.1:18576/rest/services/hosted/ci_many/FeatureServer/0/query?where=1%3D1&outFields=*&returnGeometry=true&resultRecordCount=200&f=json",
+  "anonymous": false
+ },
+ "warmSeconds": 10,
+ "measuredSeconds": 60,
+ "windowSeconds": 15,
+ "serverBound": {
+  "waitingForWorker": 0,
+  "worker": 64,
+  "perSource": 24,
+  "queueDepth": 96,
+  "store": {
+   "waiting": 0,
+   "inside": 0,
+   "permits": 24,
+   "queueDepth": 96,
+   "refused": 0
+  },
+  "waitSeconds": 5,
+  "waitingForSource": 0
+ },
+ "idle": {
+  "status": 200,
+  "millis": 609.4764,
+  "bytes": 92804
+ },
+ "totals": {
+  "requests": 28364,
+  "ok": 28364,
+  "refused": 0,
+  "otherStatus": 0,
+  "transportErrors": 0,
+  "refusedShare": 0,
+  "throughputPerSecond": 472.73333333333335,
+  "okPerSecond": 472.73333333333335,
+  "megabytesPerSecond": 41.83916498819987
+ },
+ "admittedLatencyMs": {
+  "median": 23.614800000000002,
+  "p90": 42.7126,
+  "p95": 104.6471449999998,
+  "max": 5359.2509
+ },
+ "refusalLatencyMs": {
+  "median": null,
+  "max": null
+ },
+ "connectionReuse": {
+  "tlsHandshakeMedianMs": 0,
+  "tlsHandshakeAvgMs": 0.011877549005781977,
+  "connectMedianMs": 0,
+  "blockedMedianMs": 0
+ },
+ "queue": {
+  "samples": 579,
+  "median": 0,
+  "p90": 0,
+  "max": 0,
+  "nonEmptyShare": 0,
+  "atDepthShare": 0,
+  "workerMedian": 0,
+  "workerMax": 0,
+  "healthMedianMs": 39.3983,
+  "storeMedian": 0,
+  "storeMax": 0,
+  "storeAtDepthShare": 0,
+  "storeInsideMedian": 3
+ },
+ "inFlight": {
+  "estimate": 23.2771765966669,
+  "offered": 24
+ },
+ "serverRuntime": {
+  "coresUsed": 1.9472263409966772,
+  "coresAvailable": 16,
+  "gcPausePercent": 2.7950082009159174,
+  "allocMegabytesPerSecond": 162.18147505778234
+ },
+ "controlPath": {
+  "path": "/rest/info",
+  "medianMs": 9.8492,
+  "p95Ms": 288.79802499999994,
+  "maxMs": 1164.9376,
+  "failures": 0
+ },
+ "windows": [
+  {
+   "window": 0,
+   "fromSeconds": 0,
+   "ok": 833,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 123.1712,
+   "p95OkMs": 662.4421,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 1,
+   "fromSeconds": 15,
+   "ok": 1099,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 120.2961,
+   "p95OkMs": 1324.0493199999999,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 2,
+   "fromSeconds": 30,
+   "ok": 6061,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 28.7359,
+   "p95OkMs": 89.6375,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 3,
+   "fromSeconds": 45,
+   "ok": 14950,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 22.4126,
+   "p95OkMs": 32.635139999999986,
+   "queueMedian": 0,
+   "queueMax": 0
+  },
+  {
+   "window": 4,
+   "fromSeconds": 60,
+   "ok": 5421,
+   "refused": 0,
+   "refusedShare": 0,
+   "medianOkMs": 22.25,
+   "p95OkMs": 33.9493,
+   "queueMedian": 0,
+   "queueMax": 0
+  }
+ ]
+}
