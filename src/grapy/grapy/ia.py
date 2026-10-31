@@ -133,3 +133,27 @@ _REFUSED.update({
     "VideoMultiplexer": "it writes a .ts video file, its input's video stream multiplexed with KLV metadata, from "
                         "containers as varied as .mp4, .avi and .wmv, " + _NO_VIDEO,
 })
+
+
+# ---- ADR-245: the raster functions whose pages answered 404 on 2026-10-29, read again on 2026-10-31
+from . import _imagefns as _image_fns, sa as _sa  # noqa: E402
+
+RasterInfo = _sa.RasterInfo
+UnitConversion = _sa.UnitConversion
+HeatIndex = _sa.HeatIndex
+WindChill = _sa.WindChill
+SpectralConversion = _sa.SpectralConversion
+VectorField = _sa.VectorField
+InList = _sa.InList
+ZonalRemap = _sa.ZonalRemap
+ColormapToRGB = _sa.ColormapToRGB
+ApplyEnvironment = _sa.ApplyEnvironment
+ColorspaceConversion = _sa.ColorspaceConversion
+Speckle = _sa.Speckle
+ElevationVoidFill = _sa.ElevationVoidFill
+LinearUnmixing = _sa.LinearUnmixing
+Resample = _sa.Resample
+GNDVI = _sa.GNDVI
+PixelBlock = _image_fns.PixelBlock
+PixelBlockCollection = _image_fns.PixelBlockCollection
+Mensuration = _image_fns.Mensuration
