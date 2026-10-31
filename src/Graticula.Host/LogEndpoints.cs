@@ -238,6 +238,14 @@ internal static class LogEndpoints
 
         if (source == "server")
         {
+            // ADR-012 item 13: where the site has more than one machine up, its log is the site's.
+            if (context.RequestServices.GetService(typeof(SiteNode)) is SiteNode node
+                && context.RequestServices.GetService(typeof(Npgsql.NpgsqlDataSource)) is Npgsql.NpgsqlDataSource store
+                && await SiteLog.TryReadAsync(context, store, node, serverLog, cancellation).ConfigureAwait(false))
+            {
+                return;
+            }
+
             await ServerAsync(context, serverLog).ConfigureAwait(false);
             return;
         }
@@ -473,16 +481,16 @@ internal static class LogEndpoints
                 ? value.GetString()
                 : null;
 
-    private static string? Text(HttpContext context, string name) =>
+    internal static string? Text(HttpContext context, string name) =>
         context.Request.Query[name].ToString() is { Length: > 0 } value ? value : null;
 
-    private static int? Whole(HttpContext context, string name) =>
+    internal static int? Whole(HttpContext context, string name) =>
         int.TryParse(
             Text(context, name), NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
                 ? value
                 : null;
 
-    private static long? Cursor(HttpContext context) =>
+    internal static long? Cursor(HttpContext context) =>
         long.TryParse(
             Text(context, "before"),
             NumberStyles.Integer,
@@ -491,7 +499,7 @@ internal static class LogEndpoints
                 ? value
                 : null;
 
-    private static DateTimeOffset? Time(HttpContext context, string name) =>
+    internal static DateTimeOffset? Time(HttpContext context, string name) =>
         DateTimeOffset.TryParse(
             Text(context, name),
             CultureInfo.InvariantCulture,

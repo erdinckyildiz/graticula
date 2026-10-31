@@ -30,7 +30,7 @@ namespace Graticula.Platform.Schema;
 public static class PlatformMigrations
 {
     /// <summary>The schema level this build was written against.</summary>
-    public static SchemaVersion ComponentSchemaVersion => new(119);
+    public static SchemaVersion ComponentSchemaVersion => new(120);
 
     /// <summary>Every migration, in order.</summary>
     public static MigrationSet All { get; } = new(
@@ -151,7 +151,42 @@ public static class PlatformMigrations
         ABuiltInAppIsEveryOrganisationsV115,
         AServiceIsFoundByAStoredKeyV116,
         ASiteKnowsItsNodesV119,
+        TheServerLogIsTheSitesV120,
     ]);
+
+    /// <summary>
+    /// The server's own warnings and errors are kept in the store with the node that logged them, so the log screen shows
+    /// the whole site — ADR-012 phase 0 item 13, ArcGIS Server Manager's logs queried across the site's machines.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Written by each node every ten seconds, from the ring it already keeps</b> (ADR-045 §5a, D-300), and bounded the
+    /// way the ring is: the newest two thousand per node, thirty days at most. Read only where more than one machine is
+    /// up; a site of one reads its ring as before.
+    /// </para>
+    /// <para><b>The system's</b>, as the process log is; not floored. <b>Expand</b>: a table nothing older reads.</para>
+    /// </remarks>
+    private static Migration TheServerLogIsTheSitesV120 => Migration.Expand(
+        new SchemaVersion(120),
+        "The server's warnings and errors are kept in the store with the node that logged them (ADR-012).",
+
+        """
+        create table if not exists site_log (
+            id bigserial primary key,
+            node text not null,
+            at timestamptz not null,
+            level int not null,
+            category text not null,
+            event_id int not null,
+            event_name text,
+            message text not null,
+            exception text
+        )
+        """,
+
+        "create index if not exists site_log_at on site_log (at desc)",
+
+        "create index if not exists site_log_node on site_log (node, id)");
 
     /// <summary>
     /// A site knows its nodes — ADR-012 phase 0 items 5, 6 and 11: each node writes itself into <c>site_node</c> at

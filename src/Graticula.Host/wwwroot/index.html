@@ -918,12 +918,7 @@
     </div>
   </section>
 
-  <!--
-    System › Backups — ADR-193 §5.6 and condition 4: take a backup, list, download and delete them, and the daily
-    schedule with how many it keeps. The machine's, so System's: a backup is the whole database, every organization in
-    it (`TenantRouting.SystemOnly`). Restore is not here, deliberately (§5.5) — it replaces the database this process
-    serves — so the page says how it is done instead of offering a button that could not be honest.
-  -->
+  <!-- System › Machines — ADR-012 phase 0 item 6: the site's machines, after ArcGIS Server Manager's Site › Machines. -->
   <section class="view" id="view-machines">
     <div class="pagehead">
       <div>
@@ -939,15 +934,21 @@
     <div class="panel widetable">
       <table class="rowblocks" id="mcTable">
         <thead><tr>
-          <th>Machine</th><th>Status</th><th>Set to</th><th>Runs</th>
+          <th>Machine</th><th>Status</th><th>Runs</th>
           <th><span class="sr-only">Actions</span></th>
         </tr></thead>
-        <tbody id="mcRows"><tr><td colspan="5" class="empty">Reading the machines&hellip;</td></tr></tbody>
+        <tbody id="mcRows"><tr><td colspan="4" class="empty">Reading the machines&hellip;</td></tr></tbody>
       </table>
     </div>
     <p class="hint" id="mcNote"></p>
   </section>
 
+  <!--
+    System › Backups — ADR-193 §5.6 and condition 4: take a backup, list, download and delete them, and the daily
+    schedule with how many it keeps. The machine's, so System's: a backup is the whole database, every organization in
+    it (`TenantRouting.SystemOnly`). Restore is not here, deliberately (§5.5) — it replaces the database this process
+    serves — so the page says how it is done instead of offering a button that could not be honest.
+  -->
   <section class="view" id="view-backups">
     <div class="pagehead">
       <div>

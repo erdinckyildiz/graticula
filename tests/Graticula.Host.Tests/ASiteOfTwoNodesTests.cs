@@ -282,4 +282,89 @@ public sealed class ASiteOfTwoNodesTests(TwoStartedNodes nodes) : IClassFixture<
         Assert.Equal(2, on.GetProperty("warm").GetInt32());
         Assert.Equal(2, on.GetProperty("of").GetInt32());
     }
+
+    /// <summary>
+    /// Item 13: the server log is the site's — a warning node-b logged at its start is on node-a's log screen, with the
+    /// machine that logged it. Without it, each node's screen shows its own ring only.
+    /// </summary>
+    [Fact]
+    public async Task One_nodes_log_screen_shows_the_other_nodes_warnings_with_their_machine()
+    {
+        string token = await A.SignInAsync();
+
+        // Every node warns at start while it serves as a role row-level security does not bind (event 1094); node-b's is
+        // written to the site's log at its next heartbeat.
+        JsonElement found = await TwoNodeSite.Node.UntilAsync(
+            async () => JsonDocument.Parse((await A.SendAsync(HttpMethod.Get, "/admin/logs/server?limit=500", token)).Body).RootElement,
+            log => log.GetProperty("rows").EnumerateArray().Any(r => r.GetProperty("from").GetString() == "node-b"),
+            TimeSpan.FromSeconds(25), "node-b's warnings on node-a's log screen");
+
+        Assert.True(found.GetProperty("site").GetBoolean());
+        Assert.Contains(found.GetProperty("rows").EnumerateArray(), r => r.GetProperty("from").GetString() == "node-a");
+    }
+
+    /// <summary>
+    /// Phase 1's tile item, the correctness half: an edit on one node empties the layer's tiles on the other too. Before it,
+    /// condition 2's prototype saw the other node keep answering HIT with the tile from before the edit.
+    /// </summary>
+    [Fact]
+    public async Task An_edit_on_one_node_empties_the_tile_the_other_holds()
+    {
+        string ta = await A.SignInAsync();
+        string tb = await B.SignInAsync();
+        string name = "zz_tiles_" + Guid.NewGuid().ToString("N")[..6];
+
+        (int made, string said) = await A.SendAsync(HttpMethod.Post, "/admin/hosted/define", ta, new
+        {
+            name,
+            geometryType = "Point",
+            fields = new[] { new { name = "label", type = "Text" } },
+            sharing = "private",
+        });
+        Assert.True(made is 200 or 201, $"defining {name} answered {made}: {said}");
+
+        await AddPointAsync(A, ta, name, 10, 10);
+
+        string tile = $"/rest/services/hosted/{name}/VectorTileServer/tile/0/0/0.pbf";
+
+        foreach ((TwoNodeSite.Node on, string token) in (ValueTuple<TwoNodeSite.Node, string>[])[(A, ta), (B, tb)])
+        {
+            await CacheOfAsync(on, token, tile);
+            Assert.Equal("HIT", await CacheOfAsync(on, token, tile));
+        }
+
+        await AddPointAsync(A, ta, name, 20, 20);
+
+        await TwoNodeSite.Node.UntilAsync(
+            () => CacheOfAsync(B, tb, tile), cache => cache != "HIT", Soon, "node-b emptying the tile node-a's edit reached");
+    }
+
+    private static async Task<string> CacheOfAsync(TwoNodeSite.Node on, string token, string path)
+    {
+        using HttpRequestMessage request = new(HttpMethod.Get, path);
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage answer = await on.Http.SendAsync(request);
+        Assert.True((int)answer.StatusCode is 200 or 204, $"{path} on {on.Name} answered {(int)answer.StatusCode}");
+        return answer.Headers.TryGetValues("X-Tile-Cache", out IEnumerable<string>? values) ? values.First() : "";
+    }
+
+    private static async Task AddPointAsync(TwoNodeSite.Node on, string token, string name, double x, double y)
+    {
+        using HttpRequestMessage add = new(HttpMethod.Post, $"/rest/services/hosted/{name}/FeatureServer/0/addFeatures")
+        {
+            Content = new FormUrlEncodedContent(new Dictionary<string, string>
+            {
+                ["f"] = "json",
+                ["features"] = JsonSerializer.Serialize(new[]
+                {
+                    new { geometry = new { x, y, spatialReference = new { wkid = 4326 } }, attributes = new { label = "p" } },
+                }),
+            }),
+        };
+        add.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        using HttpResponseMessage answer = await on.Http.SendAsync(add);
+        string body = await answer.Content.ReadAsStringAsync();
+        Assert.True(answer.IsSuccessStatusCode && body.Contains("\"success\":true", StringComparison.Ordinal),
+            $"addFeatures on {on.Name} answered {(int)answer.StatusCode}: {body}");
+    }
 }

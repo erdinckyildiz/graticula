@@ -65,6 +65,9 @@ internal sealed partial class SiteNode : BackgroundService
     private readonly NpgsqlDataSource _store;
     private readonly SiteSingletons _singletons;
     private readonly PinnedServices? _pinned;
+    private readonly ServerLogBuffer? _serverLog;
+    private long _logWritten;
+    private int _beats;
     private readonly ILogger<SiteNode> _log;
     private readonly IReadOnlyDictionary<string, string> _settings;
     private readonly string _keyCheck;
@@ -73,6 +76,8 @@ internal sealed partial class SiteNode : BackgroundService
     private volatile bool _warm;
     private volatile bool _registered;
     private readonly string _loopback;
+    private readonly string? _shared;
+    private readonly string _probe = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
     /// <summary>Creates the node.</summary>
     /// <param name="store">The platform store's pool.</param>
@@ -81,10 +86,12 @@ internal sealed partial class SiteNode : BackgroundService
     /// <param name="configuration">The configuration the site's settings are read from.</param>
     /// <param name="log">Where a refusal or a state change is said.</param>
     /// <param name="pinned">The pinned services, whose warm times are kept per node; absent in tests that build this alone.</param>
+    /// <param name="serverLog">This process's warnings and errors, written to the site's log (item 13).</param>
     public SiteNode(
         NpgsqlDataSource store, SiteSingletons singletons, HostSettings settings, IConfiguration configuration,
-        ILogger<SiteNode> log, PinnedServices? pinned = null)
+        ILogger<SiteNode> log, PinnedServices? pinned = null, ServerLogBuffer? serverLog = null)
     {
+        _serverLog = serverLog;
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(singletons);
         ArgumentNullException.ThrowIfNull(settings);
@@ -99,6 +106,7 @@ internal sealed partial class SiteNode : BackgroundService
         string host = settings.ListenAddress.Equals(System.Net.IPAddress.Any) ? settings.HostName : settings.ListenAddress.ToString();
         Address = string.Create(CultureInfo.InvariantCulture, $"{(settings.RequireHttps ? "https" : "http")}://{host}:{settings.Port}");
         _settings = AgreedSettings(configuration);
+        _shared = settings.ServerDirectories;
         string loop = settings.ListenAddress.Equals(System.Net.IPAddress.Any) || settings.ListenAddress.Equals(System.Net.IPAddress.IPv6Any)
             ? "127.0.0.1"
             : settings.ListenAddress.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
@@ -220,8 +228,17 @@ internal sealed partial class SiteNode : BackgroundService
                     + "name would be one machine to the site; give this one its own Graticula:NodeName, or stop the other.";
             }
 
+            // ADR-012 phase 1: the site's server directories are checked from every node — each writes a file the others
+            // must read — so a node whose mount is missing says so now rather than losing an upload later.
+            if (_shared is not null)
+            {
+                string probes = System.IO.Path.Combine(_shared, ".site");
+                System.IO.Directory.CreateDirectory(probes);
+                await System.IO.File.WriteAllTextAsync(System.IO.Path.Combine(probes, ProbeFile(Name)), _probe, cancellation).ConfigureAwait(false);
+            }
+
             await using (NpgsqlCommand others = _store.CreateCommand(
-                "select name, key_check, settings from site_node where name <> @name and last_seen > now() - @silence"))
+                "select name, key_check, settings, probe from site_node where name <> @name and last_seen > now() - @silence"))
             {
                 others.Parameters.AddWithValue("name", Name);
                 others.Parameters.AddWithValue("silence", Silence);
@@ -238,6 +255,11 @@ internal sealed partial class SiteNode : BackgroundService
                             + "another could open none of them. This node was not started (ADR-012).";
                     }
 
+                    if (DirectoriesDiffer(other, reader.IsDBNull(3) ? null : reader.GetString(3)) is { } apart)
+                    {
+                        return apart;
+                    }
+
                     Dictionary<string, string> theirs = JsonSerializer.Deserialize<Dictionary<string, string>>(reader.GetString(2)) ?? [];
                     IReadOnlyList<string> differ = Differences(_settings, theirs, other);
 
@@ -252,12 +274,12 @@ internal sealed partial class SiteNode : BackgroundService
 
             await using (NpgsqlCommand join = _store.CreateCommand(
                 """
-                insert into site_node (name, address, version, started_at, last_seen, settings, key_check)
-                values (@name, @address, @version, @started, now(), @settings, @key)
+                insert into site_node (name, address, version, started_at, last_seen, settings, key_check, probe)
+                values (@name, @address, @version, @started, now(), @settings, @key, @probe)
                 on conflict (name) do update
                    set address = excluded.address, version = excluded.version, started_at = excluded.started_at,
                        last_seen = now(), settings = excluded.settings, key_check = excluded.key_check,
-                       ready = false, leads = '{}'
+                       probe = excluded.probe, ready = false, leads = '{}'
                 returning configured_state
                 """))
             {
@@ -267,6 +289,7 @@ internal sealed partial class SiteNode : BackgroundService
                 join.Parameters.AddWithValue("started", _started);
                 join.Parameters.AddWithValue("settings", JsonSerializer.Serialize(_settings));
                 join.Parameters.AddWithValue("key", _keyCheck);
+                join.Parameters.Add(new NpgsqlParameter("probe", NpgsqlTypes.NpgsqlDbType.Text) { Value = (object?)(_shared is null ? null : _probe) ?? DBNull.Value });
                 _state = (string)(await join.ExecuteScalarAsync(cancellation).ConfigureAwait(false))!;
             }
 
@@ -294,6 +317,78 @@ internal sealed partial class SiteNode : BackgroundService
         set.Parameters.AddWithValue("state", state);
         set.Parameters.AddWithValue("name", name);
         return await set.ExecuteNonQueryAsync(cancellation).ConfigureAwait(false) > 0;
+    }
+
+    /// <summary>The file a node writes into the shared server directories to prove it sees them.</summary>
+    internal static string ProbeFile(string node) =>
+        string.Concat(node.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_')) + ".probe";
+
+    /// <summary>The site's server directories as this node sees them — ADR-012 phase 1.</summary>
+    public string? SharedDirectories => _shared;
+
+    /// <summary>
+    /// Why this node and another disagree about the server directories, or null when they agree: both keep their own, or
+    /// both share one path and each sees the other's probe in it.
+    /// </summary>
+    /// <param name="other">The other node.</param>
+    /// <param name="theirProbe">What it wrote into the shared directories, or null when it keeps its own.</param>
+    internal string? DirectoriesDiffer(string other, string? theirProbe)
+    {
+        if (_shared is null && theirProbe is null)
+        {
+            return null;
+        }
+
+        if (_shared is null)
+        {
+            return "Node '" + other + "' of this site shares its server directories (imagery, exports, the tile cache, "
+                + "backups) and this node keeps its own, so an upload or an export on one would be missing on the other. "
+                + "Set Graticula:ServerDirectories on this node to the path the others mount (ADR-012 phase 1).";
+        }
+
+        if (theirProbe is null)
+        {
+            return "Node '" + other + "' of this site keeps its own server directories and this node shares them at '"
+                + _shared + "'. Every node of a site keeps them in one place or none does; set Graticula:ServerDirectories "
+                + "on every node, or on none (ADR-012 phase 1).";
+        }
+
+        string file = System.IO.Path.Combine(_shared, ".site", ProbeFile(other));
+
+        try
+        {
+            if (string.Equals(System.IO.File.ReadAllText(file).Trim(), theirProbe, StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // Not there, or not readable: the same answer.
+        }
+
+        return "This node's server directories at '" + _shared + "' are not the ones node '" + other + "' writes to: its "
+            + "check file " + file + " is missing or says something else. Mount the same shared path on every node "
+            + "(ADR-012 phase 1).";
+    }
+
+    /// <summary>For each machine up, whether this node sees its check file in the shared server directories.</summary>
+    public async Task<IReadOnlyList<(string Node, bool Seen)>> CheckDirectoriesAsync(CancellationToken cancellation)
+    {
+        List<(string, bool)> seen = [];
+
+        await using NpgsqlCommand read = _store.CreateCommand(
+            "select name, probe from site_node where last_seen > now() - @silence order by name");
+        read.Parameters.AddWithValue("silence", Silence);
+        await using NpgsqlDataReader reader = await read.ExecuteReaderAsync(cancellation).ConfigureAwait(false);
+
+        while (await reader.ReadAsync(cancellation).ConfigureAwait(false))
+        {
+            string node = reader.GetString(0);
+            seen.Add((node, node == Name ? _shared is not null : DirectoriesDiffer(node, reader.IsDBNull(1) ? null : reader.GetString(1)) is null && _shared is not null));
+        }
+
+        return seen;
     }
 
     /// <summary>Reads this node's configured state and takes it up — when an administrator set it from another node.</summary>
@@ -452,6 +547,68 @@ internal sealed partial class SiteNode : BackgroundService
             gone.Parameters.AddWithValue("name", Name);
             gone.Parameters.AddWithValue("ids", (_pinned?.WarmedTimes().Keys ?? []).ToArray());
             await gone.ExecuteNonQueryAsync(cancellation).ConfigureAwait(false);
+        }
+
+        await WriteLogAsync(cancellation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Item 13: this node's warnings and errors since the last beat, into the site's log with its name; and every ten
+    /// minutes the site's log bounded as the ring is — the newest two thousand of this node's, thirty days at most.
+    /// </summary>
+    private async Task WriteLogAsync(CancellationToken cancellation)
+    {
+        if (_serverLog is null)
+        {
+            return;
+        }
+
+        IReadOnlyList<ServerLogEntry> fresh = _serverLog.After(_logWritten);
+
+        try
+        {
+            if (fresh.Count > 0)
+            {
+                await using NpgsqlCommand write = _store.CreateCommand(
+                    """
+                    insert into site_log (node, at, level, category, event_id, event_name, message, exception)
+                    select @node, e.at, e.level, e.category, e.event_id, e.event_name, e.message, e.exception
+                      from unnest(@at, @level, @category, @event_id, @event_name, @message, @exception)
+                           as e(at, level, category, event_id, event_name, message, exception)
+                    """);
+                write.Parameters.AddWithValue("node", Name);
+                write.Parameters.AddWithValue("at", fresh.Select(e => e.At.UtcDateTime).ToArray());
+                write.Parameters.AddWithValue("level", fresh.Select(e => (int)e.Level).ToArray());
+                write.Parameters.AddWithValue("category", fresh.Select(e => e.Category).ToArray());
+                write.Parameters.AddWithValue("event_id", fresh.Select(e => e.EventId).ToArray());
+                write.Parameters.Add(new NpgsqlParameter("event_name", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                {
+                    Value = fresh.Select(e => (object?)e.EventName ?? DBNull.Value).ToArray(),
+                });
+                write.Parameters.AddWithValue("message", fresh.Select(e => e.Message).ToArray());
+                write.Parameters.Add(new NpgsqlParameter("exception", NpgsqlTypes.NpgsqlDbType.Array | NpgsqlTypes.NpgsqlDbType.Text)
+                {
+                    Value = fresh.Select(e => (object?)e.Exception ?? DBNull.Value).ToArray(),
+                });
+                await write.ExecuteNonQueryAsync(cancellation).ConfigureAwait(false);
+                _logWritten = fresh[^1].Cursor;
+            }
+
+            if (_beats++ % 60 == 0)
+            {
+                await using NpgsqlCommand bound = _store.CreateCommand(
+                    """
+                    delete from site_log where at < now() - interval '30 days';
+                    delete from site_log where node = @node and id < (
+                        select id from site_log where node = @node order by id desc offset 1999 limit 1)
+                    """);
+                bound.Parameters.AddWithValue("node", Name);
+                await bound.ExecuteNonQueryAsync(cancellation).ConfigureAwait(false);
+            }
+        }
+        catch (PostgresException missing) when (missing.SqlState == "42P01")
+        {
+            // A store before migration 120 has no site log; the ring and the files still hold everything.
         }
     }
 

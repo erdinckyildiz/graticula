@@ -58,9 +58,21 @@ internal static class SiteEndpoints
             machines = [];
         }
 
+        IReadOnlyList<(string Node, bool Seen)> checkedDirectories = node.Registered
+            ? await node.CheckDirectoriesAsync(cancellation).ConfigureAwait(false)
+            : [];
+
         return Results.Ok(new
         {
             thisMachine = node.Name,
+            // ADR-012 phase 1: where the server directories are, and whether this machine sees every other's check file.
+            directories = new
+            {
+                shared = node.SharedDirectories is not null,
+                path = node.SharedDirectories,
+                seen = checkedDirectories.Where(c => c.Seen).Select(c => c.Node),
+                unseen = checkedDirectories.Where(c => !c.Seen).Select(c => c.Node),
+            },
             nodesSetting = SiteNodes.Configured(configuration),
             listening = site.Listening,
             sweeps = SiteSingletons.Names,

@@ -37,6 +37,7 @@ public sealed class EveryTableIsATenantsOrTheSystemsTests : PostgresFixture
         ["user_type"] = "the deployment's user types",
         ["site_node"] = "the site's machines; a node serves every organisation (ADR-012)",
         ["site_node_warm"] = "when each machine last warmed a pinned service; read only by the system's Site screen (ADR-012)",
+        ["site_log"] = "the machines' own warnings and errors, each with its machine; read only by the system's log screen (ADR-012)",
         ["partnership"] = "two tenants' at once; its own policy shows a row to either party and nobody else (ADR-219 §5.6)",
     };
 

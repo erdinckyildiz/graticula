@@ -234,6 +234,18 @@ what landed.
    found the plan said both: per node, an edit's emptying (ADR-186) reaches one node and the other serves the old
    tiles. Shared, there is one cache to empty. *INFERRED; revisit if a shared mount measures too slow for tile reads,
    and then the emptying is announced to every node over `NOTIFY` instead.*
+   **Built 2026-10-31, with one deliberate difference.** `Graticula:ServerDirectories` names one path every node mounts;
+   imagery, tile and feature exports, the recycle bin's files, backups and the tile cache resolve under it, and unset
+   they stay exactly where they were (a one-node deployment mounts nothing). **The port is a path, not an `IFileStore`
+   interface**: every consumer already reads and writes files, a shared mount is a path, and an interface would exist
+   only for the object-store adapter this plan defers to its own ADR — so it is not written until that ADR is. Each node
+   writes a check file under `.site/` and records it in its row; a node that cannot read another's, that keeps its own
+   directories on a site that shares them, or the reverse, is refused at start with the path named, and the Machines
+   page says which machines this one sees. **And the emptying is announced as well** (`SiteAnnouncements.Tiles`),
+   shared mount or not: each node's index over the cache is its own, so a file another node wrote is one this node's
+   index-driven emptying never reaches — the observation of condition 2. The node that made an edit empties the tiles
+   it reached (ADR-186); the others empty the layer, since a test of addresses cannot be sent. The GeoParquet root is
+   already an operator's path and is not moved; a site mounts it as it mounts the server directories.
 
 **Phase 0, continued — what the veteran's review of 2026-10-22 added**
 
@@ -244,11 +256,25 @@ what landed.
 12. **`/rest/info/healthcheck` answers** `{"success": true}` from readiness — ArcGIS's documented load-balancer check.
     **Built 2026-10-31.**
 13. **The server log is the site's**: kept in the store with its node, or gathered from every node by the log screen.
+    **Built 2026-10-31** — the first form: each node writes its ring of warnings and errors to `site_log` (migration
+    120) every ten seconds with its name, bounded as the ring is (2,000 per node, thirty days); where more than one
+    machine is up the log screen's server source reads every machine's, each row naming its machine. A site of one
+    reads its ring as before. *Not built:* the node on each row of the request log.
 
 **Phase 2 — no state that spans requests in memory**
 
 8. Pro's staging, the ArcGIS append uploads and the OGC Processes job store move to the job table and the file store,
    keyed by id, so any node answers the next step. The export pictures likewise.
+   **Built 2026-10-31 — in the file store alone** (`SiteHandoff`): each is kept as a file under the server
+   directories' `handoff/<kind>/<id>`, written whole and replaced whole, and read by a node that is asked the next step
+   without having taken the first; each keeps its memory as before, and sweeps its files by the lifetime it already had
+   (uploads an hour, jobs an hour, pictures ten minutes; Pro's staging by its bound of 256 and the folders' sweep).
+   **Not the job table**: none of the four is work a worker claims, and the schema numbers this slice had were spent
+   on phase 0. **On a node of its own nothing is written** — there is nobody to hand to. Observed by
+   `A_service_definition_added_on_one_node_takes_its_part_on_the_other`,
+   `A_processes_job_started_on_one_node_is_followed_on_the_other` and `An_exported_picture_is_fetched_from_the_other_node`;
+   the append upload goes the same way and has no two-node test of its own. **Not covered: in-memory state nobody
+   listed** — this item names four structures from §1b, and a fifth found later is a node-local answer again.
 
 **Phase 3 — two nodes behind Caddy**
 
@@ -317,10 +343,17 @@ what landed.
    sessions' builds held all sixteen logical cores at 100 % for its length, so neither the one-node nor the two-node
    numbers were the server's. It is owed on a quiet machine.
 3. **Each phase lands with a test that fails without it**, run against two processes, before the next starts.
-   **Phase 0: DISCHARGED 2026-10-31 for items 1–6, 11 and 12** — `ASiteOfTwoNodesTests`, ten tests, each starting real
-   `Graticula.Host` processes over a fresh schema (`TwoNodeSite`); **all ten pass on this branch and all ten fail on
-   the build before it** (the same test assembly run against the previous `Graticula.Host.dll`, 2026-10-31). Item 13
-   (the server log as the site's) is open below.
+   **Phase 0: DISCHARGED 2026-10-31** — `ASiteOfTwoNodesTests`, each test starting real `Graticula.Host` processes over
+   a fresh schema (`TwoNodeSite`). The first ten (items 1–6, 11, 12) pass on this branch and **all ten fail on the build
+   before it** (the same test assembly run against the previous `Graticula.Host.dll`, 2026-10-31); item 13's
+   (`One_nodes_log_screen_shows_the_other_nodes_warnings_with_their_machine`) reads a route and a field that build does
+   not have. **Phase 1: DISCHARGED 2026-10-31** — `ASiteSharesItsServerDirectoriesTests` (an image uploaded through one
+   node downloaded from the other; each machine sees the other's check file; a node keeping its own directories, and
+   one mounting another path, refused at start) and `An_edit_on_one_node_empties_the_tile_the_other_holds` — the
+   download and the tile both observed failing on the build before (condition 2's prototype). **Phase 2: DISCHARGED 2026-10-31** — the three
+   phase-2 tests in `ASiteSharesItsServerDirectoriesTests`, each a second step sent to the other node; the Pro split was
+   observed failing (400) on the build before, the other two are memory-only there by construction. Nineteen two-node
+   tests in all, passing on this branch, 2026-10-31.
 4. **The owner confirms** the order of the phases and that PostgreSQL's own availability and capacity are decided
    separately. **DISCHARGED 2026-10-31** — confirmed by owner decision (*"Onayla, ölç ve kur"*): phases 0 → 1 → 2 → 3 in this order, condition 1's measurement first, PostgreSQL's availability a decision of its own, and the plan is to be built rather than held. *(Alternative A over B is settled by the purpose the owner gave, 2026-10-22.)*
 

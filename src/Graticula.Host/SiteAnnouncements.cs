@@ -53,6 +53,9 @@ internal sealed partial class SiteAnnouncements : BackgroundService
     /// <summary>An image was registered or changed: the node that builds overviews looks now.</summary>
     public const string Pyramids = "pyramids";
 
+    /// <summary>A layer's cached tiles were emptied: the detail is the layer's id, and every node empties it too.</summary>
+    public const string Tiles = "tiles";
+
     /// <summary>An administrator set a machine's state: the detail is its name, and that machine takes it up now.</summary>
     public const string Machine = "machine";
 

@@ -238,7 +238,7 @@ internal static partial class CoverageAdminEndpoints
     }
 
     /// <summary>Where uploaded imagery is kept: beside the serving certificate, on the volume that survives.</summary>
-    internal static string ImageryDirectory(HostSettings settings) => Path.Combine(settings.StatePath, "imagery");
+    internal static string ImageryDirectory(HostSettings settings) => settings.ImageryDirectory;
 
     /// <summary>Whether a coverage's file is one this server keeps, rather than one registered where it lives.</summary>
     internal static bool Uploaded(HostSettings settings, string path)

@@ -38,7 +38,7 @@ internal sealed partial class RecycleBinService(
     private const string FileKind = "file";
 
     /// <summary>Where uploaded files wait — D-306: beside the state they came from, never under a datastore.</summary>
-    private string FileBin => Path.Combine(settings.StatePath, "recycle");
+    private string FileBin => settings.RecycleDirectory;
 
     private static bool IsFile(RecycledRelation relation) => relation.Kind == FileKind;
 

@@ -6425,3 +6425,10 @@ ol.sfsteps > li > b { margin-left: -30px; }
 #saKeysOf .sanewkey > .bad-inline, #saKeysOf .sanewkey > [role="status"] { margin: var(--gap-2) 0 0; }
 #saSecretIssued .copyrow + .hint { margin-top: var(--gap-3); }
 #saCard td.act { white-space: nowrap; }
+
+/* System › Machines (ADR-012): the row's buttons side by side, the address unbroken, steady columns. */
+#mcTable td.act { white-space: nowrap; width: 1%; }
+#mcTable td.act > * + * { margin-left: var(--gap-1, 6px); }
+#mcRows .rowmeta code { overflow-wrap: normal; white-space: nowrap; }
+#mcTable th:nth-child(2) { width: 11rem; }
+#mcRows .mcmeta { white-space: nowrap; overflow-wrap: normal; }

@@ -886,6 +886,12 @@ public static class Program
             services.GetRequiredService<ILogger<SiteAnnouncements>>()));
         builder.Services.AddHostedService(services => services.GetRequiredService<SiteAnnouncements>());
 
+        // ADR-012 phase 2: what one request leaves for the next is kept where every node of a site reads it; nowhere on a
+        // node of its own.
+        SiteHandoff.Root = settings.ServerDirectories is { } sharedDirectories
+            ? System.IO.Path.Combine(sharedDirectories, "handoff")
+            : null;
+
         // ADR-012 phase 0 items 4–6 and 11: this process as one machine of a site.
         builder.Services.AddSingleton(services => new SiteNode(
             services.GetRequiredService<NpgsqlDataSource>(),
@@ -893,7 +899,8 @@ public static class Program
             settings,
             builder.Configuration,
             services.GetRequiredService<ILogger<SiteNode>>(),
-            services.GetRequiredService<PinnedServices>()));
+            services.GetRequiredService<PinnedServices>(),
+            services.GetRequiredService<ServerLogBuffer>()));
         builder.Services.AddHostedService(services => services.GetRequiredService<SiteNode>());
 
         builder.Services.AddHostedService(services => new GrantsListening(
@@ -997,6 +1004,20 @@ public static class Program
             site.On(SiteAnnouncements.Annotations, _ => itemAnnotations.ReloadAsync(CancellationToken.None));
             site.On(SiteAnnouncements.Pins, _ => { pins.Wake(); return Task.CompletedTask; });
             site.On(SiteAnnouncements.Pyramids, _ => { pyramids.Ask(); return Task.CompletedTask; });
+
+            if (app.Services.GetRequiredService<ITileCache>() is FileSystemTileCache tileCache)
+            {
+                tileCache.Announcer = site;
+                site.On(SiteAnnouncements.Tiles, layer =>
+                {
+                    if (Guid.TryParse(layer, out Guid id))
+                    {
+                        tileCache.PurgeHere(id);
+                    }
+
+                    return Task.CompletedTask;
+                });
+            }
 
             SiteNode thisNode = app.Services.GetRequiredService<SiteNode>();
             site.On(SiteAnnouncements.Machine, named => named == thisNode.Name
@@ -2054,9 +2075,10 @@ public static class Program
         settings.PlatformStore,
         settings.SecretKeyBase64,
         settings.StatePath,
-        configuration["Graticula:BackupPath"] is { Length: > 0 } path ? path : Path.Combine(settings.StatePath, "backups"),
+        configuration["Graticula:BackupPath"] is { Length: > 0 } path ? path : settings.BackupDirectory,
         configuration["Graticula:PostgresTools"],
-        configuration["Graticula:MaintenanceStore"]);
+        configuration["Graticula:MaintenanceStore"],
+        settings.ImageryDirectory);
 
     /// <summary>The backup <c>migrate</c> takes first, or none when <c>--no-backup</c> was given — ADR-193 §5.7.</summary>
     internal static Backups? BackupBeforeMigration(string[] args, Func<Backups> backups) =>

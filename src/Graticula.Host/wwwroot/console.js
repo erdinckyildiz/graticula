@@ -21367,12 +21367,14 @@ function drawServicePin(failed = null) {
         tables since; <a href="${failingLogHref(p.qualified)}">read its warnings</a>.`
     : `<b>Kept warm.</b> Last renewed ${servicePinAgo(p.warmedAt)}.`;
 
-  // ADR-012 item 5: on a site of several machines, each keeps its own time, and the case to show is one that cannot.
-  if (p.pinned && !stopped && p.nodes) {
+  // ADR-012 item 5: on a site of several machines, each keeps its own time, and the case to show is one that cannot. Not
+  // after the late branch, which already ends on what to read.
+  if (p.pinned && !stopped && !late && p.nodes) {
+    const cold = p.nodes.cold || [];
     state.innerHTML += p.nodes.warm === p.nodes.of
-      ? ` On all ${num(p.nodes.of)} machines of this site.`
-      : ` On ${num(p.nodes.warm)} of ${num(p.nodes.of)} machines: <b>not on ${h((p.nodes.cold || []).join(", "))}</b>,
-          which has not renewed it in the last minute.`;
+      ? (p.nodes.of === 2 ? " On both machines of this site." : ` On all ${num(p.nodes.of)} machines of this site.`)
+      : ` On ${num(p.nodes.warm)} of ${num(p.nodes.of)} machines: <b>not on ${h(cold.length < 3 ? cold.join(" and ") : cold.slice(0, -1).join(", ") + " and " + cold.at(-1))}</b>, which
+          ${cold.length === 1 ? "has" : "have"} not renewed it in the last minute.`;
   }
 
   const others = p.pinnedOnServer - (p.pinned ? 1 : 0);
@@ -39377,12 +39379,19 @@ document.addEventListener("click", async event => {
 
 /* ---- Machines — ADR-012 phase 0 item 6 ---------------------------------------------------------------------------
  * The site's machines: every server process over this platform store, as ArcGIS Server Manager's Site › Machines lists
- * them — whether each is up (its heartbeat, every ten seconds), what an administrator set it to, and which of the site's
- * once-only jobs it runs. On one machine this is a list of one, which is still the right thing to show.
+ * them — what each is doing (one Status pill: the state that holds now, not the heartbeat and the setting side by side,
+ * from the design review of 2026-10-31), and which of the site's once-only jobs it runs. Read again every ten seconds
+ * while it is on screen, because its heading promises a machine heard every ten. On one machine it is a list of one.
  */
 
 /** What `/admin/site/machines` last answered; null until it is read. */
 let machinesNow = null;
+
+/** The timer that reads the list again while the screen is open. */
+let machinesTimer = null;
+
+/** The rows last drawn, to leave an unchanged table alone. */
+let machinesDrawn = "";
 
 /** The site's once-only jobs, as a person names them. */
 const MACHINE_SWEEPS = {
@@ -39402,65 +39411,128 @@ function machineSay(message, bad = false) {
   line.classList.toggle("bad-inline", !!bad);
 }
 
-/** Machines — the list, and the sentence under it. */
+/** What a machine is doing now: its configured state where it is up, down where it is not, and starting in between. */
+function machineEffective(m) {
+  if (m.status !== "up") return { label: "Down", pill: "p-failing", serving: false };
+  if (m.configuredState === "maintenance") return { label: "Under maintenance", pill: "p-stopped", serving: false };
+  if (m.configuredState === "stopped") return { label: "Stopped", pill: "p-stopped", serving: false };
+  return m.ready
+    ? { label: "Started", pill: "p-started", serving: true }
+    : { label: "Starting…", pill: "p-stopped", serving: false };
+}
+
+/** Machines — the list, the count and the sentence under it. A timed read keeps the reader's focus and says nothing. */
 async function loadMachines() {
   machinesNow = await api("/admin/site/machines") || {};
   const all = machinesNow.machines || [];
-  const up = all.filter(m => m.status === "up").length;
+  const serving = all.filter(m => machineEffective(m).serving).length;
 
-  $("mcCount").textContent = all.length === 1 ? "1 machine" : `${num(up)} of ${num(all.length)} machines up`;
+  $("mcCount").textContent = all.length === 1
+    ? (serving ? "1 machine, serving" : "1 machine, not serving")
+    : `${num(all.length)} machines · ${num(serving)} serving`;
 
-  $("mcRows").innerHTML = all.length === 0
-    ? `<tr><td colspan="5" class="empty">No machine has registered with this site yet. A server registers itself when it
+  const focused = document.activeElement?.closest?.("[data-mc]")?.dataset.mc;
+  const focusedAct = document.activeElement?.dataset?.mcState || (document.activeElement?.dataset?.mcRemove ? "remove" : null);
+
+  const rowsHtml = all.length === 0
+    ? `<tr><td colspan="4" class="empty">No machine has registered with this site yet. A server registers itself when it
         starts; if this one did not, its log says why.</td></tr>`
     : all.map(m => {
-      const down = m.status !== "up";
-      const label = m.configuredState === "maintenance" ? "Under maintenance"
-        : m.configuredState === "stopped" ? "Stopped" : "Started";
-      const pill = m.configuredState === "started" ? "p-started" : "p-stopped";
+      const now = machineEffective(m);
       const runs = (m.leads || []).map(l => MACHINE_SWEEPS[l] || l);
+      const status = m.status !== "up"
+        ? `<span class="pill ${now.pill}">${now.label}</span>
+           <div class="rowmeta">last heard ${servicePinAgo(m.lastSeen)}</div>`
+        : `<span class="pill ${now.pill}">${h(now.label)}</span>`;
 
       // Start, Stop and Maintenance while it is up; Remove only once it is gone — one that still runs writes itself back.
-      const acts = down
+      const acts = m.status !== "up"
         ? `<button class="tiny danger" type="button" data-mc-remove="${h(m.name)}"
              aria-label="Remove ${h(m.name)} from the site">Remove&hellip;</button>`
         : m.configuredState === "started"
           ? `<button class="tiny" type="button" data-mc-state="stopped" data-mc-name="${h(m.name)}"
-               aria-label="Stop ${h(m.name)}">Stop</button>
-             <button class="tiny" type="button" data-mc-state="maintenance" data-mc-name="${h(m.name)}"
-               aria-label="Put ${h(m.name)} under maintenance">Maintenance</button>`
+               aria-label="Stop ${h(m.name)}">Stop</button><button class="tiny" type="button" data-mc-state="maintenance"
+               data-mc-name="${h(m.name)}" aria-label="Put ${h(m.name)} under maintenance">Maintenance</button>`
           : `<button class="tiny" type="button" data-mc-state="started" data-mc-name="${h(m.name)}"
                aria-label="Start ${h(m.name)}">Start</button>`;
 
+      const meta = [m.self ? "this machine" : "", `<code>${h(m.address)}</code>`, `version ${h(m.version)}`]
+        .filter(Boolean).map(x => `<span class="mcmeta">${x}</span>`).join(`<span class="sep" aria-hidden="true">·</span>`);
+
       return `<tr data-mc="${h(m.name)}">
-        <td class="name"><b>${h(m.name)}</b>${m.self ? ` <span class="faint">· this machine</span>` : ""}
-          <div class="rowmeta"><code>${h(m.address)}</code> · version ${h(m.version)}</div></td>
-        <td data-l="Status"><span>${down
-          ? `<span class="pill p-failing">Down</span> <span class="faint">last heard ${servicePinAgo(m.lastSeen)}</span>`
-          : m.ready
-            ? `<span class="pill p-started">Up</span>`
-            : `<span class="pill p-stopped">Up, not ready</span>`}</span></td>
-        <td data-l="Set to"><span><span class="pill ${pill}">${h(label)}</span></span></td>
-        <td data-l="Runs"><span>${runs.length ? h(runs.join(", ")) : `<span class="faint">None of the site's jobs</span>`}</span></td>
+        <td class="name"><b>${h(m.name)}</b><div class="rowmeta">${meta}</div></td>
+        <td data-l="Status"><span>${status}</span></td>
+        <td data-l="Runs"><span class="rowmeta">${runs.length ? h(runs.join(", ")) : "None of the site's jobs"}</span></td>
         <td class="act mcacts">${acts}</td>
       </tr>`;
     }).join("");
+
+  // A timed read that found nothing new leaves the table alone, so a screen reader keeps its place.
+  const changed = rowsHtml !== machinesDrawn;
+  machinesDrawn = rowsHtml;
+  if (changed) $("mcRows").innerHTML = rowsHtml;
+
+  if (changed && focused) {
+    const row = document.querySelector(`[data-mc="${CSS.escape(focused)}"]`);
+    (focusedAct === "remove" ? row?.querySelector("[data-mc-remove]")
+      : row?.querySelector(`[data-mc-state="${focusedAct}"]`) || row?.querySelector("button"))?.focus();
+  }
 
   const note = $("mcNote");
   if (note) {
     note.innerHTML = all.length <= 1
       ? `This site has one machine. Another server started on the same database with the same key and settings joins it
          and appears here; a load balancer in front sends each request to one of them.`
-      : `A stopped machine, or one under maintenance, answers <code>/healthz/ready</code> and
-         <code>/rest/info/healthcheck</code> with 503, so the load balancer sends it nothing new; the others take its
-         share, and its once-only jobs pass to another machine.`;
+      : `A stopped machine answers <code>/healthz/ready</code> and <code>/rest/info/healthcheck</code> with 503, so the
+         load balancer sends it nothing new; the others take its share, and its once-only jobs pass to another machine.
+         <b>Under maintenance</b> does the same, and tells another administrator reading this page that the machine is out
+         for work, not by accident.`;
+
+    // ADR-012 phase 1: the server directories — shared, and seen from here, or each machine's own.
+    const dirs = machinesNow.directories;
+    if (dirs?.shared) {
+      note.innerHTML += (dirs.unseen || []).length
+        ? ` <b>Server directories at <code>${h(dirs.path)}</code>: this machine cannot see ${h(dirs.unseen.join(" and "))}'s
+            check file there</b>, so uploads, exports and tiles written there are not shared. Mount the same path on every
+            machine.`
+        : ` Uploads, exports, backups and the tile cache are in the site's server directories at
+            <code>${h(dirs.path)}</code>, which this machine sees for every machine up.`;
+    } else if (all.length > 1) {
+      note.innerHTML += ` <b>Each machine keeps its own server directories</b>: an image uploaded or an export written
+        on one is missing on the others. Set <code>Graticula:ServerDirectories</code> to one shared path on every machine.`;
+    }
   }
+
+  clearTimeout(machinesTimer);
+  machinesTimer = setTimeout(() => {
+    // A hidden tab stops reading; it reads again when it is shown (below).
+    if ($("view-machines")?.classList.contains("on") && document.visibilityState === "visible") {
+      loadMachines().catch(() => {});
+    }
+  }, 10000);
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && $("view-machines")?.classList.contains("on")) {
+    loadMachines().catch(() => {});
+  }
+});
 
 /** Sets a machine's state, then reads the list again and keeps the reader's place. */
 async function setMachineState(name, state) {
-  const verb = state === "stopped" ? "Stopping" : state === "maintenance" ? "Putting under maintenance" : "Starting";
-  machineSay(`${verb} ${name}…`);
+  const m = (machinesNow?.machines || []).find(x => x.name === name);
+  const othersServing = (machinesNow?.machines || []).filter(x => x.name !== name && machineEffective(x).serving).length;
+
+  // One click stays one click, except where it takes away the machine serving this page or the last one serving at all.
+  if (state !== "started" && m) {
+    const verb = state === "maintenance" ? "Put" : "Stop";
+    const what = state === "maintenance" ? `${name} under maintenance` : name;
+    if (othersServing === 0 && !confirm(`${verb} ${what}? It is the only machine serving this site. Every request will be answered 503 until you start it.`)) return;
+    if (othersServing > 0 && m.self && !confirm(`${verb} ${what}? It is the machine this page is served from. The load balancer stops sending it requests, and the site's other machines take them.`)) return;
+  }
+
+  const doing = state === "stopped" ? "Stopping" : state === "maintenance" ? "Putting under maintenance" : "Starting";
+  machineSay(`${doing} ${name}…`);
   try {
     await api(`/admin/site/machines/${encodeURIComponent(name)}`, {
       method: "PUT",
@@ -39469,9 +39541,9 @@ async function setMachineState(name, state) {
     });
     await loadMachines();
     machineSay(state === "started"
-      ? `${name} is started. It answers ready again and takes its share of requests.`
+      ? `${name} is set to started. It takes requests again within ten seconds.`
       : state === "maintenance"
-        ? `${name} is under maintenance. The load balancer sends it nothing new.`
+        ? `${name} is under maintenance. It serves nothing new, as if stopped, and other administrators see why.`
         : `${name} is stopped. The load balancer sends it nothing new.`);
   } catch (e) {
     machineSay(e.message, true);

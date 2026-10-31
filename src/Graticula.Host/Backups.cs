@@ -52,6 +52,7 @@ internal sealed class Backups
     private readonly NpgsqlConnectionStringBuilder _store;
     private readonly string _keyFingerprint;
     private readonly string _stateDirectory;
+    private readonly string _imageryDirectory;
     private readonly string? _toolDirectory;
     private readonly NpgsqlConnectionStringBuilder? _maintenance;
 
@@ -64,6 +65,10 @@ internal sealed class Backups
     /// <param name="maintenanceStore">
     /// A connection to the same server as a role that may create databases and extensions, or null when the
     /// platform store's own role may — <c>Graticula:MaintenanceStore</c>, ADR-204 condition 9.
+    /// </param>
+    /// <param name="imageryDirectory">
+    /// Where uploaded imagery is — the site's server directories (ADR-012 phase 1); <c>imagery</c> under the state
+    /// directory when null.
     /// </param>
     /// <remarks>
     /// <b>Why there can be two credentials.</b> A server that serves as a role row-level security binds — neither a
@@ -80,8 +85,11 @@ internal sealed class Backups
         string stateDirectory,
         string directory,
         string? toolDirectory = null,
-        string? maintenanceStore = null)
+        string? maintenanceStore = null,
+        string? imageryDirectory = null)
     {
+        // ADR-012 phase 1: the imagery may be in the site's server directories rather than the state directory.
+        _imageryDirectory = imageryDirectory ?? Path.Combine(stateDirectory, "imagery");
         _store = new NpgsqlConnectionStringBuilder(platformStore);
         _keyFingerprint = KeyFingerprint(secretKeyBase64);
         _stateDirectory = stateDirectory;
@@ -190,7 +198,7 @@ internal sealed class Backups
 
         try
         {
-            string imagery = Path.Combine(_stateDirectory, "imagery");
+            string imagery = _imageryDirectory;
             string copiedImagery = Path.Combine(partial, "state", "imagery");
 
             log.WriteLine("Copying the state files (first pass)…");
@@ -406,10 +414,10 @@ internal sealed class Backups
         log.WriteLine($"The database is restored. The one it replaced is kept as '{kept}'; drop it once you are satisfied.");
 
         // ---- the state files, the same way ----
-        string imagery = Path.Combine(_stateDirectory, "imagery");
+        string imagery = _imageryDirectory;
         if (Directory.Exists(imagery))
         {
-            Directory.Move(imagery, Path.Combine(_stateDirectory, $"imagery_before_restore_{stamp}"));
+            Directory.Move(imagery, Path.Combine(Path.GetDirectoryName(imagery)!, $"imagery_before_restore_{stamp}"));
         }
 
         CopyNew(Path.Combine(folder, "state", "imagery"), imagery);
