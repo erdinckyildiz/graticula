@@ -38,6 +38,7 @@ import json
 import math
 import os
 import shutil
+import sys
 import tempfile
 import time
 import zipfile
@@ -93,9 +94,31 @@ def seed(value=None, tool="grapy"):
     return number
 
 
+_HEAP = []
+
+
+def _fixed_mmap_threshold(size=1 << 20):
+    """On glibc, every allocation of ``size`` or more is mapped on its own and unmapped when freed (``mallopt``'s
+    ``M_MMAP_THRESHOLD``, -3). glibc otherwise raises that threshold to the size of each mapped block freed, up to 32 MiB,
+    and from then on serves a network's activations and gradients from its arenas, where what is freed stays in the
+    process's address space; the fence limits address space, not resident memory (ADR-223, ADR-249 condition 1).
+    Setting the threshold also stops glibc raising the trim threshold, so a freed arena top is given back. Nothing
+    elsewhere: Windows and musl have no ``mallopt`` of this meaning, and the call is made once."""
+    if _HEAP or not sys.platform.startswith("linux"):
+        return
+    _HEAP.append(size)
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").mallopt(-3, int(size))
+    except (OSError, AttributeError):
+        pass
+
+
 def threads(tool="grapy"):
-    """Bounds torch's CPU threads to what the run may use: the fence counts each thread as a task (ADR-223)."""
+    """Bounds torch's CPU threads to what the run may use: the fence counts each thread as a task (ADR-223); and, on
+    glibc, fixes the size from which an allocation is mapped on its own (``_fixed_mmap_threshold``)."""
     torch = framework(tool)
+    _fixed_mmap_threshold()
     want = max(1, min(4, os.cpu_count() or 1))
     if torch.get_num_threads() > want:
         torch.set_num_threads(want)
@@ -261,14 +284,36 @@ ONE_CYCLE = ("Adam with a one-cycle learning rate", "Kingma and Ba 2015, ICLR; S
 RANGE_TEST = ("the learning rate range test", "Smith 2017, WACV, §3.3")
 
 
-def find_learning_rate(model, batches, step, tool="grapy", low=1e-6, high=1.0, count=None, seconds=None):
+def find_learning_rate(model, batches, step, tool="grapy", low=1e-6, high=1.0, count=None, seconds=None, scratch=None):
     """The learning rate range test (Smith 2017, §3.3): Adam on a copy of the model, the rate raised exponentially from
     ``low`` to ``high`` over the batches; answers a tenth of the rate at which the smoothed loss was least (INFERRED: the
     tenth, a common reading of the paper's *"the learning rate at which the loss decreases fastest"*). With ``seconds``
-    the test stops when that much time has passed, with the best rate found so far."""
+    the test stops when that much time has passed, with the best rate found so far.
+
+    With ``scratch``, a folder, the test trains the model itself and then reads back its starting weights, which it wrote
+    there first, instead of training a copy: the same rate and the same starting weights, without the network held
+    twice in memory (ADR-249 condition 1)."""
     torch = framework(tool)
-    trial = copy.deepcopy(model)
+    saved = was_training = None
+    if scratch is not None:
+        saved = os.path.join(scratch, f".range-test-{os.getpid()}.pth")
+        save_weights(model, saved, tool)
+        trial, was_training = model, model.training
+    else:
+        trial = copy.deepcopy(model)
     trial.train()
+    try:
+        return _range_test(torch, trial, batches, step, low, high, count, seconds)
+    finally:
+        if saved is not None:
+            for parameter in model.parameters():
+                parameter.grad = None
+            load_weights(model, saved, tool)
+            os.remove(saved)
+            model.train(was_training)
+
+
+def _range_test(torch, trial, batches, step, low, high, count, seconds):
     parameters = [p for p in trial.parameters() if p.requires_grad]
     optimiser = torch.optim.Adam(parameters, lr=low)
     batches = list(batches)
@@ -287,6 +332,8 @@ def find_learning_rate(model, batches, step, tool="grapy", low=1e-6, high=1.0, c
         loss.backward()
         optimiser.step()
         value = float(loss.detach())
+        del loss
+        optimiser.zero_grad(set_to_none=True)
         if not math.isfinite(value):
             break
         smoothed = value if smoothed is None else 0.8 * smoothed + 0.2 * value
@@ -300,7 +347,7 @@ def find_learning_rate(model, batches, step, tool="grapy", low=1e-6, high=1.0, c
 
 def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_rate, monitor="valid_loss",
         larger_is_better=False, early_stopping=True, patience=5, tool="grapy", parameters=None, seconds=None,
-        schedule="ONE_CYCLE", on_epoch=None):
+        schedule="ONE_CYCLE", on_epoch=None, best_from=None):
     """The training loop every grapy deep learning tool shares: Adam (Kingma and Ba 2015) under a one-cycle learning
     rate (Smith and Topin 2019) peaking at ``learning_rate``, one pass over ``train_batches`` an epoch; after each epoch
     ``evaluate(model, valid_batches)`` answers a dict holding ``monitor``. The model ends with the weights of the best
@@ -308,7 +355,10 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
 
     With ``seconds``, training also stops after the epoch in which that much time has passed. ``schedule`` ``FIXED``
     keeps ``learning_rate`` throughout instead of the one-cycle schedule; ``on_epoch(epoch, model, scores)``, when given,
-    is called after each epoch (the point cloud tools write their checkpoints from it, ADR-249).
+    is called after each epoch (the point cloud tools write their checkpoints from it, ADR-249). With ``best_from``, a
+    callable answering the path of the weights ``on_epoch`` wrote for an epoch, the best epoch's weights are read back
+    from there at the end instead of being copied in memory as each epoch improves: the same weights, without holding
+    the network twice (ADR-249 condition 1).
 
     ``train_batches`` is a callable answering the epoch's batches (so that each epoch may shuffle and augment);
     ``step(model, batch)`` answers the loss to minimise. Answers the history, a list of dicts per epoch."""
@@ -321,6 +371,7 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
     scheduler = (torch.optim.lr_scheduler.OneCycleLR(optimiser, max_lr=learning_rate, total_steps=per_epoch * int(epochs))
                 if str(schedule).upper() != "FIXED" else torch.optim.lr_scheduler.LambdaLR(optimiser, lambda _: 1.0))
     history, best, best_state, waited = [], None, None, 0
+    best_epoch = None
     started = time.time()
     for epoch in range(int(epochs)):
         model.train()
@@ -334,6 +385,10 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
             optimiser.step()
             scheduler.step()
             losses.append(float(loss.detach()))
+            del loss
+            # The gradients are let go as soon as they are spent, not at the next backward pass: otherwise they are
+            # held through the next forward pass and through evaluation, the weights' size again (ADR-249 c1).
+            optimiser.zero_grad(set_to_none=True)
         model.eval()
         with torch.no_grad():
             scores = dict(evaluate(model, valid_batches))
@@ -351,7 +406,11 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
         if improved or best_state is None:
             if improved:
                 best = value
-            best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            best_epoch = epoch + 1
+            if best_from is None:
+                best_state = {k: v.detach().clone() for k, v in model.state_dict().items()}
+            else:
+                best_state = best_epoch         # its weights are the file on_epoch has just written
             waited = 0
         else:
             waited += 1
@@ -361,7 +420,10 @@ def fit(model, train_batches, valid_batches, step, evaluate, epochs, learning_ra
         if seconds is not None and time.time() - started >= seconds:
             AddMessage(f"{tool}: the time allowed ({seconds:.0f} s) is spent after epoch {epoch + 1}.")
             break
-    if best_state is not None:
+    if best_from is not None:
+        if history and best_epoch != history[-1]["epoch"]:
+            load_weights(model, best_from(best_epoch), tool)
+    elif best_state is not None:
         model.load_state_dict(best_state)
     model.eval()
     return history

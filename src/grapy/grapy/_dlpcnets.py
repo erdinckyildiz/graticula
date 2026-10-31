@@ -137,6 +137,36 @@ def nets():
         b = torch.arange(x.shape[0], device=x.device).view(-1, *([1] * (idx.dim() - 1)))
         return x[b, idx]
 
+    def checkpointed(owner, layer, *args):
+        """``layer(*args)``, checkpointed when ``owner`` trains (Chen et al. 2016, *Training deep nets with sublinear
+        memory cost*, arXiv:1604.06174): only the layer's inputs are kept for the backward pass, which runs the layer's
+        forward again for the activations it needs, instead of every activation being held from the forward pass to
+        the backward. The same arithmetic on the same inputs, so the same loss and gradients, for a second forward pass
+        of each layer; it is what lets these networks train inside the fence's 2 GiB of address space (ADR-249
+        condition 1). A batch norm's running statistics are put back after the second pass, which would otherwise
+        count the batch twice; the batch's own statistics, which the layer normalises by in training, are the same."""
+        if not (getattr(owner, "checkpointed", False) and owner.training and torch.is_grad_enabled()):
+            return layer(*args)
+        from torch.utils.checkpoint import checkpoint
+        norms = [m for m in layer.modules() if isinstance(m, nn.modules.batchnorm._BatchNorm) and m.track_running_stats]
+        passes = []
+
+        def run(*inputs):
+            if not passes:
+                passes.append(1)
+                return layer(*inputs)
+            kept = [(m.running_mean.clone(), m.running_var.clone(), m.num_batches_tracked.clone()) for m in norms]
+            try:
+                return layer(*inputs)
+            finally:
+                with torch.no_grad():
+                    for m, (mean, var, count) in zip(norms, kept):
+                        m.running_mean.copy_(mean)
+                        m.running_var.copy_(var)
+                        m.num_batches_tracked.copy_(count)
+
+        return checkpoint(run, *args, use_reentrant=False)
+
     class Dense(nn.Module):
         """A shared MLP layer over the last axis: linear, batch norm over every point, LeakyReLU 0.2 (RandLA-Net's)."""
 
@@ -202,6 +232,7 @@ def nets():
             super().__init__()
             widths = [max(4, int(round(w * width)) // 2 * 2) for w in (16, 64, 128, 256)]
             self.k, self.ratio, self.query = k, ratio, query
+            self.checkpointed = True
             self.fc0 = Dense(3 + features, 8)
             ins = [8] + [2 * w for w in widths[:-1]]
             self.encoder = nn.ModuleList(Residual(i, o) for i, o in zip(ins, widths))
@@ -229,7 +260,7 @@ def nets():
             for level, block in enumerate(self.encoder):
                 here = points[-1]
                 idx, _ = knn(here, here, self.k)
-                f = block(here, f, idx)
+                f = checkpointed(self, block, here, f, idx)
                 if level == 0:
                     skips.append(f)
                 f = gather(f, idx[:, :n[level + 1]]).max(2).values       # random sampling: the first points
@@ -299,6 +330,7 @@ def nets():
                                        Dense(2 * c[0], c[0], slope=0.0), Dense(2 * c[0], c[0], slope=0.0)])
             self.head = nn.Sequential(Dense(c[0], c[0], slope=0.0), nn.Dropout(0.5), nn.Linear(c[0], classes))
             self.features = features
+            self.checkpointed = True
 
         def forward(self, xyz, feats):
             n = xyz.shape[1]
@@ -307,14 +339,14 @@ def nets():
             here, f = xyz, (feats if self.features else None)
             for level, layer in enumerate(self.encoder):
                 rep = xyz[:, :counts[level]]
-                f = layer(rep, here, f)
+                f = checkpointed(self, layer, rep, here, f)
                 points.append(rep)
                 skips.append(f)
                 here = rep
             targets = [2, 1, 0, 0]
             for layer, fuse, level in zip(self.decoder, self.fuse, targets):
                 rep = points[level]
-                f = layer(rep, here, f)
+                f = checkpointed(self, layer, rep, here, f)
                 f = fuse(torch.cat([f, skips[level]], -1))
                 here = rep
             return self.head(f)
@@ -440,6 +472,7 @@ def nets():
             heads = [max(1, h) for h in (2, 4, 8, 16, 32)]
             dec_heads = (4, 4, 8, 16)
             self.grid, self.depths = grid, depths
+            self.checkpointed = True
             self.stem = SubManifold(3 + features, enc[0], 5)
             self.stem_norm = norm_act(enc[0])
             self.pool = nn.ModuleList([nn.Linear(enc[s - 1], enc[s]) for s in range(1, len(enc))])
@@ -518,13 +551,13 @@ def nets():
                     inverses.append(inv)
                 orders = self._orders(levels[-1].coords, levels[-1].batch, b)
                 for k, block in enumerate(blocks):
-                    x = block(x, levels[-1], orders[k % len(orders)])
+                    x = checkpointed(self, block, x, levels[-1], orders[k % len(orders)])
                 skips.append(x)
             for step, s in enumerate(range(len(self.encoder) - 2, -1, -1)):
                 x = self.up[step](x)[inverses[s]] + self.up_skip[step](skips[s])
                 orders = self._orders(levels[s].coords, levels[s].batch, b)
                 for k, block in enumerate(self.decoder[step]):
-                    x = block(x, levels[s], orders[k % len(orders)])
+                    x = checkpointed(self, block, x, levels[s], orders[k % len(orders)])
             return self.head(x)[inverse].reshape(b, n, -1)
 
     # ---- SECOND (Yan, Mao and Li 2018)
