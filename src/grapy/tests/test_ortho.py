@@ -136,6 +136,34 @@ class Ortho(unittest.TestCase):
         self.assertAlmostEqual(float(c[0]), 100.0, places=6)
         self.assertAlmostEqual(abs(float(r[0]) - 100.0), 20.0, places=6)
 
+    def test_conventions_answer_as_pro_measured(self):
+        # ArcGIS Pro 3.7, 2026-10-31 (ADR-234 condition 5, tools/pro-compare/adr234-frames.py): a 300 x 200 image, 10 µm
+        # pixels, f = 50 mm, from 1,000 m over AverageZ 10, Omega 5, Phi -3, Kappa 30; Pro orthorectified images whose
+        # bands are their own column and row, and these are the image positions it sampled at these ground points.
+        base = {"Z": 1000.0, "omega": 5.0, "phi": -3.0, "kappa": 30.0, "focal_length": 50000.0, "pixel_size": 10.0,
+                "rows": 200, "columns": 300, "average_z": 10.0}
+        cases = [
+            ({"X": 504000.0, "Y": 4400000.0, "affine": [-1400, 9.5, 1.0, 1100, 0.8, -10.5]},
+             [(504052.3978782685, 4400090.962891743, 150.26117, 99.43208),
+              (504059.5978782685, 4400074.162891743, 130.31876, 184.69641)]),
+            ({"X": 509000.0, "Y": 4400000.0, "radial": [0, 0.01, 0, 0], "tangential": [0.01, -0.005]},
+             [(509049.9978782685, 4400085.962891743, 139.36250, 97.61153),
+              (509056.9978782685, 4400070.362891743, 131.49394, 184.40790),
+              (509070.79787826847, 4400104.962891743, 283.21765, 66.82097)]),
+        ]
+        for change, samples in cases:
+            m = _ortho.FrameModel({**base, **change})
+            for x, y, col, row in samples:
+                c, r = m.project(np.array([x]), np.array([y]), np.array([10.0]))
+                self.assertAlmostEqual(float(c[0]), col, delta=0.003)
+                self.assertAlmostEqual(float(r[0]), row, delta=0.003)
+        # LowPS and the centre of the default frame at 500000, 4400000, as Pro wrote them
+        m = _ortho.FrameModel({**base, "X": 500000.0, "Y": 4400000.0})
+        fields = _ortho.item_fields(m, _ortho.footprint(m))
+        self.assertAlmostEqual(fields["LowPS"], 0.23896208925696555, places=4)
+        self.assertAlmostEqual(fields["CenterX"], 500052.16141720634, places=2)
+        self.assertAlmostEqual(fields["CenterY"], 4400086.690151874, places=2)
+
     def test_the_rotation_matrix_is_orthonormal_and_wolfs(self):
         m = _ortho.rotation(10, 20, 30)
         np.testing.assert_allclose(m @ m.T, np.eye(3), atol=1e-12)
@@ -149,8 +177,10 @@ class Ortho(unittest.TestCase):
         with da.SearchCursor(md, ["OID@", "LowPS", "CenterX", "CenterY", "SHAPE@"]) as rows:
             items = list(rows)
         self.assertEqual(len(items), 4)
-        self.assertAlmostEqual(items[0][1], 0.05, places=3)
-        self.assertEqual((items[1][2], items[1][3]), (5.0, 0.0))
+        for _, low, cx, cy, shape in items:   # as Pro 3.7 writes them: see test_conventions_answer_as_pro_measured
+            self.assertAlmostEqual(low, (shape._shape.bounds[2] - shape._shape.bounds[0]) / SIZE)
+            self.assertAlmostEqual((cx, cy), (shape._shape.centroid.x, shape._shape.centroid.y))
+        self.assertAlmostEqual(items[0][1], 0.05, delta=0.003)
         self.assertAlmostEqual(items[0][4]._shape.area, 100.0, delta=1.0)   # a 10 m square, slightly tilted
         with self.assertRaises(NotBuiltError):   # reading the mosaic as a raster would need on-the-fly ortho
             arcpy.Raster(md).maximum

@@ -458,15 +458,24 @@ def _grid(meta):
 
 
 def _grid_rows(meta):
-    """The tie points grouped by azimuth time: [(time, pixels, columns of values)]."""
+    """The tie points grouped by their image line: [(mean azimuth time, points sorted by pixel)]. A real GRD's points
+    on one line differ in azimuth time by about half a millisecond across the swath (measured on
+    S1D_IW_GRDH_1SDV_20261031T054608, ADR-237 condition 3), so the time of a row is read at each pixel (_row_time);
+    grouping by time found no row of two points at all."""
     g = _grid(meta)
     out = []
-    for t in np.unique(np.round(g[:, 0], 6)):
-        r = g[np.abs(g[:, 0] - t) < 1e-5]
+    for line in np.unique(g[:, 2]):
+        r = g[g[:, 2] == line]
         r = r[np.argsort(r[:, 3])]
         if len(r) >= 2:
-            out.append((float(t), r))
+            out.append((float(r[:, 0].mean()), r))
+    out.sort(key=lambda row: row[0])
     return out
+
+
+def _row_time(rows, pixel):
+    """Each tie-point row's azimuth time at ``pixel`` (rows × points), interpolated along the row."""
+    return np.array([_extrap(np.asarray(pixel, float), r[:, 3], r[:, 0]) for _, r in rows])
 
 
 def _over_grid(meta, t, pixel, column):
@@ -480,8 +489,9 @@ def _over_grid(meta, t, pixel, column):
     if len(times) == 1:
         return values[0]
     k = np.clip(np.searchsorted(times, t, side="right") - 1, 0, len(times) - 2)
-    w = (t - times[k]) / (times[k + 1] - times[k])
     i = np.arange(t.size)
+    at = _row_time(rows, pixel)
+    w = (t - at[k, i]) / (at[k + 1, i] - at[k, i])
     return values[k, i] * (1 - w) + values[k + 1, i] * w
 
 
@@ -530,8 +540,9 @@ def _pixel_of_range(meta, t, tau):
     if len(times) == 1:
         return per[0]
     k = np.clip(np.searchsorted(times, t, side="right") - 1, 0, len(times) - 2)
-    w = (t - times[k]) / (times[k + 1] - times[k])
     i = np.arange(t.size)
+    at = np.array([_extrap(per[j], r[:, 3], r[:, 0]) for j, (_, r) in enumerate(rows)])
+    w = (t - at[k, i]) / (at[k + 1, i] - at[k, i])
     return per[k, i] * (1 - w) + per[k + 1, i] * w
 
 

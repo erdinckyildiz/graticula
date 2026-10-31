@@ -263,7 +263,9 @@ def AddTerrainPyramidLevel(in_terrain, pyramid_type=None, pyramid_level_definiti
     type — and the reference scale it is displayed to, as documented ("20 24000"). Adding a level invalidates the
     terrain; Build Terrain populates it. ``pyramid_type`` is unused, as the page says (kept for ArcGIS 9.2 scripts).
 
-    INFERRED: a level of a resolution or reference scale the terrain already has is refused."""
+    A window size level is at least twice the terrain's average point spacing, ArcGIS Pro 3.7's ERROR 050073 (measured
+    2026-10-31 at spacings 0.5 to 10). INFERRED: a level of a resolution or reference scale the terrain already has is
+    refused."""
     connection, terrain = open_terrain(in_terrain, "AddTerrainPyramidLevel")
     try:
         pairs = _level_pairs(pyramid_level_definition)
@@ -271,6 +273,10 @@ def AddTerrainPyramidLevel(in_terrain, pyramid_type=None, pyramid_level_definiti
             raise ExecuteError("ERROR 000735: Pyramid Levels Definition: Value is required.")
         have = list(terrain.levels)
         for resolution, scale in pairs:
+            smallest = 2 * float(terrain.point_spacing)
+            if terrain.pyramid_type == "WINDOWSIZE" and resolution < smallest - 1e-12:
+                raise ExecuteError("ERROR 050073: Minimum window size exceeded. The smallest that can be used with data "
+                                   f"of this point spacing is {smallest:g}.")
             if any(math.isclose(resolution, r) for r, _ in have) or any(scale == s for _, s in have):
                 raise ExecuteError(f"ERROR: the terrain already has a pyramid level of resolution {resolution:g} or "
                                    f"reference scale {scale}.")
@@ -481,7 +487,8 @@ def _dedupe(points, sources):
 
 def window_thin(points, anchors, size, origin, method):
     """Indexes kept by window size thinning: the area cut into ``size`` squares from ``origin``, and in each the point
-    the window size method selects — of ties, the earlier point (INFERRED). Anchor points are always kept."""
+    the window size method selects — of ties, the earlier point, ZMEAN's distances to the mean equal within 1e-9 (as
+    ArcGIS Pro 3.7 breaks them, measured 2026-10-31). Anchor points are always kept."""
     keep = set(np.nonzero(anchors)[0].tolist())
     candidates = np.nonzero(~anchors)[0]
     if not len(candidates):
@@ -498,14 +505,17 @@ def window_thin(points, anchors, size, origin, method):
         if method in ("ZMAX", "ZMINMAX"):
             keep.add(members[int(np.argmax(zs))])
         if method == "ZMEAN":
-            keep.add(members[int(np.argmin(np.abs(zs - zs.mean())))])
+            distance = np.abs(zs - zs.mean())
+            keep.add(members[int(np.nonzero(distance <= distance.min() + 1e-9)[0][0])])
     return np.array(sorted(keep), np.int64)
 
 
 def _interpolate(kept_xyz, xy):
     """The heights at ``xy`` on the Delaunay triangulation of ``kept_xyz`` (NaN outside it), and each one's simplex."""
     from scipy.spatial import Delaunay
-    tri = Delaunay(kept_xyz[:, :2])
+    corner = kept_xyz[:, :2].min(axis=0)   # Qhull drops points on projected coordinates (_tin._delaunay)
+    tri = Delaunay(kept_xyz[:, :2] - corner)
+    xy = xy - corner
     simplex = tri.find_simplex(xy)
     z = np.full(len(xy), np.nan)
     inside = simplex >= 0
@@ -556,13 +566,17 @@ def _referenced_points(terrain, source, tool):
 
 def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
     """The terrain's pyramid built from its feature classes: every mass point at full resolution (level 0), then each
-    level thinned by the terrain's pyramid type — window size from the level before it, as documented; z-tolerance as
-    the equivalent named in the module (greedy insertion), measured against full resolution, which is the bound the
-    page states. The lines and polygons are read and kept for the levels within their resolution bounds. The extent
+    level thinned by the terrain's pyramid type — window size coarsest level first, each level's windows choosing from
+    full resolution and every coarser level's points kept, as ArcGIS Pro 3.7 builds them (measured 2026-10-31; the
+    page's "thinned from the level before" is the same thing for ZMIN, ZMAX and ZMINMAX on nested windows, and not for
+    ZMEAN or for windows that do not nest); z-tolerance as the equivalent named in the module (greedy insertion),
+    measured against full resolution, which is the bound the page states. The lines and polygons are read and kept for the levels within their resolution bounds. The extent
     grows to the data; ``UPDATE_EXTENT`` computes it again from the data alone, as documented.
 
-    INFERRED (ADR-234 §5.9 (b)): windows are squares from the extent's lower-left corner; of two points at one x,y the
-    later source's is kept; z-tolerance levels each start from full resolution, so the bound holds at every level."""
+    INFERRED (ADR-234 §5.9 (d)): windows are squares from the extent's lower-left corner — Pro's start elsewhere, at
+    a corner that follows the feature dataset's XY domain and the point spacing and that its outputs do not pin down
+    (D-339); of two points at one x,y the later source's is kept; z-tolerance levels each start from full resolution,
+    so the bound holds at every level."""
     tool = "BuildTerrain"
     mode = str(update_extent or "NO_UPDATE_EXTENT").upper()
     if mode not in ("NO_UPDATE_EXTENT", "UPDATE_EXTENT"):
@@ -613,14 +627,14 @@ def BuildTerrain(in_terrain, update_extent="NO_UPDATE_EXTENT"):
                                      float(points[i, 2]), int(origin[i])) for i in which])
 
         store(0.0, range(len(points)))
-        previous = np.arange(len(points))
-        for resolution, _ in terrain.levels:
-            if terrain.pyramid_type == "WINDOWSIZE":
-                local = window_thin(points[previous], anchor[previous], resolution, box[:2] if box else (0, 0),
-                                    terrain.window_method)
-                previous = previous[local]
-                store(resolution, previous)
-            else:
+        if terrain.pyramid_type == "WINDOWSIZE":
+            coarser = np.zeros(0, np.int64)
+            for resolution, _ in sorted(terrain.levels, reverse=True):
+                chosen = window_thin(points, anchor, resolution, box[:2] if box else (0, 0), terrain.window_method)
+                coarser = np.union1d(chosen, coarser)
+                store(resolution, coarser)
+        else:
+            for resolution, _ in terrain.levels:
                 store(resolution, ztolerance_thin(points, anchor, resolution))
         if terrain.pyramid_type == "ZTOLERANCE" and terrain.levels:
             AddWarning("BuildTerrain's z-tolerance levels are an equivalent, not ArcGIS Pro's own thinning: "

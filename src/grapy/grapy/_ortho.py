@@ -84,7 +84,14 @@ class FrameModel:
     centre at +0.5; without an affine, film x is (column − columns/2) × pixel size and film y (rows/2 − row) × pixel size
     (FCS 1, X_Right_Y_Up), measured from the fiducial centre; the default AngleDirection (−1) takes the angles as Wolf's
     and +1 negates them; the default Polarity (−1) is Wolf's positive image and +1 mirrors it; Radial K0;K1;K2;K3 and
-    Tangential P1;P2 are Brown's model in millimetres, distortion added to ideal film coordinates."""
+    Tangential P1;P2 are Brown's model in millimetres, distortion added to ideal film coordinates.
+
+    Measured against ArcGIS Pro 3.7 on 2026-10-31 (ADR-234 condition 5; tools/pro-compare/adr234-frames.py): the film
+    map without an affine, AngleDirection, the principal point and the radial terms agree to 0.002 pixel. Two rules
+    were changed to Pro's: the affine A0..B2 maps a pixel's column and row counted from its CENTRE (the upper-left
+    pixel's centre is 0, 0), half a pixel from the film map without one; and the y term's 2·P1·x·y takes x already
+    distorted, radially and tangentially. Pro builds no item with Polarity +1 ("Invalid cell size"), so the mirror is
+    unmeasured."""
 
     kind = "frame"
 
@@ -111,8 +118,9 @@ class FrameModel:
 
     def film_of_pixel(self, col, row):
         col, row = np.asarray(col, float), np.asarray(row, float)
-        if self.affine:
+        if self.affine:   # from the pixel's centre, as Pro 3.7 reads the affine (measured)
             a0, a1, a2, b0, b1, b2 = self.affine
+            col, row = col - 0.5, row - 0.5
             return a0 + a1 * col + a2 * row, b0 + b1 * col + b2 * row
         return (col - self.columns / 2) * self.ps, (self.rows / 2 - row) * self.ps
 
@@ -122,7 +130,7 @@ class FrameModel:
             a0, a1, a2, b0, b1, b2 = self.affine
             det = a1 * b2 - a2 * b1
             dx, dy = x - a0, y - b0
-            return (b2 * dx - a2 * dy) / det, (a1 * dy - b1 * dx) / det
+            return (b2 * dx - a2 * dy) / det + 0.5, (a1 * dy - b1 * dx) / det + 0.5
         return x / self.ps + self.columns / 2, self.rows / 2 - y / self.ps
 
     def _distortion(self, x, y):
@@ -135,7 +143,9 @@ class FrameModel:
         r2 = xm * xm + ym * ym
         radial = k0 + k1 * r2 + k2 * r2 ** 2 + k3 * r2 ** 3
         dx = xm * radial + p1 * (r2 + 2 * xm * xm) + 2 * p2 * xm * ym
-        dy = ym * radial + p2 * (r2 + 2 * ym * ym) + 2 * p1 * xm * ym
+        # the x of the y term's 2·P1·x·y is x already distorted, as ArcGIS Pro 3.7 answers (measured 2026-10-31: Brown's
+        # own x put frames up to 0.21 pixel off Pro's in y, this x within 0.002)
+        dy = ym * radial + p2 * (r2 + 2 * ym * ym) + 2 * p1 * (xm + dx) * ym
         return dx * 1000.0, dy * 1000.0
 
     # ground <-> pixel
@@ -425,6 +435,16 @@ def footprint(model, z=None):
     return shapely.Polygon(np.column_stack([xs, ys])).normalize()
 
 
+def item_fields(model, shape):
+    """A Frame Camera item's LowPS, HighPS, CenterX and CenterY as ArcGIS Pro 3.7 writes them (measured 2026-10-31 on
+    eleven frames): both cell sizes the footprint's width across x over the image's columns, the centre the
+    footprint's centroid."""
+    xmin, _, xmax, _ = shape.bounds
+    cell = (xmax - xmin) / model.columns
+    centre = shape.centroid
+    return {"LowPS": cell, "HighPS": cell, "CenterX": centre.x, "CenterY": centre.y}
+
+
 def add_frames(in_mosaic_dataset, input_path, aux_inputs, duplicates, tool):
     """Frame Camera items from a frames table — see AddRastersToMosaicDataset."""
     from ._mosaictools import _insert, _same, _update
@@ -463,9 +483,8 @@ def add_frames(in_mosaic_dataset, input_path, aux_inputs, duplicates, tool):
                 if same and duplicates == "EXCLUDE_DUPLICATES":
                     continue
                 shape = footprint(model)
-                cell = model.gsd()
-                values = {"Raster": d["raster"], "Name": d["name"], "LowPS": cell, "HighPS": cell, "Category": 1,
-                          "Tag": d["tag"], "GroupName": d["group"], "CenterX": model.X, "CenterY": model.Y}
+                values = {"Raster": d["raster"], "Name": d["name"], "Category": 1, "Tag": d["tag"],
+                          "GroupName": d["group"], **item_fields(model, shape)}
                 if same and duplicates == "OVERWRITE_DUPLICATES":
                     oid = same[0]["OBJECTID"]
                     _update(connection, mosaic, rec.srid, oid, shape, values)

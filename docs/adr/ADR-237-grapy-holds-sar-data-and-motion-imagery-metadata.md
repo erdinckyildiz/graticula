@@ -151,7 +151,8 @@ rotated during the flight time beyond what the state vectors (Earth-fixed, as Se
 
 (a) the dataset form of §5.1 and the SAFE override `grapy-orbit.json` that ApplyOrbitCorrection writes beside a
 product rather than modifying it; (b) dB as 10·log10 of intensity and 20·log10 of amplitude, displacement −λφ/4π
-positive towards the sensor, negative denoised power set to 0; (c) the default looks rounded to the nearest whole look,
+positive towards the sensor, negative denoised power set to 0 *(Pro 3.7 measured 2026-10-31, condition 3: **changed
+to Pro's** — 1e-5, calibrated as 2¹⁹ × 1e-5 / A²)*; (c) the default looks rounded to the nearest whole look,
 partial blocks dropped, complex data detected before Multilook and Despeckle; (d) Deburst's split at the middle of
 each overlap; (e) the interferogram's sign convention exp(−i4πR/λ), its reference phase every 8 cells interpolated
 cubically, the coregistration lattice every 16 cells; (f) Goldstein's coherence threshold 0.3 over the outer window,
@@ -222,4 +223,24 @@ None recorded.
    are tested.
 3. **A real Sentinel-1 IW GRD product and a stripmap SLC pair are run through the chain** and compared with SNAP's or
    Pro's output, and their memory measured against ADR-223's limits.
+   **PARTLY DISCHARGED 2026-10-31 — the GRD half.** The product is S1D_IW_GRDH_1SDV_20261031T054608 (IPF 4.03,
+   26,325 × 21,331), downloaded with no account from Microsoft Planetary Computer's `sentinel-1-grd` collection (an
+   anonymous SAS token; the SAFE's files are there under shortened names and were put back under the manifest's), and
+   run through RemoveThermalNoise, ApplyRadiometricCalibration (SIGMA_NOUGHT) and ApplyGeometricTerrainCorrection without
+   a DEM, VV, in ArcGIS Pro 3.7 (`tools/pro-compare/adr237-s1grd-*.py`). **Radiometry (a)**: grapy's noise and
+   calibration look-up tables on six 512 × 512 windows across the swath agree with Pro's to 6e-8 relative (float32's
+   precision) and sigma nought to under 0.0001 dB. **Changed to Pro's (b)**: where the noise exceeds the power Pro
+   writes 1e-5, not 0, and calibrates that pixel as 2¹⁹ × 1e-5 / A² (all 36 floored pixels of the six windows, to seven
+   digits). **A grapy bug, fixed**: grapy grouped the tie points by azimuth time, and a real GRD's 21 points on one line
+   differ by 0.55 ms across the swath, so no row formed and back-geocoding failed; they are grouped by line now, the time
+   read along each row. **Geometry (d)**: on 131,072 cells of Pro's terrain-corrected output in eight windows, grapy's
+   range-Doppler position falls on the same azimuth line as Pro's (correlation peak at 0 lines in all eight) and from
+   +0.5 to −6 range pixels away (0.80–0.97 correlation at the peak); moving grapy's tie-point heights up 30 m aligns two
+   windows and not the others, so Pro places its cells on heights other than the annotation's tie points, by a rule its
+   output does not show — [D-328](../architecture-debt.md). **Memory**: grapy's RemoveThermalNoise on the whole scene
+   peaked at **22,009 MB** of committed memory (it reads both polarizations whole and works in float64), eleven times
+   ADR-223's 2 GB, and its terrain correction refuses the scene by its 50-million-cell limit (the grid would be about
+   29,000 × 21,000) — D-328. **Not run, the SLC half**: no stripmap SLC pair can be had without an account — Copernicus
+   Data Space and ASF both require a login, the AWS registry's Sentinel-1 buckets are requester-pays (an AWS account),
+   and Planetary Computer holds GRD and RTC only — so it waits for a product the owner provides.
 4. **The owner confirms or changes §5.8** ([Q-205](../open-questions.md)). **DISCHARGED 2026-10-31** — confirmed as built by owner decision in Q-205 (*"Hepsini onayla"*).
