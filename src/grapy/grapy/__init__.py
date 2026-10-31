@@ -87,6 +87,8 @@ class _Described:
             model = _model_properties(connection, table)
             from . import _rules
             rules = _rules.rules(connection, table)  # Describe's attributeRules (ADR-235)
+            from . import _behaviours
+            tracked = _behaviours.tracking(connection, table)  # the editor tracking properties (ADR-240)
         finally:
             connection.close()
         self.catalogPath = os.fspath(path)
@@ -115,6 +117,10 @@ class _Described:
         self.hasGlobalID = bool(global_id)
         self.relationshipClassNames = relationships
         self.attributeRules = rules
+        self.editorTrackingEnabled = tracked is not None
+        self.creatorFieldName, self.createdAtFieldName, self.editorFieldName, self.editedAtFieldName = (
+            [name or "" for name in tracked[:4]] if tracked else ["", "", "", ""])
+        self.isTimeInUTC = tracked[4] if tracked else True
         if joined is not None:
             own = f"{table}.".lower()
             for field in joined:
@@ -978,7 +984,8 @@ _REFUSED_NAMES.update({name: _NO_APPLICATION for name in (
     "GetLogMetadata", "SetLogMetadata", "LogMetadata")})
 _REFUSED_NAMES["SetMessageLevels"] = "its message categories are the internal diagnostics of Esri's own tools, which "                                      "grapy's tools do not write"
 _REFUSED_NAMES.update({
-    "Annotation": "annotation features are a geodatabase data model this server does not hold (ADR-224 group 2)",
+    "Annotation": "an annotation feature keeps its text and its symbol in the Element BLOB field and its class's text "
+                  "symbols in a symbol collection, both in Esri's binary form, which is not published (ADR-240)",
     "Dimension": "dimension features are a geodatabase data model this server does not hold (ADR-224 group 2)",
     "Multipatch": "a multipatch is a data model this server does not hold yet (ADR-224 group 2)",
     "AttachLocator": "locators answer from Esri's geocoding data and services (ADR-224 group 3)",

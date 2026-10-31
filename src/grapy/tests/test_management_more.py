@@ -472,10 +472,11 @@ class ManagementMore(unittest.TestCase):
         self.assertEqual(self.count(copied), 3)
 
     def test_group_two_is_refused_with_its_reason(self):
-        for name in ("CreateTrajectoryDataset", "EnableEditorTracking", "CreateEnterpriseGeodatabase"):
+        for name, said in (("CreateTrajectoryDataset", "its page does not define"),  # ADR-240
+                           ("CreateEnterpriseGeodatabase", "no database server connection")):
             with self.assertRaises(arcpy.NotBuiltError) as raised:
                 getattr(arcpy.management, name)()
-            self.assertIn("needs a data model this server does not hold yet (ADR-224 group 2)", str(raised.exception))
+            self.assertIn(said, str(raised.exception))
         with self.assertRaises(arcpy.NotBuiltError) as raised:
             arcpy.management.DetectFeatureChanges()
         self.assertIn("Esri does not document", str(raised.exception))
