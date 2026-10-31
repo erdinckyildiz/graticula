@@ -25,29 +25,32 @@ from grapy import _insolation as _ins, _segment, _topo, sa  # noqa: E402
 
 
 def horizons_before(z, cell_w, cell_h, rows, cols, base, directions):
-    """_insolation.horizons as it was: every location traced in every direction to the raster's edge."""
-    from scipy.ndimage import map_coordinates
+    """_insolation.horizons' rule traced the slow way: every location in every direction to the raster's edge, each
+    step reading the nearest cell and measuring the angle to that cell's centre, a ray stopping at the outermost
+    cells' centres — the reading ArcGIS Pro 3.7's durations follow (D-337), which replaced the bilinear sampling this
+    reference first held."""
     rows, cols = np.asarray(rows, float), np.asarray(cols, float)
-    base = np.asarray(base, float)
+    base = np.broadcast_to(np.asarray(base, float), rows.shape)
     step = min(cell_w, cell_h)
     reach = int(math.ceil(math.hypot(z.shape[0] * cell_h, z.shape[1] * cell_w) / step)) + 1
-    filled = np.where(np.isnan(z), np.nanmin(z) if np.isfinite(z).any() else 0.0, z)
-    bad = np.isnan(z).astype(float)
     out = np.zeros((rows.size, int(directions)))
     for k in range(int(directions)):
         a = math.radians(k * 360.0 / directions)
         dr, dc = -math.cos(a) * step / cell_h, math.sin(a) * step / cell_w
         best = np.zeros(rows.size)
+        gone = np.zeros(rows.size, bool)
         for s in range(1, reach + 1):
             r, c = rows + dr * s, cols + dc * s
-            inside = (r > -0.5) & (r < z.shape[0] - 0.5) & (c > -0.5) & (c < z.shape[1] - 0.5)
-            if not inside.any():
+            gone |= ~((r >= 0) & (r <= z.shape[0] - 1) & (c >= 0) & (c <= z.shape[1] - 1))
+            if gone.all():
                 break
-            coords = [np.clip(r, 0, z.shape[0] - 1), np.clip(c, 0, z.shape[1] - 1)]
-            height = map_coordinates(filled, coords, order=1, mode="nearest")
-            nodata = map_coordinates(bad, coords, order=1, mode="nearest") > 0
-            angle = np.degrees(np.arctan2(height - base, s * step))
-            angle = np.where(inside & ~nodata, angle, 0.0)
+            ri = np.clip(np.rint(r), 0, z.shape[0] - 1).astype(int)
+            ci = np.clip(np.rint(c), 0, z.shape[1] - 1).astype(int)
+            distance = np.hypot((ri - rows) * cell_h, (ci - cols) * cell_w)
+            distance = np.where(distance > 0, distance, s * step)
+            with np.errstate(invalid="ignore"):
+                angle = np.degrees(np.arctan2(z[ri, ci] - base, distance))
+            angle = np.where(gone | np.isnan(z[ri, ci]), 0.0, angle)
             best = np.maximum(best, angle)
         out[:, k] = best
     return out
@@ -170,6 +173,10 @@ class Insolation(unittest.TestCase):
         members = sparse.csr_matrix((np.ones(ids.size), (np.arange(ids.size), ids)), shape=(ids.size, 64))
         table = _ins._running_sums([(1.0 / max(c, 1), int(c)) for c in counts])
         self.assertTrue(np.array_equal(_ins._shares(table, seen @ members), sky_gap))
+        # and as insolation reads them: the visibility by cell, in the sky's wedge order
+        order, _ = sky.wedge_order(32)
+        by_cell = sky.visible_by_cell(horizon, np.float64)
+        self.assertTrue(np.array_equal(_ins._shares(table, np.asarray(members[order].T.tocsr() @ by_cell).T), sky_gap))
 
 
 class Segmentation(unittest.TestCase):

@@ -92,6 +92,23 @@ class Formula(_Quiet):
             t += 0.5
         self.assertAlmostEqual(float(cells(out)[2, 2]), total, delta=total * 1e-6)
 
+    def test_a_horizon_reads_the_nearest_cell_at_its_own_distance(self):
+        # ArcGIS Pro 3.7's durations follow a horizon traced over the nearest cell, measured to that cell's centre, a
+        # ray stopping at the outermost cells' centres (D-337, tools/pro-compare/adr243-solar-horizon.py): on a 60 x 60
+        # DEM the steep flanks' durations moved from up to 1.6 h off Pro's to 0.86 h. On the plane z = 10 * column
+        # (30 m cells), from the centre of an 11 x 11 grid at 22.5 degrees, the steps' nearest cells are (4, 5), (3, 6),
+        # (2, 6), (1, 7) and (0, 7); the highest angle is to (3, 6), atan(10 / (30 * sqrt 5)) - where sampling the
+        # plane itself would give atan(sin 22.5 / 3) in every step.
+        z = np.tile(np.arange(11) * 10.0, (11, 1))
+        h = _insolation.horizons(z, 30.0, 30.0, [5.0], [5.0], [50.0], 16)
+        self.assertAlmostEqual(h[0, 1], math.degrees(math.atan(10 / (30 * math.sqrt(5)))), 9)
+        self.assertNotAlmostEqual(h[0, 1], math.degrees(math.atan(math.sin(math.radians(22.5)) / 3)), 2)
+        self.assertEqual(h[0, 12], 0.0)   # downhill to the west: nothing above the cell
+        sky = _insolation.Sky(40)
+        horizon = np.array([[0.0] * 15 + [30.0] + [0.0] * 16])
+        np.testing.assert_array_equal(sky.visible_by_cell(horizon)[np.argsort(sky.wedge_order(32)[0])].T,
+                                      sky.visible(horizon))
+
     def test_sky_weights_sum_to_one(self):
         for model in ("UNIFORM_SKY", "STANDARD_OVERCAST_SKY"):
             self.assertAlmostEqual(float(_insolation.weights(8, 16, model).sum() * 16), 1.0, places=12)

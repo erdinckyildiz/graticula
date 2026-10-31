@@ -741,16 +741,23 @@ class Fleet:
     def _load_ok(self, route, orders):
         """Whether the vehicle carries a sequence's load: every delivery loaded at the start, save that of a paired
         order, which its pickup brings; every pickup carried from where it is made."""
+        dims = self.__dict__.get("_dims")
+        if dims is None:   # only the quantities some order carries can exceed a capacity (D-330: the solve's hot path)
+            dims = self._dims = [d for d in range(9) if any(o["delivery"][d] or o["pickup"][d] for o in self.orders)]
+        if not dims:
+            return True
         capacity = route["capacity"]
-        carried = {self.pair_of[i][1] for i in orders if i in self.pair_of and self.pair_of[i][0] in orders}
-        load = [sum(self.orders[i]["delivery"][d] for i in orders if i not in carried) for d in range(9)]
-        if any(load[d] > capacity[d] + 1e-9 for d in range(9)):
-            return False
-        for i in orders:
-            order = self.orders[i]
-            for d in range(9):
-                load[d] += order["pickup"][d] - order["delivery"][d]
-                if load[d] > capacity[d] + 1e-9:
+        pair_of, all_orders = self.pair_of, self.orders
+        carried = {pair_of[i][1] for i in orders if i in pair_of and pair_of[i][0] in orders} if pair_of else ()
+        for d in dims:
+            limit = capacity[d] + 1e-9
+            load = sum(all_orders[i]["delivery"][d] for i in orders if i not in carried)
+            if load > limit:
+                return False
+            for i in orders:
+                order = all_orders[i]
+                load += order["pickup"][d] - order["delivery"][d]
+                if load > limit:
                     return False
         return True
 
@@ -783,6 +790,7 @@ class Fleet:
 
     def _simulate(self, route, sequence, start, segments, detail):
         m = self.matrix
+        keep = detail or bool(self.pairs)   # the visits are read by the order pairs and the detail only (D-330)
         codes, order_codes = set(), {}
         visits = []                     # (kind, item, place, arrive, start of service, depart, wait, violation, ...)
         breaks_out = []
@@ -906,7 +914,7 @@ class Fleet:
             visit = {"kind": kind, "item": item, "place": target, "arrive": arrive, "leg_time": leg_time,
                      "leg_distance": leg_distance if m.distance_attribute else None,
                      "cumul_travel": cumulative_travel, "cumul_distance": cumulative_distance
-                     if m.distance_attribute else None, "service": service}
+                     if m.distance_attribute else None, "service": service} if keep else {}
             if kind == "order":
                 begin, wait, violation, hard = self._window(self.orders[item]["windows"], arrive)
                 if hard:
@@ -930,8 +938,9 @@ class Fleet:
                 begin, wait, violation = arrive, 0.0, 0.0
                 renewal_service += service
                 position += 1
-            visit.update(start=begin, wait=wait, violation=violation, depart=begin + service)
-            visits.append(visit)
+            if keep:
+                visit.update(start=begin, wait=wait, violation=violation, depart=begin + service)
+                visits.append(visit)
             wait_total += wait
             violation_total += violation
             work += service

@@ -49,6 +49,9 @@ WOBBLE2 = [[(r * 3 + c * 5) % 4 for c in range(COLUMNS)] for r in range(ROWS)]
 BAND1 = [[(10 if c < 3 else 60) + WOBBLE1[r][c] for c in range(COLUMNS)] for r in range(ROWS)]
 BAND2 = [[(50 if c < 3 else 20) + WOBBLE2[r][c] for c in range(COLUMNS)] for r in range(ROWS)]
 TRUTH = [[1 if c < 3 else 2 for c in range(COLUMNS)] for r in range(ROWS)]
+# Classify Raster's cells hold each class's 0-based index in the definition, as ArcGIS Pro 3.7 writes them (measured
+# 2026-10-31, ADR-243 condition 2: class values 1-5 written as 0-4, Classvalue and Class_name in the table).
+INDEX = [[v - 1 for v in row] for row in TRUTH]
 
 
 class _Fixture(unittest.TestCase):
@@ -85,8 +88,11 @@ class Supervised(_Fixture):
         self.assertEqual([c["name"] for c in document["classes"]], ["west", "east"])
         np.testing.assert_allclose(document["means"][0], west.mean(axis=0))
         np.testing.assert_allclose(document["covariances"][0], np.cov(west, rowvar=False))
-        self.assertEqual(values(classify.ClassifyRaster(image, ecd)), [TRUTH])
-        self.assertEqual(values(classify.Classify(image, None, ecd)), [TRUTH])
+        self.assertEqual(values(classify.ClassifyRaster(image, ecd)), [INDEX])
+        self.assertEqual(values(classify.Classify(image, None, ecd)), [INDEX])
+        table = classify.ClassifyRaster(image, ecd)._rat
+        self.assertEqual(table.names(), ["Value", "Classvalue", "Class_name", "Red", "Green", "Blue"])
+        self.assertEqual([r[:3] for r in table.rows], [[0, 1, "west"], [1, 2, "east"]])
 
     def test_k_nearest_neighbour_and_support_vector_machine_separate_the_covers(self):
         image = bands(BAND1, BAND2)
@@ -94,7 +100,7 @@ class Supervised(_Fixture):
                             (classify.TrainSupportVectorMachineClassifier, "svm.ecd")):
             ecd = os.path.join(self.directory, name)
             train(image, self.training(), ecd)
-            self.assertEqual(values(classify.ClassifyRaster(image, ecd)), [TRUTH], name)
+            self.assertEqual(values(classify.ClassifyRaster(image, ecd)), [INDEX], name)
 
     def test_knn_votes_by_plurality(self):
         samples = np.array([[0.0], [1.0], [2.0], [10.0]])
@@ -154,7 +160,7 @@ class Unsupervised(_Fixture):
         self.assertEqual(len(document["means"]), 2)
         west = np.array([[BAND1[r][c], BAND2[r][c]] for r in range(ROWS) for c in range(3)], dtype=float)
         np.testing.assert_allclose(document["means"][0], west.mean(axis=0))
-        self.assertEqual(values(classify.ClassifyRaster(image, ecd)), [TRUTH])
+        self.assertEqual(values(classify.ClassifyRaster(image, ecd)), [INDEX])
 
 
 class SignatureFile(_Fixture):

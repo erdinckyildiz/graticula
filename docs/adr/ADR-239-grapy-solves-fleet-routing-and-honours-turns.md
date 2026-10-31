@@ -63,7 +63,7 @@ A heuristic's routes will differ from Pro's on any instance with more than a han
 (time window and transit importance) are not published, and the INFERRED weights of §5.8 (f) are guesses. A user
 comparing totals will find differences, and a test cannot prove the search is good on large instances — only that it
 finds the optimum where brute force can check it. Pure-Python route evaluation is slow: a few hundred orders take
-minutes, and no benchmark measures it ([D-330](../architecture-debt.md)).
+minutes, and no benchmark measures it ([D-330](../architecture-debt.md)). *Measured 2026-10-31:* **Measured and sped up 2026-10-31** (`tools/pro-compare/adr239-fleet-bench.py`: a 20 × 20 street grid of 100 m blocks, a minute a block, N orders of 5 minutes and one unit each, a vehicle per ten orders, capacity 12; this machine with other work running): 25, 50 and 100 orders took 13.0, 28.8 and 58.4 s. Two changes that leave every answer as it was — a route's load checked only in the quantities some order carries (it summed all nine for every candidate route, 43 % of the time), and a route's visits kept only when the detail or an order pair reads them — bring them to 2.7, 6.4 and 16.8 s; 200 and 400 orders take 64 and 330 s. The ruin-and-recreate iterations fall as orders grow (30,000 ÷ N, at least 150), so the time grows about with the square of the route length: ADR-223's ten minutes of CPU hold about 500 orders on this machine. ADR-239 condition 5 compared the objective and the breaks with Pro.
 
 ## 4. Evidence
 

@@ -129,12 +129,13 @@ def _components(rows, columns, pairs, valid):
     _, labels = connected_components(graph, directed=False)
     labels = labels.reshape(rows, columns)
     out = np.zeros((rows, columns), np.int64)
-    numbers = {}
-    for flat in np.flatnonzero(valid.ravel()):
-        key = labels.flat[flat]
-        if key not in numbers:
-            numbers[key] = len(numbers) + 1
-        out.flat[flat] = numbers[key]
+    flat = np.flatnonzero(valid.ravel())
+    keys = labels.ravel()[flat]
+    # numbered in the order a scan first meets them, as before, without a Python loop over pixels (D-333)
+    _, first, inverse = np.unique(keys, return_index=True, return_inverse=True)
+    rank = np.empty(first.size, np.int64)
+    rank[np.argsort(first, kind="stable")] = np.arange(1, first.size + 1)
+    out.ravel()[flat] = rank[inverse.ravel()]
     return out
 
 
@@ -181,12 +182,11 @@ def _renumber(labels):
     """Labels 1.. in the order a scan, left to right and top to bottom, first meets them."""
     out = np.zeros(labels.shape, np.int64)
     flat = labels.ravel()
-    order = {}
-    for i in np.flatnonzero(flat):
-        order.setdefault(int(flat[i]), len(order) + 1)
     lookup = np.zeros(int(flat.max()) + 1 if flat.size else 1, np.int64)
-    for old, new in order.items():
-        lookup[old] = new
+    where = np.flatnonzero(flat)
+    if where.size:
+        values, first = np.unique(flat[where], return_index=True)
+        lookup[values[np.argsort(first, kind="stable")]] = np.arange(1, values.size + 1)
     out.ravel()[:] = lookup[flat]
     return out
 
