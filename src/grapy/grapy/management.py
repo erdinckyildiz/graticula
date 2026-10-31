@@ -179,8 +179,7 @@ def Delete(in_data, data_type=None):
         connection = _gpkg.connect(file)
         _drop_models(connection, table)
         connection.execute(f'drop table if exists "{table}"')
-        connection.execute("delete from gpkg_contents where table_name = ?", (table,))
-        connection.execute("delete from gpkg_geometry_columns where table_name = ?", (table,))
+        _gpkg.forget(connection, table)
         connection.commit()
         connection.close()
     return Result(in_data)
@@ -658,6 +657,12 @@ def Rename(in_data, out_data, data_type=None):
     new = out_table or os.path.splitext(os.path.basename(out_file))[0]
     try:
         from . import _attachments, _subtypes
+        # gpkg_geometry_columns' table_name is a foreign key to gpkg_contents' (GeoPackage 1.4 Annex C.3): the two
+        # change together, so the check waits for the commit. The transaction is opened here, as the sqlite3 module
+        # opens none before ALTER TABLE, and SQLite switches deferral off at the end of each transaction.
+        if not connection.in_transaction:
+            connection.execute("begin")
+        connection.execute("pragma defer_foreign_keys = on")
         connection.execute(f'alter table "{table}" rename to "{new}"')
         for meta in ("gpkg_contents", "gpkg_geometry_columns"):
             connection.execute(f"update {meta} set table_name = ? where table_name = ?", (new, table))
@@ -2764,8 +2769,17 @@ def Copy(in_data, out_data, data_type=None, associated_data=None):
             out_connection.execute("attach database ? as source", (file,))
         names = ", ".join(f'"{c.name}"' for c in columns)
         origin = f'"{table}"' if same else f'source."{table}"'
-        out_connection.execute(f'insert into "{new_table}" ({_gpkg.OID}, {_gpkg.GEOMETRY}{", " + names if names else ""}) '
-                               f'select "{oid}", "{geometry}"{", " + names if names else ""} from {origin}')
+        # A table is copied to an attributes table, which has no geometry column (GeoPackage §2.4).
+        shaped = _gpkg.GEOMETRY in [r[1] for r in out_connection.execute(f'pragma table_info("{new_table}")')]
+        into, taken = (f"{_gpkg.OID}, {_gpkg.GEOMETRY}", f'"{oid}", "{geometry}"') if shaped else (_gpkg.OID, f'"{oid}"')
+        out_connection.execute(f'insert into "{new_table}" ({into}{", " + names if names else ""}) '
+                               f'select {taken}{", " + names if names else ""} from {origin}')
+        if shaped:  # the source's recorded extent comes with its shapes
+            catalog = "main" if same else "source"
+            extent = out_connection.execute(f"select min_x, min_y, max_x, max_y from {catalog}.gpkg_contents "
+                                            "where table_name = ?", (table,)).fetchone()
+            if extent and None not in extent:
+                _gpkg.grow_extent(out_connection, new_table, extent)
         out_connection.commit()
         if not same:
             out_connection.execute("detach database source")
@@ -4488,8 +4502,7 @@ def _drop_models(connection, table):
         for extra in (rc["relationship_table"], f'{rc["name"]}_rte'):
             if extra:
                 connection.execute(f'drop table if exists "{extra}"')
-                connection.execute("delete from gpkg_contents where table_name = ?", (extra,))
-                connection.execute("delete from gpkg_geometry_columns where table_name = ?", (extra,))
+                _gpkg.forget(connection, extra)
         connection.execute("delete from gpkgext_relations where mapping_table_name = ?", (f'{rc["name"]}_rte',))
         connection.execute("delete from grapy_relationship_rule where relationship_class = ?", (rc["name"],))
         connection.execute("delete from grapy_relationship_class where name = ?", (rc["name"],))

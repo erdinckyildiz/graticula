@@ -88,7 +88,7 @@ class DaMore(unittest.TestCase):
         table = arcpy.da.NumPyArrayToTable(records, os.path.join(self.directory, "t.gpkg"))
         back = arcpy.da.TableToNumPyArray(table, ["text_field", "whole", "real"])
         self.assertEqual(back.tolist(), [("a", 1, 1.5), ("b", 2, 2.5)])
-        self.assertEqual([f.type for f in arcpy.ListFields(table)][1:-1], ["String", "Integer", "Double"])
+        self.assertEqual([f.type for f in arcpy.ListFields(table)][1:], ["String", "Integer", "Double"])
         with self.assertRaisesRegex(RuntimeError, "already exists"):
             arcpy.da.NumPyArrayToTable(records, table)
         located = np.array([(1, (10.0, 20.0)), (2, (30.0, 40.0))], dtype=[("id", np.int32), ("XY", "<f8", 2)])

@@ -56,7 +56,28 @@ def split(path: str) -> tuple[str, str | None]:
 def connect(file: str) -> sqlite3.Connection:
     connection = sqlite3.connect(file)
     connection.execute("pragma foreign_keys = on")
+    functions(connection)
     return connection
+
+
+def functions(connection: sqlite3.Connection) -> None:
+    """The SQL functions a GeoPackage's RTree spatial index triggers call (GeoPackage 1.4 Annex F.3, *Extension
+    Functions*: ``ST_IsEmpty``, ``ST_MinX``, ``ST_MaxX``, ``ST_MinY``, ``ST_MaxY``), registered so that grapy can write
+    to a file whose writer — GDAL, ArcGIS Pro — added the index. Without them every insert or update of a shape fails
+    with *no such function: ST_IsEmpty*. grapy adds no index of its own; the extension is optional."""
+    def bounds(blob):
+        shape = decode(blob) if isinstance(blob, bytes) else None
+        return None if shape is None or shape.is_empty else shape.bounds
+
+    def empty(blob):
+        if not isinstance(blob, bytes):
+            return None
+        shape = decode(blob)
+        return 1 if shape is None or shape.is_empty else 0
+
+    connection.create_function("ST_IsEmpty", 1, empty, deterministic=True)
+    for name, at in (("ST_MinX", 0), ("ST_MinY", 1), ("ST_MaxX", 2), ("ST_MaxY", 3)):
+        connection.create_function(name, 1, lambda blob, at=at: (bounds(blob) or (None,) * 4)[at], deterministic=True)
 
 
 def table_of(path: str) -> tuple[sqlite3.Connection, str]:
@@ -72,6 +93,9 @@ def table_of(path: str) -> tuple[sqlite3.Connection, str]:
     connection = connect(file)
     if table is None:
         names = [r[0] for r in connection.execute("select table_name from gpkg_contents where data_type = 'features'")]
+        if not names:  # a file holding one table, an attributes table since 2026-10-31
+            names = [r[0] for r in connection.execute(
+                "select table_name from gpkg_contents where data_type = 'attributes'")]
         if len(names) != 1:
             connection.close()
             raise ValueError(f"'{file}' holds {len(names)} feature classes; name one as {file}/<table>.")
@@ -122,16 +146,29 @@ def create(path: str, shape: str, srid: int, columns: list[Column], has_z: bool 
     try:
         _ensure_metadata(connection, srid)
         connection.execute(f'drop table if exists "{table}"')
-        connection.execute("delete from gpkg_contents where table_name = ?", (table,))
-        connection.execute("delete from gpkg_geometry_columns where table_name = ?", (table,))
+        forget(connection, table)
+        stored = _STORED.get(shape, "GEOMETRY")
         defined = "".join(f', "{c.name}" {_TYPES.get(c.type.upper(), "TEXT")}' for c in columns)
-        connection.execute(f'create table "{table}" ({OID} integer primary key autoincrement, {GEOMETRY} BLOB{defined})')
+        if stored == "GEOMETRY" and not srid and not has_z and not has_m:
+            # A table — grapy's "Geometry with no reference", as _contents reads it — is an attributes table
+            # (GeoPackage 1.4 §2.4.2): no geometry column and no gpkg_geometry_columns row. Written as a GEOMETRY
+            # feature table, ArcGIS Pro opens it as a feature class of unknown type and cannot read its rows.
+            connection.execute(f'create table "{table}" ({OID} integer primary key autoincrement not null{defined})')
+            connection.execute(
+                "insert into gpkg_contents (table_name, data_type, identifier) values (?, 'attributes', ?)", (table, table))
+            connection.commit()
+            return
+        # The geometry column is declared with its geometry type name, not BLOB (GeoPackage 1.4 §2.1.6.1.1 and the
+        # sample feature table of Annex C.5): ArcGIS Pro reads a column declared BLOB as a blob field, and the class as
+        # a table with no geometry.
+        connection.execute(f'create table "{table}" ({OID} integer primary key autoincrement not null, '
+                           f'{GEOMETRY} {stored}{defined})')
         connection.execute(
             "insert into gpkg_contents (table_name, data_type, identifier, srs_id) values (?, 'features', ?, ?)",
             (table, table, srid))
         connection.execute(
             "insert into gpkg_geometry_columns (table_name, column_name, geometry_type_name, srs_id, z, m) values (?, ?, ?, ?, ?, ?)",
-            (table, GEOMETRY, _STORED.get(shape, "GEOMETRY"), srid, 1 if has_z else 0, 1 if has_m else 0))
+            (table, GEOMETRY, stored, srid, 1 if has_z else 0, 1 if has_m else 0))
         connection.commit()
     finally:
         connection.close()
@@ -146,30 +183,115 @@ def add_column(path: str, column: Column) -> None:
         connection.close()
 
 
+APPLICATION_ID = 0x47504B47  # "GPKG" (GeoPackage 1.4 §1.1.1.1.1, Requirement 2)
+USER_VERSION = 10400  # GeoPackage 1.4.0, the version these files are written to (same requirement)
+
+# The core tables as GeoPackage 1.4 Annex C (C.1–C.3) defines them, which Requirements 10, 13 and 21 require. Until
+# 2026-10-31 grapy wrote its own shorter definitions, without the foreign keys, the unique table name of
+# gpkg_geometry_columns and last_change's NOT NULL; a file made then keeps them, as `create table if not exists` leaves
+# an existing table alone.
+_CORE_TABLES = (
+    """create table if not exists gpkg_spatial_ref_sys (srs_name TEXT NOT NULL, srs_id INTEGER PRIMARY KEY,
+        organization TEXT NOT NULL, organization_coordsys_id INTEGER NOT NULL, definition TEXT NOT NULL,
+        description TEXT)""",
+    """create table if not exists gpkg_contents (table_name TEXT NOT NULL PRIMARY KEY, data_type TEXT NOT NULL,
+        identifier TEXT UNIQUE, description TEXT DEFAULT '',
+        last_change DATETIME NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        min_x DOUBLE, min_y DOUBLE, max_x DOUBLE, max_y DOUBLE, srs_id INTEGER,
+        CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id))""",
+    """create table if not exists gpkg_geometry_columns (table_name TEXT NOT NULL, column_name TEXT NOT NULL,
+        geometry_type_name TEXT NOT NULL, srs_id INTEGER NOT NULL, z TINYINT NOT NULL, m TINYINT NOT NULL,
+        CONSTRAINT pk_geom_cols PRIMARY KEY (table_name, column_name),
+        CONSTRAINT uk_gc_table_name UNIQUE (table_name),
+        CONSTRAINT fk_gc_tn FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name),
+        CONSTRAINT fk_gc_srs FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys (srs_id))""",
+)
+
+# Requirement 11 (§1.1.2.1.2, Table 3): every GeoPackage holds these three rows, whatever it uses.
+_UNDEFINED = (
+    ("Undefined Cartesian SRS", -1, "NONE", -1, "undefined", "undefined Cartesian coordinate reference system"),
+    ("Undefined geographic SRS", 0, "NONE", 0, "undefined", "undefined geographic coordinate reference system"),
+)
+
+# The WKT 2 keywords a definition begins with when it is not the OGC 01-009 WKT the column holds (§1.1.2.1.1).
+_WKT2 = ("GEOGCRS", "GEODCRS", "PROJCRS", "VERTCRS", "COMPOUNDCRS", "ENGCRS", "BOUNDCRS", "DERIVEDPROJCRS", "GEOGRAPHICCRS",
+         "PROJECTEDCRS", "GEODETICCRS", "VERTICALCRS", "ENGINEERINGCRS", "TIMECRS", "PARAMETRICCRS")
+
+
 def _ensure_metadata(connection: sqlite3.Connection, srid: int) -> None:
-    connection.execute("pragma application_id = 1196444487")
-    connection.execute("""create table if not exists gpkg_spatial_ref_sys (srs_name text not null, srs_id integer primary key,
-        organization text not null, organization_coordsys_id integer not null, definition text not null, description text)""")
-    connection.execute("""create table if not exists gpkg_contents (table_name text primary key, data_type text not null,
-        identifier text unique, description text default '', last_change datetime default (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        min_x double, min_y double, max_x double, max_y double, srs_id integer)""")
-    connection.execute("""create table if not exists gpkg_geometry_columns (table_name text not null, column_name text not null,
-        geometry_type_name text not null, srs_id integer not null, z tinyint not null, m tinyint not null,
-        primary key (table_name, column_name))""")
-    for srs in {-1, 0, srid}:
-        connection.execute(
-            "insert or ignore into gpkg_spatial_ref_sys values (?, ?, ?, ?, ?, '')",
-            (f"EPSG:{srs}" if srs > 0 else "undefined", srs, "EPSG" if srs > 0 else "NONE", srs, _definition(srs)))
+    """The GeoPackage core: the header's application id and version, the three core tables, and the spatial reference
+    rows — the three Requirement 11 asks of every file, and ``srid``'s."""
+    connection.execute(f"pragma application_id = {APPLICATION_ID}")
+    if connection.execute("pragma user_version").fetchone()[0] == 0:  # a file another writer versioned keeps its own
+        connection.execute(f"pragma user_version = {USER_VERSION}")
+    for statement in _CORE_TABLES:
+        connection.execute(statement)
+    columns = "srs_name, srs_id, organization, organization_coordsys_id, definition, description"
+    for row in _UNDEFINED:
+        connection.execute(f"insert or ignore into gpkg_spatial_ref_sys ({columns}) values (?, ?, ?, ?, ?, ?)", row)
+    # A file another writer made with the gpkg_crs_wkt extension (Annex F.10) has a definition_12_063 column, NOT NULL;
+    # a row grapy adds there carries WKT 2 in it.
+    extended = any(r[1] == "definition_12_063" for r in connection.execute("pragma table_info(gpkg_spatial_ref_sys)"))
+    for code in {4326, srid} - {-1, 0}:
+        if code > 0 and not connection.execute("select 1 from gpkg_spatial_ref_sys where srs_id = ?", (code,)).fetchone():
+            name, definition, description = _reference(code)
+            if extended:
+                connection.execute(f"insert into gpkg_spatial_ref_sys ({columns}, definition_12_063) "
+                                   "values (?, ?, 'EPSG', ?, ?, ?, ?)", (name, code, code, definition, description,
+                                                                        _definition(code, wkt2=True)))
+            else:
+                connection.execute(f"insert into gpkg_spatial_ref_sys ({columns}) values (?, ?, 'EPSG', ?, ?, ?)",
+                                   (name, code, code, definition, description))
+    # A file grapy wrote before 2026-10-31 holds WKT 2 in `definition`, where the standard asks for OGC 01-009 WKT.
+    for code, definition in connection.execute(
+            "select srs_id, definition from gpkg_spatial_ref_sys where upper(organization) = 'EPSG'").fetchall():
+        if str(definition or "").lstrip().upper().startswith(_WKT2):
+            wkt1 = _definition(code)
+            if wkt1 != "undefined":
+                connection.execute("update gpkg_spatial_ref_sys set definition = ? where srs_id = ?", (wkt1, code))
 
 
-def _definition(srid: int) -> str:
+def _reference(srid: int) -> tuple[str, str, str | None]:
+    """(srs_name, definition, description) of an EPSG code."""
+    try:
+        from pyproj import CRS
+        crs = CRS.from_epsg(srid)
+        return crs.name, _definition(srid), None
+    except Exception:  # A reference pyproj does not know is still named.
+        return f"EPSG:{srid}", "undefined", None
+
+
+def _definition(srid: int, wkt2: bool = False) -> str:
+    """A reference's ``definition``: OGC 01-009 WKT (WKT 1), the format GeoPackage §1.1.2.1.1 gives the column ([I32]
+    clause 7) — WKT 2 belongs in ``definition_12_063``, the optional gpkg_crs_wkt extension's column (Annex F.10),
+    which grapy fills only in a file that already has it (``wkt2``). A reference the format cannot express is
+    ``undefined``."""
     if srid <= 0:
         return "undefined"
     try:
         from pyproj import CRS
-        return CRS.from_epsg(srid).to_wkt()
-    except Exception:  # A reference pyproj does not know is still named.
+        return CRS.from_epsg(srid).to_wkt("WKT2_2019" if wkt2 else "WKT1_GDAL") or "undefined"
+    except Exception:
         return "undefined"
+
+
+def forget(connection: sqlite3.Connection, table: str) -> None:
+    """A table's rows in gpkg_geometry_columns and gpkg_contents removed, the child row first, as the foreign key from
+    the one to the other (Annex C.3, ``fk_gc_tn``) requires."""
+    connection.execute("delete from gpkg_geometry_columns where table_name = ?", (table,))
+    connection.execute("delete from gpkg_contents where table_name = ?", (table,))
+
+
+def grow_extent(connection: sqlite3.Connection, table: str, bounds) -> None:
+    """The class's gpkg_contents bounding box widened to take in ``bounds`` (minx, miny, maxx, maxy). The standard
+    calls the box informative and not necessarily tight (§1.1.3.1.1, note K7); like GDAL, grapy grows it as shapes are
+    written and never shrinks it — RecalculateFeatureClassExtent makes it tight."""
+    if bounds is None:
+        return
+    connection.execute(
+        "update gpkg_contents set min_x = min(coalesce(min_x, ?1), ?1), min_y = min(coalesce(min_y, ?2), ?2), "
+        "max_x = max(coalesce(max_x, ?3), ?3), max_y = max(coalesce(max_y, ?4), ?4) "
+        "where table_name = ?5 and data_type = 'features'", (*bounds, table))
 
 
 def dimensions(connection: sqlite3.Connection, table: str) -> tuple[bool, bool]:

@@ -573,7 +573,7 @@ def RegisterWithGeodatabase(in_dataset, in_object_id_field=None, in_shape_field=
             bounds = tuple(float(v) for v in text.replace(",", " ").split()[:4])
         if shape_field is not None and srid:
             _stamp_reference(connection, table, shape_field, srid)
-        _rebuild(connection, table, oid)
+        _rebuild(connection, table, oid, shape_field, stored)
         _gpkg._ensure_metadata(connection, srid)
         data_type = "features" if shape_field is not None else "attributes"
         connection.execute("insert into gpkg_contents (table_name, data_type, identifier, srs_id, min_x, min_y, max_x, "
@@ -662,10 +662,11 @@ def _stamp_reference(connection, table, field, srid):
                                (blob[:4] + struct.pack("<i", srid) + blob[8:], rowid))
 
 
-def _rebuild(connection, table, oid):
-    """The table made again with ``oid`` as its integer primary key, the other columns in their order."""
+def _rebuild(connection, table, oid, shape_field=None, stored=None):
+    """The table made again with ``oid`` as its integer primary key, the other columns in their order — the shape
+    field, when there is one, declared with its geometry type name, as GeoPackage 1.4 Requirement 31 asks."""
     listed = [(r[1], r[2] or "") for r in connection.execute(f'pragma table_info("{table}")')]
-    others = [(n, d) for n, d in listed if n != oid]
+    others = [(n, stored if shape_field is not None and n == shape_field else d) for n, d in listed if n != oid]
     temporary = f"{table}__registering"
     defined = ", ".join([f'"{oid}" integer primary key autoincrement'] + [f'"{n}" {d}'.rstrip() for n, d in others])
     connection.execute(f'create table "{temporary}" ({defined})')

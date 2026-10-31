@@ -156,7 +156,7 @@ class ManagementMore(unittest.TestCase):
         rows = arcpy.management.CopyRows("view", self.out("rows")).getOutput(0)
         self.assertEqual(self.rows(rows, ["name", "value", "SHAPE@"]), [("p0", 1.0, None), ("p1", 2.0, None)])
         made = arcpy.management.CreateTable(self.directory, "empty.gpkg", self.parcels).getOutput(0)
-        self.assertEqual([f.name for f in arcpy.ListFields(made)][1:-1], ["name", "kind", "value"])
+        self.assertEqual([f.name for f in arcpy.ListFields(made)][1:], ["name", "kind", "value"])
         self.assertEqual(self.count(made), 0)
         arcpy.management.TruncateTable(rows)
         self.assertEqual(self.count(rows), 0)
