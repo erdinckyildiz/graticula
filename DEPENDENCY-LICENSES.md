@@ -181,6 +181,7 @@ PyPI metadata (`license_expression`, or the classifier where that is all there i
 | rasterio | 1.5.2 | BSD-3-Clause; its wheel bundles GDAL as pyogrio's does | **Yes** — added with `grapy.sa` (ADR-224) |
 | scipy | 1.18.1 | BSD-3-Clause (the classifier says *BSD License*) | **Yes** — added with `grapy.sa` (ADR-224) |
 | laspy | 2.7.0 | BSD-2-Clause (`license_expression`); pure Python over numpy, no bundled native code. Its LAZ backends (lazrs, laszip) are optional extras and are **not** installed | **Yes** — added with grapy's LAS datasets (ADR-229) |
+| xarray | 2026.9.0 | Apache-2.0 (`license_expression`); pure Python over numpy and pandas, which the image already has, and packaging (Apache-2.0 OR BSD-2-Clause) | **Yes** — added with grapy's multidimensional rasters, for RasterToXarray and XarrayToRaster (ADR-236) |
 
 **The image installs the newest of each when it is built**, so the version column says what was read, not what was
 pinned. A wheel whose licence changes would change here only if somebody looked. Pinning is the open part of this row.
